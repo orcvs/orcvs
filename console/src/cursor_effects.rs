@@ -4,19 +4,21 @@ use egui::{Color32, Pos2, Rect, Shape, Stroke, Vec2, epaint::RectShape};
 
 use crate::grid_viewport::CELL_SIZE;
 
-pub(crate) const DEFAULT_CURSOR_COLOUR: Color32 = Color32::from_rgb(234, 235, 229);
-pub(crate) const DEFAULT_AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
-/// White at 17% opacity: 0.17 × 255, rounded.
-pub(crate) const DEFAULT_REGION_COLOUR: Color32 =
-    Color32::from_rgba_unmultiplied_const(255, 255, 255, 43);
-
+///
+/// The Cursor Effect's non-colour motion preferences: Glitch amount and
+/// Glitch frequency, beside the operating system's reduced-motion preference
+/// (ADR 0053: "A Theme decides how things look, never how much they move.").
+///
+/// The Effect's colours — the Cursor frame, the living-field area, the
+/// Region fill and the two optional Cell fills — moved to the resolved
+/// `crate::theme::Theme` (`.scratch/theming/issues/06`): `cursor.border`,
+/// `region.border`, `cursor.area`, `region.background`,
+/// `cursor.background` and `region.cursor.background`. `crate::style::style`
+/// and `crate::paint` read those directly; this settings value carries only
+/// what `.scratch/theming/issues/09` still owns.
+///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CursorEffectSettings {
-    cursor_colour: Color32,
-    area_colour: Color32,
-    cell_colour: Option<Color32>,
-    region_colour: Color32,
-    region_cursor_colour: Option<Color32>,
     amount: u8,
     frequency: u8,
 }
@@ -24,11 +26,6 @@ pub struct CursorEffectSettings {
 impl Default for CursorEffectSettings {
     fn default() -> Self {
         Self {
-            cursor_colour: DEFAULT_CURSOR_COLOUR,
-            area_colour: DEFAULT_AREA_COLOUR,
-            cell_colour: None,
-            region_colour: DEFAULT_REGION_COLOUR,
-            region_cursor_colour: None,
             amount: 60,
             frequency: 55,
         }
@@ -36,20 +33,6 @@ impl Default for CursorEffectSettings {
 }
 
 impl CursorEffectSettings {
-    pub(crate) fn cursor_colour(self) -> Color32 {
-        self.cursor_colour
-    }
-    pub(crate) fn area_colour(self) -> Color32 {
-        self.area_colour
-    }
-    pub(crate) fn cell_colour(self) -> Option<Color32> {
-        self.cell_colour
-    }
-    /// The fill of every Cell a Region larger than one Cell covers, with its
-    /// opacity.
-    pub(crate) fn region_colour(self) -> Color32 {
-        self.region_colour
-    }
     pub(crate) fn amount(self) -> u8 {
         self.amount
     }
@@ -57,27 +40,6 @@ impl CursorEffectSettings {
         self.frequency
     }
 
-    pub(crate) fn cursor_colour_mut(&mut self) -> &mut Color32 {
-        &mut self.cursor_colour
-    }
-    pub(crate) fn area_colour_mut(&mut self) -> &mut Color32 {
-        &mut self.area_colour
-    }
-    pub(crate) fn region_colour_mut(&mut self) -> &mut Color32 {
-        &mut self.region_colour
-    }
-    /// The fill of the Cursor's Cell while a Region larger than one Cell is
-    /// selected, independent of the rest of the Region. `None` leaves that
-    /// Cell as the Cursor cell colour would have it.
-    pub(crate) fn region_cursor_colour(self) -> Option<Color32> {
-        self.region_cursor_colour
-    }
-    pub(crate) fn set_region_cursor_colour(&mut self, colour: Option<Color32>) {
-        self.region_cursor_colour = colour;
-    }
-    pub(crate) fn set_cell_colour(&mut self, colour: Option<Color32>) {
-        self.cell_colour = colour;
-    }
     pub fn amount_mut(&mut self) -> &mut u8 {
         &mut self.amount
     }
@@ -102,80 +64,28 @@ impl CursorEffectSettings {
         })
     }
 
+    ///
+    /// `amount;frequency`. A value stored before `.scratch/theming/issues/06`
+    /// moved the Effect's colours out of this settings value carries more
+    /// groups (colours, in `r,g,b` form, which contains a comma `parse::<u8>`
+    /// below refuses outright) and is refused whole by [`Self::decode`],
+    /// the same "malformed value falls back to the default" rule every
+    /// other settings decode in this crate already holds — not a migration,
+    /// since the two amount/frequency values a viewer had stored moved index
+    /// with the colours removed around them and reading them positionally
+    /// from the old string would misinterpret a colour group as one.
+    ///
     #[cfg(any(feature = "persistence", test))]
     pub(crate) fn encode(self) -> String {
-        let [red, green, blue, alpha] = self.region_colour.to_srgba_unmultiplied();
-        let region = (red, green, blue, alpha);
-        format!(
-            "{},{},{};{},{},{};{};{};{};{},{},{},{};{}",
-            self.cursor_colour.r(),
-            self.cursor_colour.g(),
-            self.cursor_colour.b(),
-            self.area_colour.r(),
-            self.area_colour.g(),
-            self.area_colour.b(),
-            self.amount,
-            self.frequency,
-            self.cell_colour.map_or_else(
-                || "none".to_owned(),
-                |colour| { format!("{},{},{}", colour.r(), colour.g(), colour.b()) }
-            ),
-            region.0,
-            region.1,
-            region.2,
-            region.3,
-            self.region_cursor_colour.map_or_else(
-                || "none".to_owned(),
-                |colour| {
-                    let [red, green, blue, alpha] = colour.to_srgba_unmultiplied();
-                    format!("{red},{green},{blue},{alpha}")
-                }
-            ),
-        )
+        format!("{};{}", self.amount, self.frequency)
     }
 
     #[cfg(any(feature = "persistence", test))]
     pub(crate) fn decode(value: &str) -> Option<Self> {
         let mut groups = value.split(';');
-        let colour = |group: &str| -> Option<Color32> {
-            let channels = group
-                .split(',')
-                .map(str::parse::<u8>)
-                .collect::<Result<Vec<_>, _>>()
-                .ok()?;
-            (channels.len() == 3).then(|| Color32::from_rgb(channels[0], channels[1], channels[2]))
-        };
-        let translucent = |group: &str| -> Option<Color32> {
-            let channels = group
-                .split(',')
-                .map(str::parse::<u8>)
-                .collect::<Result<Vec<_>, _>>()
-                .ok()?;
-            (channels.len() == 4).then(|| {
-                Color32::from_rgba_unmultiplied(channels[0], channels[1], channels[2], channels[3])
-            })
-        };
         let settings = Self {
-            cursor_colour: colour(groups.next()?)?,
-            area_colour: colour(groups.next()?)?,
             amount: groups.next()?.parse().ok()?,
             frequency: groups.next()?.parse().ok()?,
-            cell_colour: match groups.next() {
-                None | Some("none") => None,
-                Some(group) => colour(group),
-            },
-            // Settings saved before the Region fill was themeable carry no
-            // sixth group, and take the default.
-            region_colour: match groups.next() {
-                None => DEFAULT_REGION_COLOUR,
-                Some(group) => translucent(group)?,
-            },
-            // Likewise for the Cursor's colour within a Region, which is unset
-            // by default.
-            region_cursor_colour: match groups.next() {
-                None | Some("none") => None,
-                Some(group) => Some(translucent(group)?),
-            },
         };
         (groups.next().is_none() && settings.amount <= 100 && settings.frequency <= 100)
             .then_some(settings)
@@ -271,7 +181,12 @@ impl CursorEffectAnimation {
 #[derive(Debug, Default)]
 pub struct CursorEffectShapes {
     pub(crate) area: Vec<Shape>,
-    pub(crate) frame: Vec<Shape>,
+    /// The Cursor's own stroke: `None` when no frame was built — the effect
+    /// never reached the clip — and `Some` once it was, empty included. A
+    /// frame hidden by a zero width is still the Cursor's whole stroke, so
+    /// the caller must not read it as "no frame" and paint another in its
+    /// place.
+    pub(crate) frame: Option<Vec<Shape>>,
 }
 
 pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
@@ -289,6 +204,23 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// Candidates are fixed in number per Cell-length and rejected against `clip`
 /// before a Shape is allocated, so work follows the visible edge rather than
 /// the Grid.
+///
+/// `area_colour` is the resolved Theme's `cursor.area`, and `frame` is the
+/// outline's colour and nominal width taken together, as one choice, from
+/// `cursor.border`/`cursor.border.width` for the Cursor's own frame or
+/// `region.border`/`region.border.width` for the lasso around a Region larger
+/// than one Cell — `.scratch/theming/issues/06` moved both out of
+/// [`CursorEffectSettings`], which now carries only the motion `settings`
+/// decide from here. The width is a fixed display-point nominal width, never
+/// scaled by `cell_size`/Grid zoom (`.scratch/theming/issues/06` slice C).
+/// Zero hides every frame stroke outright — see this module's private
+/// `frame_shapes` — without touching the living-area fill `area_colour` and
+/// `amount` still control. One over clippy's default: every parameter is an
+/// independent, already-tested value with nowhere smaller to group into, the
+/// same reasoning `console.rs::show_source`'s own
+/// `#[allow(clippy::too_many_arguments)]` states.
+///
+#[allow(clippy::too_many_arguments)]
 pub fn cursor_effect_shapes(
     cursor: Rect,
     outline: Rect,
@@ -296,6 +228,8 @@ pub fn cursor_effect_shapes(
     cell_size: f32,
     sample: CursorEffectSample,
     settings: CursorEffectSettings,
+    area_colour: Color32,
+    frame: Stroke,
 ) -> CursorEffectShapes {
     let mut shapes = CursorEffectShapes::default();
     if !effect_bounds(cursor, cell_size)
@@ -313,34 +247,50 @@ pub fn cursor_effect_shapes(
             clip,
             cell_size,
             sample,
-            settings,
+            area_colour,
             amount,
         );
     }
-    frame_shapes(
-        &mut shapes.frame,
-        outline,
-        cell_size,
-        clip,
-        sample,
-        settings,
-        amount,
-    );
+    shapes.frame = Some(frame_shapes(
+        outline, cell_size, clip, sample, frame, amount,
+    ));
     shapes
 }
 
+///
+/// The living-field fill: long-tailed horizontal tears and a few fine
+/// connecting strands, both at a fraction of `colour`'s own alpha.
+///
+/// `colour` is `Color32`, whose byte layout is premultiplied alpha
+/// (`ecolor::Color32`'s own documentation — the same fact
+/// `crate::theme::straight_rgba` states). Scaling that alpha down therefore
+/// has to scale every channel together, which is exactly what
+/// [`Color32::gamma_multiply`] does: `r'/g'/b'/a' = r/g/b/a * fraction`, still
+/// premultiplied and still `colour`'s own hue. The `fraction` each site below
+/// computes is what a fully opaque `colour` would want as its literal alpha
+/// byte, divided back out of 255 — `gamma_multiply` reapplies it through
+/// `colour.a()` rather than through an assumed 255, so a transparent
+/// `colour` (`a() == 0`) multiplies to exactly zero for every candidate
+/// rather than the flat `alpha.clamp(1.0, 255.0)` floor this replaced, which
+/// used to paint a faint minimum speck even when the Theme's own `cursor.area`
+/// asked for nothing at all. Reading `colour.r()/g()/b()` directly and handing
+/// them to [`Color32::from_rgba_unmultiplied`] — this function's own bug
+/// before this fix — would instead treat those premultiplied bytes as a
+/// straight triple and premultiply them a second time by the new alpha,
+/// shifting the hue and, at `colour.a() == 0`, discarding the caller's colour
+/// entirely in favour of black.
+///
 fn area_shapes(
     out: &mut Vec<Shape>,
     cursor: Rect,
     clip: Rect,
     cell_size: f32,
     sample: CursorEffectSample,
-    settings: CursorEffectSettings,
+    colour: Color32,
     amount: f32,
 ) {
     let reach = AREA_RADIUS_CELLS * cell_size;
     let centre = cursor.center();
-    let colour = settings.area_colour();
 
     // Long-tailed horizontal tears. Several nearby candidates share the slow
     // field seed, making concentrations and empty patches move as regions;
@@ -365,14 +315,12 @@ fn area_shapes(
         if !rect.intersects(clip) {
             continue;
         }
-        let alpha = (colour.a() as f32 * envelope * (0.08 + density * 0.22) * amount)
-            .round()
-            .clamp(1.0, 255.0) as u8;
-        out.push(Shape::Rect(RectShape::filled(
-            rect,
-            0.0,
-            Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), alpha),
-        )));
+        let fraction = envelope * (0.08 + density * 0.22) * amount;
+        let painted = colour.gamma_multiply(fraction);
+        if painted.a() == 0 {
+            continue;
+        }
+        out.push(Shape::Rect(RectShape::filled(rect, 0.0, painted)));
     }
 
     // A few fine connections stop the islands reading as loose confetti.
@@ -389,42 +337,57 @@ fn area_shapes(
             );
         let bound = Rect::from_two_pos(start, end).expand(1.0);
         if bound.intersects(clip) {
-            out.push(Shape::line_segment(
-                [start, end],
-                Stroke::new(
-                    (cell_size / 50.0).max(0.35),
-                    Color32::from_rgba_unmultiplied(
-                        colour.r(),
-                        colour.g(),
-                        colour.b(),
-                        (20.0 * amount) as u8,
-                    ),
-                ),
-            ));
+            let painted = colour.gamma_multiply(20.0 * amount / 255.0);
+            if painted.a() != 0 {
+                out.push(Shape::line_segment(
+                    [start, end],
+                    Stroke::new((cell_size / 50.0).max(0.35), painted),
+                ));
+            }
         }
     }
 }
 
+///
+/// The eroded Cursor/Region frame: a stationary outline when `amount` is
+/// zero, or the animated fragments otherwise. `stroke.width` is the nominal
+/// display-point width `cursor_effect_shapes` resolved from the Theme
+/// (`cursor.border.width`/`region.border.width`), fixed in points and never
+/// scaled by `cell_size`/`CELL_SIZE` — `cell_size` still drives every
+/// fragment's *position* and *length* along the edge, which is Grid geometry
+/// rather than stroke weight and stays proportional to the Cell side.
+///
+/// `stroke.width <= 0.0` hides every stroke this function would otherwise
+/// build, without touching the living-area fill `area_shapes` paints
+/// independently: no shape is built at all, at every `amount`, rather than a
+/// zero-width one left for the painter to drop.
+///
 fn frame_shapes(
-    out: &mut Vec<Shape>,
     outline: Rect,
     cell_size: f32,
     clip: Rect,
     sample: CursorEffectSample,
-    settings: CursorEffectSettings,
+    stroke: Stroke,
     amount: f32,
-) {
-    let colour = settings.cursor_colour();
+) -> Vec<Shape> {
+    let Stroke {
+        width,
+        color: colour,
+    } = stroke;
+    let mut out = Vec::new();
+    if width <= 0.0 {
+        return out;
+    }
     let side = cell_size;
     let scale = side / CELL_SIZE;
     if amount == 0.0 {
         out.push(Shape::Rect(RectShape::stroke(
             outline,
             0.0,
-            Stroke::new(scale.max(0.5), colour),
+            stroke,
             egui::StrokeKind::Inside,
         )));
-        return;
+        return out;
     }
     // How many Cell-lengths each pair of edges spans. A Cell's frame is one of
     // each, and its keys are the ones the unit index zero leaves unchanged.
@@ -457,13 +420,13 @@ fn frame_shapes(
                     offset + end * span,
                     outward,
                 );
-                let bound = Rect::from_two_pos(a, b).expand(2.0 * scale);
+                let bound = Rect::from_two_pos(a, b).expand(2.0 * width);
                 if bound.intersects(clip) {
                     let alpha = (105.0 + unit(hash(!key)) * 150.0) as u8;
                     out.push(Shape::line_segment(
                         [a, b],
                         Stroke::new(
-                            (0.45 + unit(hash(key ^ 73)) * 0.8) * scale,
+                            (0.45 + unit(hash(key ^ 73)) * 0.8) * width,
                             colour.gamma_multiply(f32::from(alpha) / 255.0),
                         ),
                     ));
@@ -501,6 +464,7 @@ fn frame_shapes(
             }
         }
     }
+    out
 }
 
 fn edge_segment(rect: Rect, edge: u64, start: f32, end: f32, outward: f32) -> (Pos2, Pos2) {
@@ -544,6 +508,31 @@ fn signed(value: u64) -> f32 {
 mod tests {
     use super::*;
 
+    /// A stand-in Cursor frame/area colour pair for the geometry tests
+    /// below, which do not care what the resolved Theme's own `cursor.border`
+    /// and `cursor.area` are — only that a colour reaches the Shapes.
+    /// `crate::theme::okabe_ito()`'s actual values are cross-checked in
+    /// `theme::tests::okabe_ito_defines_every_key_at_the_schema_values`.
+    const AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
+    const FRAME_COLOUR: Color32 = Color32::from_rgb(234, 235, 229);
+    /// The stationary Cursor/Region outline's nominal display-point default
+    /// (`.scratch/theming/schema.md`'s `cursor.border.width`/
+    /// `region.border.width`: 1 point), reused as every geometry test's
+    /// nominal width unless a test states otherwise.
+    const FRAME_WIDTH: f32 = 1.0;
+    const FRAME: Stroke = Stroke {
+        width: FRAME_WIDTH,
+        color: FRAME_COLOUR,
+    };
+
+    /// The frame an effect that reached the clip built.
+    fn built(effects: &CursorEffectShapes) -> &[Shape] {
+        effects
+            .frame
+            .as_deref()
+            .expect("the effect reached the clip and built its frame")
+    }
+
     fn sample(frame: u64, grain: u64, field: u64) -> CursorEffectSample {
         CursorEffectSample {
             frame,
@@ -564,11 +553,10 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_the_approved_colours_and_an_irregular_live_cadence() {
+    fn defaults_are_an_irregular_live_cadence() {
         let settings = CursorEffectSettings::default();
-        assert_eq!(settings.cursor_colour(), Color32::from_rgb(234, 235, 229));
-        assert_eq!(settings.area_colour(), Color32::from_rgb(76, 190, 156));
-        assert_eq!(settings.cell_colour(), None);
+        assert_eq!(settings.amount(), 60);
+        assert_eq!(settings.frequency(), 55);
         assert_ne!(settings.interval(0), settings.interval(255));
     }
 
@@ -594,8 +582,18 @@ mod tests {
     #[test]
     fn malformed_or_out_of_range_settings_are_refused_whole() {
         assert_eq!(CursorEffectSettings::decode("garbage"), None);
-        assert_eq!(CursorEffectSettings::decode("1,2,3;4,5,6;101;50"), None);
-        assert_eq!(CursorEffectSettings::decode("1,2,3;4,5,6;50;101"), None);
+        assert_eq!(CursorEffectSettings::decode("101;50"), None);
+        assert_eq!(CursorEffectSettings::decode("50;101"), None);
+        assert_eq!(CursorEffectSettings::decode("50"), None);
+        assert_eq!(CursorEffectSettings::decode("50;50;50"), None);
+        // A value saved before `.scratch/theming/issues/06` moved the
+        // Effect's colours out of this settings value: its colour groups
+        // contain commas, which `str::parse::<u8>` refuses outright, so the
+        // whole value is refused rather than misread positionally.
+        assert_eq!(
+            CursorEffectSettings::decode("234,235,229;76,190,156;60;55;none"),
+            None
+        );
     }
 
     #[test]
@@ -635,11 +633,30 @@ mod tests {
         let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
         let clip = cursor.expand(200.0);
         let settings = CursorEffectSettings::default();
-        let first =
-            cursor_effect_shapes(cursor, cursor, clip, CELL_SIZE, sample(1, 2, 3), settings);
-        let second =
-            cursor_effect_shapes(cursor, cursor, clip, CELL_SIZE, sample(4, 2, 3), settings);
-        assert_ne!(format!("{:?}", first.frame), format!("{:?}", second.frame));
+        let first = cursor_effect_shapes(
+            cursor,
+            cursor,
+            clip,
+            CELL_SIZE,
+            sample(1, 2, 3),
+            settings,
+            AREA_COLOUR,
+            FRAME,
+        );
+        let second = cursor_effect_shapes(
+            cursor,
+            cursor,
+            clip,
+            CELL_SIZE,
+            sample(4, 2, 3),
+            settings,
+            AREA_COLOUR,
+            FRAME,
+        );
+        assert_ne!(
+            format!("{:?}", built(&first)),
+            format!("{:?}", built(&second))
+        );
 
         for edge in [
             Rect::from_min_max(
@@ -660,15 +677,13 @@ mod tests {
             ),
         ] {
             assert!(
-                first
-                    .frame
+                built(&first)
                     .iter()
                     .any(|shape| shape.visual_bounding_rect().intersects(edge))
             );
         }
         assert!(
-            first
-                .frame
+            built(&first)
                 .iter()
                 .all(|shape| shape.visual_bounding_rect().intersects(cursor.expand(8.0)))
         );
@@ -704,6 +719,8 @@ mod tests {
                 CELL_SIZE,
                 sample(frame, 2, 3),
                 settings,
+                AREA_COLOUR,
+                FRAME,
             );
             let alone = cursor_effect_shapes(
                 cursor,
@@ -712,13 +729,14 @@ mod tests {
                 CELL_SIZE,
                 sample(frame, 2, 3),
                 settings,
+                AREA_COLOUR,
+                FRAME,
             );
-            assert!(heaviest(&lasso.frame) <= 1.25 + 1e-3);
-            assert!(heaviest(&alone.frame) <= 1.25 + 1e-3);
+            assert!(heaviest(built(&lasso)) <= 1.25 + 1e-3);
+            assert!(heaviest(built(&alone)) <= 1.25 + 1e-3);
 
             let touches = |probe: Rect| {
-                lasso
-                    .frame
+                built(&lasso)
                     .iter()
                     .any(|shape| shape.visual_bounding_rect().intersects(probe))
             };
@@ -743,8 +761,7 @@ mod tests {
                 }
             }
             assert!(
-                lasso
-                    .frame
+                built(&lasso)
                     .iter()
                     .all(|shape| shape.visual_bounding_rect().intersects(outline.expand(8.0))),
                 "a lasso fragment strayed from the Region"
@@ -768,55 +785,23 @@ mod tests {
             CELL_SIZE,
             sample(9, 2, 3),
             settings,
+            AREA_COLOUR,
+            FRAME,
         );
         // Eight fragments on each of four edges at most, and seven tears.
-        assert!(effects.frame.len() <= 4 * 8 + 7);
-        assert!(effects.frame.len() >= 4 * 2);
+        assert!(built(&effects).len() <= 4 * 8 + 7);
+        assert!(built(&effects).len() >= 4 * 2);
     }
 
-    #[test]
-    fn the_region_colour_defaults_to_white_at_seventeen_percent_and_is_persisted() {
-        let settings = CursorEffectSettings::default();
-        assert_eq!(
-            settings.region_colour().to_srgba_unmultiplied(),
-            [255, 255, 255, 43]
-        );
-
-        let mut changed = settings;
-        *changed.region_colour_mut() = Color32::from_rgba_unmultiplied(255, 0, 0, 128);
-        let decoded = CursorEffectSettings::decode(&changed.encode()).expect("round trips");
-        assert_eq!(decoded.region_colour(), changed.region_colour());
-    }
-
-    #[test]
-    fn the_cursors_colour_within_a_region_is_unset_by_default_and_is_persisted() {
-        let settings = CursorEffectSettings::default();
-        assert_eq!(settings.region_cursor_colour(), None);
-        assert_eq!(
-            CursorEffectSettings::decode(&settings.encode()),
-            Some(settings)
-        );
-
-        let mut changed = settings;
-        changed.set_region_cursor_colour(Some(Color32::from_rgba_unmultiplied(0, 0, 255, 200)));
-        let decoded = CursorEffectSettings::decode(&changed.encode()).expect("round trips");
-        assert_eq!(
-            decoded.region_cursor_colour(),
-            changed.region_cursor_colour()
-        );
-    }
-
-    #[test]
-    fn settings_saved_before_the_region_colour_existed_take_its_default() {
-        let decoded =
-            CursorEffectSettings::decode("1,2,3;4,5,6;50;50;none").expect("the older form decodes");
-        assert_eq!(decoded.region_colour(), DEFAULT_REGION_COLOUR);
-        assert_eq!(decoded.region_cursor_colour(), None);
-        assert_eq!(
-            CursorEffectSettings::decode("1,2,3;4,5,6;50;50;none;1,2,3"),
-            None
-        );
-    }
+    // The Region fill, the Cursor's optional Cell fill, and the Cursor's
+    // optional fill within a Region moved to the resolved Theme
+    // (`.scratch/theming/issues/06`): `region.background`,
+    // `cursor.background` and `region.cursor.background`. Their defaults,
+    // optional-fill states and inheritance are `theme::tests`' subject now
+    // — `okabe_ito_defines_every_key_at_the_schema_values`,
+    // `omitted_optional_fills_inherit_the_parent`,
+    // `explicit_none_clears_the_optional_fill_even_over_a_parent_colour` and
+    // `explicit_transparent_colour_is_a_supplied_value_not_a_clear`.
 
     #[test]
     fn area_is_bounded_crosses_cell_boundaries_and_can_reach_in_from_outside_clip() {
@@ -829,6 +814,8 @@ mod tests {
             CELL_SIZE,
             sample(1, 0x1234, 0x5678),
             CursorEffectSettings::default(),
+            AREA_COLOUR,
+            FRAME,
         );
         assert!(!effects.area.is_empty());
         assert!(effects.area.len() <= 254);
@@ -857,6 +844,8 @@ mod tests {
                 CELL_SIZE,
                 sample(1, field, field.rotate_left(7)),
                 CursorEffectSettings::default(),
+                AREA_COLOUR,
+                FRAME,
             );
             assert!(effects.area.iter().all(|shape| {
                 let shape = shape.visual_bounding_rect();
@@ -876,8 +865,290 @@ mod tests {
             CELL_SIZE,
             sample(1, 2, 3),
             CursorEffectSettings::default(),
+            AREA_COLOUR,
+            FRAME,
         );
         assert!(effects.area.is_empty());
-        assert!(effects.frame.is_empty());
+        assert!(effects.frame.is_none());
+    }
+
+    /// The alpha byte a `Shape::Rect` fill or `Shape::LineSegment` stroke was
+    /// painted with — the two Shape kinds [`area_shapes`] builds.
+    fn shape_alpha(shape: &Shape) -> u8 {
+        match shape {
+            Shape::Rect(rect) => rect.fill.a(),
+            Shape::LineSegment { stroke, .. } => stroke.color.a(),
+            other => panic!("{other:?} is neither a filled Rect nor a LineSegment"),
+        }
+    }
+
+    ///
+    /// Width zero hides every Cursor/Region frame stroke this function
+    /// builds — the stationary outline `frame_shapes` draws at `amount ==
+    /// 0.0` and every animated fragment it draws otherwise — without
+    /// disabling the living-area fill `amount` and `area_colour` still
+    /// control, at several Grid zoom levels from `MIN_ZOOM` to `MAX_ZOOM`.
+    /// `.scratch/theming/issues/06`: "Width 0 hides every affected stroke
+    /// without disabling fills or changing motion preferences."
+    ///
+    #[test]
+    fn zero_frame_width_hides_every_stroke_at_every_amount_and_zoom() {
+        let mut static_settings = CursorEffectSettings::default();
+        *static_settings.amount_mut() = 0;
+
+        for cell_size in [
+            CELL_SIZE * 0.25,
+            CELL_SIZE * 0.5,
+            CELL_SIZE,
+            CELL_SIZE * 2.0,
+        ] {
+            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
+            let clip = cursor.expand(500.0);
+
+            for settings in [static_settings, CursorEffectSettings::default()] {
+                let effects = cursor_effect_shapes(
+                    cursor,
+                    cursor,
+                    clip,
+                    cell_size,
+                    sample(3, 5, 7),
+                    settings,
+                    AREA_COLOUR,
+                    Stroke {
+                        width: 0.0,
+                        ..FRAME
+                    },
+                );
+                assert!(
+                    built(&effects).is_empty(),
+                    "a Cursor frame stroke survived width 0 at cell_size {cell_size}"
+                );
+            }
+
+            // The living-area fill has no width of its own and must not be
+            // disabled by a frame width of zero.
+            let effects = cursor_effect_shapes(
+                cursor,
+                cursor,
+                clip,
+                cell_size,
+                sample(3, 5, 7),
+                CursorEffectSettings::default(),
+                AREA_COLOUR,
+                Stroke {
+                    width: 0.0,
+                    ..FRAME
+                },
+            );
+            assert!(
+                !effects.area.is_empty(),
+                "width 0 wrongly suppressed the living-area fill at cell_size {cell_size}"
+            );
+        }
+    }
+
+    ///
+    /// The stationary outline (`amount == 0.0`) is stroked at exactly the
+    /// nominal width, at every Grid zoom level — no `scale.max(0.5)` floor
+    /// and no proportional shrink as `cell_size` falls.
+    ///
+    #[test]
+    fn stationary_frame_stroke_is_the_nominal_width_at_every_zoom() {
+        let mut settings = CursorEffectSettings::default();
+        *settings.amount_mut() = 0;
+
+        for cell_size in [
+            CELL_SIZE * 0.25,
+            CELL_SIZE * 0.5,
+            CELL_SIZE,
+            CELL_SIZE * 2.0,
+        ] {
+            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
+            let clip = cursor.expand(500.0);
+            let effects = cursor_effect_shapes(
+                cursor,
+                cursor,
+                clip,
+                cell_size,
+                sample(3, 5, 7),
+                settings,
+                AREA_COLOUR,
+                FRAME,
+            );
+            assert_eq!(
+                built(&effects).len(),
+                1,
+                "the stationary outline is one stroke"
+            );
+            let Shape::Rect(stroked) = &built(&effects)[0] else {
+                panic!("the stationary outline was {:?}", built(&effects)[0])
+            };
+            assert_eq!(
+                stroked.stroke.width, FRAME_WIDTH,
+                "the stationary outline scaled with cell_size {cell_size}"
+            );
+        }
+    }
+
+    ///
+    /// The animated fragments' 0.45–1.25× nominal-width modulation, exactly
+    /// reproduced across every Grid zoom level from `MIN_ZOOM` to `MAX_ZOOM`:
+    /// the same `sample` and `width` produce the identical set of stroke
+    /// widths whatever `cell_size` is, because the modulation is a function
+    /// of the sample and the nominal width alone
+    /// (`.scratch/theming/issues/06`: "Cursor/Region effect width is
+    /// nominal... without Grid zoom scaling").
+    ///
+    #[test]
+    fn animated_fragment_widths_modulate_the_nominal_width_and_never_the_grid_zoom() {
+        let clip = Rect::from_min_size(Pos2::new(-500.0, -500.0), Vec2::splat(2000.0));
+        let mut widths_by_zoom = Vec::new();
+
+        for cell_size in [
+            CELL_SIZE * 0.25,
+            CELL_SIZE * 0.5,
+            CELL_SIZE,
+            CELL_SIZE * 2.0,
+        ] {
+            // One Cell's own outline at this zoom, so the loop's fragment
+            // count (`across`/`down`) stays the same at every cell_size and
+            // only the stroke width can differ.
+            let outline = Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size));
+            let out = frame_shapes(outline, cell_size, clip, sample(11, 13, 17), FRAME, 0.6);
+            let widths: Vec<f32> = out
+                .iter()
+                .filter_map(|shape| match shape {
+                    Shape::LineSegment { stroke, .. } => Some(stroke.width),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                !widths.is_empty(),
+                "cell_size {cell_size} produced no fragment strokes to compare"
+            );
+            for width in &widths {
+                assert!(
+                    (0.45 * FRAME_WIDTH - 1e-4..=1.25 * FRAME_WIDTH + 1e-4).contains(width),
+                    "a fragment at cell_size {cell_size} was {width} points wide, outside \
+                     0.45x-1.25x the nominal width {FRAME_WIDTH}"
+                );
+            }
+            widths_by_zoom.push(widths);
+        }
+
+        for widths in &widths_by_zoom[1..] {
+            assert_eq!(
+                widths, &widths_by_zoom[0],
+                "fragment stroke widths changed with Grid zoom"
+            );
+        }
+    }
+
+    ///
+    /// A fully transparent `cursor.area` colour paints neither a tear nor a
+    /// strand — the fix for the bug this function used to carry: reading
+    /// `colour.r()/g()/b()` (already zero at zero alpha, since `Color32`'s
+    /// premultiplied bytes collapse a transparent colour to `(0, 0, 0, 0)`
+    /// regardless of its straight RGB) and handing them to
+    /// `Color32::from_rgba_unmultiplied` with a `.clamp(1.0, 255.0)`-floored
+    /// alpha always produced a faint but nonzero speck.
+    /// `.scratch/theming/issues/06`: "Fix Cursor area alpha propagation so
+    /// transparent area colour produces no visible tears or strands."
+    ///
+    #[test]
+    fn zero_alpha_area_colour_paints_no_tears_or_strands() {
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let clip = cursor.expand(200.0);
+        let mut out = Vec::new();
+
+        area_shapes(
+            &mut out,
+            cursor,
+            clip,
+            CELL_SIZE,
+            sample(1, 0x1234, 0x5678),
+            Color32::TRANSPARENT,
+            1.0,
+        );
+
+        assert!(
+            out.is_empty(),
+            "a fully transparent area colour painted {} shapes",
+            out.len()
+        );
+    }
+
+    ///
+    /// A partial-alpha `cursor.area` colour scales every tear's and strand's
+    /// alpha down from its own — never past it — and, crucially, keeps the
+    /// same hue: every produced Shape un-premultiplies back to the Theme
+    /// colour's own straight RGB regardless of the alpha `area_shapes`
+    /// computed for it. This is what distinguishes correct premultiplied
+    /// scaling (`Color32::gamma_multiply`, which scales r/g/b/a together)
+    /// from the old bug (reading the premultiplied bytes as a straight
+    /// triple and re-premultiplying them a second time), which would have
+    /// shifted the hue here since the fixture's colour is not fully opaque.
+    /// `.scratch/theming/issues/06`: "partial alpha is respected consistently
+    /// without treating premultiplied RGB as straight RGB."
+    ///
+    #[test]
+    fn partial_alpha_area_colour_is_respected_and_keeps_the_colours_hue() {
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let clip = cursor.expand(200.0);
+        let colour = Color32::from_rgba_unmultiplied(76, 190, 156, 200);
+        let mut out = Vec::new();
+
+        area_shapes(
+            &mut out,
+            cursor,
+            clip,
+            CELL_SIZE,
+            sample(1, 0x1234, 0x5678),
+            colour,
+            1.0,
+        );
+
+        assert!(!out.is_empty(), "the fixture painted nothing to check");
+        for shape in &out {
+            let alpha = shape_alpha(shape);
+            assert!(alpha > 0, "a painted shape must carry nonzero alpha");
+            assert!(
+                alpha <= colour.a(),
+                "a shape's alpha {alpha} exceeded the area colour's own {}",
+                colour.a()
+            );
+            let painted = match shape {
+                Shape::Rect(rect) => rect.fill,
+                Shape::LineSegment { stroke, .. } => stroke.color,
+                other => panic!("{other:?} is neither a filled Rect nor a LineSegment"),
+            };
+            // Cross-multiplied rather than un-premultiplied and compared
+            // straight-on: `Color32::to_srgba_unmultiplied` divides by a
+            // small alpha, which amplifies one rounding step into several
+            // sRGB units of noise — noise a correct
+            // `Color32::gamma_multiply` scaling is entitled to, since it
+            // rounds each of r/g/b/a independently. Comparing
+            // `painted.channel() * colour.a()` against
+            // `colour.channel() * painted.a()` proves the same proportion
+            // without a division, and the old bug's magnitude — reading
+            // `colour.r()/g()/b()` as already-straight bytes and
+            // re-premultiplying them a second time by the new alpha — is
+            // still far outside the ~500 a correct scaling's rounding can
+            // reach here (`colour.a()` and `painted.a()` both under 256, so
+            // one rounding step on either side of the cross product moves it
+            // by at most `colour.a()` or `painted.a()`, well under 256 each).
+            for (painted_channel, colour_channel) in [painted.r(), painted.g(), painted.b()]
+                .into_iter()
+                .zip([colour.r(), colour.g(), colour.b()])
+            {
+                let cross_a = i32::from(painted_channel) * i32::from(colour.a());
+                let cross_b = i32::from(colour_channel) * i32::from(alpha);
+                assert!(
+                    (cross_a - cross_b).abs() <= 500,
+                    "a shape's channel drifted from the area colour's own hue: painted \
+                     {painted:?} against area colour {colour:?}"
+                );
+            }
+        }
     }
 }

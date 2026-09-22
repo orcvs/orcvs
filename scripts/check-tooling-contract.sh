@@ -430,6 +430,10 @@ assert_not_contains "$root_dir/.github/workflows/bench.yml" '[-]-quick'
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'orcvs/[*][*]'$"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'console/[*][*]'$" 2
+# The floor check's figures and its checker decide the result as much as the
+# measurement does, so a change confined to either must run the workflow too.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'benches/floors[.]toml'$" 2
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'scripts/check-bench-floors[.]ts'$" 2
 assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench [|] tee output[.]txt$'
 # `orcvs` links ALSA through `midir` on Linux, so every bench job needs the same
 # native dependency the test workflow installs. The count is derived from the jobs
@@ -486,6 +490,18 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 # the timing series" is only a property of the pair.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          alert-threshold: '150%'\$" "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-threshold: '300%'\$" "$bench_job_count"
+# The named-benchmark floor check, beside the ratio gate above rather than
+# inside it: `benches/floors.toml` holds a ceiling this repository has agreed
+# a named benchmark must not exceed, and `scripts/check-bench-floors.ts` reads
+# the same `output.txt` the action above already read, once per job. `install:
+# false` on the mise-action steps above keeps these jobs off mise's slower
+# cargo tools, so `node` — the one tool this step needs that skips — is
+# installed by name immediately before it, rather than flipping that setting.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise install node$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: node scripts/check-bench-floors[.]ts output[.]txt$' "$bench_job_count"
+# Both floor steps run after a ratio-gate failure, so a regression that trips
+# both gates still reports which floor it broke.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        if: [$][{][{] !cancelled[(][)] && steps[.]bench[.]outcome == '"'"'success'"'"' [}][}]$' "$((bench_job_count * 2))"
 # The JSON is assembled with coreutils and shell builtins, so this step installs
 # nothing and `mise.toml` gains no tool for it. `jq` is the obvious reach and it is
 # the one thing this must not become.

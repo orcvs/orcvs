@@ -6,9 +6,10 @@ on:
     branches: [main]
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
-    # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. `console/**` covers Paint derivation and the background-run
-    # fold. The memory series needs no entry of its own: it is measured by
+    # the gate's own definition, including the floor check's figures and checker.
+    # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
+    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
@@ -20,13 +21,16 @@ on:
       - 'rust-toolchain.toml'
       - 'mise.toml'
       - '.github/workflows/bench.yml'
+      - 'benches/floors.toml'
+      - 'scripts/check-bench-floors.ts'
   pull_request:
     branches: [main]
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
-    # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. `console/**` covers Paint derivation and the background-run
-    # fold. The memory series needs no entry of its own: it is measured by
+    # the gate's own definition, including the floor check's figures and checker.
+    # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
+    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
@@ -38,6 +42,8 @@ on:
       - 'rust-toolchain.toml'
       - 'mise.toml'
       - '.github/workflows/bench.yml'
+      - 'benches/floors.toml'
+      - 'scripts/check-bench-floors.ts'
 
 # Granted per job. The publishing job writes repository contents; the pull-request job
 # must not, so it never receives the permission at all.
@@ -109,6 +115,7 @@ jobs:
       - name: Warm up
         run: mise run bench_warmup > /dev/null
       - name: Run benchmarks
+        id: bench
         # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
         # status of `tee`, so a failed benchmark run would pass this step and publish
         # whatever partial output it had already written.
@@ -127,6 +134,32 @@ jobs:
           comment-on-alert: true
           fail-threshold: '300%'
           fail-on-alert: true
+      # A named-benchmark floor, beside the ratio gate above rather than inside it.
+      # The action only ever compares a run against the previous point stored for
+      # `main`, so a deliberately accepted regression re-baselines the series in
+      # silence: the next run is judged against the worse number, and nothing says
+      # so again. `benches/floors.toml` holds the figures this repository has
+      # agreed a named benchmark must not exceed; this step reads the same
+      # `output.txt` the action above read rather than measuring anything twice.
+      # See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+      #
+      # After the publish step rather than before it, so a floor breach cannot
+      # prevent the timing series from reaching `gh-pages` — the history stays
+      # continuous even on a run this step fails.
+      #
+      # `install: false` above keeps this job off mise's slower cargo tools, and
+      # `node` is the one tool this step needs that install skipped, so it is
+      # installed by name here instead of moving that job-wide setting.
+      - name: Install node for the bench floor check
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: mise install node
+      - name: Check bench floors
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
       # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers
@@ -272,6 +305,7 @@ jobs:
       - name: Warm up
         run: mise run bench_warmup > /dev/null
       - name: Run benchmarks
+        id: bench
         # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
         # status of `tee`, so a failed benchmark run would pass this step and publish
         # whatever partial output it had already written.
@@ -292,6 +326,28 @@ jobs:
           fail-threshold: '300%'
           fail-on-alert: true
           summary-always: true
+      # A named-benchmark floor, beside the ratio gate above rather than inside it.
+      # The action only ever compares a run against the previous point stored for
+      # `main`, so a deliberately accepted regression re-baselines the series in
+      # silence: the next run is judged against the worse number, and nothing says
+      # so again. `benches/floors.toml` holds the figures this repository has
+      # agreed a named benchmark must not exceed; this step reads the same
+      # `output.txt` the action above read rather than measuring anything twice.
+      # See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+      #
+      # `install: false` above keeps this job off mise's slower cargo tools, and
+      # `node` is the one tool this step needs that install skipped, so it is
+      # installed by name here instead of moving that job-wide setting.
+      - name: Install node for the bench floor check
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: mise install node
+      - name: Check bench floors
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
       # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers

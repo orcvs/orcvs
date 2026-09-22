@@ -300,6 +300,10 @@ _Avoid_: Frame, Tick, refresh
 The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
 _Avoid_: Shapes, draw list, painter
 
+**Theme**:
+The shared appearance of the Source Grid and the console around it: colours, opacity, Grid and Cell colours, borders and border widths. A Theme changes appearance while preserving Grid structure and input behaviour. Typography and layout changes are outside the current Theme scope. One Theme styles the whole console at a time: the Source Grid and the console around it are never themed separately. The console's settings choose a Theme by name and hold none of its values: one Theme for dark appearance and one for light, and whether the console follows the operating system's appearance or holds one of the two. Every Theme is either dark or light, and only a dark Theme can be chosen for dark appearance. A custom Theme is authored and changed in a file outside Orcvs, and stands beside the built-in Themes as an equal; the console selects Themes and does not edit them. A Theme a viewer makes starts from exactly one built-in Theme and states only how it differs; it never starts from another Theme a viewer made. It shares its parent's dark or light appearance. A Theme decides how presentation looks, never how much it moves: the Cursor Effect's colours are the Theme's, and how much it glitches is the viewer's setting.
+_Avoid_: Palette, Visuals, chrome palette, colour settings, override
+
 **Source View**:
 The region of the Source's space the console shows, and the Cell size it shows it at. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
 _Avoid_: Canvas, camera, viewport, document, scroll position

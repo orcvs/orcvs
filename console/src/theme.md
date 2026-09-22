@@ -2,9 +2,15 @@
 
 This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
-change, not drift. The Source background and every Token's glyph colour used
-to be pinned here too; `syntax-highlighting/01` moved them into their own
-section below, as `Theme → Source colours` settings rather than fixed tokens.
+change, not drift.
+
+Under ADR 0053 every value on this page belongs to the Okabe–Ito built-in
+Theme, the dark Theme the console ships with. Each one maps to a named property,
+recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
+Source Grid, its borders, the Cursor Effect's colours and the window backdrop
+paint from the resolved Theme (`console/src/theme.rs`). The rest of the chrome
+still paints these values from compiled constants until `03` derives it from
+the same Theme.
 
 - Page: `#0B1112` (`rgb(11, 17, 18)`)
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
@@ -12,7 +18,7 @@ section below, as `Theme → Source colours` settings rather than fixed tokens.
 - Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
-- Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), adjustable in `Theme → Cursor effects`
+- Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`)
 - Selection stroke while caret is hidden: `#52C3A3` (`rgb(82, 195, 163)`)
 - Selection and Cursor stroke: `#65E6BE` (`rgb(101, 230, 190)`)
 
@@ -35,41 +41,168 @@ which is unset by default and then leaves that Cell the Cursor cell colour, or
 the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
 ruled as every other Cell of the Region, sector seams included.
 
-`Theme → Cursor effects` holds the deliberate adjustments: Cursor colour,
-Area colour, Region colour (with opacity), Cursor colour in a Region (with
-opacity), Cursor cell colour, Glitch amount,
-and Glitch frequency. Colour changes are explicit overrides of the defaults
-above; reset restores every default together.
+`Theme → Cursor effects` holds the two motion settings, Glitch amount and
+Glitch frequency. The Cursor Effect's colours are Theme properties
+(`cursor.border`, `cursor.area`, `cursor.background`, `region.background`,
+`region.cursor.background`, `region.border`) with no control of their own, and
+no "Reset" remains.
 Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, these preferences are restored independently of the saved Source.
 
+ADR 0053 and `theming/09` retain those distinct appearances and also stop
+cursor-effect repaints at amount zero, correcting the current frequency-only
+scheduling rule. Frequency zero may retain decorative fragmentation; it does
+not clear the effect. Reduced motion gives a clear, stationary frame without
+changing the stored preferences. Playback, Run Clock and input-driven repaints
+remain independent.
+
+## Themes
+
+ADR 0053 decides the model. One Theme styles the whole console: the Source Grid
+and the chrome around it. Settings name a dark Theme, a light Theme, and a mode
+(follow the operating system's appearance, or hold one of the two), and hold no
+Theme values. A Theme uses one versioned Orcvs format: `format: orcvs-theme`, `version: 1`,
+`name`, `inherits` and a `style` map of named properties. Built-ins define complete
+values; custom files inherit omitted values. Base16 import is deferred.
+Planned Theme controls are colours, opacity, Grid and Cell
+colours, borders and border widths. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same visible thickness as Grid zoom changes; they do not scale with Cell size. Existing square Cells, zoom and spacing remain unchanged.
+Exact key spellings and defaults are in
+[the Theme specification](../../.scratch/theming/schema.md). The table below
+records their relation to the current console. Preserve Grid structure,
+existing fonts and layout, input behaviour and separate motion settings.
+Font choice, font sizes, spacing, corner radii, shadows and gradients are not
+planned. Leave room for future extensions without speculative machinery.
+Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke. Preserve normal-zoom defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Fixed display-point widths intentionally replace the previous zoom-scaled stroke behaviour.
+
+Cursor/Region effect width is nominal: retain the existing animated fragment variation of 0.45–1.25 times that width, without Grid zoom scaling. The 1-point maximum constrains nominal width, so an animated fragment can reach 1.25 points. Width zero hides every affected stroke; it does not implicitly disable separately coloured fills or change motion preferences.
+
+Transparency reveals the underlying console surface; the application window remains opaque. Desktop/window transparency is outside this effort. Painting and contrast validation must use the same composited backgrounds.
+
+A custom Theme inherits its parent's resolved named properties and replaces only properties explicitly supplied by the document. Omitted properties remain unchanged; no palette-slot recalculation exists.
+
+The window backdrop and Grid background have separate Theme colours. The window backdrop must be opaque; panel, Grid and Cell layers above it may use alpha. A transparent Grid reveals the underlying console surface. Built-ins explicitly define both backgrounds; custom documents inherit them independently. Contrast validation uses the actual composite down to the opaque backdrop.
+
+`cell.background` is a single Theme-wide base fill for all Cells, transparent by default. It composites over the Grid background and beneath Token tints, Diagnostic/Output Portal channels and Cursor/Region fills. It does not count as a fact fill when evaluating Region fallback, so setting it cannot suppress Region highlighting. Existing precedence among those highlighting channels remains unchanged. Individual Cells do not store styling.
+
+Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key.
+
+Role backgrounds are explicit colour properties, such as `source.function.background`, `source.number.background`, `diagnostic.background` and `output_portal.background`. They composite over the uniform `cell.background` under the confirmed fixed precedence. Changing a role foreground does not recalculate its background. There is no `fill_tint` property or shared tint-strength setting in the Orcvs Theme format. Extract and verify the built-in role background colours from current rendering so its appearance is preserved; illustrative colours in the interview are not accepted defaults.
+
+There are no overrides: a different
+look is a custom Theme that inherits from one built-in Theme and lists what it
+changes. A custom Theme inherits its parent's dark/light appearance; a conflicting
+explicit declaration is rejected. Custom Themes are authored and edited as files outside Orcvs; the console
+loads and selects them and provides no Theme editor. Native Theme files live in
+`~/.orcvs/themes/`, the only directory scanned at startup. Those files are
+authoritative, so changes take effect only on the next launch without
+re-importing; this release has no file watcher or reload action. Settings refer
+to each native Theme by its filename stem; its declared name is a display label.
+Built-in identities are reserved and cannot be replaced by files.
+If multiple native files have the same filename stem, all files with that identity are refused and the conflict is reported with the conflicting filenames. Directory enumeration order never chooses a winner. If the selected identity is conflicted, use the default built-in Theme of the same appearance while retaining the saved selection; resolving the conflict restores the intended Theme on the next launch.
+Web imports use files and the same filename-stem identity; a successful reimport
+of the same identity updates its document. Imported documents remain in browser
+storage when persistence is enabled. A missing or malformed selected native Theme file shows an error and
+falls back to the default built-in Theme of the same appearance. The saved
+selection is retained, so fixing the file restores it on the next launch.
+Unknown appearance keys and out-of-range widths reject the entire Theme document. The error identifies the offending setting and explains the valid key or range; values are neither silently ignored nor clamped. A failed web reimport preserves the previous valid document. Contrast warnings alone do not reject a document.
+Glitch amount and Glitch frequency are settings, not Theme values.
+
+Themes choose colours and channels within fixed painting precedence. They cannot
+reorder facts. The Function and Bang exceptions inside Output Portals, portal
+precedence over other claims, Cursor fill precedence and Region fill fallback
+described below remain in force under ADR 0053. Issue `06` carries the explicit
+composition table and overlap tests for transparent, partial-alpha and opaque
+channels.
+
+The Okabe–Ito built-in Theme sets every named property explicitly, so that it
+reproduces the values on this page:
+
+| Property | Okabe–Ito value | Replaced control |
+|---|---|---|
+| `grid.background` Source background | `#000000` | Source colours → Source background |
+| `source.comment` Comment | `#999999` | Source colours → Comment |
+| `source.ordinary` Ordinary, Char, Atom | `#EAEBE5` | Source colours → Ordinary |
+| `source.number` Number | `#56B4E9` | Source colours → Number |
+| `source.note` Note | `#F0E442` | Source colours → Note |
+| `source.function` Function | `#009E73` | Source colours → Function |
+| `source.bang` Bang | `#CC79A7` | Source colours → Bang |
+| `source.sequence` Sequence | `#0072B2` | Source colours → Sequence |
+| `source.ordinary.background` | `#00000000` | No current role fill |
+| `source.comment.background`, `source.bang.background` | `#00000000` | No current role fill |
+| `source.function.background` | `#001912FF` | Extracted existing background |
+| `source.number.background` | `#0E1D25FF` | Extracted existing background |
+| `source.note.background` | `#26240BFF` | Extracted existing background |
+| `source.atom.background` | `#252625FF` | Atom has a fill despite sharing Ordinary foreground |
+| `source.sequence.background` | `#00121CFF` | Extracted existing background |
+| `diagnostic.foreground` | `#D55E00` | Source colours → Diagnostic |
+| `output_portal.foreground` | `#E69F00` | Source colours → Output Portal |
+| `output_portal.background` | `#251900FF` | Extracted existing rendered background |
+| `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
+| `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
+| `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
+| `cursor.area` | `#4CBE9C` | Cursor effects → Area colour |
+| `cursor.background` | none | Cursor effects → Cursor cell colour |
+| `region.background` | white at 17% | Cursor effects → Region colour |
+| `region.cursor.background` | none | Cursor effects → Cursor colour in a Region |
+| `panel.background` | `#0B1112` | fixed: Page |
+| `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
+| `text` | `#EAEBE5` | fixed: widget text |
+| `input.background` | `#000000` | fixed: borrowed from Source background |
+| `selection.background` | `#0A2A22` | fixed: Selection fill |
+| `selection.border` | `#65E6BE` | fixed: Selection and Cursor stroke |
+| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke while caret is hidden |
+| `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
+
+Weak text currently inherits egui's 0.6 attenuation of the active text colour;
+there is no explicit `text.muted` constant in the console. Preserve that rendering
+when recording the resolved Theme values. `error` and `warning` currently borrow
+Bang's colour (`.scratch/theming/issues/05`); the named Theme properties make
+them independent while preserving the existing built-in values.
+
+The border widths are Theme properties too, in display points: `grid.border.width`
+0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
+`cursor.border.width` and `region.border.width` 1,
+`diagnostic.border.width` and `output_portal.border.width` 0.5. `schema.md`
+lists them with the chrome widths.
+
+### Shipped Themes
+
+| Identity | Appearance | Status |
+|---|---|---|
+| `okabe-ito` | dark | Built in; sets every named property at the values above. |
+| `orcvs-light` | light | Reserved; its palette waits on `04`'s review. |
+
+Settings save a dark and a light Theme identity, both `okabe-ito`, and restore
+them unchanged. Nothing selects a Theme yet: `03` prepares the dark and light
+pickers and `04` exposes them once the light Theme is accepted, so until then
+the console always resolves `okabe-ito`.
+
 ## Source colours
 
-`Theme → Source colours` holds one opaque colour control per Source Paint
-role: Source background, Ordinary (also Char and Atom), Comment, Function,
-Bang, Number, Note, Sequence, Diagnostic, and Output Portal. The Cell grid line above
-is not one of them and keeps its fixed colour regardless. Changes preview
-immediately in the Source Grid; "Reset to theme defaults" restores every
-Source colour together and leaves Cursor effects untouched. With persistence
-enabled, Source colours are restored under their own key, independently of the
-Source and of Cursor effects — an absent or malformed stored value falls back
-to the defaults below rather than partly restoring.
+Each Source Paint role paints its foreground and background from the resolved
+Theme: `source.ordinary` (also Char and Atom), `source.comment`,
+`source.function`, `source.bang`, `source.number`, `source.note`,
+`source.sequence`, `diagnostic.*` and `output_portal.*`, each with its own
+`.background`. `Theme → Source colours`, its Fill tint slider and its "Reset to
+theme defaults" are gone, and the old `source_paint` storage key is left
+unread.
 
-The same section holds one more control that is not a colour: Fill tint, a
-0-100% Slider defaulting to 16%. Every recognized Function Cell — nested
-Functions included — and every Operand Cell (its declared Token: Number,
-Note, Atom, or Sequence, whether the operand is still Pending, Valid, or
-Invalid) paints a background tint of its Token colour mixed toward the Source
-background by this percentage; 0% paints no tint at all. Comment, Bang, an
-empty unclaimed Cell, and a Leftover Char are never tinted. A refused
-Function spelling is not tinted either (see Diagnostic, below) — only a
-Function entry the Parser recognized is. On the Cursor's own Cell, the
-Cursor's fill wins over the tint outright. Adjacent tinted Cells that share
-one colour paint as one run, the same coalescing `Paint::background_runs`
-already gives the Cursor's and Selection's fills. "Reset to theme defaults"
-restores Fill tint to 16% together with the ten colours, and persistence
-restores it at the same key as the colours — there is no key of its own.
+The former Fill tint — each Token colour mixed 16% toward the Source
+background — survives as the Okabe–Ito role backgrounds in the table above,
+extracted from what it rendered, so the Grid looks the same. There is no
+`fill_tint` property: changing a role's foreground does not recalculate its
+background. Every recognized Function Cell — nested Functions included — and
+every Operand Cell (its declared Token: Number, Note, Atom, or Sequence,
+whether the operand is still Pending, Valid, or Invalid) paints its role
+background. Comment, Bang, an empty unclaimed Cell, and a Leftover Char have a
+transparent one. A refused Function spelling takes none either (see
+Diagnostic, below) — only a Function entry the Parser recognized does. Role
+backgrounds composite over the uniform `cell.background`, which is transparent
+in Okabe–Ito. On the Cursor's own Cell, the Cursor's fill wins outright.
+Adjacent Cells that share one background paint as one run, the same
+coalescing `Paint::background_runs` already gives the Cursor's and
+Selection's fills.
 
 ADR 0052 has each Render Cell carry the parser's shared Claim, which answers
 whether its slot is written as it is built for the frame.
@@ -89,8 +222,8 @@ Diagnostic on every Cell of its slot, the written ones and the blank ones
 alike — `.+0`'s second operand, one Cell written and one blank, is Invalid
 as a whole, so both of its Cells agree. Neither distinction is visible today:
 `paint.rs`'s blank-glyph fallback leaves a Pending or Invalid Cell with no
-content blank regardless of its foreground colour, so only the Fill tint
-shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time operand
+content blank regardless of its foreground colour, so only the role
+background shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time operand
 diagnostics are out of scope: they are Tick outcomes, not Source facts.
 
 `syntax-highlighting/06` adds a Function's written value as a further input
@@ -110,12 +243,12 @@ Answer): a written scalar or Sequence answer re-parses exactly as ordinary
 Source would (a `07` left south of `.+0304` is two unknown one-Cell
 Functions, diagnostics included), and the Output Portal fact is what tells
 that written value apart from the Expression that produced it. Such a Cell
-draws in the Output Portal colour on the Output Portal's own Fill tint
+draws in the Output Portal colour on `output_portal.background`
 instead of whatever its Source Paint fact alone would answer; an empty Output
-Portal Cell shows the same tint with no glyph. The one named exception is a
+Portal Cell shows the same background with no glyph. The one named exception is a
 Bang answer: it keeps its own Bang glyph colour, because a Bang is what a
 Producer emits rather than a value it writes, but still takes the Output
-Portal's Fill tint in place of Bang's usual bare `None`.
+Portal's background in place of Bang's usual transparent one.
 
 **Precedence where an Output Portal covers another Expression's claimed
 Cells** — a consumer's operand, or another root, per `05`'s Overlap rule that
@@ -126,11 +259,12 @@ spelling already carries `Token::Function` regardless of nesting and telling
 a root's spelling from a nested one would need the Expression this decision
 does not read. Every other overlapping Cell — another root's own Number,
 Note, Atom or Sequence operand among them — takes the Output Portal colour
-and tint instead of its own declared role, because the root's answer
+and background instead of its own declared role, because the root's answer
 is what a viewer reads there. The Cursor's own fill still wins outright over
 everything above, on its own Cell.
 
-The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
+The defaults, and the Okabe–Ito Theme's values for the same named properties,
+are the Okabe–Ito colour-blind-safe assignment, as published in R
 `grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
 in the Source Paint prototype
 (`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
@@ -158,6 +292,18 @@ above the floor: Diagnostic (5.43:1), Function (6.14:1) and Bang (6.86:1) all
 read dimmer than Comment while still clearing 4.5:1. That is restated here
 rather than left as an implied ordering the new defaults do not hold.
 
+ADR 0053 retains Sequence's colour as an explicitly accepted failure. The Theme
+validator continues to report its measured ratio below the unchanged floor;
+acceptance does not turn the measurement into a pass. Tests over shipped Themes
+reject additional unrecorded failures.
+
+The ratios above are measurements against the plain Source background. Theme
+validation also measures actual composited text states, including Token tints,
+selection, Cursor and Region fills, and console text on panel/input backgrounds.
+Each result identifies its role and state. Newly discovered failing states need
+explicit review; the existing Sequence exception does not silently accept them.
+Text contrast does not measure whether two Token colours are distinguishable.
+
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
 the midpoint between neighbouring corners with relative strengths `100, 72, 34,
@@ -165,48 +311,3 @@ the midpoint between neighbouring corners with relative strengths `100, 72, 34,
 absolute Grid Position, so the marks feel imperfect without flicker. They
 replace the historical `+` Marker Glyphs, leaving every empty Cell visually
 empty while preserving the configured Sector Seam spacing as geometry.
-
-The historical base16 palette below is retained as design context; it is not the
-console's rendering source of truth.
-
-base00: | #22273b | rgb(34, 39, 59)
-base01: | #414f60 | rgb(65, 79, 96)
-base02: | #5a8380 | rgb(90, 131, 128)
-base03: | #6e6f72 | rgb(110, 111, 114)
-base04: | #87888b | rgb(135, 136, 139)
-base05: | #a4a6a9 | rgb(164, 166, 169)
-base06: | #c7c9cd | rgb(199, 201, 205)
-base07: | #8dbdaa | rgb(141, 189, 170)
-base08: | #777abc | rgb(119, 122, 188)
-
-
-base09: | #94929e | rgb(148, 146, 158)
-base0A: | #4f9062 | rgb(79, 144, 98)
-base0B: | #6562a8 | rgb(101, 98, 168)
-base0C: | #226f68 | rgb(34, 111, 104)
-base0D: | #4d6bb6 | rgb(77, 107, 182)
-base0E: | #716cae | rgb(113, 108, 174)
-base0F: | #8c70a7 | rgb(140, 112, 167)
-
-
-
-
-base00 - Default Background
-base01 - Lighter Background (Used for status bars, line number and folding marks)
-base02 - Selection Background
-base03 - Comments, Invisibles, Line Highlighting
-base04 - Dark Foreground (Used for status bars)
-base05 - Default Foreground, Caret, Delimiters, Operators
-base06 - Light Foreground (Not often used)
-base07 - Light Background (Not often used)
-base08 - Variables, XML Tags, Markup Link Text, Markup Lists, Diff Deleted
-
-
-
-base09 - Integers, Boolean, Constants, XML Attributes, Markup Link Url
-base0A - Classes, Markup Bold, Search Text Background
-base0B - Strings, Inherited Class, Markup Code, Diff Inserted
-base0C - Support, Regular Expressions, Escape Characters, Markup Quotes
-base0D - Functions, Methods, Attribute IDs, Headings
-base0E - Keywords, Storage, Selector, Markup Italic, Diff Changed
-base0F - Deprecated, Opening/Closing Embedded Language Tags, e.g. <?php ?>

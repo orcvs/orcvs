@@ -1,10 +1,12 @@
 # 01 — Decide where Source colour authority lives
 
+**Superseded scope (2026-09-22):** The original decision/acceptance below is historical. ADR 0053 now requires one versioned Orcvs document with named style properties; Base16 import is deferred. Issues `03`, `06`, `07` and `10` carry current implementation scope. Do not implement the former slot/override or separate-chrome rules below.
+
 **What to decide:** Whether the ten Source Paint roles are viewer settings that storage owns, or theme tokens that a scheme owns, and record the answer as an ADR. Every other issue in this effort inherits the answer.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -22,9 +24,10 @@ Storage holds a scheme name or its sixteen values plus per-role overrides keyed 
 
 - [x] ADR 0051 is accepted, or amended and accepted. It sits beside ADR 0050 on the same pull request: ADR 0050 decides what a Render Frame Cell carries, and ADR 0051 decides what the console does with those facts. If ADR 0050 is rejected, ADR 0051 still stands — it cites whichever answer settles, not a particular one.
 - [x] The two assignments the ADR marks as reasoned rather than exact are ruled on: Sequence on `base08` ("Markup Lists") and Note on `base0B` ("Strings"). Both are defensible and neither is stated by base16.
-- [ ] The affordance key names are listed at exact spellings, so `06` and `08` have something to implement against.
-- [ ] `console/src/theme.md`'s "Source colours" section is rewritten to describe the scheme model rather than ten settings.
-- [ ] `syntax-highlighting/01` gains a comment pointing at the accepted ADR, closing the reconciliation it deferred.
+- [x] The affordance key names are listed at exact spellings, so `06` and `08` have something to implement against. ADR 0053 lists them.
+- [x] `console/src/theme.md`'s "Source colours" section is rewritten to describe the scheme model rather than ten settings. A new Themes section maps every value to its slot or key.
+- [x] `syntax-highlighting/01` gains a comment pointing at the accepted ADR, closing the reconciliation it deferred.
+
 
 ## Comments
 
@@ -41,3 +44,24 @@ Reached by working from how the problem is already solved elsewhere rather than 
 Three corrections shaped the ADR. Syntax and chrome are separate namespaces, as VS Code's `tokenColors` and `colors` are. Base16 is the syntax format, because a format no published scheme targets cannot accept Solarized or Gruvbox, and ecosystem schemes are the whole reason to have a format. And a Diagnostic is an affordance, not a spelling — VS Code themes squigglies through `editorError.foreground` in the workbench namespace, never through a token colour — which is what frees `base08` for Sequence.
 
 One claim made along the way was wrong and is worth recording so it is not repeated: base16's styling guidelines assign **semantic roles only** and never name colours. "base08 is red" is convention among scheme authors and template repos, not spec.
+
+**2026-09-21 — the requirement restated, and the Theme reshaped around it.**
+
+The requirement was always that **all** console presentation is themeable. ADR 0051 and `spec.md` conceded chrome to egui's dark/light `Visuals`, which left the page, panels, widgets, selection, grid lines and Sector Seams as compiled constants outside any theme. That concession was wrong, and every ticket that inherited it (`03`, `04`) is scoped against the wrong model. Decided in a domain-modelling session, recorded in `CONTEXT.md`'s **Theme** entry, and to be written up as an ADR superseding ADR 0051's namespace and storage sections:
+
+- **One Theme styles the whole console.** Source Grid and chrome are never themed separately. Loading a base16 scheme restyles everything.
+- **Settings and Themes are stored separately.** Settings name a dark Theme, a light Theme, and a mode: follow the OS, or hold one of the two. They hold no Theme values.
+- **No overrides.** A Theme is never adjusted in place. A viewer who wants a different look makes a custom Theme, which inherits from exactly one built-in Theme and lists only what it changes. No inheritance from custom Themes, so no chains.
+- **Every Theme declares dark or light.** A base16 scheme without `variant` is classified by `base00`'s lightness. Only a dark Theme can fill the dark slot.
+- **A Theme decides how things look, never how much they move.** Glitch amount and frequency are settings. Cursor Effect colours and Fill tint are Theme values.
+- **Opacity is part of every colour value** (`#RRGGBBAA`). No separate opacity keys.
+- **Keys are dotted lowercase, element then property**, the property being a channel (`background`, `border`, `foreground`) where one applies.
+- **Every named key takes a default from a base16 slot**, so a bare published scheme styles the whole console. Built-in Themes set every key explicitly.
+- **Diagnostic takes `base08` and Sequence moves to `base0F`**, reversing the Sequence ruling above. `base08` is red in all eight published schemes sampled (Default Dark, Gruvbox, Solarized, Nord, One Dark, Tomorrow Night, Monokai, Dracula); `base0F` is brown, dark red, orange, magenta or blue depending on the scheme. A Diagnostic has to read as an error; a Token only has to be distinct.
+
+Draft key list, defaults in brackets: `diagnostic.foreground` (`base08`), `output_portal.foreground` (`base0A`), `fill_tint` (16%), `grid.border` (`base03` at 28%), `sector.seam` (`base03` at 43%), `cursor.border` (`base05`), `cursor.area` (`base0C`), `cursor.background` (none), `region.background` (`base05` at 17%), `region.cursor.background` (none), `panel.background` (`base01`), `panel.border` (`base02`), `text` (`base05`), `text.muted` (`base04`), `input.background` (`base00`), `selection.background` (`base02`), `selection.border` (`base0C`), `selection.border.rest` (`base0C`, reduced alpha), `error` (`base08`), `warning` (`base09`).
+- **Diagnostic and Output Portal take a key per channel, as VS Code's `editorError.*` does.** `diagnostic.foreground` (`base08`), `diagnostic.background` and `diagnostic.border` (transparent); `output_portal.foreground` (`base0A`), `output_portal.background` (`base0A` at the Fill tint's opacity), `output_portal.border` (transparent). A Theme picks a channel by giving it a colour and making the others transparent, so no mapping format is needed and ADR 0051's point stands: `style.rs` stops choosing channels. A fact's channel paints over the Token's on the same channel, with opacity compositing, and a transparent one leaves the Token's showing. Tokens keep one glyph colour each, plus their Fill tint.
+
+**2026-09-21 — resolved.** Written up as [ADR 0053](../../../docs/adr/0053-one-theme-styles-the-whole-console.md), which partly supersedes ADR 0051. `spec.md` is corrected. `03` and `04` are re-scoped and renamed, `05` is closed into `03`, `06`, `07` and `08` are revised, and `09` (motion into settings) and `10` (custom Themes) are opened. `CONTEXT.md` gains the **Theme** entry. "The answer" section above describes ADR 0051 and is kept as history.
+
+**2026-09-21 — authoring scope corrected by the user.** Making a custom Theme means authoring or editing a file outside Orcvs. There is no in-app Theme editor. ADR 0053 and `10` are corrected to remove the editor, colour-picker, live-preview and automatic creation requirements. The earlier discussion above is history, not authority for building an editor.

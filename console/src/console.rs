@@ -8,8 +8,8 @@ use egui::{
 };
 
 use crate::cursor_effects::{
-    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, DEFAULT_CURSOR_COLOUR,
-    cursor_effect_shapes, effect_bounds,
+    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, cursor_effect_shapes,
+    effect_bounds,
 };
 use crate::function_reference::function_reference;
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
@@ -18,8 +18,8 @@ use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
-use crate::source_paint::SourcePaintSettings;
-use crate::style::style;
+use crate::style::install_style;
+use crate::theme::{Theme, okabe_ito};
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
@@ -28,8 +28,6 @@ use orcvs::{
     render_frame::RenderFrame,
 };
 
-const GRID_LINE_WIDTH: f32 = 0.5;
-const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 2.0;
 ///
@@ -779,7 +777,11 @@ pub struct Console {
     keyboard_elsewhere: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
-    source_paint: SourcePaintSettings,
+    /// The resolved Theme Source and chrome both paint from. Always the
+    /// Okabe–Ito built-in for now: `.scratch/theming/issues/06` has only one
+    /// Theme to resolve, and `07`'s loader is what will make the dark and
+    /// light Theme identities `Persistence` restores resolve to anything else.
+    theme: Theme,
     reduced_motion: bool,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
@@ -797,9 +799,12 @@ impl Console {
     /// the error to `eframe` says.
     ///
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
-        let style = style();
-        cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
-        cc.egui_ctx.set_theme(egui::Theme::Dark);
+        // eframe restores egui memory — `ThemePreference` included — before
+        // calling this constructor, but never reinstalls a style. Register
+        // the console's one style for both themes and leave the restored (or
+        // default `System`) preference alone: `install_style` never calls
+        // `set_theme`. `.scratch/theming/issues/02-…` is the decision.
+        install_style(&cc.egui_ctx);
 
         // egui's own `Context::end_pass` answers the same command `=`/`+`,
         // `-` and `0` chords by changing `zoom_factor` — the whole UI's
@@ -857,7 +862,7 @@ impl Console {
             keyboard_elsewhere: false,
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
-            source_paint: start.source_paint,
+            theme: okabe_ito(),
             reduced_motion: prefers_reduced_motion(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
@@ -1186,8 +1191,9 @@ struct SourceShapes {
     /// The sector seams, left edge then top edge, Cell by Cell.
     seams: Vec<Shape>,
     /// The Cursor's own stroke, painted last: the Cursor Effect's frame — its
-    /// Cell's, or the lasso around a Region larger than one Cell — or the
-    /// selected Cell's border when no effect frame was built.
+    /// Cell's, or the lasso around a Region larger than one Cell, and empty
+    /// when a zero width hid it — or the selected Cell's border when no
+    /// effect frame was built.
     cursor: Vec<Shape>,
 }
 
@@ -1196,10 +1202,15 @@ impl SourceShapes {
     /// Draws a Paint at `viewport`: the geometry the value layer carries none
     /// of, applied to the colours and characters it carries all of.
     ///
-    /// Stroke widths take [`GridViewport::cell_scale`] so the Grid lines and
-    /// sector seams are one Source point wide at every zoom.
-    /// `pixels_per_point` is the device scale the background runs are snapped
-    /// to; see [`background_run`].
+    /// Stroke widths are fixed display points that stay the same visible
+    /// thickness at every Grid zoom (`.scratch/theming/issues/06` slice C),
+    /// unlike the [`GridViewport::cell_scale`]-multiplied constants this
+    /// replaced: `sector.seam.width` from the resolved `theme`, and each
+    /// Cell's own border width already resolved onto it as `cell.
+    /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
+    /// either composited with Diagnostic/Output Portal, by fact priority).
+    /// `pixels_per_point` is the device scale the background runs are
+    /// snapped to; see [`background_run`].
     ///
     /// Borders, the Cursor's border, the sector seams and the background runs
     /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
@@ -1212,11 +1223,12 @@ impl SourceShapes {
         table: &GlyphTable,
         pixels_per_point: f32,
         cursor_effect: crate::cursor_effects::CursorEffectShapes,
+        theme: &Theme,
     ) -> Self {
-        let mut shapes = Self::geometry(paint, viewport, pixels_per_point);
+        let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
         shapes.area = cursor_effect.area;
-        if !cursor_effect.frame.is_empty() {
-            shapes.cursor = cursor_effect.frame;
+        if let Some(frame) = cursor_effect.frame {
+            shapes.cursor = frame;
         }
         shapes.place_glyphs(paint, viewport, table);
         shapes
@@ -1230,8 +1242,31 @@ impl SourceShapes {
     /// empty until [`Self::place_glyphs`] fills it; both steps finish before
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
-    fn geometry(paint: &Paint, viewport: &GridViewport, pixels_per_point: f32) -> Self {
-        let scale = viewport.cell_scale();
+    /// `theme.sector_seam_width` is read once, here, rather than once per
+    /// Cell inside the loop below — `.scratch/theming/issues/06`'s "resolve
+    /// widths once per frame" — and a width of exactly zero skips building
+    /// that Shape outright rather than emitting a zero-width one for the
+    /// painter to drop, per the same issue's "Width 0 hides the stroke." Each
+    /// Cell's own border width has no one frame-level constant to read here:
+    /// `cell.border_width` already carries the fact-priority pick
+    /// `crate::style::cell_visuals_with_cursor_colour` and
+    /// `crate::style::ordinary_border` resolved for it — `grid.border.width`
+    /// for an ordinary Cell composited with Diagnostic/Output Portal,
+    /// `cell.selection.border.width` for a single-Cell Cursor — so this step
+    /// reads that answer per Cell rather than choosing among Theme fields
+    /// itself.
+    ///
+    fn geometry(
+        paint: &Paint,
+        viewport: &GridViewport,
+        pixels_per_point: f32,
+        theme: &Theme,
+    ) -> Self {
+        // Border widths no longer read `theme` here: `cell.border_width` is
+        // already the resolved, fact-priority-picked answer — see the loop
+        // below. Sector Seam width has no per-Cell fact to vary by, so it
+        // stays a plain frame-level read.
+        let sector_seam_width = theme.sector_seam_width.points();
         // A border is the rule on every Cell the Paint covers, so it is sized
         // up front — to those Cells rather than to the Grid: a densely written
         // Source that regrew the group would pay the reallocation on every
@@ -1276,36 +1311,50 @@ impl SourceShapes {
             // The Cell's own border, stroke and no fill: a widened run paints
             // over the borders of every Cell inside it, so the fill and the
             // border cannot be one shape.
-            let border = Shape::Rect(RectShape::stroke(
-                rect,
-                CornerRadius::ZERO,
-                Stroke::new(GRID_LINE_WIDTH * scale, cell.border),
-                StrokeKind::Inside,
-            ));
+            //
+            // `cell.border_width` is already the resolved answer —
+            // `crate::style::cell_visuals_with_cursor_colour` and
+            // `crate::style::ordinary_border`'s fact-priority pick, threaded
+            // through `CellPaint` — so this step is purely mechanical: a
+            // single-Cell Cursor's own `cell.selection.border.width`, or the
+            // ordinary Grid border's width, itself composited with
+            // Diagnostic/Output Portal by the same priority
+            // (`.scratch/theming/schema.md`'s Source composition steps 4 and
+            // 5). Each width independently hides its own stroke at zero,
+            // since it is this Cell's *only* width, decided once above.
+            if cell.border_width > 0.0 {
+                let border = Shape::Rect(RectShape::stroke(
+                    rect,
+                    CornerRadius::ZERO,
+                    Stroke::new(cell.border_width, cell.border),
+                    StrokeKind::Inside,
+                ));
 
-            // The selected Cell's border is the Cursor, and the Cursor is
-            // painted last. A Cursor the viewport does not reach is no Cell of
-            // this Paint, so the comparison never matches and the group stays
-            // empty. While a Region spans more than one Cell the lasso around
-            // it is the Cursor, and the Cursor's Cell keeps an ordinary border.
-            if paint.cursor() == Some(position) && !paint.region_spans() {
-                cursor.push(border);
-            } else {
-                borders.push(border);
+                // The selected Cell's border is the Cursor, and the Cursor is
+                // painted last. A Cursor the viewport does not reach is no
+                // Cell of this Paint, so the comparison never matches and the
+                // group stays empty.
+                if paint.cursor() == Some(position) && !paint.region_spans() {
+                    cursor.push(border);
+                } else {
+                    borders.push(border);
+                }
             }
 
             // A seam is absent on the Cursor's Cell, while it is framed on its
             // own, because the derive suppressed it there, so this step never
             // learns that rule.
-            for (colour, ends) in [
-                (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
-                (cell.sector_top, [rect.left_top(), rect.right_top()]),
-            ] {
-                if let Some(colour) = colour {
-                    seams.push(Shape::line_segment(
-                        ends,
-                        Stroke::new(SECTOR_LINE_WIDTH * scale, colour),
-                    ));
+            if sector_seam_width > 0.0 {
+                for (colour, ends) in [
+                    (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
+                    (cell.sector_top, [rect.left_top(), rect.right_top()]),
+                ] {
+                    if let Some(colour) = colour {
+                        seams.push(Shape::line_segment(
+                            ends,
+                            Stroke::new(sector_seam_width, colour),
+                        ));
+                    }
                 }
             }
         }
@@ -1397,11 +1446,12 @@ fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Rect {
 /// [`PointerSelection`] back is what leaves this function with nothing but a
 /// Render Frame and a place to draw it.
 ///
-/// Eight parameters, one over clippy's default: `source_paint` is the eighth,
-/// added by `syntax-highlighting/01`. Each of the eight is an independent,
+/// Eight parameters, one over clippy's default: `theme` is the eighth,
+/// added by `syntax-highlighting/01` as `source_paint` and repurposed by
+/// `.scratch/theming/issues/06`. Each of the eight is an independent,
 /// already-tested value threaded straight through from `show_source_scene`'s
-/// own parameters of the same names — geometry, a Render Frame, and the three
-/// presentation settings `Console::ui` owns — so grouping any of them into a
+/// own parameters of the same names — geometry, a Render Frame, and the two
+/// presentation values `Console::ui` owns — so grouping any of them into a
 /// struct would add an indirection this function's one caller does not need,
 /// for a threshold rather than a real complexity this function has grown.
 ///
@@ -1414,7 +1464,7 @@ fn show_source(
     clip: Rect,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
-    source_paint: SourcePaintSettings,
+    theme: &Theme,
 ) -> Option<PointerSelection> {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` the Cells are painted at.
@@ -1487,14 +1537,23 @@ fn show_source(
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
-    let paint = Paint::derive_with_colours(
-        FramePaint::new(frame, visible),
-        cursor_effect_settings.cell_colour(),
-        cursor_effect_settings.region_colour(),
-        cursor_effect_settings.region_cursor_colour(),
-        source_paint,
-    );
+    let paint = Paint::derive_with_theme(FramePaint::new(frame, visible), theme);
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
+    // The Cursor's own frame outlines its own Cell; the lasso around a
+    // Region larger than one Cell takes the Region's own outline colour
+    // instead — `.scratch/theming/schema.md`'s "the effect outline uses
+    // `cursor.border` or `region.border`". `paint` already answered which
+    // this Render Frame is, so this reads that rather than re-deriving it.
+    // The same choice picks the animated frame's nominal width, as one
+    // `Stroke` so colour and width cannot come from different answers:
+    // `cursor.border.width` for the Cursor's own frame, `region.border.width`
+    // for the lasso — a fixed display-point value `cursor_effect_shapes` never
+    // scales with Grid zoom (`.scratch/theming/issues/06` slice C).
+    let frame_stroke = if paint.region_spans() {
+        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
+    } else {
+        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
+    };
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
         effect_outline(frame, &viewport),
@@ -1502,8 +1561,17 @@ fn show_source(
         viewport.cell_size,
         cursor_effect_sample,
         cursor_effect_settings,
+        theme.cursor_area,
+        frame_stroke,
     );
-    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point, cursor_effect);
+    let shapes = SourceShapes::new(
+        &paint,
+        &viewport,
+        &table,
+        pixels_per_point,
+        cursor_effect,
+        theme,
+    );
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
@@ -1626,7 +1694,7 @@ fn show_source_scene(
     view: &mut SourceView,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
-    source_paint: SourcePaintSettings,
+    theme: &Theme,
 ) -> PresentedSource {
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
@@ -1753,7 +1821,7 @@ fn show_source_scene(
         console,
         cursor_effect_sample,
         cursor_effect_settings,
-        source_paint,
+        theme,
     );
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -1804,10 +1872,10 @@ fn show_source_scene(
 /// that colour across the whole console and clips every Shape to it. An ordinary
 /// Cell therefore has no rectangle of its own.
 ///
-/// `background` is the live `SourcePaintSettings::source_background`, not a
-/// constant: a viewer's `Theme → Source colours` edit has to repaint this
-/// panel on the very next frame for the Cell it stands in for to still agree
-/// with it.
+/// `background` is the resolved Theme's live `grid_background`, not a
+/// constant: a loaded Theme has to repaint this panel on the very next frame
+/// for the Cell it stands in for to still agree with it
+/// (`.scratch/theming/issues/06`/`07`).
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -1824,39 +1892,6 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     frame
 }
 
-///
-/// The half of a [`SOURCE_COLOURS`] row that reaches the settings value: one
-/// Source Paint role's own `_mut` accessor, which that row's colour control
-/// edits through.
-///
-type SourceColourMut = fn(&mut SourcePaintSettings) -> &mut Color32;
-
-///
-/// The rows of `Theme → Source colours`, in the order they are presented:
-/// each Source Paint role's label beside the accessor that row edits.
-///
-/// Every role takes the same opaque colour control, so one table drives them
-/// all rather than ten copies of the same block — a new or renamed role is one
-/// line here, and a label cannot drift onto a neighbour's colour. The Cursor
-/// effects above them are not this uniform (two blend, and two sit behind an
-/// enabling checkbox), so they stay written out.
-///
-const SOURCE_COLOURS: [(&str, SourceColourMut); 10] = [
-    (
-        "Source background",
-        SourcePaintSettings::source_background_mut,
-    ),
-    ("Ordinary (Char, Atom)", SourcePaintSettings::ordinary_mut),
-    ("Comment", SourcePaintSettings::comment_mut),
-    ("Function", SourcePaintSettings::function_mut),
-    ("Bang", SourcePaintSettings::bang_mut),
-    ("Number", SourcePaintSettings::number_mut),
-    ("Note", SourcePaintSettings::note_mut),
-    ("Sequence", SourcePaintSettings::sequence_mut),
-    ("Diagnostic", SourcePaintSettings::diagnostic_mut),
-    ("Output Portal", SourcePaintSettings::output_portal_mut),
-];
-
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
@@ -1865,12 +1900,37 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence.save(
-            storage,
-            self.orcvs.source(),
-            self.cursor_effects,
-            self.source_paint,
-        );
+        self.persistence
+            .save(storage, self.orcvs.source(), self.cursor_effects);
+    }
+
+    ///
+    /// The window's own clear colour: `.scratch/theming/schema.md`'s Chrome
+    /// mapping table, "Application backdrop | `window.background`, opaque."
+    ///
+    /// This is the resolved Theme's answer to "confirm both [the window
+    /// backdrop and the Grid background] are wired" (`.scratch/theming/
+    /// issues/06` slice C) — the window backdrop's own consumer, wired
+    /// independently of `source_panel_frame`'s `theme.grid_background`.
+    /// Without this override `eframe::App::clear_color`'s own default
+    /// (`Color32::from_rgba_unmultiplied(12, 12, 12, 180)`) shows through
+    /// wherever a Theme's partly transparent panel, Grid or Cell layer
+    /// reveals the console surface beneath it, rather than the Theme's own
+    /// opaque backdrop — a translucent grey the Theme never chose, in place
+    /// of the surface ADR 0053 and `.scratch/theming/schema.md` describe:
+    /// "Transparency reveals the underlying console surface; the application
+    /// window remains opaque."
+    ///
+    /// `self.theme` is always the built-in Okabe–Ito Theme until
+    /// `.scratch/theming/issues/07`'s loader exists (see the field's own
+    /// doc), whose `window_background` is opaque by construction
+    /// (`theme::okabe_ito`); `07`'s parser is what will enforce that
+    /// invariant for a loaded custom Theme (`.scratch/theming/schema.md`:
+    /// "alpha other than 255 on this property is an error"), so this reads
+    /// the field directly rather than re-validating it here.
+    ///
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        self.theme.window_background.to_normalized_gamma_f32()
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -1924,74 +1984,17 @@ impl eframe::App for Console {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
+                // ADR 0053: a Theme decides colours; Settings hold only its
+                // name. `.scratch/theming/issues/06` removes the colour
+                // controls this menu used to hold — `Theme → Source colours`
+                // entirely, and `Theme → Cursor effects`' colour pickers —
+                // along with the "Reset to theme defaults" buttons that reset
+                // had left. Glitch amount and Glitch frequency stay: they are
+                // motion preferences, not Theme values
+                // (`.scratch/theming/issues/09`). The dark/light Theme
+                // pickers this menu will gain are `03`'s and `04`'s.
                 ui.menu_button("Theme", |ui| {
                     ui.label("Cursor effects");
-                    ui.horizontal(|ui| {
-                        ui.label("Cursor colour");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.cursor_effects.cursor_colour_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Area colour");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.cursor_effects.area_colour_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Region colour");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.cursor_effects.region_colour_mut(),
-                            egui::color_picker::Alpha::OnlyBlend,
-                        );
-                    });
-                    let mut region_cursor_enabled =
-                        self.cursor_effects.region_cursor_colour().is_some();
-                    if ui
-                        .checkbox(&mut region_cursor_enabled, "Cursor colour in a Region")
-                        .changed()
-                    {
-                        self.cursor_effects.set_region_cursor_colour(
-                            region_cursor_enabled
-                                .then_some(crate::cursor_effects::DEFAULT_REGION_COLOUR),
-                        );
-                    }
-                    if let Some(mut colour) = self.cursor_effects.region_cursor_colour()
-                        && egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            &mut colour,
-                            egui::color_picker::Alpha::OnlyBlend,
-                        )
-                        .changed()
-                    {
-                        self.cursor_effects.set_region_cursor_colour(Some(colour));
-                    }
-                    let mut cell_colour_enabled = self.cursor_effects.cell_colour().is_some();
-                    if ui
-                        .checkbox(&mut cell_colour_enabled, "Cursor cell colour")
-                        .changed()
-                    {
-                        self.cursor_effects.set_cell_colour(if cell_colour_enabled {
-                            Some(DEFAULT_CURSOR_COLOUR)
-                        } else {
-                            None
-                        });
-                    }
-                    if let Some(mut colour) = self.cursor_effects.cell_colour()
-                        && egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            &mut colour,
-                            egui::color_picker::Alpha::Opaque,
-                        )
-                        .changed()
-                    {
-                        self.cursor_effects.set_cell_colour(Some(colour));
-                    }
                     ui.add(
                         egui::Slider::new(self.cursor_effects.amount_mut(), 0..=100)
                             .text("Glitch amount"),
@@ -2000,35 +2003,6 @@ impl eframe::App for Console {
                         egui::Slider::new(self.cursor_effects.frequency_mut(), 0..=100)
                             .text("Glitch frequency"),
                     );
-                    ui.separator();
-                    if ui.button("Reset to theme defaults").clicked() {
-                        self.cursor_effects = CursorEffectSettings::default();
-                    }
-
-                    ui.separator();
-                    ui.label("Source colours");
-                    for (label, colour) in SOURCE_COLOURS {
-                        ui.horizontal(|ui| {
-                            ui.label(label);
-                            egui::color_picker::color_edit_button_srgba(
-                                ui,
-                                colour(&mut self.source_paint),
-                                egui::color_picker::Alpha::Opaque,
-                            );
-                        });
-                    }
-                    ui.add(
-                        egui::Slider::new(self.source_paint.fill_tint_mut(), 0..=100)
-                            .text("Fill tint"),
-                    );
-                    ui.separator();
-                    // Its own reset, independent of Cursor effects' above: it
-                    // only ever assigns `self.source_paint`, so a Source
-                    // colours reset cannot move a Cursor effect and a Cursor
-                    // effects reset cannot move a Source colour.
-                    if ui.button("Reset to theme defaults").clicked() {
-                        self.source_paint = SourcePaintSettings::default();
-                    }
                 });
                 // Presented in the menu bar rather than the Diagnostics window,
                 // which opens on a viewer's request and reports the running
@@ -2110,7 +2084,7 @@ impl eframe::App for Console {
         let cursor_effect_sample = self
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
-        let source_paint = self.source_paint;
+        let theme = self.theme.clone();
 
         // Shown before CentralPanel so it takes height rather than overlaying
         // the Grid. Static: no resize handle, no drag. BPM is a TextEdit:
@@ -2224,7 +2198,7 @@ impl eframe::App for Console {
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
         let cursor_delay = egui::CentralPanel::default()
-            .frame(source_panel_frame(source_paint.source_background()))
+            .frame(source_panel_frame(theme.grid_background))
             .show(root, |ui| {
                 console_area = ui.available_rect_before_wrap();
                 let Console {
@@ -2238,7 +2212,7 @@ impl eframe::App for Console {
                     keyboard_elsewhere: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
-                    source_paint: _,
+                    theme: _,
                     reduced_motion: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
@@ -2250,7 +2224,7 @@ impl eframe::App for Console {
                     source_view,
                     cursor_effect_sample,
                     cursor_effect_settings,
-                    source_paint,
+                    &theme,
                 );
                 cell_size = presented.viewport.cell_size;
                 // The Source Grid answers which Cells the pointer asked for;
@@ -2317,15 +2291,16 @@ mod tests {
     use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
     use crate::paint::{FramePaint, Paint};
     use crate::style::PALETTE;
+    use crate::theme::{Theme, okabe_ito};
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
-        GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SOURCE_MARGIN_CELLS,
-        SourceShapes, SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second,
-        glyph_scale, is_presentable, show_source_scene, source_bounds, source_panel_frame,
-        stepped_zoom, translate_event, zoom_command,
+        GlyphTable, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView,
+        TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale, is_presentable,
+        show_source_scene, source_bounds, source_panel_frame, stepped_zoom, translate_event,
+        zoom_command,
     };
 
     /// The Source View's margin at Zoom 1.0 and a device scale of one.
@@ -2738,7 +2713,7 @@ mod tests {
         let output = ctx.run_ui(input, |root| {
             egui::CentralPanel::default()
                 .frame(source_panel_frame(
-                    crate::source_paint::SourcePaintSettings::default().source_background(),
+                    crate::theme::okabe_ito().grid_background,
                 ))
                 .show(root, |ui| {
                     presented = Some(show_source_scene(
@@ -2748,7 +2723,7 @@ mod tests {
                         view,
                         crate::cursor_effects::CursorEffectSample::default(),
                         crate::cursor_effects::CursorEffectSettings::default(),
-                        crate::source_paint::SourcePaintSettings::default(),
+                        &crate::theme::okabe_ito(),
                     ));
                 });
         });
@@ -3258,6 +3233,69 @@ mod tests {
     }
 
     ///
+    /// eframe restores egui memory — `ThemePreference` included — before it
+    /// calls `Console::new`, on native and on web. Standing in for that
+    /// restore: setting the preference on a fresh `Context` before
+    /// `Console::new` runs, the way `.scratch/theming/issues/02-…` describes
+    /// the defect. The removed `set_theme(Dark)` call used to overwrite
+    /// whatever this set; `install_style` must not.
+    ///
+    /// The style comparison is `Visuals`, not `Style`'s own `PartialEq`:
+    /// `Style::number_formatter` compares by `Arc::ptr_eq`
+    /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
+    /// `Style::default()`s never compare equal on that field alone, whatever
+    /// their visible content. Sharing one `Arc` between the two theme slots
+    /// is asserted directly instead, which sidesteps that field entirely.
+    ///
+    #[tokio::test]
+    async fn console_new_keeps_a_theme_preference_already_on_the_context() {
+        let ctx = egui::Context::default();
+        ctx.set_theme(egui::ThemePreference::Light);
+
+        let _console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+
+        assert_eq!(
+            ctx.options(|options| options.theme_preference),
+            egui::ThemePreference::Light,
+            "Console::new overwrote the restored theme preference"
+        );
+
+        let dark = ctx.style_of(egui::Theme::Dark);
+        let light = ctx.style_of(egui::Theme::Light);
+        assert_eq!(
+            light.visuals,
+            crate::style::style().visuals,
+            "Console::new left the Light theme at egui's own default style"
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&dark, &light),
+            "Console::new registered a different style for each theme"
+        );
+    }
+
+    ///
+    /// A fresh `Context` restores nothing, so its `ThemePreference` starts at
+    /// egui's own default, `System`. `Console::new` must not force `Dark`
+    /// the way the removed `set_theme(Dark)` call did — a build without the
+    /// `persistence` feature has nothing else that would set a preference,
+    /// so `System` is what it opens with.
+    ///
+    #[tokio::test]
+    async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
+        let ctx = egui::Context::default();
+
+        let _console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+
+        assert_eq!(
+            ctx.options(|options| options.theme_preference),
+            egui::ThemePreference::System,
+            "Console::new set a theme preference a fresh context never asked for"
+        );
+    }
+
+    ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
     /// C `00:00`, O `None`. File, View, and Theme remain on the top bar; the
     /// MIDI menu is gone.
@@ -3265,8 +3303,7 @@ mod tests {
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3374,8 +3411,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_repaints_as_soon_as_the_published_tick_advances() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3432,8 +3468,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3477,8 +3512,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3526,8 +3560,7 @@ mod tests {
         use eframe::App as _;
 
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3593,8 +3626,7 @@ mod tests {
     #[tokio::test]
     async fn a_stopped_console_with_cursor_effect_off_requests_no_timed_wake() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3656,8 +3688,7 @@ mod tests {
     #[tokio::test]
     async fn clicking_the_bpm_field_selects_its_text() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3702,8 +3733,7 @@ mod tests {
     #[tokio::test]
     async fn tab_with_the_bpm_field_focused_leaves_the_cursor_and_moves_focus_on() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3735,8 +3765,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_accepts_digits_only() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3789,8 +3818,7 @@ mod tests {
     #[tokio::test]
     async fn escape_reverts_a_valid_uncommitted_bpm() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3839,8 +3867,7 @@ mod tests {
     #[tokio::test]
     async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3940,8 +3967,7 @@ mod tests {
     #[tokio::test]
     async fn dragging_the_bpm_field_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3978,8 +4004,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_pads_three_digits() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4019,8 +4044,7 @@ mod tests {
     #[tokio::test]
     async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4112,8 +4136,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_range_bpm_input_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4154,8 +4177,7 @@ mod tests {
     #[tokio::test]
     async fn committing_bpm_while_playback_is_requested_sets_it_on_orcvs() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4313,8 +4335,7 @@ mod tests {
     #[test]
     fn the_top_panel_takes_the_height_the_default_window_holds_back() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Vec2::ZERO;
 
@@ -4395,7 +4416,7 @@ mod tests {
                     });
                 egui::CentralPanel::default()
                     .frame(source_panel_frame(
-                        crate::source_paint::SourcePaintSettings::default().source_background(),
+                        crate::theme::okabe_ito().grid_background,
                     ))
                     .show(root, |ui| {
                         console = ui.available_size_before_wrap();
@@ -4421,8 +4442,7 @@ mod tests {
     fn a_second_tick_digit_does_not_move_run_clock() {
         fn clock_left(tick: &str) -> i32 {
             let ctx = egui::Context::default();
-            ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-            ctx.set_theme(egui::Theme::Dark);
+            crate::style::install_style(&ctx);
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
             let clock_x = std::cell::Cell::new(0.0);
             let output = ctx.run_ui(
@@ -4471,8 +4491,7 @@ mod tests {
     fn an_off_beat_does_not_move_tick() {
         fn tick_left(marker: &str) -> i32 {
             let ctx = egui::Context::default();
-            ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-            ctx.set_theme(egui::Theme::Dark);
+            crate::style::install_style(&ctx);
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
             let tick_x = std::cell::Cell::new(0.0);
             let output = ctx.run_ui(
@@ -4524,8 +4543,7 @@ mod tests {
     #[test]
     fn panel_readouts_use_the_monospace_style_size_not_line_height() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let sizes = std::cell::Cell::new((0.0, 0.0));
         let output = ctx.run_ui(
@@ -4556,8 +4574,7 @@ mod tests {
     #[tokio::test]
     async fn panel_label_gaps_match_and_entry_gaps_match() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4637,8 +4654,7 @@ mod tests {
     #[tokio::test]
     async fn the_bottom_panel_separator_is_the_grid_line() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4667,8 +4683,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4765,6 +4780,26 @@ mod tests {
         ))
     }
 
+    /// [`painted`], but resolved against `theme` rather than the Okabe–Ito
+    /// built-in — for a test that asks about a Cell's own `border` or
+    /// `border_width`, both of which `Paint::derive_with_theme` bakes in
+    /// (`crate::style::ordinary_border`'s fact-priority pick), unlike
+    /// `SourceShapes::geometry`'s `sector_seam_width`, which stays a
+    /// frame-level Theme read a caller can vary independently of the Paint.
+    fn painted_themed(
+        frame: &RenderFrame,
+        viewport: GridViewport,
+        clip: Rect,
+        theme: &Theme,
+    ) -> Paint {
+        let grid = frame.grid();
+
+        Paint::derive_with_theme(
+            FramePaint::new(frame, viewport.visible_positions(clip, grid)),
+            theme,
+        )
+    }
+
     ///
     /// The rectangles and strokes a Paint is drawn as at `viewport` — no
     /// galleys, no font atlas, no `egui::Context`.
@@ -4779,7 +4814,19 @@ mod tests {
         viewport: GridViewport,
         pixels_per_point: f32,
     ) -> SourceShapes {
-        SourceShapes::geometry(paint, &viewport, pixels_per_point)
+        source_geometry_themed(paint, viewport, pixels_per_point, &okabe_ito())
+    }
+
+    /// [`source_geometry`], but at a `theme` the caller states rather than
+    /// the built-in default — for a test that asks about the resolved
+    /// Theme's own Grid/Sector Seam widths instead of `okabe_ito`'s.
+    fn source_geometry_themed(
+        paint: &Paint,
+        viewport: GridViewport,
+        pixels_per_point: f32,
+        theme: &Theme,
+    ) -> SourceShapes {
+        SourceShapes::geometry(paint, &viewport, pixels_per_point, theme)
     }
 
     ///
@@ -4793,6 +4840,7 @@ mod tests {
     fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
         let ctx = egui::Context::default();
         let mut shapes = None;
+        let theme = okabe_ito();
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let table = GlyphTable::lay_out(
                 ui.ctx(),
@@ -4807,6 +4855,45 @@ mod tests {
                 &table,
                 pixels_per_point,
                 crate::cursor_effects::CursorEffectShapes::default(),
+                &theme,
+            ));
+        });
+        output.drop_without_applying_deltas();
+
+        shapes.expect("the pass drew the Source")
+    }
+
+    ///
+    /// [`source_shapes`] with a Cursor Effect built by the caller and a
+    /// resolved `theme`, for a test that asks how the effect's frame and the
+    /// Paint's own Cursor stroke compose.
+    ///
+    fn source_shapes_with_effect(
+        paint: &Paint,
+        viewport: GridViewport,
+        pixels_per_point: f32,
+        effect: crate::cursor_effects::CursorEffectShapes,
+        theme: &Theme,
+    ) -> SourceShapes {
+        let ctx = egui::Context::default();
+        let mut shapes = None;
+        // `run_ui` takes an `FnMut`; the one pass it runs takes the effect.
+        let mut effect = Some(effect);
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let table = GlyphTable::lay_out(
+                ui.ctx(),
+                egui::FontId::new(
+                    DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
+                    egui::FontFamily::Monospace,
+                ),
+            );
+            shapes = Some(SourceShapes::new(
+                paint,
+                &viewport,
+                &table,
+                pixels_per_point,
+                effect.take().expect("run_ui ran one pass"),
+                theme,
             ));
         });
         output.drop_without_applying_deltas();
@@ -5178,9 +5265,21 @@ mod tests {
     }
 
     ///
-    /// Every Cell is stroked with its own border, one Grid line wide, and the
-    /// Cursor Effect changes that colour rather than that width — which is
-    /// what `cell_line_width` returned a constant for.
+    /// Every Cell is stroked with its own border, and the Cursor Effect
+    /// changes that colour, never the width its own Cell is stroked at.
+    ///
+    /// "That width" is no longer one constant to compare every Cell against:
+    /// `.scratch/theming/schema.md`'s Source composition step 5 gives a
+    /// single-Cell Cursor its own `cell.selection.border.width`, independent
+    /// of the ordinary `grid.border.width` every other Cell — including the
+    /// Cursor's Cell inside a multi-Cell Region — is stroked at. Okabe–Ito
+    /// happens to default both to 0.5 points, which is what lets this test
+    /// still compare every stroke, cursor included, against one
+    /// `grid_border_width` local;
+    /// `the_grid_and_selection_border_widths_vary_independently` and
+    /// `zero_width_suppresses_only_its_own_border_stroke` below are what
+    /// actually prove the widths are two independent Theme fields rather
+    /// than one shared constant.
     ///
     /// The colours come from the Paint rather than from `cell_visuals`: which
     /// colour a Cell's border *is* is decided in the value layer and asserted
@@ -5200,10 +5299,12 @@ mod tests {
         let viewport = presented(screen, 20, 20, 1.0);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_geometry(&paint, viewport, 1.0);
-        // The owned transform scales the stroke with everything else, the way
-        // the Scene's layer transform used to, so the width is asserted in the
-        // Source's own points.
-        let scale = viewport.cell_scale();
+        // Fixed at the resolved Theme's `grid.border.width`, in display
+        // points — `.scratch/theming/issues/06` slice C — rather than scaled
+        // by the owned transform the way the Scene's layer transform used to.
+        // Okabe–Ito's `cell.selection.border.width` is also 0.5, so this
+        // single local still covers the Cursor's own Cell; see the doc above.
+        let grid_border_width = okabe_ito().grid_border_width.points();
         let mut colours = std::collections::BTreeSet::new();
 
         for (position, cell) in paint.cells() {
@@ -5219,9 +5320,9 @@ mod tests {
                 .unwrap_or_else(|| panic!("Cell {position:?} was never stroked"));
 
             assert!(
-                (stroked.width / scale - GRID_LINE_WIDTH).abs() < 1e-3,
+                (stroked.width - grid_border_width).abs() < 1e-3,
                 "the border at {position:?} was {} points wide",
-                stroked.width / scale
+                stroked.width
             );
             assert_eq!(stroked.color, cell.border, "the border at {position:?}");
             colours.insert(stroked.color.to_array());
@@ -5309,25 +5410,60 @@ mod tests {
     /// The background the Grid declines to paint is the one the panel paints.
     ///
     /// `show_source` omits a Cell's rectangle wherever `cell_visuals` asks for
-    /// `SourcePaintSettings::source_background`, and what stands in its place
+    /// the resolved Theme's `grid_background`, and what stands in its place
     /// is the `CentralPanel` frame. The two values are stated in different
     /// places, so nothing but this holds them together: give the panel any
     /// other fill and every ordinary Cell — outside the Cursor effect, most of
-    /// the default Grid — renders on a ground the settings value never chose
-    /// for it.
+    /// the default Grid — renders on a ground the Theme never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
     /// is the painted result that has to sit on the right colour.
     ///
     #[test]
     fn the_omitted_background_is_the_colour_the_panel_is_filled_with() {
-        let source_paint = crate::source_paint::SourcePaintSettings::default();
+        let theme = crate::theme::okabe_ito();
         assert_eq!(
-            source_panel_frame(source_paint.source_background()).fill,
-            source_paint.source_background(),
+            source_panel_frame(theme.grid_background).fill,
+            theme.grid_background,
             "show_source omits a Cell's background wherever cell_visuals asks \
-             for the settings value's source_background, so the panel \
-             standing in for it must be filled with exactly that colour"
+             for the resolved Theme's grid_background, so the panel standing \
+             in for it must be filled with exactly that colour"
+        );
+    }
+
+    ///
+    /// `source_panel_frame` composites a transparent or partial-alpha
+    /// `grid_background` exactly as given — never forcing it opaque, and
+    /// never touching any other `egui::Frame` property — so a Theme's Grid
+    /// layer reveals the window backdrop `clear_color_is_the_resolved_
+    /// themes_opaque_window_background` wires underneath it, the same way an
+    /// opaque `grid_background` composites to itself.
+    /// `.scratch/theming/issues/06`: "Test transparent and partial-alpha Grid
+    /// compositing without changing other background properties."
+    ///
+    #[test]
+    fn the_grid_panel_frame_composites_a_transparent_or_partial_alpha_background_unchanged() {
+        for background in [
+            Color32::TRANSPARENT,
+            Color32::from_rgba_unmultiplied(10, 20, 30, 128),
+            Color32::from_rgba_unmultiplied(10, 20, 30, 255),
+        ] {
+            assert_eq!(
+                source_panel_frame(background).fill,
+                background,
+                "source_panel_frame changed the Grid background {background:?} it was given"
+            );
+        }
+
+        // No property but `fill` is a function of `background`: two frames
+        // built at different alpha, with their fills equalised, must be
+        // identical.
+        let opaque = source_panel_frame(Color32::from_rgba_unmultiplied(10, 20, 30, 255));
+        let mut transparent = source_panel_frame(Color32::TRANSPARENT);
+        transparent.fill = opaque.fill;
+        assert_eq!(
+            transparent, opaque,
+            "source_panel_frame changed a property besides fill across two alpha levels"
         );
     }
 
@@ -5497,15 +5633,16 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_colours(
+        let theme = Theme {
+            cursor_background: Some(PALETTE.selection_fill),
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(
             FramePaint::new(
                 &frame,
                 viewport.visible_positions(viewport.rect, frame.grid()),
             ),
-            Some(PALETTE.selection_fill),
-            crate::cursor_effects::DEFAULT_REGION_COLOUR,
-            None,
-            crate::source_paint::SourcePaintSettings::default(),
+            &theme,
         );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
@@ -5537,34 +5674,41 @@ mod tests {
     }
 
     ///
-    /// A whole console pass strokes the Grid at the zoom it presented the
-    /// Source at, and snaps its background runs to the device scale it ran on.
+    /// A whole console pass strokes the Grid at the resolved Theme's own
+    /// fixed display-point widths — unchanged by the zoom it presented the
+    /// Source at — and snaps its background runs to the device scale it ran
+    /// on.
     ///
-    /// Both are `show_source`'s own arithmetic — the zoom is the presented Cell
-    /// side over the Source's own, the device scale is the `Ui`'s — and both
-    /// are handed to `SourceShapes::new` and reach the Shapes nowhere else.
-    /// Every other Shape assertion here builds a `SourceShapes` through
-    /// `source_geometry` or `source_shapes`, which are given a zoom and a device
-    /// scale the test chose, so all of them still hold with either argument
-    /// replaced by a constant one at the call site. What would ship then is a
-    /// Grid whose lines and sector seams stay one Source point wide at every
-    /// zoom instead of scaling with it, and runs snapped to whole points on a
-    /// screen whose pixels are not whole points.
+    /// The device scale is `show_source`'s own arithmetic — the `Ui`'s — and
+    /// is handed to `SourceShapes::new` and reaches the Shapes nowhere else.
+    /// The Grid/Sector Seam *widths* are `.scratch/theming/issues/06` slice
+    /// C's fixed points, read from `theme` and never multiplied by the
+    /// presented Cell side over the Source's own: at Zoom 0.5 this is the
+    /// test that would have caught the old `GRID_LINE_WIDTH * scale`/
+    /// `SECTOR_LINE_WIDTH * scale` behaviour reappearing, since at Zoom 1 the
+    /// two are indistinguishable. Every other Shape assertion here builds a
+    /// `SourceShapes` through `source_geometry` or `source_shapes`, which are
+    /// given a device scale the test chose, so all of them still hold with
+    /// that argument replaced by a constant one at the call site. What would
+    /// ship then is a Grid whose lines and sector seams stay the Theme's own
+    /// width at every zoom, and runs snapped to whole points on a screen
+    /// whose pixels are not whole points.
     ///
-    /// The geometry is chosen so neither argument can be mistaken for one. A
-    /// 161 point console over a 20 Cell Grid at Zoom 0.5, and at a
-    /// device scale of 1.5 the presented Grid's corner is floored a physical
-    /// pixel in — two thirds of a point — so every run edge is snapped
-    /// somewhere a snap to whole points would not put it.
+    /// The geometry is chosen so neither the zoom nor the device scale can be
+    /// mistaken for the other. A 161 point console over a 20 Cell Grid at
+    /// Zoom 0.5, and at a device scale of 1.5 the presented Grid's corner is
+    /// floored a physical pixel in — two thirds of a point — so every run
+    /// edge is snapped somewhere a snap to whole points would not put it.
     ///
     #[tokio::test]
-    async fn a_console_pass_strokes_at_its_own_zoom_and_snaps_its_runs_to_its_own_device_scale() {
+    async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_device_scale() {
         const DEVICE_SCALE: f32 = 1.5;
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(161.0));
         let mut orcvs = running_orcvs(20, 20);
         let mut view = SourceView::default();
         pinned_at(&mut view, Vec2::ZERO, 0.5);
+        let theme = okabe_ito();
 
         let (viewport, shapes) = console_pass_at(
             &ctx,
@@ -5583,28 +5727,28 @@ mod tests {
         );
 
         // Every Cell is stroked once — the Cursor's by the Cursor — and every
-        // one of those strokes carries the zoom.
+        // one of those strokes carries the Theme's fixed width, not the zoom.
         let mut stroked = 0;
         for shape in &shapes {
             if let Shape::Rect(painted) = shape
                 && painted.stroke.width > 0.0
             {
                 assert!(
-                    (painted.stroke.width - GRID_LINE_WIDTH * scale).abs() < 1e-6,
-                    "a Cell border was stroked {} points wide against {} at this zoom",
+                    (painted.stroke.width - theme.grid_border_width.points()).abs() < 1e-6,
+                    "a Cell border was stroked {} points wide against the Theme's fixed {}",
                     painted.stroke.width,
-                    GRID_LINE_WIDTH * scale
+                    theme.grid_border_width.points()
                 );
                 stroked += 1;
             }
         }
         assert_eq!(stroked, 399, "the Cursor Cell uses the effect frame");
 
-        // And so does every sector seam, which takes its own width.
+        // And so does every sector seam, which takes its own fixed width.
         let mut seams = 0;
         for shape in &shapes {
             if let Shape::LineSegment { stroke, .. } = shape
-                && (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6
+                && (stroke.width - theme.sector_seam_width.points()).abs() < 1e-6
             {
                 seams += 1;
             }
@@ -5616,12 +5760,9 @@ mod tests {
         // background run to snap. Explicit colours are covered by the Paint
         // seam tests.
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_colours(
+        let paint = Paint::derive_with_theme(
             FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
-            None,
-            crate::cursor_effects::DEFAULT_REGION_COLOUR,
-            None,
-            crate::source_paint::SourcePaintSettings::default(),
+            &okabe_ito(),
         );
         let runs = paint.background_runs();
         assert!(
@@ -5638,7 +5779,9 @@ mod tests {
     /// Cell carries none while it is framed on its own, are the Render
     /// Frame's and the derive's answers and
     /// are asserted in `paint.rs` with no Context at all. The seam's *width*
-    /// scales with the Cell side, so it is geometry and belongs here.
+    /// is the resolved Theme's own fixed display-point value
+    /// (`.scratch/theming/issues/06` slice C), so it is geometry and belongs
+    /// here.
     ///
     /// The Grid is 16 Cells square because the default Sector Seam spacing is
     /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
@@ -5657,7 +5800,7 @@ mod tests {
         let viewport = presented(screen, 16, 16, 1.0);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_geometry(&paint, viewport, 1.0);
-        let scale = viewport.cell_scale();
+        let sector_seam_width = okabe_ito().sector_seam_width.points();
 
         let mut expected = Vec::new();
         for (position, cell) in paint.cells() {
@@ -5695,11 +5838,307 @@ mod tests {
             );
             assert_eq!(stroke.color, *colour, "the seam at {position:?}");
             assert!(
-                (stroke.width / scale - SECTOR_LINE_WIDTH).abs() < 1e-3,
+                (stroke.width - sector_seam_width).abs() < 1e-3,
                 "the seam at {position:?} was {} points wide",
-                stroke.width / scale
+                stroke.width
             );
         }
+    }
+
+    ///
+    /// Width zero hides the Cell grid line and the Sector Seam outright — no
+    /// zero-width `Shape` left for the painter to drop — at several Grid
+    /// zoom levels spanning `MIN_ZOOM` to `MAX_ZOOM`.
+    /// `.scratch/theming/issues/06`: "Width 0 hides the stroke: emit no
+    /// shape rather than a zero-width one."
+    ///
+    #[tokio::test]
+    async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+        let mut orcvs = running_orcvs(16, 16);
+        // A sector corner, so the fixture would otherwise draw both a grid
+        // line and a seam on plenty of Cells.
+        orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        // Both border widths zeroed: `grid_border_width` for every ordinary
+        // Cell and `cell_selection_border_width` for the single-Cell Cursor
+        // selected below, which are independent Theme fields since
+        // `.scratch/theming/schema.md`'s Source composition step 5 gives the
+        // Cursor its own width.
+        let theme = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            cell_selection_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            sector_seam_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+
+        for zoom in [MIN_ZOOM, 1.0, MAX_ZOOM] {
+            let cell_size = CELL_SIZE * zoom;
+            let viewport = GridViewport {
+                cell_size,
+                rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
+            };
+            let paint = painted_themed(&frame, viewport, screen, &theme);
+            let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+
+            assert!(
+                shapes.borders.is_empty(),
+                "zoom {zoom}: a grid border stroke survived width 0"
+            );
+            assert!(
+                shapes.cursor.is_empty(),
+                "zoom {zoom}: the Cursor's own border stroke survived width 0"
+            );
+            assert!(
+                shapes.seams.is_empty(),
+                "zoom {zoom}: a sector seam stroke survived width 0"
+            );
+        }
+    }
+
+    ///
+    /// `grid.border.width` and `cell.selection.border.width` are two
+    /// independent Theme fields, not one constant read twice — Okabe–Ito
+    /// happens to default both to 0.5, which is what every other width test
+    /// in this module reads through one local. Here they are given different
+    /// values: every ordinary Cell's border takes `grid.border.width`, and
+    /// only the single-Cell Cursor's own border takes
+    /// `cell.selection.border.width`, per `.scratch/theming/schema.md`'s
+    /// Source composition step 5.
+    ///
+    #[tokio::test]
+    async fn the_grid_and_selection_border_widths_vary_independently() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
+        let mut orcvs = running_orcvs(20, 20);
+        let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
+        orcvs.select(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 20, 20, 1.0);
+        let theme = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.2)
+                .expect("0.2 is within 0..=1"),
+            cell_selection_border_width: crate::theme::GridWidth::from_points(0.9)
+                .expect("0.9 is within 0..=1"),
+            ..okabe_ito()
+        };
+        // Both `paint` and `shapes` resolve against the same `theme`: the
+        // border width is baked into `CellPaint` at `Paint::derive_with_theme`,
+        // not read again by `SourceShapes::geometry`.
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+
+        assert!(
+            !shapes.borders.is_empty(),
+            "the fixture drew no ordinary Cell border"
+        );
+        for shape in &shapes.borders {
+            let Shape::Rect(stroked) = shape else {
+                panic!("a border was {shape:?}")
+            };
+            assert!(
+                (stroked.stroke.width - 0.2).abs() < 1e-4,
+                "an ordinary border was {} points wide, not grid.border.width",
+                stroked.stroke.width
+            );
+        }
+
+        assert_eq!(
+            shapes.cursor.len(),
+            1,
+            "the single-Cell Cursor was not framed once"
+        );
+        let Shape::Rect(cursor_stroke) = &shapes.cursor[0] else {
+            panic!("the Cursor's border was {:?}", shapes.cursor[0])
+        };
+        assert!(
+            (cursor_stroke.stroke.width - 0.9).abs() < 1e-4,
+            "the Cursor's own border was {} points wide, not cell.selection.border.width",
+            cursor_stroke.stroke.width
+        );
+    }
+
+    ///
+    /// Each border width hides only its own stroke at zero: a zeroed
+    /// `cell.selection.border.width` silences the single-Cell Cursor's own
+    /// border while every ordinary Cell keeps its nonzero `grid.border.width`
+    /// stroke, and a zeroed `grid.border.width` silences every ordinary Cell
+    /// while the Cursor keeps its own nonzero stroke. Neither zero reaches
+    /// the other Cell's border, which
+    /// `zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom`
+    /// does not show on its own since it zeroes both together.
+    ///
+    #[tokio::test]
+    async fn zero_width_suppresses_only_its_own_border_stroke() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
+        let mut orcvs = running_orcvs(20, 20);
+        let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
+        orcvs.select(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 20, 20, 1.0);
+
+        let zero_selection = Theme {
+            cell_selection_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = painted_themed(&frame, viewport, screen, &zero_selection);
+        let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_selection);
+        assert!(
+            shapes.cursor.is_empty(),
+            "zero cell.selection.border.width left the Cursor's own border standing"
+        );
+        assert!(
+            !shapes.borders.is_empty(),
+            "zero cell.selection.border.width also silenced the ordinary Grid border"
+        );
+
+        let zero_grid = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = painted_themed(&frame, viewport, screen, &zero_grid);
+        let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_grid);
+        assert!(
+            shapes.borders.is_empty(),
+            "zero grid.border.width left an ordinary Cell border standing"
+        );
+        assert!(
+            !shapes.cursor.is_empty(),
+            "zero grid.border.width also silenced the Cursor's own border"
+        );
+    }
+
+    ///
+    /// A zeroed `cursor.border.width` hides the single-Cell Cursor's frame
+    /// outright: the Cursor Effect built its frame and built no stroke, which
+    /// `SourceShapes::new` must not read as "no effect frame" and back-fill
+    /// with the selected Cell's own `cell.selection.border.width` stroke.
+    ///
+    #[tokio::test]
+    async fn zero_cursor_border_width_hides_the_cursors_frame() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
+        let mut orcvs = running_orcvs(20, 20);
+        let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
+        orcvs.select(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 20, 20, 1.0);
+        let theme = Theme {
+            cursor_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let cursor_rect = viewport.cell_rect(4, 4);
+        let effect = crate::cursor_effects::cursor_effect_shapes(
+            cursor_rect,
+            cursor_rect,
+            screen,
+            viewport.cell_size,
+            crate::cursor_effects::CursorEffectSample::default(),
+            crate::cursor_effects::CursorEffectSettings::default(),
+            theme.cursor_area,
+            egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+        );
+        let shapes = source_shapes_with_effect(&paint, viewport, 1.0, effect, &theme);
+
+        assert!(
+            shapes.cursor.is_empty(),
+            "zero cursor.border.width left {} Cursor strokes standing",
+            shapes.cursor.len()
+        );
+    }
+
+    ///
+    /// The Cell grid line and the Sector Seam stay the resolved Theme's own
+    /// fixed display-point widths at every Grid zoom from `MIN_ZOOM` to
+    /// `MAX_ZOOM` — never multiplied by `GridViewport::cell_scale`, the
+    /// zoom-scaled behaviour `.scratch/theming/issues/06` slice C replaces.
+    /// The single selected Cell's own stroke is chained in against
+    /// `grid_border_width` too: Okabe–Ito's `cell.selection.border.width` is
+    /// also 0.5, the same coincidence `a_cell_border_is_one_grid_line_wide_
+    /// whatever_the_cell_is_doing` notes, so this loop still covers it
+    /// without a second theme field to track across every zoom.
+    ///
+    #[tokio::test]
+    async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+        let mut orcvs = running_orcvs(16, 16);
+        orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let theme = okabe_ito();
+
+        for zoom in [MIN_ZOOM, 0.5, 1.0, 1.5, MAX_ZOOM] {
+            let cell_size = CELL_SIZE * zoom;
+            let viewport = GridViewport {
+                cell_size,
+                rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
+            };
+            let paint = painted(&frame, viewport, screen);
+            let shapes = source_geometry(&paint, viewport, 1.0);
+
+            assert!(
+                !shapes.borders.is_empty(),
+                "zoom {zoom}: the fixture drew no Cell border"
+            );
+            for shape in shapes.borders.iter().chain(&shapes.cursor) {
+                let Shape::Rect(stroked) = shape else {
+                    panic!("a border was {shape:?}")
+                };
+                assert!(
+                    (stroked.stroke.width - theme.grid_border_width.points()).abs() < 1e-4,
+                    "zoom {zoom}: a border was {} points wide against the fixed {}",
+                    stroked.stroke.width,
+                    theme.grid_border_width.points()
+                );
+            }
+
+            assert!(
+                !shapes.seams.is_empty(),
+                "zoom {zoom}: the fixture drew no sector seam"
+            );
+            for shape in &shapes.seams {
+                let Shape::LineSegment { stroke, .. } = shape else {
+                    panic!("a seam was {shape:?}")
+                };
+                assert!(
+                    (stroke.width - theme.sector_seam_width.points()).abs() < 1e-4,
+                    "zoom {zoom}: a seam was {} points wide against the fixed {}",
+                    stroke.width,
+                    theme.sector_seam_width.points()
+                );
+            }
+        }
+    }
+
+    ///
+    /// The window's own clear colour is the resolved Theme's opaque
+    /// `window.background` — `.scratch/theming/schema.md`'s Chrome mapping
+    /// table, "Application backdrop | `window.background`, opaque" — rather
+    /// than `eframe::App::clear_color`'s own translucent default, which would
+    /// otherwise show through wherever a partly transparent panel, Grid or
+    /// Cell layer reveals the console surface beneath it.
+    ///
+    #[tokio::test]
+    async fn clear_color_is_the_resolved_themes_opaque_window_background() {
+        let ctx = egui::Context::default();
+        let console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("Console::new");
+        let theme = okabe_ito();
+
+        assert_eq!(
+            theme.window_background.a(),
+            255,
+            "the built-in window backdrop must be opaque"
+        );
+        assert_eq!(
+            eframe::App::clear_color(&console, &egui::Visuals::dark()),
+            theme.window_background.to_normalized_gamma_f32(),
+            "the window's clear colour must be the Theme's own window_background"
+        );
     }
 
     ///
@@ -7168,7 +7607,7 @@ mod tests {
             |root| {
                 egui::CentralPanel::default()
                     .frame(source_panel_frame(
-                        crate::source_paint::SourcePaintSettings::default().source_background(),
+                        crate::theme::okabe_ito().grid_background,
                     ))
                     .show(root, |ui| {
                         grid_layer = Some(ui.layer_id());
@@ -7179,7 +7618,7 @@ mod tests {
                             &mut view,
                             crate::cursor_effects::CursorEffectSample::default(),
                             crate::cursor_effects::CursorEffectSettings::default(),
-                            crate::source_paint::SourcePaintSettings::default(),
+                            &crate::theme::okabe_ito(),
                         );
                     });
             },

@@ -21,7 +21,7 @@
 //! exactly this reason.
 //!
 //! A [`FramePaint`] pairs a Render Frame with those ranges at one seam:
-//! [`Paint::derive_with_colours`] takes the pair, not the two values
+//! [`Paint::derive_with_theme`] takes the pair, not the two values
 //! separately.
 //!
 //! # Only the Positions the console draws
@@ -52,8 +52,8 @@ use orcvs::{
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
-    source_paint::SourcePaintSettings,
-    style::{cell_visuals_with_cursor_colour, sector_line},
+    style::{cell_visuals_with_cursor_colour, compose_cell_fill, sector_line},
+    theme::Theme,
 };
 
 pub use crate::grid_viewport::VisiblePositions;
@@ -65,10 +65,16 @@ pub use crate::grid_viewport::VisiblePositions;
 /// panel behind the Grid has painted the Source colour, and `Some` means this
 /// Cell needs a fill of its own.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// `border_width` is display points, in whatever unit `crate::style::
+/// CellVisuals::border_width` already resolved it to; never `Eq` since it
+/// carries an `f32`, unlike this struct's other fields.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CellPaint {
     pub background: Option<Color32>,
     pub border: Color32,
+    pub border_width: f32,
     pub foreground: Color32,
     pub sector_left: Option<Color32>,
     pub sector_top: Option<Color32>,
@@ -92,7 +98,7 @@ pub struct BackgroundRun {
 
 ///
 /// A Render Frame and the Positions the console draws from it, paired at one
-/// seam before [`Paint::derive_with_colours`].
+/// seam before [`Paint::derive_with_theme`].
 ///
 /// Minted only through [`Self::new`], [`Self::range`], or [`Self::whole`], which
 /// refuse a [`VisiblePositions`] minted for another Grid.
@@ -163,24 +169,38 @@ pub struct Paint {
 impl Paint {
     ///
     /// Reads a paired Render Frame and drawn range and answers what each Cell
-    /// is drawn as, in the colours it is handed.
+    /// is drawn as, resolved from `theme`.
     ///
-    /// `cursor_colour` fills the Cursor's Cell. While a Region spans more than
-    /// one Cell, `region_colour` fills the rest of it, and
-    /// `region_cursor_colour` fills the Cursor's Cell independently — or, when
-    /// `None`, `cursor_colour` still does. Only the fill carries over: the
-    /// Cursor's Cell in such a Region takes the grid line and its sector
-    /// seams, as every other Cell of the Region does. `source_paint` is the
-    /// viewer's live `Theme → Source colours` value, so every Token colour
-    /// here is a setting rather than a constant
-    /// (`.scratch/syntax-highlighting/issues/01`).
+    /// `theme.cursor_background` fills the Cursor's Cell. While a Region
+    /// spans more than one Cell, `theme.region_background` fills the rest of
+    /// it, and `theme.region_cursor_background` fills the Cursor's Cell
+    /// independently — or, when `None`, the ordinary Cursor fill still does.
+    /// Only the fill carries over: the Cursor's Cell in such a Region takes
+    /// the grid line and its sector seams, as every other Cell of the Region
+    /// does. `theme.cell_background` is the uniform base every one of those
+    /// fills composites over, and — being independent of whether a role
+    /// contributed one — is also what a Cell with no fill of its own falls
+    /// back to, so `.scratch/theming/schema.md`'s "does not count as a fact
+    /// fill when evaluating Region fallback" holds even when a custom
+    /// Theme's Cell base is not transparent. `theme` is the resolved Theme
+    /// the console currently shows the Source with, so every Token colour
+    /// here is a Theme channel rather than a constant
+    /// (`.scratch/theming/issues/06`).
     ///
     /// `cell_visuals_with_cursor_colour` is called once per drawn Cell and is
-    /// unchanged: this decides what to do with its answer, not what the
-    /// answer is. It reads the finished language fact on the Cell
+    /// unchanged in shape: this decides what to do with its answer, not what
+    /// the answer is. It reads the finished language fact on the Cell
     /// (`RenderCell::source_paint`) and whether the Cell lies in a root Function's Output Portal
     /// Reservation (`RenderCell::output_portal`, `.scratch/syntax-
     /// highlighting/issues/06`).
+    ///
+    /// `theme` is resolved into the Cursor/Region fills and the uniform base
+    /// fallback once here, before the loop, rather than once per Cell —
+    /// `.scratch/theming/issues/06`'s `paint-cell-cost` constraint, which a
+    /// per-Cell resolution would spend the recovery `paint-cell-cost/03`
+    /// bought. `style::source_paint_visuals` resolves the
+    /// role/Diagnostic/Output Portal channels the same way, from `theme`
+    /// directly rather than a hashed lookup.
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -190,13 +210,7 @@ impl Paint {
     /// there would turn that into rows that silently go unpainted. Pairing is
     /// checked in [`FramePaint::new`].
     ///
-    pub fn derive_with_colours(
-        input: FramePaint<'_>,
-        cursor_colour: Option<Color32>,
-        region_colour: Color32,
-        region_cursor_colour: Option<Color32>,
-        source_paint: SourcePaintSettings,
-    ) -> Self {
+    pub fn derive_with_theme(input: FramePaint<'_>, theme: &Theme) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
         // The Cursor is the Position the Render Frame was derived for. A Paint
@@ -218,6 +232,14 @@ impl Paint {
         } else {
             (0..0, 0..0)
         };
+        // Resolved once per frame, not per Cell: the Cursor/Region fills and
+        // the uniform Cell base fallback, each already composited over
+        // `theme.cell_background`.
+        let cursor_fill = theme.cursor_background;
+        let region_cursor_fill = theme.region_cursor_background.or(cursor_fill);
+        let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
+        let base_fill = compose_cell_fill(theme.cell_background, None);
+        let sector_seam = theme.sector_seam;
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
@@ -238,19 +260,22 @@ impl Paint {
                     cell.output_portal(),
                     selected,
                     selected && cursor_visible,
-                    cursor_colour,
-                    source_paint,
+                    cursor_fill,
+                    theme,
                 );
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
                 let background = if is_cursor && region_spans {
-                    region_cursor_colour.or(cursor_colour)
+                    compose_cell_fill(theme.cell_background, region_cursor_fill)
                 } else {
-                    visuals.background.or(in_region.then_some(region_colour))
+                    visuals
+                        .background
+                        .or(if in_region { region_fill } else { base_fill })
                 };
 
                 cells.push(CellPaint {
                     background,
                     border: visuals.border,
+                    border_width: visuals.border_width,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the Cursor's Cell, so the
                     // Cursor's frame is never crossed by one. While a Region
@@ -264,16 +289,19 @@ impl Paint {
                     // rediscover.
                     //
                     // `sector_line` is pure, so the strength becomes a colour
-                    // here. The stroke widths are geometry and stay out of this
-                    // layer.
+                    // here, against `sector_seam` read from `theme` once
+                    // above the loop. The stroke widths are geometry and stay
+                    // out of this layer.
                     sector_left: (!selected)
                         .then(|| {
-                            sector_left_strength(position, sector_seam_spacing).map(sector_line)
+                            sector_left_strength(position, sector_seam_spacing)
+                                .map(|strength| sector_line(strength, sector_seam))
                         })
                         .flatten(),
                     sector_top: (!selected)
                         .then(|| {
-                            sector_top_strength(position, sector_seam_spacing).map(sector_line)
+                            sector_top_strength(position, sector_seam_spacing)
+                                .map(|strength| sector_line(strength, sector_seam))
                         })
                         .flatten(),
                     // A Cell's own content when it has one; the space
@@ -282,9 +310,9 @@ impl Paint {
                     // spelling table that used to stand a placeholder letter
                     // in here: an empty claimed operand Cell now answers the
                     // same space an empty unclaimed one always has, and reads
-                    // as its Token tint alone (`cell_visuals_with_cursor_
-                    // colour`'s `fill_tint_colour`), never as a spelled
-                    // letter.
+                    // as its Token channel alone
+                    // (`crate::style::source_paint_visuals`), never as a
+                    // spelled letter.
                     character: cell.content().unwrap_or(' '),
                 });
             }
@@ -300,26 +328,24 @@ impl Paint {
     }
 
     ///
-    /// [`Self::derive_with_colours`] at the Theme's Cursor and Region colours
-    /// and the Source Paint defaults.
+    /// [`Self::derive_with_theme`] at the Okabe–Ito built-in, with an
+    /// otherwise-unset Cursor fill overridden to a visible colour so a test
+    /// asking about Cursor precedence need not build its own Theme to see
+    /// one — `.scratch/theming/schema.md`'s optional-fill default leaves
+    /// `cursor.background` unset, which every test in this module but the
+    /// ones about that default itself would otherwise have to work around.
     ///
     /// Compiled only for tests, like [`Self::at`], so it is not a shipped
-    /// seam: no console path derives a Paint from defaults, because
-    /// `show_source` always holds the viewer's live settings. What this saves
-    /// is a test having to name five colours to ask a question about one, and
-    /// `console/benches/paint.rs` — a separate crate, which never sees this —
-    /// states its own for the same reason
-    /// (`.scratch/syntax-highlighting/issues/07`).
+    /// seam: no console path derives a Paint from a test-only Theme, because
+    /// `show_source` always holds the console's own resolved one. What this
+    /// saves is a test having to build a Theme to ask a question about one
+    /// Cell, and `console/benches/paint.rs` — a separate crate, which never
+    /// sees this — states its own convenience Theme for the same reason
+    /// (`.scratch/theming/issues/06`).
     ///
     #[cfg(test)]
     pub(crate) fn derive(input: FramePaint<'_>) -> Self {
-        Self::derive_with_colours(
-            input,
-            Some(crate::style::PALETTE.selection_fill),
-            crate::cursor_effects::DEFAULT_REGION_COLOUR,
-            None,
-            SourcePaintSettings::default(),
-        )
+        Self::derive_with_theme(input, &test_theme())
     }
 
     ///
@@ -492,13 +518,27 @@ impl Paint {
     }
 }
 
+///
+/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
+/// unset `cursor.background` given a visible colour, so a test that asks
+/// about Cursor precedence sees one without building a Theme of its own. Not
+/// a shipped seam — see [`Paint::derive`]'s own doc.
+///
+#[cfg(test)]
+fn test_theme() -> Theme {
+    Theme {
+        cursor_background: Some(crate::style::PALETTE.selection_fill),
+        ..crate::theme::okabe_ito()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, FramePaint, Paint};
+    use super::{BackgroundRun, CellPaint, FramePaint, Paint, Theme};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
-    use crate::source_paint::{DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings};
     use crate::style::{PALETTE, cell_visuals_with_cursor_colour, sector_line};
+    use crate::theme::okabe_ito;
     use egui::Color32;
     use orcvs::source::{OperandState, SourcePaint, Token};
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
@@ -521,15 +561,32 @@ mod tests {
         }
     }
 
-    /// `source_paint`'s own Fill tint mix of `colour`, restated
-    /// independently of `style::fill_tint_colour` so a broken mix is
-    /// caught rather than mirrored — the same reading `style::tests`
-    /// pins its tint assertions with.
-    fn tinted(source_paint: SourcePaintSettings, colour: Color32) -> Color32 {
-        let strength = f32::from(source_paint.fill_tint()) / 100.0;
-        source_paint
-            .source_background()
-            .lerp_to_gamma(colour, strength)
+    /// The background a role's own foreground `colour` composites to, read
+    /// back from `theme` rather than recomputed: `.scratch/theming/schema.md`
+    /// replaced `syntax-highlighting/02`'s runtime Fill tint mix with a
+    /// stored value per role, so what a test asks is which stored value a
+    /// Cell answers, not a mix this layer would have to reimplement to
+    /// check. Every foreground `cell_visuals_with_cursor_colour` can answer
+    /// is distinct in the Okabe–Ito built-in except Ordinary/Atom, which
+    /// share one foreground and two different backgrounds — so callers that
+    /// mean Atom pass `theme.source_atom_background` directly rather than
+    /// through this table.
+    fn tinted(theme: &Theme, colour: Color32) -> Color32 {
+        for (foreground, background) in [
+            (theme.source_function, theme.source_function_background),
+            (theme.source_number, theme.source_number_background),
+            (theme.source_note, theme.source_note_background),
+            (theme.source_sequence, theme.source_sequence_background),
+            (
+                theme.output_portal_foreground,
+                theme.output_portal_background,
+            ),
+        ] {
+            if foreground == colour {
+                return background;
+            }
+        }
+        panic!("tinted: {colour:?} is not one of the Theme's tinted role foregrounds")
     }
 
     ///
@@ -548,16 +605,15 @@ mod tests {
     ///
     /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
     /// claim and its own Output Portal fact straight from `cell` — the same
-    /// two per-Cell inputs `Paint::derive_with_colours` reads, so a test
-    /// comparing against this needs no `SourcePaintSettings::default()`-only
-    /// shim.
+    /// two per-Cell inputs `Paint::derive_with_theme` reads, so a test
+    /// comparing against this needs no `okabe_ito()`-only shim.
     ///
     fn expected_visuals(
         cell: &orcvs::render_frame::RenderCell,
         selected: bool,
         cursor_visible: bool,
         cursor_colour: Option<Color32>,
-        source_paint: SourcePaintSettings,
+        theme: &Theme,
     ) -> crate::style::CellVisuals {
         cell_visuals_with_cursor_colour(
             cell.source_paint(),
@@ -565,7 +621,7 @@ mod tests {
             selected,
             cursor_visible,
             cursor_colour,
-            source_paint,
+            theme,
         )
     }
 
@@ -587,6 +643,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
+        let theme = okabe_ito();
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
         let cursor = frame.cursor();
@@ -599,7 +656,7 @@ mod tests {
                 selected,
                 selected && frame.cursor_visible(),
                 Some(PALETTE.selection_fill),
-                SourcePaintSettings::default(),
+                &theme,
             );
             let painted = paint.at(position);
 
@@ -661,14 +718,14 @@ mod tests {
         let cursor_fill = Color32::from_rgb(1, 2, 3);
         let own = Color32::from_rgba_unmultiplied(0, 0, 255, 200);
 
-        let painted = |orcvs: &Orcvs, cursor: Option<Color32>, region_cursor| {
-            Paint::derive_with_colours(
-                FramePaint::whole(&orcvs.render_frame()),
-                cursor,
-                fill,
-                region_cursor,
-                SourcePaintSettings::default(),
-            )
+        let painted = |orcvs: &Orcvs, cursor: Option<Color32>, region_cursor: Option<Color32>| {
+            let theme = Theme {
+                cursor_background: cursor,
+                region_background: fill,
+                region_cursor_background: region_cursor,
+                ..okabe_ito()
+            };
+            Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
         };
 
         orcvs.select(at(1, 1));
@@ -705,6 +762,191 @@ mod tests {
     }
 
     ///
+    /// "Other Region Cells use Region fill only when no visible effective
+    /// fact fill exists after role, Diagnostic and Portal composition"
+    /// (`.scratch/theming/schema.md`). A Function's own two-Cell spelling and
+    /// the Number operands beside it keep their own role backgrounds inside a
+    /// Region that spans them; the blank row above, which claims nothing,
+    /// falls back to the Region fill. The Function sits on the *last* row so
+    /// its Output Portal Reservation — the row south of a scalar-only
+    /// Function's anchor, `06`'s Answer — has no row to land on and cannot
+    /// be mistaken for "claims nothing" on a row this test never asked about.
+    ///
+    #[tokio::test]
+    async fn region_role_backgrounds_win_over_the_region_fill() {
+        let mut orcvs = running_orcvs(6, 2);
+        write_row(&mut orcvs, 1, ".+0102");
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        // The Region spans both rows; the Cursor lands on the blank row's
+        // far corner, away from every role-bearing Cell of row 1.
+        orcvs.select(at(0, 1));
+        orcvs.extend(at(5, 0));
+
+        let frame = orcvs.render_frame();
+        let theme = okabe_ito();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        assert!(paint.region_spans());
+        assert_eq!(paint.cursor(), Some(at(5, 0)));
+
+        // Function's own two-Cell spelling: `.+`.
+        for x in 0..2 {
+            assert_eq!(
+                paint.at(at(x, 1)).background,
+                Some(theme.source_function_background),
+                "Function Cell {x} took the Region fill instead of its own tint"
+            );
+        }
+        // The two Number operand entries: `01` and `02`.
+        for x in 2..6 {
+            assert_eq!(
+                paint.at(at(x, 1)).background,
+                Some(theme.source_number_background),
+                "Number operand Cell {x} took the Region fill instead of its own tint"
+            );
+        }
+        // The blank row above claims nothing, so every Cell but the
+        // Cursor's own falls back to the Region fill.
+        for x in 0..5 {
+            assert_eq!(
+                paint.at(at(x, 0)).background,
+                Some(theme.region_background),
+                "blank Region Cell {x} of row 0 did not fall back to the Region fill"
+            );
+        }
+        // The Cursor's own Cell inside the spanning Region: no fill of its
+        // own theme value, and Region fallback never applies to it either —
+        // `derive_with_theme`'s `is_cursor && region_spans` branch answers it
+        // outright.
+        assert_eq!(paint.at(at(5, 0)).background, None);
+    }
+
+    ///
+    /// `cell.background` "does not count as a fact fill when evaluating
+    /// Region fallback, so setting it cannot suppress Region highlighting"
+    /// (`.scratch/theming/schema.md`) — proven here with a `cell_background`
+    /// that is opaque, not the built-in's transparent default, so the
+    /// distinction between "no role contributed" and "the uniform base alone
+    /// is visible" cannot be collapsed by coincidence. Every Cell of the
+    /// Grid is checked, the same way `a_region_larger_than_one_cell_is_
+    /// filled_around_an_independently_coloured_cursor` above checks every
+    /// Cell rather than a hand-picked few, so a mistaken corner cannot slip
+    /// past unnoticed.
+    ///
+    #[tokio::test]
+    async fn region_fallback_applies_over_a_nontransparent_cell_background() {
+        let mut orcvs = running_orcvs(6, 4);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let base = Color32::from_rgba_unmultiplied(10, 20, 30, 255);
+        let theme = Theme {
+            cell_background: base,
+            ..okabe_ito()
+        };
+        let composed_region_fill = base.blend(theme.region_background);
+        assert_ne!(
+            composed_region_fill, base,
+            "the fixture's Region fill must actually change the composite"
+        );
+
+        orcvs.select(at(1, 1));
+        orcvs.extend(at(3, 2));
+        let cursor = at(3, 2);
+
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        assert!(paint.region_spans());
+        assert_eq!(paint.cursor(), Some(cursor));
+
+        for (position, cell) in paint.cells() {
+            let inside = (1..4).contains(&position.x()) && (1..3).contains(&position.y());
+            let wanted = if position == cursor {
+                // The Cursor's own Cell inside a spanning Region: no fill of
+                // its own Theme value, composited over the opaque base.
+                Some(base)
+            } else if inside {
+                Some(composed_region_fill)
+            } else {
+                Some(base)
+            };
+            assert_eq!(cell.background, wanted, "the background at {position:?}");
+        }
+    }
+
+    ///
+    /// `cell.background` at transparent, partial-alpha and opaque values,
+    /// composited beneath an ordinary Cell (no role fill — the `base_fill`
+    /// fallback above), a tinted Cell (a role background composited over it)
+    /// and a selected Cell outside a Region (the Cursor's own fill
+    /// composited over it) — `.scratch/theming/issues/06`: "Test transparent,
+    /// partial-alpha and opaque `cell.background` beneath ordinary, tinted
+    /// and selected Cells."
+    /// `region_fallback_applies_over_a_nontransparent_cell_background` above
+    /// already sweeps an *opaque* base across a Region; this sweeps every
+    /// alpha level and adds a tinted Cell and a non-Region selected Cell,
+    /// which that fixture's blank, single-Cell-Cursor-free Grid has neither
+    /// of. Both the role background and the Cursor fill are themselves given
+    /// partial alpha, so an opaque top layer cannot make the comparison pass
+    /// by coincidence (an opaque colour wins outright over any base,
+    /// `Color32::blend`, so it would never expose a base that was not
+    /// actually composited under it).
+    ///
+    #[tokio::test]
+    async fn cell_background_composites_beneath_ordinary_tinted_and_selected_cells_at_every_alpha()
+    {
+        let mut orcvs = running_orcvs(6, 3);
+        write_row(&mut orcvs, 0, ".+0102");
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        // The Function's own two-Cell spelling of row 0.
+        let function = at(0, 0);
+        let ordinary = at(4, 2);
+        let selected = at(5, 2);
+        orcvs.select(selected);
+        let cursor_fill = Color32::from_rgba_unmultiplied(9, 8, 7, 111);
+        let role_fill = Color32::from_rgba_unmultiplied(200, 100, 50, 128);
+
+        for base in [
+            Color32::TRANSPARENT,
+            Color32::from_rgba_unmultiplied(10, 20, 30, 128),
+            Color32::from_rgba_unmultiplied(10, 20, 30, 255),
+        ] {
+            let theme = Theme {
+                cell_background: base,
+                cursor_background: Some(cursor_fill),
+                source_function_background: role_fill,
+                ..okabe_ito()
+            };
+            let frame = orcvs.render_frame();
+            let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+            assert!(!paint.region_spans(), "a single-Cell Cursor never spans");
+            assert_eq!(paint.cursor(), Some(selected));
+
+            assert_eq!(
+                paint.at(ordinary).background,
+                (base.a() != 0).then_some(base),
+                "an ordinary Cell at cell.background alpha {}",
+                base.a()
+            );
+            assert_eq!(
+                paint.at(function).background,
+                Some(base.blend(role_fill)),
+                "a tinted Cell at cell.background alpha {}",
+                base.a()
+            );
+            assert_eq!(
+                paint.at(selected).background,
+                Some(base.blend(cursor_fill)),
+                "a selected Cell at cell.background alpha {}",
+                base.a()
+            );
+        }
+    }
+
+    ///
     /// Sector seams stand where Paint derives them, and nowhere on the Cursor's
     /// own Cell while it is framed on its own.
     ///
@@ -728,6 +970,10 @@ mod tests {
         let paint = whole(&frame);
         let spacing = frame.sector_seam_spacing().cells();
         let cursor = frame.cursor();
+        // `whole` derives against `test_theme`, itself the Okabe–Ito built-in
+        // apart from its Cursor fill, so its `sector_seam` is the base
+        // `sector_line` attenuates below.
+        let base = okabe_ito().sector_seam;
         let mut seams = 0;
 
         for cell in frame.cells() {
@@ -748,12 +994,12 @@ mod tests {
 
             assert_eq!(
                 painted.sector_left,
-                left.map(sector_line),
+                left.map(|strength| sector_line(strength, base)),
                 "the left seam at {position:?}"
             );
             assert_eq!(
                 painted.sector_top,
-                top.map(sector_line),
+                top.map(|strength| sector_line(strength, base)),
                 "the top seam at {position:?}"
             );
             seams += usize::from(painted.sector_left.is_some());
@@ -783,12 +1029,19 @@ mod tests {
 
         let left = sector_left_strength(at(8, 8), spacing);
         let top = sector_top_strength(at(8, 8), spacing);
+        let base = okabe_ito().sector_seam;
         assert!(
             left.is_some() && top.is_some(),
             "the Cursor is off a sector corner"
         );
-        assert_eq!(painted.sector_left, left.map(sector_line));
-        assert_eq!(painted.sector_top, top.map(sector_line));
+        assert_eq!(
+            painted.sector_left,
+            left.map(|strength| sector_line(strength, base))
+        );
+        assert_eq!(
+            painted.sector_top,
+            top.map(|strength| sector_line(strength, base))
+        );
     }
 
     ///
@@ -831,10 +1084,10 @@ mod tests {
     ///
     /// An empty claimed operand Cell of every Token a signature can declare —
     /// Number, Note, Atom, Sequence — shows no character at all: the tint
-    /// `style::fill_tint_colour` paints is the whole of what marks it as
+    /// `style::source_paint_visuals` paints is the whole of what marks it as
     /// Pending, and the space it shows is the same one an empty unclaimed
     /// Cell always has. `Token::Char` is not one of the Tokens exercised
-    /// here: `style::fill_tint_colour`'s own doc explains why no operand ever
+    /// here: `style::source_paint_visuals`'s own doc explains why no operand ever
     /// declares it, so there is no empty *claimed* Char Cell to write this
     /// test against — a Leftover Char is never empty, since content is what
     /// makes it Char at all.
@@ -861,7 +1114,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
 
         // The Addition's two Number operands, columns 2-5 of row 0.
         for x in 2..6 {
@@ -879,7 +1132,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(cell, false, false, None, source_paint).background,
+                expected_visuals(cell, false, false, None, &theme).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -900,7 +1153,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(cell, false, false, None, source_paint).background,
+                expected_visuals(cell, false, false, None, &theme).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -933,7 +1186,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
         let position = orcvs.grid().position(4, 0).expect("inside the grid");
         let cell = frame.at(position);
 
@@ -953,7 +1206,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            expected_visuals(cell, false, false, None, source_paint).background,
+            expected_visuals(cell, false, false, None, &theme).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -980,7 +1233,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
 
         for x in [0, 1, 3, 4, 6] {
             let position = orcvs.grid().position(x, 0).expect("inside the grid");
@@ -990,17 +1243,20 @@ mod tests {
                 "column {x} was not a Function claim that bound nothing"
             );
             let painted = paint.at(position);
-            assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+            assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
             assert_eq!(painted.background, None, "column {x}");
         }
 
         for x in 2..4 {
             let position = orcvs.grid().position(x, 1).expect("inside the grid");
             let painted = paint.at(position);
-            assert_eq!(painted.foreground, source_paint.diagnostic(), "column {x}");
+            assert_eq!(
+                painted.foreground, theme.diagnostic_foreground,
+                "column {x}"
+            );
             assert_eq!(
                 painted.background,
-                expected_visuals(frame.at(position), false, false, None, source_paint).background,
+                expected_visuals(frame.at(position), false, false, None, &theme).background,
                 "column {x} did not keep the Number tint"
             );
             assert!(painted.background.is_some(), "column {x} lost its tint");
@@ -1021,7 +1277,7 @@ mod tests {
     /// rule stated only over the rejected pair cannot say that the operand
     /// beside it was left alone. The tint is read as one answer shared by the
     /// four Cells and distinct from `.+`'s own Function tint, rather than as
-    /// a colour restated from `style::fill_tint_colour`'s mix.
+    /// a colour restated from `style::source_paint_visuals`'s mix.
     ///
     /// The two Expressions sit two rows apart so that neither one's Output
     /// Portal Reservation — row 1 for the first, row 3 for the second, both
@@ -1042,7 +1298,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
 
         for (row, operands) in [(0, "**01"), (2, "||02")] {
             let mut tints = Vec::new();
@@ -1072,9 +1328,9 @@ mod tests {
                 assert_eq!(
                     painted.foreground,
                     if rejected {
-                        source_paint.diagnostic()
+                        theme.diagnostic_foreground
                     } else {
-                        source_paint.number()
+                        theme.source_number
                     },
                     "row {row} column {x} drew the wrong glyph colour"
                 );
@@ -1121,15 +1377,14 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
         let selected = paint.at(cursor);
         let unselected = paint.at(orcvs.grid().position(3, 0).expect("inside the grid"));
 
         assert_eq!(paint.cursor(), Some(cursor));
         assert_eq!(selected.character, '*');
         assert_eq!(
-            selected.foreground,
-            source_paint.diagnostic(),
+            selected.foreground, theme.diagnostic_foreground,
             "the Cursor's Cell lost the Invalid operand's Diagnostic glyph"
         );
         assert_eq!(
@@ -1138,14 +1393,49 @@ mod tests {
             "the Cursor's Cell did not take the Cursor's own fill"
         );
         assert_eq!(
-            unselected.foreground,
-            source_paint.diagnostic(),
+            unselected.foreground, theme.diagnostic_foreground,
             "the unselected half of the same rejected operand"
         );
         assert!(
             unselected.background.is_some() && unselected.background != selected.background,
             "the unselected half did not keep a tint of its own: {:?}",
             unselected.background
+        );
+    }
+
+    ///
+    /// Defect 3, end to end: a written Invalid operand's border composites
+    /// `theme.diagnostic_border` over `theme.grid_border`, reaching
+    /// `Paint::derive_with_theme` from a real written Source rather than a
+    /// hand-built `SourcePaint` fact —
+    /// `style::tests::a_diagnostic_border_with_a_non_transparent_colour_shows`
+    /// is the unit-level proof this is the same rule; this is the wiring
+    /// proof. Reuses `.+**01`'s fixture: `**` (columns 2–3) is the rejected
+    /// Number operand, `01` (columns 4–5) the valid one.
+    ///
+    #[tokio::test]
+    async fn a_written_invalid_operand_shows_a_non_transparent_diagnostic_border() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+**01".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let visible = Color32::from_rgb(200, 30, 30);
+        let theme = Theme {
+            diagnostic_border: visible,
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        let invalid = paint.at(orcvs.grid().position(2, 0).expect("inside the grid"));
+        let valid = paint.at(orcvs.grid().position(4, 0).expect("inside the grid"));
+
+        assert_eq!(invalid.border, theme.grid_border.blend(visible));
+        assert_eq!(invalid.border_width, theme.diagnostic_border_width.points());
+        assert_eq!(
+            valid.border, theme.grid_border,
+            "a Valid operand took the Diagnostic border it has no fact for"
         );
     }
 
@@ -1218,7 +1508,7 @@ mod tests {
         let orcvs = operand_token_sampler();
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
         let grid = orcvs.grid();
         let mut tints = std::collections::BTreeSet::new();
 
@@ -1228,32 +1518,32 @@ mod tests {
                 2..6,
                 Token::Number,
                 OperandState::Pending,
-                source_paint.number(),
-                source_paint.number(),
+                theme.source_number_background,
+                theme.source_number,
             ),
             (
                 2,
                 2..6,
                 Token::Note,
                 OperandState::Valid,
-                source_paint.note(),
-                source_paint.note(),
+                theme.source_note_background,
+                theme.source_note,
             ),
             (
                 4,
                 2..6,
                 Token::Atom,
                 OperandState::Pending,
-                source_paint.ordinary(),
-                source_paint.ordinary(),
+                theme.source_atom_background,
+                theme.source_ordinary,
             ),
             (
                 6,
                 2..4,
                 Token::Sequence,
                 OperandState::Invalid,
-                source_paint.sequence(),
-                source_paint.diagnostic(),
+                theme.source_sequence_background,
+                theme.diagnostic_foreground,
             ),
         ] {
             for x in operands {
@@ -1273,7 +1563,7 @@ mod tests {
                 let painted = paint.at(position);
                 assert_eq!(
                     painted.background,
-                    Some(tinted(source_paint, tint)),
+                    Some(tint),
                     "row {row} column {x} was not tinted with its own Token's colour"
                 );
                 assert_eq!(
@@ -1289,20 +1579,19 @@ mod tests {
                 let painted = paint.at(position);
                 assert_eq!(
                     painted.background,
-                    Some(tinted(source_paint, source_paint.function())),
+                    Some(theme.source_function_background),
                     "row {row} column {x} was not tinted with the Function colour"
                 );
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.function(),
+                    painted.foreground, theme.source_function,
                     "row {row} column {x} did not draw the Function colour"
                 );
             }
 
-            tints.insert(tinted(source_paint, tint).to_array());
+            tints.insert(tint.to_array());
         }
 
-        tints.insert(tinted(source_paint, source_paint.function()).to_array());
+        tints.insert(theme.source_function_background.to_array());
         assert_eq!(
             tints.len(),
             5,
@@ -1311,42 +1600,42 @@ mod tests {
     }
 
     ///
-    /// A Fill tint of `0` paints no background anywhere — not on a Function
-    /// Cell, not on an Operand Cell of any Token, and not on an Output Portal
-    /// Cell either, since `06`'s paint mixes at the same strength. The
-    /// assertion is over every Cell of the Grid rather than over the claimed
-    /// ones, so a role that acquired a fill of its own would fail here.
+    /// A Theme whose role backgrounds are all transparent paints no
+    /// background anywhere — not on a Function Cell, not on an Operand Cell
+    /// of any Token, and not on an Output Portal Cell either, since `06`'s
+    /// paint composites the same channel. The assertion is over every Cell of
+    /// the Grid rather than over the claimed ones, so a role that acquired a
+    /// fill of its own would fail here.
     ///
-    /// The same Source at the default strength is the control: each of the 22
-    /// Cells an Expression claims does carry a background there, so `0`
-    /// answering `None` is the strength doing it and not the fixture having
-    /// nothing to tint. `None` rather than `Some(source_background)` is the
-    /// point of the rule — a Cell tinted at `0%` costs `background_runs`
-    /// nothing to walk.
+    /// The same Source under the Okabe–Ito built-in is the control: each of
+    /// the 22 Cells an Expression claims does carry a background there, so
+    /// `None` answering every Cell under the transparent Theme is the Theme
+    /// doing it and not the fixture having nothing to tint. `None` rather
+    /// than `Some(grid_background)` is the point of the rule — a Cell with a
+    /// fully transparent composite costs `background_runs` nothing to walk.
     ///
-    /// The Cursor's colour is handed in as `None` here rather than as the
-    /// Theme's fill, so the Cursor's own Cell has no fill to contribute
-    /// either; its precedence over the tint is
+    /// The Cursor's fill is `None` on both Themes here rather than set, so
+    /// the Cursor's own Cell has no fill to contribute either; its precedence
+    /// over a role's own channel is
     /// `the_cursors_own_fill_wins_over_a_function_cells_tint`'s subject.
     ///
     #[tokio::test]
-    async fn zero_percent_fill_tint_paints_no_tint_on_any_cell_a_source_claims() {
+    async fn a_theme_with_every_role_background_transparent_paints_no_tint_on_any_cell_a_source_claims()
+     {
         let orcvs = operand_token_sampler();
         let frame = orcvs.render_frame();
         let grid = orcvs.grid();
-        let mut source_paint = SourcePaintSettings::default();
-        let painted = |source_paint| {
-            Paint::derive_with_colours(
-                FramePaint::whole(&frame),
-                None,
-                crate::cursor_effects::DEFAULT_REGION_COLOUR,
-                None,
-                source_paint,
-            )
+        let transparent = Theme {
+            source_function_background: Color32::TRANSPARENT,
+            source_number_background: Color32::TRANSPARENT,
+            source_note_background: Color32::TRANSPARENT,
+            source_atom_background: Color32::TRANSPARENT,
+            source_sequence_background: Color32::TRANSPARENT,
+            output_portal_background: Color32::TRANSPARENT,
+            ..okabe_ito()
         };
 
-        assert_ne!(source_paint.fill_tint(), 0);
-        let default_strength = painted(source_paint);
+        let default_theme = Paint::derive_with_theme(FramePaint::whole(&frame), &okabe_ito());
         let claimed: Vec<_> = frame
             .cells()
             .iter()
@@ -1360,20 +1649,19 @@ mod tests {
         );
         for position in &claimed {
             assert!(
-                default_strength.at(*position).background.is_some(),
-                "{position:?} had nothing to tint at the default strength"
+                default_theme.at(*position).background.is_some(),
+                "{position:?} had nothing to tint under the Okabe–Ito built-in"
             );
         }
 
-        *source_paint.fill_tint_mut() = 0;
-        let no_strength = painted(source_paint);
+        let no_tint = Paint::derive_with_theme(FramePaint::whole(&frame), &transparent);
         for row in 0..grid.rows() {
             for column in 0..grid.columns() {
                 let position = grid.position(column, row).expect("inside the grid");
                 assert_eq!(
-                    no_strength.at(position).background,
+                    no_tint.at(position).background,
                     None,
-                    "{position:?} was tinted at 0%"
+                    "{position:?} was tinted under the transparent Theme"
                 );
             }
         }
@@ -1386,9 +1674,10 @@ mod tests {
     /// east of it are claimed by nothing at all. Each keeps its own glyph
     /// colour and answers no background.
     ///
-    /// Read at the default Fill tint strength, which is asserted non-zero, so
-    /// a missing exclusion cannot hide behind a strength of zero. None of the
-    /// three roles is inside a Reservation — a Comment reserves nothing and a
+    /// Read under the Okabe–Ito built-in, whose Comment/Bang/Ordinary role
+    /// backgrounds are transparent by definition, so a missing exclusion
+    /// cannot hide behind an already-transparent Theme. None of the three
+    /// roles is inside a Reservation — a Comment reserves nothing and a
     /// standalone Bang is not a root Function — which the test asserts rather
     /// than assumes, since `06`'s paint would otherwise supply the tint that
     /// is supposed to be absent.
@@ -1402,14 +1691,13 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
         let grid = orcvs.grid();
-        assert_ne!(source_paint.fill_tint(), 0);
 
         for (row, columns, expected, foreground) in [
-            (0, 0..8, SourcePaint::Comment, source_paint.comment()),
-            (2, 0..2, SourcePaint::Bang, source_paint.bang()),
-            (2, 2..8, SourcePaint::Unclaimed, source_paint.ordinary()),
+            (0, 0..8, SourcePaint::Comment, theme.source_comment),
+            (2, 0..2, SourcePaint::Bang, theme.source_bang),
+            (2, 2..8, SourcePaint::Unclaimed, theme.source_ordinary),
         ] {
             for x in columns {
                 let position = grid.position(x, row).expect("inside the grid");
@@ -1457,8 +1745,8 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
-        let function_tint = tinted(source_paint, source_paint.function());
+        let theme = okabe_ito();
+        let function_tint = tinted(&theme, theme.source_function);
         let selected = paint.at(cursor);
         let unselected = paint.at(orcvs.grid().position(1, 0).expect("inside the grid"));
 
@@ -1475,8 +1763,7 @@ mod tests {
             "the unselected half of the same Function spelling lost its tint"
         );
         assert_eq!(
-            selected.foreground,
-            source_paint.function(),
+            selected.foreground, theme.source_function,
             "the Cursor's Cell stopped spelling in the Function colour"
         );
     }
@@ -1490,7 +1777,7 @@ mod tests {
     /// south of a Function is indistinguishable from one a Tick wrote.
     ///
     mod output_portal_paint {
-        use super::{SourcePaintSettings, running_orcvs, tinted, whole, write_row};
+        use super::{okabe_ito, running_orcvs, tinted, whole, write_row};
 
         ///
         /// A scalar answer south of a Function draws in the Output Portal
@@ -1509,8 +1796,8 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -1518,8 +1805,7 @@ mod tests {
                 assert!(frame.at(position).output_portal(), "column {x}");
                 let painted = paint.at(position);
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.output_portal(),
+                    painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
                 assert_eq!(painted.background, Some(output_tinted), "column {x}");
@@ -1548,16 +1834,15 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..2 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.output_portal(),
+                    painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
                 assert_eq!(painted.background, Some(output_tinted), "column {x}");
@@ -1586,8 +1871,8 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..8 {
@@ -1595,8 +1880,7 @@ mod tests {
                 assert!(frame.at(position).output_portal(), "column {x}");
                 let painted = paint.at(position);
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.output_portal(),
+                    painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
                 assert_eq!(painted.background, Some(output_tinted), "column {x}");
@@ -1633,25 +1917,21 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..2 {
                 let portal_position = grid.position(x, 1).expect("inside the grid");
                 assert!(frame.at(portal_position).output_portal(), "column {x}");
                 let portal_painted = paint.at(portal_position);
-                assert_eq!(portal_painted.foreground, source_paint.bang(), "column {x}");
+                assert_eq!(portal_painted.foreground, theme.source_bang, "column {x}");
                 assert_eq!(portal_painted.background, Some(output_tinted), "column {x}");
 
                 let ordinary_position = grid.position(x, 2).expect("inside the grid");
                 assert!(!frame.at(ordinary_position).output_portal(), "column {x}");
                 let ordinary_painted = paint.at(ordinary_position);
-                assert_eq!(
-                    ordinary_painted.foreground,
-                    source_paint.bang(),
-                    "column {x}"
-                );
+                assert_eq!(ordinary_painted.foreground, theme.source_bang, "column {x}");
                 assert_eq!(
                     ordinary_painted.background, None,
                     "an ordinary Bang outside a Reservation is untinted, column {x}"
@@ -1674,8 +1954,8 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -1708,14 +1988,14 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
+            let theme = okabe_ito();
             let grid = orcvs.grid();
 
             for x in 0..8 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 assert!(!frame.at(position).output_portal(), "column {x}");
                 let painted = paint.at(position);
-                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
                 assert_eq!(painted.background, None, "column {x}");
                 assert_eq!(painted.character, ' ', "column {x}");
             }
@@ -1734,14 +2014,14 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
+            let theme = okabe_ito();
             let grid = orcvs.grid();
 
             for x in 0..4 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 assert!(!frame.at(position).output_portal(), "column {x}");
                 let painted = paint.at(position);
-                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
                 assert_eq!(painted.background, None, "column {x}");
             }
         }
@@ -1765,14 +2045,14 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
+            let theme = okabe_ito();
             let grid = orcvs.grid();
 
             for x in 2..6 {
                 let position = grid.position(x, 0).expect("inside the grid");
                 assert!(!frame.at(position).output_portal(), "column {x}");
                 let painted = paint.at(position);
-                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
                 assert_eq!(painted.background, None, "column {x}");
             }
         }
@@ -1803,9 +2083,9 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let function_tinted = tinted(source_paint, source_paint.function());
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let theme = okabe_ito();
+            let function_tinted = tinted(&theme, theme.source_function);
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..6 {
@@ -1821,8 +2101,7 @@ mod tests {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.function(),
+                    painted.foreground, theme.source_function,
                     "Add's own spelling, column {x}"
                 );
                 assert_eq!(
@@ -1835,8 +2114,7 @@ mod tests {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.output_portal(),
+                    painted.foreground, theme.output_portal_foreground,
                     "Add's own Number operand, column {x}"
                 );
                 assert_eq!(
@@ -1879,9 +2157,9 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
-            let number_tinted = tinted(source_paint, source_paint.number());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let number_tinted = tinted(&theme, theme.source_number);
             let grid = orcvs.grid();
             let highlighted = |y: usize| -> String {
                 (0..grid.columns())
@@ -1914,8 +2192,7 @@ mod tests {
                     let position = grid.position(x, y).expect("inside the grid");
                     let painted = paint.at(position);
                     assert_eq!(
-                        painted.foreground,
-                        source_paint.number(),
+                        painted.foreground, theme.source_number,
                         "right operand at ({x}, {y})"
                     );
                     assert_eq!(
@@ -1934,8 +2211,7 @@ mod tests {
                     let position = grid.position(x, y).expect("inside the grid");
                     let painted = paint.at(position);
                     assert_eq!(
-                        painted.foreground,
-                        source_paint.output_portal(),
+                        painted.foreground, theme.output_portal_foreground,
                         "right answer at ({x}, {y})"
                     );
                     assert_eq!(
@@ -1974,9 +2250,9 @@ mod tests {
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let source_paint = SourcePaintSettings::default();
-            let output_tinted = tinted(source_paint, source_paint.output_portal());
-            let number_tinted = tinted(source_paint, source_paint.number());
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let number_tinted = tinted(&theme, theme.source_number);
             let grid = orcvs.grid();
             let highlighted = |y: usize| -> String {
                 (0..grid.columns())
@@ -2002,7 +2278,7 @@ mod tests {
             for x in 11..15 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);
-                assert_eq!(painted.foreground, source_paint.number(), "operand at {x}");
+                assert_eq!(painted.foreground, theme.source_number, "operand at {x}");
                 assert_eq!(painted.background, Some(number_tinted), "operand at {x}");
             }
 
@@ -2011,8 +2287,7 @@ mod tests {
                 let position = grid.position(x, 2).expect("inside the grid");
                 let painted = paint.at(position);
                 assert_eq!(
-                    painted.foreground,
-                    source_paint.output_portal(),
+                    painted.foreground, theme.output_portal_foreground,
                     "right answer at {x}"
                 );
                 assert_eq!(
@@ -2049,7 +2324,8 @@ mod tests {
                 .map(|&background| CellPaint {
                     background,
                     border: PALETTE.grid_line,
-                    foreground: DEFAULT_ORDINARY,
+                    border_width: okabe_ito().grid_border_width.points(),
+                    foreground: okabe_ito().source_ordinary,
                     sector_left: None,
                     sector_top: None,
                     character: ' ',
@@ -2095,17 +2371,15 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let source_paint = SourcePaintSettings::default();
+        let theme = okabe_ito();
         // The real bound claims this fixture already carries: `.+`'s own
         // Function claim (columns 0-1) and Multiply's first Number operand
         // (columns 4-5), rather than a claim built by hand — both are bound,
         // so `written` plays no part in either tint.
         let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
         let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
-        let function_tint =
-            expected_visuals(function_cell, false, false, None, source_paint).background;
-        let number_tint =
-            expected_visuals(number_cell, false, false, None, source_paint).background;
+        let function_tint = expected_visuals(function_cell, false, false, None, &theme).background;
+        let number_tint = expected_visuals(number_cell, false, false, None, &theme).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 
@@ -2144,7 +2418,7 @@ mod tests {
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
         let first = PALETTE.selection_fill;
-        let second = DEFAULT_SOURCE_BACKGROUND;
+        let second = okabe_ito().grid_background;
         let paint = paint_of(&[&[Some(first), Some(first), Some(second), Some(second)]]);
 
         assert_eq!(
