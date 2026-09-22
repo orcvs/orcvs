@@ -181,7 +181,12 @@ impl CursorEffectAnimation {
 #[derive(Debug, Default)]
 pub struct CursorEffectShapes {
     pub(crate) area: Vec<Shape>,
-    pub(crate) frame: Vec<Shape>,
+    /// The Cursor's own stroke: `None` when no frame was built — the effect
+    /// never reached the clip — and `Some` once it was, empty included. A
+    /// frame hidden by a zero width is still the Cursor's whole stroke, so
+    /// the caller must not read it as "no frame" and paint another in its
+    /// place.
+    pub(crate) frame: Option<Vec<Shape>>,
 }
 
 pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
@@ -200,16 +205,16 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// before a Shape is allocated, so work follows the visible edge rather than
 /// the Grid.
 ///
-/// `area_colour` and `frame_colour` are the resolved Theme's `cursor.area`
-/// and `cursor.border`/`region.border` (the caller picks the outline colour:
-/// `cursor.border` for the Cursor's own frame, `region.border` for the lasso
-/// around a Region larger than one Cell) — `.scratch/theming/issues/06`
-/// moved both out of [`CursorEffectSettings`], which now carries only the
-/// motion `settings` decide from here. `frame_width` is the same caller's
-/// choice of `cursor.border.width`/`region.border.width`: a fixed display-point
-/// nominal width, never scaled by `cell_size`/Grid zoom (`.scratch/theming/
-/// issues/06` slice C). Zero hides every frame stroke outright — see this
-/// module's private `frame_shapes` — without touching the living-area fill `area_colour` and
+/// `area_colour` is the resolved Theme's `cursor.area`, and `frame` is the
+/// outline's colour and nominal width taken together, as one choice, from
+/// `cursor.border`/`cursor.border.width` for the Cursor's own frame or
+/// `region.border`/`region.border.width` for the lasso around a Region larger
+/// than one Cell — `.scratch/theming/issues/06` moved both out of
+/// [`CursorEffectSettings`], which now carries only the motion `settings`
+/// decide from here. The width is a fixed display-point nominal width, never
+/// scaled by `cell_size`/Grid zoom (`.scratch/theming/issues/06` slice C).
+/// Zero hides every frame stroke outright — see this module's private
+/// `frame_shapes` — without touching the living-area fill `area_colour` and
 /// `amount` still control. One over clippy's default: every parameter is an
 /// independent, already-tested value with nowhere smaller to group into, the
 /// same reasoning `console.rs::show_source`'s own
@@ -224,8 +229,7 @@ pub fn cursor_effect_shapes(
     sample: CursorEffectSample,
     settings: CursorEffectSettings,
     area_colour: Color32,
-    frame_colour: Color32,
-    frame_width: f32,
+    frame: Stroke,
 ) -> CursorEffectShapes {
     let mut shapes = CursorEffectShapes::default();
     if !effect_bounds(cursor, cell_size)
@@ -247,16 +251,9 @@ pub fn cursor_effect_shapes(
             amount,
         );
     }
-    frame_shapes(
-        &mut shapes.frame,
-        outline,
-        cell_size,
-        clip,
-        sample,
-        frame_colour,
-        amount,
-        frame_width,
-    );
+    shapes.frame = Some(frame_shapes(
+        outline, cell_size, clip, sample, frame, amount,
+    ));
     shapes
 }
 
@@ -353,36 +350,33 @@ fn area_shapes(
 
 ///
 /// The eroded Cursor/Region frame: a stationary outline when `amount` is
-/// zero, or the animated fragments otherwise. `width` is the nominal
+/// zero, or the animated fragments otherwise. `stroke.width` is the nominal
 /// display-point width `cursor_effect_shapes` resolved from the Theme
 /// (`cursor.border.width`/`region.border.width`), fixed in points and never
 /// scaled by `cell_size`/`CELL_SIZE` — `cell_size` still drives every
 /// fragment's *position* and *length* along the edge, which is Grid geometry
 /// rather than stroke weight and stays proportional to the Cell side.
 ///
-/// `width <= 0.0` hides every stroke this function would otherwise build,
-/// without touching the living-area fill `area_shapes` paints independently:
-/// no shape is pushed at all, at every `amount`, rather than a zero-width one
-/// left for the painter to drop.
+/// `stroke.width <= 0.0` hides every stroke this function would otherwise
+/// build, without touching the living-area fill `area_shapes` paints
+/// independently: no shape is built at all, at every `amount`, rather than a
+/// zero-width one left for the painter to drop.
 ///
-/// Eight parameters, one over clippy's default, for the same reason
-/// `console.rs::show_source`'s own `#[allow(clippy::too_many_arguments)]`
-/// states: every parameter is an independent, already-tested value with
-/// nowhere smaller to group into.
-///
-#[allow(clippy::too_many_arguments)]
 fn frame_shapes(
-    out: &mut Vec<Shape>,
     outline: Rect,
     cell_size: f32,
     clip: Rect,
     sample: CursorEffectSample,
-    colour: Color32,
+    stroke: Stroke,
     amount: f32,
-    width: f32,
-) {
+) -> Vec<Shape> {
+    let Stroke {
+        width,
+        color: colour,
+    } = stroke;
+    let mut out = Vec::new();
     if width <= 0.0 {
-        return;
+        return out;
     }
     let side = cell_size;
     let scale = side / CELL_SIZE;
@@ -390,10 +384,10 @@ fn frame_shapes(
         out.push(Shape::Rect(RectShape::stroke(
             outline,
             0.0,
-            Stroke::new(width, colour),
+            stroke,
             egui::StrokeKind::Inside,
         )));
-        return;
+        return out;
     }
     // How many Cell-lengths each pair of edges spans. A Cell's frame is one of
     // each, and its keys are the ones the unit index zero leaves unchanged.
@@ -470,6 +464,7 @@ fn frame_shapes(
             }
         }
     }
+    out
 }
 
 fn edge_segment(rect: Rect, edge: u64, start: f32, end: f32, outward: f32) -> (Pos2, Pos2) {
@@ -525,6 +520,18 @@ mod tests {
     /// `region.border.width`: 1 point), reused as every geometry test's
     /// nominal width unless a test states otherwise.
     const FRAME_WIDTH: f32 = 1.0;
+    const FRAME: Stroke = Stroke {
+        width: FRAME_WIDTH,
+        color: FRAME_COLOUR,
+    };
+
+    /// The frame an effect that reached the clip built.
+    fn built(effects: &CursorEffectShapes) -> &[Shape] {
+        effects
+            .frame
+            .as_deref()
+            .expect("the effect reached the clip and built its frame")
+    }
 
     fn sample(frame: u64, grain: u64, field: u64) -> CursorEffectSample {
         CursorEffectSample {
@@ -634,8 +641,7 @@ mod tests {
             sample(1, 2, 3),
             settings,
             AREA_COLOUR,
-            FRAME_COLOUR,
-            FRAME_WIDTH,
+            FRAME,
         );
         let second = cursor_effect_shapes(
             cursor,
@@ -645,10 +651,12 @@ mod tests {
             sample(4, 2, 3),
             settings,
             AREA_COLOUR,
-            FRAME_COLOUR,
-            FRAME_WIDTH,
+            FRAME,
         );
-        assert_ne!(format!("{:?}", first.frame), format!("{:?}", second.frame));
+        assert_ne!(
+            format!("{:?}", built(&first)),
+            format!("{:?}", built(&second))
+        );
 
         for edge in [
             Rect::from_min_max(
@@ -669,15 +677,13 @@ mod tests {
             ),
         ] {
             assert!(
-                first
-                    .frame
+                built(&first)
                     .iter()
                     .any(|shape| shape.visual_bounding_rect().intersects(edge))
             );
         }
         assert!(
-            first
-                .frame
+            built(&first)
                 .iter()
                 .all(|shape| shape.visual_bounding_rect().intersects(cursor.expand(8.0)))
         );
@@ -714,8 +720,7 @@ mod tests {
                 sample(frame, 2, 3),
                 settings,
                 AREA_COLOUR,
-                FRAME_COLOUR,
-                FRAME_WIDTH,
+                FRAME,
             );
             let alone = cursor_effect_shapes(
                 cursor,
@@ -725,15 +730,13 @@ mod tests {
                 sample(frame, 2, 3),
                 settings,
                 AREA_COLOUR,
-                FRAME_COLOUR,
-                FRAME_WIDTH,
+                FRAME,
             );
-            assert!(heaviest(&lasso.frame) <= 1.25 + 1e-3);
-            assert!(heaviest(&alone.frame) <= 1.25 + 1e-3);
+            assert!(heaviest(built(&lasso)) <= 1.25 + 1e-3);
+            assert!(heaviest(built(&alone)) <= 1.25 + 1e-3);
 
             let touches = |probe: Rect| {
-                lasso
-                    .frame
+                built(&lasso)
                     .iter()
                     .any(|shape| shape.visual_bounding_rect().intersects(probe))
             };
@@ -758,8 +761,7 @@ mod tests {
                 }
             }
             assert!(
-                lasso
-                    .frame
+                built(&lasso)
                     .iter()
                     .all(|shape| shape.visual_bounding_rect().intersects(outline.expand(8.0))),
                 "a lasso fragment strayed from the Region"
@@ -784,12 +786,11 @@ mod tests {
             sample(9, 2, 3),
             settings,
             AREA_COLOUR,
-            FRAME_COLOUR,
-            FRAME_WIDTH,
+            FRAME,
         );
         // Eight fragments on each of four edges at most, and seven tears.
-        assert!(effects.frame.len() <= 4 * 8 + 7);
-        assert!(effects.frame.len() >= 4 * 2);
+        assert!(built(&effects).len() <= 4 * 8 + 7);
+        assert!(built(&effects).len() >= 4 * 2);
     }
 
     // The Region fill, the Cursor's optional Cell fill, and the Cursor's
@@ -814,8 +815,7 @@ mod tests {
             sample(1, 0x1234, 0x5678),
             CursorEffectSettings::default(),
             AREA_COLOUR,
-            FRAME_COLOUR,
-            FRAME_WIDTH,
+            FRAME,
         );
         assert!(!effects.area.is_empty());
         assert!(effects.area.len() <= 254);
@@ -845,8 +845,7 @@ mod tests {
                 sample(1, field, field.rotate_left(7)),
                 CursorEffectSettings::default(),
                 AREA_COLOUR,
-                FRAME_COLOUR,
-                FRAME_WIDTH,
+                FRAME,
             );
             assert!(effects.area.iter().all(|shape| {
                 let shape = shape.visual_bounding_rect();
@@ -867,11 +866,10 @@ mod tests {
             sample(1, 2, 3),
             CursorEffectSettings::default(),
             AREA_COLOUR,
-            FRAME_COLOUR,
-            FRAME_WIDTH,
+            FRAME,
         );
         assert!(effects.area.is_empty());
-        assert!(effects.frame.is_empty());
+        assert!(effects.frame.is_none());
     }
 
     /// The alpha byte a `Shape::Rect` fill or `Shape::LineSegment` stroke was
@@ -916,11 +914,13 @@ mod tests {
                     sample(3, 5, 7),
                     settings,
                     AREA_COLOUR,
-                    FRAME_COLOUR,
-                    0.0,
+                    Stroke {
+                        width: 0.0,
+                        ..FRAME
+                    },
                 );
                 assert!(
-                    effects.frame.is_empty(),
+                    built(&effects).is_empty(),
                     "a Cursor frame stroke survived width 0 at cell_size {cell_size}"
                 );
             }
@@ -935,8 +935,10 @@ mod tests {
                 sample(3, 5, 7),
                 CursorEffectSettings::default(),
                 AREA_COLOUR,
-                FRAME_COLOUR,
-                0.0,
+                Stroke {
+                    width: 0.0,
+                    ..FRAME
+                },
             );
             assert!(
                 !effects.area.is_empty(),
@@ -971,16 +973,15 @@ mod tests {
                 sample(3, 5, 7),
                 settings,
                 AREA_COLOUR,
-                FRAME_COLOUR,
-                FRAME_WIDTH,
+                FRAME,
             );
             assert_eq!(
-                effects.frame.len(),
+                built(&effects).len(),
                 1,
                 "the stationary outline is one stroke"
             );
-            let Shape::Rect(stroked) = &effects.frame[0] else {
-                panic!("the stationary outline was {:?}", effects.frame[0])
+            let Shape::Rect(stroked) = &built(&effects)[0] else {
+                panic!("the stationary outline was {:?}", built(&effects)[0])
             };
             assert_eq!(
                 stroked.stroke.width, FRAME_WIDTH,
@@ -1013,17 +1014,7 @@ mod tests {
             // count (`across`/`down`) stays the same at every cell_size and
             // only the stroke width can differ.
             let outline = Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size));
-            let mut out = Vec::new();
-            frame_shapes(
-                &mut out,
-                outline,
-                cell_size,
-                clip,
-                sample(11, 13, 17),
-                FRAME_COLOUR,
-                0.6,
-                FRAME_WIDTH,
-            );
+            let out = frame_shapes(outline, cell_size, clip, sample(11, 13, 17), FRAME, 0.6);
             let widths: Vec<f32> = out
                 .iter()
                 .filter_map(|shape| match shape {

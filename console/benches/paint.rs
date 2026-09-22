@@ -252,13 +252,15 @@ fn background_runs(c: &mut Criterion) {
 /// walk reads a colour's bytes without branching on them, so any opaque
 /// colour measures the same cost as the Theme's own.
 const AREA_COLOUR: egui::Color32 = egui::Color32::from_rgb(76, 190, 156);
-const FRAME_COLOUR: egui::Color32 = egui::Color32::from_rgb(234, 235, 229);
-/// The stationary Cursor/Region outline's nominal display-point default
-/// (`theme.cursor_border_width`/`theme.region_border_width` in production,
-/// both 1 point in Okabe–Ito) — restated as a literal for the same reason
-/// `AREA_COLOUR`/`FRAME_COLOUR` are: `Theme`'s fields are `pub(crate)` and
-/// this bench is a separate crate.
-const FRAME_WIDTH: f32 = 1.0;
+/// The Cursor/Region outline: `theme.cursor_border`/`theme.region_border` at
+/// its nominal display-point width (`theme.cursor_border_width`/
+/// `theme.region_border_width` in production, both 1 point in Okabe–Ito) —
+/// restated as a literal for the same reason `AREA_COLOUR` is: `Theme`'s
+/// fields are `pub(crate)` and this bench is a separate crate.
+const FRAME: egui::Stroke = egui::Stroke {
+    width: 1.0,
+    color: egui::Color32::from_rgb(234, 235, 229),
+};
 
 fn cursor_effects(c: &mut Criterion) {
     let settings = CursorEffectSettings::default();
@@ -277,8 +279,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(sample),
                 black_box(settings),
                 black_box(AREA_COLOUR),
-                black_box(FRAME_COLOUR),
-                black_box(FRAME_WIDTH),
+                black_box(FRAME),
             ))
         });
     });
@@ -296,8 +297,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(sample),
                 black_box(settings),
                 black_box(AREA_COLOUR),
-                black_box(FRAME_COLOUR),
-                black_box(FRAME_WIDTH),
+                black_box(FRAME),
             ))
         });
     });

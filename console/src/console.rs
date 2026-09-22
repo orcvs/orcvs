@@ -779,14 +779,9 @@ pub struct Console {
     cursor_effect_animation: CursorEffectAnimation,
     /// The resolved Theme Source and chrome both paint from. Always the
     /// Okabe–Ito built-in for now: `.scratch/theming/issues/06` has only one
-    /// Theme to resolve, and `07`'s loader is what will make `dark_theme`/
-    /// `light_theme` (below) resolve to anything else.
+    /// Theme to resolve, and `07`'s loader is what will make the dark and
+    /// light Theme identities `Persistence` restores resolve to anything else.
     theme: Theme,
-    /// The dark Theme's identity, restored and re-saved unchanged; not yet
-    /// consulted to build [`Self::theme`] (see its own doc).
-    dark_theme: String,
-    /// The light Theme's identity, restored and re-saved the same way.
-    light_theme: String,
     reduced_motion: bool,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
@@ -868,8 +863,6 @@ impl Console {
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
             theme: okabe_ito(),
-            dark_theme: start.dark_theme,
-            light_theme: start.light_theme,
             reduced_motion: prefers_reduced_motion(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
@@ -1198,8 +1191,9 @@ struct SourceShapes {
     /// The sector seams, left edge then top edge, Cell by Cell.
     seams: Vec<Shape>,
     /// The Cursor's own stroke, painted last: the Cursor Effect's frame — its
-    /// Cell's, or the lasso around a Region larger than one Cell — or the
-    /// selected Cell's border when no effect frame was built.
+    /// Cell's, or the lasso around a Region larger than one Cell, and empty
+    /// when a zero width hid it — or the selected Cell's border when no
+    /// effect frame was built.
     cursor: Vec<Shape>,
 }
 
@@ -1233,8 +1227,8 @@ impl SourceShapes {
     ) -> Self {
         let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
         shapes.area = cursor_effect.area;
-        if !cursor_effect.frame.is_empty() {
-            shapes.cursor = cursor_effect.frame;
+        if let Some(frame) = cursor_effect.frame {
+            shapes.cursor = frame;
         }
         shapes.place_glyphs(paint, viewport, table);
         shapes
@@ -1550,20 +1544,15 @@ fn show_source(
     // instead — `.scratch/theming/schema.md`'s "the effect outline uses
     // `cursor.border` or `region.border`". `paint` already answered which
     // this Render Frame is, so this reads that rather than re-deriving it.
-    // The same Region-spans choice that picked `frame_colour` above also
-    // picks the animated frame's nominal width: `cursor.border.width` for
-    // the Cursor's own frame, `region.border.width` for the lasso — a fixed
-    // display-point value `cursor_effect_shapes` never scales with Grid zoom
-    // (`.scratch/theming/issues/06` slice C).
-    let frame_colour = if paint.region_spans() {
-        theme.region_border
+    // The same choice picks the animated frame's nominal width, as one
+    // `Stroke` so colour and width cannot come from different answers:
+    // `cursor.border.width` for the Cursor's own frame, `region.border.width`
+    // for the lasso — a fixed display-point value `cursor_effect_shapes` never
+    // scales with Grid zoom (`.scratch/theming/issues/06` slice C).
+    let frame_stroke = if paint.region_spans() {
+        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
     } else {
-        theme.cursor_border
-    };
-    let frame_width = if paint.region_spans() {
-        theme.region_border_width.points()
-    } else {
-        theme.cursor_border_width.points()
+        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
     };
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
@@ -1573,8 +1562,7 @@ fn show_source(
         cursor_effect_sample,
         cursor_effect_settings,
         theme.cursor_area,
-        frame_colour,
-        frame_width,
+        frame_stroke,
     );
     let shapes = SourceShapes::new(
         &paint,
@@ -1912,13 +1900,8 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence.save(
-            storage,
-            self.orcvs.source(),
-            self.cursor_effects,
-            &self.dark_theme,
-            &self.light_theme,
-        );
+        self.persistence
+            .save(storage, self.orcvs.source(), self.cursor_effects);
     }
 
     ///
@@ -2230,8 +2213,6 @@ impl eframe::App for Console {
                     cursor_effects: _,
                     cursor_effect_animation: _,
                     theme: _,
-                    dark_theme: _,
-                    light_theme: _,
                     reduced_motion: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
@@ -4882,6 +4863,44 @@ mod tests {
         shapes.expect("the pass drew the Source")
     }
 
+    ///
+    /// [`source_shapes`] with a Cursor Effect built by the caller and a
+    /// resolved `theme`, for a test that asks how the effect's frame and the
+    /// Paint's own Cursor stroke compose.
+    ///
+    fn source_shapes_with_effect(
+        paint: &Paint,
+        viewport: GridViewport,
+        pixels_per_point: f32,
+        effect: crate::cursor_effects::CursorEffectShapes,
+        theme: &Theme,
+    ) -> SourceShapes {
+        let ctx = egui::Context::default();
+        let mut shapes = None;
+        // `run_ui` takes an `FnMut`; the one pass it runs takes the effect.
+        let mut effect = Some(effect);
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let table = GlyphTable::lay_out(
+                ui.ctx(),
+                egui::FontId::new(
+                    DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
+                    egui::FontFamily::Monospace,
+                ),
+            );
+            shapes = Some(SourceShapes::new(
+                paint,
+                &viewport,
+                &table,
+                pixels_per_point,
+                effect.take().expect("run_ui ran one pass"),
+                theme,
+            ));
+        });
+        output.drop_without_applying_deltas();
+
+        shapes.expect("the pass drew the Source")
+    }
+
     /// The rectangle a `Shape::Rect` covers.
     fn rect_of(shape: &Shape) -> Rect {
         match shape {
@@ -5990,6 +6009,46 @@ mod tests {
         assert!(
             !shapes.cursor.is_empty(),
             "zero grid.border.width also silenced the Cursor's own border"
+        );
+    }
+
+    ///
+    /// A zeroed `cursor.border.width` hides the single-Cell Cursor's frame
+    /// outright: the Cursor Effect built its frame and built no stroke, which
+    /// `SourceShapes::new` must not read as "no effect frame" and back-fill
+    /// with the selected Cell's own `cell.selection.border.width` stroke.
+    ///
+    #[tokio::test]
+    async fn zero_cursor_border_width_hides_the_cursors_frame() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
+        let mut orcvs = running_orcvs(20, 20);
+        let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
+        orcvs.select(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 20, 20, 1.0);
+        let theme = Theme {
+            cursor_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let cursor_rect = viewport.cell_rect(4, 4);
+        let effect = crate::cursor_effects::cursor_effect_shapes(
+            cursor_rect,
+            cursor_rect,
+            screen,
+            viewport.cell_size,
+            crate::cursor_effects::CursorEffectSample::default(),
+            crate::cursor_effects::CursorEffectSettings::default(),
+            theme.cursor_area,
+            egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+        );
+        let shapes = source_shapes_with_effect(&paint, viewport, 1.0, effect, &theme);
+
+        assert!(
+            shapes.cursor.is_empty(),
+            "zero cursor.border.width left {} Cursor strokes standing",
+            shapes.cursor.len()
         );
     }
 
