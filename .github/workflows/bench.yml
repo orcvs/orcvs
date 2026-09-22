@@ -6,9 +6,10 @@ on:
     branches: [main]
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
-    # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. `console/**` covers Paint derivation and the background-run
-    # fold. The memory series needs no entry of its own: it is measured by
+    # the gate's own definition, including the floor check's figures and checker.
+    # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
+    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
@@ -20,13 +21,16 @@ on:
       - 'rust-toolchain.toml'
       - 'mise.toml'
       - '.github/workflows/bench.yml'
+      - 'benches/floors.toml'
+      - 'scripts/check-bench-floors.ts'
   pull_request:
     branches: [main]
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
-    # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. `console/**` covers Paint derivation and the background-run
-    # fold. The memory series needs no entry of its own: it is measured by
+    # the gate's own definition, including the floor check's figures and checker.
+    # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
+    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
@@ -38,6 +42,8 @@ on:
       - 'rust-toolchain.toml'
       - 'mise.toml'
       - '.github/workflows/bench.yml'
+      - 'benches/floors.toml'
+      - 'scripts/check-bench-floors.ts'
 
 # Granted per job. The publishing job writes repository contents; the pull-request job
 # must not, so it never receives the permission at all.
