@@ -2170,6 +2170,20 @@ mod tests {
                     "Add's own spelling, column {x}"
                 );
             }
+            // Add's own Number operand background is not `output_tinted`
+            // alone: the Output Portal tint composites *over* Number's own
+            // translucent role background (`role_and_portal`'s
+            // `background.blend(theme.output_portal_background)`), and the
+            // user's 2026-09-22 retune made every tinted role background
+            // translucent rather than opaque, so Number's own hue still
+            // shows through under the Portal tint here. `output_tinted`
+            // alone is only the composited answer where the underlying
+            // role's own background is fully transparent, which is why
+            // every other `output_tinted` assertion in this module — over
+            // Unclaimed Cells — is unaffected.
+            let number_under_portal = theme
+                .cell_background
+                .blend(theme.source_number_background.blend(output_tinted));
             for x in 2..6 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);
@@ -2179,7 +2193,7 @@ mod tests {
                 );
                 assert_eq!(
                     painted.background,
-                    Some(output_tinted),
+                    Some(number_under_portal),
                     "Add's own Number operand, column {x}"
                 );
             }

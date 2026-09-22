@@ -968,13 +968,12 @@ mod tests {
 
         assert_eq!(function.background, Some(theme.source_function_background));
         // The literal `.scratch/theming/schema.md` records, independent of
-        // both the Theme field above and the composition that surfaces it —
-        // what `syntax-highlighting/02` computed as a 16% Fill tint of
-        // Function over black before this Theme replaced that formula with a
-        // stored value.
+        // both the Theme field above and the composition that surfaces it:
+        // Function's own foreground colour at 10% alpha, the uniform tint
+        // opacity the user's 2026-09-22 retune gives every tinted role.
         assert_eq!(
             function.background,
-            Some(Color32::from_rgba_unmultiplied(0x00, 0x19, 0x12, 0xFF))
+            Some(Color32::from_rgba_unmultiplied(0x00, 0x9E, 0x73, 0x1A))
         );
     }
 
@@ -1256,9 +1255,20 @@ mod tests {
     fn output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell() {
         let theme = okabe_ito();
 
-        for paint in [
-            SourcePaint::Unclaimed,
-            operand(Token::Number, OperandState::Valid),
+        // The Output Portal channel composites *over* each fact's own raw
+        // role background, not in place of it (`role_and_portal`'s
+        // `background.blend(theme.output_portal_background)`) — Unclaimed's
+        // own background is fully transparent, so the composite collapses
+        // to the Output Portal tint alone; Number's is not, since the
+        // user's 2026-09-22 retune made every tinted role background
+        // translucent rather than opaque, so its own hue still shows
+        // through under the Portal tint.
+        for (paint, role_background) in [
+            (SourcePaint::Unclaimed, theme.source_ordinary_background),
+            (
+                operand(Token::Number, OperandState::Valid),
+                theme.source_number_background,
+            ),
         ] {
             let visuals = painted(paint, true, &theme);
             assert_eq!(
@@ -1267,8 +1277,13 @@ mod tests {
             );
             assert_eq!(
                 visuals.background,
-                Some(theme.output_portal_background),
-                "{paint:?} did not carry the Output Portal tint"
+                Some(
+                    theme
+                        .cell_background
+                        .blend(role_background.blend(theme.output_portal_background))
+                ),
+                "{paint:?} did not carry its own role background composited with the Output \
+                 Portal tint"
             );
         }
     }
@@ -1279,9 +1294,12 @@ mod tests {
     /// take precedence over other non-Function facts, including Diagnostic."
     /// The Invalid Number's Diagnostic-blended answer is still `role_and_
     /// portal`'s starting point, so Portal composites over *that*, not over
-    /// the plain Number channel — with both `diagnostic.foreground` and
-    /// `output_portal.foreground` opaque in Okabe–Ito, the Portal colour
-    /// still wins outright, exactly as it does for a Valid operand.
+    /// the plain Number channel — with `diagnostic.foreground` opaque in
+    /// Okabe–Ito, the Portal colour still wins outright for the foreground,
+    /// exactly as it does for a Valid operand. The background is Number's
+    /// own translucent tint (Diagnostic's own background is transparent, so
+    /// it leaves Number's tint unchanged) composited with the Output
+    /// Portal's translucent tint on top, not the Portal channel alone.
     ///
     #[test]
     fn invalid_operand_under_output_portal_takes_the_portal_colour() {
@@ -1290,7 +1308,16 @@ mod tests {
         let invalid = painted(operand(Token::Number, OperandState::Invalid), true, &theme);
 
         assert_eq!(invalid.foreground, theme.output_portal_foreground);
-        assert_eq!(invalid.background, Some(theme.output_portal_background));
+        assert_eq!(
+            invalid.background,
+            Some(
+                theme.cell_background.blend(
+                    theme
+                        .source_number_background
+                        .blend(theme.output_portal_background)
+                )
+            )
+        );
     }
 
     ///
@@ -1596,19 +1623,16 @@ mod tests {
 
     ///
     /// Pins `cell_visuals_with_cursor_colour`'s answer for a representative
-    /// fact set to the exact premultiplied byte arrays captured from
-    /// `ba987f6` — the commit immediately before this refactor, running the
-    /// *pre-refactor* `cell_visuals_with_cursor_colour(paint, output_portal,
-    /// selected, cursor_visible, cursor_colour, SourcePaintSettings)` over
-    /// the same cases with `SourcePaintSettings::default()` and a
-    /// `Some(Color32::from_rgb(9, 8, 7))` Cursor fill. This is the TDD
-    /// baseline `.scratch/theming/issues/06` asks for: proof the refactor
-    /// reproduces today's output rather than an argument that the algebra
-    /// should. Captured with a throwaway `git worktree add --detach
-    /// ba987f6` and a temporary `eprintln!`-driven test run with
-    /// `--nocapture`, removed afterwards; every literal below is copied
-    /// verbatim from that run's output, not recomputed from this module or
-    /// from `theme.rs`.
+    /// fact set to exact premultiplied byte arrays, captured — not
+    /// recomputed from this module or `theme.rs` — by a temporary
+    /// `eprintln!`-driven test run with `--nocapture`, removed afterwards.
+    /// Originally captured from `ba987f6`, the commit immediately before
+    /// `.scratch/theming/issues/06`'s refactor, as a TDD baseline proving
+    /// the refactor reproduced pre-refactor output rather than arguing the
+    /// algebra should. Every role-background literal was recaptured
+    /// 2026-09-22 against the user's uniform-10%-opacity retune of the
+    /// tinted roles; the values below are current output, not the original
+    /// `ba987f6` capture.
     ///
     /// Every role, every Operand binding state Diagnostic distinguishes,
     /// Output Portal over Unclaimed/a Valid operand/Bang (keeps its own
@@ -1675,7 +1699,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 25, 0, 255]),
+                background: Some([23, 16, 0, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [204, 121, 167, 255],
             },
@@ -1685,7 +1709,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 25, 18, 255]),
+                background: Some([0, 16, 12, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
             },
@@ -1695,7 +1719,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 25, 18, 255]),
+                background: Some([0, 16, 12, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
             },
@@ -1705,7 +1729,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([14, 29, 37, 255]),
+                background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [86, 180, 233, 255],
             },
@@ -1715,7 +1739,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([14, 29, 37, 255]),
+                background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [86, 180, 233, 255],
             },
@@ -1725,7 +1749,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([14, 29, 37, 255]),
+                background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [213, 94, 0, 255],
             },
@@ -1735,7 +1759,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 25, 0, 255]),
+                background: Some([31, 32, 22, 49]),
                 border: [8, 16, 14, 72],
                 foreground: [230, 159, 0, 255],
             },
@@ -1745,7 +1769,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([38, 36, 11, 255]),
+                background: Some([24, 23, 7, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [240, 228, 66, 255],
             },
@@ -1755,7 +1779,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 38, 37, 255]),
+                background: Some([24, 24, 23, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [234, 235, 229, 255],
             },
@@ -1765,7 +1789,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 18, 28, 255]),
+                background: Some([0, 12, 18, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 114, 178, 255],
             },
@@ -1775,7 +1799,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 18, 28, 255]),
+                background: Some([0, 12, 18, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [213, 94, 0, 255],
             },
@@ -1785,7 +1809,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 25, 0, 255]),
+                background: Some([23, 16, 0, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [230, 159, 0, 255],
             },

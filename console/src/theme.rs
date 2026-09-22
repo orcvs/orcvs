@@ -611,18 +611,18 @@ pub fn okabe_ito() -> Theme {
         source_sequence: straight_rgba(0x00_72_B2_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
-        source_number_background: straight_rgba(0x0E_1D_25_FF),
-        source_note_background: straight_rgba(0x26_24_0B_FF),
-        source_function_background: straight_rgba(0x00_19_12_FF),
+        source_number_background: straight_rgba(0x56_B4_E9_1A),
+        source_note_background: straight_rgba(0xF0_E4_42_1A),
+        source_function_background: straight_rgba(0x00_9E_73_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
-        source_atom_background: straight_rgba(0x25_26_25_FF),
-        source_sequence_background: straight_rgba(0x00_12_1C_FF),
+        source_atom_background: straight_rgba(0xEA_EB_E5_1A),
+        source_sequence_background: straight_rgba(0x00_72_B2_1A),
 
         diagnostic_foreground: straight_rgba(0xD5_5E_00_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
         diagnostic_border: straight_rgba(0x00_00_00_00),
         output_portal_foreground: straight_rgba(0xE6_9F_00_FF),
-        output_portal_background: straight_rgba(0x25_19_00_FF),
+        output_portal_background: straight_rgba(0xE6_9F_00_1A),
         output_portal_border: straight_rgba(0x00_00_00_00),
 
         grid_border: straight_rgba(0x1D_37_31_48),
@@ -928,24 +928,24 @@ mod tests {
             theme.source_comment_background,
             straight_rgba(0x00_00_00_00)
         );
-        assert_eq!(theme.source_number_background, straight_rgba(0x0E_1D_25_FF));
-        assert_eq!(theme.source_note_background, straight_rgba(0x26_24_0B_FF));
+        assert_eq!(theme.source_number_background, straight_rgba(0x56_B4_E9_1A));
+        assert_eq!(theme.source_note_background, straight_rgba(0xF0_E4_42_1A));
         assert_eq!(
             theme.source_function_background,
-            straight_rgba(0x00_19_12_FF)
+            straight_rgba(0x00_9E_73_1A)
         );
         assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
-        assert_eq!(theme.source_atom_background, straight_rgba(0x25_26_25_FF));
+        assert_eq!(theme.source_atom_background, straight_rgba(0xEA_EB_E5_1A));
         assert_eq!(
             theme.source_sequence_background,
-            straight_rgba(0x00_12_1C_FF)
+            straight_rgba(0x00_72_B2_1A)
         );
 
         assert_eq!(theme.diagnostic_foreground, straight_rgba(0xD5_5E_00_FF));
         assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
         assert_eq!(theme.diagnostic_border, straight_rgba(0x00_00_00_00));
         assert_eq!(theme.output_portal_foreground, straight_rgba(0xE6_9F_00_FF));
-        assert_eq!(theme.output_portal_background, straight_rgba(0x25_19_00_FF));
+        assert_eq!(theme.output_portal_background, straight_rgba(0xE6_9F_00_1A));
         assert_eq!(theme.output_portal_border, straight_rgba(0x00_00_00_00));
 
         assert_eq!(theme.grid_border, straight_rgba(0x1D_37_31_48));

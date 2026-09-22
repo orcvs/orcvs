@@ -130,14 +130,14 @@ reproduces the values on this page:
 | `source.sequence` Sequence | `#0072B2` | Source colours → Sequence |
 | `source.ordinary.background` | `#00000000` | No current role fill |
 | `source.comment.background`, `source.bang.background` | `#00000000` | No current role fill |
-| `source.function.background` | `#001912FF` | Extracted existing background |
-| `source.number.background` | `#0E1D25FF` | Extracted existing background |
-| `source.note.background` | `#26240BFF` | Extracted existing background |
-| `source.atom.background` | `#252625FF` | Atom has a fill despite sharing Ordinary foreground |
-| `source.sequence.background` | `#00121CFF` | Extracted existing background |
+| `source.function.background` | `#009E731A` | Function's own colour at 10% opacity |
+| `source.number.background` | `#56B4E91A` | Number's own colour at 10% opacity |
+| `source.note.background` | `#F0E4421A` | Note's own colour at 10% opacity |
+| `source.atom.background` | `#EAEBE51A` | Atom has a fill despite sharing Ordinary foreground; Ordinary's own colour at 10% opacity |
+| `source.sequence.background` | `#0072B21A` | Sequence's own colour at 10% opacity |
 | `diagnostic.foreground` | `#D55E00` | Source colours → Diagnostic |
 | `output_portal.foreground` | `#E69F00` | Source colours → Output Portal |
-| `output_portal.background` | `#251900FF` | Extracted existing rendered background |
+| `output_portal.background` | `#E69F001A` | Output Portal's own colour at 10% opacity |
 | `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
 | `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
 | `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
@@ -189,10 +189,15 @@ theme defaults" are gone, and the old `source_paint` storage key is left
 unread.
 
 The former Fill tint — each Token colour mixed 16% toward the Source
-background — survives as the Okabe–Ito role backgrounds in the table above,
-extracted from what it rendered, so the Grid looks the same. There is no
+background — no longer sets the Okabe–Ito role backgrounds in the table
+above: a 2026-09-22 retune replaced the extracted-opaque values with a
+uniform 10% opacity instead, each role's own foreground colour stored
+straight with alpha `0x1A` (`source.function.background`'s `#009E731A`, for
+one) rather than a precomputed opaque mix over black. There is no
 `fill_tint` property: changing a role's foreground does not recalculate its
-background. Every recognized Function Cell — nested Functions included — and
+background, and the 10% figure is baked into each stored value rather than a
+shared scalar applied at paint time. Every recognized Function Cell — nested
+Functions included — and
 every Operand Cell (its declared Token: Number, Note, Atom, or Sequence,
 whether the operand is still Pending, Valid, or Invalid) paints its role
 background. Comment, Bang, an empty unclaimed Cell, and a Leftover Char have a
@@ -303,31 +308,32 @@ A Pending operand Cell draws no glyph, so `validate` has no Pending role to
 measure — `Role` (Number, Note, Atom, Sequence) carries Valid and Invalid
 only, and Atom/Sequence carry Invalid alone since neither ever binds.
 
-Okabe–Ito's `plain`-placement measurements: Ordinary 17.51:1, Bang 6.86:1 and
-Comment 7.37:1 (each against the bare `#000000` Source background, since
-their own role backgrounds are transparent); Function 5.35:1 against its own
-opaque `#001912` tint; Number 7.45:1 and Note 11.86:1 (Valid) against their
-own opaque tints; `output_portal.foreground` 9.32:1 against
-`output_portal.background`; `text` 15.88:1 against `panel.background` and
-17.51:1 against `input.background`; `text.muted` (translucent, round-tripping
-to premultiplied bytes `[140, 141, 137, 153]`) 6.19:1 against
-`panel.background` and 6.29:1 against `input.background`. Sequence's own
-role, `Sequence, Invalid` (`diagnostic.foreground` replaces Sequence's colour
-outright once Invalid), passes at 4.92:1 — Sequence has no accepted exception
-today, because it has no failing state left to except.
+Okabe–Ito's `plain`-placement measurements, after the user's 2026-09-22 retune
+of every tinted role background to a uniform 10% opacity: Ordinary 17.51:1,
+Bang 6.86:1 and Comment 7.37:1 (each against the bare `#000000` Source
+background, since their own role backgrounds are transparent); Function
+5.69:1, Number 8.19:1 and Note 13.64:1 (Valid), each against its own 10%
+tint; `output_portal.foreground` 8.40:1 against an Unclaimed Cell's Output
+Portal state, where the tint is `output_portal.background` alone (an
+Unclaimed Cell's own background is transparent); `text` 15.88:1 against
+`panel.background` and 17.51:1 against `input.background`; `text.muted`
+(translucent, round-tripping to premultiplied bytes `[140, 141, 137, 153]`)
+6.19:1 against `panel.background` and 6.29:1 against `input.background` —
+none of these five changed, since the retune touched only the tinted role
+backgrounds. Every invalid-operand Diagnostic state now clears the floor
+too: Number 4.89:1, Note 4.66:1 and Atom 4.59:1, each `diagnostic.foreground`
+(`#D55E00`) against that Token's own 10% tint; Sequence's own role,
+`Sequence, Invalid`, measures 5.12:1. `contrast::tests::shipped_theme_gate`
+runs as a real, non-`#[ignore]`d test: every reachable state clears 4.5:1,
+so `accepted_failures` for `okabe-ito` is empty — there is nothing left to
+except.
 
-Three `plain`-placement states measure below the 4.5:1 floor and are not
-accepted: the invalid-operand Diagnostic states of Number (4.45:1), Note
-(4.05:1) and Atom (3.93:1), each `diagnostic.foreground` (`#D55E00`) against
-that Token's own opaque background tint. `contrast::tests::shipped_theme_gate`
-is `#[ignore]`d specifically because these are not accepted, and stays that
-way until a human accepts or retunes them.
-
-The single-Cell Cursor always replaces a role's background outright, whether
-or not that role's own background was opaque — `style::cell_visuals_with_
+The single-Cell Cursor always replaces a role's background outright, whatever
+that role's own background's own alpha — `style::cell_visuals_with_
 cursor_colour`'s "the Cursor's own fill wins outright on its Cell." A Region
 Cell, by contrast, only falls back to the Region fill when the role's own
-background left nothing painted — an opaque role background keeps winning
+background left nothing painted at all (alpha exactly `0`) — a role
+background with any nonzero alpha, translucent or opaque, keeps winning
 there. Both differ from `plain` only for a Theme whose Cursor/Region fills are
 actually set; Okabe–Ito's are unset, so its own Cursor/Region states happen to
 repeat `plain`'s figures without exercising either rule.

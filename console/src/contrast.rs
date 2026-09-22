@@ -799,10 +799,10 @@ mod tests {
     /// Theme's opaque `region.background` set to the same colour as the
     /// glyph itself makes the `Region` state of that same role unreadable.
     /// Region fallback only applies because Comment's own background stays
-    /// transparent in this Theme; an opaque role background keeps winning
-    /// over the Region fill regardless
-    /// (`region_fallback_only_reaches_a_transparent_role_background` pins
-    /// that distinction directly).
+    /// fully transparent in this Theme; a role background with any nonzero
+    /// alpha keeps winning over the Region fill regardless
+    /// (`region_fallback_only_reaches_a_fully_transparent_role_background`
+    /// pins that distinction directly).
     ///
     #[test]
     fn a_role_passing_plain_fails_against_its_painted_region_tint() {
@@ -1032,19 +1032,22 @@ mod tests {
     }
 
     ///
-    /// Region fallback only reaches a fact whose own background is
-    /// transparent: `Number, Invalid`'s background is opaque
-    /// (`source.number.background`), so its `Region` state equals its
-    /// `plain` state exactly, while `Comment`'s transparent background lets
+    /// Region fallback only reaches a fact whose own background is fully
+    /// transparent (alpha `0`): `Number, Invalid`'s background
+    /// (`source.number.background`) is nonzero-alpha — translucent since
+    /// the user's 2026-09-22 retune, not the opaque value it was before,
+    /// but nonzero either way — so its `Region` state equals its `plain`
+    /// state exactly, while `Comment`'s fully transparent background lets
     /// the Region tint show once `region.background` is not itself
-    /// transparent.
+    /// transparent. The rule is about zero versus nonzero alpha, not
+    /// opaque versus translucent.
     ///
     #[test]
-    fn region_fallback_only_reaches_a_transparent_role_background() {
+    fn region_fallback_only_reaches_a_fully_transparent_role_background() {
         let theme = okabe_ito();
         let report = validate(&theme);
 
-        let opaque_role_plain = find(
+        let nonzero_alpha_role_plain = find(
             &report,
             Role::NumberInvalid,
             State::SourceGrid {
@@ -1052,7 +1055,7 @@ mod tests {
                 output_portal: false,
             },
         );
-        let opaque_role_region = find(
+        let nonzero_alpha_role_region = find(
             &report,
             Role::NumberInvalid,
             State::SourceGrid {
@@ -1061,8 +1064,8 @@ mod tests {
             },
         );
         assert_eq!(
-            opaque_role_plain.background, opaque_role_region.background,
-            "an opaque role background must win over Region fallback"
+            nonzero_alpha_role_plain.background, nonzero_alpha_role_region.background,
+            "a role background with any nonzero alpha must win over Region fallback"
         );
 
         let transparent_role_theme = Theme {
@@ -1096,14 +1099,16 @@ mod tests {
     /// The single-Cell Cursor always replaces the role background outright
     /// — `style::cell_visuals_with_cursor_colour`'s own "The Cursor's own
     /// fill wins outright on its Cell" — regardless of whether that role
-    /// background was opaque. `Number, Invalid`'s background is opaque
-    /// (`#0E1D25`), yet its `Cursor` state still differs from its `plain`
-    /// state once `cursor.background` is set, because the Cursor's fill is
-    /// not a fallback the way Region's is.
+    /// background was opaque. Every one of Okabe–Ito's own role backgrounds
+    /// is translucent since the user's 2026-09-22 retune to a uniform 10%
+    /// tint opacity, so this fixture sets `source_number_background`
+    /// explicitly opaque to exercise the claim the test's name makes,
+    /// rather than relying on a shipped Theme to happen to have one.
     ///
     #[test]
     fn cursors_own_fill_replaces_even_an_opaque_role_background() {
         let theme = Theme {
+            source_number_background: Color32::from_rgb(14, 29, 37),
             cursor_background: Some(Color32::from_rgb(1, 2, 3)),
             ..okabe_ito()
         };
@@ -1259,61 +1264,17 @@ mod tests {
     // === The shipped-Theme gate ===
 
     ///
-    /// The below-floor states `.scratch/theming/issues/08` lists as pending
-    /// explicit acceptance, confirmed through the real shipped composition.
-    /// This is the one source of truth for their exact ratios: the issue's
-    /// table and `shipped_theme_gate`'s `#[ignore]` reason both point back
-    /// here rather than restating the numbers independently.
-    ///
-    #[test]
-    fn pending_contrast_failures_are_confirmed_through_shipped_composition() {
-        let report = validate(&okabe_ito());
-        let plain = |cursor| State::SourceGrid {
-            cursor,
-            output_portal: false,
-        };
-
-        for (role, cursor, expected_ratio) in [
-            (Role::NumberInvalid, CursorPlacement::Plain, 4.4469),
-            (Role::NumberInvalid, CursorPlacement::Region, 4.4469),
-            (Role::NoteInvalid, CursorPlacement::Plain, 4.0537),
-            (Role::NoteInvalid, CursorPlacement::Region, 4.0537),
-            (Role::AtomInvalid, CursorPlacement::Plain, 3.9275),
-            (Role::AtomInvalid, CursorPlacement::Region, 3.9275),
-        ] {
-            let result = find(&report, role, plain(cursor));
-            assert!(
-                !result.passes(),
-                "{role} / {cursor} unexpectedly passes at {:.4}:1 — if this was retuned or \
-                 accepted, update .scratch/theming/issues/08 and accepted_failures together \
-                 rather than leaving this assertion stale",
-                result.ratio
-            );
-            assert!(
-                (result.ratio - expected_ratio).abs() < 0.001,
-                "{role} / {cursor} is {:.4}:1, expected {expected_ratio:.4}:1",
-                result.ratio
-            );
-            assert!(
-                !result.accepted,
-                "{role} / {cursor} must stay unaccepted while pending"
-            );
-        }
-    }
-
-    ///
-    /// The shipped-Theme gate itself: every below-floor state of every
-    /// shipped Theme must be an accepted exception, or this test fails and
-    /// lists them. It is `#[ignore]`d rather than green, because it is not
-    /// green: `pending_contrast_failures_are_confirmed_through_shipped_
-    /// composition` above confirms six below-floor states —
-    /// `Number, Invalid` and `Note, Invalid` and `Atom, Invalid`, each in
-    /// `plain` and `Region` — that `.scratch/theming/issues/08` explicitly
-    /// says await acceptance and must **not** be silently added to
-    /// `accepted_failures` to make this test pass. Un-ignore this test only
-    /// once a human has accepted those failures (adding them to
-    /// `accepted_failures` with that acceptance recorded in the issue) or
-    /// retuned the colours involved.
+    /// Every below-floor state of every shipped Theme must be an accepted
+    /// exception, or this test fails and lists them — a real gate, not
+    /// `#[ignore]`d: the user's 2026-09-22 retune of every tinted role
+    /// background to a uniform 10% opacity (expressed as that role's own
+    /// foreground colour at alpha `0x1A`, replacing the previous
+    /// precomputed opaque tints) raised every measured ratio at or above
+    /// the 4.5:1 floor, confirmed through this real shipped composition —
+    /// `console/src/theme.md` records the exact figures. There is
+    /// therefore nothing left to except: `accepted_failures` for
+    /// `okabe-ito` is empty, and this test's own run is what proves that
+    /// emptiness is correct rather than merely convenient.
     ///
     /// Only `okabe_ito()` ships today: `.scratch/theming/issues/06`'s
     /// further built-ins and `07`'s loader are not built yet, so `shipped`
@@ -1321,12 +1282,6 @@ mod tests {
     /// known weakness recorded in `.scratch/theming/issues/08`'s comments.
     ///
     #[test]
-    #[ignore = "pending human acceptance of the invalid Number/Note/Atom operand Diagnostic \
-                contrast failures — exact ratios in contrast::tests::pending_contrast_failures_\
-                are_confirmed_through_shipped_composition and .scratch/theming/issues/08's \
-                Known dark failures table. Do not remove this ignore by adding them to \
-                accepted_failures; only by an explicit human decision to accept or retune, \
-                recorded in the issue."]
     fn shipped_theme_gate() {
         let shipped = [okabe_ito()];
 
