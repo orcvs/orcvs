@@ -153,7 +153,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 /// Portal over Diagnostic over the plain Grid border, with a bound Function
 /// bypassed exactly as it is there.
 ///
-/// Colour composites with [`Color32::blend`], the same pinned operation
+/// Colour composites with [`blend_channel`], equivalent to the pinned [`Color32::blend`] operation
 /// every other channel in this module uses, so `diagnostic.border`'s and
 /// `output_portal.border`'s transparent Okabe–Ito defaults leave
 /// `theme.grid_border` showing unchanged — this is defect 3's fix: neither
@@ -188,18 +188,18 @@ fn ordinary_border(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (C
     match (invalid_operand, portal_applies) {
         (false, false) => (theme.grid_border, theme.grid_border_width.points()),
         (true, false) => (
-            theme.grid_border.blend(theme.diagnostic_border),
+            blend_channel(theme.grid_border, theme.diagnostic_border),
             theme.diagnostic_border_width.points(),
         ),
         (false, true) => (
-            theme.grid_border.blend(theme.output_portal_border),
+            blend_channel(theme.grid_border, theme.output_portal_border),
             theme.output_portal_border_width.points(),
         ),
         (true, true) => (
-            theme
-                .grid_border
-                .blend(theme.diagnostic_border)
-                .blend(theme.output_portal_border),
+            blend_channel(
+                blend_channel(theme.grid_border, theme.diagnostic_border),
+                theme.output_portal_border,
+            ),
             theme.output_portal_border_width.points(),
         ),
     }
@@ -211,7 +211,7 @@ fn ordinary_border(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (C
 /// result is fully transparent so a Cell with nothing to show still costs
 /// [`crate::paint::Paint::background_runs`] no Cell to walk.
 ///
-/// `Color32::blend` is `ecolor`'s own premultiplied-alpha "self behind
+/// [`blend_channel`] preserves `Color32::blend`, `ecolor`'s premultiplied-alpha "self behind
 /// on_top" compositing (`ecolor-0.36.2/src/color32.rs`), the "pinned colour
 /// operations" `.scratch/theming/schema.md`'s composition step 6 asks every
 /// resolved-Theme composite to share with painting. `fill.unwrap_or
@@ -225,9 +225,22 @@ pub(crate) fn compose_cell_fill(
     cell_background: Color32,
     fill: Option<Color32>,
 ) -> Option<Color32> {
-    let composed = cell_background.blend(fill.unwrap_or(Color32::TRANSPARENT));
+    let composed = blend_channel(cell_background, fill.unwrap_or(Color32::TRANSPARENT));
 
     (composed.a() != 0).then_some(composed)
+}
+
+/// Preserve egui's blend for partial alpha while avoiding its channel arithmetic
+/// for the transparent and opaque channels used by the built-in Theme.
+#[inline]
+fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
+    if on_top == Color32::TRANSPARENT {
+        base
+    } else if on_top.a() == 255 {
+        on_top
+    } else {
+        base.blend(on_top)
+    }
 }
 
 ///
@@ -240,7 +253,7 @@ pub(crate) fn compose_cell_fill(
 /// # Channel composition
 ///
 /// Every composited channel below uses [`compose_cell_fill`] (background) or
-/// [`Color32::blend`] directly (foreground): a transparent Theme channel
+/// [`blend_channel`] (foreground): a transparent Theme channel
 /// therefore reveals whatever sits beneath it, and an opaque one replaces it
 /// outright, which is what lets the Okabe–Ito built-in — every role channel
 /// opaque except Ordinary, Comment and untouched Bang, which are transparent
@@ -326,7 +339,8 @@ fn source_paint_visuals(
     // composed-alpha collapse is the wrong check for that signal, though it
     // is the right one for the Cursor's own fill and the Region fill below,
     // which have no further fallback of their own to protect.
-    let background = (background.a() != 0).then(|| theme.cell_background.blend(background));
+    let background =
+        (background.a() != 0).then(|| blend_channel(theme.cell_background, background));
 
     (foreground, background)
 }
@@ -351,9 +365,12 @@ fn role_and_portal(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (C
         let foreground = if bang {
             foreground
         } else {
-            foreground.blend(theme.output_portal_foreground)
+            blend_channel(foreground, theme.output_portal_foreground)
         };
-        return (foreground, background.blend(theme.output_portal_background));
+        return (
+            foreground,
+            blend_channel(background, theme.output_portal_background),
+        );
     }
     (foreground, background)
 }
@@ -417,8 +434,8 @@ fn operand_paint(
     match state {
         OperandState::Pending | OperandState::Valid => (colour, background),
         OperandState::Invalid => (
-            colour.blend(theme.diagnostic_foreground),
-            background.blend(theme.diagnostic_background),
+            blend_channel(colour, theme.diagnostic_foreground),
+            blend_channel(background, theme.diagnostic_background),
         ),
     }
 }
