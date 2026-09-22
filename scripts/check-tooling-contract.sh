@@ -495,6 +495,9 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 # installed by name immediately before it, rather than flipping that setting.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise install node$' "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: node scripts/check-bench-floors[.]ts output[.]txt$' "$bench_job_count"
+# Both floor steps run after a ratio-gate failure, so a regression that trips
+# both gates still reports which floor it broke.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        if: [$][{][{] !cancelled[(][)] && steps[.]bench[.]outcome == '"'"'success'"'"' [}][}]$' "$((bench_job_count * 2))"
 # The JSON is assembled with coreutils and shell builtins, so this step installs
 # nothing and `mise.toml` gains no tool for it. `jq` is the obvious reach and it is
 # the one thing this must not become.

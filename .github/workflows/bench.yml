@@ -109,6 +109,7 @@ jobs:
       - name: Warm up
         run: mise run bench_warmup > /dev/null
       - name: Run benchmarks
+        id: bench
         # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
         # status of `tee`, so a failed benchmark run would pass this step and publish
         # whatever partial output it had already written.
@@ -144,8 +145,14 @@ jobs:
       # `node` is the one tool this step needs that install skipped, so it is
       # installed by name here instead of moving that job-wide setting.
       - name: Install node for the bench floor check
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
         run: mise install node
       - name: Check bench floors
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
         run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
@@ -292,6 +299,7 @@ jobs:
       - name: Warm up
         run: mise run bench_warmup > /dev/null
       - name: Run benchmarks
+        id: bench
         # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
         # status of `tee`, so a failed benchmark run would pass this step and publish
         # whatever partial output it had already written.
@@ -325,8 +333,14 @@ jobs:
       # `node` is the one tool this step needs that install skipped, so it is
       # installed by name here instead of moving that job-wide setting.
       - name: Install node for the bench floor check
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
         run: mise install node
       - name: Check bench floors
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
         run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
