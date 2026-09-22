@@ -1,6 +1,10 @@
 #![warn(clippy::all)]
 
 pub mod console;
+// Validates a resolved Theme's composited text contrast
+// (`.scratch/theming/issues/08`), reusing `style`'s own composition
+// functions so painting and validation cannot independently drift.
+mod contrast;
 #[doc(hidden)]
 pub mod cursor_effects;
 pub mod diagnostics;

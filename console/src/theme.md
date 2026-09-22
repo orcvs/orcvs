@@ -283,44 +283,62 @@ exposed as a setting before it had a painter; it has one now.
 - Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, an unbound entry's glyph colour since `syntax-highlighting/04`
 - Output Portal: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, a Function's written value since `syntax-highlighting/06`
 
-Every Source colour meets WCAG AA's 4.5:1 floor against the Source background
-except Sequence: `#0072B2` measures 4.05:1 on `#000000`, the Okabe–Ito
-assignment's own choice. Comment, at 7.37:1, reads dimmer than Ordinary — the
-same relationship the previous palette held — but is no longer the dimmest
-colour above the floor: Diagnostic (5.43:1), Function (6.14:1) and Bang
-(6.86:1) all read dimmer than Comment while still clearing 4.5:1. Two more
-named keys clear the floor as well: `output_portal.foreground` measures
-9.32:1 against the same Source background, and `text`, read against
-`panel.background` rather than the Source background, measures 15.88:1.
-`text.muted` is translucent — it round-trips to premultiplied bytes `[140,
-141, 137, 153]` — and composites to 6.19:1 against `panel.background`.
+`console/src/contrast.rs::validate` (`.scratch/theming/issues/08`) measures
+every reachable painted text state's *effective*, actually-composited
+foreground against its actually-composited background — reusing
+`style::cell_visuals_with_cursor_colour` and `style::compose_cell_fill`, the
+same functions painting itself calls, so the two cannot independently drift.
+This replaced an earlier validator that measured every Token against the bare
+`base00`/`grid.background` alone; that measurement is wrong for any role whose
+own background tint is opaque, which is most of them. Each result reports its
+role, its placement (`plain`, `Output Portal`, `Cursor`, `Region`, or `Region,
+Cursor's Cell`), the effective foreground and background, and the measured
+ratio against the 4.5:1 floor, stated once at `contrast::CONTRAST_FLOOR` from
+WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"). It measures text
+contrast only, never Token-colour distinguishability, colour-vision
+accessibility, or border/focus visibility.
 
-These are measurements, not a pinned ordering. `console/src/theme.rs::validate`
-(`.scratch/theming/issues/08`) measures every Token in the table above,
-`diagnostic.foreground` and `output_portal.foreground` against `base00`
-(`Theme::grid_background`), and `text` and `text.muted` against
-`panel.background` (`Theme::panel_background`), reporting each one's ratio
-and whether it clears the floor — stated once, at `theme::CONTRAST_FLOOR`,
-from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"). It replaces the
-per-colour assertions and the Comment-ordering rule `style.rs` used to pin,
-which could not survive an arbitrary scheme (`.scratch/theming/spec.md`:
-"Measure, do not assert an ordering"). Sequence's 4.05:1 is Okabe–Ito's own
-recorded shortfall against that floor: `validate` reports it on every run
-rather than a named exception in code excusing it, and whether to retune the
-slot or keep shipping the reported failure is recorded as an open decision in
-`.scratch/theming/issues/08`'s comments.
+Okabe–Ito's `plain`-placement measurements: Ordinary 17.51:1, Bang 6.86:1 and
+Comment 7.37:1 (each against the bare `#000000` Source background, since
+their own role backgrounds are transparent); Function 5.35:1 against its own
+opaque `#001912` tint — dimmer than the earlier `base00`-only measurement
+implied, because Function is never actually painted on bare black; Number
+7.45:1 and Note 11.86:1 (Pending and Valid alike) against their own opaque
+tints; Atom 12.67:1 (Pending) against its own tint; `output_portal.foreground`
+9.32:1 against `output_portal.background`; `text` 15.88:1 against
+`panel.background` and 17.51:1 against `input.background`; `text.muted`
+(translucent, round-tripping to premultiplied bytes `[140, 141, 137, 153]`)
+6.19:1 against `panel.background` and 6.29:1 against `input.background`.
 
-ADR 0053 retains Sequence's colour as an explicitly accepted failure. The Theme
-validator continues to report its measured ratio below the unchanged floor;
-acceptance does not turn the measurement into a pass. Tests over shipped Themes
-reject additional unrecorded failures.
+Four `plain`-placement states measure below the 4.5:1 floor. Three are the
+invalid-operand Diagnostic states — Number 4.45:1, Note 4.05:1 and Atom
+3.93:1, each `diagnostic.foreground` (`#D55E00`) against that Token's own
+opaque background tint — confirmed through the real shipped composition
+rather than the hand-picked colours `.scratch/theming/issues/08`'s "Known
+dark failures" table originally recorded them from; Atom's failure is new,
+found only once the validator measured actual composited states rather than
+`base00` alone. None of the three is accepted: `contrast::tests::
+shipped_theme_gate` is `#[ignore]`d specifically because they are not, and
+stays that way until a human accepts or retunes them. The fourth is Sequence:
+its accepted colour, `#0072B2`, measures 3.67:1 against its own near-black
+`#00121C` tint in its ordinary Pending state, worse than the 4.05:1
+`syntax-highlighting/01` originally measured against bare `base00` — a figure
+that only actually applies to Sequence's Cursor and Region-Cursor states,
+where cursor/Region-cursor fills are unset and the bare Source background
+shows through. Sequence's Invalid state, where `diagnostic.foreground`
+replaces its own colour outright, measures a passing 4.92:1. ADR 0053 retains
+Sequence's colour as an explicitly accepted failure across every state it
+reaches; `validate` continues to report each one's measured ratio below the
+floor, and acceptance never turns a measurement into a pass.
 
-The ratios above are measurements against the plain Source background. Theme
-validation also measures actual composited text states, including Token tints,
-selection, Cursor and Region fills, and console text on panel/input backgrounds.
-Each result identifies its role and state. Newly discovered failing states need
-explicit review; the existing Sequence exception does not silently accept them.
-Text contrast does not measure whether two Token colours are distinguishable.
+Region and Cursor placements repeat a `plain` result unchanged whenever a
+role's own background is opaque — an opaque role background wins over both
+fallbacks by the same fixed precedence painting itself uses — and differ only
+for the few roles with a transparent one (Ordinary, Comment, Bang, untinted
+Output Portal absence). A custom Theme's Region or Cursor fill can therefore
+make an otherwise-passing role fail without changing its `plain` figure at
+all, which is exactly the state class `.scratch/theming/issues/08`'s test
+suite fixtures.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
