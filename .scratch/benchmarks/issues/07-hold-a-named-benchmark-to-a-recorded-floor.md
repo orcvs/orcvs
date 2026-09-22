@@ -8,6 +8,8 @@ only a prose note.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] A committed file names each guarded benchmark and the figure it must not exceed, with the
       runner the figure was measured on.
 - [ ] A check compares the run's result for each named benchmark against its figure and fails when
@@ -58,3 +60,5 @@ Two notes for whoever builds it:
 Not in scope: changing the ratio gate's thresholds, and replacing the action. `bencherdev/bencher`
 models baselines and thresholds per branch and would subsume both checks, but replacing a gate that
 works on the evidence of one occurrence is not warranted.
+
+**2026-09-21 — theming dependency made explicit.** `theming/06` already requires this recorded floor before rewriting Source painting. Its blocker is now represented in the dependency graph, so this prerequisite carries the same release tag. This does not mark the implementation complete or substitute a local benchmark for the CI comparison.

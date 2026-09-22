@@ -42,3 +42,5 @@ as a blocker so the two changes do not race in the same function.
 document.
 
 **2026-09-21 — ADR 0053 and the "one owner" line.** Under ADR 0053 the settings hold a dark Theme, a light Theme, and a mode. egui's `ThemePreference` (System, Dark, Light) is exactly that mode, so it may stay the one owner of the mode. The two Theme names are Orcvs settings `06` adds. This issue's scope is unchanged. It still registers the one existing style for both themes, and `03` replaces that with a style per Theme.
+
+**2026-09-22 — shared presentation retained through `03`.** The earlier comments assigning distinct registration to `03` are superseded. `03` derives the shared style from the resolved dark Theme but keeps both egui appearance slots on that presentation; `04` supplies and accepts the light definition before distinct registration and switching are enabled.

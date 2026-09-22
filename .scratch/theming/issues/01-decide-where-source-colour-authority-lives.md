@@ -1,5 +1,7 @@
 # 01 — Decide where Source colour authority lives
 
+**Superseded scope (2026-09-22):** The original decision/acceptance below is historical. ADR 0053 now requires one versioned Orcvs document with named style properties; Base16 import is deferred. Issues `03`, `06`, `07` and `10` carry current implementation scope. Do not implement the former slot/override or separate-chrome rules below.
+
 **What to decide:** Whether the ten Source Paint roles are viewer settings that storage owns, or theme tokens that a scheme owns, and record the answer as an ADR. Every other issue in this effort inherits the answer.
 
 **Blocked by:** None — can start immediately.
@@ -25,6 +27,7 @@ Storage holds a scheme name or its sixteen values plus per-role overrides keyed 
 - [x] The affordance key names are listed at exact spellings, so `06` and `08` have something to implement against. ADR 0053 lists them.
 - [x] `console/src/theme.md`'s "Source colours" section is rewritten to describe the scheme model rather than ten settings. A new Themes section maps every value to its slot or key.
 - [x] `syntax-highlighting/01` gains a comment pointing at the accepted ADR, closing the reconciliation it deferred.
+
 
 ## Comments
 
@@ -60,3 +63,5 @@ Draft key list, defaults in brackets: `diagnostic.foreground` (`base08`), `outpu
 - **Diagnostic and Output Portal take a key per channel, as VS Code's `editorError.*` does.** `diagnostic.foreground` (`base08`), `diagnostic.background` and `diagnostic.border` (transparent); `output_portal.foreground` (`base0A`), `output_portal.background` (`base0A` at the Fill tint's opacity), `output_portal.border` (transparent). A Theme picks a channel by giving it a colour and making the others transparent, so no mapping format is needed and ADR 0051's point stands: `style.rs` stops choosing channels. A fact's channel paints over the Token's on the same channel, with opacity compositing, and a transparent one leaves the Token's showing. Tokens keep one glyph colour each, plus their Fill tint.
 
 **2026-09-21 — resolved.** Written up as [ADR 0053](../../../docs/adr/0053-one-theme-styles-the-whole-console.md), which partly supersedes ADR 0051. `spec.md` is corrected. `03` and `04` are re-scoped and renamed, `05` is closed into `03`, `06`, `07` and `08` are revised, and `09` (motion into settings) and `10` (custom Themes) are opened. `CONTEXT.md` gains the **Theme** entry. "The answer" section above describes ADR 0051 and is kept as history.
+
+**2026-09-21 — authoring scope corrected by the user.** Making a custom Theme means authoring or editing a file outside Orcvs. There is no in-app Theme editor. ADR 0053 and `10` are corrected to remove the editor, colour-picker, live-preview and automatic creation requirements. The earlier discussion above is history, not authority for building an editor.

@@ -6,6 +6,8 @@
 .scratch/**
 !.scratch/**/
 !.scratch/**/*.md
+# Editable Theme examples are part of the format specification.
+!.scratch/theming/examples/*.yaml
 # Release evidence captures are delivered artefacts, not working files.
 !.scratch/*/evidence/*.png
 .claude/worktrees/
