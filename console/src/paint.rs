@@ -52,7 +52,10 @@ use orcvs::{
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
-    style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, sector_line},
+    style::{
+        SourcePaintVisuals, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill,
+        sector_line,
+    },
     theme::Theme,
 };
 
@@ -187,20 +190,23 @@ impl Paint {
     /// here is a Theme channel rather than a constant
     /// (`.scratch/theming/issues/06`).
     ///
-    /// `cell_visuals_with_cursor_colour` is called once per drawn Cell and is
-    /// unchanged in shape: this decides what to do with its answer, not what
-    /// the answer is. It reads the finished language fact on the Cell
-    /// (`RenderCell::source_paint`) and whether the Cell lies in a root Function's Output Portal
+    /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
+    /// decides what to do with its answer, not what the answer is. It reads
+    /// the finished language fact on the Cell (`RenderCell::source_paint`)
+    /// and whether the Cell lies in a root Function's Output Portal
     /// Reservation (`RenderCell::output_portal`, `.scratch/syntax-
     /// highlighting/issues/06`).
     ///
-    /// `theme` is resolved into the Cursor/Region fills and the uniform base
-    /// fallback once here, before the loop, rather than once per Cell —
-    /// `.scratch/theming/issues/06`'s `paint-cell-cost` constraint, which a
-    /// per-Cell resolution would spend the recovery `paint-cell-cost/03`
-    /// bought. `style::source_paint_visuals` resolves the
-    /// role/Diagnostic/Output Portal channels the same way, from `theme`
-    /// directly rather than a hashed lookup.
+    /// `theme` is resolved once here, before the loop, rather than once per
+    /// Cell — `.scratch/theming/issues/06`'s `paint-cell-cost` constraint,
+    /// which a per-Cell resolution would spend the recovery
+    /// `paint-cell-cost/03` bought. The Cursor/Region fills and the uniform
+    /// base fallback are hoisted, and `style::SourcePaintVisuals` holds
+    /// `cell_visuals_with_cursor_colour`'s answer for every unselected fact
+    /// and Output Portal flag, so an unselected Cell costs one indexed load
+    /// rather than the role match, Diagnostic/Output Portal blends,
+    /// `cell.background` composite and border priority match. Only the
+    /// single-Cell Cursor calls `cell_visuals_with_cursor_colour` directly.
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -240,6 +246,7 @@ impl Paint {
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
+        let unselected = SourcePaintVisuals::new(theme);
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
@@ -255,14 +262,18 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
-                let visuals = cell_visuals_with_cursor_colour(
-                    cell.source_paint(),
-                    cell.output_portal(),
-                    selected,
-                    selected && cursor_visible,
-                    cursor_fill,
-                    theme,
-                );
+                let visuals = if selected {
+                    cell_visuals_with_cursor_colour(
+                        cell.source_paint(),
+                        cell.output_portal(),
+                        true,
+                        cursor_visible,
+                        cursor_fill,
+                        theme,
+                    )
+                } else {
+                    unselected.unselected(cell.source_paint(), cell.output_portal())
+                };
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
                 let background = cell_background(
                     visuals.background,
