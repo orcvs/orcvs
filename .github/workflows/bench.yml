@@ -127,6 +127,26 @@ jobs:
           comment-on-alert: true
           fail-threshold: '300%'
           fail-on-alert: true
+      # A named-benchmark floor, beside the ratio gate above rather than inside it.
+      # The action only ever compares a run against the previous point stored for
+      # `main`, so a deliberately accepted regression re-baselines the series in
+      # silence: the next run is judged against the worse number, and nothing says
+      # so again. `benches/floors.toml` holds the figures this repository has
+      # agreed a named benchmark must not exceed; this step reads the same
+      # `output.txt` the action above read rather than measuring anything twice.
+      # See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+      #
+      # After the publish step rather than before it, so a floor breach cannot
+      # prevent the timing series from reaching `gh-pages` — the history stays
+      # continuous even on a run this step fails.
+      #
+      # `install: false` above keeps this job off mise's slower cargo tools, and
+      # `node` is the one tool this step needs that install skipped, so it is
+      # installed by name here instead of moving that job-wide setting.
+      - name: Install node for the bench floor check
+        run: mise install node
+      - name: Check bench floors
+        run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
       # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers
@@ -292,6 +312,22 @@ jobs:
           fail-threshold: '300%'
           fail-on-alert: true
           summary-always: true
+      # A named-benchmark floor, beside the ratio gate above rather than inside it.
+      # The action only ever compares a run against the previous point stored for
+      # `main`, so a deliberately accepted regression re-baselines the series in
+      # silence: the next run is judged against the worse number, and nothing says
+      # so again. `benches/floors.toml` holds the figures this repository has
+      # agreed a named benchmark must not exceed; this step reads the same
+      # `output.txt` the action above read rather than measuring anything twice.
+      # See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+      #
+      # `install: false` above keeps this job off mise's slower cargo tools, and
+      # `node` is the one tool this step needs that install skipped, so it is
+      # installed by name here instead of moving that job-wide setting.
+      - name: Install node for the bench floor check
+        run: mise install node
+      - name: Check bench floors
+        run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
       # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers

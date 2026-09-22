@@ -1,0 +1,66 @@
+# Benchmark floors: named ceilings on the bencher-format numbers `mise run bench`
+# prints, held separately from the ratio gate in `.github/workflows/bench.yml`.
+# `scripts/check-bench-floors.ts` reads this file and the same `output.txt` the
+# ratio gate reads; it runs the benchmarks a second time for nobody.
+#
+# Why this exists beside the ratio gate rather than instead of it:
+# `benchmark-action/github-action-benchmark` only ever compares a run against the
+# previous point stored for `main`, so a deliberately accepted regression
+# re-baselines the series in silence — the next pull request is judged against
+# the worse number, and nothing says so again. The ratio gate answers "did this
+# change make it worse"; this file answers "is it still as good as we agreed it
+# should be". See
+# `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+#
+# A benchmark absent from this file is unguarded: the check passes it without
+# comment. Raising a figure is a plain edit here, visible in the diff a
+# reviewer approves — the check never edits this file itself, and it fails
+# loudly rather than silently if a guarded name disappears from the benchmark
+# output (a rename must not be able to drop a guard by accident).
+#
+# Fields, one [[floor]] table per guarded benchmark:
+#   name    — the bencher-format name exactly as `mise run bench` prints it in
+#             the `test <name> ... bench: ...` line. A benchmark inside a
+#             criterion `benchmark_group` would carry its `group/parameter`
+#             form here unchanged.
+#   max_ns  — the highest figure this benchmark may report, in nanoseconds. A
+#             result strictly greater than this fails the check. criterion's
+#             bencher formatter never scales a wall-clock measurement past
+#             nanoseconds (`DurationFormatter::scale_for_machines` always
+#             returns `"ns"` in criterion 0.8.2's `measurement.rs`), so every
+#             benchmark this workspace runs reports in this unit.
+#   runner  — the machine the figure was measured on. Without this a figure is
+#             not reproducible: `sequence-values/02` measured a 4.03x ratio
+#             locally against CI's 5.58x for the same change, and 3.27x locally
+#             against CI's 3.68x for the same fix, so a number from one machine
+#             is not interchangeable with a number from the other.
+#   source  — how the figure was derived, for whoever next decides whether
+#             raising it is warranted.
+#
+# This is a deliberately restricted TOML subset — flat `key = value` pairs
+# inside `[[floor]]` array-of-table blocks, no nested tables, no multi-line
+# strings, no arrays — hand-parsed by `scripts/check-bench-floors.ts` the same
+# way `scripts/check-tooling-contract.sh` hand-parses `mise.toml`: this
+# workspace carries no TOML dependency, and pulling one in to read four flat
+# fields would be a dependency this file cannot give a rationale for.
+
+[[floor]]
+name = "execute"
+max_ns = 100
+# The runner both bench jobs in .github/workflows/bench.yml run on.
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# `sequence-values/02` moved `execute` from a CI baseline of 19 ns to 106 ns —
+# a regression of 5.58x — while adding the broadcast seam ADR 0026 needs. Two
+# follow-up fixes brought it to 70 ns (3.68x), which the ratio gate still
+# failed, and the branch was merged anyway with that cost recorded rather than
+# closed: see .scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md
+# and .scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md.
+# 100 ns sits above the accepted 70 ns with headroom for the runner noise
+# `docs/tooling.md` describes as tens of percent between runs, while staying
+# below the 106 ns first regression, so a repeat of that specific broadcast
+# cost still fails here even though it would pass the ratio gate's 150% alert
+# threshold measured against a 70 ns baseline. This is a starting figure, not
+# a measured floor with several settled runs behind it; tighten or loosen it
+# once the series has enough points on `gh-pages` to show where 70 ns
+# actually settles on this runner.
+source = "CI-measured before/after figures recorded in .scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md and .scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md; 100 ns chosen with headroom above the accepted 70 ns figure, not independently re-measured for this file."

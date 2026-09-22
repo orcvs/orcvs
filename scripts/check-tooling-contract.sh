@@ -486,6 +486,15 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 # the timing series" is only a property of the pair.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          alert-threshold: '150%'\$" "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-threshold: '300%'\$" "$bench_job_count"
+# The named-benchmark floor check, beside the ratio gate above rather than
+# inside it: `benches/floors.toml` holds a ceiling this repository has agreed
+# a named benchmark must not exceed, and `scripts/check-bench-floors.ts` reads
+# the same `output.txt` the action above already read, once per job. `install:
+# false` on the mise-action steps above keeps these jobs off mise's slower
+# cargo tools, so `node` — the one tool this step needs that skips — is
+# installed by name immediately before it, rather than flipping that setting.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise install node$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: node scripts/check-bench-floors[.]ts output[.]txt$' "$bench_job_count"
 # The JSON is assembled with coreutils and shell builtins, so this step installs
 # nothing and `mise.toml` gains no tool for it. `jq` is the obvious reach and it is
 # the one thing this must not become.

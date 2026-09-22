@@ -259,6 +259,24 @@ fixed size. `.github/workflows/bench.yml` runs the same command
 in two jobs and fails either when a benchmark is more than three times slower than the previous
 stored result.
 
+That ratio gate answers one question — did this change make it worse — and has no way to answer a
+second one: is it still as good as we agreed it should be. `benchmark-action/github-action-benchmark`
+only ever compares a run against the previous point stored for `main`, so a deliberately accepted
+regression re-baselines the series in silence, and the next pull request is judged against the
+worse number with nothing left to say so. `benches/floors.toml` closes that gap beside the ratio
+gate rather than inside it: it names each guarded benchmark, the figure it must not exceed, and the
+runner the figure was measured on, and `scripts/check-bench-floors.ts` — run once per job in
+`.github/workflows/bench.yml`, right after the ratio-gate action — checks the same `output.txt`
+against it without benchmarking anything a second time. A benchmark absent from the file is
+unguarded and the check passes it without comment; raising a guarded figure is a plain, reviewed
+edit to that file rather than something the check can do on its own. `execute` carries the
+workspace's first floor, seeded from the CI-measured regression and fix recorded in
+`.scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md` and
+`.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`. Both bench jobs run
+`mise-action` with `install: false` to stay off mise's slower cargo tools, so each installs `node`
+by name — `mise install node` — immediately before the one step that needs it, rather than flipping
+that job-wide setting.
+
 The task names criterion's measurement budget rather than taking its default, and the figures are
 sized to the gate that reads them. That gate alerts at 150% and fails at 300%, comparing a number
 measured on one hosted runner against one measured on another, so it cannot resolve better than
