@@ -205,28 +205,65 @@ async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
 }
 
 ///
-/// ADR 0053: Themes choose colours; Settings hold only a Theme's name, and
-/// there is no "Reset to theme defaults" left to click, because there are no
-/// overrides to reset — `Theme → Source colours` and the colour controls
-/// `Theme → Cursor effects` used to hold are gone
-/// (`.scratch/theming/issues/06`). This test proves the negative the removal
-/// promises: opening the Theme menu offers no reset button at all.
+/// ADR 0053: Themes choose colours, so no menu offers a "Reset to theme
+/// defaults" button — there are no per-Theme overrides to reset.
 ///
 #[tokio::test]
-async fn the_theme_menu_offers_no_reset_button() {
+async fn no_menu_offers_a_reset_to_theme_defaults_button() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    harness.get_by_label("Theme").click();
-    harness.step();
-    harness.run_steps(1);
+    for menu in ["File", "View", "Settings"] {
+        harness.get_by_label(menu).click();
+        harness.step();
+        harness.run_steps(1);
+        assert_eq!(
+            harness
+                .query_all_by_label("Reset to theme defaults")
+                .count(),
+            0,
+            "the {menu} menu offered a Reset to theme defaults button"
+        );
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+        harness.run_steps(1);
+    }
+}
+
+///
+/// Glitch amount and Glitch frequency are offered by the Settings menu, and
+/// nowhere else: neither is in the tree before Settings is opened.
+///
+#[tokio::test]
+async fn glitch_controls_are_offered_only_by_the_settings_menu() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
 
     assert_eq!(
-        harness
-            .query_all_by_label("Reset to theme defaults")
-            .count(),
+        harness.query_all_by_label("Glitch amount").count(),
         0,
-        "a Theme menu reset button survived removing the settings it reset"
+        "Glitch amount was in the tree before any menu was opened"
+    );
+    assert_eq!(
+        harness.query_all_by_label("Glitch frequency").count(),
+        0,
+        "Glitch frequency was in the tree before any menu was opened"
+    );
+
+    harness.get_by_label("Settings").click();
+    harness.step();
+    harness.run_steps(1);
+    // Both the Slider and the `DragValue` it wraps carry the same
+    // accessible label, so `query_all_by_label` (as the reset-button test
+    // above already uses) rather than `query_by_label`, which requires
+    // exactly one match.
+    assert!(
+        harness.query_all_by_label("Glitch amount").count() > 0,
+        "the Settings menu did not offer Glitch amount"
+    );
+    assert!(
+        harness.query_all_by_label("Glitch frequency").count() > 0,
+        "the Settings menu did not offer Glitch frequency"
     );
 }
 
@@ -879,7 +916,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 
 ///
 /// Keyboard input belongs to whichever control holds egui's focus, not only
-/// to the two the console named. The Theme menu's "Glitch amount" Slider
+/// to the two the console named. The Settings menu's "Glitch amount" Slider
 /// carries an editable `DragValue`; with its value box focused, command A,
 /// Backspace, and a paste are that box's text editing and must reach nothing
 /// in the Source.
@@ -890,7 +927,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 /// (`egui-0.36.2/src/data/input/raw_input.rs:56-60`).
 ///
 #[tokio::test]
-async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from_the_source() {
+async fn a_focused_settings_menu_value_box_keeps_region_and_clipboard_commands_from_the_source() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
@@ -907,7 +944,7 @@ async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from
         "the setup character never reached the Source"
     );
 
-    harness.get_by_label("Theme").click();
+    harness.get_by_label("Settings").click();
     harness.step();
     harness.run_steps(1);
     // A pointer click on the value box closes the menu it sits in
@@ -928,7 +965,7 @@ async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from
     }
     assert!(
         value_box_focused(&harness) && harness.ctx.egui_wants_keyboard_input(),
-        "Tab never gave a Theme menu value box keyboard focus"
+        "Tab never gave a Settings menu value box keyboard focus"
     );
 
     harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
@@ -974,7 +1011,7 @@ async fn tab_with_a_menu_open_moves_focus_and_not_the_cursor() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    harness.get_by_label("Theme").click();
+    harness.get_by_label("Settings").click();
     harness.step();
     harness.run_steps(1);
 
@@ -1000,12 +1037,12 @@ async fn typing_with_a_menu_open_leaves_the_source_unwritten() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    harness.get_by_label("Theme").click();
+    harness.get_by_label("Settings").click();
     harness.step();
     harness.run_steps(1);
     assert!(
         egui::Popup::is_any_open(&harness.ctx) && !harness.ctx.egui_wants_keyboard_input(),
-        "the Theme menu did not open with nothing focused"
+        "the Settings menu did not open with nothing focused"
     );
 
     let cursor_before = cursor(harness.state());
@@ -1043,12 +1080,12 @@ async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
     let region_before = harness.state().orcvs.region();
     assert!(!region_before.is_one_cell(), "test setup spanned no Region");
 
-    harness.get_by_label("Theme").click();
+    harness.get_by_label("Settings").click();
     harness.step();
     harness.run_steps(1);
     assert!(
         egui::Popup::is_any_open(&harness.ctx),
-        "the Theme menu did not open"
+        "the Settings menu did not open"
     );
 
     harness.key_press(egui::Key::Escape);

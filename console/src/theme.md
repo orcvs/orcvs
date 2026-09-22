@@ -18,7 +18,7 @@ the same Theme.
 - Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
-- Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`)
+- Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), a Theme value (`region.background`, ADR 0053)
 - Selection stroke while caret is hidden: `#52C3A3` (`rgb(82, 195, 163)`)
 - Selection and Cursor stroke: `#65E6BE` (`rgb(101, 230, 190)`)
 
@@ -41,14 +41,16 @@ which is unset by default and then leaves that Cell the Cursor cell colour, or
 the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
 ruled as every other Cell of the Region, sector seams included.
 
-`Theme → Cursor effects` holds the two motion settings, Glitch amount and
-Glitch frequency. The Cursor Effect's colours are Theme properties
-(`cursor.border`, `cursor.area`, `cursor.background`, `region.background`,
-`region.cursor.background`, `region.border`) with no control of their own, and
-no "Reset" remains.
+The Cursor Effect's colours are Theme properties (`cursor.border`,
+`cursor.area`, `cursor.background`, `region.background`,
+`region.cursor.background`, `region.border`) with no control of their own,
+and no "Reset" remains. Glitch amount and Glitch frequency are not Theme
+values: ADR 0053 keeps them console settings, in the console's `Settings`
+menu rather than any `Theme` menu (`.scratch/theming/issues/09`).
 Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
-enabled, these preferences are restored independently of the saved Source.
+enabled, both are restored independently of the saved Source, falling back
+to their defaults — 60 and 55 — on an absent or malformed stored value.
 
 ADR 0053 and `theming/09` retain those distinct appearances and also stop
 cursor-effect repaints at amount zero, correcting the current frequency-only

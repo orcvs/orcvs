@@ -82,6 +82,10 @@ const GLYPH_SCALE_STEP: f32 = 0.125;
 /// console. It is the panel's own minimum, which the menu bar does not exceed.
 const TOP_PANEL_HEIGHT: f32 = 32.0;
 
+/// The horizontal gap between the top menu bar's own items — its menu
+/// buttons and the persistence notice.
+const MENU_BAR_GAP: f32 = 16.0;
+
 #[cfg(target_arch = "wasm32")]
 fn prefers_reduced_motion() -> bool {
     web_sys::window()
@@ -775,14 +779,19 @@ pub struct Console {
     /// `Memory::begin_pass` has already let Escape clear the focus it was
     /// pressed to leave (`egui-0.36.2/src/memory/mod.rs:596-601`).
     keyboard_elsewhere: bool,
-    cursor_effects: CursorEffectSettings,
-    cursor_effect_animation: CursorEffectAnimation,
     /// The resolved Theme Source and chrome both paint from. Always the
     /// Okabe–Ito built-in for now: `.scratch/theming/issues/06` has only one
     /// Theme to resolve, and `07`'s loader is what will make the dark and
     /// light Theme identities `Persistence` restores resolve to anything else.
     theme: Theme,
+    /// The operating system's reduced-motion preference, read once at
+    /// startup (`prefers_reduced_motion`) and combined with `cursor_effects`
+    /// each frame through `CursorEffectSettings::respecting_reduced_motion`.
     reduced_motion: bool,
+    /// Glitch amount and Glitch frequency: the Cursor Effect's motion
+    /// settings. The Effect's colours are on the resolved Theme instead.
+    cursor_effects: CursorEffectSettings,
+    cursor_effect_animation: CursorEffectAnimation,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
 }
@@ -860,10 +869,10 @@ impl Console {
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
-            cursor_effects: start.cursor_effects,
-            cursor_effect_animation: CursorEffectAnimation::default(),
             theme: okabe_ito(),
             reduced_motion: prefers_reduced_motion(),
+            cursor_effects: start.cursor_effects,
+            cursor_effect_animation: CursorEffectAnimation::default(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
         })
@@ -1980,20 +1989,14 @@ impl eframe::App for Console {
                         }
                     }
                 });
-                ui.add_space(16.0);
+                ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
-                // ADR 0053: a Theme decides colours; Settings hold only its
-                // name. `.scratch/theming/issues/06` removes the colour
-                // controls this menu used to hold — `Theme → Source colours`
-                // entirely, and `Theme → Cursor effects`' colour pickers —
-                // along with the "Reset to theme defaults" buttons that reset
-                // had left. Glitch amount and Glitch frequency stay: they are
-                // motion preferences, not Theme values
-                // (`.scratch/theming/issues/09`). The dark/light Theme
-                // pickers this menu will gain are `03`'s and `04`'s.
-                ui.menu_button("Theme", |ui| {
+                ui.add_space(MENU_BAR_GAP);
+                // Glitch amount and Glitch frequency are motion settings, not
+                // Theme values (ADR 0053), so they get their own menu.
+                ui.menu_button("Settings", |ui| {
                     ui.label("Cursor effects");
                     ui.add(
                         egui::Slider::new(self.cursor_effects.amount_mut(), 0..=100)
@@ -2011,7 +2014,7 @@ impl eframe::App for Console {
                 // developer console; this is the channel a viewer reads.
                 #[cfg(feature = "persistence")]
                 if self.persistence.notice_visible() {
-                    ui.add_space(16.0);
+                    ui.add_space(MENU_BAR_GAP);
                     ui.colored_label(
                         ui.visuals().error_fg_color,
                         format!(
@@ -2210,10 +2213,10 @@ impl eframe::App for Console {
                     #[cfg(test)]
                         bpm_widget_id: _,
                     keyboard_elsewhere: _,
-                    cursor_effects: _,
-                    cursor_effect_animation: _,
                     theme: _,
                     reduced_motion: _,
+                    cursor_effects: _,
+                    cursor_effect_animation: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
                 } = self;
@@ -2297,10 +2300,10 @@ mod tests {
     use super::{
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
-        GlyphTable, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView,
-        TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale, is_presentable,
-        show_source_scene, source_bounds, source_panel_frame, stepped_zoom, translate_event,
-        zoom_command,
+        GlyphTable, MAX_ZOOM, MENU_BAR_GAP, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes,
+        SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale,
+        is_presentable, show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
+        translate_event, zoom_command,
     };
 
     /// The Source View's margin at Zoom 1.0 and a device scale of one.
@@ -3297,8 +3300,8 @@ mod tests {
 
     ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
-    /// C `00:00`, O `None`. File, View, and Theme remain on the top bar; the
-    /// MIDI menu is gone.
+    /// C `00:00`, O `None`. File, View, and Settings remain on the top bar;
+    /// the MIDI menu is gone.
     ///
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
@@ -3355,12 +3358,16 @@ mod tests {
             text.contains("00:00"),
             "the Panel is missing Run Clock 00:00 in {text:?}"
         );
-        for menu in ["File", "View", "Theme"] {
+        for menu in ["File", "View", "Settings"] {
             assert!(
                 text.contains(menu),
                 "the top bar is missing {menu} in {text:?}"
             );
         }
+        assert!(
+            !text.contains("Theme"),
+            "the Theme menu is still on the top bar in {text:?}"
+        );
         assert!(
             !text[..bpm_at].contains("MIDI"),
             "the MIDI menu is still on the top bar in {text:?}"
@@ -4351,7 +4358,7 @@ mod tests {
                     .show(root, |ui| {
                         egui::MenuBar::new().ui(ui, |ui| {
                             ui.menu_button("File", |_ui| {});
-                            ui.add_space(16.0);
+                            ui.add_space(MENU_BAR_GAP);
                             ui.menu_button("View", |_ui| {});
                         });
                     });
