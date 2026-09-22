@@ -52,7 +52,7 @@ use orcvs::{
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
-    style::{cell_visuals_with_cursor_colour, compose_cell_fill, sector_line},
+    style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, sector_line},
     theme::Theme,
 };
 
@@ -264,13 +264,15 @@ impl Paint {
                     theme,
                 );
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
-                let background = if is_cursor && region_spans {
-                    compose_cell_fill(theme.cell_background, region_cursor_fill)
-                } else {
-                    visuals
-                        .background
-                        .or(if in_region { region_fill } else { base_fill })
-                };
+                let background = cell_background(
+                    visuals.background,
+                    is_cursor && region_spans,
+                    in_region,
+                    region_cursor_fill,
+                    region_fill,
+                    base_fill,
+                    theme.cell_background,
+                );
 
                 cells.push(CellPaint {
                     background,
@@ -1209,6 +1211,64 @@ mod tests {
             expected_visuals(cell, false, false, None, &theme).background,
             "the truncated Cell did not carry the Number tint"
         );
+    }
+
+    ///
+    /// A Pending operand Cell of every Token a signature can declare draws no
+    /// glyph, through the real paint path — `console.rs::place_glyphs` skips
+    /// a Cell whose `character` is `' '`, and a Pending slot's Cells are
+    /// never anything else, since a Pending slot is blank by definition.
+    /// `.scratch/theming/issues/08`'s contrast validator relies on this: a
+    /// Pending Cell has no foreground for it to measure, so
+    /// `contrast::Role::SOURCE_ROLES` carries no Pending fact. If this test ever
+    /// fails — a Pending Cell starts drawing a character — restore Pending
+    /// states to `contrast::Role::SOURCE_ROLES`, since the "no foreground to
+    /// measure" reasoning that dropped them would no longer hold.
+    ///
+    #[tokio::test]
+    async fn every_pending_operand_token_draws_no_glyph_through_the_real_paint_path() {
+        let mut orcvs = running_orcvs(6, 4);
+        for (row, text) in [(0, ".+"), (1, ".v"), (2, ":&"), (3, ":<")] {
+            write_row(&mut orcvs, row, text);
+        }
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let grid = orcvs.grid();
+
+        for (row, operands, token) in [
+            (0, 2..6, Token::Number),
+            (1, 2..4, Token::Note),
+            (2, 2..6, Token::Atom),
+            (3, 2..4, Token::Sequence),
+        ] {
+            for x in operands {
+                let position = grid.position(x, row).expect("inside the grid");
+                let cell = frame.at(position);
+                assert_eq!(
+                    cell.source_paint(),
+                    SourcePaint::Operand {
+                        token,
+                        state: OperandState::Pending,
+                    },
+                    "row {row} column {x} was not the Pending fixture this test expects"
+                );
+                assert_eq!(
+                    cell.content(),
+                    None,
+                    "row {row} column {x}'s Pending slot held content"
+                );
+
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.character, ' ',
+                    "row {row} column {x} ({token:?}) drew a glyph despite being Pending — \
+                     restore Pending states to contrast::Role::SOURCE_ROLES, since measuring a \
+                     Pending foreground is no longer an impossible state"
+                );
+            }
+        }
     }
 
     ///

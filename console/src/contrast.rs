@@ -4,163 +4,197 @@
 //! displays, not raw Theme colour pairs read in isolation.
 //! `.scratch/theming/issues/08`.
 //!
-//! Reuses `style`'s own composition —
-//! [`crate::style::cell_visuals_with_cursor_colour`] and
-//! [`crate::style::compose_cell_fill`] — for every colour operation a Source
-//! Grid state produces, so painting and this validator cannot independently
-//! drift. This module adds only the state *selection*
-//! [`crate::paint::Paint::derive_with_theme`] performs once per Cell of a
-//! whole Render Frame, mirrored here so one reachable state can be asked for
-//! standalone. Console text (`text`, `text.muted`) has no such function yet —
+//! [`painted`] calls [`crate::style::cell_visuals_with_cursor_colour`] and
+//! [`crate::style::cell_background`] — the same functions
+//! [`crate::paint::Paint::derive_with_theme`] calls per Cell — for every
+//! Source Grid colour operation, so the two cannot independently drift.
+//! Console text (`text`, `text.muted`) has no such function yet —
 //! `.scratch/theming/issues/03` derives chrome from the Theme — so it
-//! composites directly with the same [`egui::Color32::blend`] primitive
+//! composites directly with [`egui::Color32::blend`], the same primitive
 //! every reused function above is itself built from.
 //!
 //! # Scope
 //!
 //! This module measures text contrast only: an effective foreground against
-//! the effective background it is actually painted on. It does not measure
-//! pairwise Token-colour distinguishability, colour-vision accessibility, or
-//! border/focus visibility — [`validate`]'s own doc comment restates this,
-//! since a report is exactly where a reader would otherwise assume a wider
-//! claim.
+//! the effective background it is actually painted on.
+//!
+//! It does not measure pairwise Token-colour distinguishability,
+//! colour-vision accessibility, or border/focus visibility.
+//!
+//! It does not account for the Cursor Effect's animated `area` field
+//! (`theme.cursor_area`), which `console.rs`'s `SourceShapes::into_shapes`
+//! draws beneath every Cell's own background. Where a Cell's own background
+//! is fully transparent, the real console can show a translucent tint of
+//! `cursor_area` at that Cell, up to `cursor_area`'s own configured alpha —
+//! but which Cells, and how much, is decided by Glitch amount and Glitch
+//! frequency (viewer settings, not Theme properties — ADR 0053: "A Theme
+//! decides how things look, never how much it moves") and by continuous,
+//! real-time animation. No single sample derived from the Theme alone would
+//! represent that faithfully, so this validator measures the plain Grid
+//! surface instead. `contrast::tests::painted_background_is_unaffected_by_
+//! the_cursor_area_effect` pins this as a checked boundary rather than an
+//! unnoticed gap.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unused outside this module's own tests until theming/07 wires a loader and \
-                   shows validate's report when a viewer loads a scheme"
-    )
-)]
+use std::fmt;
 
 use egui::Color32;
 use orcvs::source::{OperandState, SourcePaint, Token};
 
-use crate::style::{cell_visuals_with_cursor_colour, compose_cell_fill};
-use crate::theme::Theme;
+use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill};
+use crate::theme::{OKABE_ITO_IDENTITY, Theme};
 
 ///
 /// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio every
 /// [`ContrastResult`] is measured against: 4.5:1, the floor normal-size text
-/// must clear. Stated once, here, with its source, rather than repeated as a
-/// literal at each call site.
+/// must clear. Stated once, here, with its source, and again in
+/// [`ContrastReport::floor`] for a caller reading the report rather than
+/// this source file.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
 pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 
 ///
-/// Every Source Paint fact a real Source can produce, paired with the label
-/// [`ContrastResult::role`] reports it under.
+/// A named text role [`validate`] measures, and the Source Paint fact it
+/// reads from — `None` for the two console-chrome roles, `text` and
+/// `text.muted`, which are not Source Grid facts.
 ///
-/// Number and Note admit Pending, Valid and Invalid. Atom and Sequence admit
-/// only Pending and Invalid, never Valid: `Token::decode` refuses both
-/// outright (`lang/src/expression.rs`'s own words on `Token`: "declarations
-/// no Cells spell"), so the only thing that can satisfy either slot is a
-/// nested Function — which `take_language_unit`'s `is_function_next()`
-/// branch records under `Token::Function` instead, never under `Atom` or
-/// `Sequence`. Unclaimed, Function, Bang and Comment carry no operand state
-/// of their own. This mirrors `style::tests`'s own `operand` fixture and its
-/// documented reachability — `an_operand_cell_of_every_token_a_source_can_
-/// claim_is_tinted_with_its_own_colour` drives the real pairs through the
-/// Render Frame.
+/// Number and Note admit Valid and Invalid. Atom and Sequence admit only
+/// Invalid: `Token::decode` refuses both outright (`lang/src/expression.rs`'s
+/// own words on `Token`: "declarations no Cells spell"), so the only thing
+/// that can satisfy either slot is a nested Function, which
+/// `take_language_unit`'s `is_function_next()` branch records under
+/// `Token::Function` instead — never under `Atom` or `Sequence`. Neither
+/// Token ever reaches a *Valid* state through any Source, only Invalid
+/// (written, unbound) or Pending (blank).
 ///
-const SOURCE_PAINT_FACTS: [(&str, SourcePaint); 14] = [
-    ("Ordinary", SourcePaint::Unclaimed),
-    ("Function", SourcePaint::Function),
-    ("Bang", SourcePaint::Bang),
-    ("Comment", SourcePaint::Comment),
-    (
-        "Number, Pending",
-        SourcePaint::Operand {
-            token: Token::Number,
-            state: OperandState::Pending,
-        },
-    ),
-    (
-        "Number, Valid",
-        SourcePaint::Operand {
-            token: Token::Number,
-            state: OperandState::Valid,
-        },
-    ),
-    (
-        "Number, Invalid",
-        SourcePaint::Operand {
-            token: Token::Number,
-            state: OperandState::Invalid,
-        },
-    ),
-    (
-        "Note, Pending",
-        SourcePaint::Operand {
-            token: Token::Note,
-            state: OperandState::Pending,
-        },
-    ),
-    (
-        "Note, Valid",
-        SourcePaint::Operand {
-            token: Token::Note,
-            state: OperandState::Valid,
-        },
-    ),
-    (
-        "Note, Invalid",
-        SourcePaint::Operand {
-            token: Token::Note,
-            state: OperandState::Invalid,
-        },
-    ),
-    (
-        "Atom, Pending",
-        SourcePaint::Operand {
-            token: Token::Atom,
-            state: OperandState::Pending,
-        },
-    ),
-    (
-        "Atom, Invalid",
-        SourcePaint::Operand {
-            token: Token::Atom,
-            state: OperandState::Invalid,
-        },
-    ),
-    (
-        "Sequence, Pending",
-        SourcePaint::Operand {
-            token: Token::Sequence,
-            state: OperandState::Pending,
-        },
-    ),
-    (
-        "Sequence, Invalid",
-        SourcePaint::Operand {
-            token: Token::Sequence,
-            state: OperandState::Invalid,
-        },
-    ),
-];
-
-///
-/// Which reachable placement — beyond the plain role/Diagnostic/Output-Portal
-/// channel a [`SOURCE_PAINT_FACTS`] entry already carries — a text state is
-/// measured in, mirroring [`crate::paint::Paint::derive_with_theme`]'s own
-/// per-Cell decision.
-///
-/// Crossed with every [`SOURCE_PAINT_FACTS`] entry rather than with each
-/// other: Output Portal, Cursor and Region are each asked about in isolation
-/// (a Cell is not simultaneously the Cursor and inside an Output Portal
-/// Reservation in these fixtures) rather than as a full three-way
-/// cross-product, which `.scratch/theming/issues/08`'s "do not substitute
-/// impossible cross-products" reads as a boundary to keep rather than a
-/// requirement to exhaustively combine every axis with every other.
+/// Pending is not a role this validator measures at all: a Pending Cell
+/// draws no glyph (`paint::tests::every_pending_operand_token_draws_no_
+/// glyph_through_the_real_paint_path` proves this through the real paint
+/// path), so there is no foreground for a Pending state to measure. That
+/// guard test's own failure message says to restore Pending roles here if
+/// painting ever changes to draw one.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Placement {
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
+                   and shows validate's report when a viewer loads a scheme"
+    )
+)]
+pub(crate) enum Role {
+    Ordinary,
+    Function,
+    Bang,
+    Comment,
+    NumberValid,
+    NumberInvalid,
+    NoteValid,
+    NoteInvalid,
+    AtomInvalid,
+    SequenceInvalid,
+    Text,
+    TextMuted,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+impl Role {
+    /// Every Source Grid role [`validate`] measures, in this enum's
+    /// declaration order.
+    const SOURCE_ROLES: [Self; 10] = [
+        Self::Ordinary,
+        Self::Function,
+        Self::Bang,
+        Self::Comment,
+        Self::NumberValid,
+        Self::NumberInvalid,
+        Self::NoteValid,
+        Self::NoteInvalid,
+        Self::AtomInvalid,
+        Self::SequenceInvalid,
+    ];
+
+    /// The Source Paint fact this role reads, or `None` for a console-chrome
+    /// role.
+    fn source_paint_fact(self) -> Option<SourcePaint> {
+        match self {
+            Self::Ordinary => Some(SourcePaint::Unclaimed),
+            Self::Function => Some(SourcePaint::Function),
+            Self::Bang => Some(SourcePaint::Bang),
+            Self::Comment => Some(SourcePaint::Comment),
+            Self::NumberValid => Some(operand(Token::Number, OperandState::Valid)),
+            Self::NumberInvalid => Some(operand(Token::Number, OperandState::Invalid)),
+            Self::NoteValid => Some(operand(Token::Note, OperandState::Valid)),
+            Self::NoteInvalid => Some(operand(Token::Note, OperandState::Invalid)),
+            Self::AtomInvalid => Some(operand(Token::Atom, OperandState::Invalid)),
+            Self::SequenceInvalid => Some(operand(Token::Sequence, OperandState::Invalid)),
+            Self::Text | Self::TextMuted => None,
+        }
+    }
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+const fn operand(token: Token, state: OperandState) -> SourcePaint {
+    SourcePaint::Operand { token, state }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Ordinary => "Ordinary",
+            Self::Function => "Function",
+            Self::Bang => "Bang",
+            Self::Comment => "Comment",
+            Self::NumberValid => "Number, Valid",
+            Self::NumberInvalid => "Number, Invalid",
+            Self::NoteValid => "Note, Valid",
+            Self::NoteInvalid => "Note, Invalid",
+            Self::AtomInvalid => "Atom, Invalid",
+            Self::SequenceInvalid => "Sequence, Invalid",
+            Self::Text => "text",
+            Self::TextMuted => "text.muted",
+        })
+    }
+}
+
+///
+/// Where a Source Grid role's Cell sits relative to the Cursor and a Region
+/// spanning more than one Cell — the axis
+/// [`crate::paint::Paint::derive_with_theme`] decides once per Cell,
+/// independently of whether that Cell also lies in an Output Portal
+/// Reservation (see [`State::SourceGrid`]).
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
+                   and shows validate's report when a viewer loads a scheme"
+    )
+)]
+pub(crate) enum CursorPlacement {
     /// Not the Cursor, not inside a Region: the ordinary Cell.
     Plain,
-    /// Within a root Function's Output Portal Reservation.
-    OutputPortal,
     /// The single-Cell Cursor, selected and visible.
     Cursor,
     /// A Region Cell other than the Cursor's own, inside a Region spanning
@@ -170,47 +204,112 @@ enum Placement {
     RegionCursor,
 }
 
-impl Placement {
-    const ALL: [Self; 5] = [
-        Self::Plain,
-        Self::OutputPortal,
-        Self::Cursor,
-        Self::Region,
-        Self::RegionCursor,
-    ];
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+impl CursorPlacement {
+    const ALL: [Self; 4] = [Self::Plain, Self::Cursor, Self::Region, Self::RegionCursor];
+}
 
-    fn name(self) -> &'static str {
-        match self {
+impl fmt::Display for CursorPlacement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             Self::Plain => "plain",
-            Self::OutputPortal => "Output Portal",
             Self::Cursor => "Cursor",
             Self::Region => "Region",
             Self::RegionCursor => "Region, Cursor's Cell",
+        })
+    }
+}
+
+///
+/// The reachable painted state a [`ContrastResult`] was measured in.
+///
+/// [`Self::SourceGrid`] crosses [`CursorPlacement`] with whether the Cell
+/// also lies in a root Function's Output Portal Reservation: the two are
+/// independent — the Cursor can sit on a Cell an Output Portal covers, and a
+/// Region can span over one, per `.scratch/theming/schema.md`'s own Overlap
+/// rule ("covers every Cell of the Reservation whatever else claims it") and
+/// its Cursor-precedence exception ("The Cursor's own fill still wins
+/// outright over everything above, on its own Cell").
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
+                   and shows validate's report when a viewer loads a scheme"
+    )
+)]
+pub(crate) enum State {
+    SourceGrid {
+        cursor: CursorPlacement,
+        output_portal: bool,
+    },
+    /// `text`/`text.muted` against `panel.background`.
+    Panel,
+    /// `text`/`text.muted` against `input.background`.
+    Input,
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SourceGrid {
+                cursor,
+                output_portal: false,
+            } => write!(f, "{cursor}"),
+            Self::SourceGrid {
+                cursor,
+                output_portal: true,
+            } => write!(f, "{cursor}, Output Portal"),
+            Self::Panel => f.write_str("vs panel.background"),
+            Self::Input => f.write_str("vs input.background"),
         }
     }
 }
 
 ///
-/// The effective foreground and *opaque* background a `(fact, placement)`
-/// pair actually paints, composited exactly as
-/// [`crate::paint::Paint::derive_with_theme`] composes one Cell — same
-/// functions, same order, standalone rather than read off one Cell of a
-/// whole Render Frame.
+/// The effective foreground and *opaque* background a `(fact, cursor,
+/// output_portal)` triple actually paints, composited exactly as
+/// [`crate::paint::Paint::derive_with_theme`] composes one Cell — the same
+/// functions, standalone rather than read off one Cell of a whole Render
+/// Frame.
 ///
 /// The background is resolved all the way down to the opaque window
 /// backdrop: `console.rs`'s own paint order draws `window.background` as the
 /// `eframe` clear colour first, `grid.background` as the Source panel's fill
 /// over it, then each Cell's own composited fill on top
 /// (`console.rs::source_panel_frame`, `Console::clear_color`). A translucent
-/// background therefore resolves against its underlying surface — the
-/// `.scratch/theming/schema.md` composition rule this replaces the earlier
-/// `Color32::to_opaque` normalisation with, which measured a translucent
-/// colour against itself rather than against what is actually behind it.
+/// background therefore resolves against its underlying surface rather than
+/// against itself.
 ///
-fn painted(fact: SourcePaint, placement: Placement, theme: &Theme) -> (Color32, Color32) {
-    let output_portal = placement == Placement::OutputPortal;
-    let is_cursor = matches!(placement, Placement::Cursor | Placement::RegionCursor);
-    let region_spans = matches!(placement, Placement::Region | Placement::RegionCursor);
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+fn painted(
+    fact: SourcePaint,
+    cursor: CursorPlacement,
+    output_portal: bool,
+    theme: &Theme,
+) -> (Color32, Color32) {
+    let is_cursor = matches!(
+        cursor,
+        CursorPlacement::Cursor | CursorPlacement::RegionCursor
+    );
+    let region_spans = matches!(
+        cursor,
+        CursorPlacement::Region | CursorPlacement::RegionCursor
+    );
     let selected = is_cursor && !region_spans;
     let cursor_fill = theme.cursor_background;
 
@@ -227,23 +326,20 @@ fn painted(fact: SourcePaint, placement: Placement, theme: &Theme) -> (Color32, 
         theme,
     );
 
-    // `Paint::derive_with_theme`'s own three-way background decision,
-    // mirrored: the Cursor's Cell inside a spanning Region takes the Region
-    // Cursor fill (falling back to the ordinary Cursor fill); any other Cell
-    // of that Region falls back to the Region fill when its own role/
-    // Diagnostic/Output-Portal composition left nothing visible; every other
-    // Cell falls back to the uniform Cell base alone.
     let region_cursor_fill = theme.region_cursor_background.or(cursor_fill);
     let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
     let base_fill = compose_cell_fill(theme.cell_background, None);
+    let in_region = region_spans && !is_cursor;
 
-    let painted_background = if is_cursor && region_spans {
-        compose_cell_fill(theme.cell_background, region_cursor_fill)
-    } else if region_spans {
-        visuals.background.or(region_fill)
-    } else {
-        visuals.background.or(base_fill)
-    };
+    let painted_background = cell_background(
+        visuals.background,
+        is_cursor && region_spans,
+        in_region,
+        region_cursor_fill,
+        region_fill,
+        base_fill,
+        theme.cell_background,
+    );
 
     let grid_surface = theme.window_background.blend(theme.grid_background);
     let effective_background =
@@ -253,19 +349,40 @@ fn painted(fact: SourcePaint, placement: Placement, theme: &Theme) -> (Color32, 
 }
 
 ///
-/// One reachable painted text state's measured result: its role, its
-/// placement, the effective foreground and background it actually
-/// composites to, and the WCAG ratio between them.
+/// One reachable painted text state's measured result.
 ///
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
+                   and shows validate's report when a viewer loads a scheme"
+    )
+)]
 pub(crate) struct ContrastResult {
-    pub(crate) role: &'static str,
-    pub(crate) state: &'static str,
+    pub(crate) role: Role,
+    pub(crate) state: State,
     pub(crate) foreground: Color32,
     pub(crate) background: Color32,
     pub(crate) ratio: f32,
+    /// Whether `.scratch/theming/issues/08`'s comments record this exact
+    /// `(role, state, foreground, background)` as an explicitly accepted
+    /// exception. Never turns [`Self::passes`] into `true`: acceptance
+    /// annotates a failure, it does not hide or pass it. Keyed on the
+    /// measured colour pair as well as role/state, so a retune that changes
+    /// `foreground`/`background` while keeping the same role/state label
+    /// does not stay silently accepted.
+    pub(crate) accepted: bool,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
 impl ContrastResult {
     /// Whether [`Self::ratio`] clears [`CONTRAST_FLOOR`].
     pub(crate) fn passes(&self) -> bool {
@@ -274,9 +391,43 @@ impl ContrastResult {
 }
 
 ///
+/// [`validate`]'s complete answer for one Theme: the floor and scope every
+/// [`ContrastResult`] is measured against, carried in the data itself rather
+/// than only in this module's rustdoc, plus the results.
+///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
+                   and shows validate's report when a viewer loads a scheme"
+    )
+)]
+pub(crate) struct ContrastReport {
+    pub(crate) floor: f32,
+    /// This module's own `# Scope` section, restated as data a caller can
+    /// show beside the report rather than only read in source.
+    pub(crate) scope: &'static str,
+    pub(crate) results: Vec<ContrastResult>,
+}
+
+/// [`ContrastReport::scope`]'s exact text.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
+background it is actually painted on. Not pairwise Token-colour distinguishability, \
+colour-vision accessibility, border/focus visibility, or the Cursor Effect's animated area \
+field.";
+
+///
 /// Measures every reachable painted text state against `theme` and reports
-/// each one's role, state, effective foreground and background, and measured
-/// WCAG ratio.
+/// each one's role, state, effective foreground and background, measured
+/// WCAG ratio, and whether it is an explicitly accepted exception.
 ///
 /// Never refuses `theme`: a scheme that fails a state is measured and
 /// reported exactly like one that passes, because the floor is a fact about
@@ -284,71 +435,102 @@ impl ContrastResult {
 /// loads. `.scratch/theming/issues/07` shows this report when a viewer loads
 /// a scheme; a failing one loads anyway, because the viewer chose it.
 ///
-/// # Scope
-///
-/// This measures text contrast only. It does not measure whether two Token
-/// colours are distinguishable from each other, colour-vision accessibility,
-/// or border/focus visibility — a low text/background ratio and a
-/// low-distinguishability pair between two Tokens are different findings,
-/// and a caller reading this report should not infer the second from the
-/// first.
-///
-pub(crate) fn validate(theme: &Theme) -> Vec<ContrastResult> {
-    let mut results = Vec::with_capacity(SOURCE_PAINT_FACTS.len() * Placement::ALL.len() + 4);
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+pub(crate) fn validate(theme: &Theme) -> ContrastReport {
+    let mut results =
+        Vec::with_capacity(Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * 2 + 4);
 
-    for &(role, fact) in &SOURCE_PAINT_FACTS {
-        for placement in Placement::ALL {
-            let (foreground, background) = painted(fact, placement, theme);
-            results.push(measure(role, placement.name(), foreground, background));
+    for &role in &Role::SOURCE_ROLES {
+        let fact = role
+            .source_paint_fact()
+            .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
+        for cursor in CursorPlacement::ALL {
+            for output_portal in [false, true] {
+                let state = State::SourceGrid {
+                    cursor,
+                    output_portal,
+                };
+                let (foreground, background) = painted(fact, cursor, output_portal, theme);
+                results.push(measure(
+                    role,
+                    state,
+                    foreground,
+                    background,
+                    &theme.identity,
+                ));
+            }
         }
     }
 
     // Console text has no reused composition function yet
     // (`.scratch/theming/issues/03` derives chrome from the Theme), so it
-    // composites directly over its own two reachable surfaces: the normal
-    // widget/panel fill, and the extreme/faint input fill
-    // (`.scratch/theming/schema.md`'s chrome mapping). Both are themselves
-    // composited over the opaque window backdrop first, the same
-    // `window.background ▸ surface` step `painted` performs for the Source
-    // Grid.
+    // composites directly over its own two reachable surfaces. Both are
+    // layers over the opaque window backdrop, and `input.background` is
+    // itself painted inside a panel — an input widget's own fill composites
+    // over the panel's, not directly over the window — so `input` composites
+    // over `panel`, not over `window` a second, parallel way.
     let window = theme.window_background;
     let panel = window.blend(theme.panel_background);
-    let input = window.blend(theme.input_background);
+    let input = panel.blend(theme.input_background);
     for (role, state, foreground, background) in [
-        ("text", "vs panel.background", theme.text, panel),
-        ("text", "vs input.background", theme.text, input),
-        ("text.muted", "vs panel.background", theme.text_muted, panel),
-        ("text.muted", "vs input.background", theme.text_muted, input),
+        (Role::Text, State::Panel, theme.text, panel),
+        (Role::Text, State::Input, theme.text, input),
+        (Role::TextMuted, State::Panel, theme.text_muted, panel),
+        (Role::TextMuted, State::Input, theme.text_muted, input),
     ] {
-        results.push(measure(role, state, foreground, background));
+        results.push(measure(
+            role,
+            state,
+            foreground,
+            background,
+            &theme.identity,
+        ));
     }
 
-    results
+    ContrastReport {
+        floor: CONTRAST_FLOOR,
+        scope: SCOPE,
+        results,
+    }
 }
 
 ///
-/// Composites `foreground` over the already-opaque `background` — the
-/// pinned "self behind on_top" compositing every other resolved-Theme
-/// channel uses ([`compose_cell_fill`], `style.rs`'s `ordinary_border`): a
-/// translucent foreground is measured as the colour it actually displays,
-/// not its stored premultiplied bytes misread as straight sRGB. An opaque
-/// foreground is unchanged by this. Then measures [`contrast`] between the
-/// two.
+/// Composites `foreground` over the already-opaque `background`, measures
+/// [`contrast`] between the two, and looks `identity`'s accepted exceptions
+/// up for a matching entry.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
 fn measure(
-    role: &'static str,
-    state: &'static str,
+    role: Role,
+    state: State,
     foreground: Color32,
     background: Color32,
+    identity: &str,
 ) -> ContrastResult {
     let displayed = background.blend(foreground);
     let ratio = contrast(displayed, background);
+    let accepted = accepted_failures(identity)
+        .iter()
+        .any(|entry| entry.matches(role, state, foreground, background));
     ContrastResult {
         role,
         state,
         foreground,
         background,
         ratio,
+        accepted,
     }
 }
 
@@ -357,9 +539,15 @@ fn measure(
 /// arguments must already be opaque: `.r()`/`.g()`/`.b()` read
 /// [`Color32`]'s premultiplied bytes directly, which equal straight sRGB
 /// only at full alpha. Every caller in this module guarantees this by
-/// compositing down to the opaque window backdrop first
-/// ([`painted`], [`validate`]'s console-text loop).
+/// compositing down to the opaque window backdrop first.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
 fn contrast(foreground: Color32, background: Color32) -> f32 {
     let luminance = |colour: Color32| {
         let channel = |value: u8| {
@@ -377,74 +565,113 @@ fn contrast(foreground: Color32, background: Color32) -> f32 {
 }
 
 ///
-/// The failing `(role, state)` pairs `.scratch/theming/issues/08`'s comments
-/// record as explicitly accepted for a shipped Theme, keyed by identity. A
-/// pair absent from a Theme's entry — or a Theme absent from this list
-/// entirely — must report zero failures for [`unaccepted_failures`] to
-/// answer empty.
+/// One below-floor `(role, state)` result `.scratch/theming/issues/08`'s
+/// comments record as explicitly accepted for a shipped Theme, at the exact
+/// colour pair it was accepted at.
 ///
-/// Okabe–Ito's two entries are exactly the states that measure
-/// `source.sequence`'s own accepted colour, `#0072B2`, against the bare Grid
-/// background, `#000000` — the issue's own acceptance line, precisely: "the
-/// bare Grid background, `#000000`, approximately 4.05:1... this exception
-/// does not exempt other roles, Themes or newly measured failing states."
-/// That is `Cursor` and `Region, Cursor's Cell`, where Okabe–Ito's unset
-/// Cursor/Region-Cursor fills let the bare background show through. `plain`
-/// and `Region` measure a worse 3.67:1 against Sequence's own near-black
-/// background tint (`source.sequence.background`, not `base00`) — a
-/// genuinely different, newly measured failing state the composited-state
-/// validator surfaces that the earlier `base00`-only check could not, and
-/// the issue's own words classify it as one to record for explicit review
-/// rather than fold silently into the one already-confirmed figure. It is
-/// therefore pending alongside the invalid Number/Note/Atom Diagnostic
-/// states below, not accepted here.
-///
-fn accepted_failures(identity: &str) -> &'static [(&'static str, &'static str)] {
-    match identity {
-        "okabe-ito" => &[
-            ("Sequence, Pending", "Cursor"),
-            ("Sequence, Pending", "Region, Cursor's Cell"),
-        ],
-        _ => &[],
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+struct AcceptedFailure {
+    role: Role,
+    state: State,
+    foreground: Color32,
+    background: Color32,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+impl AcceptedFailure {
+    fn matches(&self, role: Role, state: State, foreground: Color32, background: Color32) -> bool {
+        self.role == role
+            && self.state == state
+            && self.foreground == foreground
+            && self.background == background
     }
 }
 
 ///
-/// `theme`'s failing results whose `(role, state)` pair is not in `accepted`
-/// — `.scratch/theming/issues/08`'s shipped-Theme gate, factored out to a
-/// plain function so it can be tested against a synthetic accepted set
-/// independently of whether the real shipped Theme currently clears it
-/// ([`tests::shipped_theme_gate`] is `#[ignore]`d while the invalid
-/// Number/Note/Atom Diagnostic failures below await a human decision).
+/// The accepted exceptions for a shipped Theme, keyed by identity.
 ///
-fn unaccepted_failures(theme: &Theme, accepted: &[(&str, &str)]) -> Vec<ContrastResult> {
-    validate(theme)
-        .into_iter()
-        .filter(|result| !result.passes())
-        .filter(|result| {
-            !accepted
-                .iter()
-                .any(|&(role, state)| role == result.role && state == result.state)
-        })
-        .collect()
+/// Okabe–Ito's list is empty. Its only candidate was Sequence: before
+/// Pending roles were dropped, `Sequence, Pending`'s `Cursor`/`Region,
+/// Cursor's Cell` states measured `#0072B2` against the bare Grid
+/// background, `#000000`, and `.scratch/theming/issues/08`'s acceptance
+/// line named exactly that pair as an accepted exception. Dropping Pending
+/// removes that role from the report entirely — it has no foreground to
+/// measure — and Sequence's one remaining role, `Sequence, Invalid`, passes
+/// the floor on its own (Diagnostic's foreground replaces Sequence's outright
+/// once it is Invalid), so Sequence has no reachable failing state left to
+/// except. This is recorded as "no reachable painted failure," not as the
+/// exception having been withdrawn.
+///
+/// `#0072B2` and the 4.5:1 floor are unchanged; nothing here retunes a
+/// colour or lowers the floor to reach this empty list.
+///
+/// Called from [`measure`], which every [`validate`] result passes through —
+/// not test-only, even though nothing outside this module's own tests calls
+/// `validate` itself yet. `ContrastResult::accepted` has to come from
+/// somewhere for the report to carry its acceptance annotation in the
+/// returned data rather than only in test code, and this table is that
+/// somewhere. [`unaccepted`], the shipped-Theme *gate*'s comparison, has no
+/// such production reason and lives in `mod tests`.
+///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+fn accepted_failures(identity: &str) -> &'static [AcceptedFailure] {
+    match identity {
+        id if id == OKABE_ITO_IDENTITY => &[],
+        _ => &[],
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use egui::Color32;
+    use orcvs::source::SourcePaint;
 
     use super::{
-        ContrastResult, Placement, SOURCE_PAINT_FACTS, accepted_failures, contrast, painted,
-        unaccepted_failures, validate,
+        AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
+        painted, validate,
     };
-    use crate::theme::{Theme, okabe_ito};
+    use crate::theme::{OKABE_ITO_IDENTITY, Theme, okabe_ito};
 
-    fn find(report: &[ContrastResult], role: &str, state: &str) -> ContrastResult {
+    fn find(report: &ContrastReport, role: Role, state: State) -> ContrastResult {
         report
+            .results
             .iter()
             .find(|result| result.role == role && result.state == state)
             .unwrap_or_else(|| panic!("validate did not report {role} / {state}"))
             .clone()
+    }
+
+    /// The below-floor results of `report` that are not accepted exceptions
+    /// — `.scratch/theming/issues/08`'s shipped-Theme gate. A plain filter
+    /// over `report.results` rather than a separately parameterized
+    /// function: acceptance is already baked into each `ContrastResult` by
+    /// `validate`, so there is nothing left for a test-only helper to do but
+    /// filter.
+    fn unaccepted(report: &ContrastReport) -> Vec<&ContrastResult> {
+        report
+            .results
+            .iter()
+            .filter(|result| !result.passes() && !result.accepted)
+            .collect()
     }
 
     // === The contrast formula itself, on synthetic colours with
@@ -493,13 +720,26 @@ mod tests {
     // === validate's shape ===
 
     #[test]
-    fn validate_reports_one_result_per_fact_and_placement_plus_four_console_text_states() {
+    fn validate_reports_the_floor_and_scope_in_the_returned_data() {
         let report = validate(&okabe_ito());
-        assert_eq!(
-            report.len(),
-            SOURCE_PAINT_FACTS.len() * Placement::ALL.len() + 4,
-            "one result per (fact, placement) pair plus text/text.muted against panel and input"
+        assert_eq!(report.floor, 4.5);
+        assert!(
+            report.scope.contains("Text contrast only"),
+            "the report must carry its own scope, not only rustdoc: {:?}",
+            report.scope
         );
+    }
+
+    #[test]
+    fn validate_reports_one_result_per_role_cursor_placement_and_output_portal_plus_four_console_text_states()
+     {
+        let report = validate(&okabe_ito());
+        // 10 Source Grid roles x 4 CursorPlacements x 2 output_portal states
+        // = 80, plus text/text.muted against panel.background and
+        // input.background = 4. Stated as one literal rather than
+        // recomputed from the same lengths `validate` sizes its `Vec` from,
+        // so a change to either count is caught by an independent number.
+        assert_eq!(report.results.len(), 84);
     }
 
     ///
@@ -507,8 +747,8 @@ mod tests {
     /// discriminates a pass from a failure rather than reporting every
     /// state as passing regardless of the colours it is given, and that a
     /// failing Theme is reported, never refused: `validate` returns a plain
-    /// `Vec`, not a `Result`, and the failing entry sits in it beside every
-    /// passing one.
+    /// `ContrastReport`, not a `Result`, and the failing entry sits in
+    /// `results` beside every passing one.
     ///
     #[test]
     fn validate_reports_a_theme_built_to_fail_rather_than_a_vacuous_pass() {
@@ -520,7 +760,7 @@ mod tests {
 
         let report = validate(&theme);
 
-        let text = find(&report, "text", "vs panel.background");
+        let text = find(&report, Role::Text, State::Panel);
         assert!(
             !text.passes(),
             "text equal to panel.background should fail: {:.2}:1",
@@ -535,7 +775,14 @@ mod tests {
         // A state untouched by the failing override still passes, so the
         // failure above is specific to the retuned property rather than
         // `validate` reporting every state as failing once one does.
-        let comment = find(&report, "Comment", "plain");
+        let comment = find(
+            &report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
         assert!(
             comment.passes(),
             "Comment was not retuned and should still clear the floor: {:.2}:1",
@@ -550,34 +797,44 @@ mod tests {
     /// A role whose own background is transparent (Comment's, in Okabe–Ito)
     /// reads fine against the bare Grid in its `plain` state, but a custom
     /// Theme's opaque `region.background` set to the same colour as the
-    /// glyph itself makes the `Region` state of that same role unreadable —
-    /// `.scratch/theming/issues/08`'s "text that passes against the bare
-    /// Grid background but fails against its painted tint" fixture. Region
-    /// fallback only applies because Comment's own background stays
-    /// transparent in this Theme; an opaque role background would keep
-    /// winning over the Region fill (`every_check_measures_against_its_
-    /// documented_background`'s sibling assertion for facts with opaque
-    /// backgrounds, exercised implicitly by `Number, Invalid` below staying
-    /// identical between `plain` and `Region`).
+    /// glyph itself makes the `Region` state of that same role unreadable.
+    /// Region fallback only applies because Comment's own background stays
+    /// transparent in this Theme; an opaque role background keeps winning
+    /// over the Region fill regardless
+    /// (`region_fallback_only_reaches_a_transparent_role_background` pins
+    /// that distinction directly).
     ///
     #[test]
     fn a_role_passing_plain_fails_against_its_painted_region_tint() {
-        let matching_grey = Color32::from_rgb(153, 153, 153); // Comment's own colour
         let theme = Theme {
-            region_background: matching_grey,
+            region_background: okabe_ito().source_comment,
             ..okabe_ito()
         };
 
         let report = validate(&theme);
 
-        let plain = find(&report, "Comment", "plain");
+        let plain = find(
+            &report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
         assert!(
             plain.passes(),
             "Comment/plain should still read against the bare Grid: {:.2}:1",
             plain.ratio
         );
 
-        let region = find(&report, "Comment", "Region");
+        let region = find(
+            &report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Region,
+                output_portal: false,
+            },
+        );
         assert!(
             !region.passes(),
             "Comment/Region should fail once the Region tint matches the glyph: {:.2}:1",
@@ -593,27 +850,39 @@ mod tests {
     ///
     /// The same fixture shape for the single-Cell Cursor: a custom Theme's
     /// `cursor.background` set to Comment's own colour leaves `plain`
-    /// passing while `Cursor` fails — `.scratch/theming/issues/08`'s
-    /// "...or its... selected background".
+    /// passing while `Cursor` fails.
     ///
     #[test]
     fn a_role_passing_plain_fails_against_its_selected_cursor_background() {
-        let matching_grey = Color32::from_rgb(153, 153, 153); // Comment's own colour
         let theme = Theme {
-            cursor_background: Some(matching_grey),
+            cursor_background: Some(okabe_ito().source_comment),
             ..okabe_ito()
         };
 
         let report = validate(&theme);
 
-        let plain = find(&report, "Comment", "plain");
+        let plain = find(
+            &report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
         assert!(
             plain.passes(),
             "Comment/plain should still read against the bare Grid: {:.2}:1",
             plain.ratio
         );
 
-        let cursor = find(&report, "Comment", "Cursor");
+        let cursor = find(
+            &report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Cursor,
+                output_portal: false,
+            },
+        );
         assert!(
             !cursor.passes(),
             "Comment/Cursor should fail once the Cursor fill matches the glyph: {:.2}:1",
@@ -625,19 +894,17 @@ mod tests {
 
     ///
     /// A partial-alpha foreground over a partial-alpha background, checked
-    /// against an independently worked answer rather than the formula this
-    /// module itself computes with: 50%-alpha white composited over a
-    /// 50%-alpha grey `(40, 40, 40)` panel, itself composited over the
-    /// opaque black window backdrop.
-    ///
-    /// `panel.background` at `(40, 40, 40, 128)` straight premultiplies to
-    /// `(20, 20, 20, 128)` (`ecolor`'s `mul_frac_round(40, 128) = 20`), and
-    /// composites over opaque black to `(20, 20, 20, 255)` unchanged — black
-    /// contributes nothing over any alpha. `text` at 50%-alpha white
-    /// premultiplies to `(128, 128, 128, 128)` and composites over that
-    /// surface to `(138, 138, 138, 255)`. The reported background is
-    /// asserted against the first figure, so a compositing regression is
-    /// caught at the pixel before it is caught at the ratio.
+    /// against literal, hand-worked bytes rather than a recomposition that
+    /// reuses the same `Color32::blend`/`contrast` this module's own code
+    /// calls: `panel.background` at `(40, 40, 40, 128)` straight
+    /// premultiplies to `(20, 20, 20, 128)` (`ecolor`'s `mul_frac_round(40,
+    /// 128) = 20`) and composites over opaque black to `(20, 20, 20, 255)`
+    /// unchanged — black contributes nothing at any alpha. `text` at
+    /// 50%-alpha white premultiplies to `(128, 128, 128, 128)` and
+    /// composites over that surface to `(138, 138, 138, 255)`. Both figures
+    /// were computed independently (by hand, following `ecolor`'s published
+    /// integer arithmetic) rather than by calling this module's own
+    /// functions.
     ///
     #[test]
     fn a_partial_alpha_foreground_over_a_partial_alpha_background_composites_correctly() {
@@ -651,20 +918,18 @@ mod tests {
         };
 
         let report = validate(&theme);
-        let text = find(&report, "text", "vs panel.background");
+        let text = find(&report, Role::Text, State::Panel);
 
-        let expected_panel_surface = Color32::BLACK.blend(translucent_panel);
-        let expected_displayed = expected_panel_surface.blend(translucent_text);
-        let expected_ratio = contrast(expected_displayed, expected_panel_surface);
-        assert!(
-            (text.ratio - expected_ratio).abs() < 0.001,
-            "got {:.4}:1, expected {:.4}:1 from an independent recomposition of the same bytes",
-            text.ratio,
-            expected_ratio
-        );
         assert_eq!(
-            text.background, expected_panel_surface,
-            "the reported background must be the actual composited panel surface"
+            text.background,
+            Color32::from_rgb(20, 20, 20),
+            "the composited panel surface"
+        );
+        assert!(
+            (text.ratio - 5.3364).abs() < 0.001,
+            "got {:.4}:1, expected 5.3364:1, hand-worked from the composited \
+             (138, 138, 138) foreground against the (20, 20, 20) background",
+            text.ratio
         );
     }
 
@@ -688,7 +953,14 @@ mod tests {
         };
 
         let report = validate(&theme);
-        let invalid_number = find(&report, "Number, Invalid", "plain");
+        let invalid_number = find(
+            &report,
+            Role::NumberInvalid,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
 
         assert_eq!(
             invalid_number.foreground, theme.source_number,
@@ -699,11 +971,10 @@ mod tests {
     // === `painted`'s reuse of `style`'s own composition ===
 
     ///
-    /// `painted`'s `Placement::Plain` and `Placement::OutputPortal` for
+    /// `painted`'s `output_portal: false` and `output_portal: true` for
     /// `Function` are identical — "A bound Function retains all its own
     /// paint inside a Portal" (`style::role_and_portal`'s own doc), the one
-    /// named bypass the reused composition functions apply. This is not an
-    /// impossible cross-product folded away by this module: it is a real
+    /// named bypass the reused composition functions apply. This is a real
     /// reachable state (a nested Function inside a root's Output Portal
     /// Reservation) whose *answer* happens to equal the non-Portal case,
     /// which is exactly what the bypass rule says should happen.
@@ -711,13 +982,53 @@ mod tests {
     #[test]
     fn function_is_unaffected_by_output_portal_placement() {
         let theme = okabe_ito();
-        let plain = painted(super::SOURCE_PAINT_FACTS[1].1, Placement::Plain, &theme);
-        let portal = painted(
-            super::SOURCE_PAINT_FACTS[1].1,
-            Placement::OutputPortal,
-            &theme,
-        );
+        let plain = painted(SourcePaint::Function, CursorPlacement::Plain, false, &theme);
+        let portal = painted(SourcePaint::Function, CursorPlacement::Plain, true, &theme);
         assert_eq!(plain, portal);
+    }
+
+    ///
+    /// The Cursor can sit on a Cell an Output Portal Reservation covers, and
+    /// a Region can span over one — `.scratch/theming/schema.md`'s Overlap
+    /// rule applies to every non-Function fact regardless of Cursor/Region
+    /// state, so these are reachable states this validator measures rather
+    /// than an impossible cross-product. `Number, Valid`'s foreground
+    /// differs between `plain` and `Output Portal` (the Output Portal
+    /// foreground channel blends over the Token's own), proving the
+    /// `output_portal` flag is actually threaded through every
+    /// `CursorPlacement`, not only `Plain`.
+    ///
+    #[test]
+    fn cursor_and_region_placements_still_answer_the_output_portal_channel() {
+        let theme = okabe_ito();
+        let report = validate(&theme);
+
+        for cursor in [
+            CursorPlacement::Cursor,
+            CursorPlacement::Region,
+            CursorPlacement::RegionCursor,
+        ] {
+            let plain = find(
+                &report,
+                Role::NumberValid,
+                State::SourceGrid {
+                    cursor,
+                    output_portal: false,
+                },
+            );
+            let portal = find(
+                &report,
+                Role::NumberValid,
+                State::SourceGrid {
+                    cursor,
+                    output_portal: true,
+                },
+            );
+            assert_ne!(
+                plain.foreground, portal.foreground,
+                "{cursor}: Output Portal must still blend its foreground channel over Number's"
+            );
+        }
     }
 
     ///
@@ -726,18 +1037,29 @@ mod tests {
     /// (`source.number.background`), so its `Region` state equals its
     /// `plain` state exactly, while `Comment`'s transparent background lets
     /// the Region tint show once `region.background` is not itself
-    /// transparent. Both are asserted here so the distinction — "does not
-    /// count as a fact fill when evaluating Region fallback" applying only
-    /// when there is no fact fill to begin with — is pinned as a property
-    /// of the reused composition rather than assumed.
+    /// transparent.
     ///
     #[test]
     fn region_fallback_only_reaches_a_transparent_role_background() {
         let theme = okabe_ito();
         let report = validate(&theme);
 
-        let opaque_role_plain = find(&report, "Number, Invalid", "plain");
-        let opaque_role_region = find(&report, "Number, Invalid", "Region");
+        let opaque_role_plain = find(
+            &report,
+            Role::NumberInvalid,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
+        let opaque_role_region = find(
+            &report,
+            Role::NumberInvalid,
+            State::SourceGrid {
+                cursor: CursorPlacement::Region,
+                output_portal: false,
+            },
+        );
         assert_eq!(
             opaque_role_plain.background, opaque_role_region.background,
             "an opaque role background must win over Region fallback"
@@ -748,186 +1070,250 @@ mod tests {
             ..theme
         };
         let transparent_report = validate(&transparent_role_theme);
-        let transparent_plain = find(&transparent_report, "Comment", "plain");
-        let transparent_region = find(&transparent_report, "Comment", "Region");
+        let transparent_plain = find(
+            &transparent_report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
+        let transparent_region = find(
+            &transparent_report,
+            Role::Comment,
+            State::SourceGrid {
+                cursor: CursorPlacement::Region,
+                output_portal: false,
+            },
+        );
         assert_ne!(
             transparent_plain.background, transparent_region.background,
             "a transparent role background must let an opaque Region fill show"
         );
     }
 
+    ///
+    /// The single-Cell Cursor always replaces the role background outright
+    /// — `style::cell_visuals_with_cursor_colour`'s own "The Cursor's own
+    /// fill wins outright on its Cell" — regardless of whether that role
+    /// background was opaque. `Number, Invalid`'s background is opaque
+    /// (`#0E1D25`), yet its `Cursor` state still differs from its `plain`
+    /// state once `cursor.background` is set, because the Cursor's fill is
+    /// not a fallback the way Region's is.
+    ///
+    #[test]
+    fn cursors_own_fill_replaces_even_an_opaque_role_background() {
+        let theme = Theme {
+            cursor_background: Some(Color32::from_rgb(1, 2, 3)),
+            ..okabe_ito()
+        };
+
+        let report = validate(&theme);
+
+        let plain = find(
+            &report,
+            Role::NumberInvalid,
+            State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                output_portal: false,
+            },
+        );
+        let cursor = find(
+            &report,
+            Role::NumberInvalid,
+            State::SourceGrid {
+                cursor: CursorPlacement::Cursor,
+                output_portal: false,
+            },
+        );
+        assert_ne!(
+            plain.background, cursor.background,
+            "the Cursor's own fill must replace even an opaque role background"
+        );
+        assert_eq!(cursor.background, Color32::from_rgb(1, 2, 3));
+    }
+
+    // === The Cursor Effect's animated area field is out of scope ===
+
+    ///
+    /// This module's documented assumption, checked: `theme.cursor_area`
+    /// does not change a measured background, at a state whose own painted
+    /// background is fully transparent (Comment's `plain` state) — the one
+    /// case where the real console's animated area field could show
+    /// through. If this assertion ever fails, `painted` has started
+    /// accounting for `cursor_area` and this module's `# Scope` section
+    /// needs updating to match, not the other way around.
+    ///
+    #[test]
+    fn painted_background_is_unaffected_by_the_cursor_area_effect() {
+        let base = okabe_ito();
+        let distinct_area = Theme {
+            cursor_area: Color32::from_rgb(250, 10, 10),
+            ..base.clone()
+        };
+
+        let report_base = validate(&base);
+        let report_distinct = validate(&distinct_area);
+
+        let state = State::SourceGrid {
+            cursor: CursorPlacement::Plain,
+            output_portal: false,
+        };
+        let comment_base = find(&report_base, Role::Comment, state);
+        let comment_distinct = find(&report_distinct, Role::Comment, state);
+        assert_eq!(
+            comment_base.background, comment_distinct.background,
+            "cursor_area must not change a measured background"
+        );
+    }
+
+    // === Acceptance is keyed on the measured colour pair, not only the label ===
+
+    ///
+    /// [`AcceptedFailure::matches`] requires the same foreground/background
+    /// as well as the same role/state: a retune that keeps a role's and
+    /// state's label the same but changes the colour it measures must not
+    /// stay silently accepted.
+    ///
+    #[test]
+    fn accepted_failure_match_requires_the_same_colour_pair_not_only_role_and_state() {
+        let state = State::SourceGrid {
+            cursor: CursorPlacement::Plain,
+            output_portal: false,
+        };
+        let entry = AcceptedFailure {
+            role: Role::SequenceInvalid,
+            state,
+            foreground: Color32::from_rgb(1, 2, 3),
+            background: Color32::from_rgb(4, 5, 6),
+        };
+
+        assert!(entry.matches(
+            Role::SequenceInvalid,
+            state,
+            entry.foreground,
+            entry.background
+        ));
+        assert!(
+            !entry.matches(
+                Role::SequenceInvalid,
+                state,
+                Color32::from_rgb(9, 9, 9),
+                entry.background
+            ),
+            "a retuned foreground must not match a stale accepted entry"
+        );
+        assert!(
+            !entry.matches(
+                Role::SequenceInvalid,
+                state,
+                entry.foreground,
+                Color32::from_rgb(9, 9, 9)
+            ),
+            "a retuned background must not match a stale accepted entry"
+        );
+    }
+
+    // === Sequence has no reachable failing state left to except ===
+
+    ///
+    /// Dropping Pending removes `Sequence, Pending` from the report
+    /// entirely (`Role` has no such variant any more), and `Sequence,
+    /// Invalid` — the only Sequence role left — passes the floor on its own:
+    /// `diagnostic.foreground` replaces Sequence's own colour outright once
+    /// it is Invalid. Okabe–Ito's accepted-exception list is therefore
+    /// empty, which this test pins as "no reachable painted failure,"
+    /// distinct from an exception having been withdrawn.
+    ///
+    #[test]
+    fn sequence_has_no_reachable_failing_state() {
+        let report = validate(&okabe_ito());
+
+        let sequence_results: Vec<_> = report
+            .results
+            .iter()
+            .filter(|result| result.role == Role::SequenceInvalid)
+            .collect();
+        assert!(
+            !sequence_results.is_empty(),
+            "Sequence, Invalid must still be reported"
+        );
+        for result in sequence_results {
+            assert!(
+                result.passes(),
+                "Sequence, Invalid / {} unexpectedly fails at {:.2}:1 — Sequence's accepted \
+                 exception is empty because it has no failing state, not because the \
+                 exception was withdrawn; if this fails, that premise no longer holds",
+                result.state,
+                result.ratio
+            );
+        }
+
+        assert!(
+            super::accepted_failures(OKABE_ITO_IDENTITY).is_empty(),
+            "Okabe-Ito's accepted-exception list should be empty: nothing currently fails \
+             that this issue's comments record as accepted"
+        );
+    }
+
     // === The shipped-Theme gate ===
 
     ///
-    /// The two states Okabe–Ito's Sequence exception actually covers remain
-    /// visible in the report — `.scratch/theming/issues/08`'s "A failing
-    /// Theme is reported... Acceptance may annotate the report, but never
-    /// hides the failure or converts it to a passing measurement." `Cursor`
-    /// and `Region, Cursor's Cell` measure `#0072B2` against the *bare*
-    /// Source background, `#000000` — precisely the pair the issue's own
-    /// acceptance line names, ≈4.05:1, matching `syntax-highlighting/01`'s
-    /// original figure.
-    ///
-    #[test]
-    fn sequences_accepted_cursor_states_remain_visible() {
-        let theme = okabe_ito();
-        let report = validate(&theme);
-
-        for state in ["Cursor", "Region, Cursor's Cell"] {
-            let result = find(&report, "Sequence, Pending", state);
-            assert!(
-                !result.passes(),
-                "Sequence, Pending / {state} unexpectedly passes at {:.2}:1",
-                result.ratio
-            );
-            assert!(
-                (result.ratio - 4.05).abs() < 0.01,
-                "Sequence, Pending / {state} is {:.2}:1, expected 4.05:1",
-                result.ratio
-            );
-            assert_eq!(
-                result.background, theme.grid_background,
-                "the accepted states must measure against the bare Grid background, \
-                 not Sequence's own tint"
-            );
-        }
-    }
-
-    ///
     /// The below-floor states `.scratch/theming/issues/08` lists as pending
-    /// explicit acceptance, confirmed through the real shipped composition
-    /// rather than the hand-picked or historical colours the issue's table
-    /// and comments originally recorded them from. `Number` and `Note`
-    /// match the issue's table (4.446944:1, 4.053689:1); `Atom` is a further
-    /// failure the expanded state coverage discovered, not in the issue's
-    /// original table. Sequence's own `plain` and `Region` states are
-    /// *not* the accepted exception: the issue's acceptance line names only
-    /// `#0072B2` against the *bare* Grid background, `#000000`
-    /// (`sequences_accepted_cursor_states_remain_visible`'s `Cursor`/
-    /// `Region, Cursor's Cell` pair) — `plain` and `Region` measure a worse
-    /// 3.67:1 against Sequence's own near-black background tint
-    /// (`source.sequence.background`, not `base00`), a newly measured
-    /// failing state the issue's own words say to record for review rather
-    /// than fold silently into the one already-confirmed figure.
+    /// explicit acceptance, confirmed through the real shipped composition.
+    /// This is the one source of truth for their exact ratios: the issue's
+    /// table and `shipped_theme_gate`'s `#[ignore]` reason both point back
+    /// here rather than restating the numbers independently.
     ///
     #[test]
     fn pending_contrast_failures_are_confirmed_through_shipped_composition() {
         let report = validate(&okabe_ito());
+        let plain = |cursor| State::SourceGrid {
+            cursor,
+            output_portal: false,
+        };
 
-        for (role, state, expected_ratio) in [
-            ("Number, Invalid", "plain", 4.4469),
-            ("Number, Invalid", "Region", 4.4469),
-            ("Note, Invalid", "plain", 4.0537),
-            ("Note, Invalid", "Region", 4.0537),
-            ("Atom, Invalid", "plain", 3.9275),
-            ("Atom, Invalid", "Region", 3.9275),
-            ("Sequence, Pending", "plain", 3.6707),
-            ("Sequence, Pending", "Region", 3.6707),
+        for (role, cursor, expected_ratio) in [
+            (Role::NumberInvalid, CursorPlacement::Plain, 4.4469),
+            (Role::NumberInvalid, CursorPlacement::Region, 4.4469),
+            (Role::NoteInvalid, CursorPlacement::Plain, 4.0537),
+            (Role::NoteInvalid, CursorPlacement::Region, 4.0537),
+            (Role::AtomInvalid, CursorPlacement::Plain, 3.9275),
+            (Role::AtomInvalid, CursorPlacement::Region, 3.9275),
         ] {
-            let result = find(&report, role, state);
+            let result = find(&report, role, plain(cursor));
             assert!(
                 !result.passes(),
-                "{role} / {state} unexpectedly passes at {:.4}:1 — if this was retuned or \
+                "{role} / {cursor} unexpectedly passes at {:.4}:1 — if this was retuned or \
                  accepted, update .scratch/theming/issues/08 and accepted_failures together \
                  rather than leaving this assertion stale",
                 result.ratio
             );
             assert!(
                 (result.ratio - expected_ratio).abs() < 0.001,
-                "{role} / {state} is {:.4}:1, expected {expected_ratio:.4}:1",
+                "{role} / {cursor} is {:.4}:1, expected {expected_ratio:.4}:1",
                 result.ratio
             );
             assert!(
-                !accepted_failures("okabe-ito")
-                    .iter()
-                    .any(|&(accepted_role, accepted_state)| accepted_role == role
-                        && accepted_state == state),
-                "{role} / {state} must stay out of accepted_failures while pending"
+                !result.accepted,
+                "{role} / {cursor} must stay unaccepted while pending"
             );
         }
     }
 
     ///
-    /// [`unaccepted_failures`] against a synthetic accepted set: a failure
-    /// not listed there is reported.
-    ///
-    #[test]
-    fn unaccepted_failures_lists_a_failure_the_accepted_set_does_not_record() {
-        let theme = Theme {
-            text: okabe_ito().panel_background,
-            ..okabe_ito()
-        };
-
-        // Every one of Okabe-Ito's own accepted failures, but nothing about
-        // the injected `text` failure — proving the gate function notices a
-        // failure genuinely absent from the accepted set, not merely
-        // failing on the fixture's Sequence baseline it inherited.
-        let unaccepted = unaccepted_failures(&theme, accepted_failures("okabe-ito"));
-
-        assert!(
-            unaccepted
-                .iter()
-                .any(|result| result.role == "text" && result.state == "vs panel.background"),
-            "the injected text failure must be reported as unaccepted"
-        );
-    }
-
-    ///
-    /// [`unaccepted_failures`] answers empty once every actual failure is
-    /// named in the accepted set — the gate's passing case, not only its
-    /// rejecting one.
-    ///
-    #[test]
-    fn unaccepted_failures_is_empty_when_every_failure_is_recorded() {
-        let theme = Theme {
-            text: okabe_ito().panel_background,
-            ..okabe_ito()
-        };
-        // Okabe-Ito's own real failures (Sequence's two accepted Cursor
-        // states; Sequence's own two pending plain/Region states and the
-        // three pending invalid-operand Diagnostic states, none accepted
-        // but present regardless of this fixture) plus both states `text`'s
-        // override touches — `panel.background` and `input.background` are
-        // both near-black in Okabe-Ito, so overriding `text` to
-        // `panel.background` fails against either.
-        let mut accepted = accepted_failures("okabe-ito").to_vec();
-        accepted.extend_from_slice(&[
-            ("Sequence, Pending", "plain"),
-            ("Sequence, Pending", "Region"),
-            ("Number, Invalid", "plain"),
-            ("Number, Invalid", "Region"),
-            ("Note, Invalid", "plain"),
-            ("Note, Invalid", "Region"),
-            ("Atom, Invalid", "plain"),
-            ("Atom, Invalid", "Region"),
-            ("text", "vs panel.background"),
-            ("text", "vs input.background"),
-        ]);
-
-        let unaccepted = unaccepted_failures(&theme, &accepted);
-
-        assert!(
-            unaccepted.is_empty(),
-            "expected no unaccepted failures, got {unaccepted:?}"
-        );
-    }
-
-    ///
-    /// The shipped-Theme gate itself: every failing state of every shipped
-    /// Theme must be in `accepted_failures`, or this test fails and lists
-    /// them. It is `#[ignore]`d rather than green, because it is not
+    /// The shipped-Theme gate itself: every below-floor state of every
+    /// shipped Theme must be an accepted exception, or this test fails and
+    /// lists them. It is `#[ignore]`d rather than green, because it is not
     /// green: `pending_contrast_failures_are_confirmed_through_shipped_
-    /// composition` above confirms four below-floor states —
-    /// `Number, Invalid`, `Note, Invalid` and `Atom, Invalid` (each in
-    /// `plain` and `Region`), plus `Sequence, Pending`'s own `plain` and
-    /// `Region` states, which measure against Sequence's own tint rather
-    /// than the bare Grid background the issue's acceptance line names —
-    /// that `.scratch/theming/issues/08` explicitly says await acceptance
-    /// and must **not** be silently whitelisted into `accepted_failures` to
-    /// make this test pass. Un-ignore this test only once a human has
-    /// accepted those failures (adding them to `accepted_failures` with
-    /// that acceptance recorded in the issue) or retuned the colours
-    /// involved — never by widening `accepted_failures` without either.
+    /// composition` above confirms six below-floor states —
+    /// `Number, Invalid` and `Note, Invalid` and `Atom, Invalid`, each in
+    /// `plain` and `Region` — that `.scratch/theming/issues/08` explicitly
+    /// says await acceptance and must **not** be silently added to
+    /// `accepted_failures` to make this test pass. Un-ignore this test only
+    /// once a human has accepted those failures (adding them to
+    /// `accepted_failures` with that acceptance recorded in the issue) or
+    /// retuned the colours involved.
     ///
     /// Only `okabe_ito()` ships today: `.scratch/theming/issues/06`'s
     /// further built-ins and `07`'s loader are not built yet, so `shipped`
@@ -935,21 +1321,21 @@ mod tests {
     /// known weakness recorded in `.scratch/theming/issues/08`'s comments.
     ///
     #[test]
-    #[ignore = "pending human acceptance of four contrast failures — .scratch/theming/issues/08's \
-                Known dark failures table: invalid Number (4.4469:1), Note (4.0537:1) and Atom \
-                (3.9275:1) operand Diagnostic states, each in plain and Region, plus Sequence, \
-                Pending's own plain/Region states (3.6707:1, against its own background tint, \
-                not the bare Grid background the accepted Cursor/Region-Cursor states measure \
-                against). Do not remove this ignore by adding any of them to accepted_failures; \
-                only by an explicit human decision to accept or retune, recorded in the issue."]
+    #[ignore = "pending human acceptance of the invalid Number/Note/Atom operand Diagnostic \
+                contrast failures — exact ratios in contrast::tests::pending_contrast_failures_\
+                are_confirmed_through_shipped_composition and .scratch/theming/issues/08's \
+                Known dark failures table. Do not remove this ignore by adding them to \
+                accepted_failures; only by an explicit human decision to accept or retune, \
+                recorded in the issue."]
     fn shipped_theme_gate() {
         let shipped = [okabe_ito()];
 
         for theme in &shipped {
-            let unaccepted = unaccepted_failures(theme, accepted_failures(&theme.identity));
+            let report = validate(theme);
+            let failures = unaccepted(&report);
             assert!(
-                unaccepted.is_empty(),
-                "{}'s unrecorded contrast failures: {unaccepted:?}",
+                failures.is_empty(),
+                "{}'s unrecorded contrast failures: {failures:?}",
                 theme.identity
             );
         }

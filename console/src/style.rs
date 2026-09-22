@@ -244,6 +244,39 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 }
 
 ///
+/// One Cell's final background: `role_background` (a Cell's own role/
+/// Diagnostic/Output-Portal answer, from [`cell_visuals_with_cursor_colour`])
+/// combined with the Region/Cursor fallback chain — extracted from
+/// [`crate::paint::Paint::derive_with_theme`]'s per-Cell loop so that
+/// function and [`crate::contrast::painted`]'s standalone per-state answer
+/// read the exact same decision and cannot independently drift.
+///
+/// `is_region_cursor` is `crate::paint::Paint::derive_with_theme`'s own
+/// `is_cursor && region_spans`: the Cursor's own Cell inside a Region larger
+/// than one Cell, which takes `region_cursor_fill` outright regardless of
+/// `role_background` — the same "Cursor's own fill wins outright" rule
+/// [`cell_visuals_with_cursor_colour`] applies to the single-Cell Cursor.
+/// Every other Cell keeps `role_background` when it answered one, and falls
+/// back to `region_fill` inside a spanning Region (`in_region`) or
+/// `base_fill` outside one.
+///
+pub(crate) fn cell_background(
+    role_background: Option<Color32>,
+    is_region_cursor: bool,
+    in_region: bool,
+    region_cursor_fill: Option<Color32>,
+    region_fill: Option<Color32>,
+    base_fill: Option<Color32>,
+    cell_background: Color32,
+) -> Option<Color32> {
+    if is_region_cursor {
+        compose_cell_fill(cell_background, region_cursor_fill)
+    } else {
+        role_background.or(if in_region { region_fill } else { base_fill })
+    }
+}
+
+///
 /// Foreground and background together, from a Cell's finished Source Paint
 /// fact and whether it lies in a root Function's Output Portal Reservation,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below

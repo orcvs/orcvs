@@ -286,68 +286,51 @@ exposed as a setting before it had a painter; it has one now.
 `console/src/contrast.rs::validate` (`.scratch/theming/issues/08`) measures
 every reachable painted text state's *effective*, actually-composited
 foreground against its actually-composited background — reusing
-`style::cell_visuals_with_cursor_colour` and `style::compose_cell_fill`, the
+`style::cell_visuals_with_cursor_colour` and `style::cell_background`, the
 same functions painting itself calls, so the two cannot independently drift.
-This replaced an earlier validator that measured every Token against the bare
-`base00`/`grid.background` alone; that measurement is wrong for any role whose
-own background tint is opaque, which is most of them. Each result reports its
-role, its placement (`plain`, `Output Portal`, `Cursor`, `Region`, or `Region,
-Cursor's Cell`), the effective foreground and background, and the measured
-ratio against the 4.5:1 floor, stated once at `contrast::CONTRAST_FLOOR` from
-WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"). It measures text
-contrast only, never Token-colour distinguishability, colour-vision
-accessibility, or border/focus visibility.
+Each result reports its role, its state (a `CursorPlacement` of `plain`,
+`Cursor`, `Region` or `Region, Cursor's Cell`, crossed with whether the Cell
+also lies in an Output Portal Reservation), the effective foreground and
+background, the measured ratio against the 4.5:1 floor, and whether it is an
+accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
+from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"); the returned
+`ContrastReport` also carries the floor and a scope description directly, not
+only in rustdoc. `validate` measures text contrast only: never Token-colour
+distinguishability, colour-vision accessibility, border/focus visibility, or
+the Cursor Effect's animated `area` field.
+
+A Pending operand Cell draws no glyph, so `validate` has no Pending role to
+measure — `Role` (Number, Note, Atom, Sequence) carries Valid and Invalid
+only, and Atom/Sequence carry Invalid alone since neither ever binds.
 
 Okabe–Ito's `plain`-placement measurements: Ordinary 17.51:1, Bang 6.86:1 and
 Comment 7.37:1 (each against the bare `#000000` Source background, since
 their own role backgrounds are transparent); Function 5.35:1 against its own
-opaque `#001912` tint — dimmer than the earlier `base00`-only measurement
-implied, because Function is never actually painted on bare black; Number
-7.45:1 and Note 11.86:1 (Pending and Valid alike) against their own opaque
-tints; Atom 12.67:1 (Pending) against its own tint; `output_portal.foreground`
-9.32:1 against `output_portal.background`; `text` 15.88:1 against
-`panel.background` and 17.51:1 against `input.background`; `text.muted`
-(translucent, round-tripping to premultiplied bytes `[140, 141, 137, 153]`)
-6.19:1 against `panel.background` and 6.29:1 against `input.background`.
+opaque `#001912` tint; Number 7.45:1 and Note 11.86:1 (Valid) against their
+own opaque tints; `output_portal.foreground` 9.32:1 against
+`output_portal.background`; `text` 15.88:1 against `panel.background` and
+17.51:1 against `input.background`; `text.muted` (translucent, round-tripping
+to premultiplied bytes `[140, 141, 137, 153]`) 6.19:1 against
+`panel.background` and 6.29:1 against `input.background`. Sequence's own
+role, `Sequence, Invalid` (`diagnostic.foreground` replaces Sequence's colour
+outright once Invalid), passes at 4.92:1 — Sequence has no accepted exception
+today, because it has no failing state left to except.
 
-Four `plain`-placement states measure below the 4.5:1 floor, and none of the
-four is accepted. Three are the invalid-operand Diagnostic states — Number
-4.45:1, Note 4.05:1 and Atom 3.93:1, each `diagnostic.foreground` (`#D55E00`)
-against that Token's own opaque background tint — confirmed through the real
-shipped composition rather than the hand-picked colours
-`.scratch/theming/issues/08`'s "Known dark failures" table originally
-recorded them from; Atom's failure is new, found only once the validator
-measured actual composited states rather than `base00` alone. The fourth is
-Sequence's own `plain` (and `Region`) state: its accepted colour, `#0072B2`,
-measures 3.67:1 against its own near-black `#00121C` background tint in its
-ordinary Pending state — worse than, and a different state from, the 4.05:1
-`syntax-highlighting/01` originally measured against bare `base00`.
-`contrast::tests::shipped_theme_gate` is `#[ignore]`d specifically because
-none of these four is accepted, and stays that way until a human accepts or
-retunes them.
+Three `plain`-placement states measure below the 4.5:1 floor and are not
+accepted: the invalid-operand Diagnostic states of Number (4.45:1), Note
+(4.05:1) and Atom (3.93:1), each `diagnostic.foreground` (`#D55E00`) against
+that Token's own opaque background tint. `contrast::tests::shipped_theme_gate`
+is `#[ignore]`d specifically because these are not accepted, and stays that
+way until a human accepts or retunes them.
 
-ADR 0053 retains Sequence's colour as an explicitly accepted exception, but
-only for the two states that actually measure `#0072B2` against the *bare*
-Source background, `#000000`: `Cursor` and `Region, Cursor's Cell`, where
-Okabe–Ito's unset Cursor/Region-Cursor fills let that bare background show
-through, both measuring the original 4.05:1. `plain` and `Region` measure
-against Sequence's own tint instead, which the issue's own acceptance line
-treats as a newly measured failing state to record for review rather than a
-colour already covered by the exception — recorded in the paragraph above
-rather than folded silently into the accepted figure. Sequence's Invalid
-state, where `diagnostic.foreground` replaces its own colour outright,
-measures a passing 4.92:1 and needs no exception at all. `validate` continues
-to report every one of these measured ratios below the floor regardless of
-which are accepted; acceptance never turns a measurement into a pass.
-
-Region and Cursor placements repeat a `plain` result unchanged whenever a
-role's own background is opaque — an opaque role background wins over both
-fallbacks by the same fixed precedence painting itself uses — and differ only
-for the few roles with a transparent one (Ordinary, Comment, Bang, untinted
-Output Portal absence). A custom Theme's Region or Cursor fill can therefore
-make an otherwise-passing role fail without changing its `plain` figure at
-all, which is exactly the state class `.scratch/theming/issues/08`'s test
-suite fixtures.
+The single-Cell Cursor always replaces a role's background outright, whether
+or not that role's own background was opaque — `style::cell_visuals_with_
+cursor_colour`'s "the Cursor's own fill wins outright on its Cell." A Region
+Cell, by contrast, only falls back to the Region fill when the role's own
+background left nothing painted — an opaque role background keeps winning
+there. Both differ from `plain` only for a Theme whose Cursor/Region fills are
+actually set; Okabe–Ito's are unset, so its own Cursor/Region states happen to
+repeat `plain`'s figures without exercising either rule.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
