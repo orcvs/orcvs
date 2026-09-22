@@ -878,233 +878,494 @@ pub(crate) fn resolve(
 // === Contrast validation ===
 
 ///
-/// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio every
-/// [`ContrastCheck`] is measured against: 4.5:1, the floor normal-size text
-/// must clear. Stated once, here, with its source, rather than repeated as a
-/// literal at each call site — `.scratch/theming/issues/08`'s own acceptance
-/// line.
-///
-pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
-
-///
-/// One named colour pair [`validate`] measures: a Token's glyph colour, or
-/// one of ADR 0053's named keys, against the background it is read on.
-///
-/// The seven rows of ADR 0053's Token table are Source Paint colours and
-/// read against `base00` ([`Theme::grid_background`], the Source
-/// background) — as do the Diagnostic and Output Portal foreground keys the
-/// same table names. `text` and `text.muted` are chrome, not Source Paint,
-/// so they read against `panel.background` ([`Theme::panel_background`])
-/// instead: the surface ADR 0053's chrome mapping actually draws them on.
-///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07, which shows validate's report when a viewer loads a \
-                   scheme; this issue only builds the validator itself"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ContrastCheck {
-    Comment,
-    /// Ordinary, Char and Atom share one glyph colour
-    /// ([`Theme::source_ordinary`]) and so share one check — ADR 0053's
-    /// Token table lists the three together for the same reason.
-    Ordinary,
-    Number,
-    Note,
-    Function,
-    Bang,
-    Sequence,
-    DiagnosticForeground,
-    OutputPortalForeground,
-    Text,
-    TextMuted,
-}
-
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07, which shows validate's report when a viewer loads a \
-                   scheme; this issue only builds the validator itself"
-    )
-)]
-impl ContrastCheck {
-    /// Every check [`validate`] measures, in ADR 0053's Token-table order
-    /// followed by its named-key table order.
-    const ALL: [Self; 11] = [
-        Self::Comment,
-        Self::Ordinary,
-        Self::Number,
-        Self::Note,
-        Self::Function,
-        Self::Bang,
-        Self::Sequence,
-        Self::DiagnosticForeground,
-        Self::OutputPortalForeground,
-        Self::Text,
-        Self::TextMuted,
-    ];
-
-    /// The label a [`ContrastResult`] names this check by: ADR 0053's Token
-    /// name, or a named key at its exact spelling.
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Comment => "Comment",
-            Self::Ordinary => "Ordinary, Char, Atom",
-            Self::Number => "Number",
-            Self::Note => "Note",
-            Self::Function => "Function",
-            Self::Bang => "Bang",
-            Self::Sequence => "Sequence",
-            Self::DiagnosticForeground => "diagnostic.foreground",
-            Self::OutputPortalForeground => "output_portal.foreground",
-            Self::Text => "text",
-            Self::TextMuted => "text.muted",
-        }
-    }
-
-    /// This check's foreground and the background it is read against, both
-    /// read from `theme`.
-    fn colours(self, theme: &Theme) -> (Color32, Color32) {
-        let base00 = theme.grid_background;
-        let panel = theme.panel_background;
-        match self {
-            Self::Comment => (theme.source_comment, base00),
-            Self::Ordinary => (theme.source_ordinary, base00),
-            Self::Number => (theme.source_number, base00),
-            Self::Note => (theme.source_note, base00),
-            Self::Function => (theme.source_function, base00),
-            Self::Bang => (theme.source_bang, base00),
-            Self::Sequence => (theme.source_sequence, base00),
-            Self::DiagnosticForeground => (theme.diagnostic_foreground, base00),
-            Self::OutputPortalForeground => (theme.output_portal_foreground, base00),
-            Self::Text => (theme.text, panel),
-            Self::TextMuted => (theme.text_muted, panel),
-        }
-    }
-}
-
-///
-/// One [`ContrastCheck`]'s measured result against a `Theme`: its WCAG ratio
-/// and whether it clears [`CONTRAST_FLOOR`].
-///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07, which shows validate's report when a viewer loads a \
-                   scheme; this issue only builds the validator itself"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ContrastResult {
-    pub(crate) check: ContrastCheck,
-    pub(crate) ratio: f32,
-    pub(crate) passes: bool,
-}
-
-///
-/// Measures every [`ContrastCheck`] against `theme` and reports each one's
-/// WCAG ratio and whether it clears [`CONTRAST_FLOOR`] — replacing
+/// Measures a Theme's contrast: [`validate`] answers each [`ContrastCheck`]'s
+/// WCAG ratio and whether it clears [`CONTRAST_FLOOR`], replacing
 /// `style.rs`'s former per-colour assertions of Okabe–Ito's exact values
 /// (`.scratch/theming/issues/08`) with a measurement any Theme can be put
 /// through, built-in or loaded.
 ///
-/// Never refuses `theme`: a scheme that fails a check is measured and
-/// reported exactly like one that passes, because the floor is a fact about
-/// the scheme worth seeing rather than a gate a Theme must clear before it
-/// loads. `.scratch/theming/issues/07` shows this report when a viewer loads
-/// a scheme; a failing one loads anyway, because the viewer chose it.
+/// A single module rather than five individually annotated items: every
+/// item here is unused outside this module's own tests until
+/// `.scratch/theming/issues/07` wires a loader and shows `validate`'s report
+/// when a viewer loads a scheme, so one inner attribute states that once for
+/// the whole module instead of repeating the same reason at each item.
 ///
-/// # Deviation from the issue's stated signature
-///
-/// `.scratch/theming/issues/08` asks for `validate(scheme, template)` over a
-/// `Scheme` of sixteen base16 slots and a separate template mapping Tokens
-/// onto them. `06`, this issue's blocker, shipped without that split: no
-/// `Scheme` or `TEMPLATE` type exists in this crate, and a resolved
-/// [`Theme`] already carries each Token's colour directly, the same way
-/// [`okabe_ito`] does. The closest faithful shape reachable from what
-/// exists takes one argument, the already-resolved Theme: the mapping
-/// `scheme` and `template` would have performed together has already
-/// happened by the time a `Theme` exists. `07`'s loader will build a
-/// `Theme` the same way `okabe_ito` does, so this signature treats a loaded
-/// scheme and a built-in identically once `07` lands, matching that issue's
-/// own "a loaded scheme becomes a Theme like any other". Recorded in
-/// `.scratch/theming/issues/08`'s comments as well.
-///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07, which shows this report when a viewer loads a scheme; \
-                   this issue only builds the validator itself"
-    )
-)]
-pub(crate) fn validate(theme: &Theme) -> Vec<ContrastResult> {
-    ContrastCheck::ALL
-        .into_iter()
-        .map(|check| {
-            let (foreground, background) = check.colours(theme);
-            // The pinned "self behind on_top" compositing every other
-            // resolved-Theme channel uses (`style.rs`'s `compose_cell_fill`,
-            // `ordinary_border`): a translucent foreground such as
-            // `text.muted` is measured as the colour it actually displays
-            // over `background`, not its stored premultiplied bytes misread
-            // as straight sRGB. An opaque foreground is unchanged by this —
-            // `background.blend(foreground)` collapses to `foreground`
-            // outright once its alpha is 255.
-            let displayed = background.blend(foreground);
-            let ratio = contrast(displayed, background);
-            ContrastResult {
-                check,
-                ratio,
-                passes: ratio >= CONTRAST_FLOOR,
-            }
-        })
-        .collect()
-}
+pub(crate) mod contrast {
+    #![cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "unused outside this module's own tests until theming/07 wires a loader \
+                       and shows validate's report when a viewer loads a scheme"
+        )
+    )]
 
-///
-/// The WCAG 2.1 relative-luminance contrast ratio between two opaque
-/// colours — ported from `style.rs`'s own `contrast`, which
-/// `.scratch/theming/issues/08` removes now that this validator replaces
-/// the per-colour assertions it measured.
-///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07, which shows validate's report when a viewer loads a \
-                   scheme; this issue only builds the validator itself"
-    )
-)]
-fn contrast(foreground: Color32, background: Color32) -> f32 {
-    let luminance = |colour: Color32| {
-        let channel = |value: u8| {
-            let value = f32::from(value) / 255.0;
-            if value <= 0.03928 {
-                value / 12.92
-            } else {
-                ((value + 0.055) / 1.055).powf(2.4)
+    use egui::Color32;
+
+    use super::Theme;
+
+    ///
+    /// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio
+    /// every [`ContrastCheck`] is measured against: 4.5:1, the floor
+    /// normal-size text must clear. Stated once, here, with its source,
+    /// rather than repeated as a literal at each call site —
+    /// `.scratch/theming/issues/08`'s own acceptance line.
+    ///
+    pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
+
+    ///
+    /// One named colour pair [`validate`] measures: a Token's glyph colour,
+    /// or one of ADR 0053's named keys, against the background it is read
+    /// on.
+    ///
+    /// The seven rows of ADR 0053's Token table are Source Paint colours and
+    /// read against `base00` ([`Theme::grid_background`], the Source
+    /// background) — as do the Diagnostic and Output Portal foreground keys
+    /// the same table names. `text` and `text.muted` are chrome, not Source
+    /// Paint, so they read against `panel.background`
+    /// ([`Theme::panel_background`]) instead: the surface ADR 0053's chrome
+    /// mapping actually draws them on.
+    ///
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum ContrastCheck {
+        Comment,
+        /// Ordinary, Char and Atom share one glyph colour
+        /// ([`Theme::source_ordinary`]) and so share one check — ADR 0053's
+        /// Token table lists the three together for the same reason.
+        Ordinary,
+        Number,
+        Note,
+        Function,
+        Bang,
+        Sequence,
+        DiagnosticForeground,
+        OutputPortalForeground,
+        Text,
+        TextMuted,
+    }
+
+    impl ContrastCheck {
+        /// Every check [`validate`] measures, in ADR 0053's Token-table
+        /// order followed by its named-key table order.
+        const ALL: [Self; 11] = [
+            Self::Comment,
+            Self::Ordinary,
+            Self::Number,
+            Self::Note,
+            Self::Function,
+            Self::Bang,
+            Self::Sequence,
+            Self::DiagnosticForeground,
+            Self::OutputPortalForeground,
+            Self::Text,
+            Self::TextMuted,
+        ];
+
+        /// The label a [`ContrastResult`] names this check by: ADR 0053's
+        /// Token name, or a named key at its exact spelling.
+        pub(crate) fn name(self) -> &'static str {
+            match self {
+                Self::Comment => "Comment",
+                Self::Ordinary => "Ordinary, Char, Atom",
+                Self::Number => "Number",
+                Self::Note => "Note",
+                Self::Function => "Function",
+                Self::Bang => "Bang",
+                Self::Sequence => "Sequence",
+                Self::DiagnosticForeground => "diagnostic.foreground",
+                Self::OutputPortalForeground => "output_portal.foreground",
+                Self::Text => "text",
+                Self::TextMuted => "text.muted",
             }
+        }
+
+        /// This check's foreground and the background it is read against,
+        /// both read from `theme`.
+        fn colours(self, theme: &Theme) -> (Color32, Color32) {
+            let base00 = theme.grid_background;
+            let panel = theme.panel_background;
+            match self {
+                Self::Comment => (theme.source_comment, base00),
+                Self::Ordinary => (theme.source_ordinary, base00),
+                Self::Number => (theme.source_number, base00),
+                Self::Note => (theme.source_note, base00),
+                Self::Function => (theme.source_function, base00),
+                Self::Bang => (theme.source_bang, base00),
+                Self::Sequence => (theme.source_sequence, base00),
+                Self::DiagnosticForeground => (theme.diagnostic_foreground, base00),
+                Self::OutputPortalForeground => (theme.output_portal_foreground, base00),
+                Self::Text => (theme.text, panel),
+                Self::TextMuted => (theme.text_muted, panel),
+            }
+        }
+    }
+
+    ///
+    /// One [`ContrastCheck`]'s measured result against a `Theme`: its WCAG
+    /// ratio. [`Self::passes`] derives the pass/fail answer from `ratio`
+    /// and [`CONTRAST_FLOOR`] rather than storing a second field that could
+    /// disagree with it.
+    ///
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub(crate) struct ContrastResult {
+        pub(crate) check: ContrastCheck,
+        pub(crate) ratio: f32,
+    }
+
+    impl ContrastResult {
+        /// Whether [`Self::ratio`] clears [`CONTRAST_FLOOR`].
+        pub(crate) fn passes(self) -> bool {
+            self.ratio >= CONTRAST_FLOOR
+        }
+    }
+
+    ///
+    /// Measures every [`ContrastCheck`] against `theme` and reports each
+    /// one's WCAG ratio.
+    ///
+    /// Never refuses `theme`: a scheme that fails a check is measured and
+    /// reported exactly like one that passes, because the floor is a fact
+    /// about the scheme worth seeing rather than a gate a Theme must clear
+    /// before it loads. `.scratch/theming/issues/07` shows this report when
+    /// a viewer loads a scheme; a failing one loads anyway, because the
+    /// viewer chose it.
+    ///
+    /// # Deviation from the issue's stated signature
+    ///
+    /// `.scratch/theming/issues/08` asks for `validate(scheme, template)`
+    /// over a `Scheme` of sixteen base16 slots and a separate template
+    /// mapping Tokens onto them. `06`, this issue's blocker, is only partly
+    /// landed on this branch's base: it shipped a resolved `Theme` with
+    /// every Token's colour already a direct field, but never the
+    /// `Scheme`/`TEMPLATE` split, and none of its further built-ins beyond
+    /// `okabe_ito`. No `Scheme` or `TEMPLATE` type exists in this crate
+    /// today. The closest faithful shape reachable from what exists takes
+    /// one argument, the already-resolved Theme: the mapping `scheme` and
+    /// `template` would have performed together has already happened by the
+    /// time a `Theme` exists. This signature is worth revisiting once `06`
+    /// introduces `Scheme` — `07`'s loader will otherwise build a `Theme`
+    /// the same way [`okabe_ito`](super::okabe_ito) does, so a loaded scheme
+    /// and a built-in reach `validate` identically either way. Recorded in
+    /// `.scratch/theming/issues/08`'s comments as well.
+    ///
+    pub(crate) fn validate(theme: &Theme) -> Vec<ContrastResult> {
+        ContrastCheck::ALL
+            .into_iter()
+            .map(|check| {
+                let (foreground, background) = check.colours(theme);
+                // `contrast` requires both arguments opaque (see its own
+                // doc comment). `to_opaque` normalizes `background` first —
+                // deliberately, rather than by a `debug_assert` on an
+                // invariant this crate does not actually prove: `resolve`
+                // already lets a custom Theme document override
+                // `grid.background`/`panel.background` with any colour,
+                // including a translucent one, and CLAUDE.md reserves
+                // assertions for proven invariants. Normalizing composites
+                // it onto an opaque version of itself
+                // (`Color32::to_opaque`, the same un-premultiply
+                // `theme::tests::okabe_ito_matches_todays_style_and_
+                // palette_constants` already uses for `panel_border`), so a
+                // translucent background is measured deliberately rather
+                // than refused or silently misread. It is a no-op for an
+                // already-opaque background, which every shipped Theme has
+                // today.
+                let background = background.to_opaque();
+                // The pinned "self behind on_top" compositing every other
+                // resolved-Theme channel uses (`style.rs`'s
+                // `compose_cell_fill`, `ordinary_border`): a translucent
+                // foreground such as `text.muted` is measured as the colour
+                // it actually displays over `background`, not its stored
+                // premultiplied bytes misread as straight sRGB. An opaque
+                // foreground is unchanged by this — `background.blend
+                // (foreground)` collapses to `foreground` outright once its
+                // alpha is 255.
+                let displayed = background.blend(foreground);
+                let ratio = contrast(displayed, background);
+                ContrastResult { check, ratio }
+            })
+            .collect()
+    }
+
+    ///
+    /// The WCAG 2.1 relative-luminance contrast ratio between two colours —
+    /// ported from `style.rs`'s own `contrast`, which
+    /// `.scratch/theming/issues/08` removes now that this validator replaces
+    /// the per-colour assertions it measured.
+    ///
+    /// Both arguments must already be opaque: `.r()`/`.g()`/`.b()` read
+    /// [`Color32`]'s premultiplied bytes directly, which equal straight sRGB
+    /// only at full alpha. [`validate`] is this function's one caller and
+    /// guarantees this — `background` by `Color32::to_opaque`, `foreground`
+    /// by compositing it over that already-opaque `background` first, which
+    /// is always itself opaque (a blend onto a 255-alpha base always sums to
+    /// 255 alpha).
+    ///
+    fn contrast(foreground: Color32, background: Color32) -> f32 {
+        let luminance = |colour: Color32| {
+            let channel = |value: u8| {
+                let value = f32::from(value) / 255.0;
+                if value <= 0.03928 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(colour.r())
+                + 0.7152 * channel(colour.g())
+                + 0.0722 * channel(colour.b())
         };
-        0.2126 * channel(colour.r()) + 0.7152 * channel(colour.g()) + 0.0722 * channel(colour.b())
-    };
-    let (first, second) = (luminance(foreground), luminance(background));
-    (first.max(second) + 0.05) / (first.min(second) + 0.05)
+        let (first, second) = (luminance(foreground), luminance(background));
+        (first.max(second) + 0.05) / (first.min(second) + 0.05)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use egui::Color32;
+
+        use super::{ContrastCheck, ContrastResult, contrast, validate};
+        use crate::theme::{Theme, okabe_ito};
+
+        /// The repeated `report.iter().find(...)` every test below needs at
+        /// least once.
+        fn find(report: &[ContrastResult], check: ContrastCheck) -> ContrastResult {
+            *report
+                .iter()
+                .find(|result| result.check == check)
+                .unwrap_or_else(|| panic!("validate did not report {check:?}"))
+        }
+
+        ///
+        /// The WCAG spec's own stated extreme: black text on a white
+        /// background is the maximum contrast ratio, 21:1 ("Understanding
+        /// Success Criterion 1.4.3") — a fact about the ratio's own defined
+        /// range, not a figure this module's arithmetic could drift into by
+        /// coincidence.
+        ///
+        #[test]
+        fn contrast_of_black_and_white_is_the_wcag_maximum_21_to_1() {
+            let ratio = contrast(Color32::WHITE, Color32::BLACK);
+            assert!((ratio - 21.0).abs() < 0.01, "got {ratio:.2}:1");
+        }
+
+        ///
+        /// The ratio's own stated minimum: two identical colours are 1:1,
+        /// the numerator and denominator of the WCAG formula collapsing to
+        /// the same value regardless of which colour is chosen.
+        ///
+        #[test]
+        fn contrast_of_identical_colours_is_the_wcag_minimum_1_to_1() {
+            let mid_tone = Color32::from_rgb(96, 140, 60);
+            let ratio = contrast(mid_tone, mid_tone);
+            assert!((ratio - 1.0).abs() < 0.001, "got {ratio:.2}:1");
+        }
+
+        ///
+        /// A worked mid pair, computed by hand from the WCAG 2.1
+        /// relative-luminance formula rather than by running this module's
+        /// own code under test: pure red's relative luminance is
+        /// `0.2126 * 1.0 + 0.7152 * 0.0 + 0.0722 * 0.0 = 0.2126` (its own
+        /// channel fully saturated, the other two at zero); white's is
+        /// `1.0` (the three coefficients sum to `1.0` exactly). Their ratio
+        /// is `(1.0 + 0.05) / (0.2126 + 0.05) = 1.05 / 0.2626 ≈ 4.00:1`.
+        ///
+        #[test]
+        fn contrast_of_a_worked_mid_pair_matches_the_hand_computed_ratio() {
+            let red = Color32::from_rgb(255, 0, 0);
+            let ratio = contrast(Color32::WHITE, red);
+            assert!(
+                (ratio - 4.00).abs() < 0.01,
+                "pure red on white: got {ratio:.2}:1, expected ~4.00:1"
+            );
+        }
+
+        ///
+        /// Every check measured against the background ADR 0053 documents
+        /// for it, proven by construction rather than by re-deriving
+        /// Okabe–Ito's own figures: `grid_background` and
+        /// `panel_background` are set far enough apart that a check reading
+        /// the wrong one measures a detectably different ratio, not a
+        /// coincidentally close one, so a `colours` mapping bug would fail
+        /// this test rather than pass it quietly.
+        ///
+        #[test]
+        fn every_check_measures_against_its_documented_background() {
+            let grid_background = Color32::from_rgb(10, 10, 10);
+            let panel_background = Color32::from_rgb(200, 200, 200);
+            let shared_foreground = Color32::from_rgb(128, 128, 128);
+            let theme = Theme {
+                grid_background,
+                panel_background,
+                source_comment: shared_foreground,
+                source_ordinary: shared_foreground,
+                source_number: shared_foreground,
+                source_note: shared_foreground,
+                source_function: shared_foreground,
+                source_bang: shared_foreground,
+                source_sequence: shared_foreground,
+                diagnostic_foreground: shared_foreground,
+                output_portal_foreground: shared_foreground,
+                text: shared_foreground,
+                text_muted: shared_foreground,
+                ..okabe_ito()
+            };
+
+            let against_grid = contrast(shared_foreground, grid_background);
+            let against_panel = contrast(shared_foreground, panel_background);
+            assert!(
+                (against_grid - against_panel).abs() > 1.0,
+                "the two backgrounds must read differently enough for this test to catch a swap"
+            );
+
+            let report = validate(&theme);
+            for check in ContrastCheck::ALL {
+                let expected = match check {
+                    ContrastCheck::Text | ContrastCheck::TextMuted => against_panel,
+                    _ => against_grid,
+                };
+                let result = find(&report, check);
+                assert!(
+                    (result.ratio - expected).abs() < 0.01,
+                    "{} measured {:.2}:1, expected {:.2}:1 against its documented background",
+                    check.name(),
+                    result.ratio,
+                    expected
+                );
+            }
+        }
+
+        ///
+        /// A translucent foreground composited over an opaque background
+        /// before measurement, the way `text.muted`'s alpha is in a real
+        /// Theme. 50%-alpha white over black composites to mid-grey `(128,
+        /// 128, 128)` — halfway, by construction of the blend — whose ratio
+        /// against black is worked by hand rather than reproduced from this
+        /// module's own code: relative luminance
+        /// `((128 / 255 + 0.055) / 1.055) ^ 2.4 ≈ 0.216`, ratio
+        /// `(0.216 + 0.05) / (0.0 + 0.05) ≈ 5.32:1`.
+        ///
+        #[test]
+        fn validate_composites_a_translucent_foreground_before_measuring() {
+            let translucent_white = Color32::from_rgba_unmultiplied(255, 255, 255, 128);
+            let theme = Theme {
+                grid_background: Color32::BLACK,
+                source_comment: translucent_white,
+                ..okabe_ito()
+            };
+
+            let report = validate(&theme);
+
+            let comment = find(&report, ContrastCheck::Comment);
+            assert!(
+                (comment.ratio - 5.32).abs() < 0.01,
+                "50%-white-on-black composites to mid-grey: got {:.2}:1, expected ~5.32:1",
+                comment.ratio
+            );
+        }
+
+        ///
+        /// A translucent `background` is normalized to opaque before it is
+        /// used at all — for the blend as well as the final measurement —
+        /// rather than read as though its premultiplied bytes were already
+        /// straight sRGB. Comparing against `Color32::to_opaque` called
+        /// directly, the same public operation [`validate`] uses, proves
+        /// the normalization actually happens rather than merely failing to
+        /// panic on a translucent background by chance.
+        ///
+        #[test]
+        fn validate_normalizes_a_translucent_background_before_measuring() {
+            let translucent_panel = Color32::from_rgba_unmultiplied(11, 17, 18, 200);
+            let opaque_text = Color32::from_rgb(234, 235, 229);
+            let theme = Theme {
+                panel_background: translucent_panel,
+                text: opaque_text,
+                ..okabe_ito()
+            };
+
+            let report = validate(&theme);
+            let text = find(&report, ContrastCheck::Text);
+
+            let opaque_panel = translucent_panel.to_opaque();
+            let expected = contrast(opaque_panel.blend(opaque_text), opaque_panel);
+            assert!(
+                (text.ratio - expected).abs() < 0.001,
+                "got {:.2}:1, expected {:.2}:1 against the opaque-normalized panel background",
+                text.ratio,
+                expected
+            );
+
+            // And proof this is not vacuous: measuring against the raw,
+            // un-normalized translucent background gives a different answer,
+            // so normalizing is doing real work rather than being a no-op
+            // here.
+            let unnormalized = contrast(opaque_text, translucent_panel);
+            assert!(
+                (expected - unnormalized).abs() > 0.01,
+                "the opaque-normalized and raw-translucent ratios should differ for this \
+                 background/foreground pair, or this test proves nothing"
+            );
+        }
+
+        ///
+        /// The validator against a Theme built to fail more than one check
+        /// — proof `validate` discriminates a pass from a failure rather
+        /// than reporting every check as passing regardless of the colours
+        /// it is given. `text` is set equal to `panel_background`, and
+        /// `source_number` equal to `grid_background` (identical colours
+        /// measure 1:1, this module's own documented WCAG minimum), while
+        /// every other property is left at Okabe–Ito's passing values.
+        ///
+        #[test]
+        fn validate_reports_a_theme_built_to_fail_rather_than_a_vacuous_pass() {
+            let base = okabe_ito();
+            let theme = Theme {
+                text: base.panel_background,
+                source_number: base.grid_background,
+                ..base
+            };
+
+            let report = validate(&theme);
+
+            let text = find(&report, ContrastCheck::Text);
+            assert!(
+                !text.passes(),
+                "text equal to panel_background should fail: {:.2}:1",
+                text.ratio
+            );
+            assert!(
+                (text.ratio - 1.0).abs() < 0.01,
+                "identical colours measure 1:1, got {:.2}:1",
+                text.ratio
+            );
+
+            let number = find(&report, ContrastCheck::Number);
+            assert!(
+                !number.passes(),
+                "source_number equal to base00 should fail: {:.2}:1",
+                number.ratio
+            );
+
+            // A check untouched by the failing override still passes, so
+            // the failures above are specific to the retuned properties
+            // rather than `validate` reporting every check as failing once
+            // one does.
+            let comment = find(&report, ContrastCheck::Comment);
+            assert!(
+                comment.passes(),
+                "Comment was not retuned and should still clear the floor: {:.2}:1",
+                comment.ratio
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use egui::Color32;
 
+    use super::contrast::{ContrastCheck, validate};
     use super::{
-        Appearance, CONTRAST_FLOOR, ChromeWidth, ChromeWidthKey, ColorKey, ContrastCheck,
-        GridWidth, GridWidthKey, OptionalFill, Theme, ThemeDocument, ThemeError, okabe_ito,
-        resolve, straight_rgba, validate,
+        Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
+        ThemeDocument, ThemeError, okabe_ito, resolve, straight_rgba,
     };
     use crate::style::{DEFAULT_BANG, DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, PALETTE};
 
@@ -1789,233 +2050,53 @@ mod tests {
     }
 
     ///
-    /// `theme.md`'s recorded measurement for `diagnostic.foreground` against
-    /// `base00` (`5.43:1`), the first of `validate`'s named-key checks —
-    /// picked because it is the one existing figure `style.rs`'s removed
-    /// `comment_reads_dimmer_than_every_colour_but_its_named_exceptions_
-    /// which_all_clear_the_floor` already pinned, so this cross-checks
-    /// against an independent, previously recorded value rather than a
-    /// figure computed the same way the code under test computes it.
-    ///
-    #[test]
-    fn validate_measures_diagnostic_foreground_against_base00() {
-        let theme = okabe_ito();
-
-        let report = validate(&theme);
-
-        let diagnostic = report
-            .iter()
-            .find(|result| result.check == ContrastCheck::DiagnosticForeground)
-            .expect("validate reports a DiagnosticForeground check");
-        assert!(
-            (diagnostic.ratio - 5.43).abs() < 0.01,
-            "diagnostic.foreground is {:.2}:1, expected 5.43:1",
-            diagnostic.ratio
-        );
-        assert!(diagnostic.passes, "5.43:1 clears the 4.5:1 floor");
-        assert_eq!(CONTRAST_FLOOR, 4.5, "the floor validate compares against");
-    }
-
-    ///
-    /// `validate`'s complete report, exhaustively: every Token ADR 0053's
-    /// table names, plus its `diagnostic.foreground`, `output_portal.
-    /// foreground`, `text` and `text.muted` rows — the checks
-    /// `.scratch/theming/issues/08` asks for by name. Each expected ratio
-    /// below is `theme.md`'s recorded measurement for Okabe–Ito, an
-    /// independent source `validate` is checked against rather than a
-    /// figure derived from `validate`'s own arithmetic.
-    ///
-    #[test]
-    fn validate_reports_every_named_check_at_its_recorded_ratio() {
-        let theme = okabe_ito();
-
-        let report = validate(&theme);
-
-        assert_eq!(report.len(), 11, "one result per ContrastCheck variant");
-
-        let expected = [
-            (ContrastCheck::Comment, "Comment", 7.37, true),
-            (ContrastCheck::Ordinary, "Ordinary, Char, Atom", 17.51, true),
-            (ContrastCheck::Number, "Number", 9.10, true),
-            (ContrastCheck::Note, "Note", 15.88, true),
-            (ContrastCheck::Function, "Function", 6.14, true),
-            (ContrastCheck::Bang, "Bang", 6.86, true),
-            // Sequence is Okabe–Ito's own recorded shortfall — see
-            // `sequence_is_okabe_itos_recorded_and_reported_contrast_
-            // failure` below, which this figure is cross-checked against.
-            (ContrastCheck::Sequence, "Sequence", 4.05, false),
-            (
-                ContrastCheck::DiagnosticForeground,
-                "diagnostic.foreground",
-                5.43,
-                true,
-            ),
-            (
-                ContrastCheck::OutputPortalForeground,
-                "output_portal.foreground",
-                9.32,
-                true,
-            ),
-            (ContrastCheck::Text, "text", 15.88, true),
-            (ContrastCheck::TextMuted, "text.muted", 6.19, true),
-        ];
-        assert_eq!(
-            expected.len(),
-            11,
-            "the table above must cover every ContrastCheck variant"
-        );
-
-        for (check, name, expected_ratio, expected_passes) in expected {
-            let result = report
-                .iter()
-                .find(|result| result.check == check)
-                .unwrap_or_else(|| panic!("validate did not report {check:?}"));
-            assert_eq!(check.name(), name, "{check:?}'s report label");
-            assert!(
-                (result.ratio - expected_ratio).abs() < 0.01,
-                "{name} is {:.2}:1, expected {expected_ratio:.2}:1",
-                result.ratio
-            );
-            assert_eq!(
-                result.passes, expected_passes,
-                "{name} at {:.2}:1 against the {CONTRAST_FLOOR}:1 floor",
-                result.ratio
-            );
-        }
-    }
-
-    ///
-    /// The Okabe–Ito assignment's own choice for Sequence, `#0072B2`,
-    /// measures 4.05:1 against `base00` — below the 4.5:1 floor every other
-    /// check above clears. `validate` reports this rather than refusing the
-    /// Theme or excluding Sequence from its report, which is `08`'s whole
-    /// point: `syntax-highlighting/01`'s prose exception is replaced by a
-    /// measurement anyone can see, not by a silently lowered floor or a
-    /// silently dropped check.
-    ///
-    #[test]
-    fn sequence_is_okabe_itos_recorded_and_reported_contrast_failure() {
-        let theme = okabe_ito();
-
-        let report = validate(&theme);
-
-        let sequence = report
-            .iter()
-            .find(|result| result.check == ContrastCheck::Sequence)
-            .expect("validate reports a Sequence check even though it fails");
-        assert!(
-            !sequence.passes,
-            "Sequence no longer needs the recorded exception: {:.2}:1",
-            sequence.ratio
-        );
-        assert!(
-            (sequence.ratio - 4.05).abs() < 0.01,
-            "Sequence drifted off the recorded exception: {:.2}:1, expected 4.05:1",
-            sequence.ratio
-        );
-    }
-
-    ///
-    /// The validator against a Theme built to fail more checks than
-    /// Okabe–Ito's own recorded Sequence shortfall — proof `validate`
-    /// actually discriminates a pass from a failure rather than reporting
-    /// every check as passing regardless of the colours it is given. `text`
-    /// is set equal to `panel.background` (ratio exactly 1:1, the lowest
-    /// possible), and `source_number` is set equal to `grid_background`
-    /// (base00) the same way, while every other property is left at
-    /// Okabe–Ito's passing values.
-    ///
-    #[test]
-    fn validate_reports_a_theme_built_to_fail_rather_than_a_vacuous_pass() {
-        let base = okabe_ito();
-        let failing = Theme {
-            text: base.panel_background,
-            source_number: base.grid_background,
-            ..base.clone()
-        };
-
-        let report = validate(&failing);
-
-        let text = report
-            .iter()
-            .find(|result| result.check == ContrastCheck::Text)
-            .expect("validate reports a Text check");
-        assert!(
-            !text.passes,
-            "text equal to panel.background should fail: {:.2}:1",
-            text.ratio
-        );
-        assert!(
-            (text.ratio - 1.0).abs() < 0.01,
-            "identical colours measure 1:1, got {:.2}:1",
-            text.ratio
-        );
-
-        let number = report
-            .iter()
-            .find(|result| result.check == ContrastCheck::Number)
-            .expect("validate reports a Number check");
-        assert!(
-            !number.passes,
-            "source_number equal to base00 should fail: {:.2}:1",
-            number.ratio
-        );
-
-        // A check untouched by the failing override still passes, so the
-        // failures above are specific to the retuned properties rather than
-        // `validate` reporting every check as failing once one does.
-        let comment = report
-            .iter()
-            .find(|result| result.check == ContrastCheck::Comment)
-            .expect("validate reports a Comment check");
-        assert!(
-            comment.passes,
-            "Comment was not retuned and should still clear the floor: {:.2}:1",
-            comment.ratio
-        );
-
-        // And `base` itself, untouched, is unaffected by building `failing`
-        // from a clone of it.
-        assert_eq!(base.text, straight_rgba(0xEA_EB_E5_FF));
-    }
-
-    ///
-    /// Every shipped Theme this crate ships today, run through `validate` —
+    /// Every shipped Theme this crate ships today, checked against an
+    /// accepted-failures record keyed by Theme identity —
     /// `.scratch/theming/issues/08`'s "every shipped scheme passes" line,
-    /// resolved honestly rather than by quietly excluding the one check that
-    /// does not: Sequence is Okabe–Ito's own recorded floor failure (see
-    /// `sequence_is_okabe_itos_recorded_and_reported_contrast_failure`
-    /// above), named here again as the sole accepted exception so a second,
-    /// unnoticed failure on any shipped Theme still fails this test. Only
-    /// `okabe_ito()` ships today — `.scratch/theming/issues/06`'s further
-    /// built-ins and `07`'s loader are not built yet — so a later built-in
-    /// joins this array and is checked the same way, with nothing else here
-    /// to change.
+    /// resolved so a fixed Sequence and a newly failing check both force a
+    /// deliberate edit to `accepted_failures` below, rather than the test
+    /// excusing a whole check globally (as an earlier version of this test
+    /// did) or silently starting to fail once a colour moves.
+    ///
+    /// Only `okabe_ito()` ships today: `.scratch/theming/issues/06`'s
+    /// further built-ins and `07`'s loader are not built yet, so `shipped`
+    /// is a hand-kept array rather than an iterated built-in registry — a
+    /// known weakness recorded in `.scratch/theming/issues/08`'s comments,
+    /// to close once `06` gives this crate a list to iterate instead.
     ///
     #[test]
-    fn every_shipped_theme_clears_the_floor_except_sequences_recorded_exception() {
+    fn every_shipped_theme_matches_its_accepted_failure_record() {
         let shipped = [okabe_ito()];
 
+        // Keyed by Theme identity. Okabe–Ito's one entry is Sequence's
+        // recorded floor shortfall (`theme.md`), pending the
+        // retune-vs-exception decision `.scratch/theming/issues/08`'s
+        // comments leave for a human; an identity absent from this list is
+        // expected to have no failing checks.
+        let accepted_failures: &[(&str, &[ContrastCheck])] =
+            &[("okabe-ito", &[ContrastCheck::Sequence])];
+
         for theme in &shipped {
-            for result in validate(theme) {
-                if result.check == ContrastCheck::Sequence {
-                    assert!(
-                        !result.passes,
-                        "{}'s Sequence check unexpectedly passes at {:.2}:1 — if a retune fixed \
-                         it, update this test and theme.md together rather than leaving the \
-                         named exception stale",
-                        theme.identity, result.ratio
-                    );
-                } else {
-                    assert!(
-                        result.passes,
-                        "{}'s {} is {:.2}:1, below the {CONTRAST_FLOOR}:1 floor",
-                        theme.identity,
-                        result.check.name(),
-                        result.ratio
-                    );
-                }
-            }
+            let mut expected: Vec<&str> = accepted_failures
+                .iter()
+                .find(|(identity, _)| *identity == theme.identity)
+                .map(|(_, checks)| checks.iter().map(|check| check.name()).collect())
+                .unwrap_or_default();
+            expected.sort_unstable();
+
+            let mut actual: Vec<&str> = validate(theme)
+                .into_iter()
+                .filter(|result| !result.passes())
+                .map(|result| result.check.name())
+                .collect();
+            actual.sort_unstable();
+
+            assert_eq!(
+                actual, expected,
+                "{}'s failing checks changed — update accepted_failures deliberately, in the \
+                 same commit as the fix or the newly discovered failure",
+                theme.identity
+            );
         }
     }
 }
