@@ -212,8 +212,9 @@ simulated protanopia, and its Number `#3564A0` and Note `#7553A2` 2.16 under
 deuteranopia. Those are pairs a red–green colour-blind reader reads as one
 colour, and pairs the dark built-in keeps apart by construction, because the
 Okabe–Ito assignment is published as safe for red–green deficiency. The
-rejected definition passed the contrast floor in all 84 states while doing it;
-**Orcvs Light's colour-vision evidence** below records the whole comparison, and
+rejected definition passed the contrast floor in all 84 states the report
+measured then while doing it; **Orcvs Light's colour-vision evidence** below
+records the whole comparison, and
 `contrast::tests::the_rejected_light_glyph_definition_fails_this_gate` keeps it
 as a regression.
 
@@ -351,8 +352,9 @@ charcoal page.
 
 #### Orcvs Light's contrast report
 
-`console/src/contrast.rs::validate` measures all 84 reachable painted text
-states. **Every one clears the 4.5:1 floor. There are no deliberate exceptions**
+`console/src/contrast.rs::validate` measures all 95 reachable painted text
+states — 80 Source Grid states and 15 console-chrome states. **Every one
+clears the 4.5:1 floor. There are no deliberate exceptions**
 — `contrast::accepted_failures("orcvs-light")` is empty, and
 `contrast::tests::orcvs_light_has_nothing_to_except` pins that the emptiness is
 because nothing fails, not because a failure was accepted. The lowest measured
@@ -386,6 +388,12 @@ Representative measurements, `plain` placement unless stated:
 | `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
 | `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
 | `text.muted` vs `input.background` | `#303F3BBF` | `#FAFCFB` | 5.13:1 |
+| `text` vs the inactive and open widget fills | `#303F3B` | `#EFF4F2` | 9.94:1 |
+| `text.active` vs the hovered and active widget fills | `#076247` | `#CCEBE2` | 5.81:1 |
+| `text.active`, hovered or active, frameless | `#076247` | `#EFF4F2` | 6.64:1 |
+| `selection.border` vs `selection.background` (over panel or input) | `#076247` | `#CCEBE2` | 5.81:1 |
+| `error` and `warning` vs `panel.background` | `#90426F` | `#EFF4F2` | 5.91:1 |
+| `link` vs `panel.background` | `#0B62B8` | `#EFF4F2` | 5.47:1 |
 
 The scope is the validator's own: text contrast against the actually-composited
 background, never pairwise Token-colour distinguishability, border or focus
@@ -613,7 +621,7 @@ distinguishability, border/focus visibility, or the Cursor Effect's animated
 
 Colour vision is the same module's second measurement, `contrast::distinguish`
 (`.scratch/theming/issues/04`), added because a definition can clear every one
-of those 84 states and still paint two Source glyph channels a dichromat reads
+of those states and still paint two Source glyph channels a dichromat reads
 as one colour — the rejected light definition did exactly that. It simulates
 protanopia, deuteranopia and tritanopia (Viénot, Brettel & Mollon 1999) over the
 same composited colours, measures CIEDE2000 between every pair of glyph
@@ -648,6 +656,29 @@ too: Number 4.89:1, Note 4.66:1 and Atom 4.59:1, each `diagnostic.foreground`
 runs as a real, non-`#[ignore]`d test: every reachable state clears 4.5:1,
 so `accepted_failures` for `okabe-ito` is empty — there is nothing left to
 except.
+
+The console chrome's states (`.scratch/theming/issues/11`) are read from
+`style::style` — the `Style` `style::install` registers — through the egui
+accessors the widgets paint from (`egui::Style::button_style` for a button's
+fill and text, `widget_style` for a frameless label, `Visuals::selection` for
+selected text), and composited over the surface each is painted on down to
+the window backdrop, so the report and the chrome's painting read one
+mapping. Okabe–Ito's chrome figures: `text` 15.88:1 on the inactive and open
+widget fills (both `panel.background`); `text.active` (`#65E6BE`) 9.96:1 on
+the hovered and active fills (`selection.background`, `#0A2A22`) and 12.34:1
+frameless on the panel; selected text, `selection.border` (`#65E6BE`) on
+`selection.background`, 9.96:1 over both panel and input; `error` and
+`warning` (`#CC79A7`) 6.22:1 and `link` (`#5AAAFF`) 7.82:1 on the panel.
+Every one clears the floor, so no chrome exception is recorded either. Left
+out, as `contrast::validate`'s own scope states: disabled widgets (egui fades
+them, and WCAG 2.1 SC 1.4.3 exempts inactive components), `code.background`
+(nothing paints a code span), a widget state's strong fill (egui paints no
+text on it), a popup or window floating over another surface — the Source
+Grid or a panel — (measured as one panel over the window backdrop, identical
+while `panel.background` is opaque, as both built-ins' are), and `text.active`
+on the open widget fill (egui paints an open widget's text in
+`widgets.open.fg_stroke`, which `style::style` maps from `text`, so the open
+fill is measured with `text`, the pair actually painted).
 
 The single-Cell Cursor always replaces a role's background outright, whatever
 that role's own background's own alpha — `style::cell_visuals_with_

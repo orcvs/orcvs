@@ -80,3 +80,5 @@ answered `written` on the Render Frame with a grid-sized vector and a redistribu
 the cost into `source_render_frame` instead (`04` records the measurements). Neither rejection
 reopens this ticket's design: a whole-Grid Paint view on the Language Map stays rejected, and the
 replacement seam is decided in `04`, not here.
+
+**2026-09-23 — the 2026-09-23 audit of the merged pull requests against their issues.** The ticked lines describe the rejected implementation (`7ab24f9`, `549e721`), not `main`. For example, `RenderCell` still carries `claim: Option<Arc<Claim>>` (`orcvs/src/render_frame.rs:20`). What shipped is `03` and `04`. The "Then" section is stale: `theming/06` followed `04`, not this issue.

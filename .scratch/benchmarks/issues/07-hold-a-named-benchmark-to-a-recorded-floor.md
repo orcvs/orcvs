@@ -6,20 +6,20 @@ only a prose note.
 
 **Blocked by:** 03 — Gate merges on the benchmark series.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] A committed file names each guarded benchmark and the figure it must not exceed, with the
+- [x] A committed file names each guarded benchmark and the figure it must not exceed, with the
       runner the figure was measured on.
-- [ ] A check compares the run's result for each named benchmark against its figure and fails when
+- [x] A check compares the run's result for each named benchmark against its figure and fails when
       the figure is exceeded.
-- [ ] The check reads the same `mise run bench` output the ratio gate reads; it does not run the
+- [x] The check reads the same `mise run bench` output the ratio gate reads; it does not run the
       benchmarks a second time.
-- [ ] Raising a figure is an edit to the committed file, visible in the diff a reviewer approves.
-- [ ] A benchmark absent from the file is not guarded and does not fail the check.
-- [ ] The check reports which benchmark exceeded which figure, and by how much.
-- [ ] `mise run bench` and the scoped Rust gates pass.
+- [x] Raising a figure is an edit to the committed file, visible in the diff a reviewer approves.
+- [x] A benchmark absent from the file is not guarded and does not fail the check.
+- [x] The check reports which benchmark exceeded which figure, and by how much.
+- [x] `mise run bench` and the scoped Rust gates pass.
 
 ## Comments
 
@@ -62,3 +62,5 @@ models baselines and thresholds per branch and would subsume both checks, but re
 works on the evidence of one occurrence is not warranted.
 
 **2026-09-21 — theming dependency made explicit.** `theming/06` already requires this recorded floor before rewriting Source painting. Its blocker is now represented in the dependency graph, so this prerequisite carries the same release tag. This does not mark the implementation complete or substitute a local benchmark for the CI comparison.
+
+**2026-09-23 — resolved by PRs #119 and #124; recorded here by the 2026-09-23 audit of the merged pull requests against their issues.** `benches/floors.toml` names each guarded benchmark with its `runner` and `source`. `scripts/check-bench-floors.ts` rejects an entry missing either field, fails when `value > maxNs`, and reports the name, the measured value, the floor, the runner and the excess in ns and percent. It reads the `output.txt` that `mise run bench | tee` wrote for the ratio gate. It is stricter than this issue in one way: a guarded name missing from the output fails the check. #124 made "Check bench floors" the last step of both jobs, and `scripts/check-tooling-contract.sh` pins that. `scripts/tests/check-bench-floors.test.ts` has 25 tests. Main's Benchmark run 35821771051 on `2b065419` reports five guarded benchmarks within their floors. Follow-ups: the wrong ratio-gate arithmetic in `floors.toml:60-62` is in `theming/15`; the allocation steps a ratio-gate failure skips are `benchmarks/09`; whether a floor failure blocks merge is `benchmarks/10`.
