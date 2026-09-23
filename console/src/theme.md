@@ -189,7 +189,7 @@ lists them with the chrome widths.
 ### The Orcvs Light built-in Theme
 
 `orcvs-light` is the light built-in, prepared by `.scratch/theming/issues/04`
-and **awaiting the user's acceptance of its colours**. It is a complete Theme:
+and **accepted by the user on 2026-09-23**. It is a complete Theme:
 every named property below has an exact value, including the ones it shares
 with Okabe–Ito, which are written out rather than left to a toolkit default,
 and including ADR 0053's border-width keys. It declares itself light.
@@ -483,15 +483,34 @@ simulated copy of the wide capture per dichromacy.
 | Identity | Appearance | Status |
 |---|---|---|
 | `okabe-ito` | dark | Built in; sets every named property at the values above. |
-| `orcvs-light` | light | Built in; sets every named property at the values above. Its colours await the user's acceptance. |
+| `orcvs-light` | light | Built in; sets every named property at the values above. |
 
-Settings save a dark and a light Theme identity, both `okabe-ito`, and restore
-them unchanged. **Nothing selects a Theme yet.** `style::install` still
-registers the one resolved Okabe–Ito style in both egui appearance slots, so a
-viewer whose preference resolves to Light still sees the dark console. `04`
-replaces that with `set_style_of` per appearance, adds the View menu's mode and
-the dark and light pickers, and adds the switching acceptance tests — all of it
-only after the user accepts the light colours recorded above.
+### Selecting a Theme
+
+The View menu holds the mode — **Follow the OS**, **Dark** or **Light** —
+beside a **Dark Theme** picker and a **Light Theme** picker. Each picker lists
+only Themes of its own appearance; today that is `okabe-ito` for dark and
+`orcvs-light` for light, and a loaded Theme (`.scratch/theming/issues/07`)
+joins the picker matching its parent's appearance.
+
+`style::install` registers `style()` of the selected dark Theme for
+`egui::Theme::Dark` and of the selected light Theme for `egui::Theme::Light`
+through `set_style_of`. egui chooses the appearance each frame from the mode
+and the operating system's appearance, and the console paints the Source, and
+answers the window's clear colour, from the Theme of that same appearance, so a
+frame never takes its chrome from one Theme and its Source from another. A
+View menu change is applied once the frame it was made in is done, and the
+next frame presents it.
+
+The mode is egui's own `ThemePreference`, which eframe stores with egui memory;
+nothing in the console forces it at startup, so a fresh start follows the OS.
+The two Theme selections are Theme identities saved under the `dark_theme` and
+`light_theme` storage keys when `persistence` is on; without it they last for
+the session. An absent key selects that appearance's built-in. A selection that
+names no available Theme of its appearance — including the `okabe-ito` earlier
+builds saved in the light key before a light built-in existed — presents that
+appearance's built-in instead and is saved back unchanged, so the fallback
+never rewrites the viewer's choice.
 
 ## Source colours
 
