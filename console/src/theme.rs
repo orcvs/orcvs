@@ -674,9 +674,12 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
 /// line → `grid.border`, sector line → `sector.seam`, selection fill →
 /// `selection.background`, and so on). That palette is a *proposal*: it
 /// predates the named-key format, says nothing about Comment, Sequence,
-/// Diagnostic or Output Portal, and three of its glyph colours are darkened
-/// here so every reachable painted state clears
-/// [`crate::contrast::CONTRAST_FLOOR`]. `console/src/theme.md` records each
+/// Diagnostic or Output Portal, and two of its glyph colours — Function and
+/// Bang — are darkened here so every reachable painted state clears
+/// [`crate::contrast::CONTRAST_FLOOR`]. The Output Portal foreground is
+/// darkened against no proposal value: the palette has none, so `theme.md`
+/// records it as decided here and then adjusted for the doubled
+/// Portal-over-role tint. `console/src/theme.md` records each
 /// value, where it came from, and every adjustment; the user accepts or
 /// rejects the result there, and until then nothing selects this Theme —
 /// `console/src/style.rs::install` still registers the one resolved
