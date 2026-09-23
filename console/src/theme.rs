@@ -559,10 +559,9 @@ impl Theme {
 /// through this straight-to-premultiplied conversion via
 /// [`Color32::from_rgba_unmultiplied_const`] rather than assuming the
 /// schema's straight bytes are already what `Color32` stores. This matches
-/// how [`crate::style::PALETTE`] and
-/// [`crate::source_paint::SourcePaintSettings`] already build their
-/// `Color32` constants, so a resolved Theme value composites with painting
-/// code the same way those do.
+/// how [`crate::style::PALETTE`] already builds its translucent `Color32`
+/// constants, so a resolved Theme value composites with painting code the
+/// same way those do.
 ///
 const fn straight_rgba(rgba: u32) -> Color32 {
     let [r, g, b, a] = rgba.to_be_bytes();
