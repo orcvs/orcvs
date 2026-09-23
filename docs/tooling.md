@@ -267,9 +267,10 @@ worse number with nothing left to say so. `benches/floors.toml` closes that gap 
 gate rather than inside it: it names each guarded benchmark, the figure it must not exceed, and the
 runner the figure was measured on, and `scripts/check-bench-floors.ts` — run once per job in
 `.github/workflows/bench.yml`, as the last step of each job — checks the same `output.txt`
-against it without benchmarking anything a second time. It runs last because the allocation steps
-carry no `if:`: placed before them, a floor breach would skip them, dropping that commit's point
-from the memory series on `main` and the allocation comparison on a pull request. A benchmark
+against it without benchmarking anything a second time. It runs last so that no step depends on
+surviving a floor breach: a step after it that ran on the job's status would be skipped, dropping
+that commit's point from the memory series on `main` or the allocation comparison on a pull
+request. A benchmark
 absent from the file is unguarded and the check passes it without comment; raising a guarded
 figure is a plain, reviewed edit to that file rather than something the check can do on its own.
 `execute` carries the workspace's first floor, seeded from the CI-measured regression and fix
@@ -326,6 +327,17 @@ fixed input and a second run would only cost the job twice. And it alerts withou
 threshold to sit above, and the action offers no in-repo way to accept a deliberate increase, so
 failing waits until the series has enough points to show it is stable.
 `.scratch/memory-verification/spec.md` records the effort behind it.
+
+The series still reports on a run the timing gate fails, which is the run most likely to have
+moved it. Both actions read and write the one `gh-pages` branch, and the timing step's outcome
+cannot say whether it failed on the alert, after fetching that branch, or before fetching it. So the
+allocation steps never consult it: the measurement runs on the criterion run's outcome, each later
+step on the outcome of the one before it, and directly before the memory action a step of its own
+detaches HEAD and runs `git fetch origin +gh-pages:gh-pages`, so the action skips its own fetch
+only once that fetch has succeeded. The fetch is forced because the pull-request job's timing
+comparison commits its point onto the local branch without pushing it, and a plain fetch refuses to
+rewind that. The job still fails on the ratio gate. `scripts/check-tooling-contract.sh` pins the
+fetch, the order of the chain, and that no step after a ratio gate runs on the job's status.
 
 This benchmark gate is the one exception to the equivalence above. The measurement is reproducible
 from a checkout; the comparison is not, because it lives in the action rather than in `mise.toml`.
