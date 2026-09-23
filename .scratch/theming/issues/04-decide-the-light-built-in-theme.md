@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Derive the console's chrome from the Theme; 01 — Decide where Source colour authority lives; 08 — Validate a Theme’s composited contrast.
 
-**Status:** ready-for-human
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -12,11 +12,11 @@
 - [x] The exact-value record includes the border-width keys added under ADR 0053. Shared values with the dark built-in are recorded explicitly rather than left as implicit toolkit defaults.
 - [x] `console/src/theme.md` records it beside the Okabe–Ito Theme, so a later change to either is a documented change rather than drift.
 - [x] `restyle-egui-console/02`'s near-black Cell background rule is restated for light rather than inherited. It is a rule about the dark Theme and does not transfer.
-- [x] It passes `08`'s validator, or its report names each failure as a deliberate exception.
+- [x] It passes `08`'s validator, or its report names each failure as a deliberate exception. *(Source states only: `08` measures the painted Source states. Orcvs Light's chrome states — selection, hovered and active widgets, error, warning and link — go unmeasured until `11` validates chrome through the painted composition, and this branch makes Orcvs Light selectable before then.)*
 - [x] Prepare the existing light-palette proposal as a complete Theme, with its contrast report and wide and tall visual captures. The user reviews and accepts the concrete result before switching is exposed; agreement to prepare it is not approval of its colours.
-- [ ] After acceptance of the complete light definition, replace `02`/`03`'s duplicate registration with `style()` of the selected dark Theme for `egui::Theme::Dark` and of the selected light Theme for `egui::Theme::Light`, through `set_style_of`. Source resolves the same effective Theme; preserve stored preferences and do not force `set_theme`.
-- [ ] Switching acceptance tests cover picker changes, restored dark/light references, OS mode changes and loaded-Theme selections once loading is available. Every presented frame uses the same resolved Theme for Source and chrome. This issue owns these distinct-theme checks, not `03`.
-- [ ] The View menu gains the mode (follow the OS, Dark, Light), beside the dark and light Theme pickers prepared in `03` over `06`'s foundation. Expose these controls together only after acceptance of the light Theme and coherent Source/chrome switching.
+- [x] After acceptance of the complete light definition, replace `02`/`03`'s duplicate registration with `style()` of the selected dark Theme for `egui::Theme::Dark` and of the selected light Theme for `egui::Theme::Light`, through `set_style_of`. Source resolves the same effective Theme; preserve stored preferences and do not force `set_theme`.
+- [x] Switching acceptance tests cover picker changes, restored dark/light references, OS mode changes and loaded-Theme selections once loading is available. Every presented frame uses the same resolved Theme for Source and chrome. This issue owns these distinct-theme checks, not `03`.
+- [x] The View menu gains the mode (follow the OS, Dark, Light), beside the dark and light Theme pickers prepared in `03` over `06`'s foundation. Expose these controls together only after acceptance of the light Theme and coherent Source/chrome switching.
 - [x] `console-testing/03` is extended to pin the light Theme's values.
 
 ## Comments
@@ -154,3 +154,71 @@ temporary patches were reverted before the commit. It also carries one
 simulated copy of the wide capture per dichromacy.
 
 Still nothing shipped selects this Theme.
+
+**2026-09-23 — accepted, and switching exposed.**
+
+The user accepted the complete Orcvs Light definition recorded above and in
+`console/src/theme.md` — chrome from the `feat/egui-theming` proposal, glyph
+hues re-picked from Okabe–Ito — and directed the gated switching work. The
+three boxes that waited on that acceptance are done:
+
+- **Per-appearance registration.** `style::install(ctx, dark, light)` registers
+  `style()` of the selected dark Theme for `egui::Theme::Dark` and of the
+  selected light Theme for `egui::Theme::Light` through `set_style_of`, and
+  still never calls `set_theme`, so a restored preference survives startup and
+  a fresh start follows the OS. The Source reads the Theme of the appearance
+  egui presents the frame in (`ctx.theme()`, read before any widget is shown),
+  and `clear_color` answers for the appearance of the visuals eframe passes.
+  A View menu change is applied after the frame's last widget: egui styles a
+  window from the active style when it is shown, so a change applied on click
+  would style the Diagnostics window from the new Theme inside the old frame.
+- **Selection and persistence.** `console/src/theme_selection.rs` holds the
+  dark and light identities (`ThemeSelection`) and the Themes they present
+  (`SelectedThemes`). A selection naming no available Theme of its appearance
+  presents that appearance's built-in and is saved back unchanged — the
+  fallback never rewrites the choice, following `07`'s startup-fallback rule.
+  That also covers the `okabe-ito` every earlier build saved into the light
+  key. The identities moved off `Persistence` onto `Start`, beside Cursor
+  effects, and are saved under the existing `dark_theme`/`light_theme` keys;
+  an absent key now takes `okabe-ito` for dark and `orcvs-light` for light.
+  Without `persistence` they last the session. The mode stays egui's
+  `ThemePreference`, which eframe already persists with egui memory
+  (`02`'s "one owner").
+- **View menu.** Follow the OS / Dark / Light beside a Dark Theme picker and a
+  Light Theme picker, each listing only Themes of its appearance
+  (`SelectedThemes::listed`, which replaces the filter `03` prepared and then
+  withdrew). Until `07` loads a Theme, only the built-ins are available, so
+  each picker lists one Theme; `07` adds its loaded Themes to the list
+  `SelectedThemes::new` builds. Tests stand a loaded dark and light Theme in
+  through the test-only `theme_selection::with_stand_ins`, beside `new`
+  rather than through it, so no shipped entry takes a list only a test
+  supplies. A pick always reinstalls both appearances' styles, rather than
+  only when it changed what is presented: a shipped branch that only a
+  stand-in Theme could reach would be the test-only seam `CLAUDE.md` forbids.
+- **Acceptance tests.** `console::kittest_tests` drives the shipped console
+  through mode changes, OS appearance changes (`RawInput::system_theme`), a
+  dark and a light picker change against a second Theme of each appearance
+  built in the test, and the frame a mode or a Theme is picked in; each
+  asserts from the frame's own shapes that the Source ground and the chrome
+  panels come from one Theme, and that egui's active style and the backdrop
+  agree. `storage_tests::restored_theme_references_…` covers restored
+  references, the fallback, and saving back unchanged, and
+  `storage_tests::an_earlier_builds_light_theme_key_…` does the same through
+  `Console::new` for the `okabe-ito` earlier builds wrote into the light key.
+  Each switching test was seen to fail under a reverted sabotage.
+- **Picking the fallback.** A picker shows the Theme its appearance presents
+  as selected, so under a kept, unresolvable selection it shows the default
+  built-in. Picking that is the viewer's choice, not the fallback, and
+  replaces the kept selection (`kittest_tests::picking_the_fallback_theme_…`);
+  `07`'s rule is that the fallback never rewrites a selection.
+
+The loaded-Theme selection test is conditional on loading, which is not on
+`main`; it is handed to `07` as an acceptance line there.
+
+One known limit, recorded in `clear_color`'s doc: the web runner asks for the
+clear colour after the frame rather than before, so on the one frame a View
+menu change is applied in it clears to the new appearance's backdrop under the
+old frame. It is visible only through a translucent panel, Grid or Cell layer,
+which neither built-in has. A loaded Theme can have one, so `07` carries an
+acceptance line for it.
+
