@@ -6,7 +6,7 @@
 
 **Status:** needs-triage
 
-- [ ] A Source whose Expressions overlap reaches `by_index[index] = None` (`orcvs/src/language_map.rs:421-423`). The test asserts which Cells keep which Claim, and what their written state reads through `RenderCell`.
+- [ ] A Source whose Expressions overlap reaches `by_index[index] = None` (`orcvs/src/source/language_map.rs:422-424`). The test asserts which Cells keep which Claim, and what their written state reads through `RenderCell`.
 - [ ] The test fails when that clearing line is removed. Confirm this by breaking it once, then revert.
 - [ ] `cargo nextest run --package orcvs --locked` and `--package console` pass.
 
@@ -24,9 +24,12 @@ records every positioned entry as `cell_start..start + consumed()`, and `consume
 every entry lies inside its own Expression's Span. A refused Function rewinds only to one Cell past
 its start. `rebuild` derives each dirty row the same way and carries clean rows whole. Rows never
 share Cells. So when `claims_by_cell` reaches an Expression, every index in its Span is still
-`None`, and `by_index[index] = None` overwrites `None` with `None`. The existing property
-`deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from` already asserts
-that no Cell belongs to two Expression Spans.
+`None`, and `by_index[index] = None` overwrites `None` with `None`. No test guards that
+disjointness. The property
+`deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from` asserts that no
+Cell belongs to two Language Units, but it walks `map.units()` and never reads
+`map.expressions()`, and a Function's Expression Span covers several Language Units. Overlapping
+Expression Spans would pass it.
 
 Probe (local, since removed). Before the clear, `claims_by_cell` asserted that each index was
 `None`, and after it that each entry lay inside its Expression's Span. Nothing fired in:
@@ -46,7 +49,9 @@ disjoint, so that is an early exit, not a precedence rule.
 
 Decision needed: delete the clearing loop and reword the "a later Expression owns the Cells its
 Span covers" docs on `claims_by_cell`, `entry_at` and `RenderFrame::expression_at`, or keep it as
-documented defence against a future Parser whose Expressions may overlap. Either way, `03`'s
+documented defence against a future Parser whose Expressions may overlap. Deleting it should come
+with a property over `map.expressions()` asserting their Spans are disjoint, so a Parser change
+that breaks the argument above fails a test instead of silently changing ownership. Either way, `03`'s
 "overlapping Expression ownership" criterion describes a case the language does not produce. No
 test was added, because the only way to reach the branch is a seam in shipped code, which the
 repository contract forbids.
