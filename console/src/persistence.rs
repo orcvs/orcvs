@@ -25,6 +25,11 @@ use crate::theme::OKABE_ITO_IDENTITY;
 #[cfg(feature = "persistence")]
 pub const SOURCE_KEY: &str = "orcvs_source";
 
+///
+/// The Storage key Glitch amount and Glitch frequency are restored from,
+/// encoded as `amount;frequency`. An absent or malformed value falls back to
+/// [`CursorEffectSettings::default`].
+///
 #[cfg(feature = "persistence")]
 pub(crate) const CURSOR_EFFECTS_KEY: &str = "cursor_effects";
 
@@ -485,7 +490,7 @@ mod tests {
 
     #[cfg(feature = "persistence")]
     #[test]
-    fn absent_or_malformed_cursor_effect_settings_use_theme_defaults() {
+    fn absent_or_malformed_cursor_effect_settings_fall_back_to_their_own_defaults() {
         let empty = InMemoryStorage::default();
         assert_eq!(
             starting_source(Some(&empty)).cursor_effects,

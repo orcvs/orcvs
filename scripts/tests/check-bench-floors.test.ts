@@ -44,6 +44,20 @@ test('parseBencherOutput reads a benchmark_group/parameter id unchanged', () => 
   assert.equal(results.get('parse_records/63')?.value, 650);
 });
 
+test('parseBencherOutput reads an id containing spaces as the whole name', () => {
+  // `console/benches/paint.rs` declares `cursor effects/frame and living area`.
+  const results = parseBencherOutput(
+    'test cursor effects/frame and living area ... bench:      12,345 ns/iter (+/- 678)\n',
+  );
+
+  assert.deepEqual(results.get('cursor effects/frame and living area'), {
+    name: 'cursor effects/frame and living area',
+    value: 12345,
+    unit: 'ns',
+    errorValue: 678,
+  });
+});
+
 test('parseBencherOutput skips lines that are not bencher-format results', () => {
   const results = parseBencherOutput(
     ['Compiling lang v0.1.0', '', 'test parse ... bench:         104 ns/iter (+/- 7)', 'test result: ok'].join(

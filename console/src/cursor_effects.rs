@@ -169,12 +169,19 @@ impl CursorEffectAnimation {
         }
     }
 
+    ///
+    /// `None` when the effect has no scheduled change to wake for: either
+    /// value zero is enough. `.scratch/theming/issues/09`: amount zero paints
+    /// a stationary frame regardless of frequency, so a positive frequency
+    /// alone must not keep scheduling a wake for a frame that never changes.
+    ///
     pub(crate) fn repaint_after(
         self,
         now: Duration,
         settings: CursorEffectSettings,
     ) -> Option<Duration> {
-        (settings.frequency() > 0).then(|| self.next_frame.min(self.next_field).saturating_sub(now))
+        (settings.amount() > 0 && settings.frequency() > 0)
+            .then(|| self.next_frame.min(self.next_field).saturating_sub(now))
     }
 }
 
@@ -541,6 +548,15 @@ mod tests {
         }
     }
 
+    /// `CursorEffectSettings` at an explicit amount and frequency, so a test
+    /// states the exact scenario it exercises rather than mutating a default.
+    fn settings(amount: u8, frequency: u8) -> CursorEffectSettings {
+        let mut settings = CursorEffectSettings::default();
+        *settings.amount_mut() = amount;
+        *settings.frequency_mut() = frequency;
+        settings
+    }
+
     #[test]
     fn default_animation_constructs_on_every_target() {
         let _ = CursorEffectAnimation::default();
@@ -562,9 +578,7 @@ mod tests {
 
     #[test]
     fn zero_frequency_stops_animation_and_valid_settings_round_trip() {
-        let mut settings = CursorEffectSettings::default();
-        *settings.frequency_mut() = 0;
-        *settings.amount_mut() = 73;
+        let settings = settings(73, 0);
         assert_eq!(settings.interval(127), None);
         assert_eq!(
             CursorEffectSettings::decode(&settings.encode()),
@@ -572,11 +586,21 @@ mod tests {
         );
     }
 
+    ///
+    /// Reduced motion's effective settings read amount and frequency zero,
+    /// which is a clear, stationary frame with no scheduled cursor-effect
+    /// repaint.
+    ///
     #[test]
     fn reduced_motion_uses_a_clear_static_cursor() {
         let settings = CursorEffectSettings::default().respecting_reduced_motion(true);
         assert_eq!(settings.amount(), 0);
         assert_eq!(settings.frequency(), 0);
+        assert_eq!(
+            CursorEffectAnimation::default().repaint_after(Duration::ZERO, settings),
+            None,
+            "reduced motion's effective settings still scheduled a cursor-effect repaint"
+        );
     }
 
     #[test]
@@ -620,12 +644,67 @@ mod tests {
 
     #[test]
     fn zero_frequency_freezes_the_sample_and_requests_no_repaint() {
-        let mut settings = CursorEffectSettings::default();
-        *settings.frequency_mut() = 0;
+        let settings = settings(73, 0);
         let mut animation = CursorEffectAnimation::default();
         let first = animation.advance(Duration::ZERO, settings);
         assert_eq!(animation.advance(Duration::from_secs(100), settings), first);
         assert_eq!(animation.repaint_after(Duration::ZERO, settings), None);
+    }
+
+    ///
+    /// Amount zero paints a stationary frame regardless of frequency
+    /// (`frame_shapes`'s `amount == 0.0` branch never reads it), so a
+    /// positive frequency alone must not keep `repaint_after` scheduling a
+    /// wake for a frame that never changes.
+    ///
+    #[test]
+    fn zero_amount_with_positive_frequency_requests_no_repaint() {
+        let settings = settings(0, 55);
+        let animation = CursorEffectAnimation::default();
+        assert_eq!(animation.repaint_after(Duration::ZERO, settings), None);
+    }
+
+    ///
+    /// `.scratch/theming/issues/09`: "Frequency zero freezes the current
+    /// effect, which may retain decorative fragmentation when amount is
+    /// nonzero." The frozen `CursorEffectSample` a zero-frequency
+    /// `CursorEffectAnimation` keeps handing out still paints through the
+    /// fragmented branch whenever amount is nonzero: frequency governs only
+    /// how often `advance` changes the sample it hands `cursor_effect_shapes`,
+    /// never how that sample paints once handed over.
+    ///
+    #[test]
+    fn frequency_zero_retains_fragmentation_when_amount_is_nonzero() {
+        let settings = settings(73, 0);
+        let mut animation = CursorEffectAnimation::default();
+        let frozen = animation.advance(Duration::ZERO, settings);
+        assert_eq!(
+            animation.advance(Duration::from_secs(50), settings),
+            frozen,
+            "frequency zero must freeze the sample, or this test proves nothing"
+        );
+
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let effects = cursor_effect_shapes(
+            cursor,
+            cursor,
+            cursor.expand(200.0),
+            CELL_SIZE,
+            frozen,
+            settings,
+            AREA_COLOUR,
+            FRAME,
+        );
+        assert!(
+            built(&effects).len() > 1,
+            "frequency zero collapsed the frame to the stationary single \
+             stroke even though amount was nonzero"
+        );
+        assert!(
+            !effects.area.is_empty(),
+            "frequency zero suppressed the living-area fill even though \
+             amount was nonzero"
+        );
     }
 
     #[test]
@@ -986,6 +1065,12 @@ mod tests {
             assert_eq!(
                 stroked.stroke.width, FRAME_WIDTH,
                 "the stationary outline scaled with cell_size {cell_size}"
+            );
+            // `.scratch/theming/issues/09`: "without decorative noise" —
+            // amount zero also skips the living-area fill outright.
+            assert!(
+                effects.area.is_empty(),
+                "amount zero painted decorative area noise at cell_size {cell_size}"
             );
         }
     }
