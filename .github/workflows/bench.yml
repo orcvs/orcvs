@@ -134,32 +134,6 @@ jobs:
           comment-on-alert: true
           fail-threshold: '300%'
           fail-on-alert: true
-      # A named-benchmark floor, beside the ratio gate above rather than inside it.
-      # The action only ever compares a run against the previous point stored for
-      # `main`, so a deliberately accepted regression re-baselines the series in
-      # silence: the next run is judged against the worse number, and nothing says
-      # so again. `benches/floors.toml` holds the figures this repository has
-      # agreed a named benchmark must not exceed; this step reads the same
-      # `output.txt` the action above read rather than measuring anything twice.
-      # See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
-      #
-      # After the publish step rather than before it, so a floor breach cannot
-      # prevent the timing series from reaching `gh-pages` — the history stays
-      # continuous even on a run this step fails.
-      #
-      # `install: false` above keeps this job off mise's slower cargo tools, and
-      # `node` is the one tool this step needs that install skipped, so it is
-      # installed by name here instead of moving that job-wide setting.
-      - name: Install node for the bench floor check
-        # The ratio gate above fails this job on a large regression, which would skip
-        # this step by default on the very run whose floor breach matters most.
-        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
-        run: mise install node
-      - name: Check bench floors
-        # The ratio gate above fails this job on a large regression, which would skip
-        # this step by default on the very run whose floor breach matters most.
-        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
-        run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
       # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers
@@ -251,6 +225,33 @@ jobs:
           fail-threshold: '125%'
           fail-on-alert: false
           summary-always: true
+      # A named-benchmark floor, beside the ratio gate above rather than inside it.
+      # The action only ever compares a run against the previous point stored for
+      # `main`, so a deliberately accepted regression re-baselines the series in
+      # silence: the next run is judged against the worse number, and nothing says
+      # so again. `benches/floors.toml` holds the figures this repository has
+      # agreed a named benchmark must not exceed; this step reads the same
+      # `output.txt` the timing action above read rather than measuring anything
+      # twice. See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+      #
+      # The last step of the job, so a floor breach cannot prevent either series
+      # from reaching `gh-pages`: the allocation steps carry no `if:`, and would be
+      # skipped after a failed step. Both histories stay continuous even on a run
+      # this step fails. `scripts/check-tooling-contract.sh` holds it last.
+      #
+      # `install: false` above keeps this job off mise's slower cargo tools, and
+      # `node` is the one tool this step needs that install skipped, so it is
+      # installed by name here instead of moving that job-wide setting.
+      - name: Install node for the bench floor check
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: mise install node
+      - name: Check bench floors
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: node scripts/check-bench-floors.ts output.txt
 
   # Measures pull requests and manual branch runs against the last point stored by main.
   # It reads the series and never writes it: no token, no push, no stored result.
@@ -326,28 +327,6 @@ jobs:
           fail-threshold: '300%'
           fail-on-alert: true
           summary-always: true
-      # A named-benchmark floor, beside the ratio gate above rather than inside it.
-      # The action only ever compares a run against the previous point stored for
-      # `main`, so a deliberately accepted regression re-baselines the series in
-      # silence: the next run is judged against the worse number, and nothing says
-      # so again. `benches/floors.toml` holds the figures this repository has
-      # agreed a named benchmark must not exceed; this step reads the same
-      # `output.txt` the action above read rather than measuring anything twice.
-      # See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
-      #
-      # `install: false` above keeps this job off mise's slower cargo tools, and
-      # `node` is the one tool this step needs that install skipped, so it is
-      # installed by name here instead of moving that job-wide setting.
-      - name: Install node for the bench floor check
-        # The ratio gate above fails this job on a large regression, which would skip
-        # this step by default on the very run whose floor breach matters most.
-        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
-        run: mise install node
-      - name: Check bench floors
-        # The ratio gate above fails this job on a large regression, which would skip
-        # this step by default on the very run whose floor breach matters most.
-        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
-        run: node scripts/check-bench-floors.ts output.txt
       # The allocation counts, taken from the very test functions that assert on them.
       # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
       # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers
@@ -436,3 +415,30 @@ jobs:
           fail-threshold: '125%'
           fail-on-alert: false
           summary-always: true
+      # A named-benchmark floor, beside the ratio gate above rather than inside it.
+      # The action only ever compares a run against the previous point stored for
+      # `main`, so a deliberately accepted regression re-baselines the series in
+      # silence: the next run is judged against the worse number, and nothing says
+      # so again. `benches/floors.toml` holds the figures this repository has
+      # agreed a named benchmark must not exceed; this step reads the same
+      # `output.txt` the timing comparison above read rather than measuring anything
+      # twice. See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
+      #
+      # The last step of the job, so a floor breach cannot skip the allocation
+      # comparison, whose steps carry no `if:`. A pull request that breaches a floor
+      # still reports its allocation changes. `scripts/check-tooling-contract.sh`
+      # holds it last.
+      #
+      # `install: false` above keeps this job off mise's slower cargo tools, and
+      # `node` is the one tool this step needs that install skipped, so it is
+      # installed by name here instead of moving that job-wide setting.
+      - name: Install node for the bench floor check
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: mise install node
+      - name: Check bench floors
+        # The ratio gate above fails this job on a large regression, which would skip
+        # this step by default on the very run whose floor breach matters most.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
+        run: node scripts/check-bench-floors.ts output.txt

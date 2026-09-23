@@ -266,12 +266,14 @@ regression re-baselines the series in silence, and the next pull request is judg
 worse number with nothing left to say so. `benches/floors.toml` closes that gap beside the ratio
 gate rather than inside it: it names each guarded benchmark, the figure it must not exceed, and the
 runner the figure was measured on, and `scripts/check-bench-floors.ts` — run once per job in
-`.github/workflows/bench.yml`, right after the ratio-gate action — checks the same `output.txt`
-against it without benchmarking anything a second time. A benchmark absent from the file is
-unguarded and the check passes it without comment; raising a guarded figure is a plain, reviewed
-edit to that file rather than something the check can do on its own. `execute` carries the
-workspace's first floor, seeded from the CI-measured regression and fix recorded in
-`.scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md` and
+`.github/workflows/bench.yml`, as the last step of each job — checks the same `output.txt`
+against it without benchmarking anything a second time. It runs last because the allocation steps
+carry no `if:`: placed before them, a floor breach would skip them, dropping that commit's point
+from the memory series on `main` and the allocation comparison on a pull request. A benchmark
+absent from the file is unguarded and the check passes it without comment; raising a guarded
+figure is a plain, reviewed edit to that file rather than something the check can do on its own.
+`execute` carries the workspace's first floor, seeded from the CI-measured regression and fix
+recorded in `.scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md` and
 `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`. Both bench jobs run
 `mise-action` with `install: false` to stay off mise's slower cargo tools, so each installs `node`
 by name — `mise install node` — immediately before the one step that needs it, rather than flipping
