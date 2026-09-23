@@ -278,8 +278,11 @@ identities, persistence-off builds and fallback/save/repair. Property tests for
 parser/colour boundaries follow repository policy; local proptest cases are 32.
 Tests must use shipped paths without adding test-only inputs to production APIs.
 
-There is no claim of full accessibility or pairwise Token distinguishability
-validation.
+There is no claim of full accessibility. Pairwise distinguishability is
+validated only for the Source glyph channels under a simulated red–green
+dichromacy (`contrast::distinguish`, `.scratch/theming/issues/04`); tritanopia
+is measured but not gated, and normal-vision distinguishability is not
+measured.
 
 ### Known dark failures, resolved by the 2026-09-22 tint retune
 

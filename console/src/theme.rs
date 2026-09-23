@@ -28,13 +28,8 @@ use egui::Color32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Appearance {
     Dark,
-    /// No light built-in exists yet (`.scratch/theming/issues/04`), so
-    /// nothing shipped constructs this variant outside a document's own
-    /// declared `appearance` once `07`'s parser exists.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no light built-in exists yet: theming/04")
-    )]
+    /// [`orcvs_light`] declares this, and a custom document inherits it from
+    /// that built-in once `.scratch/theming/issues/07`'s parser exists.
     Light,
 }
 
@@ -659,6 +654,129 @@ pub fn okabe_ito() -> Theme {
     }
 }
 
+/// The reserved identity of the light built-in, named by `schema.md`
+/// ("`orcvs-light` the reserved light identity") and recorded in
+/// `console/src/theme.md`'s Shipped Themes table.
+pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
+
+///
+/// The Orcvs Light built-in Theme: the complete light definition
+/// `.scratch/theming/issues/04` prepares for review, at the reserved
+/// identity `ORCVS_LIGHT_IDENTITY`. Every field is spelled out explicitly
+/// for the same reason [`okabe_ito`]'s is — including the properties whose
+/// value it shares with the dark built-in, which `04` requires be recorded
+/// rather than left to a toolkit default.
+///
+/// The chrome colours start from the `feat/egui-theming` branch's hand-tuned
+/// `LIGHT_PALETTE`, mapped onto the named keys as
+/// `.scratch/theming/issues/04`'s 2026-09-21 comment directs (page →
+/// `window.background`/`panel.background`, source → `grid.background`, grid
+/// line → `grid.border`, sector line → `sector.seam`, selection fill →
+/// `selection.background`, and so on).
+///
+/// The **Source glyph hues do not**. A review found that palette's Function
+/// green and Bang red at near-identical relative luminance, and a
+/// colour-vision measurement of the whole definition
+/// (`contrast::distinguish`) then found worse: its Diagnostic and
+/// Output Portal measured 0.70 apart under protanopia and its Note and
+/// Number 2.16 under deuteranopia, against a floor of 5.0 — pairs a
+/// red–green colour-blind reader reads as one colour, and pairs
+/// [`okabe_ito`] keeps apart by construction. The user's 2026-09-23 decision
+/// re-picks every glyph hue from the same Okabe–Ito palette and the same
+/// role-to-hue assignment the dark built-in already uses (Number sky blue,
+/// Note yellow, Function bluish green, Bang reddish purple, Sequence blue,
+/// Diagnostic vermillion, Output Portal orange), keeping each hue exactly —
+/// the OKLCh hue angle is held to within 0.7° — and moving lightness alone,
+/// as far as a near-white ground requires and, for Diagnostic and Output
+/// Portal, as far as `contrast::CONFUSION_FLOOR` requires on top of that.
+/// Sequence is `#0072B2` unchanged: no reachable state draws a glyph in it,
+/// so only its tint reaches the screen. `console/src/theme.md` records each
+/// value, its hue and lightness, the measured ratios and the colour-vision
+/// separations; the user accepts or rejects the result there, and until then
+/// nothing selects this Theme — `console/src/style.rs::install` still
+/// registers the one resolved Okabe–Ito style in both egui appearance slots.
+///
+/// `orcvs_light_defines_every_key_at_the_recorded_values` in this module's
+/// tests pins every field against that record, and
+/// `style::tests::orcvs_light_chrome_matches_the_decided_record` cross-checks
+/// the chrome keys through [`crate::style::style`].
+///
+pub fn orcvs_light() -> Theme {
+    Theme {
+        identity: ORCVS_LIGHT_IDENTITY.to_owned(),
+        name: "Orcvs Light".to_owned(),
+        appearance: Appearance::Light,
+
+        window_background: straight_rgba(0xEF_F4_F2_FF),
+        panel_background: straight_rgba(0xEF_F4_F2_FF),
+        grid_background: straight_rgba(0xFA_FC_FB_FF),
+        cell_background: straight_rgba(0x00_00_00_00),
+
+        source_ordinary: straight_rgba(0x30_3F_3B_FF),
+        source_comment: straight_rgba(0x4E_5A_56_FF),
+        source_number: straight_rgba(0x00_6D_9B_FF),
+        source_note: straight_rgba(0x70_69_00_FF),
+        source_function: straight_rgba(0x00_75_55_FF),
+        source_bang: straight_rgba(0x90_42_6F_FF),
+        source_sequence: straight_rgba(0x00_72_B2_FF),
+        source_ordinary_background: straight_rgba(0x00_00_00_00),
+        source_comment_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0x00_6D_9B_1A),
+        source_note_background: straight_rgba(0x70_69_00_1A),
+        source_function_background: straight_rgba(0x00_75_55_1A),
+        source_bang_background: straight_rgba(0x00_00_00_00),
+        source_atom_background: straight_rgba(0x30_3F_3B_1A),
+        source_sequence_background: straight_rgba(0x00_72_B2_1A),
+
+        diagnostic_foreground: straight_rgba(0x65_28_00_FF),
+        diagnostic_background: straight_rgba(0x00_00_00_00),
+        diagnostic_border: straight_rgba(0x00_00_00_00),
+        output_portal_foreground: straight_rgba(0x6F_4A_00_FF),
+        output_portal_background: straight_rgba(0x6F_4A_00_1A),
+        output_portal_border: straight_rgba(0x00_00_00_00),
+
+        grid_border: straight_rgba(0x34_5B_50_40),
+        sector_seam: straight_rgba(0x26_68_54_70),
+        cursor_border: straight_rgba(0x30_3F_3B_FF),
+        region_border: straight_rgba(0x30_3F_3B_FF),
+        cursor_area: straight_rgba(0x14_82_60_FF),
+        region_background: straight_rgba(0x30_3F_3B_2B),
+
+        panel_border: straight_rgba(0xC0_CE_C9_FF),
+        selection_background: straight_rgba(0xCC_EB_E2_FF),
+        selection_border: straight_rgba(0x07_62_47_FF),
+        selection_border_rest: straight_rgba(0x18_7E_60_FF),
+        widget_inactive_border: straight_rgba(0xC0_CE_C9_FF),
+
+        text: straight_rgba(0x30_3F_3B_FF),
+        text_active: straight_rgba(0x07_62_47_FF),
+        text_muted: straight_rgba(0x30_3F_3B_BF),
+        input_background: straight_rgba(0xFA_FC_FB_FF),
+        link: straight_rgba(0x0B_62_B8_FF),
+        code_background: straight_rgba(0xE6_E6_E6_FF),
+        input_cursor: straight_rgba(0x00_53_7D_FF),
+        error: straight_rgba(0x90_42_6F_FF),
+        warning: straight_rgba(0x90_42_6F_FF),
+
+        cursor_background: None,
+        region_cursor_background: None,
+
+        grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
+        cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+
+        panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
+        input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+    }
+}
+
 // === Custom document model ===
 
 ///
@@ -891,7 +1009,7 @@ mod tests {
 
     use super::{
         Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
-        ThemeDocument, ThemeError, okabe_ito, resolve, straight_rgba,
+        ThemeDocument, ThemeError, okabe_ito, orcvs_light, resolve, straight_rgba,
     };
 
     fn child(parent: &str) -> ThemeDocument {
@@ -995,6 +1113,273 @@ mod tests {
         assert_eq!(theme.widget_border_width.points(), 1.0);
         assert_eq!(theme.widget_inactive_border_width.points(), 0.0);
         assert_eq!(theme.input_cursor_width.points(), 2.0);
+    }
+
+    ///
+    /// `colour`'s OKLCh hue angle in degrees, by Björn Ottosson's published
+    /// OKLab matrices (2020) over `egui`'s own sRGB linearization. Only the
+    /// hue test below needs it: nothing shipped reasons in OKLCh.
+    ///
+    fn oklch_hue(colour: Color32) -> f32 {
+        let linear = |value: u8| egui::ecolor::linear_f32_from_gamma_u8(value);
+        let (red, green, blue) = (linear(colour.r()), linear(colour.g()), linear(colour.b()));
+        let long = (0.412_221_46 * red + 0.536_332_55 * green + 0.051_445_99 * blue).cbrt();
+        let medium = (0.211_903_5 * red + 0.680_699_5 * green + 0.107_396_96 * blue).cbrt();
+        let short = (0.088_302_46 * red + 0.281_718_85 * green + 0.629_978_7 * blue).cbrt();
+        let a = 1.977_998_5 * long - 2.428_592_2 * medium + 0.450_593_7 * short;
+        let b = 0.025_904_037 * long + 0.782_771_77 * medium - 0.808_675_77 * short;
+        b.atan2(a).to_degrees().rem_euclid(360.0)
+    }
+
+    ///
+    /// `.scratch/theming/issues/04`'s 2026-09-23 decision, checked rather
+    /// than recorded: every Source glyph hue Orcvs Light draws is
+    /// Okabe–Ito's, in the same role, with the OKLCh hue angle held to
+    /// within 0.7° — rounding into 8-bit sRGB — so only lightness moved.
+    /// `console/src/theme.md`'s "What moved, and what held" table states
+    /// each angle.
+    ///
+    #[test]
+    fn orcvs_light_keeps_every_okabe_ito_glyph_hue() {
+        let (dark, light) = (okabe_ito(), orcvs_light());
+        for (role, from, to) in [
+            ("Number", dark.source_number, light.source_number),
+            ("Note", dark.source_note, light.source_note),
+            ("Function", dark.source_function, light.source_function),
+            ("Bang", dark.source_bang, light.source_bang),
+            ("Sequence", dark.source_sequence, light.source_sequence),
+            (
+                "Diagnostic",
+                dark.diagnostic_foreground,
+                light.diagnostic_foreground,
+            ),
+            (
+                "Output Portal",
+                dark.output_portal_foreground,
+                light.output_portal_foreground,
+            ),
+        ] {
+            let (from_hue, to_hue) = (oklch_hue(from), oklch_hue(to));
+            let drift = (from_hue - to_hue)
+                .abs()
+                .min(360.0 - (from_hue - to_hue).abs());
+            assert!(
+                drift <= 0.7,
+                "{role}: Okabe–Ito {from_hue:.2}°, Orcvs Light {to_hue:.2}°, {drift:.2}° apart"
+            );
+        }
+    }
+
+    ///
+    /// The light counterpart of the test above: `console/src/theme.md`'s
+    /// Orcvs Light table, restated as `Theme` field assertions. Every one of
+    /// `schema.md`'s named properties appears here at an exact value —
+    /// including the ones Orcvs Light shares with Okabe–Ito, which
+    /// `.scratch/theming/issues/04` requires be recorded explicitly rather
+    /// than left to a toolkit default, and including the border-width keys
+    /// ADR 0053 added.
+    ///
+    #[test]
+    fn orcvs_light_defines_every_key_at_the_recorded_values() {
+        let theme = orcvs_light();
+
+        assert_eq!(theme.identity, "orcvs-light");
+        assert_eq!(theme.name, "Orcvs Light");
+        assert_eq!(theme.appearance, Appearance::Light);
+
+        assert_eq!(theme.window_background, straight_rgba(0xEF_F4_F2_FF));
+        assert_eq!(theme.panel_background, straight_rgba(0xEF_F4_F2_FF));
+        assert_eq!(theme.grid_background, straight_rgba(0xFA_FC_FB_FF));
+        // Shared with Okabe–Ito, written out rather than inherited.
+        assert_eq!(theme.cell_background, straight_rgba(0x00_00_00_00));
+
+        assert_eq!(theme.source_ordinary, straight_rgba(0x30_3F_3B_FF));
+        assert_eq!(theme.source_comment, straight_rgba(0x4E_5A_56_FF));
+        assert_eq!(theme.source_number, straight_rgba(0x00_6D_9B_FF));
+        assert_eq!(theme.source_note, straight_rgba(0x70_69_00_FF));
+        assert_eq!(theme.source_function, straight_rgba(0x00_75_55_FF));
+        assert_eq!(theme.source_bang, straight_rgba(0x90_42_6F_FF));
+        assert_eq!(theme.source_sequence, straight_rgba(0x00_72_B2_FF));
+        assert_eq!(
+            theme.source_ordinary_background,
+            straight_rgba(0x00_00_00_00)
+        );
+        assert_eq!(
+            theme.source_comment_background,
+            straight_rgba(0x00_00_00_00)
+        );
+        assert_eq!(theme.source_number_background, straight_rgba(0x00_6D_9B_1A));
+        assert_eq!(theme.source_note_background, straight_rgba(0x70_69_00_1A));
+        assert_eq!(
+            theme.source_function_background,
+            straight_rgba(0x00_75_55_1A)
+        );
+        assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.source_atom_background, straight_rgba(0x30_3F_3B_1A));
+        assert_eq!(
+            theme.source_sequence_background,
+            straight_rgba(0x00_72_B2_1A)
+        );
+
+        assert_eq!(theme.diagnostic_foreground, straight_rgba(0x65_28_00_FF));
+        assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.diagnostic_border, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.output_portal_foreground, straight_rgba(0x6F_4A_00_FF));
+        assert_eq!(theme.output_portal_background, straight_rgba(0x6F_4A_00_1A));
+        assert_eq!(theme.output_portal_border, straight_rgba(0x00_00_00_00));
+
+        assert_eq!(theme.grid_border, straight_rgba(0x34_5B_50_40));
+        assert_eq!(theme.sector_seam, straight_rgba(0x26_68_54_70));
+        assert_eq!(theme.cursor_border, straight_rgba(0x30_3F_3B_FF));
+        assert_eq!(theme.region_border, straight_rgba(0x30_3F_3B_FF));
+        assert_eq!(theme.cursor_area, straight_rgba(0x14_82_60_FF));
+        assert_eq!(theme.region_background, straight_rgba(0x30_3F_3B_2B));
+
+        assert_eq!(theme.panel_border, straight_rgba(0xC0_CE_C9_FF));
+        assert_eq!(theme.selection_background, straight_rgba(0xCC_EB_E2_FF));
+        assert_eq!(theme.selection_border, straight_rgba(0x07_62_47_FF));
+        assert_eq!(theme.selection_border_rest, straight_rgba(0x18_7E_60_FF));
+        assert_eq!(theme.widget_inactive_border, straight_rgba(0xC0_CE_C9_FF));
+
+        assert_eq!(theme.text, straight_rgba(0x30_3F_3B_FF));
+        assert_eq!(theme.text_active, straight_rgba(0x07_62_47_FF));
+        assert_eq!(theme.text_muted, straight_rgba(0x30_3F_3B_BF));
+        assert_eq!(theme.input_background, straight_rgba(0xFA_FC_FB_FF));
+        assert_eq!(theme.link, straight_rgba(0x0B_62_B8_FF));
+        assert_eq!(theme.code_background, straight_rgba(0xE6_E6_E6_FF));
+        assert_eq!(theme.input_cursor, straight_rgba(0x00_53_7D_FF));
+        assert_eq!(theme.error, straight_rgba(0x90_42_6F_FF));
+        assert_eq!(theme.warning, straight_rgba(0x90_42_6F_FF));
+
+        // Shared with Okabe–Ito: both optional Cursor fills are cleared.
+        assert_eq!(theme.cursor_background, None);
+        assert_eq!(theme.region_cursor_background, None);
+
+        // Every width is shared with Okabe–Ito and recorded anyway — ADR
+        // 0053's border-width keys, at the same display-point defaults.
+        assert_eq!(theme.grid_border_width.points(), 0.5);
+        assert_eq!(theme.sector_seam_width.points(), 0.75);
+        assert_eq!(theme.cell_selection_border_width.points(), 0.5);
+        assert_eq!(theme.cursor_border_width.points(), 1.0);
+        assert_eq!(theme.region_border_width.points(), 1.0);
+        assert_eq!(theme.diagnostic_border_width.points(), 0.5);
+        assert_eq!(theme.output_portal_border_width.points(), 0.5);
+        assert_eq!(theme.panel_border_width.points(), 1.0);
+        assert_eq!(theme.selection_border_width.points(), 1.0);
+        assert_eq!(theme.widget_border_width.points(), 1.0);
+        assert_eq!(theme.widget_inactive_border_width.points(), 0.0);
+        assert_eq!(theme.input_cursor_width.points(), 2.0);
+    }
+
+    ///
+    /// The two built-ins are genuinely different Themes, not one palette
+    /// under two identities: they disagree on the page, the Source ground
+    /// and every glyph colour a near-white ground forced them to disagree
+    /// on, and they declare opposite appearances.
+    ///
+    /// `source.sequence` is deliberately absent from the list below, and is
+    /// asserted *equal* instead. The user's 2026-09-23 decision re-picks
+    /// Orcvs Light's glyph hues from the same Okabe–Ito palette, darkening
+    /// each only as far as the near-white ground requires; no reachable state
+    /// draws a glyph in Okabe–Ito's blue `#0072B2`, so no floor asked for any
+    /// darkening and the two built-ins share it exactly. That
+    /// shared value is the rule working, not the two Themes collapsing into
+    /// one — every other pair below still differs.
+    ///
+    #[test]
+    fn the_two_built_ins_are_distinct_themes_of_opposite_appearance() {
+        let dark = okabe_ito();
+        let light = orcvs_light();
+
+        assert_ne!(dark.identity, light.identity);
+        assert_ne!(dark.appearance, light.appearance);
+        for (name, dark_value, light_value) in [
+            (
+                "window.background",
+                dark.window_background,
+                light.window_background,
+            ),
+            (
+                "grid.background",
+                dark.grid_background,
+                light.grid_background,
+            ),
+            (
+                "source.ordinary",
+                dark.source_ordinary,
+                light.source_ordinary,
+            ),
+            ("source.comment", dark.source_comment, light.source_comment),
+            ("source.number", dark.source_number, light.source_number),
+            ("source.note", dark.source_note, light.source_note),
+            (
+                "source.function",
+                dark.source_function,
+                light.source_function,
+            ),
+            ("source.bang", dark.source_bang, light.source_bang),
+            ("text", dark.text, light.text),
+            (
+                "selection.background",
+                dark.selection_background,
+                light.selection_background,
+            ),
+        ] {
+            assert_ne!(
+                dark_value, light_value,
+                "{name} must differ between the built-ins"
+            );
+        }
+
+        assert_eq!(
+            dark.source_sequence, light.source_sequence,
+            "source.sequence is the one glyph colour the near-white ground did not force to \
+             move; if this ever differs, theme.md's Orcvs Light table has drifted from its \
+             own 'unchanged' provenance"
+        );
+    }
+
+    ///
+    /// A custom document inheriting the light built-in resolves to light —
+    /// the appearance rule ADR 0053 states ("A light custom Theme must start
+    /// from a light built-in"), now exercised against a real light parent
+    /// rather than only the synthetic mismatch below.
+    ///
+    #[test]
+    fn a_document_inheriting_the_light_built_in_resolves_light() {
+        let built_ins = [okabe_ito(), orcvs_light()];
+        let mut document = child("orcvs-light");
+        document.appearance = Some(Appearance::Light);
+
+        let resolved =
+            resolve(&built_ins, "mine", &document).expect("light parent, light document");
+
+        assert_eq!(resolved.appearance, Appearance::Light);
+        assert_eq!(resolved.panel_background, orcvs_light().panel_background);
+
+        let mut mismatched = child("orcvs-light");
+        mismatched.appearance = Some(Appearance::Dark);
+        assert_eq!(
+            resolve(&built_ins, "mine", &mismatched),
+            Err(ThemeError::AppearanceMismatch {
+                parent: Appearance::Light,
+                declared: Appearance::Dark,
+            })
+        );
+    }
+
+    ///
+    /// Both built-in identities are reserved, not only Okabe–Ito's.
+    ///
+    #[test]
+    fn the_light_built_in_identity_is_reserved() {
+        let built_ins = [okabe_ito(), orcvs_light()];
+        assert_eq!(
+            resolve(&built_ins, "orcvs-light", &child("okabe-ito")),
+            Err(ThemeError::ReservedIdentity {
+                identity: "orcvs-light".to_owned(),
+            })
+        );
     }
 
     #[test]
