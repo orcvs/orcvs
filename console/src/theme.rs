@@ -1116,6 +1116,61 @@ mod tests {
     }
 
     ///
+    /// `colour`'s OKLCh hue angle in degrees, by Björn Ottosson's published
+    /// OKLab matrices (2020) over `egui`'s own sRGB linearization. Only the
+    /// hue test below needs it: nothing shipped reasons in OKLCh.
+    ///
+    fn oklch_hue(colour: Color32) -> f32 {
+        let linear = |value: u8| egui::ecolor::linear_f32_from_gamma_u8(value);
+        let (red, green, blue) = (linear(colour.r()), linear(colour.g()), linear(colour.b()));
+        let long = (0.412_221_46 * red + 0.536_332_55 * green + 0.051_445_99 * blue).cbrt();
+        let medium = (0.211_903_5 * red + 0.680_699_5 * green + 0.107_396_96 * blue).cbrt();
+        let short = (0.088_302_46 * red + 0.281_718_85 * green + 0.629_978_7 * blue).cbrt();
+        let a = 1.977_998_5 * long - 2.428_592_2 * medium + 0.450_593_7 * short;
+        let b = 0.025_904_037 * long + 0.782_771_77 * medium - 0.808_675_77 * short;
+        b.atan2(a).to_degrees().rem_euclid(360.0)
+    }
+
+    ///
+    /// `.scratch/theming/issues/04`'s 2026-09-23 decision, checked rather
+    /// than recorded: every Source glyph hue Orcvs Light draws is
+    /// Okabe–Ito's, in the same role, with the OKLCh hue angle held to
+    /// within 0.7° — rounding into 8-bit sRGB — so only lightness moved.
+    /// `console/src/theme.md`'s "What moved, and what held" table states
+    /// each angle.
+    ///
+    #[test]
+    fn orcvs_light_keeps_every_okabe_ito_glyph_hue() {
+        let (dark, light) = (okabe_ito(), orcvs_light());
+        for (role, from, to) in [
+            ("Number", dark.source_number, light.source_number),
+            ("Note", dark.source_note, light.source_note),
+            ("Function", dark.source_function, light.source_function),
+            ("Bang", dark.source_bang, light.source_bang),
+            ("Sequence", dark.source_sequence, light.source_sequence),
+            (
+                "Diagnostic",
+                dark.diagnostic_foreground,
+                light.diagnostic_foreground,
+            ),
+            (
+                "Output Portal",
+                dark.output_portal_foreground,
+                light.output_portal_foreground,
+            ),
+        ] {
+            let (from_hue, to_hue) = (oklch_hue(from), oklch_hue(to));
+            let drift = (from_hue - to_hue)
+                .abs()
+                .min(360.0 - (from_hue - to_hue).abs());
+            assert!(
+                drift <= 0.7,
+                "{role}: Okabe–Ito {from_hue:.2}°, Orcvs Light {to_hue:.2}°, {drift:.2}° apart"
+            );
+        }
+    }
+
+    ///
     /// The light counterpart of the test above: `console/src/theme.md`'s
     /// Orcvs Light table, restated as `Theme` field assertions. Every one of
     /// `schema.md`'s named properties appears here at an exact value —

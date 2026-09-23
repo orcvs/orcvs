@@ -9,7 +9,7 @@ temporary, uncommitted local patch (below), not by a control a viewer can reach.
 | File | Viewport, logical points | What it shows |
 |---|---|---|
 | `light-wide.png` | 1200 × 700 | The wide console: page, Source ground, Cell grid lines, 8 × 8 Sector Seams, every glyph role, a multi-Cell Region under the lasso |
-| `light-tall.png` | 700 × 1200 | The same Source in the tall layout |
+| `light-tall.png` | 700 × 1044 | The same Source in the tall layout. It was requested at 700 × 1200 and came out 156 points short, so the bottom of the tall layout is out of shot |
 | `light-chrome.png` | 1200 × 700 | The Settings menu open: `selection.background` behind the open menu title with `text.active` on it, `panel.border`, the menu panel fill, and the two drag values' widget styling |
 | `light-wide-protanopia.png` | 1200 × 700 | `light-wide.png` post-processed through the same Viénot, Brettel & Mollon (1999) transform `contrast::simulate` applies |
 | `light-wide-deuteranopia.png` | 1200 × 700 | The same, for deuteranopia |
@@ -23,8 +23,8 @@ temporary, uncommitted local patch (below), not by a control a viewer can reach.
 - Platform: macOS (Darwin 25.4.0), native `eframe`/`glow` build,
   `console --features inspection`.
 - Date: 2026-09-23.
-- Each PNG is captured at `pixels_per_point: 2` — the same 1200 × 700 or
-  700 × 1200 logical viewport, at twice the pixel density, so an 11.5-point
+- Each PNG is captured at `pixels_per_point: 2` — the logical viewport in
+  the table above, at twice the pixel density, so an 11.5-point
   glyph's colour survives the capture. The earlier 1× captures did not: at one
   pixel per point every glyph is antialiased edge, and sampling one for its
   recorded colour finds nothing.
@@ -67,7 +67,7 @@ row between them shows a role's own paint.
 
 | Line | What it is there for |
 |---|---|
-| `||…` | Comment |
+| `\|\|…` | Comment |
 | `.+0102` | Function, and two Valid Number operands on the Number tint |
 | `:#C4D4` | Two Valid Note operands on the Note tint |
 | `:<07` | Reverse's one Sequence operand, written: **Sequence, Invalid** — Diagnostic on the Sequence tint, 9.55:1 |
@@ -76,7 +76,7 @@ row between them shows a role's own paint.
 | `.+0Z` | An unbindable Number operand: Diagnostic on the Number tint, with the second slot Pending (tinted, no glyph) |
 | `**` under `.+0Z` | Bang inside an Output Portal Reservation: the one fact that keeps its own glyph colour and takes the Portal's background |
 | `06` under `.+0304` | An Unclaimed pair inside a scalar Function's Reservation: the Output Portal foreground on the Portal tint alone |
-| `.+0203` under `:-0104` | A Sequence-capable root's fitted Portal highlight over **another expression's Number operands**: the **doubled Portal-over-role tint**, `#D5DEDB`, and the lowest Portal state in the contrast table at 5.80:1 |
+| `.+0203` under `:-0104` | A Sequence-capable root's fitted Portal highlight over **another expression's Number operands**: the **doubled Portal-over-role tint**, `#D5DED9` under the Output Portal foreground at 5.75:1 |
 
 The Region spans four empty Cells on two rows, so the lasso and
 `region.background` are visible against the bare Source ground. Bang's own

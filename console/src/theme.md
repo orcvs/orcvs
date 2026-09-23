@@ -287,15 +287,15 @@ where "the same hue, darker" is a single coordinate:
 | Note | `#F0E442` | 105.04° | 0.902 | `#706900` | 105.03° | 0.511 | the contrast floor, on its own 10% tint |
 | Function | `#009E73` | 165.46° | 0.620 | `#007555` | 165.97° | 0.499 | the contrast floor, on its own 10% tint |
 | Bang | `#CC79A7` | 346.32° | 0.679 | `#90426F` | 346.62° | 0.494 | the contrast floor, on the Region wash |
-| Sequence | `#0072B2` | 244.05° | 0.532 | `#0072B2` | 244.05° | 0.532 | nothing: it already cleared the floor |
+| Sequence | `#0072B2` | 244.05° | 0.532 | `#0072B2` | 244.05° | 0.532 | nothing: no reachable state draws a glyph in it, so no floor measures it; it is kept at Okabe–Ito's value for its tint |
 | Diagnostic | `#D55E00` | 47.51° | 0.621 | `#652800` | 46.92° | 0.360 | the colour-vision floor, against Output Portal |
 | Output Portal | `#E69F00` | 76.77° | 0.753 | `#6F4A00` | 76.07° | 0.440 | the colour-vision floor, against Note and Diagnostic |
 
 `source.ordinary` `#303F3B` and `source.comment` `#4E5A56` are unchanged and are
 not Okabe–Ito hues: the dark built-in's Ordinary is the Cursor frame's off-white
 and its Comment is the palette's neutral gray, and neither transfers to a
-near-white page. They are the near-white page's ink and a muted form of it, as
-the chrome proposal set them.
+near-white page. They are the near-white page's ink, which the chrome proposal
+set, and a muted form of it decided here, since the proposal has no Comment.
 
 Five of the seven moved only as far as this ground forced them, and Sequence not
 at all. Diagnostic and Output Portal moved further, and the reason is
@@ -324,10 +324,11 @@ about the dark Theme and does not transfer:
 
 - **`restyle-egui-console/02`'s near-black Cell rule becomes a near-white one.**
   The light Theme is a pale page over a near-white Source; Cell backgrounds stay
-  near-white, and the only background changes are the meaningful states —
-  selection and the Cursor field — each of which is itself near-white. Nothing
-  decorative is added on top: no gradients, no rounded tiles, no shadows, no
-  animation. The Region fill, the role tints and the Output Portal tint are all
+  near-white, and the only background changes are the meaningful states, each
+  a low-opacity wash over near-white. The Cursor Effect's `cursor.area`
+  `#148260` is the one saturated field: it is the animated Cursor highlight,
+  not a Cell background. Nothing decorative is added on top: no gradients, no
+  rounded tiles, no shadows, no animation. The Region fill, the role tints and the Output Portal tint are all
   low-opacity washes for the same reason. `style::tests::the_four_prohibitions_
   hold_for_every_theme` holds the four prohibitions over both built-ins.
 - **`text.muted` is a recorded value, not egui's own attenuation.** Okabe–Ito's
@@ -380,7 +381,7 @@ Representative measurements, `plain` placement unless stated:
 | Atom, Invalid | `#652800` | `#E6E8E7` | 9.19:1 |
 | Sequence, Invalid | `#652800` | `#E1EEF3` | 9.55:1 |
 | Ordinary, Output Portal | `#6F4A00` | `#ECEAE1` | 6.56:1 |
-| Sequence, Invalid, Output Portal | `#6F4A00` | `#D5DEDB` | 5.80:1 |
+| Sequence, Invalid, Output Portal | `#6F4A00` | `#D5DFDB` | 5.80:1 |
 | `text` vs `panel.background` | `#303F3B` | `#EFF4F2` | 9.94:1 |
 | `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
 | `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
@@ -388,8 +389,9 @@ Representative measurements, `plain` placement unless stated:
 
 The scope is the validator's own: text contrast against the actually-composited
 background, never pairwise Token-colour distinguishability, border or focus
-visibility, or the Cursor Effect's animated `cursor.area` field. Colour vision
-is a separate measurement, below.
+visibility, or the Cursor Effect's animated `cursor.area` field. Pairwise
+distinguishability of the Source glyph channels under a simulated dichromacy
+is `contrast::distinguish`'s separate measurement, below.
 
 #### Orcvs Light's colour-vision evidence
 
@@ -458,9 +460,10 @@ Two things this measurement does not cover, stated rather than implied:
   Those washes are within ΔE00 0.54 of each other to *normal* vision (Number
   `#E1EDF1` against Sequence `#E1EEF3`); the dark built-in's are within 1.73.
   Neither built-in tells a blank Pending Number from a blank Pending Sequence by
-  colour, and no colour-vision simulation makes that worse than it already is. A
-  Theme cannot fix it — the 10% figure is a decided value on this page, and
-  raising it is a separate decision.
+  colour, and no colour-vision simulation makes that worse than it already is.
+  Both built-ins keep the 10% figure decided on this page; a custom Theme can
+  set `source.number.background` and `source.sequence.background`
+  independently, and raising the built-ins' figure is a separate decision.
 - **Anomalous trichromacy** (protanomaly, deuteranomaly, tritanomaly), a
   continuum whose severe end is the dichromacy simulated here.
 
