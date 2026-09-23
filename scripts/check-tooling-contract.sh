@@ -472,10 +472,88 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          name: 
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          name: lang$' "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          tool: customSmallerIsBetter$' "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          tool: cargo$' "$bench_job_count"
-# The memory step in each job runs after a `github-action-benchmark` step that has
-# already fetched `gh-pages` — and, in the publishing job, pushed to it. Fetching
-# again would discard the commit that step just made.
+# The memory step in each job skips the action's own fetch because a step of its
+# own, directly before it, has just fetched `gh-pages`, forced, once per job. It
+# does not lean on the timing step's fetch: that step fails the job on a
+# ratio-gate alert, and its outcome cannot say whether it failed after fetching
+# or before it. The force is load-bearing on a pull request, where the timing
+# comparison leaves an unpushed commit on the local branch that a plain fetch
+# refuses as non-fast-forward. The detaching checkout before it keeps the fetch
+# off a checked-out `gh-pages`, which git refuses to fetch into.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          skip-fetch-gh-pages: true$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          git fetch origin [+]gh-pages:gh-pages$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          git checkout --quiet --force --detach "[$]GITHUB_SHA"$' "$bench_job_count"
+# The ratio gate the next check keys on. Pinned literally, so a quoted `'true'`
+# or an expression — which the action reads the same — cannot hide the gate
+# from that check.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          fail-on-alert: true$' "$bench_job_count"
+# One pass over each job's steps, holding two rules.
+#
+# No step after a ratio gate — a step whose `fail-on-alert` is true — may run on
+# the job's status: a step without `!cancelled()` is skipped once the gate
+# fails, and `success()` or the gate's own outcome is false on exactly the runs
+# the gate fails. So each such step's `if:` has one accepted shape, `!cancelled()`
+# and one earlier step's `success` outcome, and that step is neither a gate nor
+# missing: an `outcome` of a step that has not run yet is empty, which would
+# skip the step on every run and fail nothing.
+#
+# The allocation steps chain in order, each on the one before it: the
+# measurement on the criterion run, the assembly on the measurement, the fetch
+# on the assembly, and the publish that skips fetching on the fetch. A failed
+# fetch then skips the publish rather than letting it run against a branch that
+# was never fetched, and a failed measurement never publishes a partial series.
+# Each role is found by what the step does rather than by its name or id.
+#
+# The job-key pattern is `workflow_job_count`'s, so both agree on what a job is.
+if ! grep -Ev '^[[:space:]]*#' "$root_dir/.github/workflows/bench.yml" | awk '
+  function fail(message) { print message > "/dev/stderr"; bad = 1 }
+  function close_step() {
+    if (!in_step) { return }
+    if (after_gate) {
+      if (ref == "") {
+        fail("expected every step after a bench ratio gate to survive that gate failing: " name)
+      } else if (!(ref in defined) || (ref in gate_ids)) {
+        fail("expected a guarded bench step to wait on an earlier step that is not a ratio gate: " name)
+      }
+    }
+    if (role != "" && (role in predecessor)) {
+      if (!(predecessor[role] in role_id) || ref != role_id[predecessor[role]]) {
+        fail("expected the bench " role " step to wait on the " predecessor[role] " step: " name)
+      }
+    }
+    if (role != "") { role_id[role] = id }
+    if (id != "") { defined[id] = 1 }
+    if (gate) { after_gate = 1; if (id != "") { gate_ids[id] = 1 } }
+    in_step = 0; id = ""; ref = ""; role = ""; gate = 0; name = ""
+  }
+  BEGIN {
+    predecessor["measure"] = "bench"
+    predecessor["assemble"] = "measure"
+    predecessor["fetch"] = "assemble"
+    predecessor["publish"] = "fetch"
+  }
+  /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+    close_step()
+    after_gate = 0
+    split("", defined); split("", gate_ids); split("", role_id)
+    next
+  }
+  /^      - / { close_step(); in_step = 1; name = $0 }
+  !in_step { next }
+  /^        id: [A-Za-z_][A-Za-z0-9_-]*$/ { id = $2 }
+  /^        if: [$][{][{] !cancelled[(][)] && steps[.][A-Za-z_][A-Za-z0-9_-]*[.]outcome == .success. [}][}]$/ {
+    ref = $5; sub(/^steps[.]/, "", ref); sub(/[.]outcome$/, "", ref)
+  }
+  /^          fail-on-alert: true$/ { gate = 1 }
+  /^        run: mise run bench [|] tee output[.]txt$/ { role = "bench" }
+  /^        run: ORCVS_MEMORY_SERIES=1 / { role = "measure" }
+  /> memory[.]json$/ { role = "assemble" }
+  /^          git fetch origin [+]gh-pages:gh-pages$/ { role = "fetch" }
+  /^          skip-fetch-gh-pages: true$/ { role = "publish" }
+  END { close_step(); exit bad }
+'; then
+  exit 1
+fi
 # The memory series alerts and writes a job summary and does not fail the
 # workflow. That is a decision rather than an omission: a deterministic metric at
 # a threshold this tight fires on any real change, and the action offers no
@@ -501,19 +579,20 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise install node$' "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: node scripts/check-bench-floors[.]ts output[.]txt$' "$bench_job_count"
 # Both floor steps run after a ratio-gate failure, so a regression that trips
-# both gates still reports which floor it broke.
-assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        if: [$][{][{] !cancelled[(][)] && steps[.]bench[.]outcome == '"'"'success'"'"' [}][}]$' "$((bench_job_count * 2))"
-# The floor check is the last step of its job. None of the allocation steps
-# carries an `if:`, so any step after a failed floor check is skipped: on
-# `main` the memory series loses that commit's point, and on a pull request
-# the allocation comparison never reports. A floor breach fails the job
-# either way; it must not also silence the allocation series.
+# both gates still reports which floor it broke. The allocation measurement runs
+# on the same condition, which is the third per job.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        if: [$][{][{] !cancelled[(][)] && steps[.]bench[.]outcome == '"'"'success'"'"' [}][}]$' "$((bench_job_count * 3))"
+# The floor check is the last step of its job. The allocation steps gate on
+# their predecessors rather than on the job's status, so a failed floor check
+# would not skip them today; holding it last keeps that from being something
+# the allocation series depends on. A floor breach fails the job either way;
+# it must not also silence the allocation series.
 # The first pattern is every two-space mapping key, which is a job id inside
 # `jobs:` and a trigger inside `on:` — GitHub allows letters, digits, `-` and
 # `_` in both, so it is matched that widely rather than to the two job names
-# this workflow happens to carry today.
+# this workflow happens to carry today. It is `workflow_job_count`'s pattern.
 if ! grep -Ev '^[[:space:]]*#' "$root_dir/.github/workflows/bench.yml" | awk '
-  /^  [A-Za-z_][A-Za-z0-9_-]*:$/ { floor = 0 }
+  /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { floor = 0 }
   /^      - name: Check bench floors$/ { floor = 1; next }
   floor && /^      - / { bad = 1 }
   END { exit bad }

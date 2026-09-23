@@ -75,6 +75,21 @@ assert_rejected() {
   printf '%s\n' "$output"
 }
 
+# `assert_rejected`, and the rejection is the one named: for a mutation that
+# only one check in the contract can see, a rejection from anywhere else would
+# pass the test while the check it exists for is dead.
+assert_rejected_with() {
+  local scenario="$1"
+  local message="$2"
+  local output
+  output="$(assert_rejected "$scenario")" || return 1
+  if ! printf '%s\n' "$output" | grep -F "$message" >/dev/null; then
+    echo "expected tooling contract to reject $scenario with: $message" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+}
+
 assert_accepted() {
   local scenario="$1"
   local output
@@ -540,6 +555,71 @@ test_memory_series_assembled_with_jq_is_rejected() {
   make_fixture
   perl -pi -e "s/^(          printf '\\[%s\\]).*\$/          jq -s '.' > memory.json/" "$fixture_dir/.github/workflows/bench.yml"
   assert_rejected "a memory series assembled with jq"
+}
+
+test_allocation_series_skipped_by_the_ratio_gate_is_rejected() {
+  # A ratio-gate failure fails the job, and a step without `!cancelled()` in its
+  # `if:` is skipped once the job has failed. That is how the memory series went
+  # silent on exactly the runs that regressed. The first four mutations below
+  # leave every pinned count as it was, so only the step-by-step check can see
+  # them; the last two break a count instead. Each asserts the message of the
+  # one check it exists for.
+  local bench
+
+  # A step added after the gate with no guard at all.
+  make_fixture
+  bench="$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e 's/(      - name: Install node for the bench floor check\n)/      - name: Report the run\n        run: echo done\n$1/' "$bench"
+  assert_rejected_with "a bench step after the ratio gate that the gate's failure skips" \
+    "expected every step after a bench ratio gate to survive that gate failing"
+
+  # A guard that starts right and is still false on a failed gate.
+  make_fixture
+  bench="$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e 's/(      - name: Install node for the bench floor check\n)/      - name: Report the run\n        if: \$\{\{ !cancelled() && success() \}\}\n        run: echo done\n$1/' "$bench"
+  assert_rejected_with "a bench step after the ratio gate guarded by success()" \
+    "expected every step after a bench ratio gate to survive that gate failing"
+
+  # The fetch moved above the criterion run, where the outcome it waits on is
+  # still empty: it would be skipped on every run and fail nothing.
+  make_fixture
+  bench="$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e 's/(      - name: Run benchmarks\n)(.*?)(      - name: Fetch gh-pages for the memory series\n.*?        run: [|]\n          git checkout [^\n]*\n          git fetch origin \+gh-pages:gh-pages\n)/$3$1$2/s' "$bench"
+  assert_rejected_with "a gh-pages fetch moved above the step whose outcome it waits on" \
+    "expected the bench fetch step to wait on the assemble step"
+
+  # The chain's guards swapped between two of its steps: the counts hold, and
+  # the measurement now waits on a step that runs after it.
+  make_fixture
+  bench="$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e 's/(      - name: Measure allocations\n        id: allocations\n(?:        #[^\n]*\n)*)        if: ([^\n]*)\n(.*?      - name: Publish and compare allocations\n)        if: ([^\n]*)\n/$1        if: $4\n$3        if: $2\n/s' "$bench"
+  assert_rejected_with "an allocation chain whose guards point at the wrong steps" \
+    "expected the bench measure step to wait on the bench step"
+
+  # Unforced, the pull-request job's fetch is refused as non-fast-forward: the
+  # timing comparison has committed an unpushed point onto the local branch.
+  make_fixture
+  bench="$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e 's/^(          git fetch origin )\+(gh-pages:gh-pages)$/$1$2/m' "$bench"
+  assert_rejected_with "an unforced gh-pages fetch that a local timing commit refuses" \
+    "matched 1: ^          git fetch origin [+]gh-pages:gh-pages\$"
+
+  # A gate the check cannot see is a gate it cannot hold anything after.
+  make_fixture
+  bench="$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e "s/^(          fail-on-alert: )true\$/\$1'true'/m" "$bench"
+  assert_rejected_with "a ratio gate spelled so the step check cannot find it" \
+    "matched 1: ^          fail-on-alert: true\$"
+}
+
+test_bench_floor_check_not_last_is_rejected() {
+  # The floor check stays the last step of each job, so no step can be skipped
+  # by a floor breach. The added step carries a guard the ratio-gate check
+  # accepts and adds to no pinned count, so only the ordering check can see it.
+  make_fixture
+  perl -0pi -e "s/(        run: node scripts\/check-bench-floors\.ts output\.txt\n)/\$1      - name: Report the run\n        if: \\\$\{\{ !cancelled() && steps.pages.outcome == 'success' \}\}\n        run: echo done\n/" "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected_with "a bench step after the floor check" \
+    "expected the bench floor check to be the last step of each bench job"
 }
 
 test_contract_assertions_read_their_whole_input() {
@@ -1032,6 +1112,8 @@ case "${1:-all}" in
   quick-benchmark-output) test_quick_benchmark_output_is_rejected ;;
   memory-series-second-binary) test_memory_series_measured_by_a_second_binary_is_rejected ;;
   memory-series-jq) test_memory_series_assembled_with_jq_is_rejected ;;
+  allocation-after-ratio-gate) test_allocation_series_skipped_by_the_ratio_gate_is_rejected ;;
+  bench-floor-not-last) test_bench_floor_check_not_last_is_rejected ;;
   contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
@@ -1140,6 +1222,8 @@ case "${1:-all}" in
     test_miri_called_by_another_task_is_rejected
     test_memory_series_measured_by_a_second_binary_is_rejected
     test_memory_series_assembled_with_jq_is_rejected
+    test_allocation_series_skipped_by_the_ratio_gate_is_rejected
+    test_bench_floor_check_not_last_is_rejected
     test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected

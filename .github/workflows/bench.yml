@@ -151,12 +151,21 @@ jobs:
       # deterministic for a fixed input, so a first run produces the second run's
       # numbers; warming up would double this step's cost for no signal at all.
       - name: Measure allocations
+        id: allocations
+        # Each allocation step gates on the outcome of the one before it, and this
+        # first one on the criterion run's, as the floor steps below are — never on
+        # the timing step's or the job's status. So a ratio-gate failure skips none of
+        # them, and a failure among them skips the rest rather than publishing a
+        # partial series. `scripts/check-tooling-contract.sh` pins the chain.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
         # `shell: bash` supplies `pipefail`, for the reason the benchmark run above
         # gives: without it a failed assertion would pass this step and publish
         # whatever partial output the tests had already written.
         shell: bash
         run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture | tee allocations.txt
       - name: Assemble the memory series
+        id: memory
+        if: ${{ !cancelled() && steps.allocations.outcome == 'success' }}
         # Shell builtins and coreutils only: no `jq`, no addition to `mise.toml`, and so
         # nothing new for this job to install. Each test already prints a complete
         # `customSmallerIsBetter` object, so this strips the marker, sorts for a
@@ -196,7 +205,39 @@ jobs:
           fi
           printf '[%s]\n' "$(printf '%s\n' "$records" | paste -sd, -)" > memory.json
           cat memory.json
+      # The memory action below skips its own fetch because this step has just done
+      # it, for that action alone. It does not lean on the timing step's fetch: that
+      # step fails the job on a ratio-gate alert, and its outcome cannot say whether it
+      # failed after fetching — the alert is raised only once the point is committed
+      # and pushed — or before it, on a malformed `output.txt` or a failed fetch. The
+      # action runs only on this step's outcome, which is a fact about the fetch alone.
+      # It sits directly before the publish, after the measurement, so the tip it
+      # reads is seconds old when the action pushes on top of it.
+      #
+      # The checkout comes first so the fetch never lands on a checked-out branch:
+      # the timing action returns to this commit in a `finally`, but if that return
+      # were refused — a half-written `data.js` in the tree — HEAD would stay on
+      # `gh-pages` and git refuses to fetch into it. `--force` drops that half-write;
+      # the untracked `target/`, `output.txt` and `memory.json` stay. After the
+      # ordinary return this is a no-op.
+      #
+      # `+` forces the update. After a timing step that pushed, the local branch
+      # already equals the remote and this changes nothing. After one that committed
+      # but failed to push, it holds a commit the remote rejected, which a plain fetch
+      # refuses as non-fast-forward; forcing drops a point that never reached the
+      # series anyway. Were a read ever to return a tip older than the push above,
+      # the force would rewind to it and the action's push would be refused: the
+      # memory point is lost and the step fails, but nothing stored is overwritten.
+      # Anonymous, like the pull-request job's reads: the repository is public and
+      # `persist-credentials: false` leaves `origin` without a token.
+      - name: Fetch gh-pages for the memory series
+        id: pages
+        if: ${{ !cancelled() && steps.memory.outcome == 'success' }}
+        run: |
+          git checkout --quiet --force --detach "$GITHUB_SHA"
+          git fetch origin +gh-pages:gh-pages
       - name: Publish and compare allocations
+        if: ${{ !cancelled() && steps.pages.outcome == 'success' }}
         uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           # The action keys the stored series by this name, and it must never change,
@@ -207,8 +248,8 @@ jobs:
           output-file-path: memory.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
-          # The step above has already fetched `gh-pages` and pushed to it in this same
-          # job, so fetching it again would discard the commit that step just made.
+          # "Fetch gh-pages for the memory series" has just brought the local branch
+          # level with the remote, and this step runs only when that fetch succeeded.
           skip-fetch-gh-pages: true
           # Far tighter than the timing series' 150%/300%, because an allocation count
           # is deterministic for a fixed input: there is no busy-runner noise for a
@@ -235,9 +276,11 @@ jobs:
       # twice. See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
       #
       # The last step of the job, so a floor breach cannot prevent either series
-      # from reaching `gh-pages`: the allocation steps carry no `if:`, and would be
-      # skipped after a failed step. Both histories stay continuous even on a run
-      # this step fails. `scripts/check-tooling-contract.sh` holds it last.
+      # from reaching `gh-pages`. The allocation steps gate on the step before them
+      # rather than on the job's status, so they would survive a failure here anyway;
+      # keeping this step last means nothing depends on that, and a step added later
+      # cannot be silenced by a floor breach. Both histories stay continuous even on
+      # a run this step fails. `scripts/check-tooling-contract.sh` holds it last.
       #
       # `install: false` above keeps this job off mise's slower cargo tools, and
       # `node` is the one tool this step needs that install skipped, so it is
@@ -344,12 +387,21 @@ jobs:
       # deterministic for a fixed input, so a first run produces the second run's
       # numbers; warming up would double this step's cost for no signal at all.
       - name: Measure allocations
+        id: allocations
+        # Each allocation step gates on the outcome of the one before it, and this
+        # first one on the criterion run's, as the floor steps below are — never on
+        # the timing step's or the job's status. So a ratio-gate failure skips none of
+        # them, and a failure among them skips the rest rather than publishing a
+        # partial series. `scripts/check-tooling-contract.sh` pins the chain.
+        if: ${{ !cancelled() && steps.bench.outcome == 'success' }}
         # `shell: bash` supplies `pipefail`, for the reason the benchmark run above
         # gives: without it a failed assertion would pass this step and publish
         # whatever partial output the tests had already written.
         shell: bash
         run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture | tee allocations.txt
       - name: Assemble the memory series
+        id: memory
+        if: ${{ !cancelled() && steps.allocations.outcome == 'success' }}
         # Shell builtins and coreutils only: no `jq`, no addition to `mise.toml`, and so
         # nothing new for this job to install. Each test already prints a complete
         # `customSmallerIsBetter` object, so this strips the marker, sorts for a
@@ -389,7 +441,25 @@ jobs:
           fi
           printf '[%s]\n' "$(printf '%s\n' "$records" | paste -sd, -)" > memory.json
           cat memory.json
+      # The memory comparison below skips its own fetch because this step has just
+      # done it, for that comparison alone. It does not lean on the timing
+      # comparison's fetch: that step fails the job on a ratio-gate alert, and its
+      # outcome cannot say whether it failed after fetching or before it. The
+      # comparison runs only on this step's outcome. The checkout comes first for
+      # the reason the publishing job gives.
+      #
+      # `+` forces the update, and here it is required rather than defensive: the
+      # timing comparison commits this run's timing point onto the local `gh-pages`
+      # even without pushing it, so a plain fetch is refused as non-fast-forward.
+      # Forcing drops that unpushed point, which the memory comparison never reads.
+      - name: Fetch gh-pages for the memory series
+        id: pages
+        if: ${{ !cancelled() && steps.memory.outcome == 'success' }}
+        run: |
+          git checkout --quiet --force --detach "$GITHUB_SHA"
+          git fetch origin +gh-pages:gh-pages
       - name: Compare allocations against main
+        if: ${{ !cancelled() && steps.pages.outcome == 'success' }}
         uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           name: memory
@@ -398,7 +468,8 @@ jobs:
           # No github-token and no push, for the reason the timing comparison above
           # gives: this job reads the series and never writes it.
           auto-push: false
-          # The comparison above has already fetched `gh-pages` in this same job.
+          # "Fetch gh-pages for the memory series" has just brought the local branch
+          # level with the remote, and this step runs only when that fetch succeeded.
           skip-fetch-gh-pages: true
           # Far tighter than the timing series' 150%/300%, because an allocation count
           # is deterministic for a fixed input: there is no busy-runner noise for a
@@ -425,9 +496,11 @@ jobs:
       # twice. See `.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`.
       #
       # The last step of the job, so a floor breach cannot skip the allocation
-      # comparison, whose steps carry no `if:`. A pull request that breaches a floor
-      # still reports its allocation changes. `scripts/check-tooling-contract.sh`
-      # holds it last.
+      # comparison. Its steps gate on the step before them rather than on the job's
+      # status, so they would survive a failure here anyway; keeping this step last
+      # means nothing depends on that. A pull request that breaches a floor still
+      # reports its allocation changes. `scripts/check-tooling-contract.sh` holds it
+      # last.
       #
       # `install: false` above keeps this job off mise's slower cargo tools, and
       # `node` is the one tool this step needs that install skipped, so it is
