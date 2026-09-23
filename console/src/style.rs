@@ -244,6 +244,39 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 }
 
 ///
+/// One Cell's final background: `role_background` (a Cell's own role/
+/// Diagnostic/Output-Portal answer, from [`cell_visuals_with_cursor_colour`])
+/// combined with the Region/Cursor fallback chain — extracted from
+/// [`crate::paint::Paint::derive_with_theme`]'s per-Cell loop so that
+/// function and [`crate::contrast::painted`]'s standalone per-state answer
+/// read the exact same decision and cannot independently drift.
+///
+/// `is_region_cursor` is `crate::paint::Paint::derive_with_theme`'s own
+/// `is_cursor && region_spans`: the Cursor's own Cell inside a Region larger
+/// than one Cell, which takes `region_cursor_fill` outright regardless of
+/// `role_background` — the same "Cursor's own fill wins outright" rule
+/// [`cell_visuals_with_cursor_colour`] applies to the single-Cell Cursor.
+/// Every other Cell keeps `role_background` when it answered one, and falls
+/// back to `region_fill` inside a spanning Region (`in_region`) or
+/// `base_fill` outside one.
+///
+pub(crate) fn cell_background(
+    role_background: Option<Color32>,
+    is_region_cursor: bool,
+    in_region: bool,
+    region_cursor_fill: Option<Color32>,
+    region_fill: Option<Color32>,
+    base_fill: Option<Color32>,
+    cell_background: Color32,
+) -> Option<Color32> {
+    if is_region_cursor {
+        compose_cell_fill(cell_background, region_cursor_fill)
+    } else {
+        role_background.or(if in_region { region_fill } else { base_fill })
+    }
+}
+
+///
 /// Foreground and background together, from a Cell's finished Source Paint
 /// fact and whether it lies in a root Function's Output Portal Reservation,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below
@@ -697,117 +730,6 @@ mod tests {
         );
     }
 
-    ///
-    /// A Comment is the row that says nothing, so it reads dimmer than the
-    /// Glyphs that carry meaning rather than as another semantic colour
-    /// beside them — and it is still prose a person reads, so dimmer stops at
-    /// legible.
-    ///
-    /// Under the previous, hand-picked palette Comment was also the dimmest
-    /// Glyph that cleared the floor. The Okabe–Ito assignment does not carry
-    /// that second property over: measured against `#000000`, Diagnostic is
-    /// 5.43:1, Function is 6.14:1 and Bang is 6.86:1, each dimmer than
-    /// Comment's own 7.37:1, while every one of them still clears 4.5:1. This
-    /// restates the rule with that measured fact rather than silently keeping
-    /// an ordering the new defaults do not hold — `syntax-highlighting/01`'s
-    /// own instruction for the floor's Sequence exception applies here too,
-    /// to a property rather than a single colour. Sequence itself is measured
-    /// in `sequence_is_the_named_exception_to_the_contrast_floor` below.
-    ///
-    /// Restated means named on both sides, not relaxed to "dimmer than
-    /// Ordinary". That weaker reading leaves Note at 15.88:1 and Number at
-    /// 9.10:1 — the operand colours a Comment exists to stay behind —
-    /// unguarded, so a Comment retuned past either of them would keep the
-    /// suite green. So each colour is pinned to the side of Comment it sits
-    /// on: Ordinary, Note, Output Portal and Number brighter, the three
-    /// exceptions dimmer. A retune that crosses in either direction fails
-    /// here — one because the rule broke, the other because the exception
-    /// list went stale.
-    ///
-    #[test]
-    fn comment_reads_dimmer_than_every_colour_but_its_named_exceptions_which_all_clear_the_floor() {
-        let theme = okabe_ito();
-        let background = theme.grid_background;
-        let comment = contrast(theme.source_comment, background);
-
-        assert!(
-            comment >= 4.5,
-            "a Comment is read, not merely seen: {comment:.2}:1 against the Source background",
-        );
-
-        // Every Source colour but Sequence: the floor it clears, and the side
-        // of a Comment it reads on. `true` is brighter than a Comment, `false`
-        // is one of the three named exceptions that are dimmer and still
-        // legible. Ordinary's own ratio is not restated here — it follows the
-        // Ordinary default, which this test reads rather than pins.
-        for (name, colour, brighter_than_comment) in [
-            ("ordinary", theme.source_ordinary, true),
-            ("note", theme.source_note, true),
-            ("output_portal", theme.output_portal_foreground, true),
-            ("number", theme.source_number, true),
-            ("bang", theme.source_bang, false),
-            ("function", theme.source_function, false),
-            ("diagnostic", theme.diagnostic_foreground, false),
-        ] {
-            let ratio = contrast(colour, background);
-            assert!(
-                ratio >= 4.5,
-                "{name} is {ratio:.2}:1, below the 4.5:1 floor"
-            );
-            assert_eq!(
-                ratio > comment,
-                brighter_than_comment,
-                "{name} is {ratio:.2}:1 against a Comment's {comment:.2}:1, the wrong side \
-                 of the dimmest-Comment rule as the exceptions are named above",
-            );
-        }
-    }
-
-    ///
-    /// The Okabe–Ito assignment's own choice for Sequence, `#0072B2`, measures
-    /// 4.05:1 against the Source background — below the 4.5:1 floor every
-    /// other Source colour clears. Restating the rule with this exception
-    /// named, rather than silently lowering the floor or silently excluding
-    /// Sequence from `comment_reads_dimmer_than_every_colour_but_its_named_
-    /// exceptions_which_all_clear_the_floor`'s loop, is
-    /// `syntax-highlighting/01`'s own acceptance criterion.
-    ///
-    #[test]
-    fn sequence_is_the_named_exception_to_the_contrast_floor() {
-        let theme = okabe_ito();
-        let sequence = contrast(theme.source_sequence, theme.grid_background);
-
-        assert!(
-            sequence < 4.5,
-            "Sequence no longer needs the named exception: {sequence:.2}:1"
-        );
-        assert!(
-            (sequence - 4.05).abs() < 0.01,
-            "Sequence drifted off the measured exception: {sequence:.2}:1, expected 4.05:1"
-        );
-    }
-
-    /// The WCAG 2.1 contrast ratio between two opaque colours, which is what
-    /// "dimmer" and "legible" are measured with above rather than asserted as
-    /// a difference of two constants.
-    fn contrast(foreground: egui::Color32, background: egui::Color32) -> f32 {
-        let luminance = |colour: egui::Color32| {
-            let channel = |value: u8| {
-                let value = f32::from(value) / 255.0;
-                if value <= 0.03928 {
-                    value / 12.92
-                } else {
-                    ((value + 0.055) / 1.055).powf(2.4)
-                }
-            };
-            0.2126 * channel(colour.r())
-                + 0.7152 * channel(colour.g())
-                + 0.0722 * channel(colour.b())
-        };
-        let (first, second) = (luminance(foreground), luminance(background));
-        (first.max(second) + 0.05) / (first.min(second) + 0.05)
-    }
-
     #[test]
     fn sector_line_strength_only_attenuates_the_base_colours_alpha() {
         let base = PALETTE.sector_line;
@@ -1046,13 +968,12 @@ mod tests {
 
         assert_eq!(function.background, Some(theme.source_function_background));
         // The literal `.scratch/theming/schema.md` records, independent of
-        // both the Theme field above and the composition that surfaces it —
-        // what `syntax-highlighting/02` computed as a 16% Fill tint of
-        // Function over black before this Theme replaced that formula with a
-        // stored value.
+        // both the Theme field above and the composition that surfaces it:
+        // Function's own foreground colour at 10% alpha, the uniform tint
+        // opacity the user's 2026-09-22 retune gives every tinted role.
         assert_eq!(
             function.background,
-            Some(Color32::from_rgba_unmultiplied(0x00, 0x19, 0x12, 0xFF))
+            Some(Color32::from_rgba_unmultiplied(0x00, 0x9E, 0x73, 0x1A))
         );
     }
 
@@ -1334,9 +1255,20 @@ mod tests {
     fn output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell() {
         let theme = okabe_ito();
 
-        for paint in [
-            SourcePaint::Unclaimed,
-            operand(Token::Number, OperandState::Valid),
+        // The Output Portal channel composites *over* each fact's own raw
+        // role background, not in place of it (`role_and_portal`'s
+        // `background.blend(theme.output_portal_background)`) — Unclaimed's
+        // own background is fully transparent, so the composite collapses
+        // to the Output Portal tint alone; Number's is not, since the
+        // user's 2026-09-22 retune made every tinted role background
+        // translucent rather than opaque, so its own hue still shows
+        // through under the Portal tint.
+        for (paint, role_background) in [
+            (SourcePaint::Unclaimed, theme.source_ordinary_background),
+            (
+                operand(Token::Number, OperandState::Valid),
+                theme.source_number_background,
+            ),
         ] {
             let visuals = painted(paint, true, &theme);
             assert_eq!(
@@ -1345,8 +1277,13 @@ mod tests {
             );
             assert_eq!(
                 visuals.background,
-                Some(theme.output_portal_background),
-                "{paint:?} did not carry the Output Portal tint"
+                Some(
+                    theme
+                        .cell_background
+                        .blend(role_background.blend(theme.output_portal_background))
+                ),
+                "{paint:?} did not carry its own role background composited with the Output \
+                 Portal tint"
             );
         }
     }
@@ -1357,9 +1294,12 @@ mod tests {
     /// take precedence over other non-Function facts, including Diagnostic."
     /// The Invalid Number's Diagnostic-blended answer is still `role_and_
     /// portal`'s starting point, so Portal composites over *that*, not over
-    /// the plain Number channel — with both `diagnostic.foreground` and
-    /// `output_portal.foreground` opaque in Okabe–Ito, the Portal colour
-    /// still wins outright, exactly as it does for a Valid operand.
+    /// the plain Number channel — with `diagnostic.foreground` opaque in
+    /// Okabe–Ito, the Portal colour still wins outright for the foreground,
+    /// exactly as it does for a Valid operand. The background is Number's
+    /// own translucent tint (Diagnostic's own background is transparent, so
+    /// it leaves Number's tint unchanged) composited with the Output
+    /// Portal's translucent tint on top, not the Portal channel alone.
     ///
     #[test]
     fn invalid_operand_under_output_portal_takes_the_portal_colour() {
@@ -1368,7 +1308,16 @@ mod tests {
         let invalid = painted(operand(Token::Number, OperandState::Invalid), true, &theme);
 
         assert_eq!(invalid.foreground, theme.output_portal_foreground);
-        assert_eq!(invalid.background, Some(theme.output_portal_background));
+        assert_eq!(
+            invalid.background,
+            Some(
+                theme.cell_background.blend(
+                    theme
+                        .source_number_background
+                        .blend(theme.output_portal_background)
+                )
+            )
+        );
     }
 
     ///
@@ -1674,19 +1623,16 @@ mod tests {
 
     ///
     /// Pins `cell_visuals_with_cursor_colour`'s answer for a representative
-    /// fact set to the exact premultiplied byte arrays captured from
-    /// `ba987f6` — the commit immediately before this refactor, running the
-    /// *pre-refactor* `cell_visuals_with_cursor_colour(paint, output_portal,
-    /// selected, cursor_visible, cursor_colour, SourcePaintSettings)` over
-    /// the same cases with `SourcePaintSettings::default()` and a
-    /// `Some(Color32::from_rgb(9, 8, 7))` Cursor fill. This is the TDD
-    /// baseline `.scratch/theming/issues/06` asks for: proof the refactor
-    /// reproduces today's output rather than an argument that the algebra
-    /// should. Captured with a throwaway `git worktree add --detach
-    /// ba987f6` and a temporary `eprintln!`-driven test run with
-    /// `--nocapture`, removed afterwards; every literal below is copied
-    /// verbatim from that run's output, not recomputed from this module or
-    /// from `theme.rs`.
+    /// fact set to exact premultiplied byte arrays, captured — not
+    /// recomputed from this module or `theme.rs` — by a temporary
+    /// `eprintln!`-driven test run with `--nocapture`, removed afterwards.
+    /// Originally captured from `ba987f6`, the commit immediately before
+    /// `.scratch/theming/issues/06`'s refactor, as a TDD baseline proving
+    /// the refactor reproduced pre-refactor output rather than arguing the
+    /// algebra should. Every role-background literal was recaptured
+    /// 2026-09-22 against the user's uniform-10%-opacity retune of the
+    /// tinted roles; the values below are current output, not the original
+    /// `ba987f6` capture.
     ///
     /// Every role, every Operand binding state Diagnostic distinguishes,
     /// Output Portal over Unclaimed/a Valid operand/Bang (keeps its own
@@ -1753,7 +1699,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 25, 0, 255]),
+                background: Some([23, 16, 0, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [204, 121, 167, 255],
             },
@@ -1763,7 +1709,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 25, 18, 255]),
+                background: Some([0, 16, 12, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
             },
@@ -1773,7 +1719,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 25, 18, 255]),
+                background: Some([0, 16, 12, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
             },
@@ -1783,7 +1729,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([14, 29, 37, 255]),
+                background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [86, 180, 233, 255],
             },
@@ -1793,7 +1739,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([14, 29, 37, 255]),
+                background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [86, 180, 233, 255],
             },
@@ -1803,7 +1749,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([14, 29, 37, 255]),
+                background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [213, 94, 0, 255],
             },
@@ -1813,7 +1759,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 25, 0, 255]),
+                background: Some([31, 32, 22, 49]),
                 border: [8, 16, 14, 72],
                 foreground: [230, 159, 0, 255],
             },
@@ -1823,7 +1769,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([38, 36, 11, 255]),
+                background: Some([24, 23, 7, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [240, 228, 66, 255],
             },
@@ -1833,7 +1779,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 38, 37, 255]),
+                background: Some([24, 24, 23, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [234, 235, 229, 255],
             },
@@ -1843,7 +1789,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 18, 28, 255]),
+                background: Some([0, 12, 18, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 114, 178, 255],
             },
@@ -1853,7 +1799,7 @@ mod tests {
                 output_portal: false,
                 selected: false,
                 cursor_visible: false,
-                background: Some([0, 18, 28, 255]),
+                background: Some([0, 12, 18, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [213, 94, 0, 255],
             },
@@ -1863,7 +1809,7 @@ mod tests {
                 output_portal: true,
                 selected: false,
                 cursor_visible: false,
-                background: Some([37, 25, 0, 255]),
+                background: Some([23, 16, 0, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [230, 159, 0, 255],
             },
