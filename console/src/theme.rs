@@ -100,13 +100,8 @@ impl ChromeWidth {
         Ok(Self(points))
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by theming/06 slice C's fixed stroke widths"
-        )
-    )]
+    /// Consumed by `style.rs::style`'s chrome borders, input caret and IME
+    /// underline widths (`.scratch/theming/issues/03`).
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -558,17 +553,15 @@ impl Theme {
 /// alpha (`ecolor::Color32`'s documentation), so every literal below goes
 /// through this straight-to-premultiplied conversion via
 /// [`Color32::from_rgba_unmultiplied_const`] rather than assuming the
-/// schema's straight bytes are already what `Color32` stores. This matches
-/// how [`crate::style::PALETTE`] already builds its translucent `Color32`
-/// constants, so a resolved Theme value composites with painting code the
-/// same way those do.
+/// schema's straight bytes are already what `Color32` stores, so a resolved
+/// Theme value composites with painting code the same way every other
+/// `Color32` constant in the console does.
 ///
 const fn straight_rgba(rgba: u32) -> Color32 {
     let [r, g, b, a] = rgba.to_be_bytes();
     Color32::from_rgba_unmultiplied_const(r, g, b, a)
 }
 
-///
 /// The reserved identity of the Okabe–Ito built-in, and the default both the
 /// dark and light Theme name settings hold until a viewer picks another —
 /// `console/src/persistence.rs` restores both from this same identity.
@@ -583,12 +576,12 @@ pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
 /// from this literal and the crate fails to build.
 ///
 /// `okabe_ito_defines_every_key_at_the_schema_values` in this module's tests
-/// pins every value against `schema.md`, and
-/// `okabe_ito_matches_todays_style_and_palette_constants` cross-checks the
-/// values that still have a counterpart in `style::PALETTE` and
-/// `style.rs`'s `DEFAULT_*` constants, so this built-in reproduces today's
-/// shipped appearance and not merely the document
-/// `examples/okabe-ito-copy.yaml` records.
+/// pins every field against `schema.md`'s own dark table, and
+/// `style::tests::okabe_ito_chrome_matches_the_decided_record` cross-checks
+/// the chrome keys against `theme.md`'s decided record read through
+/// [`crate::style::style`], so this built-in reproduces today's shipped
+/// appearance and not merely the document `examples/okabe-ito-copy.yaml`
+/// records.
 ///
 pub fn okabe_ito() -> Theme {
     Theme {
@@ -737,6 +730,10 @@ pub(crate) enum ThemeError {
         points: f32,
         max: f32,
     },
+    /// `window.background`'s resolved alpha is not 255. `schema.md`: "The
+    /// opaque root is `window.background`; alpha other than 255 on this
+    /// property is an error."
+    NonOpaqueWindowBackground { alpha: u8 },
 }
 
 impl std::fmt::Display for ThemeError {
@@ -762,6 +759,10 @@ impl std::fmt::Display for ThemeError {
             } => write!(
                 f,
                 "{property} is {points}, outside the inclusive range 0..={max}"
+            ),
+            Self::NonOpaqueWindowBackground { alpha } => write!(
+                f,
+                "window.background has alpha {alpha}, not 255: the application window must stay opaque"
             ),
         }
     }
@@ -871,6 +872,16 @@ pub(crate) fn resolve(
         Some(OptionalFill::Color(colour)) => Some(colour),
     };
 
+    // The opaque root check runs on the *resolved* value, not merely a
+    // supplied override: an inherited `window.background` is already opaque
+    // (every built-in sets it that way), so this only ever refuses a
+    // document that explicitly overrides it away from 255.
+    if resolved.window_background.a() != 255 {
+        return Err(ThemeError::NonOpaqueWindowBackground {
+            alpha: resolved.window_background.a(),
+        });
+    }
+
     Ok(resolved)
 }
 
@@ -882,7 +893,6 @@ mod tests {
         Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
         ThemeDocument, ThemeError, okabe_ito, resolve, straight_rgba,
     };
-    use crate::style::{DEFAULT_BANG, DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, PALETTE};
 
     fn child(parent: &str) -> ThemeDocument {
         ThemeDocument {
@@ -895,10 +905,10 @@ mod tests {
     ///
     /// Restates `schema.md`'s dark property table as `Theme` field
     /// assertions — the same pinning-by-restatement `style.rs`'s
-    /// `palette_tokens_match_the_decided_record` already uses for the fixed
-    /// chrome palette. This test is intentionally close to `okabe_ito`'s own
-    /// body: a later edit to either one without the other is exactly what
-    /// it is meant to catch.
+    /// `okabe_ito_chrome_matches_the_decided_record` uses for the chrome
+    /// keys. This test is intentionally close to `okabe_ito`'s own body: a
+    /// later edit to either one without the other is exactly what it is
+    /// meant to catch.
     ///
     #[test]
     fn okabe_ito_defines_every_key_at_the_schema_values() {
@@ -985,56 +995,6 @@ mod tests {
         assert_eq!(theme.widget_border_width.points(), 1.0);
         assert_eq!(theme.widget_inactive_border_width.points(), 0.0);
         assert_eq!(theme.input_cursor_width.points(), 2.0);
-    }
-
-    ///
-    /// Cross-checks the built-in against the values it must preserve:
-    /// `style::PALETTE`'s fixed chrome/grid constants and the three
-    /// `style::DEFAULT_*` constants `style()`'s chrome baseline still opens
-    /// with (`.scratch/theming/issues/03` derives that baseline from the
-    /// resolved Theme instead; until then the two are independent and this
-    /// is what keeps them agreeing). `SourcePaintSettings` and
-    /// `CursorEffectSettings`' colours are gone from this slice — every
-    /// value that once lived there is now pinned directly against
-    /// `schema.md` by `okabe_ito_defines_every_key_at_the_schema_values`
-    /// above, so this test's job narrows to the values Slice B did not
-    /// replace: chrome/grid geometry colours and the `text.muted`/
-    /// `panel.border` derivations that still come from egui/`PALETTE`
-    /// computations, not from a hand-copied literal.
-    ///
-    #[test]
-    fn okabe_ito_matches_todays_style_and_palette_constants() {
-        let theme = okabe_ito();
-
-        assert_eq!(theme.window_background, PALETTE.page);
-        assert_eq!(theme.panel_background, PALETTE.page);
-        assert_eq!(theme.grid_background, DEFAULT_SOURCE_BACKGROUND);
-        assert_eq!(theme.source_ordinary, DEFAULT_ORDINARY);
-        assert_eq!(theme.source_bang, DEFAULT_BANG);
-
-        assert_eq!(theme.grid_border, PALETTE.grid_line);
-        assert_eq!(theme.sector_seam, PALETTE.sector_line);
-
-        // `style.rs::style()`'s chrome stroke: `PALETTE.grid_line.to_opaque()`,
-        // the actual gamma-correct un-premultiply — not a straight-hex
-        // approximation of `grid_line`'s own hue.
-        assert_eq!(theme.panel_border, PALETTE.grid_line.to_opaque());
-        assert_eq!(theme.widget_inactive_border, PALETTE.grid_line.to_opaque());
-
-        assert_eq!(theme.selection_background, PALETTE.selection_fill);
-        assert_eq!(theme.selection_border, PALETTE.selection_stroke);
-        assert_eq!(theme.selection_border_rest, PALETTE.selection_stroke_rest);
-
-        assert_eq!(theme.text, DEFAULT_ORDINARY);
-        assert_eq!(theme.text_active, PALETTE.selection_stroke);
-        // egui's own weak-text attenuation: `Visuals::weak_text_color`
-        // multiplies the noninteractive text colour — `DEFAULT_ORDINARY`,
-        // per `style.rs::style()` — by `weak_text_alpha` (0.6 at
-        // `Visuals::dark()`'s default, which `style()` never overrides).
-        assert_eq!(theme.text_muted, DEFAULT_ORDINARY.gamma_multiply(0.6));
-        assert_eq!(theme.input_background, DEFAULT_SOURCE_BACKGROUND);
-        assert_eq!(theme.error, DEFAULT_BANG);
-        assert_eq!(theme.warning, DEFAULT_BANG);
     }
 
     #[test]
@@ -1200,6 +1160,55 @@ mod tests {
         let resolved = resolve(&built_ins, "my-dark", &document).expect("matching appearance");
 
         assert_eq!(resolved.appearance, Appearance::Dark);
+    }
+
+    ///
+    /// `.scratch/theming/schema.md`: "The opaque root is `window.background`;
+    /// alpha other than 255 on this property is an error." Nothing composites
+    /// over the OS window itself, so a translucent `window.background` would
+    /// leak the desktop through the console rather than through a Panel or
+    /// Grid surface, which `.scratch/theming/issues/03`'s own chrome mapping
+    /// keeps distinct (`window.background` for the opaque backdrop,
+    /// `panel.background`/`grid.background` for the surfaces that may carry
+    /// alpha). Both a partial alpha and a fully transparent one (`0`) are
+    /// refused the same way — the rule names one exact value, not merely
+    /// "some minimum visibility."
+    ///
+    #[test]
+    fn resolve_rejects_a_nonopaque_window_background() {
+        let built_ins = [okabe_ito()];
+
+        for (window_background, alpha) in [
+            (Color32::from_rgba_unmultiplied(10, 20, 30, 200), 200),
+            (Color32::TRANSPARENT, 0),
+        ] {
+            let document = ThemeDocument {
+                colors: vec![(ColorKey::WindowBackground, window_background)],
+                ..child("okabe-ito")
+            };
+
+            let error = resolve(&built_ins, "my-dark", &document).unwrap_err();
+
+            assert_eq!(error, ThemeError::NonOpaqueWindowBackground { alpha });
+        }
+    }
+
+    ///
+    /// An opaque override (alpha 255) is accepted like any other colour —
+    /// the check only ever refuses, never silently forces opacity.
+    ///
+    #[test]
+    fn resolve_accepts_an_opaque_window_background() {
+        let built_ins = [okabe_ito()];
+        let opaque = Color32::from_rgb(10, 20, 30);
+        let document = ThemeDocument {
+            colors: vec![(ColorKey::WindowBackground, opaque)],
+            ..child("okabe-ito")
+        };
+
+        let resolved = resolve(&built_ins, "my-dark", &document).expect("opaque window.background");
+
+        assert_eq!(resolved.window_background, opaque);
     }
 
     #[test]

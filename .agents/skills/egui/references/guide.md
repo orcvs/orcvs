@@ -123,8 +123,8 @@ one is arguing with an ADR, which is a ticket rather than an edit.
 - **Glyph scale is quantised** to `GLYPH_SCALE_STEP` (an eighth), taken
   downwards. The long comment above that constant is an atlas budget with
   numbers in it; read it before changing how a size reaches a `FontId`.
-- **Colour comes from `PALETTE` and `style()`**, `console/src/style.rs`. Not
-  from a literal at the call site.
+- **Colour comes from the resolved `Theme` and `style(theme)`**,
+  `console/src/style.rs`/`theme.rs`. Not from a literal at the call site.
 - **Reduced motion is honoured** through `prefers_reduced_motion` and
   `CursorEffectSettings::respecting_reduced_motion`, per platform.
 - **The Source Grid answers, the owner acts.** `show_source` returns
