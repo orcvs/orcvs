@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] *(Done on `theming-04-switching`, which replaces the test; drop this line once it merges.)* `no_picker_labels_appear_anywhere_in_the_top_bar` (`console/src/console/kittest_tests.rs:304`) opens `["File", "View", "Theme"]`. The Theme menu was removed by `09`, so it is silently skipped, and Settings is never opened. Open the menus that exist, and fail when a listed menu is missing, rather than skipping it.
+- [ ] *(Done on `theming-04-switching`, which replaces the test; drop this line once it merges.)* `no_picker_labels_appear_anywhere_in_the_top_bar` (`console/src/console/kittest_tests.rs:287`, menu loop at `:304`) opens `["File", "View", "Theme"]`. The Theme menu was removed by `09`, so it is silently skipped, and Settings is never opened. Open the menus that exist, and fail when a listed menu is missing, rather than skipping it.
 - [ ] `benches/floors.toml:60-62`: 106 ns against a 70 ns baseline is about 151%, which trips the 150% alert. It passes only the 300% fail threshold. Correct the reasoning; the 100 ns floor is unchanged.
 - [ ] `benches/floors.toml:70` and `.scratch/paint-cell-cost/spec.md` name `Paint::derive_with_colours`, which #120 renamed to `derive_with_theme`.
 - [ ] `console/src/console.rs:1519-1521` says the Grid lines and seams take the zoom scale. They stay a fixed display-point width.
@@ -18,4 +18,4 @@
 
 ## Comments
 
-**2026-09-23 — opened by the audit of the merged pull requests against their issues.**
+**2026-09-23 — opened by the audit of the merged pull requests against their issues.** Each line is a test, comment or doc that #119–#126 left describing behaviour `main` no longer has. They are one-line corrections with no shared code, grouped so one pull request clears them.

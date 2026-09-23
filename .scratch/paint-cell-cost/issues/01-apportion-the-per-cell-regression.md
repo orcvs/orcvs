@@ -66,7 +66,7 @@ Arithmetic worth carrying into the profile: `culled/16x16` is 256 Cells, so the 
 nanosecond share of that ~40 ns, which makes candidate 2 the first suspect — but suspicion is not
 apportionment, and three other things changed in the same commit.
 
-- [x] A profile of `Paint::derive_with_colours` attributes the per-Cell cost across the four
+- [ ] A profile of `Paint::derive_with_colours` attributes the per-Cell cost across the four
       candidates, on a stated machine, with the method recorded so it can be re-run.
 - [x] Each candidate's share is a measured figure, not an inference from the diff.
 - [x] The profile states which candidates are worth fixing and which are noise at this size.
@@ -166,4 +166,4 @@ it became the baseline: #106, #110 and #111 all read green against it, and #111 
 The regression is now invisible to the gate that found it. `benchmarks/07` is the ticket for that
 mechanism and this occurrence is recorded there as its second piece of evidence.
 
-**2026-09-23 — boxes ticked by the 2026-09-23 audit of the merged pull requests against their issues.** The Answer section meets every line; they were left unticked when this issue resolved. One partial: the profile is re-runnable in method (Apple M2, rustc 1.98.1, minimum of raw samples, interleaved, three sweeps), but the ablation variants and harness were never committed. The benchmarks that replaced it (`paint_derive/*`, guarded by `benches/floors.toml`) make re-running it unnecessary. The "Then" section's claim that `syntax-highlighting/07` stays open is stale: 07 is resolved.
+**2026-09-23 — boxes ticked by the 2026-09-23 audit of the merged pull requests against their issues.** The Answer section meets four of the five lines; they were left unticked when this issue resolved. The first stays unticked: the profile is re-runnable in method (Apple M2, rustc 1.98.1, minimum of raw samples, interleaved, three sweeps), but the ablation variants and harness were never committed. The benchmarks that replaced it (`paint_derive/*`, guarded by `benches/floors.toml`) make re-running it unnecessary. The "Then" section's claim that `syntax-highlighting/07` stays open is stale: 07 is resolved.

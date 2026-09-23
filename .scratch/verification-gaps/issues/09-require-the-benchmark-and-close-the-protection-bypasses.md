@@ -52,3 +52,11 @@ Three notes for whoever runs this:
   `main` could have its run cancelled by the next merge and report `cancelled` rather than `failure`.
 
 **Status stays `ready-for-human`.**
+
+**2026-09-23 — two floor breaches reached `main`; recorded by the audit of the merged pull requests against their issues.** Evidence for the first box. `main`'s required status contexts are `full-gate`, `macos` and `wasm`; Benchmark is not among them. Two breaches reached `main` this way:
+- PR #121's Benchmark `pull-request` job (run 35800814469) failed all four `paint_derive` floors (`fitted/16x16` 4880 ns against 4200), and the PR merged. `theming/08` said the floor "is read on the pull request as usual".
+- `main`'s Benchmark run 35805579171, after #123, failed `fitted/256x256` at 1,560,683 ns against 1,400,000.
+
+#125 and #126 recovered the cost, and `main` is under every floor as of run 35821771051. The cause of #121's breach was not confirmed; translucent tints taking `blend_channel`'s blend path is the likely candidate.
+
+A required floor check faces the path-filter trap above: "Check bench floors" runs inside the path-filtered Benchmark jobs, so it needs the same stub. Record the decision in `docs/tooling.md`.
