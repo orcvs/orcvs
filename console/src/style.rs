@@ -772,7 +772,7 @@ mod tests {
         CellVisuals, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_visuals_with_cursor_colour,
         fact_index, install, sector_line, style,
     };
-    use crate::theme::{Appearance, Theme, okabe_ito};
+    use crate::theme::{Theme, okabe_ito, orcvs_light};
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
     use orcvs::source::{OperandState, SourcePaint, Token};
 
@@ -1288,19 +1288,123 @@ mod tests {
     }
 
     ///
-    /// A synthetic light-appearance Theme for tests: no light built-in ships
-    /// yet (`.scratch/theming/issues/04`), so this flips Okabe–Ito's own
-    /// `appearance` and its panel/text colours rather than waiting on one —
-    /// enough to prove `style`/`install` treat a Theme's declared appearance
-    /// as a real input, not a second hardcoded assumption.
+    /// `theme.md` is the decided record for Orcvs Light's chrome as well,
+    /// pinned the same way `okabe_ito_chrome_matches_the_decided_record`
+    /// pins the dark one — the extension `.scratch/console-testing/issues/03`
+    /// asked for, written so a third Theme extends this suite again rather
+    /// than rewriting it. Every chrome key is asserted at a literal, so a
+    /// retune of the light definition fails here and the same commit must
+    /// move `console/src/theme.md`.
     ///
-    fn light_variant() -> Theme {
-        Theme {
-            appearance: Appearance::Light,
-            panel_background: Color32::from_rgb(239, 244, 242),
-            text: Color32::from_rgb(48, 63, 59),
-            ..okabe_ito()
-        }
+    #[test]
+    fn orcvs_light_chrome_matches_the_decided_record() {
+        let theme = orcvs_light();
+        let visuals = style(&theme).visuals;
+        let page = Color32::from_rgb(239, 244, 242); // #EFF4F2
+        let source = Color32::from_rgb(250, 252, 251); // #FAFCFB
+        let panel_border = Color32::from_rgb(192, 206, 201); // #C0CEC9
+        let ordinary = Color32::from_rgb(48, 63, 59); // #303F3B
+        let selection_fill = Color32::from_rgb(204, 235, 226); // #CCEBE2
+        let selection_stroke_rest = Color32::from_rgb(24, 126, 96); // #187E60
+        let selection_stroke = Color32::from_rgb(7, 98, 71); // #076247
+        let bang = Color32::from_rgb(173, 42, 59); // #AD2A3B
+        let hyperlink = Color32::from_rgb(11, 98, 184); // #0B62B8
+        let code_background = Color32::from_rgb(230, 230, 230); // #E6E6E6
+        let input_cursor = Color32::from_rgb(0, 83, 125); // #00537D
+
+        assert!(!visuals.dark_mode, "Orcvs Light is a light Theme");
+
+        // panel.background: page fill, everywhere it applies.
+        assert_eq!(visuals.panel_fill, page);
+        assert_eq!(visuals.window_fill, page);
+        assert_eq!(visuals.widgets.noninteractive.bg_fill, page);
+        assert_eq!(visuals.widgets.noninteractive.weak_bg_fill, page);
+        assert_eq!(visuals.widgets.inactive.bg_fill, page);
+        assert_eq!(visuals.widgets.inactive.weak_bg_fill, page);
+        assert_eq!(visuals.widgets.open.weak_bg_fill, page);
+
+        // panel.border/.width and widget.inactive.border/.width — one
+        // colour, as in Okabe–Ito, the inactive one at width 0.
+        assert_eq!(visuals.window_stroke, Stroke::new(1.0, panel_border));
+        assert_eq!(
+            visuals.widgets.noninteractive.bg_stroke,
+            Stroke::new(1.0, panel_border)
+        );
+        assert_eq!(visuals.widgets.inactive.bg_stroke.width, 0.0);
+        assert_eq!(visuals.widgets.inactive.bg_stroke.color, panel_border);
+
+        // text, text.active.
+        assert_eq!(visuals.widgets.noninteractive.fg_stroke.color, ordinary);
+        assert_eq!(visuals.widgets.inactive.fg_stroke.color, ordinary);
+        assert_eq!(visuals.widgets.open.fg_stroke.color, ordinary);
+        assert_eq!(visuals.widgets.hovered.fg_stroke.color, selection_stroke);
+        assert_eq!(visuals.widgets.active.fg_stroke.color, selection_stroke);
+
+        // text.muted: the ink at 75%, not egui's own light-mode weak text.
+        // Okabe–Ito's value happens to equal egui's 0.6 gamma multiply of
+        // `text`; this one deliberately does not, because attenuating dark
+        // ink toward a near-white page loses contrast far faster than
+        // attenuating near-white toward a near-black one.
+        assert_eq!(
+            visuals.weak_text_color,
+            Some(Color32::from_rgba_unmultiplied(48, 63, 59, 191))
+        );
+        assert_ne!(
+            visuals.weak_text_color,
+            Some(ordinary.gamma_multiply(0.6)),
+            "the light Theme's muted text is a recorded value, not egui's own attenuation"
+        );
+
+        // input.background: extreme/faint backgrounds, borrowed from the
+        // Source ground exactly as the dark Theme borrows its own.
+        assert_eq!(visuals.extreme_bg_color, source);
+        assert_eq!(visuals.faint_bg_color, source);
+
+        // selection.background/.border/.border.width.
+        assert_eq!(visuals.selection.bg_fill, selection_fill);
+        assert_eq!(visuals.selection.stroke, Stroke::new(1.0, selection_stroke));
+        assert_eq!(visuals.widgets.hovered.bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.hovered.weak_bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.active.bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.active.weak_bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.open.bg_fill, selection_fill);
+        assert_eq!(
+            visuals.widgets.hovered.bg_stroke,
+            Stroke::new(1.0, selection_stroke_rest)
+        );
+        assert_eq!(
+            visuals.widgets.active.bg_stroke,
+            Stroke::new(1.0, selection_stroke)
+        );
+        assert_eq!(
+            visuals.widgets.open.bg_stroke,
+            Stroke::new(1.0, selection_stroke_rest)
+        );
+
+        // error, warning: borrowed from Bang, as in Okabe–Ito.
+        assert_eq!(visuals.error_fg_color, bang);
+        assert_eq!(visuals.warn_fg_color, bang);
+
+        // link, code.background, input.cursor/.width.
+        assert_eq!(visuals.hyperlink_color, hyperlink);
+        assert_eq!(visuals.code_bg_color, code_background);
+        assert_eq!(visuals.text_cursor.stroke, Stroke::new(2.0, input_cursor));
+        assert_eq!(
+            visuals.ime_composition.active_underline_stroke,
+            Stroke::new(2.0, input_cursor)
+        );
+        assert_eq!(
+            visuals.ime_composition.inactive_underline_stroke,
+            Stroke {
+                width: 2.0,
+                color: input_cursor.linear_multiply(0.5),
+            }
+        );
+        assert_eq!(
+            visuals.ime_composition.legacy_visuals,
+            Visuals::light().ime_composition.legacy_visuals,
+            "legacy_visuals is a platform default, not a themed property"
+        );
     }
 
     ///
@@ -1313,10 +1417,7 @@ mod tests {
     #[test]
     fn dark_mode_follows_the_themes_declared_appearance() {
         assert!(style(&okabe_ito()).visuals.dark_mode, "Dark appearance");
-        assert!(
-            !style(&light_variant()).visuals.dark_mode,
-            "Light appearance"
-        );
+        assert!(!style(&orcvs_light()).visuals.dark_mode, "Light appearance");
     }
 
     ///
@@ -1327,7 +1428,7 @@ mod tests {
     ///
     #[test]
     fn the_four_prohibitions_hold_for_every_theme() {
-        for theme in [okabe_ito(), light_variant()] {
+        for theme in [okabe_ito(), orcvs_light()] {
             let built = style(&theme);
             let visuals = &built.visuals;
             assert_eq!(visuals.window_corner_radius, CornerRadius::ZERO);
@@ -1360,7 +1461,7 @@ mod tests {
     #[test]
     fn chrome_colours_change_with_the_resolved_theme() {
         let dark = style(&okabe_ito()).visuals;
-        let light = style(&light_variant()).visuals;
+        let light = style(&orcvs_light()).visuals;
 
         assert_ne!(dark.dark_mode, light.dark_mode);
         assert_ne!(dark.panel_fill, light.panel_fill);

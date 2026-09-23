@@ -41,7 +41,7 @@ use egui::Color32;
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill};
-use crate::theme::{OKABE_ITO_IDENTITY, Theme};
+use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme};
 
 ///
 /// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio every
@@ -636,6 +636,12 @@ impl AcceptedFailure {
 fn accepted_failures(identity: &str) -> &'static [AcceptedFailure] {
     match identity {
         id if id == OKABE_ITO_IDENTITY => &[],
+        // Orcvs Light's list is empty for the same reason, and for a
+        // stronger one: `.scratch/theming/issues/04` tuned the light
+        // definition against this validator until every reachable state
+        // cleared the floor, so it ships with no exception to record.
+        // `console/src/theme.md` states the measured figures.
+        id if id == ORCVS_LIGHT_IDENTITY => &[],
         _ => &[],
     }
 }
@@ -649,7 +655,7 @@ mod tests {
         AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
         painted, validate,
     };
-    use crate::theme::{OKABE_ITO_IDENTITY, Theme, okabe_ito};
+    use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
 
     fn find(report: &ContrastReport, role: Role, state: State) -> ContrastResult {
         report
@@ -1261,6 +1267,33 @@ mod tests {
         );
     }
 
+    ///
+    /// Orcvs Light's accepted-exception list is empty for the stronger of
+    /// the two possible reasons: nothing fails, because
+    /// `.scratch/theming/issues/04` tuned the definition against this
+    /// validator until nothing did. This pins that premise separately from
+    /// `shipped_theme_gate`, which would also pass on a list full of
+    /// exceptions.
+    ///
+    #[test]
+    fn orcvs_light_has_nothing_to_except() {
+        let report = validate(&orcvs_light());
+
+        assert!(
+            super::accepted_failures(ORCVS_LIGHT_IDENTITY).is_empty(),
+            "Orcvs Light ships with no accepted contrast exception"
+        );
+        let below_floor: Vec<_> = report
+            .results
+            .iter()
+            .filter(|result| !result.passes())
+            .collect();
+        assert!(
+            below_floor.is_empty(),
+            "Orcvs Light must clear the floor unaided: {below_floor:?}"
+        );
+    }
+
     // === The shipped-Theme gate ===
 
     ///
@@ -1276,14 +1309,16 @@ mod tests {
     /// `okabe-ito` is empty, and this test's own run is what proves that
     /// emptiness is correct rather than merely convenient.
     ///
-    /// Only `okabe_ito()` ships today: `.scratch/theming/issues/06`'s
-    /// further built-ins and `07`'s loader are not built yet, so `shipped`
-    /// is a hand-kept array rather than an iterated built-in registry — a
-    /// known weakness recorded in `.scratch/theming/issues/08`'s comments.
+    /// `orcvs_light()` joins it under `.scratch/theming/issues/04`, and
+    /// clears the floor in every reachable state for the same reason rather
+    /// than by exception: its colours were tuned against this validator
+    /// until they did. `07`'s loader is still not built, so `shipped` is a
+    /// hand-kept array rather than an iterated built-in registry — a known
+    /// weakness recorded in `.scratch/theming/issues/08`'s comments.
     ///
     #[test]
     fn shipped_theme_gate() {
-        let shipped = [okabe_ito()];
+        let shipped = [okabe_ito(), orcvs_light()];
 
         for theme in &shipped {
             let report = validate(theme);

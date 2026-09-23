@@ -186,17 +186,169 @@ The border widths are Theme properties too, in display points: `grid.border.widt
 its default) and `input.cursor.width` 2. `schema.md`
 lists them with the chrome widths.
 
+### The Orcvs Light built-in Theme
+
+`orcvs-light` is the light built-in, prepared by `.scratch/theming/issues/04`
+and **awaiting the user's acceptance of its colours**. It is a complete Theme:
+every named property below has an exact value, including the ones it shares
+with Okabe–Ito, which are written out rather than left to a toolkit default,
+and including ADR 0053's border-width keys. It declares itself light.
+
+Its chrome and glyph colours start from the hand-tuned `LIGHT_PALETTE` on the
+`feat/egui-theming` branch, mapped onto the named keys as `04`'s 2026-09-21
+comment directs. That palette predates the named-key format: it says nothing
+about Comment, Sequence, Diagnostic or Output Portal, and its `marker`,
+`highlight` and four `bloom_*` pairs name tokens this console retired (the
+Marker and Highlight Glyphs went with `retired-glyph-vocabulary`; the four
+bloom rings became the Cursor Effect's single `cursor.area` field). The
+**Provenance** column below says, for every property, whether the value is the
+proposal's, an adjustment of it, or decided here.
+
+| Property | Orcvs Light value | Provenance |
+|---|---|---|
+| `window.background` | `#EFF4F2` | proposal `page` (the opaque backdrop) |
+| `panel.background` | `#EFF4F2` | proposal `page` |
+| `grid.background` | `#FAFCFB` | proposal `source` |
+| `cell.background` | `#00000000` | shared with Okabe–Ito, recorded explicitly |
+| `source.ordinary` | `#303F3B` | proposal `ordinary` (also Char and Atom) |
+| `source.comment` | `#4E5A56` | decided here; the proposal has no Comment |
+| `source.number` | `#3564A0` | proposal `number` |
+| `source.note` | `#7553A2` | proposal `note` |
+| `source.function` | `#077055` | proposal `function` `#087A5A`, darkened |
+| `source.bang` | `#AD2A3B` | proposal `bang` `#C33445`, darkened |
+| `source.sequence` | `#12386B` | decided here; the proposal has no Sequence |
+| `source.ordinary.background` | `#00000000` | no role fill, as in Okabe–Ito |
+| `source.comment.background`, `source.bang.background` | `#00000000` | no role fill |
+| `source.number.background` | `#3564A01A` | Number's own colour at 10% opacity |
+| `source.note.background` | `#7553A21A` | Note's own colour at 10% opacity |
+| `source.function.background` | `#0770551A` | Function's own colour at 10% opacity |
+| `source.atom.background` | `#303F3B1A` | Ordinary's own colour at 10% opacity |
+| `source.sequence.background` | `#12386B1A` | Sequence's own colour at 10% opacity |
+| `diagnostic.foreground` | `#A34A00` | decided here; the proposal has no Diagnostic |
+| `diagnostic.background`, `diagnostic.border` | `#00000000` | shared with Okabe–Ito |
+| `output_portal.foreground` | `#7A5200` | decided here; the proposal has no Output Portal |
+| `output_portal.background` | `#7A52001A` | Output Portal's own colour at 10% opacity |
+| `output_portal.border` | `#00000000` | shared with Okabe–Ito |
+| `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
+| `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
+| `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
+| `region.border` | `#303F3B` | the same, as in Okabe–Ito |
+| `cursor.area` | `#148260` | proposal `bloom_core_line`'s colour, at full alpha |
+| `cursor.background` | none | shared with Okabe–Ito |
+| `region.cursor.background` | none | shared with Okabe–Ito |
+| `region.background` | `#303F3B2B` | the ink at 17%, mirroring Okabe–Ito's white at 17% |
+| `panel.border` | `#C0CEC9` | `grid.border` composited over the page |
+| `widget.inactive.border` | `#C0CEC9` | the same (width 0 keeps idle widgets' border absent) |
+| `selection.background` | `#CCEBE2` | proposal `selection_fill` |
+| `selection.border` | `#076247` | proposal `selection_stroke` |
+| `selection.border.rest` | `#187E60` | proposal `selection_stroke_rest` |
+| `text` | `#303F3B` | `source.ordinary`, as in Okabe–Ito |
+| `text.active` | `#076247` | `selection.border`, as in Okabe–Ito |
+| `text.muted` | `#303F3BBF` | the ink at 75% — see below |
+| `input.background` | `#FAFCFB` | borrowed from `grid.background`, as in Okabe–Ito |
+| `link` | `#0B62B8` | decided here — see below |
+| `code.background` | `#E6E6E6` | egui's own default light code-span background |
+| `input.cursor` | `#00537D` | egui's own default light text cursor and IME underline |
+| `error`, `warning` | `#AD2A3B` | borrowed from Bang, as in Okabe–Ito |
+
+Every border width is Okabe–Ito's, recorded rather than inherited:
+`grid.border.width` 0.5, `sector.seam.width` 0.75,
+`cell.selection.border.width` 0.5, `cursor.border.width` and
+`region.border.width` 1, `diagnostic.border.width` and
+`output_portal.border.width` 0.5, `panel.border.width`,
+`selection.border.width` and `widget.border.width` 1,
+`widget.inactive.border.width` 0, `input.cursor.width` 2.
+
+Two rules are restated for light rather than inherited, because each is a rule
+about the dark Theme and does not transfer:
+
+- **`restyle-egui-console/02`'s near-black Cell rule becomes a near-white one.**
+  The light Theme is a pale page over a near-white Source; Cell backgrounds stay
+  near-white, and the only background changes are the meaningful states —
+  selection and the Cursor field — each of which is itself near-white. Nothing
+  decorative is added on top: no gradients, no rounded tiles, no shadows, no
+  animation. The Region fill, the role tints and the Output Portal tint are all
+  low-opacity washes for the same reason. `style::tests::the_four_prohibitions_
+  hold_for_every_theme` holds the four prohibitions over both built-ins.
+- **`text.muted` is a recorded value, not egui's own attenuation.** Okabe–Ito's
+  `#E9EBE499` happens to equal egui's 0.6 gamma multiply of `text`; Orcvs
+  Light's `#303F3BBF` deliberately does not. Attenuating dark ink toward a
+  near-white page loses contrast far faster than attenuating near-white ink
+  toward a near-black one: the ink at egui's 0.6 measures 3.34:1 on this page,
+  below the floor, where 75% measures 4.91:1.
+
+`link` likewise departs from the toolkit default rather than copying it.
+Okabe–Ito's `#5AAAFF` is egui's own dark hyperlink colour and measures 7.9:1 on
+its page; egui's light hyperlink, `#009BFF`, measures 2.65:1 on this one, so
+`#0B62B8` is used instead. `code.background` and `input.cursor` are egui's own
+light defaults, which need no such adjustment.
+
+`grid.background` is a near-white `#FAFCFB` rather than pure white, and
+`panel.background` a slightly cooler `#EFF4F2`, so the Source surface reads as
+a lit panel on the page in the same way Okabe–Ito's black Source sits on its
+charcoal page.
+
+#### Orcvs Light's contrast report
+
+`console/src/contrast.rs::validate` measures all 84 reachable painted text
+states. **Every one clears the 4.5:1 floor. There are no deliberate exceptions**
+— `contrast::accepted_failures("orcvs-light")` is empty, and
+`contrast::tests::orcvs_light_has_nothing_to_except` pins that the emptiness is
+because nothing fails, not because a failure was accepted. The lowest measured
+state is 4.81:1.
+
+Three of the proposal's values were adjusted to reach that, each recorded above
+and each a darkening rather than a change of hue: Function `#087A5A` → `#077055`
+(the tinted state measured 4.50:1, on the floor with no margin), Bang `#C33445`
+→ `#AD2A3B` (its Region state measured 3.89:1), and, among the values decided
+here, Output Portal `#8A5D00` → `#7A5200` (the doubled Portal-over-role tint
+measured 4.11:1). No floor was lowered and no state was special-cased.
+
+Representative measurements, `plain` placement unless stated:
+
+| State | Foreground | Background | Ratio |
+|---|---|---|---:|
+| Ordinary | `#303F3B` | `#FAFCFB` | 10.73:1 |
+| Ordinary, Region | `#303F3B` | `#D8DDDB` | 8.05:1 |
+| Comment | `#4E5A56` | `#FAFCFB` | 6.98:1 |
+| Comment, Region | `#4E5A56` | `#D8DDDB` | 5.23:1 |
+| Function | `#077055` | `#E2EDEA` | 5.07:1 |
+| Bang | `#AD2A3B` | `#FAFCFB` | 6.43:1 |
+| Bang, Region | `#AD2A3B` | `#D8DDDB` | 4.82:1 |
+| Number, Valid | `#3564A0` | `#E6ECF1` | 5.06:1 |
+| Note, Valid | `#7553A2` | `#EDEAF2` | 5.02:1 |
+| Number, Invalid | `#A34A00` | `#E6ECF1` | 4.99:1 |
+| Note, Invalid | `#A34A00` | `#EDEAF2` | 4.99:1 |
+| Atom, Invalid | `#A34A00` | `#E6E8E7` | 4.82:1 |
+| Sequence, Invalid | `#A34A00` | `#E3E8EC` | 4.81:1 |
+| Ordinary, Output Portal | `#7A5200` | `#EDEAE1` | 5.75:1 |
+| Sequence, Invalid, Output Portal | `#7A5200` | `#D8D9D5` | 4.88:1 |
+| `text` vs `panel.background` | `#303F3B` | `#EFF4F2` | 9.94:1 |
+| `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
+| `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
+| `text.muted` vs `input.background` | `#303F3BBF` | `#FAFCFB` | 5.13:1 |
+
+The scope is the validator's own: text contrast against the actually-composited
+background, never pairwise Token-colour distinguishability, colour-vision
+accessibility, border or focus visibility, or the Cursor Effect's animated
+`cursor.area` field.
+
+Visual captures for review are in `.scratch/theming/evidence/`.
+
 ### Shipped Themes
 
 | Identity | Appearance | Status |
 |---|---|---|
 | `okabe-ito` | dark | Built in; sets every named property at the values above. |
-| `orcvs-light` | light | Reserved; its palette waits on `04`'s review. |
+| `orcvs-light` | light | Built in; sets every named property at the values above. Its colours await the user's acceptance. |
 
 Settings save a dark and a light Theme identity, both `okabe-ito`, and restore
-them unchanged. Nothing selects a Theme yet: `04` prepares and exposes the
-dark and light pickers together, once the light Theme is accepted, so until
-then the console always resolves `okabe-ito`.
+them unchanged. **Nothing selects a Theme yet.** `style::install` still
+registers the one resolved Okabe–Ito style in both egui appearance slots, so a
+viewer whose preference resolves to Light still sees the dark console. `04`
+replaces that with `set_style_of` per appearance, adds the View menu's mode and
+the dark and light pickers, and adds the switching acceptance tests — all of it
+only after the user accepts the light colours recorded above.
 
 ## Source colours
 
