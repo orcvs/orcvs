@@ -5,20 +5,20 @@ make sure a light preference cannot produce a half-styled console.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] `Console::new` no longer calls `ctx.set_theme(egui::Theme::Dark)`.
-- [ ] `Console::new` registers the current style for both `Theme::Dark` and `Theme::Light`. One
+- [x] `Console::new` no longer calls `ctx.set_theme(egui::Theme::Dark)`.
+- [x] `Console::new` registers the current style for both `Theme::Dark` and `Theme::Light`. One
       palette still exists, so both registrations use it.
-- [ ] The console reinstalls its style on every launch. eframe restores egui memory but skips the
+- [x] The console reinstalls its style on every launch. eframe restores egui memory but skips the
       styles, so the application owns them.
-- [ ] A `persistence` build restores the stored `ThemePreference` and keeps it across a restart.
-- [ ] A build without `persistence` starts from `System`.
-- [ ] One owner holds the preference: either egui memory, or a later Orcvs settings object. Never
+- [x] A `persistence` build restores the stored `ThemePreference` and keeps it across a restart.
+- [x] A build without `persistence` starts from `System`.
+- [x] One owner holds the preference: either egui memory, or a later Orcvs settings object. Never
       both.
-- [ ] `mise run test_persistence` passes.
+- [x] `mise run test_persistence` passes.
 
 ## Comments
 
@@ -44,3 +44,5 @@ document.
 **2026-09-21 — ADR 0053 and the "one owner" line.** Under ADR 0053 the settings hold a dark Theme, a light Theme, and a mode. egui's `ThemePreference` (System, Dark, Light) is exactly that mode, so it may stay the one owner of the mode. The two Theme names are Orcvs settings `06` adds. This issue's scope is unchanged. It still registers the one existing style for both themes, and `03` replaces that with a style per Theme.
 
 **2026-09-22 — shared presentation retained through `03`.** The earlier comments assigning distinct registration to `03` are superseded. `03` derives the shared style from the resolved dark Theme but keeps both egui appearance slots on that presentation; `04` supplies and accepts the light definition before distinct registration and switching are enabled.
+
+**2026-09-23 — resolved by PR #119; recorded here by the 2026-09-23 audit of the merged pull requests against their issues.** #119 merged into `theme-paint-source` and reached `main` through #120's merge `c7d49156`. Each line checked against `main`: `Console::new` calls only `install` (`console/src/console.rs:812-827`), and every remaining `set_theme` call is in tests. `install` shares one `Arc<Style>` between both slots (`console/src/style.rs:761-765`), tested by `install_shares_one_style_between_both_theme_slots`. `console_new_keeps_a_theme_preference_already_on_the_context` and `console_new_leaves_a_fresh_context_on_the_system_preference` cover the two builds. `persistence.rs` stores only the dark and light Theme identities, so egui memory is the preference's one owner. `mise run test_persistence` ran inside `check_merge` on the push of `c7d49156` to `main`, which passed. Limit: the restart is simulated by setting the preference on the context before `Console::new`; no test round-trips egui memory through real storage.
