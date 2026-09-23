@@ -138,6 +138,22 @@ fn culled(frame: &RenderFrame) -> VisiblePositions {
 }
 
 ///
+/// A range of one Cell, and a range of none. The smallest `FRAME_SIZE` is
+/// 16×16, so the ranges above never price a Paint whose drawn count is too
+/// small to amortise whatever the walk resolves before it — the console
+/// derives a Paint per frame at whatever size the viewport culls to, down to
+/// a fully scrolled-away Grid. These two are where a fixed per-Paint cost
+/// shows as the whole number rather than a rounding error.
+///
+fn single(frame: &RenderFrame) -> VisiblePositions {
+    VisiblePositions::for_grid(frame.grid(), 0..1, 0..1)
+}
+
+fn empty(frame: &RenderFrame) -> VisiblePositions {
+    VisiblePositions::for_grid(frame.grid(), 0..0, 0..0)
+}
+
+///
 /// The Okabe–Ito built-in, the same Theme every fixture below is walked
 /// against. `Theme`'s fields are `pub(crate)`, and a benchmark is a separate
 /// crate, so this cannot override the Cursor or Region fill the way
@@ -190,6 +206,29 @@ fn frames() -> &'static [(usize, usize, RenderFrame)] {
 fn derive_paint(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_derive");
     let theme = bench_theme();
+
+    let (_, _, smallest) = &frames()[0];
+    let single_range = single(smallest);
+    let empty_range = empty(smallest);
+
+    group.bench_function(BenchmarkId::from_parameter("single"), |b| {
+        b.iter(|| {
+            black_box(paint(
+                black_box(smallest),
+                black_box(single_range.clone()),
+                black_box(&theme),
+            ))
+        })
+    });
+    group.bench_function(BenchmarkId::from_parameter("empty"), |b| {
+        b.iter(|| {
+            black_box(paint(
+                black_box(smallest),
+                black_box(empty_range.clone()),
+                black_box(&theme),
+            ))
+        })
+    });
 
     for &(cols, rows, ref frame) in frames() {
         let fitted_range = fitted(frame);

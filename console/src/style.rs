@@ -99,6 +99,130 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 }
 
 ///
+/// Every Source Paint fact a Cell can carry, in [`SourcePaintVisuals`]'s
+/// index order: the four whole-Cell facts, then each declared operand Token
+/// in each [`OperandState`].
+///
+const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
+    use OperandState::{Invalid, Pending, Valid};
+    use SourcePaint::{Bang, Comment, Function, Unclaimed};
+    use Token::{Atom, Note, Number, Sequence};
+    const fn operand(token: Token, state: OperandState) -> SourcePaint {
+        SourcePaint::Operand { token, state }
+    }
+    [
+        Unclaimed,
+        Function,
+        Bang,
+        Comment,
+        operand(Number, Pending),
+        operand(Number, Valid),
+        operand(Number, Invalid),
+        operand(Note, Pending),
+        operand(Note, Valid),
+        operand(Note, Invalid),
+        operand(Atom, Pending),
+        operand(Atom, Valid),
+        operand(Atom, Invalid),
+        operand(Sequence, Pending),
+        operand(Sequence, Valid),
+        operand(Sequence, Invalid),
+    ]
+};
+
+///
+/// [`cell_visuals_with_cursor_colour`]'s answer for every Cell that is not
+/// the single-Cell Cursor, resolved from `theme` once per Paint rather than
+/// once per Cell — `.scratch/theming/issues/06`'s "resolve the Theme once per
+/// frame into a flat lookup" constraint.
+///
+/// An unselected Cell's visuals depend only on its Source Paint fact and its
+/// Output Portal flag (`selected`, `cursor_visible` and the Cursor fill are
+/// all inert when `selected` is false), so the 16 facts × 2 flags are every
+/// answer the walk can need. Each entry is built by calling
+/// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
+/// the per-Cell definition the tests pin; the per-Cell walk is left with one
+/// indexed load instead of the role match, the Diagnostic/Output Portal
+/// blends, the `cell.background` composite and the border priority match.
+///
+/// Entries are filled on first ask rather than up front. Resolving all 32
+/// costs about 570 ns, which a full Grid amortises to nothing but a Paint of
+/// a scrolled-away or barely visible Grid — the console derives one per frame
+/// at whatever the viewport culls to — would pay in full for the handful of
+/// facts it reads; `paint_derive/empty` priced that at 16 ns eager against
+/// 587. A Cell that misses pays one branch and the resolution it would have
+/// paid anyway, and the facts a Source actually carries are few, so the walk
+/// resolves each of them once whatever its size.
+///
+pub(crate) struct SourcePaintVisuals<'a> {
+    theme: &'a Theme,
+    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * 2],
+}
+
+impl<'a> SourcePaintVisuals<'a> {
+    pub(crate) fn new(theme: &'a Theme) -> Self {
+        Self {
+            theme,
+            entries: [None; SOURCE_PAINT_FACTS.len() * 2],
+        }
+    }
+
+    ///
+    /// The visuals of an unselected Cell carrying `paint`, inside a root
+    /// Function's Output Portal Reservation when `output_portal` is true.
+    ///
+    #[inline]
+    pub(crate) fn unselected(&mut self, paint: SourcePaint, output_portal: bool) -> CellVisuals {
+        let index = fact_index(paint) * 2 + usize::from(output_portal);
+        match self.entries[index] {
+            Some(visuals) => visuals,
+            None => {
+                let visuals = cell_visuals_with_cursor_colour(
+                    paint,
+                    output_portal,
+                    false,
+                    false,
+                    None,
+                    self.theme,
+                );
+                self.entries[index] = Some(visuals);
+                visuals
+            }
+        }
+    }
+}
+
+///
+/// `paint`'s position in [`SOURCE_PAINT_FACTS`].
+///
+#[inline]
+fn fact_index(paint: SourcePaint) -> usize {
+    match paint {
+        SourcePaint::Unclaimed => 0,
+        SourcePaint::Function => 1,
+        SourcePaint::Bang => 2,
+        SourcePaint::Comment => 3,
+        SourcePaint::Operand { token, state } => {
+            let token = match token {
+                Token::Number => 0,
+                Token::Note => 1,
+                Token::Atom => 2,
+                Token::Sequence => 3,
+                Token::Bang | Token::Comment | Token::Function | Token::Char => {
+                    unreachable!("SourcePaint::Operand carries only a declared operand Token")
+                }
+            };
+            let state = match state {
+                OperandState::Pending => 0,
+                OperandState::Valid => 1,
+                OperandState::Invalid => 2,
+            };
+            4 + token * 3 + state
+        }
+    }
+}
+
+///
 /// The ordinary Grid border's colour and width, composited with the
 /// Diagnostic and Output Portal border channels by the same fact priority
 /// [`role_and_portal`] applies to foreground and background —
@@ -644,10 +768,65 @@ pub(crate) fn install(ctx: &egui::Context, theme: &Theme) {
 mod tests {
     use std::sync::Arc;
 
-    use super::{CellVisuals, cell_visuals_with_cursor_colour, install, sector_line, style};
+    use super::{
+        CellVisuals, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_visuals_with_cursor_colour,
+        fact_index, install, sector_line, style,
+    };
     use crate::theme::{Appearance, Theme, okabe_ito};
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
     use orcvs::source::{OperandState, SourcePaint, Token};
+
+    ///
+    /// `fact_index` and `SOURCE_PAINT_FACTS` name the same order, so no two
+    /// facts share a `SourcePaintVisuals` entry and none reads another's.
+    ///
+    #[test]
+    fn every_source_paint_fact_indexes_its_own_table_entry() {
+        for (index, fact) in SOURCE_PAINT_FACTS.into_iter().enumerate() {
+            assert_eq!(fact_index(fact), index, "{fact:?}");
+        }
+    }
+
+    ///
+    /// The once-per-Paint table answers exactly what the per-Cell definition
+    /// answers for every unselected fact and Output Portal flag, under the
+    /// built-in and under a Theme whose Cell base and fact channels are all
+    /// partly transparent — the case where every composite in
+    /// `source_paint_visuals`, `role_and_portal` and `ordinary_border` shows.
+    ///
+    #[test]
+    fn the_per_paint_table_matches_the_per_cell_visuals_for_every_fact() {
+        let translucent = Theme {
+            cell_background: Color32::from_rgba_unmultiplied(10, 20, 30, 128),
+            diagnostic_foreground: Color32::from_rgba_unmultiplied(200, 40, 0, 100),
+            diagnostic_background: Color32::from_rgba_unmultiplied(90, 0, 0, 60),
+            diagnostic_border: Color32::from_rgba_unmultiplied(255, 0, 0, 70),
+            output_portal_foreground: Color32::from_rgba_unmultiplied(230, 160, 0, 90),
+            output_portal_background: Color32::from_rgba_unmultiplied(40, 30, 0, 80),
+            output_portal_border: Color32::from_rgba_unmultiplied(230, 160, 0, 50),
+            ..okabe_ito()
+        };
+
+        for theme in [okabe_ito(), translucent] {
+            let mut table = SourcePaintVisuals::new(&theme);
+            for fact in SOURCE_PAINT_FACTS {
+                for output_portal in [false, true] {
+                    assert_eq!(
+                        table.unselected(fact, output_portal),
+                        cell_visuals_with_cursor_colour(
+                            fact,
+                            output_portal,
+                            false,
+                            false,
+                            theme.cursor_background,
+                            &theme,
+                        ),
+                        "{fact:?}, output_portal: {output_portal}"
+                    );
+                }
+            }
+        }
+    }
 
     ///
     /// [`cell_visuals_with_cursor_colour`] with no Cursor on the Cell:
