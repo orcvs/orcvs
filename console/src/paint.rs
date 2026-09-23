@@ -202,11 +202,12 @@ impl Paint {
     /// which a per-Cell resolution would spend the recovery
     /// `paint-cell-cost/03` bought. The Cursor/Region fills and the uniform
     /// base fallback are hoisted, and `style::SourcePaintVisuals` holds
-    /// `cell_visuals_with_cursor_colour`'s answer for every unselected fact
-    /// and Output Portal flag, so an unselected Cell costs one indexed load
-    /// rather than the role match, Diagnostic/Output Portal blends,
-    /// `cell.background` composite and border priority match. Only the
-    /// single-Cell Cursor calls `cell_visuals_with_cursor_colour` directly.
+    /// `cell_visuals_with_cursor_colour`'s answer for each unselected fact
+    /// and Output Portal flag the walk asks for, so an unselected Cell costs
+    /// one indexed load rather than the role match, Diagnostic/Output Portal
+    /// blends, `cell.background` composite and border priority match. Only
+    /// the single-Cell Cursor calls `cell_visuals_with_cursor_colour`
+    /// directly.
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -246,7 +247,7 @@ impl Paint {
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
-        let unselected = SourcePaintVisuals::new(theme);
+        let mut unselected = SourcePaintVisuals::new(theme);
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());

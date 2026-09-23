@@ -145,23 +145,25 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
 /// indexed load instead of the role match, the Diagnostic/Output Portal
 /// blends, the `cell.background` composite and the border priority match.
 ///
-pub(crate) struct SourcePaintVisuals {
-    entries: [CellVisuals; SOURCE_PAINT_FACTS.len() * 2],
+/// Entries are filled on first ask rather than up front. Resolving all 32
+/// costs about 570 ns, which a full Grid amortises to nothing but a Paint of
+/// a scrolled-away or barely visible Grid — the console derives one per frame
+/// at whatever the viewport culls to — would pay in full for the handful of
+/// facts it reads; `paint_derive/empty` priced that at 16 ns eager against
+/// 587. A Cell that misses pays one branch and the resolution it would have
+/// paid anyway, and the facts a Source actually carries are few, so the walk
+/// resolves each of them once whatever its size.
+///
+pub(crate) struct SourcePaintVisuals<'a> {
+    theme: &'a Theme,
+    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * 2],
 }
 
-impl SourcePaintVisuals {
-    pub(crate) fn new(theme: &Theme) -> Self {
+impl<'a> SourcePaintVisuals<'a> {
+    pub(crate) fn new(theme: &'a Theme) -> Self {
         Self {
-            entries: std::array::from_fn(|index| {
-                cell_visuals_with_cursor_colour(
-                    SOURCE_PAINT_FACTS[index / 2],
-                    index % 2 == 1,
-                    false,
-                    false,
-                    None,
-                    theme,
-                )
-            }),
+            theme,
+            entries: [None; SOURCE_PAINT_FACTS.len() * 2],
         }
     }
 
@@ -170,8 +172,23 @@ impl SourcePaintVisuals {
     /// Function's Output Portal Reservation when `output_portal` is true.
     ///
     #[inline]
-    pub(crate) fn unselected(&self, paint: SourcePaint, output_portal: bool) -> CellVisuals {
-        self.entries[fact_index(paint) * 2 + usize::from(output_portal)]
+    pub(crate) fn unselected(&mut self, paint: SourcePaint, output_portal: bool) -> CellVisuals {
+        let index = fact_index(paint) * 2 + usize::from(output_portal);
+        match self.entries[index] {
+            Some(visuals) => visuals,
+            None => {
+                let visuals = cell_visuals_with_cursor_colour(
+                    paint,
+                    output_portal,
+                    false,
+                    false,
+                    None,
+                    self.theme,
+                );
+                self.entries[index] = Some(visuals);
+                visuals
+            }
+        }
     }
 }
 
@@ -791,7 +808,7 @@ mod tests {
         };
 
         for theme in [okabe_ito(), translucent] {
-            let table = SourcePaintVisuals::new(&theme);
+            let mut table = SourcePaintVisuals::new(&theme);
             for fact in SOURCE_PAINT_FACTS {
                 for output_portal in [false, true] {
                     assert_eq!(
