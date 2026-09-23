@@ -8,16 +8,37 @@
 //! [`crate::style::cell_background`] — the same functions
 //! [`crate::paint::Paint::derive_with_theme`] calls per Cell — for every
 //! Source Grid colour operation, so the two cannot independently drift.
-//! Console text (`text`, `text.muted`) has no such function yet —
-//! `.scratch/theming/issues/03` derives chrome from the Theme — so it
-//! composites directly with [`egui::Color32::blend`], the same primitive
-//! every reused function above is itself built from.
+//! [`chrome`] does the same for the console's chrome
+//! (`.scratch/theming/issues/11`): it reads every colour out of
+//! [`crate::style::style`], the `Style` [`crate::style::install`] registers,
+//! through the egui accessors the widgets themselves paint from —
+//! [`egui::Style::button_style`] among them — and composites each fill over
+//! the surface it is painted on with [`egui::Color32::blend`], the same
+//! primitive every reused function above is itself built from.
 //!
 //! # Scope
 //!
 //! [`validate`] measures text contrast only: an effective foreground against
 //! the effective background it is actually painted on. It does not measure
 //! pairwise Token-colour distinguishability or border/focus visibility.
+//!
+//! Its chrome states are `text`, `text.muted`, `text.active`, selected
+//! text, `error`, `warning` and `link`, each on the surfaces egui paints it
+//! on (see [`State`]). Four chrome cases are left out, each for a reason
+//! [`ContrastReport::scope`] also carries:
+//!
+//! - A disabled widget: egui fades it to half opacity, and WCAG 2.1 SC 1.4.3
+//!   exempts the text of an inactive user-interface component.
+//! - `code.background`: nothing in the console paints a code span.
+//! - A state's strong `bg_fill`: egui 0.36.2 paints no text on one — it is a
+//!   checkbox's box, a slider's rail, a colour swatch — so only the weak fill
+//!   every text-bearing widget uses is measured.
+//! - A popup, tooltip or window floating over another surface — the Source
+//!   Grid, or a panel: its fill is `panel.background` like a panel's, and it
+//!   is measured as one panel over the window backdrop. What really lies
+//!   beneath it differs from that only where `panel.background` is
+//!   translucent, and which surface a floating area overlaps is decided by
+//!   layout, not by the Theme.
 //!
 //! [`distinguish`] measures the second question, added by
 //! `.scratch/theming/issues/04` after a review of the light Theme's glyph
@@ -52,10 +73,11 @@
 
 use std::fmt;
 
-use egui::Color32;
+use egui::widget_style::{Classes, HasClasses as _, SELECTED_CLASS, WidgetState};
+use egui::{Color32, Style};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
-use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill};
+use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style};
 use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme};
 
 ///
@@ -76,8 +98,9 @@ pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 
 ///
 /// A named text role [`validate`] measures, and the Source Paint fact it
-/// reads from — `None` for the two console-chrome roles, `text` and
-/// `text.muted`, which are not Source Grid facts.
+/// reads from — `None` for the console-chrome roles, from `text` onward,
+/// which are not Source Grid facts. Each chrome role is named for the Theme
+/// key `crate::style::style` maps the painted foreground from.
 ///
 /// Number and Note admit Valid and Invalid. Atom and Sequence admit only
 /// Invalid: `Token::decode` refuses both outright (`lang/src/expression.rs`'s
@@ -117,6 +140,14 @@ pub(crate) enum Role {
     SequenceInvalid,
     Text,
     TextMuted,
+    TextActive,
+    /// Selected text: egui recolours a selection's glyphs to
+    /// `Visuals::selection.stroke`, which `style` maps from
+    /// `selection.border`.
+    SelectionBorder,
+    Error,
+    Warning,
+    Link,
 }
 
 #[cfg_attr(
@@ -180,7 +211,13 @@ impl Role {
             // the Portal, exactly as `style::role_and_portal` bypasses them.
             Self::Function => Some(GlyphChannel::Function),
             Self::Bang => Some(GlyphChannel::Bang),
-            Self::Text | Self::TextMuted => None,
+            Self::Text
+            | Self::TextMuted
+            | Self::TextActive
+            | Self::SelectionBorder
+            | Self::Error
+            | Self::Warning
+            | Self::Link => None,
             _ if portal => Some(GlyphChannel::OutputPortal),
             Self::NumberInvalid | Self::NoteInvalid | Self::AtomInvalid | Self::SequenceInvalid
                 if diagnostic =>
@@ -209,7 +246,13 @@ impl Role {
             Self::NoteInvalid => Some(operand(Token::Note, OperandState::Invalid)),
             Self::AtomInvalid => Some(operand(Token::Atom, OperandState::Invalid)),
             Self::SequenceInvalid => Some(operand(Token::Sequence, OperandState::Invalid)),
-            Self::Text | Self::TextMuted => None,
+            Self::Text
+            | Self::TextMuted
+            | Self::TextActive
+            | Self::SelectionBorder
+            | Self::Error
+            | Self::Warning
+            | Self::Link => None,
         }
     }
 }
@@ -240,6 +283,11 @@ impl fmt::Display for Role {
             Self::SequenceInvalid => "Sequence, Invalid",
             Self::Text => "text",
             Self::TextMuted => "text.muted",
+            Self::TextActive => "text.active",
+            Self::SelectionBorder => "selection.border",
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Link => "link",
         })
     }
 }
@@ -319,10 +367,31 @@ pub(crate) enum State {
         cursor: CursorPlacement,
         output_portal: bool,
     },
-    /// `text`/`text.muted` against `panel.background`.
+    /// Against `panel.background` over the window backdrop: a label, an
+    /// inactive button, and the `error`/`warning`/`link` foregrounds.
     Panel,
-    /// `text`/`text.muted` against `input.background`.
+    /// Against `input.background` over the panel: a `TextEdit`'s text and
+    /// hint.
     Input,
+    /// An inactive button's own fill, over the panel.
+    Inactive,
+    /// A hovered button's own fill, over the panel.
+    Hovered,
+    /// An active (pressed or focused) button's own fill, over the panel.
+    Active,
+    /// A hovered widget egui paints without a fill of its own — a checkbox
+    /// label — straight over the panel.
+    HoveredFrameless,
+    /// An active widget painted without a fill of its own, over the panel.
+    ActiveFrameless,
+    /// An open widget's fill — a sub-menu button whose menu is open, an
+    /// open combo box, an active window's title bar — over the panel.
+    Open,
+    /// `selection.background` over the panel: selected label text, or a
+    /// selected `selectable_value`.
+    Selection,
+    /// `selection.background` over the input: a `TextEdit` selection.
+    InputSelection,
 }
 
 impl fmt::Display for State {
@@ -338,6 +407,14 @@ impl fmt::Display for State {
             } => write!(f, "{cursor}, Output Portal"),
             Self::Panel => f.write_str("vs panel.background"),
             Self::Input => f.write_str("vs input.background"),
+            Self::Inactive => f.write_str("vs the inactive widget fill"),
+            Self::Hovered => f.write_str("vs the hovered widget fill"),
+            Self::Active => f.write_str("vs the active widget fill"),
+            Self::HoveredFrameless => f.write_str("hovered, frameless, vs panel.background"),
+            Self::ActiveFrameless => f.write_str("active, frameless, vs panel.background"),
+            Self::Open => f.write_str("vs the open widget fill"),
+            Self::Selection => f.write_str("vs selection.background over panel.background"),
+            Self::InputSelection => f.write_str("vs selection.background over input.background"),
         }
     }
 }
@@ -416,6 +493,121 @@ fn painted(
     (visuals.foreground, effective_background)
 }
 
+/// How many console-chrome states [`chrome`] measures.
+const CHROME_STATES: usize = 15;
+
+///
+/// Every console-chrome text state, as the effective foreground and opaque
+/// background egui paints it for `theme`.
+///
+/// Every colour is read out of [`crate::style::style`] — the `Style`
+/// [`crate::style::install`] registers for both egui appearance slots — and
+/// through the accessors egui's own widgets call when they paint it:
+/// [`egui::Style::button_style`], the function `Button::ui` itself calls
+/// for a button's fill and text colour (`egui-0.36.2/src/widgets/
+/// button.rs:331`); [`egui::Style::widget_style`], which `Checkbox` paints
+/// its label from; `Visuals::text_color`, `weak_text_color` and
+/// `text_edit_bg_color`; and `Visuals::selection`, which
+/// `text_selection::paint_text_selection` recolours selected glyphs and
+/// fills their background from. A `style` mapping that changes which Theme
+/// key a `Visuals` field reads therefore changes what this measures with
+/// it, rather than leaving a second, hand-kept copy of the mapping here to
+/// drift from the one painting uses.
+///
+/// Every text-bearing widget fill in egui 0.36.2 is the state's
+/// `weak_bg_fill` — `button_style`'s frame, `ComboBox`, and the active
+/// window's title bar alike; a state's strong `bg_fill` carries no text
+/// (a checkbox's box, a slider's rail, a colour swatch), which is why only
+/// the weak fill is measured. An open widget is measured the way
+/// `SubMenuButton::ui` paints one (`egui-0.36.2/src/containers/menu.rs:383`):
+/// `widgets.open` standing in for `widgets.inactive`.
+///
+/// Each fill is composited in paint order over the opaque window backdrop
+/// `Console::clear_color` clears to — the panel over the backdrop, the
+/// input or widget fill over the panel, the selection over whichever of the
+/// two it highlights — each by [`Color32::blend`], the premultiplied
+/// source-over egui's painter applies and [`painted`] composites the
+/// Source Grid with.
+///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "unconsumed outside tests until theming/07 shows a report"
+    )
+)]
+fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
+    let style = style(theme);
+    let visuals = &style.visuals;
+    let plain = Classes::default();
+
+    let panel = theme.window_background.blend(visuals.panel_fill);
+    let input = panel.blend(visuals.text_edit_bg_color());
+    let button = |style: &Style, classes: &Classes, state: WidgetState| {
+        let button = style.button_style(classes, state);
+        (button.text_style.color, panel.blend(button.frame.fill))
+    };
+    let frameless = |state: WidgetState| style.widget_style(&plain, state).text.color;
+
+    let (inactive_text, inactive_fill) = button(&style, &plain, WidgetState::Inactive);
+    let (hovered_text, hovered_fill) = button(&style, &plain, WidgetState::Hovered);
+    let (active_text, active_fill) = button(&style, &plain, WidgetState::Active);
+    let mut open_style = style.clone();
+    open_style.visuals.widgets.inactive = open_style.visuals.widgets.open;
+    let (open_text, open_fill) = button(&open_style, &plain, WidgetState::Inactive);
+    let selected = Classes::default().with_class(SELECTED_CLASS);
+    let (selected_text, selected_fill) = button(&style, &selected, WidgetState::Inactive);
+    let selection = visuals.selection;
+
+    [
+        (Role::Text, State::Panel, visuals.text_color(), panel),
+        (Role::Text, State::Input, visuals.text_color(), input),
+        (Role::Text, State::Inactive, inactive_text, inactive_fill),
+        (Role::Text, State::Open, open_text, open_fill),
+        (
+            Role::TextMuted,
+            State::Panel,
+            visuals.weak_text_color(),
+            panel,
+        ),
+        (
+            Role::TextMuted,
+            State::Input,
+            visuals.weak_text_color(),
+            input,
+        ),
+        (Role::TextActive, State::Hovered, hovered_text, hovered_fill),
+        (Role::TextActive, State::Active, active_text, active_fill),
+        (
+            Role::TextActive,
+            State::HoveredFrameless,
+            frameless(WidgetState::Hovered),
+            panel,
+        ),
+        (
+            Role::TextActive,
+            State::ActiveFrameless,
+            frameless(WidgetState::Active),
+            panel,
+        ),
+        (
+            Role::SelectionBorder,
+            State::Selection,
+            selected_text,
+            selected_fill,
+        ),
+        (
+            Role::SelectionBorder,
+            State::InputSelection,
+            selection.stroke.color,
+            input.blend(selection.bg_fill),
+        ),
+        (Role::Error, State::Panel, visuals.error_fg_color, panel),
+        (Role::Warning, State::Panel, visuals.warn_fg_color, panel),
+        (Role::Link, State::Panel, visuals.hyperlink_color, panel),
+    ]
+}
+
 ///
 /// One reachable painted text state's measured result.
 ///
@@ -490,7 +682,11 @@ pub(crate) struct ContrastReport {
 const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
 background it is actually painted on. Not pairwise Token-colour distinguishability, \
 border/focus visibility, or the Cursor Effect's animated area field. Colour vision is \
-measured separately, by distinguish.";
+measured separately, by distinguish. Chrome leaves out disabled widgets (faded by egui, and \
+exempt as inactive components under WCAG 2.1 SC 1.4.3), code.background (no code span is \
+painted), a widget state's strong fill (egui paints no text on it), and a popup or window \
+floating over another surface, the Source Grid or a panel (measured as one panel over the \
+window backdrop; the two differ only for a translucent panel.background).";
 
 ///
 /// Measures every reachable painted text state against `theme` and reports
@@ -511,8 +707,9 @@ measured separately, by distinguish.";
     )
 )]
 pub(crate) fn validate(theme: &Theme) -> ContrastReport {
-    let mut results =
-        Vec::with_capacity(Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * 2 + 4);
+    let mut results = Vec::with_capacity(
+        Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * 2 + CHROME_STATES,
+    );
 
     for &role in &Role::SOURCE_ROLES {
         let fact = role
@@ -536,22 +733,7 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
         }
     }
 
-    // Console text has no reused composition function yet
-    // (`.scratch/theming/issues/03` derives chrome from the Theme), so it
-    // composites directly over its own two reachable surfaces. Both are
-    // layers over the opaque window backdrop, and `input.background` is
-    // itself painted inside a panel — an input widget's own fill composites
-    // over the panel's, not directly over the window — so `input` composites
-    // over `panel`, not over `window` a second, parallel way.
-    let window = theme.window_background;
-    let panel = window.blend(theme.panel_background);
-    let input = panel.blend(theme.input_background);
-    for (role, state, foreground, background) in [
-        (Role::Text, State::Panel, theme.text, panel),
-        (Role::Text, State::Input, theme.text, input),
-        (Role::TextMuted, State::Panel, theme.text_muted, panel),
-        (Role::TextMuted, State::Input, theme.text_muted, input),
-    ] {
+    for (role, state, foreground, background) in chrome(theme) {
         results.push(measure(
             role,
             state,
@@ -1284,18 +1466,35 @@ mod tests {
             "the report must carry its own scope, not only rustdoc: {:?}",
             report.scope
         );
+        // `.scratch/theming/issues/11`: every chrome case left out is named
+        // in the returned scope, not only in rustdoc.
+        for excluded in [
+            "disabled widgets",
+            "code.background",
+            "strong fill",
+            "floating over another surface",
+        ] {
+            assert!(
+                report.scope.contains(excluded),
+                "the scope must name the excluded {excluded:?}: {:?}",
+                report.scope
+            );
+        }
     }
 
     #[test]
-    fn validate_reports_one_result_per_role_cursor_placement_and_output_portal_plus_four_console_text_states()
+    fn validate_reports_one_result_per_role_cursor_placement_and_output_portal_plus_fifteen_chrome_states()
      {
         let report = validate(&okabe_ito());
         // 10 Source Grid roles x 4 CursorPlacements x 2 output_portal states
-        // = 80, plus text/text.muted against panel.background and
-        // input.background = 4. Stated as one literal rather than
+        // = 80, plus 15 chrome states: text on panel, input and the
+        // inactive and open fills (4); text.muted on panel and input (2);
+        // text.active on the hovered and active fills, framed and frameless
+        // (4); selected text on selection.background over panel and input
+        // (2); error, warning and link on panel (3). Stated as one literal rather than
         // recomputed from the same lengths `validate` sizes its `Vec` from,
         // so a change to either count is caught by an independent number.
-        assert_eq!(report.results.len(), 84);
+        assert_eq!(report.results.len(), 95);
     }
 
     ///
@@ -1343,6 +1542,162 @@ mod tests {
             comment.passes(),
             "Comment was not retuned and should still clear the floor: {:.2}:1",
             comment.ratio
+        );
+    }
+
+    // === Chrome states beyond text/text.muted on panel and input
+    // (`.scratch/theming/issues/11`) ===
+
+    /// Asserts `result` measures `foreground` against itself — 1:1 — and so
+    /// fails, and that every state the pre-`11` report already measured
+    /// still passes, so the failure is one only the added state can see.
+    fn fails_only_in_an_added_state(report: &ContrastReport, result: &ContrastResult) {
+        assert!(
+            !result.passes() && (result.ratio - 1.0).abs() < 0.01,
+            "{} / {} should measure 1:1, got {:.2}:1",
+            result.role,
+            result.state,
+            result.ratio
+        );
+        let old_report_failures: Vec<_> = report
+            .results
+            .iter()
+            .filter(|result| {
+                matches!(result.state, State::SourceGrid { .. })
+                    || matches!(
+                        (result.role, result.state),
+                        (Role::Text | Role::TextMuted, State::Panel | State::Input)
+                    )
+            })
+            .filter(|result| !result.passes())
+            .collect();
+        assert!(
+            old_report_failures.is_empty(),
+            "the fixture must be invisible to the states the old report measured: \
+             {old_report_failures:?}"
+        );
+    }
+
+    ///
+    /// `text.active` set to `selection.background` is unreadable on every
+    /// hovered or active button — egui paints both from
+    /// `selection.background` — while `text` and `text.muted` on panel and
+    /// input, the only chrome the old report measured, stay untouched.
+    ///
+    #[test]
+    fn text_active_matching_the_hovered_and_active_fill_fails_only_there() {
+        let base = okabe_ito();
+        let theme = Theme {
+            text_active: base.selection_background,
+            ..base
+        };
+
+        let report = validate(&theme);
+
+        for state in [State::Hovered, State::Active] {
+            fails_only_in_an_added_state(&report, &find(&report, Role::TextActive, state));
+        }
+        // The frameless hover and press — a checkbox label, which egui
+        // paints in the same foreground straight onto the panel — measure
+        // that foreground against the panel rather than the widget fill.
+        let panel = find(&report, Role::Text, State::Panel).background;
+        for state in [State::HoveredFrameless, State::ActiveFrameless] {
+            let frameless = find(&report, Role::TextActive, state);
+            assert_eq!(
+                (frameless.foreground, frameless.background),
+                (theme.text_active, panel),
+                "{state}"
+            );
+        }
+    }
+
+    ///
+    /// Selected text — egui recolours it to `selection.border` over
+    /// `selection.background` — set to the fill it sits on fails over both
+    /// the panel (a selectable label or a selected `selectable_value`) and
+    /// the input (a `TextEdit` selection).
+    ///
+    #[test]
+    fn selected_text_matching_selection_background_fails_only_there() {
+        let base = okabe_ito();
+        let theme = Theme {
+            selection_border: base.selection_background,
+            ..base
+        };
+
+        let report = validate(&theme);
+
+        for state in [State::Selection, State::InputSelection] {
+            fails_only_in_an_added_state(&report, &find(&report, Role::SelectionBorder, state));
+        }
+    }
+
+    ///
+    /// `error`, `warning` and `link` each fail on the panel when set to
+    /// `panel.background`, one at a time, so each result is shown to read
+    /// its own property rather than a shared one.
+    ///
+    #[test]
+    fn error_warning_and_link_matching_the_panel_each_fail_there() {
+        let base = okabe_ito();
+        for (role, theme) in [
+            (
+                Role::Error,
+                Theme {
+                    error: base.panel_background,
+                    ..base.clone()
+                },
+            ),
+            (
+                Role::Warning,
+                Theme {
+                    warning: base.panel_background,
+                    ..base.clone()
+                },
+            ),
+            (
+                Role::Link,
+                Theme {
+                    link: base.panel_background,
+                    ..base.clone()
+                },
+            ),
+        ] {
+            let report = validate(&theme);
+            fails_only_in_an_added_state(&report, &find(&report, role, State::Panel));
+            for other in [Role::Error, Role::Warning, Role::Link] {
+                if other != role {
+                    assert!(
+                        find(&report, other, State::Panel).passes(),
+                        "{other} was not retuned alongside {role}"
+                    );
+                }
+            }
+        }
+    }
+
+    ///
+    /// An open widget paints `text` on `widgets.open.weak_bg_fill`, which is
+    /// `panel.background` — so a translucent panel is measured through the
+    /// open fill composited over the panel over the window backdrop, not
+    /// against `panel.background`'s raw bytes.
+    ///
+    #[test]
+    fn the_open_widget_state_composites_its_fill_over_the_panel() {
+        let base = okabe_ito();
+        let theme = Theme {
+            window_background: Color32::WHITE,
+            panel_background: Color32::from_rgba_unmultiplied(0, 0, 0, 128),
+            ..base
+        };
+
+        let report = validate(&theme);
+        let open = find(&report, Role::Text, State::Open);
+        let panel = Color32::WHITE.blend(theme.panel_background);
+        assert_eq!(open.background, panel.blend(theme.panel_background));
+        assert_ne!(
+            open.background,
+            find(&report, Role::Text, State::Panel).background
         );
     }
 
@@ -2127,7 +2482,8 @@ mod tests {
     /// The glyph definition this gate rejected, as a regression: the light
     /// Theme's own colours before the user's 2026-09-23 decision, which took
     /// their hues from the `feat/egui-theming` proposal. It clears
-    /// [`CONTRAST_FLOOR`] in all 84 painted states — `.scratch/theming/
+    /// [`CONTRAST_FLOOR`] in all 84 painted states the report measured then
+    /// — `.scratch/theming/
     /// issues/04` tuned it against [`validate`] until it did — and still
     /// fails here, which is the whole reason this second measurement exists.
     ///
