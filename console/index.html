@@ -27,7 +27,14 @@
 
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon_ios_touch_192.png">
-    <meta name="theme-color" content="#101417">
+    <!-- The page's colours before the first egui frame, and around the canvas: each is the
+         window_background of the built-in Theme the matching OS appearance presents by default
+         (Okabe–Ito for dark, Orcvs Light for light; `console/src/theme.rs`). The page cannot read
+         a stored explicit Dark or Light View mode before the WASM loads, so a viewer whose mode
+         disagrees with the OS still sees the OS appearance's backdrop until the first frame. -->
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1112">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eff4f2">
 
     <style>
         html {
@@ -36,7 +43,13 @@
         }
 
         body {
-            background: #101417;
+            background: #0b1112;
+        }
+
+        @media (prefers-color-scheme: light) {
+            body {
+                background: #eff4f2;
+            }
         }
 
         /* Allow canvas to fill entire web page: */

@@ -26,6 +26,9 @@ pub mod style;
 // `okabe_ito` to build a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
+// The dark and light Theme selections and the Theme each presents
+// (`.scratch/theming/issues/04`).
+mod theme_selection;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;
 

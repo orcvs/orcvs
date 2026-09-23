@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Keep the restored theme preference at startup; 06 — Paint the Source from a named Theme.
 
-**Status:** ready-for-human — three lines remain, one needing a human with push access to `orcvs/orcvs` and two deferred to `04`/`08` (see the 2026-09-22 review comment)
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -13,15 +13,15 @@
 - [x] IME underline strokes derive from `input.cursor` and `input.cursor.width`: active uses the caret stroke and inactive retains the existing half-linear colour attenuation. These toolkit paths must not retain independent hardcoded colours.
 - [x] `Visuals::dark_mode` comes from the Theme's declared appearance.
 - [x] Chrome borders and border widths come from the resolved Theme. Use finite widths from 0 to 2 display points inclusive, with zero hiding a stroke. Preserve existing 1-point visible chrome borders and absent borders; use the exact key spellings and defaults in `../schema.md`.
-- [ ] Transparency reveals the underlying console surface; the application window remains opaque. Desktop/window transparency is outside this effort. Painting and contrast validation must use the same composited backgrounds.
+- [ ] *(Chrome half open in `11`; not done here.)* Transparency reveals the underlying console surface; the application window remains opaque. Desktop/window transparency is outside this effort. Painting and contrast validation must use the same composited backgrounds.
 - [x] Resolve the opaque application backdrop from `window.background` and the separate Grid surface from `grid.background`; reject a nonopaque window backdrop. Panel and Grid transparency composites over console surfaces without enabling desktop/window transparency.
 - [x] Preserve existing typography, spacing, square corners and the absence of shadows and gradients. These controls and font choice are not planned; avoid blocking future extensions without implementing them now.
 - [x] Until `04`, installation retains `02`'s shared presentation through `set_style_of`: register the same resolved Okabe–Ito style for both `egui::Theme::Dark` and `egui::Theme::Light`, and keep Source on that same Theme. Preserve the stored mode and Theme references without activating distinct selections; nothing calls `set_theme`. Distinct light/dark registration and live switching acceptance belong to `04`, not this issue.
 - [x] Cell grid lines and Sector Seams each take independently configurable colour, opacity and bounded width from the resolved Theme once per Render Frame. Grid line and border widths are measured in display points and retain the same visible thickness as Grid zoom changes; they do not scale with Cell size. Transparent colours can hide lines; existing square Cells, zoom and spacing remain unchanged.
 - [x] With the Okabe–Ito Theme, every chrome value is unchanged, and the existing style tests pass reading it from the Theme.
-- [ ] Prepare dark and light Theme pickers, each listing only Themes of its appearance. Issue `04` exposes them together with the mode control after user review accepts the complete light Theme and Source and chrome both follow the selection.
+- [x] Prepare dark and light Theme pickers, each listing only Themes of its appearance. Issue `04` exposes them together with the mode control after user review accepts the complete light Theme and Source and chrome both follow the selection.
 - [x] Interim tests show that restored settings and OS appearance changes retain the shared Source/chrome presentation and preserve stored preferences. Picker controls remain unexposed. `04` owns distinct-theme registration and switching tests, including startup restoration, mode changes and eventual loaded-Theme selection.
-- [ ] `docs/research/egui-theming.md` is recovered from `feat/egui-theming` into `docs/research/`, and `feat/egui-theming` is deleted or tagged as history, with the tag name recorded in this issue's comments.
+- [ ] *(Recovery done; branch disposition open in `12`.)* `docs/research/egui-theming.md` is recovered from `feat/egui-theming` into `docs/research/`, and `feat/egui-theming` is deleted or tagged as history, with the tag name recorded in this issue's comments.
 - [x] The word "semantic" is removed from `console/src/theme.md` and from the test name `semantic_glyph_colours_are_distinct_and_bang_is_soft_red`. `CONTEXT.md` lists "semantic Grid" and "semantic Source" under `_Avoid_`.
 - [x] `cargo nextest run --package console --locked` passes.
 
@@ -223,3 +223,13 @@ it replaced; the `chrome_colours_change_with_the_resolved_theme` test's doc no l
 nonopaque_window_background` and `..._a_fully_transparent_window_background` merged into one test
 over both alpha values; `resolve_accepts_an_opaque_window_background` stays separate as the
 distinct positive case.
+
+**2026-09-23 — the picker line is done under `04`.** `04` built the dark and
+light pickers together with the mode control once the user accepted Orcvs
+Light: `theme_selection::SelectedThemes::listed` is the appearance filter this
+issue prepared and then withdrew, and the View menu is its caller. Ticked here
+for that reason; the remaining open lines are unchanged.
+
+**2026-09-23 — resolved; its two remaining lines have moved to owners, per the audit of the merged pull requests against their issues.** The picker line is done under `04` (previous comment). The other two had no working owner:
+- **Composited contrast.** Deferred to `08`, which resolved covering the Source only; `08` in turn deferred `selection.background` back here. The Source half is met: `contrast.rs` reuses `style::cell_background` and `cell_visuals_with_cursor_colour`. The chrome half is `11`, implemented on `theming-11-chrome-contrast`.
+- **`feat/egui-theming`.** The recovery half is done: `docs/research/egui-theming.md` is byte-identical to the branch copy. The branch is on neither `origin` nor `fork`; it is local only, checked out in `.codex/worktrees/egui-theming`, so no push access is needed. Tagging it, removing the worktree and deleting the branch are `12`, which needs the user's decision.

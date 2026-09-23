@@ -1,10 +1,15 @@
 # Orcvs Light captures, for `.scratch/theming/issues/04`
 
-These are the visual captures the issue owes the user before the light Theme's
-colours are accepted and switching is exposed. **Nothing in the shipped console
-selects this Theme**: `style::install` still registers the one resolved
-Okabe–Ito style in both egui appearance slots, so these captures were made by a
-temporary, uncommitted local patch (below), not by a control a viewer can reach.
+These are the visual captures the issue owed the user before the light Theme's
+colours were accepted and switching was exposed. When they were made nothing in
+the shipped console selected this Theme — `style::install` then registered the
+one resolved Okabe–Ito style in both egui appearance slots — so they were made
+by a temporary, uncommitted local patch (below), not by a control a viewer could
+reach. The user accepted the colours on 2026-09-23, and the console now selects
+Orcvs Light through the View menu's mode and Light Theme picker, or by following
+a light operating-system appearance (`console/src/theme.md`, "Selecting a
+Theme"). To reproduce a capture today, choose **View → Light** instead of
+applying the Theme patch.
 
 | File | Viewport, logical points | What it shows |
 |---|---|---|
@@ -98,8 +103,11 @@ seam that only a capture uses is exactly what the repository contract forbids.
 `console/src/console.rs` nor `console/src/main.rs` carries a line that exists
 for a capture. To reproduce, on this branch:
 
-1. In `Console::new`, replace `let theme = okabe_ito();` with
-   `let theme = crate::theme::orcvs_light();`, and replace
+1. The Theme swap is no longer a patch: once the console is running, choose
+   **View → Light** (the captures were made with an earlier patch to
+   `Console::new` that installed `orcvs_light()` in place of `okabe_ito()`,
+   before the View menu offered this). For the seeded Source, in
+   `Console::new` replace
    `let orcvs = Orcvs::with_source(start.source)?;` with a block that writes the
    Source above into `start.source` through `Source::set` — one
    `grid.position(col, row)` per non-space character — and then passes it to
@@ -117,7 +125,7 @@ for a capture. To reproduce, on this branch:
    apply the same Viénot, Brettel & Mollon matrices `contrast::simulate` uses,
    re-encode. They are the capture put through the transform, not a second
    capture.
-5. Discard both patches.
+5. Discard the patches.
 
 On macOS the window must be visible for a frame to be captured; adding
 `.with_always_on_top()` to the viewport builder in `console/src/main.rs` for

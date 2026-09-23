@@ -18,8 +18,8 @@ use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
-use crate::style::install;
-use crate::theme::{Theme, okabe_ito};
+use crate::theme::{Appearance, Theme};
+use crate::theme_selection::SelectedThemes;
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
@@ -779,12 +779,11 @@ pub struct Console {
     /// `Memory::begin_pass` has already let Escape clear the focus it was
     /// pressed to leave (`egui-0.36.2/src/memory/mod.rs:596-601`).
     keyboard_elsewhere: bool,
-    /// The resolved Theme Source paints from — the same value `Console::new`
-    /// passes `install` for chrome, so the two cannot diverge. Always the
-    /// Okabe–Ito built-in for now: `.scratch/theming/issues/06` has only one
-    /// Theme to resolve, and `07`'s loader is what will make the dark and
-    /// light Theme identities `Persistence` restores resolve to anything else.
-    theme: Theme,
+    /// The dark and light Theme selections and the Theme each presents. The
+    /// same pair is installed as egui's dark and light styles, so whichever
+    /// appearance egui presents a frame in, chrome and Source read the same
+    /// Theme.
+    themes: SelectedThemes,
     /// The operating system's reduced-motion preference, read once at
     /// startup (`prefers_reduced_motion`) and combined with `cursor_effects`
     /// each frame through `CursorEffectSettings::respecting_reduced_motion`.
@@ -809,21 +808,21 @@ impl Console {
     /// the error to `eframe` says.
     ///
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
-        // The one Theme both chrome and Source paint from this launch —
-        // `okabe_ito()` until `.scratch/theming/issues/04` supplies and
-        // accepts a light Theme (`install`'s own doc has the full interim
-        // rationale). Resolved once, here, so `install` below and `Self`'s
-        // own `theme` field at the end of this function read the identical
-        // value rather than two independent `okabe_ito()` calls that could
-        // in principle drift apart.
-        let theme = okabe_ito();
+        // The stored Source revision when storage holds one, and the ordinary
+        // default Grid otherwise. Every derived view is rebuilt from it.
+        let start = starting_source(cc.storage);
+
+        // The restored dark and light Theme selections, resolved once here
+        // so `install` below and `Self`'s own `themes` field hold the same
+        // pair.
+        let themes = SelectedThemes::new(start.theme_selection);
 
         // eframe restores egui memory — `ThemePreference` included — before
         // calling this constructor, but never reinstalls a style. Register
-        // `theme`'s chrome for both egui theme slots and leave the restored
+        // each appearance's Theme in its egui slot and leave the restored
         // (or default `System`) preference alone: `install` never calls
         // `set_theme`. `.scratch/theming/issues/02-…` is the decision.
-        install(&cc.egui_ctx, &theme);
+        themes.install(&cc.egui_ctx);
 
         // egui's own `Context::end_pass` answers the same command `=`/`+`,
         // `-` and `0` chords by changing `zoom_factor` — the whole UI's
@@ -860,9 +859,6 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        // The stored Source revision when storage holds one, and the ordinary
-        // default Grid otherwise. Every derived view is rebuilt from it.
-        let start = starting_source(cc.storage);
         let orcvs = Orcvs::with_source(start.source)?;
         wake_panel_when_playback_publishes(cc.egui_ctx.clone(), orcvs.playback_observation_watch());
         let mut midi = MidiDeviceSelection::new(
@@ -879,7 +875,7 @@ impl Console {
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
-            theme,
+            themes,
             reduced_motion: prefers_reduced_motion(),
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
@@ -1911,6 +1907,78 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     frame
 }
 
+///
+/// A viewer's change to the console's appearance, made in the View menu.
+///
+#[derive(Debug)]
+enum AppearanceChange {
+    /// Follow the operating system's appearance, or hold dark or light.
+    Mode(egui::ThemePreference),
+    /// Select the Theme with this identity for this appearance.
+    Theme(Appearance, String),
+}
+
+///
+/// The View menu's appearance controls: the mode, then the dark Theme picker
+/// and the light Theme picker, each listing only Themes of its appearance.
+/// Answers the change a viewer made this frame, if any; the caller applies
+/// it once the frame is done.
+///
+fn appearance_controls(ui: &mut egui::Ui, themes: &SelectedThemes) -> Option<AppearanceChange> {
+    let mut change = None;
+    let mode = ui.ctx().options(|options| options.theme_preference);
+
+    ui.separator();
+    ui.label("Appearance");
+    for (preference, label) in [
+        (egui::ThemePreference::System, "Follow the OS"),
+        (egui::ThemePreference::Dark, "Dark"),
+        (egui::ThemePreference::Light, "Light"),
+    ] {
+        if ui.radio(mode == preference, label).clicked() {
+            change = Some(AppearanceChange::Mode(preference));
+        }
+    }
+
+    for (appearance, heading) in [
+        (Appearance::Dark, "Dark Theme"),
+        (Appearance::Light, "Light Theme"),
+    ] {
+        ui.separator();
+        ui.label(heading);
+        let presented = &themes.presented(appearance).identity;
+        for theme in themes.listed(appearance) {
+            if ui
+                .radio(theme.identity == *presented, &theme.name)
+                .clicked()
+            {
+                change = Some(AppearanceChange::Theme(appearance, theme.identity.clone()));
+            }
+        }
+    }
+
+    change
+}
+
+impl Console {
+    ///
+    /// Applies a View menu change. A mode is egui's own `ThemePreference`,
+    /// which egui memory holds and eframe persists; a Theme selection is
+    /// this console's, and reinstalls the chrome from what each appearance
+    /// then presents.
+    ///
+    fn change_appearance(&mut self, ctx: &egui::Context, change: AppearanceChange) {
+        match change {
+            AppearanceChange::Mode(preference) => ctx.set_theme(preference),
+            AppearanceChange::Theme(appearance, identity) => {
+                self.themes.select(appearance, &identity);
+                self.themes.install(ctx);
+            }
+        }
+        ctx.request_repaint();
+    }
+}
+
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
@@ -1919,8 +1987,12 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence
-            .save(storage, self.orcvs.source(), self.cursor_effects);
+        self.persistence.save(
+            storage,
+            self.orcvs.source(),
+            self.cursor_effects,
+            self.themes.selection(),
+        );
     }
 
     ///
@@ -1940,23 +2012,38 @@ impl eframe::App for Console {
     /// "Transparency reveals the underlying console surface; the application
     /// window remains opaque."
     ///
-    /// `self.theme` is always the built-in Okabe–Ito Theme until
-    /// `.scratch/theming/issues/07`'s loader exists (see the field's own
-    /// doc), whose `window_background` is opaque by construction
-    /// (`theme::okabe_ito`). A custom Theme's `window_background` is already
-    /// refused at resolution if it is not (`theme::resolve`'s
-    /// `ThemeError::NonOpaqueWindowBackground`, `.scratch/theming/
-    /// schema.md`: "alpha other than 255 on this property is an error"), so
-    /// nothing reaching `self.theme` can hold a nonopaque value and this
-    /// reads the field directly rather than re-validating it here.
+    /// The Theme is the one of the appearance `visuals` belongs to:
+    /// `style::style` sets `dark_mode` from the Theme's declared appearance,
+    /// and eframe passes egui's active style. The native glow integration
+    /// asks before it runs the frame, so the backdrop always matches the
+    /// chrome it sits under. The web runner asks after the frame, so on the
+    /// one frame a View menu change is applied in, it clears to the new
+    /// appearance's backdrop under the old frame — visible only through a
+    /// translucent panel, Grid or Cell layer, which neither built-in has.
     ///
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        self.theme.window_background.to_normalized_gamma_f32()
+    /// Every built-in's `window_background` is opaque by construction, and a
+    /// custom Theme's is refused at resolution if it is not
+    /// (`theme::resolve`'s `ThemeError::NonOpaqueWindowBackground`,
+    /// `.scratch/theming/schema.md`: "alpha other than 255 on this property
+    /// is an error"), so nothing presented can hold a nonopaque value and
+    /// this reads the field directly rather than re-validating it here.
+    ///
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        let appearance = egui::Theme::from_dark_mode(visuals.dark_mode).into();
+        let theme = self.themes.presented(appearance);
+        theme.window_background.to_normalized_gamma_f32()
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
+        // The appearance egui presents this frame in, from the viewer's mode
+        // and the operating system's appearance. egui built the root `Ui`
+        // from that appearance's style before this ran, and nothing changes
+        // it until the frame is done — a View menu change is held until
+        // then — so the Source reads the Theme the chrome was styled from.
+        let appearance = Appearance::from(ctx.theme());
+        let mut appearance_change = None;
         // Tab belongs to the Source while it holds the keys. `Memory::begin_pass`
         // already turned an unmodified Tab into `FocusDirection::Next` and a
         // Shift Tab into `FocusDirection::Previous` before this runs
@@ -2004,6 +2091,7 @@ impl eframe::App for Console {
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
+                    appearance_change = appearance_controls(ui, &self.themes);
                 });
                 ui.add_space(MENU_BAR_GAP);
                 // Glitch amount and Glitch frequency are motion settings, not
@@ -2099,7 +2187,7 @@ impl eframe::App for Console {
         let cursor_effect_sample = self
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
-        let theme = self.theme.clone();
+        let theme = self.themes.presented(appearance).clone();
 
         // Shown before CentralPanel so it takes height rather than overlaying
         // the Grid. Static: no resize handle, no drag. BPM is a TextEdit:
@@ -2225,7 +2313,7 @@ impl eframe::App for Console {
                     #[cfg(test)]
                         bpm_widget_id: _,
                     keyboard_elsewhere: _,
-                    theme: _,
+                    themes: _,
                     reduced_motion: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
@@ -2288,6 +2376,13 @@ impl eframe::App for Console {
         // been shown and has taken or surrendered focus, and every popup has
         // opened or closed.
         self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || egui::Popup::is_any_open(&ctx);
+
+        // Last, once every widget of this frame has been styled from the
+        // appearance it began in, so no frame mixes two Themes. The next
+        // frame presents the change.
+        if let Some(change) = appearance_change {
+            self.change_appearance(&ctx, change);
+        }
     }
 }
 
@@ -2305,7 +2400,7 @@ mod tests {
 
     use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
     use crate::paint::{FramePaint, Paint};
-    use crate::theme::{Theme, okabe_ito};
+    use crate::theme::{Theme, okabe_ito, orcvs_light};
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
@@ -2319,6 +2414,21 @@ mod tests {
 
     /// The Source View's margin at Zoom 1.0 and a device scale of one.
     const MARGIN: f32 = SOURCE_MARGIN_CELLS * CELL_SIZE;
+
+    ///
+    /// Asserts that `ctx` styles each appearance's chrome from the given
+    /// Theme, naming the `situation` in the failure.
+    ///
+    pub(super) fn assert_chrome(ctx: &egui::Context, dark: &Theme, light: &Theme, situation: &str) {
+        for (slot, theme) in [(egui::Theme::Dark, dark), (egui::Theme::Light, light)] {
+            assert_eq!(
+                ctx.style_of(slot).visuals,
+                crate::style::style(theme).visuals,
+                "{situation}: the {slot:?} appearance does not present {}'s chrome",
+                theme.identity
+            );
+        }
+    }
 
     fn key_event(key: Key, pressed: bool) -> Event {
         Event::Key {
@@ -3254,12 +3364,13 @@ mod tests {
     /// the defect. The removed `set_theme(Dark)` call used to overwrite
     /// whatever this set; `install` must not.
     ///
-    /// The style comparison is `Visuals`, not `Style`'s own `PartialEq`:
-    /// `Style::number_formatter` compares by `Arc::ptr_eq`
-    /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
-    /// `Style::default()`s never compare equal on that field alone, whatever
-    /// their visible content. Sharing one `Arc` between the two theme slots
-    /// is asserted directly instead, which sidesteps that field entirely.
+    /// Each egui slot holds its own appearance's default built-in, so the
+    /// restored Light preference presents Orcvs Light rather than egui's own
+    /// default light style. The style comparison is `Visuals`, not
+    /// `Style`'s own `PartialEq`: `Style::number_formatter` compares by
+    /// `Arc::ptr_eq` (`egui-0.36.2/src/style.rs:57-60`), so two
+    /// independently built `Style::default()`s never compare equal on that
+    /// field alone, whatever their visible content.
     ///
     #[tokio::test]
     async fn console_new_keeps_a_theme_preference_already_on_the_context() {
@@ -3275,96 +3386,11 @@ mod tests {
             "Console::new overwrote the restored theme preference"
         );
 
-        let dark = ctx.style_of(egui::Theme::Dark);
-        let light = ctx.style_of(egui::Theme::Light);
-        assert_eq!(
-            light.visuals,
-            crate::style::style(&okabe_ito()).visuals,
-            "Console::new left the Light theme at egui's own default style"
-        );
-        assert!(
-            std::sync::Arc::ptr_eq(&dark, &light),
-            "Console::new registered a different style for each theme"
-        );
-    }
-
-    ///
-    /// The half of `.scratch/theming/schema.md`'s interim acceptance line
-    /// the test above does not cover: it restores a `ThemePreference`, which
-    /// is the viewer's own choice, not an OS/browser appearance change. That
-    /// arrives as `RawInput::system_theme` on an ordinary frame
-    /// (`docs/research/egui-theming.md`'s own reading of the eframe/web
-    /// integration), and only takes effect while the preference is `System`.
-    /// This runs two real frames through `Console::ui`, one with each
-    /// `system_theme`, and checks both halves `install`'s doc names: chrome
-    /// (the installed `Style`) and Source (`Console`'s own `theme` field)
-    /// must both still be the one shared Okabe–Ito presentation afterwards —
-    /// proof at a frame boundary, not merely that `install` itself shares
-    /// one `Arc` right after it runs (`style::tests::install_shares_one_
-    /// style_between_both_theme_slots` already covers that in isolation).
-    ///
-    #[tokio::test]
-    async fn chrome_and_source_stay_shared_across_an_os_appearance_change() {
-        fn pass_under_system_theme(
-            ctx: &egui::Context,
-            screen: Rect,
-            system_theme: egui::Theme,
-            console: &mut Console,
-            host: &mut eframe::Frame,
-        ) {
-            use eframe::App as _;
-            let input = egui::RawInput {
-                screen_rect: Some(screen),
-                system_theme: Some(system_theme),
-                ..Default::default()
-            };
-            let output = ctx.run_ui(input, |root| console.ui(root, host));
-            output.drop_without_applying_deltas();
-        }
-
-        let ctx = egui::Context::default();
-        ctx.set_theme(egui::ThemePreference::System);
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
-        let mut host = eframe::Frame::_new_kittest();
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-
-        pass_under_system_theme(&ctx, screen, egui::Theme::Dark, &mut console, &mut host);
-        assert_eq!(
-            ctx.theme(),
-            egui::Theme::Dark,
-            "system_theme did not resolve Dark under ThemePreference::System"
-        );
-        let dark_style = ctx.style_of(egui::Theme::Dark);
-        let source_theme_under_dark = console.theme.clone();
-
-        pass_under_system_theme(&ctx, screen, egui::Theme::Light, &mut console, &mut host);
-        assert_eq!(
-            ctx.theme(),
-            egui::Theme::Light,
-            "system_theme did not resolve Light under ThemePreference::System"
-        );
-        let light_style = ctx.style_of(egui::Theme::Light);
-        let source_theme_under_light = console.theme.clone();
-
-        assert!(
-            std::sync::Arc::ptr_eq(&dark_style, &light_style),
-            "an OS appearance change split the console's installed style across two Arcs"
-        );
-        assert_eq!(
-            dark_style.visuals,
-            crate::style::style(&okabe_ito()).visuals,
-            "chrome left the shared Okabe–Ito presentation across an OS appearance change"
-        );
-        assert_eq!(
-            source_theme_under_dark,
-            okabe_ito(),
-            "Source's own Theme changed with the OS appearance"
-        );
-        assert_eq!(
-            source_theme_under_light,
-            okabe_ito(),
-            "Source's own Theme changed with the OS appearance"
+        assert_chrome(
+            &ctx,
+            &okabe_ito(),
+            &orcvs_light(),
+            "Console::new under a restored Light preference",
         );
     }
 
@@ -3397,7 +3423,7 @@ mod tests {
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3509,7 +3535,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_repaints_as_soon_as_the_published_tick_advances() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3566,7 +3592,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3610,7 +3636,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3657,7 +3683,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3705,7 +3731,7 @@ mod tests {
     #[tokio::test]
     async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3754,7 +3780,7 @@ mod tests {
         use eframe::App as _;
 
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3820,7 +3846,7 @@ mod tests {
     #[tokio::test]
     async fn a_stopped_console_with_cursor_effect_off_requests_no_timed_wake() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3882,7 +3908,7 @@ mod tests {
     #[tokio::test]
     async fn clicking_the_bpm_field_selects_its_text() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3927,7 +3953,7 @@ mod tests {
     #[tokio::test]
     async fn tab_with_the_bpm_field_focused_leaves_the_cursor_and_moves_focus_on() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3959,7 +3985,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_accepts_digits_only() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4012,7 +4038,7 @@ mod tests {
     #[tokio::test]
     async fn escape_reverts_a_valid_uncommitted_bpm() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4061,7 +4087,7 @@ mod tests {
     #[tokio::test]
     async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4161,7 +4187,7 @@ mod tests {
     #[tokio::test]
     async fn dragging_the_bpm_field_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4198,7 +4224,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_pads_three_digits() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4238,7 +4264,7 @@ mod tests {
     #[tokio::test]
     async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4330,7 +4356,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_range_bpm_input_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4371,7 +4397,7 @@ mod tests {
     #[tokio::test]
     async fn committing_bpm_while_playback_is_requested_sets_it_on_orcvs() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4529,7 +4555,7 @@ mod tests {
     #[test]
     fn the_top_panel_takes_the_height_the_default_window_holds_back() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Vec2::ZERO;
 
@@ -4636,7 +4662,7 @@ mod tests {
     fn a_second_tick_digit_does_not_move_run_clock() {
         fn clock_left(tick: &str) -> i32 {
             let ctx = egui::Context::default();
-            crate::style::install(&ctx, &okabe_ito());
+            crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
             let clock_x = std::cell::Cell::new(0.0);
             let output = ctx.run_ui(
@@ -4685,7 +4711,7 @@ mod tests {
     fn an_off_beat_does_not_move_tick() {
         fn tick_left(marker: &str) -> i32 {
             let ctx = egui::Context::default();
-            crate::style::install(&ctx, &okabe_ito());
+            crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
             let tick_x = std::cell::Cell::new(0.0);
             let output = ctx.run_ui(
@@ -4737,7 +4763,7 @@ mod tests {
     #[test]
     fn panel_readouts_use_the_monospace_style_size_not_line_height() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let sizes = std::cell::Cell::new((0.0, 0.0));
         let output = ctx.run_ui(
@@ -4768,7 +4794,7 @@ mod tests {
     #[tokio::test]
     async fn panel_label_gaps_match_and_entry_gaps_match() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4848,7 +4874,7 @@ mod tests {
     #[tokio::test]
     async fn the_bottom_panel_separator_is_the_grid_line() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4881,7 +4907,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito());
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -6321,23 +6347,32 @@ mod tests {
     /// otherwise show through wherever a partly transparent panel, Grid or
     /// Cell layer reveals the console surface beneath it.
     ///
+    /// Each appearance's backdrop is its own Theme's: eframe passes the
+    /// visuals of the appearance it presents, and the console's installed
+    /// styles say which appearance they belong to.
+    ///
     #[tokio::test]
     async fn clear_color_is_the_resolved_themes_opaque_window_background() {
         let ctx = egui::Context::default();
         let console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("Console::new");
-        let theme = okabe_ito();
 
-        assert_eq!(
-            theme.window_background.a(),
-            255,
-            "the built-in window backdrop must be opaque"
-        );
-        assert_eq!(
-            eframe::App::clear_color(&console, &egui::Visuals::dark()),
-            theme.window_background.to_normalized_gamma_f32(),
-            "the window's clear colour must be the Theme's own window_background"
-        );
+        for (slot, theme) in [
+            (egui::Theme::Dark, okabe_ito()),
+            (egui::Theme::Light, orcvs_light()),
+        ] {
+            assert_eq!(
+                theme.window_background.a(),
+                255,
+                "the built-in window backdrop must be opaque"
+            );
+            assert_eq!(
+                eframe::App::clear_color(&console, &ctx.style_of(slot).visuals),
+                theme.window_background.to_normalized_gamma_f32(),
+                "the {slot:?} clear colour must be {}'s own window_background",
+                theme.identity
+            );
+        }
     }
 
     ///
@@ -7867,13 +7902,15 @@ mod storage_tests {
     use orcvs::source::SourceCommander;
 
     use super::Console;
+    use super::tests::assert_chrome;
     use crate::persistence::{
         DARK_THEME_KEY, InMemoryStorage, LIGHT_THEME_KEY, REFUSED_KEY, SOURCE_KEY, edited_source,
         starting_source, store,
     };
     #[cfg(not(target_arch = "wasm32"))]
     use crate::persistence::{IsolatedRonDir, RonFileStorage};
-    use crate::theme::okabe_ito;
+    use crate::theme::{Appearance, okabe_ito, orcvs_light};
+    use crate::theme_selection::{my_dark, with_stand_ins};
 
     ///
     /// Storage holding a value no build can read back, and that value, so a
@@ -7985,23 +8022,19 @@ mod storage_tests {
     }
 
     ///
-    /// The other half of `.scratch/theming/schema.md`'s interim acceptance
-    /// line: "preserve the stored mode and Theme references without
-    /// activating distinct selections." A restored `dark_theme`/`light_theme`
-    /// identity that names no built-in (`"my-dark"`/`"my-light"`, standing in
-    /// for whatever `.scratch/theming/issues/07`'s future loader would fail
-    /// to resolve today) must not perturb the shared Okabe–Ito presentation —
-    /// `Console::new` never reads `Persistence`'s restored identities to
-    /// build `theme` — and the identity itself must round-trip through a
-    /// save unchanged, not get silently reset to the built-in default by the
-    /// very presentation that ignores it.
+    /// Restored dark and light Theme references. A reference no available
+    /// Theme of its appearance answers to — `"my-dark"` before anything
+    /// makes it available — presents that appearance's default built-in,
+    /// chrome and Source alike, and saves back unchanged rather than being
+    /// reset by the fallback (ADR 0053: the fallback "never replaces the
+    /// saved Theme selection, including on autosave"). The same restored
+    /// reference, once a Theme answers to it, presents that Theme.
     ///
     #[tokio::test]
-    async fn a_restored_non_default_theme_identity_still_presents_okabe_ito_and_saves_back_unchanged()
-     {
+    async fn restored_theme_references_are_presented_or_fall_back_and_save_back_unchanged() {
         let mut storage = InMemoryStorage::default();
         eframe::Storage::set_string(&mut storage, DARK_THEME_KEY, "my-dark".to_owned());
-        eframe::Storage::set_string(&mut storage, LIGHT_THEME_KEY, "my-light".to_owned());
+        eframe::Storage::set_string(&mut storage, LIGHT_THEME_KEY, "orcvs-light".to_owned());
 
         // `console_over` builds its own `Context` and does not expose it,
         // so this repeats its shape rather than reusing it, to keep a handle
@@ -8011,29 +8044,75 @@ mod storage_tests {
         cc.storage = Some(&storage);
         let mut console = Console::new(&cc).expect("the test runtime");
 
-        assert_eq!(
-            console.theme,
-            okabe_ito(),
-            "a restored non-default Theme identity changed Source's own Theme"
-        );
-        assert_eq!(
-            ctx.style_of(egui::Theme::Dark).visuals,
-            crate::style::style(&okabe_ito()).visuals,
-            "a restored non-default Theme identity changed the installed chrome"
+        assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
+        assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
+        assert_chrome(
+            &ctx,
+            &okabe_ito(),
+            &orcvs_light(),
+            "an unavailable dark reference beside a restored light one",
         );
 
         let mut written = InMemoryStorage::default();
         console.save(&mut written);
-
         assert_eq!(
             eframe::Storage::get_string(&written, DARK_THEME_KEY).as_deref(),
             Some("my-dark"),
-            "the restored dark Theme identity was not saved back unchanged"
+            "the fallback rewrote the restored dark Theme reference"
         );
         assert_eq!(
             eframe::Storage::get_string(&written, LIGHT_THEME_KEY).as_deref(),
-            Some("my-light"),
-            "the restored light Theme identity was not saved back unchanged"
+            Some("orcvs-light"),
+            "the restored light Theme reference was not saved back unchanged"
+        );
+
+        let available = with_stand_ins(console.themes.selection().clone());
+        assert_eq!(
+            *available.presented(Appearance::Dark),
+            my_dark(),
+            "a restored reference did not present the Theme it names once available"
+        );
+    }
+
+    ///
+    /// The light key every build before `.scratch/theming/issues/04` wrote:
+    /// `okabe-ito`, a dark Theme, which no light Theme answers to. Started
+    /// through `Console::new` the way eframe starts an existing install, it
+    /// presents Orcvs Light for the light appearance — chrome and the Theme
+    /// the Source reads alike — and saves back unchanged: the fallback never
+    /// rewrites the selection (ADR 0053), and nothing tells it apart from a
+    /// file `.scratch/theming/issues/07` has yet to find.
+    ///
+    #[tokio::test]
+    async fn an_earlier_builds_light_theme_key_presents_orcvs_light_and_is_kept() {
+        let mut storage = InMemoryStorage::default();
+        eframe::Storage::set_string(&mut storage, LIGHT_THEME_KEY, "okabe-ito".to_owned());
+
+        let ctx = egui::Context::default();
+        let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        cc.storage = Some(&storage);
+        let mut console = Console::new(&cc).expect("the test runtime");
+
+        assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
+        assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
+        assert_chrome(
+            &ctx,
+            &okabe_ito(),
+            &orcvs_light(),
+            "an earlier build's light key beside an absent dark key",
+        );
+
+        let mut written = InMemoryStorage::default();
+        console.save(&mut written);
+        assert_eq!(
+            eframe::Storage::get_string(&written, LIGHT_THEME_KEY).as_deref(),
+            Some("okabe-ito"),
+            "the fallback rewrote an earlier build's light Theme key"
+        );
+        assert_eq!(
+            eframe::Storage::get_string(&written, DARK_THEME_KEY).as_deref(),
+            Some("okabe-ito"),
+            "an absent dark key did not save as its default"
         );
     }
 

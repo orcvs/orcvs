@@ -733,40 +733,31 @@ pub fn style(theme: &Theme) -> Style {
 }
 
 ///
-/// Registers [`style`] of `theme` for both [`egui::Theme::Dark`] and
-/// [`egui::Theme::Light`] through [`egui::Context::set_style_of`], sharing
-/// one `Arc<Style>` between the two slots, and touches nothing else on
-/// `ctx` — in particular it never calls [`egui::Context::set_theme`].
+/// Registers [`style`] of `dark` for [`egui::Theme::Dark`] and of `light`
+/// for [`egui::Theme::Light`] through [`egui::Context::set_style_of`], and
+/// touches nothing else on `ctx` — in particular it never calls
+/// [`egui::Context::set_theme`].
 ///
 /// `ThemePreference` is part of the `Options` eframe restores into egui
 /// memory before it constructs the application, but eframe restores memory
 /// without reinstalling a style. `Console::new` calls this every launch so
-/// both theme slots hold the console style before the first frame, whatever
-/// the preference resolves to; a `set_theme` call here would overwrite the
-/// very value just restored.
+/// both slots hold the console's style before the first frame, whatever the
+/// preference resolves to; a `set_theme` call here would overwrite the very
+/// value just restored (`.scratch/theming/issues/02`). The console calls it
+/// again when a viewer picks a different Theme for either appearance.
 ///
-/// Both slots take the *same* resolved Theme until `.scratch/theming/
-/// issues/04` supplies and accepts a light Theme: `.scratch/theming/
-/// schema.md`'s acceptance boundary, "Through `03`, retain `02`'s shared
-/// presentation: register the same resolved Okabe–Ito style in both egui
-/// appearance slots and render Source from that same Theme, preserving
-/// saved preferences. `04` owns replacing this with distinct registration
-/// and the switching acceptance tests." `Console::new` passes the one
-/// `okabe_ito()` build — never the dark/light Theme identities
-/// `Persistence` restores — so a viewer whose preference resolves to Light
-/// still sees the one console style rather than egui's own default light
-/// style beside a Grid painted from a different Theme, and OS appearance
-/// changes never split the two slots apart.
+/// egui then chooses the slot each frame from the preference and the
+/// operating system's appearance, and the console paints the Source from
+/// the Theme of the same appearance (`Console::ui`), so chrome and Source
+/// never come from different Themes.
 ///
-pub(crate) fn install(ctx: &egui::Context, theme: &Theme) {
-    let style = Arc::new(style(theme));
-    ctx.set_style_of(egui::Theme::Dark, Arc::clone(&style));
-    ctx.set_style_of(egui::Theme::Light, style);
+pub(crate) fn install(ctx: &egui::Context, dark: &Theme, light: &Theme) {
+    ctx.set_style_of(egui::Theme::Dark, Arc::new(style(dark)));
+    ctx.set_style_of(egui::Theme::Light, Arc::new(style(light)));
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use super::{
         CellVisuals, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_visuals_with_cursor_colour,
@@ -2364,7 +2355,7 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_theme(egui::ThemePreference::Light);
 
-        install(&ctx, &okabe_ito());
+        install(&ctx, &okabe_ito(), &orcvs_light());
 
         assert_eq!(
             ctx.options(|options| options.theme_preference),
@@ -2374,56 +2365,37 @@ mod tests {
     }
 
     ///
-    /// The interim registration `.scratch/theming/schema.md`'s acceptance
-    /// boundary names: "Through `03`, retain `02`'s shared presentation:
-    /// register the same resolved Okabe–Ito style in both egui appearance
-    /// slots." Both theme slots take the one style `install` installs, so a
-    /// preference that resolves to Light must not leave the Light slot at
-    /// egui's own default style while the Dark slot — and the Source Grid —
-    /// carry the console's own. Distinct dark/light registration is `04`'s
-    /// acceptance, not this issue's — there is no settings pair here to
-    /// diverge, only the one `theme` argument.
+    /// `.scratch/theming/issues/04`: `style()` of the selected dark Theme
+    /// for `egui::Theme::Dark` and of the selected light Theme for
+    /// `egui::Theme::Light`, each registered through `set_style_of`.
     ///
     /// The comparison is `Visuals` and `animation_time`, the two fields
     /// [`style`] actually sets, rather than `Style`'s own `PartialEq`:
     /// `Style::number_formatter` compares by `Arc::ptr_eq`
     /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
     /// `Style::default()`s — one inside each `style()` call — never compare
-    /// equal on that field alone, whatever their visible content. The two
-    /// theme slots are additionally asserted to share one `Arc`, which
-    /// sidesteps that field entirely by construction.
+    /// equal on that field alone, whatever their visible content.
     ///
     #[test]
-    fn install_shares_one_style_between_both_theme_slots() {
+    fn install_registers_each_appearances_own_theme() {
         let ctx = egui::Context::default();
 
-        install(&ctx, &okabe_ito());
+        install(&ctx, &okabe_ito(), &orcvs_light());
 
-        let dark = ctx.style_of(egui::Theme::Dark);
-        let light = ctx.style_of(egui::Theme::Light);
-        assert!(
-            Arc::ptr_eq(&dark, &light),
-            "Dark and Light were not registered from the one console style"
-        );
-
-        let expected = style(&okabe_ito());
-        assert_eq!(
-            light.visuals, expected.visuals,
-            "the installed style's Visuals do not match style(&okabe_ito())"
-        );
-        assert_eq!(
-            light.animation_time, expected.animation_time,
-            "the installed style's animation_time does not match style(&okabe_ito())"
-        );
+        for (slot, theme) in [
+            (egui::Theme::Dark, okabe_ito()),
+            (egui::Theme::Light, orcvs_light()),
+        ] {
+            let installed = ctx.style_of(slot);
+            let expected = style(&theme);
+            assert_eq!(
+                installed.visuals, expected.visuals,
+                "the {slot:?} slot does not hold style(&{})",
+                theme.identity
+            );
+            assert_eq!(installed.animation_time, expected.animation_time);
+        }
     }
-
-    // The OS-appearance-change and restored-non-default-identity cases the
-    // interim registration must hold under move to `console::tests` — they
-    // need a real `Console` running real frames (`RawInput::system_theme`,
-    // `Persistence`), which this module has no access to. `install_shares_
-    // one_style_between_both_theme_slots` above stays the unit-level proof
-    // that `install` itself always shares one `Arc`, independent of
-    // `ThemePreference`, by construction.
 
     ///
     /// Pins `cell_visuals_with_cursor_colour`'s answer for a representative

@@ -29,8 +29,23 @@ use egui::Color32;
 pub(crate) enum Appearance {
     Dark,
     /// [`orcvs_light`] declares this, and a custom document inherits it from
-    /// that built-in once `.scratch/theming/issues/07`'s parser exists.
+    /// that built-in.
     Light,
+}
+
+///
+/// egui's own dark/light appearance is the one a Theme declares: the console
+/// registers each appearance's Theme in the egui slot of the same name
+/// (`crate::style::install`), and presents the Source from the Theme of the
+/// appearance egui is presenting.
+///
+impl From<egui::Theme> for Appearance {
+    fn from(theme: egui::Theme) -> Self {
+        match theme {
+            egui::Theme::Dark => Self::Dark,
+            egui::Theme::Light => Self::Light,
+        }
+    }
 }
 
 // === Bounded widths ===
@@ -557,9 +572,8 @@ const fn straight_rgba(rgba: u32) -> Color32 {
     Color32::from_rgba_unmultiplied_const(r, g, b, a)
 }
 
-/// The reserved identity of the Okabe–Ito built-in, and the default both the
-/// dark and light Theme name settings hold until a viewer picks another —
-/// `console/src/persistence.rs` restores both from this same identity.
+/// The reserved identity of the Okabe–Ito built-in, and the dark Theme
+/// selection's default and fallback (`crate::theme_selection`).
 ///
 pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
 
@@ -692,9 +706,9 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
 /// Sequence is `#0072B2` unchanged: no reachable state draws a glyph in it,
 /// so only its tint reaches the screen. `console/src/theme.md` records each
 /// value, its hue and lightness, the measured ratios and the colour-vision
-/// separations; the user accepts or rejects the result there, and until then
-/// nothing selects this Theme — `console/src/style.rs::install` still
-/// registers the one resolved Okabe–Ito style in both egui appearance slots.
+/// separations. The user accepted that definition on 2026-09-23. It is the
+/// light Theme selection's default and fallback (`crate::theme_selection`),
+/// which `crate::style::install` registers for `egui::Theme::Light`.
 ///
 /// `orcvs_light_defines_every_key_at_the_recorded_values` in this module's
 /// tests pins every field against that record, and

@@ -77,10 +77,15 @@
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
 
 use egui::{CursorIcon, Event, Key, Modifiers, PointerButton, Pos2, Vec2};
-use egui_kittest::{Harness, kittest::Queryable as _};
+use egui_kittest::{
+    Harness,
+    kittest::{NodeT as _, Queryable as _},
+};
 
 use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
+use crate::theme::{Appearance, okabe_ito, orcvs_light};
+use crate::theme_selection::{SelectedThemes, ThemeSelection, my_dark, my_light, with_stand_ins};
 
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
@@ -267,49 +272,480 @@ async fn glitch_controls_are_offered_only_by_the_settings_menu() {
     );
 }
 
-///
-/// `.scratch/theming/issues/03` prepares the picker filter's *intent* — a
-/// future caller lists a dark/light picker's Themes by appearance — but
-/// leaves the picker itself unexposed — `.scratch/theming/schema.md`:
-/// "Switching remains unexposed until that acceptance and coherent Source/
-/// chrome rendering." `04` exposes the pickers together with the mode
-/// control once user review accepts a complete light Theme; this proves
-/// the negative until then.
-///
-/// Deliberately does not assume a "Theme" menu exists to click into:
-/// `theming/09` removes it once its remaining Cursor-effects sliders move
-/// elsewhere, and `04`'s eventual picker may not live under that name
-/// either. This instead opens every top-level bar menu that currently
-/// exists and checks each — plus the bar's own resting state — for the
-/// absence of picker labels, so the test survives either change.
-///
-#[tokio::test]
-async fn no_picker_labels_appear_anywhere_in_the_top_bar() {
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
-    harness.run_steps(2);
+// === Theme switching (`.scratch/theming/issues/04`) ===
 
-    let picker_labels = ["Dark Theme", "Light Theme", "Appearance", "System"];
-    let assert_no_picker_labels = |harness: &Harness<'_, Console>, where_: &str| {
-        for label in picker_labels {
-            assert_eq!(
-                harness.query_all_by_label(label).count(),
-                0,
-                "a {label:?} picker control already exists {where_}"
+///
+/// Every filled rectangle the last frame painted, on every layer.
+///
+fn painted_fills(harness: &Harness<'_, Console>) -> Vec<egui::Color32> {
+    fn collect(shape: &egui::Shape, fills: &mut Vec<egui::Color32>) {
+        match shape {
+            egui::Shape::Rect(rect) => fills.push(rect.fill),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, fills);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut fills = Vec::new();
+    for clipped in &harness.output().shapes {
+        collect(&clipped.shape, &mut fills);
+    }
+    fills
+}
+
+///
+/// That the last frame painted `expected` throughout, and none of `others`:
+/// the Source Grid's ground is `expected`'s `grid.background` and the
+/// chrome's panels are its `panel.background`. One frame's shapes carry both
+/// halves, so a frame that painted the Source from one Theme and the chrome
+/// from another fails here.
+///
+fn assert_frame_paints(
+    harness: &Harness<'_, Console>,
+    expected: &crate::theme::Theme,
+    others: &[crate::theme::Theme],
+    context: &str,
+) {
+    let fills = painted_fills(harness);
+    assert!(
+        fills.contains(&expected.grid_background),
+        "{context}: the Source Grid was not painted on {}'s grid.background",
+        expected.identity
+    );
+    assert!(
+        fills.contains(&expected.panel_background),
+        "{context}: the chrome was not painted on {}'s panel.background",
+        expected.identity
+    );
+    for other in others {
+        for (key, colour) in [
+            ("grid.background", other.grid_background),
+            ("panel.background", other.panel_background),
+        ] {
+            assert!(
+                !fills.contains(&colour),
+                "{context}: the frame also painted {}'s {key}",
+                other.identity
             );
         }
-    };
-
-    assert_no_picker_labels(&harness, "in the top bar's resting state");
-
-    for menu in ["File", "View", "Theme"] {
-        let Some(button) = harness.query_by_label(menu) else {
-            continue;
-        };
-        button.click();
-        harness.step();
-        harness.run_steps(1);
-        assert_no_picker_labels(&harness, &format!("in the {menu:?} menu"));
     }
+}
+
+///
+/// [`assert_frame_paints`], and that nothing is waiting to change it: egui's
+/// active style is `style(expected)` and the window backdrop eframe clears
+/// to is `expected`'s `window.background`.
+///
+fn assert_frame_presents(
+    harness: &Harness<'_, Console>,
+    expected: &crate::theme::Theme,
+    others: &[crate::theme::Theme],
+    context: &str,
+) {
+    assert_frame_paints(harness, expected, others, context);
+    let style = harness.ctx.global_style();
+    let mut expected_visuals = crate::style::style(expected).visuals;
+    // The harness turns caret blinking off so its frames are deterministic;
+    // that one field is the harness's, not the Theme's.
+    expected_visuals.text_cursor.blink = style.visuals.text_cursor.blink;
+    assert_eq!(
+        style.visuals, expected_visuals,
+        "{context}: egui's active style is not {}'s",
+        expected.identity
+    );
+    assert_eq!(
+        eframe::App::clear_color(harness.state(), &style.visuals),
+        expected.window_background.to_normalized_gamma_f32(),
+        "{context}: the window backdrop is not {}'s",
+        expected.identity
+    );
+}
+
+///
+/// A running console whose OS appearance is `system`, with every frame's
+/// input saying so the way the platform integration reports it, and whose
+/// mode follows the OS.
+///
+/// The harness holds `ThemePreference::Dark` by default; this returns it to
+/// `System`, egui's own default and what a fresh install starts from.
+///
+fn console_under_os_appearance(system: egui::Theme) -> Harness<'static, Console> {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.ctx.set_theme(egui::ThemePreference::System);
+    harness.input_mut().system_theme = Some(system);
+    harness.run_steps(2);
+    harness
+}
+
+///
+/// Opens the View menu and clicks the control labelled `label` in it, then
+/// runs the frame the click lands in and the frame that presents it.
+///
+fn choose_in_view_menu(harness: &mut Harness<'_, Console>, label: &str) {
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label(label).click();
+    harness.step();
+    harness.run_steps(1);
+}
+
+///
+/// Gives the running console `themes` to select from and present, the way
+/// `Console::new` does with the ones it builds: held as the console's own,
+/// and installed as egui's dark and light styles, so the chrome and the
+/// Source start from the same pair whatever `themes` presents.
+///
+fn offer_themes(harness: &mut Harness<'_, Console>, themes: SelectedThemes) {
+    themes.install(&harness.ctx);
+    harness.state_mut().themes = themes;
+}
+
+///
+/// Whether the View menu's radio button labelled `label` is shown selected.
+///
+fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
+    harness.get_by_label(label).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+}
+
+///
+/// `.scratch/theming/issues/04`: the View menu holds the mode — follow the
+/// OS, Dark, Light — beside a dark Theme picker and a light Theme picker,
+/// and each picker lists only Themes of its appearance. `my-dark` and
+/// `my-light` stand in for loaded Themes so each picker has two to list.
+///
+/// Where a Theme is listed is read from the menu's own layout: each picker
+/// is a heading followed by its Themes, so a Theme belongs to the picker
+/// whose heading is the nearest one above it.
+///
+#[tokio::test]
+async fn the_view_menu_offers_the_mode_beside_a_theme_picker_per_appearance() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    harness.run_steps(2);
+
+    for label in ["Follow the OS", "Dark Theme", "Okabe–Ito", "Orcvs Light"] {
+        assert!(
+            harness.query_by_label(label).is_none(),
+            "{label:?} was in the tree before the View menu was opened"
+        );
+    }
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+
+    for label in ["Follow the OS", "Dark", "Light"] {
+        assert!(
+            harness.query_by_label(label).is_some(),
+            "the View menu does not offer the {label:?} mode"
+        );
+    }
+    let top = |label: &str| harness.get_by_label(label).rect().min.y;
+    let dark_heading = top("Dark Theme");
+    let light_heading = top("Light Theme");
+    assert!(dark_heading < light_heading);
+    for dark in ["Okabe–Ito", "My Dark"] {
+        let at = top(dark);
+        assert!(
+            dark_heading < at && at < light_heading,
+            "{dark:?} is not listed in the dark Theme picker"
+        );
+    }
+    for light in ["Orcvs Light", "My Light"] {
+        assert!(
+            top(light) > light_heading,
+            "{light:?} is not listed in the light Theme picker"
+        );
+    }
+    for listed in ["Okabe–Ito", "My Dark", "Orcvs Light", "My Light"] {
+        assert_eq!(
+            harness.query_all_by_label(listed).count(),
+            1,
+            "{listed:?} is listed by more than its own appearance's picker"
+        );
+    }
+}
+
+///
+/// The mode control, under an OS in dark appearance: holding Light presents
+/// Orcvs Light whatever the OS says, and Follow the OS returns to the OS's
+/// appearance. The frame a choice is made in is still wholly the old Theme;
+/// the next is wholly the new one. The mode is egui's `ThemePreference`,
+/// which eframe persists with egui memory.
+///
+#[tokio::test]
+async fn the_mode_switches_source_and_chrome_together() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    assert_frame_presents(
+        &harness,
+        &okabe_ito(),
+        &[orcvs_light()],
+        "following a dark OS",
+    );
+
+    choose_in_view_menu(&mut harness, "Light");
+    assert_eq!(
+        harness.ctx.options(|options| options.theme_preference),
+        egui::ThemePreference::Light
+    );
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "holding Light");
+
+    choose_in_view_menu(&mut harness, "Follow the OS");
+    assert_eq!(
+        harness.ctx.options(|options| options.theme_preference),
+        egui::ThemePreference::System
+    );
+    harness.run_steps(1);
+    assert_frame_presents(
+        &harness,
+        &okabe_ito(),
+        &[orcvs_light()],
+        "following a dark OS again",
+    );
+}
+
+///
+/// The frame a mode is chosen in is presented in the appearance it began
+/// in — chrome and Source both — and the change reaches the next frame.
+///
+/// The Diagnostics window is open because it is chrome egui styles when it
+/// is shown, after the menu bar: a change applied the moment it was clicked
+/// would style it from the new Theme within the old frame.
+///
+#[tokio::test]
+async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    harness.state_mut().diagnostics_open = true;
+    harness.run_steps(1);
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+
+    harness.get_by_label("Light").click();
+    harness.step();
+    assert_eq!(
+        harness.ctx.options(|options| options.theme_preference),
+        egui::ThemePreference::Light,
+        "the click did not reach the mode"
+    );
+    assert_frame_paints(
+        &harness,
+        &okabe_ito(),
+        &[orcvs_light()],
+        "the frame Light was chosen in",
+    );
+
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "the frame after");
+}
+
+///
+/// An operating-system appearance change, arriving as
+/// `RawInput::system_theme` the way egui's integrations report it, switches
+/// Source and chrome together while the mode follows the OS — and changes
+/// nothing while the mode holds one appearance.
+///
+#[tokio::test]
+async fn an_os_appearance_change_switches_source_and_chrome_together() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "a dark OS");
+
+    harness.input_mut().system_theme = Some(egui::Theme::Light);
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "a light OS");
+
+    harness.input_mut().system_theme = Some(egui::Theme::Dark);
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "a dark OS again");
+
+    choose_in_view_menu(&mut harness, "Dark");
+    harness.input_mut().system_theme = Some(egui::Theme::Light);
+    harness.run_steps(2);
+    assert_frame_presents(
+        &harness,
+        &okabe_ito(),
+        &[orcvs_light()],
+        "holding Dark under a light OS",
+    );
+}
+
+///
+/// A dark Theme picker change restyles the chrome and repaints the Source
+/// from the picked Theme on the next frame, records the selection for the
+/// next save, and leaves the light appearance's Theme alone.
+///
+#[tokio::test]
+async fn picking_a_dark_theme_restyles_source_and_chrome() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &okabe_ito(), &[my_dark()], "before picking");
+
+    choose_in_view_menu(&mut harness, "My Dark");
+    harness.run_steps(1);
+    assert_frame_presents(
+        &harness,
+        &my_dark(),
+        &[okabe_ito(), orcvs_light(), my_light()],
+        "after picking My Dark",
+    );
+    let themes = &harness.state().themes;
+    assert_eq!(themes.selection().identity(Appearance::Dark), "my-dark");
+    assert_eq!(
+        themes.selection().identity(Appearance::Light),
+        "orcvs-light"
+    );
+    assert_eq!(
+        harness.ctx.style_of(egui::Theme::Light).visuals,
+        crate::style::style(&orcvs_light()).visuals,
+        "picking a dark Theme restyled the light appearance"
+    );
+
+    harness.input_mut().system_theme = Some(egui::Theme::Light);
+    harness.run_steps(1);
+    assert_frame_presents(
+        &harness,
+        &orcvs_light(),
+        &[my_dark(), okabe_ito()],
+        "a light OS after picking My Dark",
+    );
+}
+
+///
+/// The light Theme picker, under a light OS: picking a light Theme restyles
+/// the chrome and repaints the Source from it on the next frame, records the
+/// selection for the next save, and leaves the dark appearance's Theme alone.
+///
+#[tokio::test]
+async fn picking_a_light_theme_restyles_source_and_chrome() {
+    let mut harness = console_under_os_appearance(egui::Theme::Light);
+    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &orcvs_light(), &[my_light()], "before picking");
+
+    choose_in_view_menu(&mut harness, "My Light");
+    harness.run_steps(1);
+    assert_frame_presents(
+        &harness,
+        &my_light(),
+        &[orcvs_light(), okabe_ito(), my_dark()],
+        "after picking My Light",
+    );
+    let themes = &harness.state().themes;
+    assert_eq!(themes.selection().identity(Appearance::Light), "my-light");
+    assert_eq!(themes.selection().identity(Appearance::Dark), "okabe-ito");
+    assert_eq!(
+        harness.ctx.style_of(egui::Theme::Dark).visuals,
+        crate::style::style(&okabe_ito()).visuals,
+        "picking a light Theme restyled the dark appearance"
+    );
+
+    harness.input_mut().system_theme = Some(egui::Theme::Dark);
+    harness.run_steps(1);
+    assert_frame_presents(
+        &harness,
+        &okabe_ito(),
+        &[my_light(), orcvs_light()],
+        "a dark OS after picking My Light",
+    );
+}
+
+///
+/// The frame a Theme is picked in is presented wholly in the Theme it began
+/// in — chrome and Source both — and the picked Theme reaches the next
+/// frame. The Diagnostics window is open for the reason
+/// `the_frame_a_mode_is_chosen_in_keeps_one_theme` gives: it is chrome egui
+/// styles after the menu bar, so a pick applied on click would style it from
+/// the new Theme within the old frame.
+///
+#[tokio::test]
+async fn the_frame_a_theme_is_picked_in_keeps_one_theme() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    harness.state_mut().diagnostics_open = true;
+    harness.run_steps(1);
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+
+    harness.get_by_label("My Dark").click();
+    harness.step();
+    assert_eq!(
+        harness
+            .state()
+            .themes
+            .selection()
+            .identity(Appearance::Dark),
+        "my-dark",
+        "the click did not reach the dark Theme selection"
+    );
+    assert_frame_paints(
+        &harness,
+        &okabe_ito(),
+        &[my_dark()],
+        "the frame My Dark was picked in",
+    );
+
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "the frame after");
+}
+
+///
+/// A restored dark selection no available Theme answers to presents
+/// Okabe–Ito, and the dark picker shows Okabe–Ito as selected, because that
+/// is what is presented. Picking it is then the viewer's own choice, and
+/// replaces the kept selection — `.scratch/theming/issues/07`'s rule is that
+/// the *fallback* never rewrites a selection, and this is not the fallback.
+///
+#[tokio::test]
+async fn picking_the_fallback_theme_replaces_a_kept_selection() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    offer_themes(
+        &mut harness,
+        SelectedThemes::new(ThemeSelection::new(
+            "my-dark".to_owned(),
+            "orcvs-light".to_owned(),
+        )),
+    );
+    harness.run_steps(1);
+    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "the fallback");
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        radio_selected(&harness, "Okabe–Ito"),
+        "the dark picker did not show the presented fallback as selected"
+    );
+    assert_eq!(
+        harness
+            .state()
+            .themes
+            .selection()
+            .identity(Appearance::Dark),
+        "my-dark",
+        "opening the menu rewrote the kept selection"
+    );
+
+    harness.get_by_label("Okabe–Ito").click();
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness
+            .state()
+            .themes
+            .selection()
+            .identity(Appearance::Dark),
+        "okabe-ito",
+        "picking the presented Theme did not become the selection"
+    );
+    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "after picking");
 }
 
 ///
