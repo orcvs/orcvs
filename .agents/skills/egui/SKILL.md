@@ -48,7 +48,7 @@ a kittest, and before attaching `egui-mcp`.
   the UI path; do not hold a mutex guard across a widget closure.
 - Widget identity is stable and derived from domain identity, never from a list
   position or a mutable display string.
-- Reuse the existing style, `PALETTE`, font, `GlyphTable`, and paint
+- Reuse the existing style, resolved `Theme`, font, `GlyphTable`, and paint
   infrastructure; do not rebuild a reusable rendering resource every frame.
 - Respect clipping, points against physical pixels, the owned transform,
   hit-testing, focus ownership, and input consumption. Rendering and

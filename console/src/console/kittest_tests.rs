@@ -268,6 +268,51 @@ async fn glitch_controls_are_offered_only_by_the_settings_menu() {
 }
 
 ///
+/// `.scratch/theming/issues/03` prepares the picker filter's *intent* — a
+/// future caller lists a dark/light picker's Themes by appearance — but
+/// leaves the picker itself unexposed — `.scratch/theming/schema.md`:
+/// "Switching remains unexposed until that acceptance and coherent Source/
+/// chrome rendering." `04` exposes the pickers together with the mode
+/// control once user review accepts a complete light Theme; this proves
+/// the negative until then.
+///
+/// Deliberately does not assume a "Theme" menu exists to click into:
+/// `theming/09` removes it once its remaining Cursor-effects sliders move
+/// elsewhere, and `04`'s eventual picker may not live under that name
+/// either. This instead opens every top-level bar menu that currently
+/// exists and checks each — plus the bar's own resting state — for the
+/// absence of picker labels, so the test survives either change.
+///
+#[tokio::test]
+async fn no_picker_labels_appear_anywhere_in_the_top_bar() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    let picker_labels = ["Dark Theme", "Light Theme", "Appearance", "System"];
+    let assert_no_picker_labels = |harness: &Harness<'_, Console>, where_: &str| {
+        for label in picker_labels {
+            assert_eq!(
+                harness.query_all_by_label(label).count(),
+                0,
+                "a {label:?} picker control already exists {where_}"
+            );
+        }
+    };
+
+    assert_no_picker_labels(&harness, "in the top bar's resting state");
+
+    for menu in ["File", "View", "Theme"] {
+        let Some(button) = harness.query_by_label(menu) else {
+            continue;
+        };
+        button.click();
+        harness.step();
+        harness.run_steps(1);
+        assert_no_picker_labels(&harness, &format!("in the {menu:?} menu"));
+    }
+}
+
+///
 /// The Source's own input path, which is keyboard rather than widget.
 ///
 /// A key press reaches `Context::filtered_events`, survives the console's

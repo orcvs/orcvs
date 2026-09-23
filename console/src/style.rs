@@ -6,53 +6,7 @@ use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selecti
 
 use orcvs::source::{OperandState, SourcePaint, Token};
 
-use crate::theme::Theme;
-
-///
-/// The chrome baseline `style()` opens with, before ADR 0053's chrome
-/// derivation (`.scratch/theming/issues/03`) reads the resolved Theme for
-/// these too. Spelled out here rather than read from [`crate::theme::okabe_ito`]
-/// so this module states its own baseline independently of the Theme model —
-/// the two are cross-checked in `theme::tests::okabe_ito_matches_todays_style_and_palette_constants`.
-///
-pub(crate) const DEFAULT_SOURCE_BACKGROUND: Color32 = Color32::from_rgb(0, 0, 0); // #000000 black
-pub(crate) const DEFAULT_ORDINARY: Color32 = Color32::from_rgb(234, 235, 229); // #EAEBE5
-pub(crate) const DEFAULT_BANG: Color32 = Color32::from_rgb(204, 121, 167); // #CC79A7 reddish purple
-
-///
-/// The console's fixed palette: chrome, grid geometry, and Cursor/selection
-/// colours a viewer does not retheme.
-///
-/// The Source background and every Token's glyph colour used to live here too,
-/// but `syntax-highlighting/01` moved them into `SourcePaintSettings` — a
-/// console-owned settings value a viewer edited under `Theme → Source colours`
-/// and persistence restored independently — so the Source Grid painted from a
-/// value rather than from this fixed constant. `.scratch/theming/issues/06`
-/// then removed `SourcePaintSettings` outright: every Source colour, border
-/// and width, including the Cell grid line and Sector Seam this struct used
-/// to hold on chrome's behalf, now comes from the resolved
-/// [`crate::theme::Theme`]. What remains here is chrome's own baseline,
-/// consumed by [`style`] and this module's `install_style` until
-/// `.scratch/theming/issues/03` derives it from that same Theme.
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConsolePalette {
-    pub page: Color32,
-    pub grid_line: Color32,
-    pub sector_line: Color32,
-    pub selection_fill: Color32,
-    pub selection_stroke_rest: Color32,
-    pub selection_stroke: Color32,
-}
-
-pub const PALETTE: ConsolePalette = ConsolePalette {
-    page: Color32::from_rgb(11, 17, 18), // #0B1112
-    grid_line: Color32::from_rgba_unmultiplied_const(29, 55, 49, 72),
-    sector_line: Color32::from_rgba_unmultiplied_const(55, 101, 86, 110),
-    selection_fill: Color32::from_rgb(10, 42, 34), // #0A2A22
-    selection_stroke_rest: Color32::from_rgb(82, 195, 163), // #52C3A3
-    selection_stroke: Color32::from_rgb(101, 230, 190), // #65E6BE
-};
+use crate::theme::{Appearance, Theme};
 
 ///
 /// `border_width` is in display points, already the fact-priority-selected
@@ -488,57 +442,154 @@ pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
 }
 
 ///
-/// The chrome style the console opens with.
+/// The chrome `Style` for one resolved Theme.
 ///
-/// Set once at `Console::new` rather than read every frame — unlike the
-/// Source Grid, egui's own `extreme_bg_color`, `faint_bg_color`,
-/// `error_fg_color` and `warn_fg_color` are not consulted per Cell, so there
-/// is no seam that would make them track a live Theme the way `show_source`
-/// does. They start at the Okabe–Ito built-in's own values so the chrome and
-/// the Grid agree on first paint. Deriving this baseline from the resolved
-/// Theme, rather than from the fixed constants above, is
-/// `.scratch/theming/issues/03`'s job, not this slice's.
+/// Every `Visuals` field the console sets — explicitly assigned fields and
+/// the toolkit's own inherited defaults alike — reads one of the named
+/// chrome keys `.scratch/theming/schema.md`'s Chrome mapping table lists:
+/// `panel.background`, `panel.border` (+ `.width`), `text`, `text.active`,
+/// `text.muted`, `input.background`, `selection.background`,
+/// `selection.border` (+ `.width`), `selection.border.rest`,
+/// `widget.inactive.border` (+ `.width`), `widget.border.width`, `link`,
+/// `code.background`, `input.cursor` (+ `.width`), `error` and `warning` —
+/// so a custom Theme's chrome follows its own colours and widths the same
+/// way the Source Grid already does (`.scratch/theming/issues/06`). After
+/// this, nothing the console draws is a compiled constant, and no toolkit
+/// default is a second, hidden fixed palette beside it.
 ///
-pub fn style() -> Style {
-    let mut visuals = Visuals::dark();
-    visuals.panel_fill = PALETTE.page;
-    visuals.window_fill = PALETTE.page;
-    visuals.extreme_bg_color = DEFAULT_SOURCE_BACKGROUND;
-    visuals.faint_bg_color = DEFAULT_SOURCE_BACKGROUND;
-    visuals.error_fg_color = DEFAULT_BANG;
-    visuals.warn_fg_color = DEFAULT_BANG;
+/// `visuals.weak_text_color` is set explicitly from `theme.text_muted`
+/// rather than left `None`: egui's own default derives a weak text colour
+/// from `text_color() * weak_text_alpha` (`egui-0.36.2/src/style.rs`'s
+/// `Visuals::weak_text_color`, `weak_text_alpha` defaulting to `0.6`), and
+/// the Okabe–Ito built-in's own `text_muted` value is `text`'s colour at
+/// that same `0.6` gamma multiply, so Okabe–Ito's chrome is unchanged while
+/// a custom Theme's `text.muted` is honoured instead of silently recomputed
+/// from `text` whatever the Theme actually declares.
+///
+/// `visuals.hyperlink_color`/`code_bg_color` read `link`/`code.background`
+/// directly: egui's own dark defaults for both already equal Okabe–Ito's
+/// values, which is exactly the "second fixed palette hidden in `Visuals`
+/// defaults" the schema's audit line exists to catch — a custom Theme's
+/// `link`/`code.background` would otherwise never reach these two fields.
+///
+/// `visuals.text_cursor.stroke` and `visuals.ime_composition`'s active
+/// underline both read `input.cursor`/`.width` — "Input caret and active
+/// IME underline" share one property pair. The inactive underline keeps
+/// egui's own half-linear attenuation (`Color32::linear_multiply(0.5)`,
+/// the same pattern `ImeComposition::dark`/`::light` already use) over that
+/// same colour rather than a second hardcoded one, and `legacy_visuals`
+/// stays whatever platform default `Visuals::dark`/`::light` chose — it is
+/// not a themed property.
+///
+/// `visuals.widgets.hovered`/`.active.fg_stroke` read `text.active`, not
+/// `selection.border`: Okabe–Ito's own values for the two happen to
+/// coincide, which is why reading the wrong key would still reproduce
+/// today's appearance — `hovered_and_active_foreground_reads_text_active_
+/// not_selection_border` retunes them apart to prove the wiring.
+///
+/// `Visuals::dark_mode`, and every other field `Visuals::dark`/`Visuals::light`
+/// set that this function does not override — the text colour-transfer
+/// function among them — follows `theme.appearance` by starting from the
+/// matching constructor rather than by flipping the flag alone:
+/// `docs/research/egui-theming.md`'s own reading of the upstream docs,
+/// "Merely changing `Visuals::dark_mode` does not convert a palette."
+///
+/// Typography, spacing, corner radii, shadows and gradients stay at
+/// `Visuals::dark`/`::light`'s own literal values — square corners
+/// (`CornerRadius::ZERO`), no shadows (`Shadow::NONE` on windows and
+/// popups) and no animation (`animation_time: 0.0`) among them — per
+/// `.scratch/theming/schema.md`: "These are not additional independently
+/// configurable controls." None of them reads `theme`.
+///
+/// Every chrome border and the input caret read their own bounded
+/// `ChromeWidth` (`0` to `2` display points inclusive, `0` hiding the
+/// stroke — `.scratch/theming/schema.md`'s width catalogue) rather than a
+/// literal `1.0`: `panel.border.width` for the panel/window/noninteractive
+/// border, `widget.border.width` for the hovered/active/open widget border,
+/// `widget.inactive.border.width` for the idle widget border (replacing the
+/// literal `Stroke::NONE` it used to be — the same absence today, since the
+/// default width is `0`, but now a Theme's own value rather than a
+/// hardcoded one), `selection.border.width` for text selection, and
+/// `input.cursor.width` for the caret and the active IME underline.
+///
+pub fn style(theme: &Theme) -> Style {
+    // Pairs a bounded `ChromeWidth` with its colour — every chrome border,
+    // the caret and the IME underlines are one of these pairs, so this
+    // replaces a repeated inline `Stroke::new(theme.x_width.points(), theme.x)`
+    // at each of the seven call sites below with the pairing itself.
+    fn bounded_stroke(width: crate::theme::ChromeWidth, colour: Color32) -> Stroke {
+        Stroke::new(width.points(), colour)
+    }
+
+    let mut visuals = match theme.appearance {
+        Appearance::Dark => Visuals::dark(),
+        Appearance::Light => Visuals::light(),
+    };
+    visuals.panel_fill = theme.panel_background;
+    visuals.window_fill = theme.panel_background;
+    visuals.extreme_bg_color = theme.input_background;
+    visuals.faint_bg_color = theme.input_background;
+    visuals.error_fg_color = theme.error;
+    visuals.warn_fg_color = theme.warning;
+    visuals.weak_text_color = Some(theme.text_muted);
+    visuals.hyperlink_color = theme.link;
+    visuals.code_bg_color = theme.code_background;
+    let caret = bounded_stroke(theme.input_cursor_width, theme.input_cursor);
+    visuals.text_cursor.stroke = caret;
+    visuals.ime_composition.active_underline_stroke = caret;
+    visuals.ime_composition.inactive_underline_stroke = Stroke {
+        width: caret.width,
+        color: caret.color.linear_multiply(0.5),
+    };
     visuals.selection = Selection {
-        bg_fill: PALETTE.selection_fill,
-        stroke: Stroke::new(1.0, PALETTE.selection_stroke),
+        bg_fill: theme.selection_background,
+        stroke: bounded_stroke(theme.selection_border_width, theme.selection_border),
     };
     visuals.window_corner_radius = CornerRadius::ZERO;
     visuals.menu_corner_radius = CornerRadius::ZERO;
     visuals.window_shadow = Shadow::NONE;
     visuals.popup_shadow = Shadow::NONE;
-    // `Frame::window` and `Panel`'s separator both read these.
-    // Cell `grid_line` is alpha for Source compositing; chrome is the same hue.
-    let chrome = Stroke::new(1.0, PALETTE.grid_line.to_opaque());
+    // `Frame::window` and `Panel`'s separator both read these — `panel.border`/
+    // `panel.border.width`, the "Panel/window/noninteractive border" row.
+    let chrome = bounded_stroke(theme.panel_border_width, theme.panel_border);
     visuals.window_stroke = chrome;
-    visuals.widgets.noninteractive.bg_fill = PALETTE.page;
-    visuals.widgets.noninteractive.weak_bg_fill = PALETTE.page;
+    visuals.widgets.noninteractive.bg_fill = theme.panel_background;
+    visuals.widgets.noninteractive.weak_bg_fill = theme.panel_background;
     visuals.widgets.noninteractive.bg_stroke = chrome;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, DEFAULT_ORDINARY);
-    visuals.widgets.inactive.bg_fill = PALETTE.page;
-    visuals.widgets.inactive.weak_bg_fill = PALETTE.page;
-    visuals.widgets.inactive.bg_stroke = Stroke::NONE;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, DEFAULT_ORDINARY);
-    visuals.widgets.hovered.bg_fill = PALETTE.selection_fill;
-    visuals.widgets.hovered.weak_bg_fill = PALETTE.selection_fill;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
-    visuals.widgets.active.bg_fill = PALETTE.selection_fill;
-    visuals.widgets.active.weak_bg_fill = PALETTE.selection_fill;
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
-    visuals.widgets.open.bg_fill = PALETTE.selection_fill;
-    visuals.widgets.open.weak_bg_fill = PALETTE.page;
-    visuals.widgets.open.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0, DEFAULT_ORDINARY);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, theme.text);
+    visuals.widgets.inactive.bg_fill = theme.panel_background;
+    visuals.widgets.inactive.weak_bg_fill = theme.panel_background;
+    // "Inactive widget border" — `widget.inactive.border`, `.width`: a real
+    // colour at width 0 by default, not `Stroke::NONE`, so a custom Theme
+    // that raises the width shows this colour instead of staying absent.
+    visuals.widgets.inactive.bg_stroke = bounded_stroke(
+        theme.widget_inactive_border_width,
+        theme.widget_inactive_border,
+    );
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, theme.text);
+    // "Hovered/active strong and weak fill" — `selection.background`.
+    visuals.widgets.hovered.bg_fill = theme.selection_background;
+    visuals.widgets.hovered.weak_bg_fill = theme.selection_background;
+    // "Hovered/open widget border" — `selection.border.rest`, `widget.border.width`.
+    visuals.widgets.hovered.bg_stroke =
+        bounded_stroke(theme.widget_border_width, theme.selection_border_rest);
+    // "Hovered/active widget foreground" — `text.active`, not `selection.border`:
+    // Okabe–Ito's own values for the two coincide, which is why reading the
+    // wrong key would still look right until a custom Theme set them apart.
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, theme.text_active);
+    visuals.widgets.active.bg_fill = theme.selection_background;
+    visuals.widgets.active.weak_bg_fill = theme.selection_background;
+    // "Active widget border" — `selection.border`, `widget.border.width`.
+    visuals.widgets.active.bg_stroke =
+        bounded_stroke(theme.widget_border_width, theme.selection_border);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0, theme.text_active);
+    // "Open widget weak fill" — `panel.background`; the strong fill and the
+    // border share the hovered/open row above.
+    visuals.widgets.open.bg_fill = theme.selection_background;
+    visuals.widgets.open.weak_bg_fill = theme.panel_background;
+    visuals.widgets.open.bg_stroke =
+        bounded_stroke(theme.widget_border_width, theme.selection_border_rest);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, theme.text);
     for widget in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -558,22 +609,33 @@ pub fn style() -> Style {
 }
 
 ///
-/// Registers [`style`] for both [`egui::Theme::Dark`] and [`egui::Theme::Light`]
-/// and touches nothing else on `ctx` — in particular it never calls
-/// [`egui::Context::set_theme`].
+/// Registers [`style`] of `theme` for both [`egui::Theme::Dark`] and
+/// [`egui::Theme::Light`] through [`egui::Context::set_style_of`], sharing
+/// one `Arc<Style>` between the two slots, and touches nothing else on
+/// `ctx` — in particular it never calls [`egui::Context::set_theme`].
 ///
 /// `ThemePreference` is part of the `Options` eframe restores into egui
 /// memory before it constructs the application, but eframe restores memory
 /// without reinstalling a style. `Console::new` calls this every launch so
-/// both theme slots hold the one console style before the first frame,
-/// whatever the preference resolves to; a `set_theme` call here would
-/// overwrite the very value just restored. One palette exists, so both
-/// slots take it — a viewer whose preference resolves to Light must not see
-/// egui's own default light style beside a Grid still painted from the dark
-/// `PALETTE`.
+/// both theme slots hold the console style before the first frame, whatever
+/// the preference resolves to; a `set_theme` call here would overwrite the
+/// very value just restored.
 ///
-pub(crate) fn install_style(ctx: &egui::Context) {
-    let style = Arc::new(style());
+/// Both slots take the *same* resolved Theme until `.scratch/theming/
+/// issues/04` supplies and accepts a light Theme: `.scratch/theming/
+/// schema.md`'s acceptance boundary, "Through `03`, retain `02`'s shared
+/// presentation: register the same resolved Okabe–Ito style in both egui
+/// appearance slots and render Source from that same Theme, preserving
+/// saved preferences. `04` owns replacing this with distinct registration
+/// and the switching acceptance tests." `Console::new` passes the one
+/// `okabe_ito()` build — never the dark/light Theme identities
+/// `Persistence` restores — so a viewer whose preference resolves to Light
+/// still sees the one console style rather than egui's own default light
+/// style beside a Grid painted from a different Theme, and OS appearance
+/// changes never split the two slots apart.
+///
+pub(crate) fn install(ctx: &egui::Context, theme: &Theme) {
+    let style = Arc::new(style(theme));
     ctx.set_style_of(egui::Theme::Dark, Arc::clone(&style));
     ctx.set_style_of(egui::Theme::Light, style);
 }
@@ -582,12 +644,9 @@ pub(crate) fn install_style(ctx: &egui::Context) {
 mod tests {
     use std::sync::Arc;
 
-    use super::{
-        CellVisuals, ConsolePalette, PALETTE, cell_visuals_with_cursor_colour, install_style,
-        sector_line, style,
-    };
-    use crate::theme::{Theme, okabe_ito};
-    use egui::{Color32, Stroke};
+    use super::{CellVisuals, cell_visuals_with_cursor_colour, install, sector_line, style};
+    use crate::theme::{Appearance, Theme, okabe_ito};
+    use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
     use orcvs::source::{OperandState, SourcePaint, Token};
 
     ///
@@ -615,7 +674,7 @@ mod tests {
             output_portal,
             false,
             false,
-            Some(PALETTE.selection_fill),
+            Some(theme.selection_background),
             theme,
         )
     }
@@ -646,25 +705,489 @@ mod tests {
     }
 
     ///
-    /// `theme.md` is the decided record for the fixed palette. These literals
-    /// are that record in `Color32` form: a later change to the chrome, grid
-    /// geometry, or Cursor/selection colours fails here, and the same commit
-    /// must change the document. The Source background and every Token's
-    /// glyph colour are pinned the same way in `theme::tests`, against
-    /// [`okabe_ito`] rather than this constant.
+    /// `theme.md` is the decided record for the chrome. These literals are
+    /// that record in `Color32` form, read through [`style`] rather than a
+    /// fixed palette constant: a later change to the chrome fails here, and
+    /// the same commit must change the document. The Source background and
+    /// every Token's glyph colour are pinned the same way in `theme::tests`,
+    /// against [`okabe_ito`] directly.
+    ///
+    /// Every field `style` sets is asserted here, field by field rather than
+    /// one `Visuals` equality, so a regression names the one field that
+    /// moved instead of a giant struct diff — the practical equivalent of
+    /// comparing the whole produced `Visuals` against the pre-`03` baseline,
+    /// since every value below is what that baseline already painted
+    /// (`weak_text_color`, `hyperlink_color`, `code_bg_color`, `text_cursor`
+    /// and the IME underlines were egui's own inherited defaults then, not
+    /// yet Theme-read, but numerically identical — that is the audit's own
+    /// point). **One exception, noted rather than hidden**:
+    /// `widgets.inactive.bg_stroke` was the literal `Stroke::NONE` before
+    /// this issue and is now `Stroke::new(0.0, theme.widget_inactive_border)`
+    /// — a real `Color32`, not `TRANSPARENT`, at zero width. Both paint
+    /// nothing (`chrome_border_widths_come_from_the_theme` pins the zero
+    /// width; the geometry step, not this one, drops a zero-width stroke),
+    /// so the *visible* chrome is unchanged, but the value itself is not
+    /// byte-identical to the old constant, which is why this is called out
+    /// explicitly instead of asserted as `Stroke::NONE`.
     ///
     #[test]
-    fn palette_tokens_match_the_decided_record() {
+    fn okabe_ito_chrome_matches_the_decided_record() {
+        let theme = okabe_ito();
+        let visuals = style(&theme).visuals;
+        let page = Color32::from_rgb(11, 17, 18); // #0B1112
+        let panel_border = Color32::from_rgba_unmultiplied_const(29, 55, 49, 72).to_opaque();
+        let ordinary = Color32::from_rgb(234, 235, 229); // #EAEBE5
+        let selection_fill = Color32::from_rgb(10, 42, 34); // #0A2A22
+        let selection_stroke_rest = Color32::from_rgb(82, 195, 163); // #52C3A3
+        let selection_stroke = Color32::from_rgb(101, 230, 190); // #65E6BE
+        let bang = Color32::from_rgb(204, 121, 167); // #CC79A7
+        let hyperlink = Color32::from_rgb(90, 170, 255); // #5AAAFF
+        let code_background = Color32::from_rgb(64, 64, 64); // #404040
+        let input_cursor = Color32::from_rgb(192, 222, 255); // #C0DEFF
+        let widget_inactive_border = Color32::from_rgb(28, 57, 50); // #1C3932
+
+        assert!(visuals.dark_mode, "Okabe–Ito is a dark Theme");
+
+        // panel.background: page fill, everywhere it applies.
+        assert_eq!(visuals.panel_fill, page);
+        assert_eq!(visuals.window_fill, page);
+        assert_eq!(visuals.widgets.noninteractive.bg_fill, page);
+        assert_eq!(visuals.widgets.noninteractive.weak_bg_fill, page);
+        assert_eq!(visuals.widgets.inactive.bg_fill, page);
+        assert_eq!(visuals.widgets.inactive.weak_bg_fill, page);
+        assert_eq!(visuals.widgets.open.weak_bg_fill, page);
+
+        // panel.border/.width: the chrome stroke, at its 1-point default.
+        assert_eq!(visuals.window_stroke, Stroke::new(1.0, panel_border));
         assert_eq!(
-            PALETTE,
-            ConsolePalette {
-                page: Color32::from_rgb(11, 17, 18), // #0B1112
-                grid_line: Color32::from_rgba_unmultiplied_const(29, 55, 49, 72), // rgba(29, 55, 49, 0.28)
-                sector_line: Color32::from_rgba_unmultiplied_const(55, 101, 86, 110), // rgba(55, 101, 86, 0.43)
-                selection_fill: Color32::from_rgb(10, 42, 34),                        // #0A2A22
-                selection_stroke_rest: Color32::from_rgb(82, 195, 163),               // #52C3A3
-                selection_stroke: Color32::from_rgb(101, 230, 190),                   // #65E6BE
+            visuals.widgets.noninteractive.bg_stroke,
+            Stroke::new(1.0, panel_border)
+        );
+
+        // widget.inactive.border/.width: a real colour at width 0 — see this
+        // test's own doc for why that is not `Stroke::NONE` and still paints
+        // nothing.
+        assert_eq!(visuals.widgets.inactive.bg_stroke.width, 0.0);
+        assert_eq!(
+            visuals.widgets.inactive.bg_stroke.color,
+            widget_inactive_border
+        );
+
+        // text: noninteractive/inactive/open foreground.
+        assert_eq!(visuals.widgets.noninteractive.fg_stroke.color, ordinary);
+        assert_eq!(visuals.widgets.inactive.fg_stroke.color, ordinary);
+        assert_eq!(visuals.widgets.open.fg_stroke.color, ordinary);
+
+        // text.active: hovered/active foreground — Okabe–Ito's own value
+        // coincides with selection.border, which is exactly why this is
+        // asserted against the literal rather than `theme.selection_border`.
+        assert_eq!(visuals.widgets.hovered.fg_stroke.color, selection_stroke);
+        assert_eq!(visuals.widgets.active.fg_stroke.color, selection_stroke);
+
+        // text.muted: egui's own weak-text formula (`text_color() *
+        // weak_text_alpha`, `weak_text_alpha` defaulting to 0.6) restated as
+        // an explicit value — the exact check the deleted `theme::tests::
+        // okabe_ito_matches_todays_style_and_palette_constants` carried.
+        assert_eq!(
+            visuals.weak_text_color,
+            Some(ordinary.gamma_multiply(0.6)),
+            "weak_text_color must equal text at egui's own 0.6 gamma multiply"
+        );
+
+        // input.background: extreme/faint backgrounds.
+        assert_eq!(visuals.extreme_bg_color, Color32::BLACK);
+        assert_eq!(visuals.faint_bg_color, Color32::BLACK);
+
+        // selection.background/.border/.border.width: the selection highlight.
+        assert_eq!(visuals.selection.bg_fill, selection_fill);
+        assert_eq!(visuals.selection.stroke, Stroke::new(1.0, selection_stroke));
+
+        // selection.background: hovered/active/open strong fill.
+        assert_eq!(visuals.widgets.hovered.bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.hovered.weak_bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.active.bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.active.weak_bg_fill, selection_fill);
+        assert_eq!(visuals.widgets.open.bg_fill, selection_fill);
+
+        // selection.border/selection.border.rest + widget.border.width:
+        // hovered/active/open border.
+        assert_eq!(
+            visuals.widgets.hovered.bg_stroke,
+            Stroke::new(1.0, selection_stroke_rest)
+        );
+        assert_eq!(
+            visuals.widgets.active.bg_stroke,
+            Stroke::new(1.0, selection_stroke)
+        );
+        assert_eq!(
+            visuals.widgets.open.bg_stroke,
+            Stroke::new(1.0, selection_stroke_rest)
+        );
+
+        // error, warning.
+        assert_eq!(visuals.error_fg_color, bang);
+        assert_eq!(visuals.warn_fg_color, bang);
+
+        // link, code.background.
+        assert_eq!(visuals.hyperlink_color, hyperlink);
+        assert_eq!(visuals.code_bg_color, code_background);
+
+        // input.cursor/.width: the text-edit caret and the active IME
+        // underline share one property pair.
+        assert_eq!(visuals.text_cursor.stroke, Stroke::new(2.0, input_cursor));
+        assert_eq!(
+            visuals.ime_composition.active_underline_stroke,
+            Stroke::new(2.0, input_cursor)
+        );
+        // The inactive IME underline: egui's own existing half-linear
+        // attenuation of that same colour, not a second hardcoded one.
+        assert_eq!(
+            visuals.ime_composition.inactive_underline_stroke,
+            Stroke {
+                width: 2.0,
+                color: input_cursor.linear_multiply(0.5),
+            },
+            "the inactive IME underline must be input.cursor's own half-linear attenuation"
+        );
+        assert_eq!(
+            visuals.ime_composition.legacy_visuals,
+            Visuals::dark().ime_composition.legacy_visuals,
+            "legacy_visuals is a platform default, not a themed property"
+        );
+    }
+
+    ///
+    /// Retuning each of the ten named chrome keys `style` reads changes the
+    /// matching `Visuals` field on the next call — proof it reads `theme`
+    /// live rather than merely reproducing Okabe–Ito's own values by
+    /// construction, the chrome counterpart of
+    /// `glyph_colours_are_distinct_and_read_from_the_theme`'s retuned check.
+    ///
+    #[test]
+    fn each_named_chrome_key_changes_style_when_retuned() {
+        let base = okabe_ito();
+        let retuned = Color32::from_rgb(9, 9, 9);
+
+        let panel_background = Theme {
+            panel_background: retuned,
+            ..base.clone()
+        };
+        assert_eq!(style(&panel_background).visuals.panel_fill, retuned);
+        assert_eq!(style(&panel_background).visuals.window_fill, retuned);
+
+        let panel_border = Theme {
+            panel_border: retuned,
+            ..base.clone()
+        };
+        assert_eq!(style(&panel_border).visuals.window_stroke.color, retuned);
+
+        let text = Theme {
+            text: retuned,
+            ..base.clone()
+        };
+        assert_eq!(
+            style(&text).visuals.widgets.noninteractive.fg_stroke.color,
+            retuned
+        );
+
+        let text_muted = Theme {
+            text_muted: retuned,
+            ..base.clone()
+        };
+        assert_eq!(style(&text_muted).visuals.weak_text_color, Some(retuned));
+
+        let input_background = Theme {
+            input_background: retuned,
+            ..base.clone()
+        };
+        assert_eq!(style(&input_background).visuals.extreme_bg_color, retuned);
+        assert_eq!(style(&input_background).visuals.faint_bg_color, retuned);
+
+        let selection_background = Theme {
+            selection_background: retuned,
+            ..base.clone()
+        };
+        assert_eq!(
+            style(&selection_background).visuals.selection.bg_fill,
+            retuned
+        );
+
+        let selection_border = Theme {
+            selection_border: retuned,
+            ..base.clone()
+        };
+        assert_eq!(
+            style(&selection_border).visuals.selection.stroke.color,
+            retuned
+        );
+
+        let selection_border_rest = Theme {
+            selection_border_rest: retuned,
+            ..base.clone()
+        };
+        assert_eq!(
+            style(&selection_border_rest)
+                .visuals
+                .widgets
+                .hovered
+                .bg_stroke
+                .color,
+            retuned
+        );
+
+        let error = Theme {
+            error: retuned,
+            ..base.clone()
+        };
+        assert_eq!(style(&error).visuals.error_fg_color, retuned);
+
+        let warning = Theme {
+            warning: retuned,
+            ..base
+        };
+        assert_eq!(style(&warning).visuals.warn_fg_color, retuned);
+    }
+
+    ///
+    /// `.scratch/theming/schema.md`'s Chrome mapping table: "Hovered/active
+    /// widget foreground | `text.active`" — a dedicated key, not a reuse of
+    /// `selection.border`. Okabe–Ito's own `text_active` and
+    /// `selection_border` happen to share one value (`#65E6BE`), which is
+    /// why reading the wrong key would still have passed
+    /// `okabe_ito_chrome_matches_the_decided_record`; retuning `text_active`
+    /// alone, away from `selection_border`, is what proves the wiring.
+    ///
+    #[test]
+    fn hovered_and_active_foreground_reads_text_active_not_selection_border() {
+        let theme = Theme {
+            text_active: Color32::from_rgb(9, 9, 9),
+            ..okabe_ito()
+        };
+        let visuals = style(&theme).visuals;
+
+        assert_eq!(visuals.widgets.hovered.fg_stroke.color, theme.text_active);
+        assert_eq!(visuals.widgets.active.fg_stroke.color, theme.text_active);
+        assert_ne!(theme.text_active, theme.selection_border);
+    }
+
+    ///
+    /// `.scratch/theming/schema.md`'s Chrome mapping table: "Links; code
+    /// spans | `link`; `code.background`". Neither was read by `style`
+    /// before this Theme: egui's own defaults for `hyperlink_color` and
+    /// `code_bg_color` happened to equal Okabe–Ito's `link`/`code.background`
+    /// values, which is exactly the "second fixed palette hidden in
+    /// `Visuals` defaults" the audit line exists to catch.
+    ///
+    #[test]
+    fn hyperlinks_and_code_spans_read_the_theme() {
+        let theme = Theme {
+            link: Color32::from_rgb(9, 9, 9),
+            code_background: Color32::from_rgb(8, 8, 8),
+            ..okabe_ito()
+        };
+        let visuals = style(&theme).visuals;
+
+        assert_eq!(visuals.hyperlink_color, theme.link);
+        assert_eq!(visuals.code_bg_color, theme.code_background);
+    }
+
+    ///
+    /// `.scratch/theming/schema.md`'s Chrome mapping table: "Input caret and
+    /// active IME underline | `input.cursor`, `input.cursor.width`" and
+    /// "Inactive IME underline | Same width; existing half-linear colour
+    /// attenuation." Both strokes derive from `theme.input_cursor`/`.width`;
+    /// the inactive one keeps egui's own `Color32::linear_multiply(0.5)`
+    /// pattern over that same colour. `legacy_visuals` is untouched — a
+    /// platform default, not a themed property.
+    ///
+    #[test]
+    fn text_cursor_and_ime_underlines_read_input_cursor() {
+        let theme = Theme {
+            input_cursor: Color32::from_rgb(9, 8, 7),
+            ..okabe_ito()
+        };
+        let visuals = style(&theme).visuals;
+        let width = theme.input_cursor_width.points();
+
+        assert_eq!(
+            visuals.text_cursor.stroke,
+            Stroke::new(width, theme.input_cursor)
+        );
+        assert_eq!(
+            visuals.ime_composition.active_underline_stroke,
+            Stroke::new(width, theme.input_cursor)
+        );
+        assert_eq!(
+            visuals.ime_composition.inactive_underline_stroke,
+            Stroke {
+                width,
+                color: theme.input_cursor.linear_multiply(0.5),
             }
+        );
+        assert_eq!(
+            visuals.ime_composition.legacy_visuals,
+            Visuals::dark().ime_composition.legacy_visuals,
+            "the platform default for legacy IME visuals must be untouched"
+        );
+    }
+
+    ///
+    /// `.scratch/theming/schema.md`'s width catalogue: chrome border widths
+    /// are finite display points 0 to 2 inclusive, and "Zero width
+    /// suppresses that stroke, not fills or other strokes." Retuning each of
+    /// the five chrome width keys changes the matching `Stroke`'s width, and
+    /// a zeroed width still leaves the stroke's own colour (and every other
+    /// field) untouched — the geometry step, not this one, is what turns a
+    /// zero-width `Stroke` into nothing drawn.
+    ///
+    #[test]
+    fn chrome_border_widths_come_from_the_theme() {
+        let base = okabe_ito();
+
+        let panel_border_width = Theme {
+            panel_border_width: crate::theme::ChromeWidth::from_points(1.75)
+                .expect("1.75 is within 0..=2"),
+            ..base.clone()
+        };
+        let visuals = style(&panel_border_width).visuals;
+        assert_eq!(visuals.window_stroke.width, 1.75);
+        assert_eq!(visuals.widgets.noninteractive.bg_stroke.width, 1.75);
+
+        let widget_border_width = Theme {
+            widget_border_width: crate::theme::ChromeWidth::from_points(1.25)
+                .expect("1.25 is within 0..=2"),
+            ..base.clone()
+        };
+        let visuals = style(&widget_border_width).visuals;
+        assert_eq!(visuals.widgets.hovered.bg_stroke.width, 1.25);
+        assert_eq!(visuals.widgets.active.bg_stroke.width, 1.25);
+        assert_eq!(visuals.widgets.open.bg_stroke.width, 1.25);
+
+        let widget_inactive_border_width = Theme {
+            widget_inactive_border_width: crate::theme::ChromeWidth::from_points(1.5)
+                .expect("1.5 is within 0..=2"),
+            ..base.clone()
+        };
+        let visuals = style(&widget_inactive_border_width).visuals;
+        assert_eq!(visuals.widgets.inactive.bg_stroke.width, 1.5);
+        assert_eq!(
+            visuals.widgets.inactive.bg_stroke.color,
+            widget_inactive_border_width.widget_inactive_border,
+            "a nonzero widget.inactive.border.width must show widget.inactive.border, not stay Stroke::NONE"
+        );
+
+        let selection_border_width = Theme {
+            selection_border_width: crate::theme::ChromeWidth::from_points(0.25)
+                .expect("0.25 is within 0..=2"),
+            ..base.clone()
+        };
+        assert_eq!(
+            style(&selection_border_width)
+                .visuals
+                .selection
+                .stroke
+                .width,
+            0.25
+        );
+
+        // Zero a width the base Theme holds above zero, so the case can fail:
+        // only the two panel strokes' widths may move.
+        assert_eq!(base.panel_border_width.points(), 1.0);
+        let mut expected = style(&base).visuals;
+        expected.window_stroke.width = 0.0;
+        expected.widgets.noninteractive.bg_stroke.width = 0.0;
+        let zeroed = Theme {
+            panel_border_width: crate::theme::ChromeWidth::from_points(0.0)
+                .expect("0.0 is within 0..=2"),
+            ..base
+        };
+        assert_eq!(
+            style(&zeroed).visuals,
+            expected,
+            "a zeroed panel.border.width must suppress only that stroke's width"
+        );
+    }
+
+    ///
+    /// A synthetic light-appearance Theme for tests: no light built-in ships
+    /// yet (`.scratch/theming/issues/04`), so this flips Okabe–Ito's own
+    /// `appearance` and its panel/text colours rather than waiting on one —
+    /// enough to prove `style`/`install` treat a Theme's declared appearance
+    /// as a real input, not a second hardcoded assumption.
+    ///
+    fn light_variant() -> Theme {
+        Theme {
+            appearance: Appearance::Light,
+            panel_background: Color32::from_rgb(239, 244, 242),
+            text: Color32::from_rgb(48, 63, 59),
+            ..okabe_ito()
+        }
+    }
+
+    ///
+    /// ADR 0053's own reading of the upstream docs: "Merely changing
+    /// `Visuals::dark_mode` does not convert a palette." `style` follows
+    /// that by starting from `Visuals::dark()`/`Visuals::light()` rather
+    /// than flipping the flag alone, so `dark_mode` still tracks
+    /// `theme.appearance` exactly.
+    ///
+    #[test]
+    fn dark_mode_follows_the_themes_declared_appearance() {
+        assert!(style(&okabe_ito()).visuals.dark_mode, "Dark appearance");
+        assert!(
+            !style(&light_variant()).visuals.dark_mode,
+            "Light appearance"
+        );
+    }
+
+    ///
+    /// `restyle-egui-console/02`'s four prohibitions — no gradients, no
+    /// rounded tiles, no shadows, no animation — hold for every Theme
+    /// `style` produces, not only Okabe–Ito's: none of the four is
+    /// themeable, so `style` never reads `theme` to decide them.
+    ///
+    #[test]
+    fn the_four_prohibitions_hold_for_every_theme() {
+        for theme in [okabe_ito(), light_variant()] {
+            let built = style(&theme);
+            let visuals = &built.visuals;
+            assert_eq!(visuals.window_corner_radius, CornerRadius::ZERO);
+            assert_eq!(visuals.menu_corner_radius, CornerRadius::ZERO);
+            assert_eq!(visuals.window_shadow, Shadow::NONE);
+            assert_eq!(visuals.popup_shadow, Shadow::NONE);
+            for widget in [
+                &visuals.widgets.noninteractive,
+                &visuals.widgets.inactive,
+                &visuals.widgets.hovered,
+                &visuals.widgets.active,
+                &visuals.widgets.open,
+            ] {
+                assert_eq!(widget.corner_radius, CornerRadius::ZERO);
+                assert_eq!(widget.expansion, 0.0);
+            }
+            assert_eq!(built.animation_time, 0.0);
+        }
+    }
+
+    ///
+    /// Chrome tracks a Theme's own declared appearance and colours, not a
+    /// single hardcoded look: two Themes that disagree on `panel.background`
+    /// and `appearance` produce visibly different chrome. The Source Grid's
+    /// own half of that claim — its colours changing with the resolved
+    /// Theme — is proven separately by `glyph_colours_are_distinct_and_read_
+    /// from_the_theme` and `each_border_channel_reads_its_own_theme_colour_
+    /// not_a_fixed_default`.
+    ///
+    #[test]
+    fn chrome_colours_change_with_the_resolved_theme() {
+        let dark = style(&okabe_ito()).visuals;
+        let light = style(&light_variant()).visuals;
+
+        assert_ne!(dark.dark_mode, light.dark_mode);
+        assert_ne!(dark.panel_fill, light.panel_fill);
+        assert_ne!(
+            dark.widgets.noninteractive.fg_stroke.color,
+            light.widgets.noninteractive.fg_stroke.color
         );
     }
 
@@ -676,7 +1199,7 @@ mod tests {
     /// Expression claimed).
     ///
     #[test]
-    fn semantic_glyph_colours_are_distinct_and_read_from_the_theme() {
+    fn glyph_colours_are_distinct_and_read_from_the_theme() {
         let theme = okabe_ito();
         let function = painted(SourcePaint::Function, false, &theme);
         let number = painted(operand(Token::Number, OperandState::Valid), false, &theme);
@@ -732,7 +1255,7 @@ mod tests {
 
     #[test]
     fn sector_line_strength_only_attenuates_the_base_colours_alpha() {
-        let base = PALETTE.sector_line;
+        let base = okabe_ito().sector_seam;
         assert_eq!(sector_line(100, base), base);
         let [red, green, blue, alpha] = sector_line(50, base).to_srgba_unmultiplied();
         assert!(red.abs_diff(55) <= 2);
@@ -743,26 +1266,10 @@ mod tests {
         assert_eq!(sector_line(255, base), base);
     }
 
-    ///
-    /// A custom Theme's `sector.seam` reaches [`sector_line`] as the base
-    /// colour it attenuates, not [`PALETTE`]'s fixed one — the paint-layer
-    /// half of defect 1: Sector Seams read `theme.sector_seam`, never the
-    /// chrome-only constant.
-    ///
-    #[test]
-    fn sector_line_attenuates_the_theme_seam_colour_not_the_fixed_palette() {
-        let retuned = Color32::from_rgba_unmultiplied(1, 2, 3, 200);
-
-        let attenuated = sector_line(100, retuned);
-
-        assert_eq!(attenuated, retuned);
-        assert_ne!(attenuated, PALETTE.sector_line);
-    }
-
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
         let theme = okabe_ito();
-        let cursor_colour = Some(PALETTE.selection_fill);
+        let cursor_colour = Some(theme.selection_background);
         let ordinary = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
             false,
@@ -790,25 +1297,24 @@ mod tests {
 
         // `None`: the panel behind the Grid has already painted the Source colour.
         assert_eq!(ordinary.background, None);
-        assert_eq!(ordinary.border, PALETTE.grid_line);
-        assert_eq!(selected.background, Some(PALETTE.selection_fill));
-        assert_eq!(selected.border, PALETTE.selection_stroke_rest);
-        assert_eq!(cursor.background, Some(PALETTE.selection_fill));
-        assert_eq!(cursor.border, PALETTE.selection_stroke);
+        assert_eq!(ordinary.border, theme.grid_border);
+        assert_eq!(selected.background, Some(theme.selection_background));
+        assert_eq!(selected.border, theme.selection_border_rest);
+        assert_eq!(cursor.background, Some(theme.selection_background));
+        assert_eq!(cursor.border, theme.selection_border);
         assert_ne!(cursor, selected);
     }
 
     ///
     /// Defect 1: a Cell's border reads `theme.grid_border`,
     /// `theme.selection_border` and `theme.selection_border_rest` — the
-    /// resolved Theme, not the fixed [`PALETTE`] constants Okabe–Ito happens
-    /// to share their default values with. Retuning each of the three
+    /// resolved Theme, never a fixed constant. Retuning each of the three
     /// changes the matching `CellVisuals::border` on the next call, the way
-    /// `semantic_glyph_colours_are_distinct_and_read_from_the_theme` already
-    /// proves for glyph colours.
+    /// `glyph_colours_are_distinct_and_read_from_the_theme` already proves
+    /// for glyph colours.
     ///
     #[test]
-    fn each_border_channel_reads_its_own_theme_colour_not_the_fixed_palette() {
+    fn each_border_channel_reads_its_own_theme_colour_not_a_fixed_default() {
         let retuned_grid = Theme {
             grid_border: Color32::from_rgb(11, 22, 33),
             ..okabe_ito()
@@ -822,7 +1328,7 @@ mod tests {
             &retuned_grid,
         );
         assert_eq!(ordinary.border, Color32::from_rgb(11, 22, 33));
-        assert_ne!(ordinary.border, PALETTE.grid_line);
+        assert_ne!(ordinary.border, okabe_ito().grid_border);
 
         let retuned_rest = Theme {
             selection_border_rest: Color32::from_rgb(44, 55, 66),
@@ -837,7 +1343,7 @@ mod tests {
             &retuned_rest,
         );
         assert_eq!(selected.border, Color32::from_rgb(44, 55, 66));
-        assert_ne!(selected.border, PALETTE.selection_stroke_rest);
+        assert_ne!(selected.border, okabe_ito().selection_border_rest);
 
         let retuned_visible = Theme {
             selection_border: Color32::from_rgb(77, 88, 99),
@@ -852,7 +1358,7 @@ mod tests {
             &retuned_visible,
         );
         assert_eq!(cursor.border, Color32::from_rgb(77, 88, 99));
-        assert_ne!(cursor.border, PALETTE.selection_stroke);
+        assert_ne!(cursor.border, okabe_ito().selection_border);
     }
 
     ///
@@ -913,8 +1419,9 @@ mod tests {
 
     #[test]
     fn panel_separator_uses_the_grid_line() {
-        let style = super::style();
-        let chrome = Stroke::new(1.0, PALETTE.grid_line.to_opaque());
+        let theme = okabe_ito();
+        let style = super::style(&theme);
+        let chrome = Stroke::new(1.0, theme.panel_border);
         assert_eq!(style.visuals.window_stroke, chrome);
         assert_eq!(
             style.visuals.widgets.noninteractive.bg_stroke, chrome,
@@ -922,24 +1429,28 @@ mod tests {
         );
     }
 
+    ///
+    /// Okabe–Ito's `widget.inactive.border.width` is 0, so the idle border
+    /// paints nothing (`okabe_ito_chrome_matches_the_decided_record`'s own
+    /// doc has the full width-vs-colour distinction).
+    ///
     #[test]
     fn idle_widgets_have_no_rest_outline() {
-        let style = super::style();
-        assert_eq!(style.visuals.widgets.inactive.bg_stroke, Stroke::NONE);
+        let theme = okabe_ito();
+        let style = super::style(&theme);
+        assert_eq!(style.visuals.widgets.inactive.bg_stroke.width, 0.0);
         assert_eq!(
             style.visuals.widgets.active.bg_stroke.color,
-            PALETTE.selection_stroke
+            theme.selection_border
         );
-        assert_eq!(
-            style.visuals.selection.stroke.color,
-            PALETTE.selection_stroke
-        );
+        assert_eq!(style.visuals.selection.stroke.color, theme.selection_border);
     }
 
     #[test]
     fn caret_border_change_is_visible_but_restrained() {
-        let resting = PALETTE.selection_stroke_rest;
-        let visible = PALETTE.selection_stroke;
+        let theme = okabe_ito();
+        let resting = theme.selection_border_rest;
+        let visible = theme.selection_border;
         let channel_delta = resting.r().abs_diff(visible.r()) as u16
             + resting.g().abs_diff(visible.g()) as u16
             + resting.b().abs_diff(visible.b()) as u16;
@@ -1563,30 +2074,35 @@ mod tests {
     ///
     /// The seam `theming/02-keep-the-restored-theme-preference-at-startup.md`
     /// fixes: eframe restores `ThemePreference` into egui memory before it
-    /// builds the application, and `install_style` is what `Console::new`
-    /// calls afterwards. A preference already on the context — standing in
-    /// for one eframe just restored — must survive the call, unlike the
-    /// removed `set_theme(Dark)` call it replaces.
+    /// builds the application, and `install` is what `Console::new` calls
+    /// afterwards. A preference already on the context — standing in for one
+    /// eframe just restored — must survive the call, unlike the removed
+    /// `set_theme(Dark)` call it replaces.
     ///
     #[test]
-    fn install_style_leaves_a_restored_theme_preference_untouched() {
+    fn install_leaves_a_restored_theme_preference_untouched() {
         let ctx = egui::Context::default();
         ctx.set_theme(egui::ThemePreference::Light);
 
-        install_style(&ctx);
+        install(&ctx, &okabe_ito());
 
         assert_eq!(
             ctx.options(|options| options.theme_preference),
             egui::ThemePreference::Light,
-            "install_style overwrote the restored theme preference"
+            "install overwrote the restored theme preference"
         );
     }
 
     ///
-    /// One palette exists, so a preference that resolves to Light must not
-    /// leave the Light slot at egui's own default style while the Dark slot
-    /// — and the Source Grid, painted from `PALETTE` — carry the console's
-    /// own. Both theme slots take the same style `install_style` installs.
+    /// The interim registration `.scratch/theming/schema.md`'s acceptance
+    /// boundary names: "Through `03`, retain `02`'s shared presentation:
+    /// register the same resolved Okabe–Ito style in both egui appearance
+    /// slots." Both theme slots take the one style `install` installs, so a
+    /// preference that resolves to Light must not leave the Light slot at
+    /// egui's own default style while the Dark slot — and the Source Grid —
+    /// carry the console's own. Distinct dark/light registration is `04`'s
+    /// acceptance, not this issue's — there is no settings pair here to
+    /// diverge, only the one `theme` argument.
     ///
     /// The comparison is `Visuals` and `animation_time`, the two fields
     /// [`style`] actually sets, rather than `Style`'s own `PartialEq`:
@@ -1598,10 +2114,10 @@ mod tests {
     /// sidesteps that field entirely by construction.
     ///
     #[test]
-    fn install_style_registers_the_console_style_for_both_themes() {
+    fn install_shares_one_style_between_both_theme_slots() {
         let ctx = egui::Context::default();
 
-        install_style(&ctx);
+        install(&ctx, &okabe_ito());
 
         let dark = ctx.style_of(egui::Theme::Dark);
         let light = ctx.style_of(egui::Theme::Light);
@@ -1610,16 +2126,24 @@ mod tests {
             "Dark and Light were not registered from the one console style"
         );
 
-        let expected = style();
+        let expected = style(&okabe_ito());
         assert_eq!(
             light.visuals, expected.visuals,
-            "the installed style's Visuals do not match style()"
+            "the installed style's Visuals do not match style(&okabe_ito())"
         );
         assert_eq!(
             light.animation_time, expected.animation_time,
-            "the installed style's animation_time does not match style()"
+            "the installed style's animation_time does not match style(&okabe_ito())"
         );
     }
+
+    // The OS-appearance-change and restored-non-default-identity cases the
+    // interim registration must hold under move to `console::tests` — they
+    // need a real `Console` running real frames (`RawInput::system_theme`,
+    // `Persistence`), which this module has no access to. `install_shares_
+    // one_style_between_both_theme_slots` above stays the unit-level proof
+    // that `install` itself always shares one `Arc`, independent of
+    // `ThemePreference`, by construction.
 
     ///
     /// Pins `cell_visuals_with_cursor_colour`'s answer for a representative

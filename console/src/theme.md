@@ -7,10 +7,13 @@ change, not drift.
 Under ADR 0053 every value on this page belongs to the Okabe–Ito built-in
 Theme, the dark Theme the console ships with. Each one maps to a named property,
 recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
-Source Grid, its borders, the Cursor Effect's colours and the window backdrop
-paint from the resolved Theme (`console/src/theme.rs`). The rest of the chrome
-still paints these values from compiled constants until `03` derives it from
-the same Theme.
+Source Grid, its borders and the Cursor Effect's colours paint from the
+resolved Theme (`console/src/theme.rs`). Since `03`, the rest of the chrome —
+`egui::Visuals`, including inherited toolkit colours such as weak text,
+hyperlinks, code spans and the input caret, plus every chrome border and its
+width — reads the same resolved Theme too (`console/src/style.rs::style`), and
+the opaque window backdrop is a Theme property the resolver refuses to leave
+nonopaque. Nothing the console draws is a compiled constant.
 
 - Page: `#0B1112` (`rgb(11, 17, 18)`)
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
@@ -147,25 +150,40 @@ reproduces the values on this page:
 | `cursor.background` | none | Cursor effects → Cursor cell colour |
 | `region.background` | white at 17% | Cursor effects → Region colour |
 | `region.cursor.background` | none | Cursor effects → Cursor colour in a Region |
+| `window.background` | `#0B1112` | fixed: Page (the opaque window backdrop; `03`'s resolver refuses any other alpha) |
 | `panel.background` | `#0B1112` | fixed: Page |
 | `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
+| `widget.inactive.border` | `#1C3932` | fixed: chrome stroke (width 0 keeps idle widgets' border absent) |
 | `text` | `#EAEBE5` | fixed: widget text |
+| `text.active` | `#65E6BE` | fixed: Selection and Cursor stroke (hovered/active widget text) |
+| `text.muted` | `#E9EBE499` | fixed: egui's own weak-text attenuation (0.6 of `text`) |
 | `input.background` | `#000000` | fixed: borrowed from Source background |
+| `link` | `#5AAAFF` | fixed: egui's own default hyperlink colour |
+| `code.background` | `#404040` | fixed: egui's own default code-span background |
+| `input.cursor` | `#C0DEFF` | fixed: egui's own default text cursor and active IME underline |
 | `selection.background` | `#0A2A22` | fixed: Selection fill |
 | `selection.border` | `#65E6BE` | fixed: Selection and Cursor stroke |
 | `selection.border.rest` | `#52C3A3` | fixed: Selection stroke while caret is hidden |
 | `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
 
-Weak text currently inherits egui's 0.6 attenuation of the active text colour;
-there is no explicit `text.muted` constant in the console. Preserve that rendering
-when recording the resolved Theme values. `error` and `warning` currently borrow
-Bang's colour (`.scratch/theming/issues/05`); the named Theme properties make
-them independent while preserving the existing built-in values.
+`text.muted`, `link`, `code.background` and `input.cursor` are independent
+Theme properties, not egui's own inherited defaults left unread: their
+Okabe–Ito values equal what egui already defaulted to (0.6-attenuated `text`
+for weak text, its own dark-mode hyperlink/code/cursor colours), which is why
+today's appearance is unchanged, but a custom Theme now reaches all four
+instead of the toolkit silently keeping its own second palette. The inactive
+IME underline keeps egui's existing half-linear attenuation of `input.cursor`
+rather than a separate property. `error` and `warning` are independent Theme
+properties that preserve Bang's built-in value without being computed from it
+— `.scratch/theming/issues/05`'s live borrow is gone.
 
 The border widths are Theme properties too, in display points: `grid.border.width`
 0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
 `cursor.border.width` and `region.border.width` 1,
-`diagnostic.border.width` and `output_portal.border.width` 0.5. `schema.md`
+`diagnostic.border.width` and `output_portal.border.width` 0.5,
+`panel.border.width`, `selection.border.width` and `widget.border.width` 1,
+`widget.inactive.border.width` 0 (which is why that border stays absent at
+its default) and `input.cursor.width` 2. `schema.md`
 lists them with the chrome widths.
 
 ### Shipped Themes
@@ -176,9 +194,9 @@ lists them with the chrome widths.
 | `orcvs-light` | light | Reserved; its palette waits on `04`'s review. |
 
 Settings save a dark and a light Theme identity, both `okabe-ito`, and restore
-them unchanged. Nothing selects a Theme yet: `03` prepares the dark and light
-pickers and `04` exposes them once the light Theme is accepted, so until then
-the console always resolves `okabe-ito`.
+them unchanged. Nothing selects a Theme yet: `04` prepares and exposes the
+dark and light pickers together, once the light Theme is accepted, so until
+then the console always resolves `okabe-ito`.
 
 ## Source colours
 

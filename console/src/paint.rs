@@ -528,9 +528,10 @@ impl Paint {
 ///
 #[cfg(test)]
 fn test_theme() -> Theme {
+    let base = crate::theme::okabe_ito();
     Theme {
-        cursor_background: Some(crate::style::PALETTE.selection_fill),
-        ..crate::theme::okabe_ito()
+        cursor_background: Some(base.selection_background),
+        ..base
     }
 }
 
@@ -539,7 +540,7 @@ mod tests {
     use super::{BackgroundRun, CellPaint, FramePaint, Paint, Theme};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
-    use crate::style::{PALETTE, cell_visuals_with_cursor_colour, sector_line};
+    use crate::style::{cell_visuals_with_cursor_colour, sector_line};
     use crate::theme::okabe_ito;
     use egui::Color32;
     use orcvs::source::{OperandState, SourcePaint, Token};
@@ -657,7 +658,7 @@ mod tests {
                 cell,
                 selected,
                 selected && frame.cursor_visible(),
-                Some(PALETTE.selection_fill),
+                Some(theme.selection_background),
                 &theme,
             );
             let painted = paint.at(position);
@@ -754,7 +755,11 @@ mod tests {
                     inside.then_some(fill)
                 };
                 assert_eq!(cell.background, wanted, "the background at {position:?}");
-                assert_eq!(cell.border, PALETTE.grid_line, "the border at {position:?}");
+                assert_eq!(
+                    cell.border,
+                    okabe_ito().grid_border,
+                    "the border at {position:?}"
+                );
             }
         }
         assert_eq!(
@@ -1449,7 +1454,7 @@ mod tests {
         );
         assert_eq!(
             selected.background,
-            Some(PALETTE.selection_fill),
+            Some(theme.selection_background),
             "the Cursor's Cell did not take the Cursor's own fill"
         );
         assert_eq!(
@@ -1811,10 +1816,10 @@ mod tests {
         let unselected = paint.at(orcvs.grid().position(1, 0).expect("inside the grid"));
 
         assert_eq!(paint.cursor(), Some(cursor));
-        assert_ne!(PALETTE.selection_fill, function_tint);
+        assert_ne!(theme.selection_background, function_tint);
         assert_eq!(
             selected.background,
-            Some(PALETTE.selection_fill),
+            Some(theme.selection_background),
             "the Cursor's Cell did not take the Cursor's own fill"
         );
         assert_eq!(
@@ -2397,7 +2402,7 @@ mod tests {
                 .flat_map(|row| row.iter())
                 .map(|&background| CellPaint {
                     background,
-                    border: PALETTE.grid_line,
+                    border: okabe_ito().grid_border,
                     border_width: okabe_ito().grid_border_width.points(),
                     foreground: okabe_ito().source_ordinary,
                     sector_left: None,
@@ -2491,7 +2496,7 @@ mod tests {
 
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
-        let first = PALETTE.selection_fill;
+        let first = okabe_ito().selection_background;
         let second = okabe_ito().grid_background;
         let paint = paint_of(&[&[Some(first), Some(first), Some(second), Some(second)]]);
 
@@ -2503,7 +2508,7 @@ mod tests {
 
     #[test]
     fn a_run_ends_where_the_next_cell_wants_no_background() {
-        let colour = PALETTE.selection_fill;
+        let colour = okabe_ito().selection_background;
         let paint = paint_of(&[&[Some(colour), Some(colour), None, Some(colour)]]);
 
         assert_eq!(
@@ -2519,7 +2524,7 @@ mod tests {
     ///
     #[test]
     fn a_run_ends_at_the_end_of_its_row() {
-        let colour = PALETTE.selection_fill;
+        let colour = okabe_ito().selection_background;
         let paint = paint_of(&[&[Some(colour), Some(colour)], &[Some(colour), Some(colour)]]);
 
         assert_eq!(
@@ -2534,7 +2539,7 @@ mod tests {
     ///
     #[test]
     fn one_cell_wanting_a_background_alone_is_a_run_of_one() {
-        let colour = PALETTE.selection_fill;
+        let colour = okabe_ito().selection_background;
         let paint = paint_of(&[&[None, Some(colour), None]]);
 
         assert_eq!(paint.background_runs(), vec![run(colour, 0, 1..2)]);
