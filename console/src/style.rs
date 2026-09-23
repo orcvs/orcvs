@@ -1307,7 +1307,7 @@ mod tests {
         let selection_fill = Color32::from_rgb(204, 235, 226); // #CCEBE2
         let selection_stroke_rest = Color32::from_rgb(24, 126, 96); // #187E60
         let selection_stroke = Color32::from_rgb(7, 98, 71); // #076247
-        let bang = Color32::from_rgb(173, 42, 59); // #AD2A3B
+        let bang = Color32::from_rgb(144, 66, 111); // #90426F
         let hyperlink = Color32::from_rgb(11, 98, 184); // #0B62B8
         let code_background = Color32::from_rgb(230, 230, 230); // #E6E6E6
         let input_cursor = Color32::from_rgb(0, 83, 125); // #00537D

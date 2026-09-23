@@ -85,3 +85,72 @@ The three unticked boxes above are exactly the ones this issue makes
 conditional on the user accepting these colours: `set_style_of` per
 appearance, the switching acceptance tests, and the View menu's mode and
 pickers. None of them is started.
+
+**2026-09-23 — the glyph hues are re-picked from Okabe–Ito.**
+
+The user's decision, after a review of the definition above: the light
+built-in's Source glyph hues come from the same Okabe–Ito palette and the same
+role-to-hue assignment the dark built-in uses, and the `feat/egui-theming`
+proposal's glyph hues are dropped. The chrome keys are untouched — the proposal
+remains their provenance.
+
+The review's finding was that the proposal put Function `#087A5A` and Bang
+`#C33445` at near-identical relative luminance, the canonical deuteranope
+confusion pair. Measuring it, rather than assuming it, says two things:
+
+- The luminance observation is exact — the two measure 1.01:1 against each
+  other — and the conclusion drawn from it is not. Every dichromacy keeps
+  lightness *and* one chromatic axis, so those two colours still measure 14.39
+  apart under simulated deuteranopia. Equal luminance is a fact about two
+  colours, not a verdict on them.
+- The definition failed anyway, worse and elsewhere. Its Diagnostic `#A34A00`
+  and Output Portal `#7A5200` measure **0.70** apart under protanopia and its
+  Number `#3564A0` and Note `#7553A2` **2.16** under deuteranopia, against a
+  floor of 5.0. Those are pairs a red–green colour-blind reader reads as one
+  colour, and every one of them cleared `08`'s contrast floor.
+
+So the re-pick is right, and the reason to make it is stronger than the one
+given. The new values, their OKLCh hue and lightness, the state that set each
+lightness, the full contrast table and the colour-vision numbers are in
+`console/src/theme.md`. In summary: Number `#006D9B`, Note `#706900`, Function
+`#007555`, Bang `#90426F`, Sequence `#0072B2` *unchanged*, Diagnostic
+`#652800`, Output Portal `#6F4A00`. Every OKLCh hue angle is held to within
+0.7° of Okabe–Ito's. Five moved only as far as a near-white ground required;
+Sequence did not move at all; Diagnostic and Output Portal moved further,
+because the contrast floor is a lightness *ceiling* on a light ground and it
+compresses Okabe–Ito's yellow, orange and vermillion — which a red–green
+dichromacy merges into one hue — into one lightness.
+
+`error` and `warning` follow Bang to `#90426F`, as they already did.
+
+**The colour-vision check ships**, in `console/src/contrast.rs` beside the
+contrast floor, rather than staying a recorded one-off: the defect it found was
+invisible to every existing gate, and a recorded measurement would not have
+stopped the next retune reintroducing it. `contrast::distinguish` simulates
+protanopia, deuteranopia and tritanopia (Viénot, Brettel & Mollon 1999) over
+the same composited colours `validate` measures, and reports CIEDE2000 between
+every pair of Source glyph channels. `contrast::CONFUSION_FLOOR` is 5.0 and
+gates the two red–green dichromacies; both built-ins clear it with no
+exception — Okabe–Ito at 6.65, Orcvs Light at 7.19. That module's `# Scope`
+section no longer excludes colour vision, and says what the new function does
+and does not cover.
+
+**Tritanopia is measured and deliberately not gated**, which is this issue's
+one named exception. The Okabe–Ito assignment is published as safe for
+red–green deficiency and makes no tritan claim: the *shipped dark* built-in's
+Bang and Diagnostic measure 0.60 apart under it. A tritan gate would fail the
+Theme the console ships today, and no arrangement of these seven hues inside a
+light ground's lightness ceiling rescues it either. Orcvs Light measures 1.54,
+better than the dark built-in and better than the definition it replaces (0.39),
+and not good. `shipped_theme_colour_vision_gate` pins both numbers so it stays
+a checked boundary.
+
+The captures are redone, at `pixels_per_point: 2` and over a Source that now
+reaches Atom Invalid, Sequence Invalid and a visible Output Portal Reservation
+including the doubled Portal-over-role tint — the states nearest the contrast
+floor, which the first set could not show. `../evidence/README.md` records the
+layout, why each line is there, and the procedure, and states that both
+temporary patches were reverted before the commit. It also carries one
+simulated copy of the wide capture per dichromacy.
+
+Still nothing shipped selects this Theme.

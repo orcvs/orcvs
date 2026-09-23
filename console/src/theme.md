@@ -194,15 +194,39 @@ every named property below has an exact value, including the ones it shares
 with Okabe–Ito, which are written out rather than left to a toolkit default,
 and including ADR 0053's border-width keys. It declares itself light.
 
-Its chrome and glyph colours start from the hand-tuned `LIGHT_PALETTE` on the
+Its **chrome** colours start from the hand-tuned `LIGHT_PALETTE` on the
 `feat/egui-theming` branch, mapped onto the named keys as `04`'s 2026-09-21
 comment directs. That palette predates the named-key format: it says nothing
 about Comment, Sequence, Diagnostic or Output Portal, and its `marker`,
 `highlight` and four `bloom_*` pairs name tokens this console retired (the
 Marker and Highlight Glyphs went with `retired-glyph-vocabulary`; the four
-bloom rings became the Cursor Effect's single `cursor.area` field). The
-**Provenance** column below says, for every property, whether the value is the
-proposal's, an adjustment of it, or decided here.
+bloom rings became the Cursor Effect's single `cursor.area` field).
+
+Its **Source glyph hues do not**. The proposal's glyph colours were prepared
+here first and then dropped, by the user's 2026-09-23 decision, after a review
+found its Function green `#087A5A` and its Bang red `#C33445` at near-identical
+relative luminance — 1.01:1, one tone on a greyscale display — and a
+colour-vision measurement of the whole definition found worse than that: its
+Diagnostic `#A34A00` and Output Portal `#7A5200` measure 0.70 apart under
+simulated protanopia, and its Number `#3564A0` and Note `#7553A2` 2.16 under
+deuteranopia. Those are pairs a red–green colour-blind reader reads as one
+colour, and pairs the dark built-in keeps apart by construction, because the
+Okabe–Ito assignment is published as safe for red–green deficiency. The
+rejected definition passed the contrast floor in all 84 states while doing it;
+**Orcvs Light's colour-vision evidence** below records the whole comparison, and
+`contrast::tests::the_rejected_light_glyph_definition_fails_this_gate` keeps it
+as a regression.
+
+Every glyph hue is therefore re-picked from the same Okabe–Ito palette, under
+the same role-to-hue assignment the dark built-in already uses. Each hue is kept
+exactly — the OKLCh hue angle moves by at most 0.7°, which is rounding into
+8-bit sRGB rather than a change of hue — and only lightness moves, as far as a
+near-white ground requires, and for Diagnostic and Output Portal as far as the
+colour-vision floor requires on top of that. `source.sequence` moves not at all.
+
+The **Provenance** column below says, for every property, whether the value is
+the chrome proposal's, an adjustment of it, an Okabe–Ito hue at a new lightness,
+or decided here.
 
 | Property | Orcvs Light value | Provenance |
 |---|---|---|
@@ -212,22 +236,22 @@ proposal's, an adjustment of it, or decided here.
 | `cell.background` | `#00000000` | shared with Okabe–Ito, recorded explicitly |
 | `source.ordinary` | `#303F3B` | proposal `ordinary` (also Char and Atom) |
 | `source.comment` | `#4E5A56` | decided here; the proposal has no Comment |
-| `source.number` | `#3564A0` | proposal `number` |
-| `source.note` | `#7553A2` | proposal `note` |
-| `source.function` | `#077055` | proposal `function` `#087A5A`, darkened |
-| `source.bang` | `#AD2A3B` | proposal `bang` `#C33445`, darkened |
-| `source.sequence` | `#12386B` | decided here; the proposal has no Sequence |
+| `source.number` | `#006D9B` | Okabe–Ito sky blue `#56B4E9`, darkened |
+| `source.note` | `#706900` | Okabe–Ito yellow `#F0E442`, darkened |
+| `source.function` | `#007555` | Okabe–Ito bluish green `#009E73`, darkened |
+| `source.bang` | `#90426F` | Okabe–Ito reddish purple `#CC79A7`, darkened |
+| `source.sequence` | `#0072B2` | Okabe–Ito blue, **unchanged** |
 | `source.ordinary.background` | `#00000000` | no role fill, as in Okabe–Ito |
 | `source.comment.background`, `source.bang.background` | `#00000000` | no role fill |
-| `source.number.background` | `#3564A01A` | Number's own colour at 10% opacity |
-| `source.note.background` | `#7553A21A` | Note's own colour at 10% opacity |
-| `source.function.background` | `#0770551A` | Function's own colour at 10% opacity |
+| `source.number.background` | `#006D9B1A` | Number's own colour at 10% opacity |
+| `source.note.background` | `#7069001A` | Note's own colour at 10% opacity |
+| `source.function.background` | `#0075551A` | Function's own colour at 10% opacity |
 | `source.atom.background` | `#303F3B1A` | Ordinary's own colour at 10% opacity |
-| `source.sequence.background` | `#12386B1A` | Sequence's own colour at 10% opacity |
-| `diagnostic.foreground` | `#A34A00` | decided here; the proposal has no Diagnostic |
+| `source.sequence.background` | `#0072B21A` | Sequence's own colour at 10% opacity |
+| `diagnostic.foreground` | `#652800` | Okabe–Ito vermillion `#D55E00`, darkened past the contrast floor |
 | `diagnostic.background`, `diagnostic.border` | `#00000000` | shared with Okabe–Ito |
-| `output_portal.foreground` | `#7A5200` | decided here; the proposal has no Output Portal |
-| `output_portal.background` | `#7A52001A` | Output Portal's own colour at 10% opacity |
+| `output_portal.foreground` | `#6F4A00` | Okabe–Ito orange `#E69F00`, darkened past the contrast floor |
+| `output_portal.background` | `#6F4A001A` | Output Portal's own colour at 10% opacity |
 | `output_portal.border` | `#00000000` | shared with Okabe–Ito |
 | `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
 | `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
@@ -249,7 +273,43 @@ proposal's, an adjustment of it, or decided here.
 | `link` | `#0B62B8` | decided here — see below |
 | `code.background` | `#E6E6E6` | egui's own default light code-span background |
 | `input.cursor` | `#00537D` | egui's own default light text cursor and IME underline |
-| `error`, `warning` | `#AD2A3B` | borrowed from Bang, as in Okabe–Ito |
+| `error`, `warning` | `#90426F` | borrowed from Bang, as in Okabe–Ito |
+
+#### What moved, and what held
+
+Each glyph hue is the dark built-in's, at a new lightness. Hue and lightness are
+stated in OKLCh, the space the re-pick was performed in, because it is the one
+where "the same hue, darker" is a single coordinate:
+
+| Role | Okabe–Ito | h | L | Orcvs Light | h | L | What set the lightness |
+|---|---|---:|---:|---|---:|---:|---|
+| Number | `#56B4E9` | 236.18° | 0.735 | `#006D9B` | 236.47° | 0.506 | the contrast floor, on its own 10% tint |
+| Note | `#F0E442` | 105.04° | 0.902 | `#706900` | 105.03° | 0.511 | the contrast floor, on its own 10% tint |
+| Function | `#009E73` | 165.46° | 0.620 | `#007555` | 165.97° | 0.499 | the contrast floor, on its own 10% tint |
+| Bang | `#CC79A7` | 346.32° | 0.679 | `#90426F` | 346.62° | 0.494 | the contrast floor, on the Region wash |
+| Sequence | `#0072B2` | 244.05° | 0.532 | `#0072B2` | 244.05° | 0.532 | nothing: it already cleared the floor |
+| Diagnostic | `#D55E00` | 47.51° | 0.621 | `#652800` | 46.92° | 0.360 | the colour-vision floor, against Output Portal |
+| Output Portal | `#E69F00` | 76.77° | 0.753 | `#6F4A00` | 76.07° | 0.440 | the colour-vision floor, against Note and Diagnostic |
+
+`source.ordinary` `#303F3B` and `source.comment` `#4E5A56` are unchanged and are
+not Okabe–Ito hues: the dark built-in's Ordinary is the Cursor frame's off-white
+and its Comment is the palette's neutral gray, and neither transfers to a
+near-white page. They are the near-white page's ink and a muted form of it, as
+the chrome proposal set them.
+
+Five of the seven moved only as far as this ground forced them, and Sequence not
+at all. Diagnostic and Output Portal moved further, and the reason is
+structural rather than aesthetic: on a near-white ground the contrast floor is a
+*ceiling* on lightness, and it compresses every glyph into a band about 0.02
+wide in OKLCh L. Okabe–Ito separates its yellow, its orange and its vermillion
+by a lightness spread of 0.28, which is what keeps them apart once a red–green
+dichromacy has merged their hues. Compressed into one band they measure 1.5 and
+0.5 apart under deuteranopia — worse than the definition this one replaced.
+Darkening Diagnostic and Output Portal restores the dark built-in's own
+lightness *ordering* (Note lightest, then Output Portal, then Diagnostic) inside
+the band a light ground allows, and that ordering is what the numbers below
+come from. Hue alone cannot carry the distinction; lightness is the one
+dimension every dichromacy leaves intact.
 
 Every border width is Okabe–Ito's, recorded rather than inherited:
 `grid.border.width` 0.5, `sector.seam.width` 0.75,
@@ -295,14 +355,12 @@ states. **Every one clears the 4.5:1 floor. There are no deliberate exceptions**
 — `contrast::accepted_failures("orcvs-light")` is empty, and
 `contrast::tests::orcvs_light_has_nothing_to_except` pins that the emptiness is
 because nothing fails, not because a failure was accepted. The lowest measured
-state is 4.81:1.
+state is 4.78:1, Bang inside a Region.
 
-Three of the proposal's values were adjusted to reach that, each recorded above
-and each a darkening rather than a change of hue: Function `#087A5A` → `#077055`
-(the tinted state measured 4.50:1, on the floor with no margin), Bang `#C33445`
-→ `#AD2A3B` (its Region state measured 3.89:1), and, among the values decided
-here, Output Portal `#8A5D00` → `#7A5200` (the doubled Portal-over-role tint
-measured 4.11:1). No floor was lowered and no state was special-cased.
+Five of the seven glyph hues were darkened exactly until this held and no
+further — the **What moved** table above names which state bound each one — and
+the other two were darkened past it for the colour-vision reason recorded below.
+No floor was lowered and no state was special-cased.
 
 Representative measurements, `plain` placement unless stated:
 
@@ -312,28 +370,102 @@ Representative measurements, `plain` placement unless stated:
 | Ordinary, Region | `#303F3B` | `#D8DDDB` | 8.05:1 |
 | Comment | `#4E5A56` | `#FAFCFB` | 6.98:1 |
 | Comment, Region | `#4E5A56` | `#D8DDDB` | 5.23:1 |
-| Function | `#077055` | `#E2EDEA` | 5.07:1 |
-| Bang | `#AD2A3B` | `#FAFCFB` | 6.43:1 |
-| Bang, Region | `#AD2A3B` | `#D8DDDB` | 4.82:1 |
-| Number, Valid | `#3564A0` | `#E6ECF1` | 5.06:1 |
-| Note, Valid | `#7553A2` | `#EDEAF2` | 5.02:1 |
-| Number, Invalid | `#A34A00` | `#E6ECF1` | 4.99:1 |
-| Note, Invalid | `#A34A00` | `#EDEAF2` | 4.99:1 |
-| Atom, Invalid | `#A34A00` | `#E6E8E7` | 4.82:1 |
-| Sequence, Invalid | `#A34A00` | `#E3E8EC` | 4.81:1 |
-| Ordinary, Output Portal | `#7A5200` | `#EDEAE1` | 5.75:1 |
-| Sequence, Invalid, Output Portal | `#7A5200` | `#D8D9D5` | 4.88:1 |
+| Function | `#007555` | `#E1EEEA` | 4.79:1 |
+| Bang | `#90426F` | `#FAFCFB` | 6.38:1 |
+| Bang, Region | `#90426F` | `#D8DDDB` | 4.78:1 |
+| Number, Valid | `#006D9B` | `#E1EDF1` | 4.80:1 |
+| Note, Valid | `#706900` | `#ECEDE1` | 4.79:1 |
+| Number, Invalid | `#652800` | `#E1EDF1` | 9.47:1 |
+| Note, Invalid | `#652800` | `#ECEDE1` | 9.57:1 |
+| Atom, Invalid | `#652800` | `#E6E8E7` | 9.19:1 |
+| Sequence, Invalid | `#652800` | `#E1EEF3` | 9.55:1 |
+| Ordinary, Output Portal | `#6F4A00` | `#ECEAE1` | 6.56:1 |
+| Sequence, Invalid, Output Portal | `#6F4A00` | `#D5DEDB` | 5.80:1 |
 | `text` vs `panel.background` | `#303F3B` | `#EFF4F2` | 9.94:1 |
 | `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
 | `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
 | `text.muted` vs `input.background` | `#303F3BBF` | `#FAFCFB` | 5.13:1 |
 
 The scope is the validator's own: text contrast against the actually-composited
-background, never pairwise Token-colour distinguishability, colour-vision
-accessibility, border or focus visibility, or the Cursor Effect's animated
-`cursor.area` field.
+background, never pairwise Token-colour distinguishability, border or focus
+visibility, or the Cursor Effect's animated `cursor.area` field. Colour vision
+is a separate measurement, below.
 
-Visual captures for review are in `.scratch/theming/evidence/`.
+#### Orcvs Light's colour-vision evidence
+
+`console/src/contrast.rs::distinguish` simulates dichromatic vision over the
+same composited colours `validate` measures — the glyph as it is displayed on
+its own role tint, on the Region wash, and on the doubled Portal-over-role tint
+— and reports how far apart every pair of Source glyph channels stays. The
+transform is Viénot, Brettel & Mollon (1999); the distance is CIEDE2000, checked
+against Sharma, Wu & Dalal's published test data. The floor is
+`contrast::CONFUSION_FLOOR`, 5.0.
+
+**Both shipped built-ins clear it for protanopia and deuteranopia, with no
+accepted exception.** The closest pair each way:
+
+| Simulation | Okabe–Ito (dark) | ΔE00 | Orcvs Light | ΔE00 |
+|---|---|---:|---|---:|
+| Protanopia | Function vs Comment | 14.16 | Ordinary vs Comment | 9.20 |
+| Deuteranopia | Bang vs Comment | **6.65** | Function vs Comment | **7.19** |
+| Tritanopia (not gated) | Bang vs Diagnostic | 0.60 | Bang vs Note | 1.54 |
+
+The floor is 5.0 because that is where two colours are ordinarily taken to be
+clearly distinct rather than merely measurably different, and because the
+published Okabe–Ito assignment — this repository's colour authority, unretuned
+— already clears it with margin at 6.65. It is not a line fitted to the light
+Theme: the light Theme is the thing measured against it.
+
+**Tritanopia is measured and not gated**, and that is an exception this page
+names rather than hides. The Okabe–Ito assignment is published as safe for
+red–green deficiency and makes no tritan claim, and it does not hold under one:
+the shipped dark built-in's Bang (reddish purple) and Diagnostic (vermillion)
+measure **0.60** apart under simulated tritanopia, because the axis separating
+them is the one tritanopia removes. A tritan gate would therefore fail the dark
+Theme this console ships today, and inside the lightness ceiling a near-white
+ground imposes no arrangement of these seven hues rescues the light one either —
+the best reachable was 5.6, and only by darkening Note to `#312D00`, which is no
+longer a yellow. Orcvs Light's 1.54 is better than the dark built-in's 0.60 and
+better than the rejected definition's 0.39, and it is not good.
+`contrast::tests::shipped_theme_colour_vision_gate` pins both figures, so this
+stays a checked boundary rather than an unexamined gap.
+
+The rejected definition, for the comparison:
+
+| Simulation | Closest pair | ΔE00 |
+|---|---|---:|
+| Protanopia | Output Portal `#7A5200` vs Diagnostic `#A34A00` | 0.70 |
+| Deuteranopia | Number `#3564A0` vs Note `#7553A2` | 2.16 |
+| Tritanopia | Bang `#AD2A3B` vs Diagnostic `#A34A00` | 0.39 |
+
+Its Function `#077055` and Bang `#AD2A3B` — this page's own darkenings of the
+pair the review named, and still one tone — measure 1.09:1 in relative
+luminance and **14.60** apart under deuteranopia. The raw proposal's `#087A5A`
+and `#C33445` measure 1.01:1 and 14.39. The review's observation is exact in
+both cases and its conclusion does not follow from it: every dichromacy keeps
+lightness *and* one chromatic axis, so equal luminance is a fact about two
+colours rather than a verdict on them.
+`contrast::tests::equal_luminance_alone_does_not_decide_a_colour_vision_
+confusion` records that, because it is the reason this measurement simulates
+vision rather than comparing luminances. The corollary is what set Diagnostic's
+and Output Portal's lightness above: lightness is the dimension that survives,
+so lightness is what separates colours a dichromacy would otherwise merge.
+
+Two things this measurement does not cover, stated rather than implied:
+
+- **Background tints against each other.** A Pending operand Cell draws no
+  glyph, so its declared Token shows only as a 10% wash on a near-white ground.
+  Those washes are within ΔE00 0.54 of each other to *normal* vision (Number
+  `#E1EDF1` against Sequence `#E1EEF3`); the dark built-in's are within 1.73.
+  Neither built-in tells a blank Pending Number from a blank Pending Sequence by
+  colour, and no colour-vision simulation makes that worse than it already is. A
+  Theme cannot fix it — the 10% figure is a decided value on this page, and
+  raising it is a separate decision.
+- **Anomalous trichromacy** (protanomaly, deuteranomaly, tritanomaly), a
+  continuum whose severe end is the dichromacy simulated here.
+
+Visual captures for review are in `.scratch/theming/evidence/`, including one
+simulated copy of the wide capture per dichromacy.
 
 ### Shipped Themes
 
@@ -473,8 +605,22 @@ accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"); the returned
 `ContrastReport` also carries the floor and a scope description directly, not
 only in rustdoc. `validate` measures text contrast only: never Token-colour
-distinguishability, colour-vision accessibility, border/focus visibility, or
-the Cursor Effect's animated `area` field.
+distinguishability, border/focus visibility, or the Cursor Effect's animated
+`area` field.
+
+Colour vision is the same module's second measurement, `contrast::distinguish`
+(`.scratch/theming/issues/04`), added because a definition can clear every one
+of those 84 states and still paint two Source glyph channels a dichromat reads
+as one colour — the rejected light definition did exactly that. It simulates
+protanopia, deuteranopia and tritanopia (Viénot, Brettel & Mollon 1999) over the
+same composited colours, measures CIEDE2000 between every pair of glyph
+channels, and reports the closest placement for each pair.
+`contrast::CONFUSION_FLOOR`, 5.0, gates the two red–green dichromacies;
+tritanopia is reported and not gated, for the reason `ColourVision`'s own
+documentation and **Orcvs Light's colour-vision evidence** above both state.
+`contrast::tests::shipped_theme_colour_vision_gate` runs it over both built-ins.
+It measures glyphs only: never background tints against each other, and never
+anomalous trichromacy.
 
 A Pending operand Cell draws no glyph, so `validate` has no Pending role to
 measure — `Role` (Number, Note, Atom, Sequence) carries Valid and Invalid

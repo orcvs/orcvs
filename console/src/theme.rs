@@ -667,23 +667,34 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
 /// value it shares with the dark built-in, which `04` requires be recorded
 /// rather than left to a toolkit default.
 ///
-/// The chrome and glyph colours start from the `feat/egui-theming` branch's
-/// hand-tuned `LIGHT_PALETTE`, mapped onto the named keys as
+/// The chrome colours start from the `feat/egui-theming` branch's hand-tuned
+/// `LIGHT_PALETTE`, mapped onto the named keys as
 /// `.scratch/theming/issues/04`'s 2026-09-21 comment directs (page →
 /// `window.background`/`panel.background`, source → `grid.background`, grid
 /// line → `grid.border`, sector line → `sector.seam`, selection fill →
-/// `selection.background`, and so on). That palette is a *proposal*: it
-/// predates the named-key format, says nothing about Comment, Sequence,
-/// Diagnostic or Output Portal, and two of its glyph colours — Function and
-/// Bang — are darkened here so every reachable painted state clears
-/// [`crate::contrast::CONTRAST_FLOOR`]. The Output Portal foreground is
-/// darkened against no proposal value: the palette has none, so `theme.md`
-/// records it as decided here and then adjusted for the doubled
-/// Portal-over-role tint. `console/src/theme.md` records each
-/// value, where it came from, and every adjustment; the user accepts or
-/// rejects the result there, and until then nothing selects this Theme —
-/// `console/src/style.rs::install` still registers the one resolved
-/// Okabe–Ito style in both egui appearance slots.
+/// `selection.background`, and so on).
+///
+/// The **Source glyph hues do not**. A review found that palette's Function
+/// green and Bang red at near-identical relative luminance, and a
+/// colour-vision measurement of the whole definition
+/// ([`crate::contrast::distinguish`]) then found worse: its Diagnostic and
+/// Output Portal measured 0.70 apart under protanopia and its Note and
+/// Number 2.16 under deuteranopia, against a floor of 5.0 — pairs a
+/// red–green colour-blind reader reads as one colour, and pairs
+/// [`okabe_ito`] keeps apart by construction. The user's 2026-09-23 decision
+/// re-picks every glyph hue from the same Okabe–Ito palette and the same
+/// role-to-hue assignment the dark built-in already uses (Number sky blue,
+/// Note yellow, Function bluish green, Bang reddish purple, Sequence blue,
+/// Diagnostic vermillion, Output Portal orange), keeping each hue exactly —
+/// the OKLCh hue angle is held to within 0.7° — and moving lightness alone,
+/// as far as a near-white ground requires and, for Diagnostic and Output
+/// Portal, as far as [`crate::contrast::CONFUSION_FLOOR`] requires on top of
+/// that. Sequence is `#0072B2` unchanged: the Okabe–Ito blue already clears
+/// the contrast floor on this ground. `console/src/theme.md` records each
+/// value, its hue and lightness, the measured ratios and the colour-vision
+/// separations; the user accepts or rejects the result there, and until then
+/// nothing selects this Theme — `console/src/style.rs::install` still
+/// registers the one resolved Okabe–Ito style in both egui appearance slots.
 ///
 /// `orcvs_light_defines_every_key_at_the_recorded_values` in this module's
 /// tests pins every field against that record, and
@@ -703,25 +714,25 @@ pub fn orcvs_light() -> Theme {
 
         source_ordinary: straight_rgba(0x30_3F_3B_FF),
         source_comment: straight_rgba(0x4E_5A_56_FF),
-        source_number: straight_rgba(0x35_64_A0_FF),
-        source_note: straight_rgba(0x75_53_A2_FF),
-        source_function: straight_rgba(0x07_70_55_FF),
-        source_bang: straight_rgba(0xAD_2A_3B_FF),
-        source_sequence: straight_rgba(0x12_38_6B_FF),
+        source_number: straight_rgba(0x00_6D_9B_FF),
+        source_note: straight_rgba(0x70_69_00_FF),
+        source_function: straight_rgba(0x00_75_55_FF),
+        source_bang: straight_rgba(0x90_42_6F_FF),
+        source_sequence: straight_rgba(0x00_72_B2_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
-        source_number_background: straight_rgba(0x35_64_A0_1A),
-        source_note_background: straight_rgba(0x75_53_A2_1A),
-        source_function_background: straight_rgba(0x07_70_55_1A),
+        source_number_background: straight_rgba(0x00_6D_9B_1A),
+        source_note_background: straight_rgba(0x70_69_00_1A),
+        source_function_background: straight_rgba(0x00_75_55_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
         source_atom_background: straight_rgba(0x30_3F_3B_1A),
-        source_sequence_background: straight_rgba(0x12_38_6B_1A),
+        source_sequence_background: straight_rgba(0x00_72_B2_1A),
 
-        diagnostic_foreground: straight_rgba(0xA3_4A_00_FF),
+        diagnostic_foreground: straight_rgba(0x65_28_00_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
         diagnostic_border: straight_rgba(0x00_00_00_00),
-        output_portal_foreground: straight_rgba(0x7A_52_00_FF),
-        output_portal_background: straight_rgba(0x7A_52_00_1A),
+        output_portal_foreground: straight_rgba(0x6F_4A_00_FF),
+        output_portal_background: straight_rgba(0x6F_4A_00_1A),
         output_portal_border: straight_rgba(0x00_00_00_00),
 
         grid_border: straight_rgba(0x34_5B_50_40),
@@ -744,8 +755,8 @@ pub fn orcvs_light() -> Theme {
         link: straight_rgba(0x0B_62_B8_FF),
         code_background: straight_rgba(0xE6_E6_E6_FF),
         input_cursor: straight_rgba(0x00_53_7D_FF),
-        error: straight_rgba(0xAD_2A_3B_FF),
-        warning: straight_rgba(0xAD_2A_3B_FF),
+        error: straight_rgba(0x90_42_6F_FF),
+        warning: straight_rgba(0x90_42_6F_FF),
 
         cursor_background: None,
         region_cursor_background: None,
@@ -1129,11 +1140,11 @@ mod tests {
 
         assert_eq!(theme.source_ordinary, straight_rgba(0x30_3F_3B_FF));
         assert_eq!(theme.source_comment, straight_rgba(0x4E_5A_56_FF));
-        assert_eq!(theme.source_number, straight_rgba(0x35_64_A0_FF));
-        assert_eq!(theme.source_note, straight_rgba(0x75_53_A2_FF));
-        assert_eq!(theme.source_function, straight_rgba(0x07_70_55_FF));
-        assert_eq!(theme.source_bang, straight_rgba(0xAD_2A_3B_FF));
-        assert_eq!(theme.source_sequence, straight_rgba(0x12_38_6B_FF));
+        assert_eq!(theme.source_number, straight_rgba(0x00_6D_9B_FF));
+        assert_eq!(theme.source_note, straight_rgba(0x70_69_00_FF));
+        assert_eq!(theme.source_function, straight_rgba(0x00_75_55_FF));
+        assert_eq!(theme.source_bang, straight_rgba(0x90_42_6F_FF));
+        assert_eq!(theme.source_sequence, straight_rgba(0x00_72_B2_FF));
         assert_eq!(
             theme.source_ordinary_background,
             straight_rgba(0x00_00_00_00)
@@ -1142,24 +1153,24 @@ mod tests {
             theme.source_comment_background,
             straight_rgba(0x00_00_00_00)
         );
-        assert_eq!(theme.source_number_background, straight_rgba(0x35_64_A0_1A));
-        assert_eq!(theme.source_note_background, straight_rgba(0x75_53_A2_1A));
+        assert_eq!(theme.source_number_background, straight_rgba(0x00_6D_9B_1A));
+        assert_eq!(theme.source_note_background, straight_rgba(0x70_69_00_1A));
         assert_eq!(
             theme.source_function_background,
-            straight_rgba(0x07_70_55_1A)
+            straight_rgba(0x00_75_55_1A)
         );
         assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
         assert_eq!(theme.source_atom_background, straight_rgba(0x30_3F_3B_1A));
         assert_eq!(
             theme.source_sequence_background,
-            straight_rgba(0x12_38_6B_1A)
+            straight_rgba(0x00_72_B2_1A)
         );
 
-        assert_eq!(theme.diagnostic_foreground, straight_rgba(0xA3_4A_00_FF));
+        assert_eq!(theme.diagnostic_foreground, straight_rgba(0x65_28_00_FF));
         assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
         assert_eq!(theme.diagnostic_border, straight_rgba(0x00_00_00_00));
-        assert_eq!(theme.output_portal_foreground, straight_rgba(0x7A_52_00_FF));
-        assert_eq!(theme.output_portal_background, straight_rgba(0x7A_52_00_1A));
+        assert_eq!(theme.output_portal_foreground, straight_rgba(0x6F_4A_00_FF));
+        assert_eq!(theme.output_portal_background, straight_rgba(0x6F_4A_00_1A));
         assert_eq!(theme.output_portal_border, straight_rgba(0x00_00_00_00));
 
         assert_eq!(theme.grid_border, straight_rgba(0x34_5B_50_40));
@@ -1182,8 +1193,8 @@ mod tests {
         assert_eq!(theme.link, straight_rgba(0x0B_62_B8_FF));
         assert_eq!(theme.code_background, straight_rgba(0xE6_E6_E6_FF));
         assert_eq!(theme.input_cursor, straight_rgba(0x00_53_7D_FF));
-        assert_eq!(theme.error, straight_rgba(0xAD_2A_3B_FF));
-        assert_eq!(theme.warning, straight_rgba(0xAD_2A_3B_FF));
+        assert_eq!(theme.error, straight_rgba(0x90_42_6F_FF));
+        assert_eq!(theme.warning, straight_rgba(0x90_42_6F_FF));
 
         // Shared with Okabe–Ito: both optional Cursor fills are cleared.
         assert_eq!(theme.cursor_background, None);
@@ -1208,7 +1219,17 @@ mod tests {
     ///
     /// The two built-ins are genuinely different Themes, not one palette
     /// under two identities: they disagree on the page, the Source ground
-    /// and every glyph colour, and they declare opposite appearances.
+    /// and every glyph colour a near-white ground forced them to disagree
+    /// on, and they declare opposite appearances.
+    ///
+    /// `source.sequence` is deliberately absent from the list below, and is
+    /// asserted *equal* instead. The user's 2026-09-23 decision re-picks
+    /// Orcvs Light's glyph hues from the same Okabe–Ito palette, darkening
+    /// each only as far as the near-white ground requires; Okabe–Ito's blue
+    /// `#0072B2` already clears [`crate::contrast::CONTRAST_FLOOR`] there, so
+    /// it needed no darkening and the two built-ins share it exactly. That
+    /// shared value is the rule working, not the two Themes collapsing into
+    /// one — every other pair below still differs.
     ///
     #[test]
     fn the_two_built_ins_are_distinct_themes_of_opposite_appearance() {
@@ -1242,11 +1263,6 @@ mod tests {
                 light.source_function,
             ),
             ("source.bang", dark.source_bang, light.source_bang),
-            (
-                "source.sequence",
-                dark.source_sequence,
-                light.source_sequence,
-            ),
             ("text", dark.text, light.text),
             (
                 "selection.background",
@@ -1259,6 +1275,13 @@ mod tests {
                 "{name} must differ between the built-ins"
             );
         }
+
+        assert_eq!(
+            dark.source_sequence, light.source_sequence,
+            "source.sequence is the one glyph colour the near-white ground did not force to \
+             move; if this ever differs, theme.md's Orcvs Light table has drifted from its \
+             own 'unchanged' provenance"
+        );
     }
 
     ///
