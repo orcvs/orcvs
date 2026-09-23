@@ -163,27 +163,36 @@ impl Role {
     /// `source.sequence.background` tint alone, which is a background and
     /// therefore outside this module's scope.
     ///
-    fn glyph_channel(self, output_portal: bool) -> Option<GlyphChannel> {
-        let channel = match self {
-            Self::Ordinary => GlyphChannel::Ordinary,
-            Self::Comment => GlyphChannel::Comment,
-            Self::Function => return Some(GlyphChannel::Function),
-            Self::Bang => return Some(GlyphChannel::Bang),
-            Self::NumberValid => GlyphChannel::Number,
-            Self::NoteValid => GlyphChannel::Note,
-            Self::NumberInvalid | Self::NoteInvalid | Self::AtomInvalid | Self::SequenceInvalid => {
-                GlyphChannel::Diagnostic
+    /// A fact channel whose foreground is exactly transparent paints nothing
+    /// over the glyph — `style::blend_channel` leaves the Token's colour
+    /// showing, which is ADR 0053's way to carry a fact on the background
+    /// alone — so the glyph is measured as the channel it reveals. An
+    /// Invalid Sequence then reveals `source.sequence`, which is not a
+    /// [`GlyphChannel`], and is left out. An Invalid Atom reveals
+    /// `source.ordinary`, the colour `style::role` draws an Atom operand in.
+    ///
+    fn glyph_channel(self, output_portal: bool, theme: &Theme) -> Option<GlyphChannel> {
+        let portal = output_portal && theme.output_portal_foreground != Color32::TRANSPARENT;
+        let diagnostic = theme.diagnostic_foreground != Color32::TRANSPARENT;
+        match self {
+            // "A bound Function retains all its own paint inside a Portal",
+            // and "Bang retains its glyph foreground" — both answered before
+            // the Portal, exactly as `style::role_and_portal` bypasses them.
+            Self::Function => Some(GlyphChannel::Function),
+            Self::Bang => Some(GlyphChannel::Bang),
+            Self::Text | Self::TextMuted => None,
+            _ if portal => Some(GlyphChannel::OutputPortal),
+            Self::NumberInvalid | Self::NoteInvalid | Self::AtomInvalid | Self::SequenceInvalid
+                if diagnostic =>
+            {
+                Some(GlyphChannel::Diagnostic)
             }
-            Self::Text | Self::TextMuted => return None,
-        };
-        // "A bound Function retains all its own paint inside a Portal", and
-        // "Bang retains its glyph foreground" — both returned above, before
-        // this line, exactly as `style::role_and_portal` bypasses them.
-        Some(if output_portal {
-            GlyphChannel::OutputPortal
-        } else {
-            channel
-        })
+            Self::Ordinary | Self::AtomInvalid => Some(GlyphChannel::Ordinary),
+            Self::Comment => Some(GlyphChannel::Comment),
+            Self::NumberValid | Self::NumberInvalid => Some(GlyphChannel::Number),
+            Self::NoteValid | Self::NoteInvalid => Some(GlyphChannel::Note),
+            Self::SequenceInvalid => None,
+        }
     }
 
     /// The Source Paint fact this role reads, or `None` for a console-chrome
@@ -943,7 +952,7 @@ pub(crate) fn distinguish(theme: &Theme) -> ConfusionReport {
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for placement in CursorPlacement::ALL {
             for output_portal in [false, true] {
-                let Some(channel) = role.glyph_channel(output_portal) else {
+                let Some(channel) = role.glyph_channel(output_portal, theme) else {
                     continue;
                 };
                 let (foreground, background) = painted(fact, placement, output_portal, theme);
@@ -966,34 +975,24 @@ pub(crate) fn distinguish(theme: &Theme) -> ConfusionReport {
                 if first == second || placement != other_placement {
                     continue;
                 }
-                let distance = difference(first_lab, second_lab);
+                let candidate = ConfusionResult {
+                    vision,
+                    first,
+                    second,
+                    placement,
+                    first_colour,
+                    second_colour,
+                    distance: difference(first_lab, second_lab),
+                };
                 let existing = results.iter_mut().find(|result| {
                     result.vision == vision
                         && ((result.first == first && result.second == second)
                             || (result.first == second && result.second == first))
                 });
                 match existing {
-                    Some(result) if distance < result.distance => {
-                        *result = ConfusionResult {
-                            vision,
-                            first,
-                            second,
-                            placement,
-                            first_colour,
-                            second_colour,
-                            distance,
-                        };
-                    }
+                    Some(result) if candidate.distance < result.distance => *result = candidate,
                     Some(_) => {}
-                    None => results.push(ConfusionResult {
-                        vision,
-                        first,
-                        second,
-                        placement,
-                        first_colour,
-                        second_colour,
-                        distance,
-                    }),
+                    None => results.push(candidate),
                 }
             }
         }
@@ -1021,8 +1020,12 @@ pub(crate) fn distinguish(theme: &Theme) -> ConfusionReport {
 /// copy of it here: they are the pinned colour operations everything else in
 /// this module and in [`crate::style`] already composites with.
 ///
-/// The matrices are the published ones, not fitted: `linearize` here is
-/// applied to the same sRGB primaries `Color32` stores.
+/// The protanopia and deuteranopia planes are Viénot, Brettel & Mollon's
+/// published ones, not fitted. That paper gives no tritan plane: the
+/// tritanopia row is the widely used companion projection in the same LMS
+/// space, so the ungated tritan figures rest on a weaker model than the two
+/// gated ones. `linearize` here is applied to the same sRGB primaries
+/// `Color32` stores.
 /// `simulating_a_dichromacy_is_idempotent` and
 /// `simulation_leaves_neutrals_alone` check the two properties that follow
 /// from this being a projection onto a plane, which is what makes the
@@ -1912,6 +1915,11 @@ mod tests {
             ([50.0, 2.8361, -74.0200], [50.0, 0.0, -82.7485], 3.4412),
             ([50.0, -1.3802, -84.2814], [50.0, 0.0, -82.7485], 1.0000),
             ([50.0, 2.5, 0.0], [50.0, 0.0, -2.5], 4.3065),
+            // One colour achromatic: the zero-chroma-product branches.
+            ([50.0, 0.0, 0.0], [50.0, -1.0, 2.0], 2.3669),
+            // Hue difference either side of 180°, which moves the hue mean.
+            ([50.0, 2.49, -0.001], [50.0, -2.49, 0.0009], 7.1792),
+            ([50.0, 2.49, -0.001], [50.0, -2.49, 0.0011], 7.2195),
             (
                 [60.2574, -34.0099, 36.2677],
                 [60.4626, -34.1751, 39.4387],
@@ -2285,6 +2293,46 @@ mod tests {
                 tritan.distance
             );
         }
+    }
+
+    ///
+    /// ADR 0053 lets a Theme carry Diagnostic and Output Portal on the
+    /// background alone, by making their foregrounds transparent; the glyph
+    /// then keeps the colour of the Token under it. `distinguish` must
+    /// compare the channel actually painted, or it measures a Number,
+    /// Invalid glyph drawn in `source.number` against Number, Valid in the
+    /// same colour and reports two different meanings at a distance of 0.
+    ///
+    #[test]
+    fn a_transparent_fact_foreground_is_measured_as_the_token_it_reveals() {
+        let theme = Theme {
+            diagnostic_foreground: Color32::TRANSPARENT,
+            output_portal_foreground: Color32::TRANSPARENT,
+            ..okabe_ito()
+        };
+        let report = distinguish(&theme);
+
+        let drawn_in: Vec<_> = report
+            .results
+            .iter()
+            .flat_map(|result| [result.first, result.second])
+            .filter(|channel| {
+                matches!(
+                    channel,
+                    GlyphChannel::Diagnostic | GlyphChannel::OutputPortal
+                )
+            })
+            .collect();
+        assert!(
+            drawn_in.is_empty(),
+            "no glyph is drawn in a transparent channel, yet {drawn_in:?} were measured"
+        );
+        let failures: Vec<_> = report
+            .results
+            .iter()
+            .filter(|result| result.vision.gated() && !result.passes())
+            .collect();
+        assert!(failures.is_empty(), "{failures:?}");
     }
 
     ///
