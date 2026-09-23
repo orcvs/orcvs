@@ -1,6 +1,6 @@
-# 05 — Test overlapping Expression ownership in the Claim index
+# 05 — Decide whether `claims_by_cell` keeps its clearing loop
 
-**What to build:** A test for the branch where a later Span clears an earlier claim's ownership of a Cell. `03` required focused tests for overlapping Expression ownership, and none exercises it.
+**What to build:** A decision on the loop in `claims_by_cell` that clears an earlier claim's ownership of the Cells a later Expression's Span covers. The issue opened asking for a test of that branch, because `03` required focused tests for overlapping Expression ownership and none exercises it. No reachable Source overlaps (see Comments), so the criteria below cannot be met as written, and the issue is in triage for the decision instead.
 
 **Blocked by:** None — can start immediately.
 
@@ -24,12 +24,12 @@ records every positioned entry as `cell_start..start + consumed()`, and `consume
 every entry lies inside its own Expression's Span. A refused Function rewinds only to one Cell past
 its start. `rebuild` derives each dirty row the same way and carries clean rows whole. Rows never
 share Cells. So when `claims_by_cell` reaches an Expression, every index in its Span is still
-`None`, and `by_index[index] = None` overwrites `None` with `None`. No test guards that
-disjointness. The property
-`deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from` asserts that no
-Cell belongs to two Language Units, but it walks `map.units()` and never reads
-`map.expressions()`, and a Function's Expression Span covers several Language Units. Overlapping
-Expression Spans would pass it.
+`None`, and `by_index[index] = None` overwrites `None` with `None`. The property
+`expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for`
+(`orcvs/src/source/language_map.rs:2088`) walks `map.expressions()` and fails when any Cell is given
+to two Expressions, so a Parser change that let Spans overlap would fail it. The neighbouring
+`deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from` checks Language
+Units, not Expression Spans, and is not the guard.
 
 Probe (local, since removed). Before the clear, `claims_by_cell` asserted that each index was
 `None`, and after it that each entry lay inside its Expression's Span. Nothing fired in:
@@ -49,9 +49,9 @@ disjoint, so that is an early exit, not a precedence rule.
 
 Decision needed: delete the clearing loop and reword the "a later Expression owns the Cells its
 Span covers" docs on `claims_by_cell`, `entry_at` and `RenderFrame::expression_at`, or keep it as
-documented defence against a future Parser whose Expressions may overlap. Deleting it should come
-with a property over `map.expressions()` asserting their Spans are disjoint, so a Parser change
-that breaks the argument above fails a test instead of silently changing ownership. Either way, `03`'s
+documented defence against a future Parser whose Expressions may overlap. Deleting it is safe
+while `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for` holds: a future
+overlapping Parser would fail that property before it changed ownership. Either way, `03`'s
 "overlapping Expression ownership" criterion describes a case the language does not produce. No
 test was added, because the only way to reach the branch is a seam in shipped code, which the
 repository contract forbids.

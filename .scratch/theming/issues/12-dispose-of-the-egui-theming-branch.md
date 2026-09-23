@@ -7,7 +7,7 @@
 **Status:** ready-for-human
 
 - [ ] Decide whether the branch's history is worth keeping. If it is, tag its tip (for example `archive/feat-egui-theming`), and push the tag to `origin` only if the history should outlive this machine.
-- [ ] Remove the worktree `.codex/worktrees/egui-theming` with `git worktree remove`.
+- [ ] Remove any worktree checked out on the branch (`git worktree list`) with `git worktree remove`.
 - [ ] Delete the local branch.
 - [ ] Record the tag name, or the decision not to tag, in a comment here.
 

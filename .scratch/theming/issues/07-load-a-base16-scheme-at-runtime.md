@@ -2,7 +2,7 @@
 
 **What to build:** Discover native Orcvs Theme files at startup and import them on WASM through one versioned document parser. Base16 loading is deferred.
 
-**Blocked by:** 11 — Validate chrome contrast through the painted composition; 06 — Paint the Source from a named Theme; 03 — Derive the console's chrome from the Theme; 04 — Decide the light built-in Theme; 08 — Validate a Theme’s composited contrast.
+**Blocked by:** 03 — Derive the console's chrome from the Theme; 04 — Decide the light built-in Theme; 06 — Paint the Source from a named Theme; 08 — Validate a Theme’s composited contrast; 11 — Validate chrome contrast through the painted composition.
 
 **Status:** ready-for-agent
 

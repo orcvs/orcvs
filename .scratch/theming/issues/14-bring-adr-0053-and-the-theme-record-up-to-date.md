@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] ADR 0053 gains a dated amendment. The "Contrast acceptance preserves Okabe–Ito's Sequence colour… accepted exception" paragraph (around line 67) and the "Known dark failures awaiting acceptance" table (lines 69-83, with the opaque tints `#0E1D25`, `#26240B`) are superseded: the retune cleared every failure, and both accepted lists are empty. The amendment states that.
+- [ ] ADR 0053 gains a dated amendment. The "Contrast acceptance preserves Okabe–Ito's Sequence colour… accepted exception" paragraph (around line 67) and the "Known dark failures awaiting acceptance" table (lines 69-86, with the opaque tints `#0E1D25`, `#26240B`) are superseded: the retune cleared every failure, and both accepted lists are empty. The amendment states that.
 - [ ] ADR 0053 records the colour-vision gate: `CONFUSION_FLOOR`, the simulation and CIEDE2000.
 - [ ] ADR 0053's Consequences say the pickers were built and exposed under `04` (`theme_selection::SelectedThemes::listed`, on `theming-04-switching`), not prepared by `03`.
 - [ ] `console/src/theme.md:652-660` stops claiming Okabe–Ito's Region states repeat plain's figures. `region.background` is `#FFFFFF2B`. The Region and Portal-over-role figures are recorded: Bang/Region 4.63, Comment/Region 4.97, Ordinary/Region 11.81, and Portal-over-role 6.18–7.77. Recompute them rather than copying these.
@@ -16,4 +16,4 @@
 
 ## Comments
 
-**2026-09-23 — opened by the audit of the merged pull requests against their issues.** An untracked `docs/adr/0053-one-theme-styles-the-whole-console.md.bak` in the main checkout shares the number 0053. Delete it before running `scripts/check-tooling-contract.sh` locally.
+**2026-09-23 — opened by the audit of the merged pull requests against their issues.**

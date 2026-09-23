@@ -99,5 +99,5 @@ Ordinary (17.5132:1), Bang (6.8604:1), Comment (7.3709:1), and the four console-
 **2026-09-23 — the 2026-09-23 audit of the merged pull requests against their issues.** Every line holds on `main`, so `resolved` stands. Found after resolution:
 - `theme.md:657-660` claims Okabe–Ito's Region states repeat plain's figures. `region.background` is `#FFFFFF2B`, so they do not: Bang/Region measures 4.63, the lowest non-Diagnostic dark state, and it is unrecorded. That record is `14`.
 - The `shipped_theme_gate` rustdoc cites a comment in this issue that does not exist. That is `15`.
-- This PR's Benchmark `pull-request` job (run 35800814469) failed all four `paint_derive` floors, and the PR merged anyway. #126 recovered the cost. The merge policy is `benchmarks/10`.
+- This PR's Benchmark `pull-request` job (run 35800814469) failed all four `paint_derive` floors, and the PR merged anyway. #126 recovered the cost. The merge policy is `verification-gaps/09`.
 - Chrome states beyond `text` and `text.muted` are `11`.
