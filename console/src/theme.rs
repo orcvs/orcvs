@@ -677,7 +677,7 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
 /// The **Source glyph hues do not**. A review found that palette's Function
 /// green and Bang red at near-identical relative luminance, and a
 /// colour-vision measurement of the whole definition
-/// ([`crate::contrast::distinguish`]) then found worse: its Diagnostic and
+/// (`contrast::distinguish`) then found worse: its Diagnostic and
 /// Output Portal measured 0.70 apart under protanopia and its Note and
 /// Number 2.16 under deuteranopia, against a floor of 5.0 — pairs a
 /// red–green colour-blind reader reads as one colour, and pairs
@@ -688,9 +688,9 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
 /// Diagnostic vermillion, Output Portal orange), keeping each hue exactly —
 /// the OKLCh hue angle is held to within 0.7° — and moving lightness alone,
 /// as far as a near-white ground requires and, for Diagnostic and Output
-/// Portal, as far as [`crate::contrast::CONFUSION_FLOOR`] requires on top of
-/// that. Sequence is `#0072B2` unchanged: the Okabe–Ito blue already clears
-/// the contrast floor on this ground. `console/src/theme.md` records each
+/// Portal, as far as `contrast::CONFUSION_FLOOR` requires on top of that.
+/// Sequence is `#0072B2` unchanged: no reachable state draws a glyph in it,
+/// so only its tint reaches the screen. `console/src/theme.md` records each
 /// value, its hue and lightness, the measured ratios and the colour-vision
 /// separations; the user accepts or rejects the result there, and until then
 /// nothing selects this Theme — `console/src/style.rs::install` still
@@ -1280,9 +1280,9 @@ mod tests {
     /// `source.sequence` is deliberately absent from the list below, and is
     /// asserted *equal* instead. The user's 2026-09-23 decision re-picks
     /// Orcvs Light's glyph hues from the same Okabe–Ito palette, darkening
-    /// each only as far as the near-white ground requires; Okabe–Ito's blue
-    /// `#0072B2` already clears [`crate::contrast::CONTRAST_FLOOR`] there, so
-    /// it needed no darkening and the two built-ins share it exactly. That
+    /// each only as far as the near-white ground requires; no reachable state
+    /// draws a glyph in Okabe–Ito's blue `#0072B2`, so no floor asked for any
+    /// darkening and the two built-ins share it exactly. That
     /// shared value is the rule working, not the two Themes collapsing into
     /// one — every other pair below still differs.
     ///
