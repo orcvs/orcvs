@@ -212,8 +212,9 @@ simulated protanopia, and its Number `#3564A0` and Note `#7553A2` 2.16 under
 deuteranopia. Those are pairs a red–green colour-blind reader reads as one
 colour, and pairs the dark built-in keeps apart by construction, because the
 Okabe–Ito assignment is published as safe for red–green deficiency. The
-rejected definition passed the contrast floor in all 84 states while doing it;
-**Orcvs Light's colour-vision evidence** below records the whole comparison, and
+rejected definition passed the contrast floor in all 84 states the report
+measured then while doing it; **Orcvs Light's colour-vision evidence** below
+records the whole comparison, and
 `contrast::tests::the_rejected_light_glyph_definition_fails_this_gate` keeps it
 as a regression.
 
@@ -672,9 +673,12 @@ Every one clears the floor, so no chrome exception is recorded either. Left
 out, as `contrast::validate`'s own scope states: disabled widgets (egui fades
 them, and WCAG 2.1 SC 1.4.3 exempts inactive components), `code.background`
 (nothing paints a code span), a widget state's strong fill (egui paints no
-text on it), and a popup or window floating over another surface — the
-Source Grid or a panel — (measured as one panel over the window backdrop,
-identical while `panel.background` is opaque, as both built-ins' are).
+text on it), a popup or window floating over another surface — the Source
+Grid or a panel — (measured as one panel over the window backdrop, identical
+while `panel.background` is opaque, as both built-ins' are), and `text.active`
+on the open widget fill (egui paints an open widget's text in
+`widgets.open.fg_stroke`, which `style::style` maps from `text`, so the open
+fill is measured with `text`, the pair actually painted).
 
 The single-Cell Cursor always replaces a role's background outright, whatever
 that role's own background's own alpha — `style::cell_visuals_with_

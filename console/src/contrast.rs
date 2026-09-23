@@ -24,7 +24,7 @@
 //!
 //! Its chrome states are `text`, `text.muted`, `text.active`, selected
 //! text, `error`, `warning` and `link`, each on the surfaces egui paints it
-//! on (see [`State`]). Four chrome cases are left out, each for a reason
+//! on (see [`State`]). Five chrome cases are left out, each for a reason
 //! [`ContrastReport::scope`] also carries:
 //!
 //! - A disabled widget: egui fades it to half opacity, and WCAG 2.1 SC 1.4.3
@@ -39,6 +39,10 @@
 //!   beneath it differs from that only where `panel.background` is
 //!   translucent, and which surface a floating area overlaps is decided by
 //!   layout, not by the Theme.
+//! - `text.active` on the open widget fill: egui paints an open widget's
+//!   text in `widgets.open.fg_stroke`, which [`crate::style::style`] maps
+//!   from `text`, so the open fill is measured with `text` — the pair
+//!   actually painted.
 //!
 //! [`distinguish`] measures the second question, added by
 //! `.scratch/theming/issues/04` after a review of the light Theme's glyph
@@ -537,26 +541,26 @@ const CHROME_STATES: usize = 15;
     )
 )]
 fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
-    let style = style(theme);
-    let visuals = &style.visuals;
+    let installed = style(theme);
+    let visuals = &installed.visuals;
     let plain = Classes::default();
 
     let panel = theme.window_background.blend(visuals.panel_fill);
     let input = panel.blend(visuals.text_edit_bg_color());
-    let button = |style: &Style, classes: &Classes, state: WidgetState| {
-        let button = style.button_style(classes, state);
-        (button.text_style.color, panel.blend(button.frame.fill))
+    let button = |painting: &Style, classes: &Classes, state: WidgetState| {
+        let drawn = painting.button_style(classes, state);
+        (drawn.text_style.color, panel.blend(drawn.frame.fill))
     };
-    let frameless = |state: WidgetState| style.widget_style(&plain, state).text.color;
+    let frameless = |state: WidgetState| installed.widget_style(&plain, state).text.color;
 
-    let (inactive_text, inactive_fill) = button(&style, &plain, WidgetState::Inactive);
-    let (hovered_text, hovered_fill) = button(&style, &plain, WidgetState::Hovered);
-    let (active_text, active_fill) = button(&style, &plain, WidgetState::Active);
-    let mut open_style = style.clone();
+    let (inactive_text, inactive_fill) = button(&installed, &plain, WidgetState::Inactive);
+    let (hovered_text, hovered_fill) = button(&installed, &plain, WidgetState::Hovered);
+    let (active_text, active_fill) = button(&installed, &plain, WidgetState::Active);
+    let mut open_style = installed.clone();
     open_style.visuals.widgets.inactive = open_style.visuals.widgets.open;
     let (open_text, open_fill) = button(&open_style, &plain, WidgetState::Inactive);
     let selected = Classes::default().with_class(SELECTED_CLASS);
-    let (selected_text, selected_fill) = button(&style, &selected, WidgetState::Inactive);
+    let (selected_text, selected_fill) = button(&installed, &selected, WidgetState::Inactive);
     let selection = visuals.selection;
 
     [
@@ -684,9 +688,11 @@ background it is actually painted on. Not pairwise Token-colour distinguishabili
 border/focus visibility, or the Cursor Effect's animated area field. Colour vision is \
 measured separately, by distinguish. Chrome leaves out disabled widgets (faded by egui, and \
 exempt as inactive components under WCAG 2.1 SC 1.4.3), code.background (no code span is \
-painted), a widget state's strong fill (egui paints no text on it), and a popup or window \
+painted), a widget state's strong fill (egui paints no text on it), a popup or window \
 floating over another surface, the Source Grid or a panel (measured as one panel over the \
-window backdrop; the two differ only for a translucent panel.background).";
+window backdrop; the two differ only for a translucent panel.background), and text.active on \
+the open widget fill (egui paints an open widget's text in widgets.open.fg_stroke, which the \
+Theme maps from text, so the open fill is measured with text instead).";
 
 ///
 /// Measures every reachable painted text state against `theme` and reports
@@ -1473,6 +1479,7 @@ mod tests {
             "code.background",
             "strong fill",
             "floating over another surface",
+            "text.active on the open widget fill",
         ] {
             assert!(
                 report.scope.contains(excluded),
@@ -1491,9 +1498,10 @@ mod tests {
         // inactive and open fills (4); text.muted on panel and input (2);
         // text.active on the hovered and active fills, framed and frameless
         // (4); selected text on selection.background over panel and input
-        // (2); error, warning and link on panel (3). Stated as one literal rather than
-        // recomputed from the same lengths `validate` sizes its `Vec` from,
-        // so a change to either count is caught by an independent number.
+        // (2); error, warning and link on panel (3). Stated as one literal
+        // rather than recomputed from the same lengths `validate` sizes its
+        // `Vec` from, so a change to either count is caught by an
+        // independent number.
         assert_eq!(report.results.len(), 95);
     }
 
@@ -2483,9 +2491,9 @@ mod tests {
     /// Theme's own colours before the user's 2026-09-23 decision, which took
     /// their hues from the `feat/egui-theming` proposal. It clears
     /// [`CONTRAST_FLOOR`] in all 84 painted states the report measured then
-    /// — `.scratch/theming/
-    /// issues/04` tuned it against [`validate`] until it did — and still
-    /// fails here, which is the whole reason this second measurement exists.
+    /// — `.scratch/theming/issues/04` tuned it against [`validate`] until it
+    /// did — and still fails here, which is the whole reason this second
+    /// measurement exists.
     ///
     /// Its worst gated pair is Diagnostic against Output Portal under
     /// protanopia, at 0.70: a rust `#A34A00` and a gold `#7A5200` that a
