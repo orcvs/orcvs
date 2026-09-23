@@ -367,8 +367,8 @@ pub(crate) enum State {
         cursor: CursorPlacement,
         output_portal: bool,
     },
-    /// Against `panel.background` over the window backdrop: a label, an
-    /// inactive button, and the `error`/`warning`/`link` foregrounds.
+    /// Against `panel.background` over the window backdrop: a label and the
+    /// `error`/`warning`/`link` foregrounds.
     Panel,
     /// Against `input.background` over the panel: a `TextEdit`'s text and
     /// hint.
