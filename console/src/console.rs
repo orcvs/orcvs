@@ -836,8 +836,8 @@ impl Console {
         cc: &eframe::CreationContext<'_>,
         registry: ThemeRegistry,
     ) -> Result<Self, PlaybackStartError> {
-        // The stored Source revision when storage holds one, and the ordinary
-        // default Grid otherwise. Every derived view is rebuilt from it.
+        // The stored Source revision when storage holds one, and an empty
+        // Source on the one Grid otherwise. Every derived view is rebuilt from it.
         let start = starting_source(cc.storage);
 
         // The restored dark and light Theme selections, resolved against the
@@ -922,7 +922,7 @@ impl Console {
     ///
     /// Replaces the running Orcvs's Source, Grid included, with the Function
     /// reference — what the File menu offers, since a console that restores
-    /// nothing opens the blank default Grid (`source-view/03`). With the `persistence`
+    /// nothing opens an empty Grid (`source-view/03`). With the `persistence`
     /// feature on, the reference then saves like any other Source on the next
     /// scheduled save.
     ///
@@ -5851,7 +5851,7 @@ mod tests {
     /// is the `CentralPanel` frame. The two values are stated in different
     /// places, so nothing but this holds them together: give the panel any
     /// other fill and every ordinary Cell — outside the Cursor effect, most of
-    /// the default Grid — renders on a ground the Theme never chose for it.
+    /// an empty Grid — renders on a ground the Theme never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
     /// is the painted result that has to sit on the right colour.
@@ -8418,7 +8418,7 @@ mod storage_tests {
         console.save(&mut storage);
 
         // A Console that never saves leaves storage empty, and the start that
-        // reads it opens the ordinary default Grid instead of this revision.
+        // reads it opens an empty Grid instead of this revision.
         let next_start = SourceCommander::with_source(starting_source(Some(&storage)).source);
         assert_eq!(
             next_start.snapshot(),

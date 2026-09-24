@@ -144,21 +144,26 @@ pub fn read(text: &[u8]) -> Result<Source, SourceFileError> {
     // The final line's terminator ends that line rather than starting another,
     // so a file that ends in LF, as every file `write` produces does, has as
     // many lines as it has line terminators.
+    let terminated = text.ends_with(b"\n");
     let body = text.strip_suffix(b"\n").unwrap_or(text);
-    for (row, line) in body.split(|byte| *byte == b'\n').enumerate() {
+    let mut lines = body.split(|byte| *byte == b'\n').enumerate().peekable();
+    while let Some((row, line)) = lines.next() {
         if row >= rows {
             return Err(SourceFileError::at(row, 0, Refusal::TooManyLines));
         }
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        // A CR is a line ending only when an LF follows it. On an
+        // unterminated last line nothing does, so a CR there is a lone one.
+        let ended_by_lf = terminated || lines.peek().is_some();
+        let line = match line.strip_suffix(b"\r") {
+            Some(stripped) if ended_by_lf => stripped,
+            _ => line,
+        };
         for (column, byte) in line.iter().copied().enumerate() {
             if column >= columns {
                 return Err(SourceFileError::at(row, column, Refusal::LineTooLong));
             }
-            let content = CellContent::new(byte).ok_or(SourceFileError::at(
-                row,
-                column,
-                Refusal::NotACell(byte),
-            ))?;
+            let content = CellContent::new(byte)
+                .ok_or_else(|| SourceFileError::at(row, column, Refusal::NotACell(byte)))?;
             if byte != SPACE {
                 let position = grid
                     .position(column, row)
@@ -384,6 +389,8 @@ mod test {
         for (text, column, byte) in [
             (&b"ab\tc"[..], 3, b'\t'),
             (b"ab\rc", 3, b'\r'),
+            // A CR ending an unterminated last line has no LF to pair with.
+            (b"ab\r", 3, b'\r'),
             (b"\x00", 1, 0x00),
             (b"abc\x7f", 4, 0x7f),
             ("ab\u{e9}".as_bytes(), 3, 0xc3),

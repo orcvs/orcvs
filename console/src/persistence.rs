@@ -98,7 +98,7 @@ fn default_source() -> Source {
 /// The Source the console starts from.
 ///
 /// Without the `persistence` feature no revision is ever stored, so the
-/// console always starts the ordinary default Grid.
+/// console always starts an empty Source on the one Grid.
 ///
 #[cfg(not(feature = "persistence"))]
 pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
@@ -211,12 +211,13 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
 }
 
 ///
-/// The Source the console starts from: the stored revision, or the ordinary
-/// default Grid.
+/// The Source the console starts from: the stored revision, or an empty
+/// Source on the one Grid.
 ///
-/// A stored value that does not decode — a Grid dimension, a Cell count or a
+/// A stored value that does not decode — a Grid shape other than 256 by 256
+/// (ADR 0054), a Cell count or a
 /// Cell character the Source refuses among the reasons — is refused whole and
-/// reported, so the console starts the default Grid rather than a partly
+/// reported, so the console starts an empty Source rather than a partly
 /// restored one.
 ///
 #[cfg(feature = "persistence")]
@@ -288,7 +289,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
 #[cfg(feature = "persistence")]
 fn report_refusal() {
     const REFUSED: &str = "refused the stored Source: it is not a Source this build can read; \
-                           starting the default Grid";
+                           starting an empty Grid";
 
     crate::report::error!(
         "{}: {}; the stored value is kept under {}",
@@ -809,18 +810,20 @@ mod stored_source_tests {
             "the stored revision names its Grid: {encoded}"
         );
 
-        // Two ways a stored value goes bad: bytes that are not the stored
-        // encoding at all, and a well-formed encoding whose Grid no longer
-        // matches the Cells beside it. A restore that trusted the second would
-        // start a partly restored Source.
+        // Three ways a stored value goes bad: bytes that are not the stored
+        // encoding at all, a well-formed encoding whose Cells no longer match
+        // the Grid beside them, and a Grid of a shape that is not the one
+        // (ADR 0054). A restore that trusted the second would start a partly
+        // restored Source.
         //
         // What refuses the second is `Source`'s own `Deserialize`, and
         // `orcvs/src/source/model.rs` already covers that validation directly.
         // What this adds is the end-to-end assertion that the refusal survives
-        // eframe's codec and reaches the console as a default Grid, not new
+        // eframe's codec and reaches the console as an empty Grid, not new
         // coverage of the validation itself.
         for value in [
             "not a stored Source",
+            &encoded.replacen(".+0102 ", ".+0102", 1),
             &encoded.replace("rows:256", "rows:255"),
         ] {
             let mut storage = InMemoryStorage::default();
