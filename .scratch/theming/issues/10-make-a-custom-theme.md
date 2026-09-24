@@ -2,7 +2,7 @@
 
 **What to build:** Load a custom Theme authored as a file outside Orcvs. It inherits from exactly one built-in Theme and states only the values it changes. On native its file is read at startup; on WASM its imported document is retained with persistence. It appears in the pickers beside the built-in Themes. There is no in-app Theme editor.
 
-**Blocked by:** 06 — Paint the Source from a named Theme; 07 — Load versioned Orcvs Theme files; 08 — Validate a Theme’s composited contrast.
+**Blocked by:** 06 — Paint the Source from a named Theme; 07 — Load versioned Orcvs Theme files; 08 — Validate a Theme’s composited contrast; 17 — Prove the transparent fills and Grids a custom Theme can load.
 
 **Status:** ready-for-agent
 

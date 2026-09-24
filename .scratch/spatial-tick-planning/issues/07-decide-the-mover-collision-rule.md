@@ -6,7 +6,9 @@ semantics; this decides whether it is the rule the language keeps.
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-human
+**Status:** ready-for-agent
+
+**Tags:** release/v1
 
 **Sources of truth:** ADR 0006 states the move, its refusal, and root contact; ADR 0020 orders Tick
 effects by Source position; ADR 0031 evaluates Turns against working Source; ADR 0018 states how a
@@ -65,6 +67,10 @@ litter follows the parse, not the collision. `****` is the spelling that means t
 - [ ] The decision states what a mover blocked by a static Cell does. That case keeps the current
       refusal under either answer, so choosing the alternative leaves the language with two refusal
       rules and a reader needs to know which applies when.
-- [ ] If the rule changes, ADR 0006's "replaces its current Span with `**`" is amended rather than
+- [x] *(Not applicable: the rule is kept.)* If the rule changes, ADR 0006's "replaces its current Span with `**`" is amended rather than
       contradicted, and `two_moves_that_want_the_same_cells_each_bang_in_their_own_span` is rewritten
       to the new rule rather than deleted.
+
+## Comments
+
+**2026-09-24 — decided: the shipping rule is the v1 rule.** Each blocked mover takes ADR 0006's ordinary refusal and replaces its current Span with `**`, with Source order deciding which moves first. "Both consumed" is not adopted. The remaining lines are now documentation and regression tests for the kept rule, not open questions: ADR 0006 states the rule outright, and tests cover the odd and even gaps, three or more movers converging (`">>>>  <<    "`), a Directional Bang emission contesting a mover, and a mover blocked by a static Cell. This issue joins `release/v1` and blocks `v1-release/03`, under the definition of done's spatial "conflicts" line.

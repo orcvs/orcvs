@@ -52,3 +52,5 @@ now carries `written`, read from the revision's bytes as `LanguageMap::claims_by
 Claim (ADR 0052). `RenderCell` again carries only the shared Claim, and
 `RenderCell::source_paint` reads `claim.written`. The criteria stay checked because the semantics
 did not change. `04` accepted the new seam on the benchmark.
+
+**2026-09-24 — correction.** The ticked focused-tests line claims coverage of overlapping Expression ownership. `05` showed that no Source the language produces has overlapping Expressions: the property test for Expression disjointness already holds that, and the clearing loop in `claims_by_cell` only ever overwrites an empty Cell. No overlap test exists or can exist through shipped code, so that part of the line is not evidenced. The rest of the line stands.

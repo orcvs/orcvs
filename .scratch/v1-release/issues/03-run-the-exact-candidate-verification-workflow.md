@@ -4,8 +4,7 @@
 nominated commit SHA, publishing authoritative native, persistence, WASM, browser, semantic, and
 documentation results without moving the full cost onto every ordinary pull request.
 
-**Blocked by:** property-testing/02; property-testing/04; property-testing/05; sequence-values/03; sequence-values/05; spatial-tick-planning/03; spatial-tick-planning/06; spatial-tick-planning/04; spatial-tick-planning/05; tick-functions/02; tick-functions/03; tick-functions/04; restyle-egui-console/02; native-midi/02; midi-output-family/06; v1-release/02; syntax-highlighting/07; syntax-highlighting/11; syntax-highlighting/13; theming/04; theming/05; theming/07; theming/08; theming/09; theming/10; paint-cell-cost/04.
-
+**Blocked by:** property-testing/02; property-testing/04; property-testing/05; sequence-values/03; sequence-values/05; spatial-tick-planning/03; spatial-tick-planning/06; spatial-tick-planning/04; spatial-tick-planning/05; tick-functions/02; tick-functions/03; tick-functions/04; restyle-egui-console/02; native-midi/02; midi-output-family/06; v1-release/02; syntax-highlighting/07; theming/04; theming/05; theming/07; theming/08; theming/09; theming/10; paint-cell-cost/04; zoom-alignment/01; zoom-alignment/02; midi-port-ownership/06; spatial-tick-planning/07; syntax-highlighting/14; v1-roadmap-wayfinding/08; theming/16.
 **Status:** ready-for-agent
 
 **Tags:** release/v1
@@ -21,6 +20,9 @@ documentation results without moving the full cost onto every ordinary pull requ
       `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` and
       `cargo deny --locked check`, each with its exit status. Both already run inside
       `mise run check`; this names them in the record rather than commissioning new work.
+- [ ] The nominated candidate SHA carries its own push-triggered Benchmark run of
+      `.github/workflows/bench.yml`. A SHA without one is not nominated; manual dispatch is not
+      relied on for release evidence.
 - [ ] The published result can be consumed by visual, physical MIDI, benchmark, and final GO/NO-GO
       review without rerunning against a different commit.
 
@@ -30,3 +32,5 @@ documentation results without moving the full cost onto every ordinary pull requ
 `v1-release/issues/02-prove-product-persistence-paths.md` `## Evidence`. The
 pointer is so this record can find the native and WASM proof. It is not a
 resolution of this ticket.
+
+**2026-09-24 — the candidate must be a benchmarked commit.** The release decision is that the nominated SHA carries its own push-triggered Benchmark run, rather than relying on manual dispatch (`verification-gaps/15`, which stays out of the release). The Benchmark workflow's push trigger is path-filtered, so a commit that touched only docs or `.scratch` has no run and is not eligible.

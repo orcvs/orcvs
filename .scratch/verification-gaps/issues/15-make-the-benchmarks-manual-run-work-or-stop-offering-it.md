@@ -52,3 +52,5 @@ what should not survive is a trigger the workflow offers, spends twelve minutes 
 
 If the trigger is kept, note that `scripts/check-tooling-contract.sh` pins much of this workflow's
 shape and will need the same treatment as the rest.
+
+**2026-09-24 — out of the release.** `v1-release/03` requires the nominated candidate to carry its own push-triggered Benchmark run, so release evidence does not depend on manual dispatch. This issue stays open as post-v1 work.
