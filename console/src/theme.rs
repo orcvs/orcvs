@@ -9,9 +9,10 @@
 //! the dark built-in's exact values, and the composition/inheritance rules.
 //! This module owns the resolved [`Theme`], the built-in Okabe–Ito
 //! definition, the unresolved `ThemeDocument`, and the pure `resolve`
-//! function. It has no file I/O and no YAML parser: `.scratch/theming/
-//! issues/07` owns loading native/web documents into a `ThemeDocument` and
-//! calling `resolve`.
+//! function. It has no file I/O and no document decoder:
+//! the crate-private `theme_document` module decodes a document's bytes into a
+//! `ThemeDocument`, and native discovery and web import
+//! (`.scratch/theming/issues/07`) will read those bytes and call `resolve`.
 //! Source painting, settings and persistence are unchanged by this slice;
 //! `.scratch/theming/issues/06`'s later slices consume this module.
 //!
@@ -29,7 +30,8 @@ use egui::Color32;
 pub(crate) enum Appearance {
     Dark,
     /// [`orcvs_light`] declares this, and a custom document inherits it from
-    /// that built-in.
+    /// a light parent. Declaring `appearance = "light"` only restates the
+    /// parent's appearance: [`resolve`] refuses one that differs.
     Light,
 }
 
@@ -125,17 +127,9 @@ impl ChromeWidth {
 /// the property entirely inherits the parent's resolved value instead of
 /// holding one of these two states — see [`ThemeDocument::cursor_background`].
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07's parser, which builds a ThemeDocument from a raw \
-                   document; this slice's Theme is always a built-in, never a resolved document"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OptionalFill {
-    /// The YAML string `"none"`: clears the optional fill and enables its
+    /// The document string `"none"`: clears the optional fill and enables its
     /// existing fallback (the ordinary Cursor fill in a Region, or no fill
     /// at all for the ordinary Cursor).
     None,
@@ -148,20 +142,46 @@ pub(crate) enum OptionalFill {
 // === Property keys ===
 
 ///
+/// Writes each key enum's `schema.md` spelling once and derives both
+/// directions from that one table: `name`, an exhaustive `match` over the
+/// enum, so a new variant without a spelling fails to compile; and
+/// `from_name`, its inverse, generated from the same literals, so the two
+/// cannot disagree. A spelling repeated within one enum is an unreachable
+/// `from_name` arm, which the workspace's `-D warnings` gate refuses.
+///
+macro_rules! property_names {
+    ($key:ident { $($variant:ident => $name:literal),* $(,)? }) => {
+        impl $key {
+            /// The property's literal, case-sensitive `schema.md` name.
+            pub(crate) fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)*
+                }
+            }
+
+            /// The key `schema.md` spells `name`, matched exactly — dots
+            /// are literal characters, and case matters.
+            pub(crate) fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+///
 /// Every named colour property `schema.md`'s catalogue defines, less the
 /// two optional Cursor fills, which [`OptionalFill`] carries instead of a
-/// plain `Color32`. Case- and dot-sensitive schema spellings are not
-/// reproduced here: `.scratch/theming/issues/07`'s parser is what maps raw
-/// document text to these variants.
+/// plain `Color32`. Each variant's case- and dot-sensitive schema spelling
+/// is written once, in the `property_names!` table below it, which the
+/// Theme document decoder reads to map raw document text to a variant.
+/// `Ord` is declaration order, which is the catalogue's: the decoder sorts a
+/// document's properties by it so the same document compares equal whatever
+/// order its format's map yields.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by Theme::color, itself unconsumed until theming/07"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ColorKey {
     WindowBackground,
     PanelBackground,
@@ -210,18 +230,61 @@ pub(crate) enum ColorKey {
     Warning,
 }
 
+property_names! {
+    ColorKey {
+        WindowBackground => "window.background",
+        PanelBackground => "panel.background",
+        GridBackground => "grid.background",
+        CellBackground => "cell.background",
+        SourceOrdinary => "source.ordinary",
+        SourceComment => "source.comment",
+        SourceNumber => "source.number",
+        SourceNote => "source.note",
+        SourceFunction => "source.function",
+        SourceBang => "source.bang",
+        SourceSequence => "source.sequence",
+        SourceOrdinaryBackground => "source.ordinary.background",
+        SourceCommentBackground => "source.comment.background",
+        SourceNumberBackground => "source.number.background",
+        SourceNoteBackground => "source.note.background",
+        SourceFunctionBackground => "source.function.background",
+        SourceBangBackground => "source.bang.background",
+        SourceAtomBackground => "source.atom.background",
+        SourceSequenceBackground => "source.sequence.background",
+        DiagnosticForeground => "diagnostic.foreground",
+        DiagnosticBackground => "diagnostic.background",
+        DiagnosticBorder => "diagnostic.border",
+        OutputPortalForeground => "output_portal.foreground",
+        OutputPortalBackground => "output_portal.background",
+        OutputPortalBorder => "output_portal.border",
+        GridBorder => "grid.border",
+        SectorSeam => "sector.seam",
+        CursorBorder => "cursor.border",
+        RegionBorder => "region.border",
+        CursorArea => "cursor.area",
+        RegionBackground => "region.background",
+        PanelBorder => "panel.border",
+        SelectionBackground => "selection.background",
+        SelectionBorder => "selection.border",
+        SelectionBorderRest => "selection.border.rest",
+        WidgetInactiveBorder => "widget.inactive.border",
+        Text => "text",
+        TextActive => "text.active",
+        TextMuted => "text.muted",
+        InputBackground => "input.background",
+        Link => "link",
+        CodeBackground => "code.background",
+        InputCursor => "input.cursor",
+        Error => "error",
+        Warning => "warning",
+    }
+}
+
 ///
 /// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point by
 /// [`GridWidth`].
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/06 slice C and theming/07's parser"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum GridWidthKey {
     GridBorder,
     SectorSeam,
@@ -232,38 +295,22 @@ pub(crate) enum GridWidthKey {
     OutputPortalBorder,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/06 slice C and theming/07's parser"
-    )
-)]
-impl GridWidthKey {
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::GridBorder => "grid.border.width",
-            Self::SectorSeam => "sector.seam.width",
-            Self::CellSelectionBorder => "cell.selection.border.width",
-            Self::CursorBorder => "cursor.border.width",
-            Self::RegionBorder => "region.border.width",
-            Self::DiagnosticBorder => "diagnostic.border.width",
-            Self::OutputPortalBorder => "output_portal.border.width",
-        }
+property_names! {
+    GridWidthKey {
+        GridBorder => "grid.border.width",
+        SectorSeam => "sector.seam.width",
+        CellSelectionBorder => "cell.selection.border.width",
+        CursorBorder => "cursor.border.width",
+        RegionBorder => "region.border.width",
+        DiagnosticBorder => "diagnostic.border.width",
+        OutputPortalBorder => "output_portal.border.width",
     }
 }
 
 ///
 /// The chrome width properties, bounded 0 to 2 points by [`ChromeWidth`].
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/06 slice C and theming/07's parser"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChromeWidthKey {
     PanelBorder,
     SelectionBorder,
@@ -272,22 +319,13 @@ pub(crate) enum ChromeWidthKey {
     InputCursor,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/06 slice C and theming/07's parser"
-    )
-)]
-impl ChromeWidthKey {
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::PanelBorder => "panel.border.width",
-            Self::SelectionBorder => "selection.border.width",
-            Self::WidgetBorder => "widget.border.width",
-            Self::WidgetInactiveBorder => "widget.inactive.border.width",
-            Self::InputCursor => "input.cursor.width",
-        }
+property_names! {
+    ChromeWidthKey {
+        PanelBorder => "panel.border.width",
+        SelectionBorder => "selection.border.width",
+        WidgetBorder => "widget.border.width",
+        WidgetInactiveBorder => "widget.inactive.border.width",
+        InputCursor => "input.cursor.width",
     }
 }
 
@@ -397,7 +435,7 @@ pub struct Theme {
     not(test),
     expect(
         dead_code,
-        reason = "these by-key accessors are for theming/07's parser and future by-key callers; \
+        reason = "these by-key accessors are for resolve and future by-key callers; \
                    slice B's painting reads Theme's fields directly, never through a key"
     )
 )]
@@ -567,7 +605,7 @@ impl Theme {
 /// Theme value composites with painting code the same way every other
 /// `Color32` constant in the console does.
 ///
-const fn straight_rgba(rgba: u32) -> Color32 {
+pub(crate) const fn straight_rgba(rgba: u32) -> Color32 {
     let [r, g, b, a] = rgba.to_be_bytes();
     Color32::from_rgba_unmultiplied_const(r, g, b, a)
 }
@@ -589,7 +627,7 @@ pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
 /// `style::tests::okabe_ito_chrome_matches_the_decided_record` cross-checks
 /// the chrome keys against `theme.md`'s decided record read through
 /// [`crate::style::style`], so this built-in reproduces today's shipped
-/// appearance and not merely the document `examples/okabe-ito-copy.yaml`
+/// appearance and not merely the document `examples/okabe-ito-copy.toml`
 /// records.
 ///
 pub fn okabe_ito() -> Theme {
@@ -797,16 +835,9 @@ pub fn orcvs_light() -> Theme {
 /// The parsed-but-unresolved form of a custom Theme document:
 /// `schema.md`'s `inherits`, `name`, `appearance` and `style` fields,
 /// decoded into typed properties. Holds no file path, byte source or raw
-/// text — `.scratch/theming/issues/07` owns turning a YAML document into
-/// this shape; tests in this module construct it directly.
+/// text — [`crate::theme_document::decode`] builds one from a TOML, JSON
+/// or YAML document's bytes; tests in this module construct it directly.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "constructed by theming/07's parser; this slice never loads a file"
-    )
-)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ThemeDocument {
     /// The built-in identity named by `inherits`.
@@ -830,13 +861,6 @@ pub(crate) struct ThemeDocument {
 ///
 /// Why [`resolve`] refused a document.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "returned by resolve, itself unconsumed until theming/07"
-    )
-)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ThemeError {
     /// `inherits` names an identity absent from the built-in set passed to
@@ -900,13 +924,6 @@ impl std::fmt::Display for ThemeError {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by resolve, itself unconsumed until theming/07"
-    )
-)]
 fn width_error(property: &'static str, points: f32, max: f32, error: WidthError) -> ThemeError {
     match error {
         WidthError::NonFinite => ThemeError::NonFiniteWidth { property, points },
@@ -1939,6 +1956,82 @@ mod tests {
                 "{key:?} did not take its override"
             );
         }
+    }
+
+    ///
+    /// `schema.md`'s colour table, restated. The decoder maps document keys
+    /// through `ColorKey::from_name`, so a spelling wrong here is a
+    /// property no document can set — or, swapped with a neighbour, one that
+    /// sets the wrong field. Each spelling also has to come back as its key.
+    ///
+    #[test]
+    fn color_key_names_match_the_schema_catalogue() {
+        let catalogue = [
+            (ColorKey::WindowBackground, "window.background"),
+            (ColorKey::PanelBackground, "panel.background"),
+            (ColorKey::GridBackground, "grid.background"),
+            (ColorKey::CellBackground, "cell.background"),
+            (ColorKey::SourceOrdinary, "source.ordinary"),
+            (ColorKey::SourceComment, "source.comment"),
+            (ColorKey::SourceNumber, "source.number"),
+            (ColorKey::SourceNote, "source.note"),
+            (ColorKey::SourceFunction, "source.function"),
+            (ColorKey::SourceBang, "source.bang"),
+            (ColorKey::SourceSequence, "source.sequence"),
+            (
+                ColorKey::SourceOrdinaryBackground,
+                "source.ordinary.background",
+            ),
+            (
+                ColorKey::SourceCommentBackground,
+                "source.comment.background",
+            ),
+            (ColorKey::SourceNumberBackground, "source.number.background"),
+            (ColorKey::SourceNoteBackground, "source.note.background"),
+            (
+                ColorKey::SourceFunctionBackground,
+                "source.function.background",
+            ),
+            (ColorKey::SourceBangBackground, "source.bang.background"),
+            (ColorKey::SourceAtomBackground, "source.atom.background"),
+            (
+                ColorKey::SourceSequenceBackground,
+                "source.sequence.background",
+            ),
+            (ColorKey::DiagnosticForeground, "diagnostic.foreground"),
+            (ColorKey::DiagnosticBackground, "diagnostic.background"),
+            (ColorKey::DiagnosticBorder, "diagnostic.border"),
+            (ColorKey::OutputPortalForeground, "output_portal.foreground"),
+            (ColorKey::OutputPortalBackground, "output_portal.background"),
+            (ColorKey::OutputPortalBorder, "output_portal.border"),
+            (ColorKey::GridBorder, "grid.border"),
+            (ColorKey::SectorSeam, "sector.seam"),
+            (ColorKey::CursorBorder, "cursor.border"),
+            (ColorKey::RegionBorder, "region.border"),
+            (ColorKey::CursorArea, "cursor.area"),
+            (ColorKey::RegionBackground, "region.background"),
+            (ColorKey::PanelBorder, "panel.border"),
+            (ColorKey::SelectionBackground, "selection.background"),
+            (ColorKey::SelectionBorder, "selection.border"),
+            (ColorKey::SelectionBorderRest, "selection.border.rest"),
+            (ColorKey::WidgetInactiveBorder, "widget.inactive.border"),
+            (ColorKey::Text, "text"),
+            (ColorKey::TextActive, "text.active"),
+            (ColorKey::TextMuted, "text.muted"),
+            (ColorKey::InputBackground, "input.background"),
+            (ColorKey::Link, "link"),
+            (ColorKey::CodeBackground, "code.background"),
+            (ColorKey::InputCursor, "input.cursor"),
+            (ColorKey::Error, "error"),
+            (ColorKey::Warning, "warning"),
+        ];
+        assert_eq!(catalogue.len(), 45);
+        for (key, name) in catalogue {
+            assert_eq!(key.name(), name);
+            assert_eq!(ColorKey::from_name(name), Some(key));
+        }
+        assert_eq!(ColorKey::from_name("Text"), None);
+        assert_eq!(ColorKey::from_name("cursor.background"), None);
     }
 
     #[test]
