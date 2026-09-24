@@ -1,15 +1,12 @@
 //! Benchmarks for the stored value: the whole Source eframe storage holds
 //! under `orcvs_source`, written by every autosave and read back at start.
 //!
-//! Every Grid is 256 by 256 (ADR 0054), 65,536 Cells, and the stored value
-//! carries each of them, so writing and reading it walks every Cell. These
-//! measure the codec the console's own save and start go through,
-//! `eframe::set_value` and `eframe::get_value`, over a storage that only holds
-//! the string, so the number is the encoding and the decode — including the
-//! Language Map a restore derives — rather than a disk.
+//! The stored value carries every Cell of the 256 by 256 Grid (ADR 0054).
+//! These measure `eframe::set_value` and `eframe::get_value` over an
+//! in-memory storage, so the number is the encoding and the decode —
+//! including the Language Map a restore derives — rather than a disk.
 //!
-//! Only compiled with `persistence` (`required-features` in `Cargo.toml`),
-//! which ships on: without it there is no stored value to measure.
+//! Requires `persistence` (`required-features` in `Cargo.toml`).
 //!
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
@@ -23,8 +20,7 @@ use std::hint::black_box;
 /// The key the console stores its Source under (`console::persistence::SOURCE_KEY`).
 const SOURCE_KEY: &str = "orcvs_source";
 
-/// Copied from `orcvs/benches/source.rs`, as `paint.rs` copies it: the benches
-/// share a fixture by keeping the same tiling, not a crate.
+/// The same tiling as `orcvs/benches/source.rs` and `paint.rs`.
 const EXPRESSIONS: &[&str] = &[
     ".+0102",
     ".x0201",

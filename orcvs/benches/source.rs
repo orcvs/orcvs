@@ -24,21 +24,17 @@ const SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64)];
 /// sizes as the Tick series below does.
 ///
 /// A Render Frame is derived whole, once per frame, over every Position of the
-/// Grid (`orcvs/src/render_frame.rs`), so what one costs follows the Cell
-/// count. Every shipped Grid is now 256 by 256 (ADR 0054), so the last shape is
-/// the one a console actually pays; the smaller ones are built through the
-/// test-only `Grid::with_shape` and stay so the series already recorded against
-/// them stays comparable and the curve still tells a flat O(Cells) apart from
-/// anything steeper. Each step quadruples the Cell count.
+/// Grid, so what one costs follows the Cell count. The last shape is the
+/// shipped Grid (ADR 0054); the smaller ones, built through the test-only
+/// `Grid::with_shape`, show whether the cost is a flat O(Cells). Each step
+/// quadruples the Cell count.
 ///
-/// A fixture is populated one accepted Cell edit at a time, and each edit
-/// rebuilds the Language Map across every row, so building a fixture costs
-/// about the square of its Cell count: the 256x256 one is most of a minute,
-/// paid again in the warm-up run each benchmark job performs. The whole-Grid
-/// group below builds its fixture in one revision instead.
+/// A fixture is populated one Cell edit at a time, each rebuilding the
+/// Language Map, so building one costs about the square of its Cell count;
+/// the 256x256 one takes most of a minute.
 ///
 /// The Tick series keeps `TICK_SIZES`: a Tick iterates Expressions rather than
-/// Positions, which `.scratch/grid-boundedness/spec.md` records.
+/// Positions.
 const FRAME_SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256)];
 
 /// The Expression shapes an editing session actually holds: complete arithmetic,
@@ -491,12 +487,9 @@ fn tick_series(c: &mut Criterion, name: &str, text: fn(usize, usize) -> String) 
 }
 
 ///
-/// The Source on the one shipped Grid, 256 by 256 (ADR 0054), populated with
-/// the editing fixture's text in one revision.
-///
-/// `Source::write_cells` commits every Cell before one Language Map rebuild,
-/// so this fixture costs one derivation to build rather than the one per Cell
-/// the series fixtures above pay.
+/// The Source on the one shipped Grid (ADR 0054), populated with the editing
+/// fixture's text in one `Source::write_cells` revision, so one Language Map
+/// rebuild.
 ///
 fn whole_grid_source() -> Source {
     let grid = Grid::new();
@@ -515,14 +508,10 @@ fn whole_grid_source() -> Source {
 }
 
 ///
-/// Measures each path that walks every Cell of the shipped Grid (ADR 0054's
-/// consequences): deriving the whole Language Map, which a restored or opened
-/// Source pays once; copying a Source snapshot; and one accepted Cell edit,
-/// whose rebuild parses its own row and re-stamps the other 255.
-///
-/// The stored value is the fourth such path, and it is measured beside the
-/// codec that writes it, in `console/benches/stored_source.rs`: this crate's
-/// Serde impls are behind `persistence`, which its benchmarks do not enable.
+/// Measures each path that walks every Cell of the shipped Grid (ADR 0054):
+/// deriving the whole Language Map, copying a Source snapshot, and one
+/// accepted Cell edit. The stored value is measured in
+/// `console/benches/stored_source.rs`.
 ///
 fn whole_grid(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_whole_grid");
@@ -560,10 +549,8 @@ fn whole_grid(c: &mut Criterion) {
 }
 
 ///
-/// Reading and writing a Source File of the whole shipped Grid: what opening
-/// and saving a file costs (ADR 0054, `menu-structure/05`). Reading builds a
-/// Source and derives its Language Map once, so it is measured beside
-/// `source_whole_grid/language_map_derive` rather than instead of it.
+/// Reading and writing a Source File of the whole shipped Grid. Reading
+/// includes one Language Map derivation (`source_whole_grid/language_map_derive`).
 ///
 fn source_file(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_file");

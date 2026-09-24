@@ -923,9 +923,7 @@ mod test {
             "the stored revision names its Grid: {encoded}"
         );
 
-        // A well-formed encoding whose Cells no longer fill the one Grid.
-        // The console already refuses this through eframe; this is the model
-        // Deserialize seam that refusal is built on.
+        // A well-formed encoding whose Cells do not fill the one Grid.
         let short = serde_json::to_string(&serde_json::json!({
             "grid": {"cols": 256, "rows": 256},
             "inner": " ".repeat(256 * 256 - 1),
@@ -938,9 +936,8 @@ mod test {
     }
 
     ///
-    /// ADR 0054: a Source stored at any shape but the one — the 128 by 80 and
-    /// 64 by 40 defaults every developer autosave was written at — is refused
-    /// rather than migrated, even when its Cells match the shape it names.
+    /// A Source stored at any shape but the one is refused rather than
+    /// migrated (ADR 0054), even when its Cells match the shape it names.
     ///
     #[cfg(feature = "persistence")]
     #[test]

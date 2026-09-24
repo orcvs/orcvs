@@ -1360,10 +1360,8 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     harness.event(Event::ModifiersChanged(Modifiers::default()));
     harness.step();
 
-    // The one Grid is larger than the default window's console at any Zoom,
-    // so the half about a Grid with nowhere to Pan runs over a smaller one.
-    // At `MIN_ZOOM` a 64 by 40 Grid and its margins are smaller than the
-    // default window's console on both axes.
+    // A Grid with nowhere to Pan: at `MIN_ZOOM` this one and its margins are
+    // smaller than the default window's console on both axes.
     harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
     harness.state_mut().source_view = super::SourceView::default();
     harness.step();

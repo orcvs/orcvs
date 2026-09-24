@@ -214,11 +214,10 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
 /// The Source the console starts from: the stored revision, or an empty
 /// Source on the one Grid.
 ///
-/// A stored value that does not decode — a Grid shape other than 256 by 256
-/// (ADR 0054), a Cell count or a
-/// Cell character the Source refuses among the reasons — is refused whole and
-/// reported, so the console starts an empty Source rather than a partly
-/// restored one.
+/// A stored value that does not decode — a Grid shape other than the one
+/// (ADR 0054), or a Cell count or character the Source refuses — is refused
+/// whole and reported, so the console starts an empty Source rather than a
+/// partly restored one.
 ///
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
@@ -748,11 +747,9 @@ mod stored_source_tests {
     }
 
     ///
-    /// ADR 0054: a Source stored at any shape but 256 by 256 — every developer
-    /// autosave, written at the 64 by 40 or 128 by 80 default — is refused
-    /// through the same path as any value this build cannot read: set aside
-    /// under `REFUSED_KEY` by the next save, noticed, and replaced by the
-    /// empty Grid. It is not migrated onto the larger Grid.
+    /// A Source stored at any shape but the one is refused rather than
+    /// migrated (ADR 0054): set aside under `REFUSED_KEY` by the next save,
+    /// noticed, and replaced by the empty Grid.
     ///
     #[test]
     fn a_source_stored_at_a_previous_default_grid_is_refused_rather_than_migrated() {
@@ -811,10 +808,8 @@ mod stored_source_tests {
         );
 
         // Three ways a stored value goes bad: bytes that are not the stored
-        // encoding at all, a well-formed encoding whose Cells no longer match
-        // the Grid beside them, and a Grid of a shape that is not the one
-        // (ADR 0054). A restore that trusted the second would start a partly
-        // restored Source.
+        // encoding, Cells that do not match the Grid beside them, and a Grid
+        // of another shape (ADR 0054).
         //
         // What refuses the second is `Source`'s own `Deserialize`, and
         // `orcvs/src/source/model.rs` already covers that validation directly.

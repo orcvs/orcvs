@@ -16,7 +16,7 @@ File                            File
   Save          ⌘S                Zoom In / Zoom Out / Reset Zoom
   Save As…      ⇧⌘S               ─────
   ─────                           Diagnostics
-  Quit          ⌘Q              Help
+  Quit                          Help
 View                              Function Reference
   Zoom In       ⌘=
   Zoom Out      ⌘−

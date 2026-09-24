@@ -1,6 +1,5 @@
 //!
-//! The Source File: a Source written out as plain text (ADR 0054,
-//! `.scratch/menu-structure/spec.md`).
+//! The Source File: a Source written out as plain text (ADR 0054).
 //!
 //! One line per row, one character per Cell, a space for an empty Cell. Line
 //! *n* is row *n* and character *m* is column *m*, so a Source File states
@@ -114,9 +113,8 @@ impl std::error::Error for SourceFileError {}
 /// The Source `text` states, on a new Grid of the one shape, or the refusal
 /// that stopped it. A refusal constructs no Source: the text is refused whole.
 ///
-/// Bytes rather than a `str`, so a file that is not UTF-8 is refused at the
-/// byte that makes it so, with its line and column, rather than before
-/// anything could say where.
+/// Takes bytes rather than a `str`, so a file that is not UTF-8 is refused
+/// with the line and column of the offending byte.
 ///
 /// ```
 /// use orcvs::source::file;
@@ -473,9 +471,7 @@ mod property {
         ]
     }
 
-    /// Where a write lands. The edges carry their own weight: the last column
-    /// is where a trimmed line ends at full length and the last row is where
-    /// the written text reaches 256 lines.
+    /// Where a write lands, with extra weight on the last column and last row.
     fn cell() -> impl Strategy<Value = (usize, usize)> {
         prop_oneof![
             4 => (0..COL_COUNT, 0..ROW_COUNT),
@@ -485,9 +481,8 @@ mod property {
         ]
     }
 
-    /// The Cells a Source of the one Grid is written with: a few, or many,
-    /// or every Cell of one row. Drawn as coordinates rather than as a
-    /// `Source`, which has no `Debug` for proptest to report a failure with.
+    /// The Cells a Source is written with: a few, many, or every Cell of one
+    /// row. Coordinates rather than a `Source`, which has no `Debug`.
     fn writes() -> impl Strategy<Value = Vec<((usize, usize), u8)>> {
         prop_oneof![
             prop::collection::vec((cell(), content()), 0..64),

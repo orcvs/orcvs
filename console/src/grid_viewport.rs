@@ -701,8 +701,7 @@ mod tests {
     ///
     /// A clip that shows no part of the Grid and a console with no area both
     /// range over nothing — which draws nothing rather than drawing a Position
-    /// that is not there. A Grid with no Cell is unrepresentable (ADR 0054;
-    /// even the test-only `Grid::with_shape` asserts both counts are non-zero).
+    /// that is not there. A Grid with no Cell is unrepresentable (ADR 0054).
     ///
     #[test]
     fn a_console_showing_no_part_of_the_grid_ranges_over_nothing() {

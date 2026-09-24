@@ -153,10 +153,8 @@ const OUTPUT_READOUT_WIDTH: f32 = 196.0;
 const OUTPUT_SCAN: &str = "Scan";
 
 ///
-/// How many Cells the default window's console shows at Zoom 1.0, margin
-/// included. The window keeps the size ADR 0047 gave it; the Grid is 256 by
-/// 256 (ADR 0054), so a fresh console opens on the Grid's top-left corner with
-/// the rest of it a Pan away.
+/// How many Cells the default window (ADR 0047) shows at Zoom 1.0, margin
+/// included. The Grid (ADR 0054) is larger, so the rest of it is a Pan away.
 ///
 const DEFAULT_VIEW_COLUMNS: usize = 64;
 const DEFAULT_VIEW_ROWS: usize = 40;
@@ -836,8 +834,7 @@ impl Console {
         cc: &eframe::CreationContext<'_>,
         registry: ThemeRegistry,
     ) -> Result<Self, PlaybackStartError> {
-        // The stored Source revision when storage holds one, and an empty
-        // Source on the one Grid otherwise. Every derived view is rebuilt from it.
+        // The stored Source revision, or an empty Source when storage holds none.
         let start = starting_source(cc.storage);
 
         // The restored dark and light Theme selections, resolved against the
@@ -922,7 +919,7 @@ impl Console {
     ///
     /// Replaces the running Orcvs's Source, Grid included, with the Function
     /// reference — what the File menu offers, since a console that restores
-    /// nothing opens an empty Grid (`source-view/03`). With the `persistence`
+    /// nothing opens an empty Grid. With the `persistence`
     /// feature on, the reference then saves like any other Source on the next
     /// scheduled save.
     ///

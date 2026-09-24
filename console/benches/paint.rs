@@ -86,8 +86,7 @@ fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
 
 fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
     let _runtime = benchmark_runtime().enter();
-    // The smaller shapes are the test-only `Grid::with_shape`; 256x256 is the
-    // one shipped Grid (ADR 0054).
+    // `Grid::with_shape` is test-only; 256x256 is the shipped Grid (ADR 0054).
     let mut orcvs = Orcvs::with_source_and_output_adapter(
         Source::new(Grid::with_shape(cols, rows)),
         InMemoryOutputAdapter::default(),

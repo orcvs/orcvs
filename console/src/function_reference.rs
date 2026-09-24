@@ -115,15 +115,9 @@
 //!
 //! # Checked-in text is ragged, not a padded rectangle
 //!
-//! `function_reference.orcvs` stores each line with its trailing whitespace
-//! removed, and stops at the last line with any content — no trailing blank
-//! rows. Editors and formatters strip trailing whitespace on save, which
-//! would otherwise turn a checked-in padded rectangle ragged on its next
-//! untouched edit and fail a loader that demanded one.
-//! `source_from_reference_text` instead reads the text as a Source File
-//! (`orcvs::source::file`), which places it on the one 256 by 256 Grid
-//! (ADR 0054) and reads every short line and every row past the last line as
-//! empty Cells — see its doc comment.
+//! `function_reference.orcvs` is a Source File (`orcvs::source::file`):
+//! trailing whitespace is trimmed, and every short line and every row past
+//! the last line reads as empty Cells of the one Grid (ADR 0054).
 //!
 //! # Completeness and diagnostic-cleanliness are proven, not asserted
 //!
@@ -167,19 +161,14 @@ pub(crate) fn function_reference() -> Source {
 }
 
 ///
-/// Reads `text` as a Source File (`orcvs::source::file::read`): line *n* is
-/// row *n*, character *m* is column *m*, on the one Grid (ADR 0054).
+/// Reads `text` as a Source File (`orcvs::source::file::read`) on the one
+/// Grid (ADR 0054).
 ///
-/// A short line is padded with empty Cells rather than required to reach the
-/// Grid's width, and any row past the last line is left entirely empty. This
-/// tolerates a ragged `text`, which is what an editor or formatter that
-/// strips trailing whitespace leaves behind: a padded rectangle with every
-/// trailing space removed is ragged the moment one row's content ends before
-/// another's.
+/// # Panics
 ///
-/// The reference is checked in and compiled into the build, so a refusal is
-/// a defect in the asset rather than something a viewer can cause, and
-/// `the_checked_in_reference_is_a_source_file` is what catches it first.
+/// If `text` is refused: the reference is compiled in, so a refusal is a
+/// defect in the asset, which `the_checked_in_reference_is_a_source_file`
+/// catches.
 ///
 fn source_from_reference_text(text: &str) -> Source {
     file::read(text.as_bytes())
@@ -196,17 +185,12 @@ mod tests {
     };
 
     ///
-    /// A checked-in, padded rectangle is not the only shape the loader must
-    /// accept: an editor or formatter that strips trailing whitespace turns
-    /// every padded row short of the widest into a ragged one, and a blank
-    /// row into an empty line. The loader places the text on the one 256 by
-    /// 256 Grid instead of asserting a rectangle, so this ragged text — never
-    /// checked in, built by the test itself — loads rather than panics.
+    /// Ragged text, as an editor stripping trailing whitespace leaves it,
+    /// loads onto the one Grid with short lines and missing rows empty.
     ///
     #[test]
     fn a_ragged_text_with_stripped_trailing_whitespace_loads_onto_the_one_grid() {
-        // Three lines, none the same length: 6 Cells, 0 (a blank line
-        // stripped bare), and 2. The Grid is the one shape regardless.
+        // Three lines of 6, 0 and 2 Cells.
         let source = source_from_reference_text(".+0102\n\n0C");
         let grid = source.grid();
 
@@ -235,9 +219,7 @@ mod tests {
     }
 
     ///
-    /// The asset is read the way any Source File is, so a stray tab, a
-    /// non-ASCII character, or a line past 256 characters refuses it here,
-    /// with its line and column, rather than panicking at console start.
+    /// The checked-in asset is a Source File the reader accepts.
     ///
     #[test]
     fn the_checked_in_reference_is_a_source_file() {

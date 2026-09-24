@@ -71,13 +71,9 @@ impl CellIndex {
 }
 
 ///
-/// The one shape every Grid has: 256 columns by 256 rows (ADR 0054). As many
-/// columns and rows as one Number spells, so every pair of Numbers, column
-/// then row, `00 00` through `FF FF`, names a Position (ADR 0049). A Number is
-/// one byte (ADR 0010), so each count is every value a `u8` holds.
-///
-/// A Source carries no shape of its own: a stored Source or a Source File at
-/// another shape is not a Source this build reads.
+/// The one shape every Grid has: 256 columns by 256 rows (ADR 0054), so every
+/// pair of Numbers, `00 00` through `FF FF`, names a Position (ADR 0049). A
+/// Number is one byte (ADR 0010).
 ///
 pub const COL_COUNT: usize = u8::MAX as usize + 1;
 pub const ROW_COUNT: usize = u8::MAX as usize + 1;
@@ -130,8 +126,7 @@ impl TryFrom<PersistedGrid> for Grid {
     type Error = &'static str;
 
     fn try_from(grid: PersistedGrid) -> Result<Self, Self::Error> {
-        // One shape, and a stored Grid of any other is refused rather than
-        // migrated (ADR 0054): every stored Source is a developer's autosave.
+        // A stored Grid of any other shape is refused, not migrated (ADR 0054).
         if (grid.cols, grid.rows) != (COL_COUNT, ROW_COUNT) {
             return Err("persisted Grid is not 256 by 256");
         }
@@ -161,13 +156,14 @@ impl Grid {
 
     ///
     /// A Grid smaller than the one shape, for tests that state a Source as a
-    /// few short rows and assert on its edges.
+    /// few short rows.
     ///
-    /// Test-only: nothing shipped constructs a Grid of any shape but
-    /// [`Grid::new`]'s. It is compiled for this crate's own tests and for any
-    /// build that enables `test-grid-shapes`, which only the workspace's
-    /// dev-dependencies do (`orcvs/Cargo.toml`). At least one column and one
-    /// row, and at most the one shape's, so a Cell count cannot overflow.
+    /// Test-only: compiled for this crate's tests and the `test-grid-shapes`
+    /// feature, which only dev-dependencies enable.
+    ///
+    /// # Panics
+    ///
+    /// If either count is zero or larger than the one shape's.
     ///
     #[cfg(any(test, feature = "test-grid-shapes"))]
     pub fn with_shape(cols: usize, rows: usize) -> Self {
@@ -574,8 +570,8 @@ mod test {
         let refused = |cols, rows| Grid::try_from(PersistedGrid { cols, rows }).is_err();
 
         assert!(!refused(COL_COUNT, ROW_COUNT));
-        // the previous defaults, one Cell short on each axis, one Cell past,
-        // and an empty shape: none is migrated (ADR 0054)
+        // smaller shapes, one Cell short on each axis, one Cell past, and an
+        // empty shape: none is migrated (ADR 0054)
         assert!(refused(128, 80));
         assert!(refused(64, 40));
         assert!(refused(COL_COUNT - 1, ROW_COUNT));
@@ -995,14 +991,9 @@ mod test {
 /// proof, so keeping the seed beside it would be a second, weaker statement of
 /// the same law.
 ///
-/// Every shipped Grid is 256 by 256 (ADR 0054); these properties sweep the
-/// test-only `Grid::with_shape` so the arithmetic is checked across shapes a
-/// case can afford. Dimensions start at one because
-/// `with_shape` refuses zero: both counts are `assert!`ed, and `mod test`'s
-/// `test_grid_cannot_have_zero_cols` and `test_grid_cannot_have_zero_rows` pin
-/// that. The `persistence` `TryFrom<PersistedGrid>` refuses every shape but
-/// the one with an error rather than a panic, so a deserialized Grid cannot
-/// arrive empty either.
+/// These properties sweep the test-only `Grid::with_shape` so the arithmetic
+/// is checked across many shapes. Dimensions start at one because
+/// `with_shape` refuses zero.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
