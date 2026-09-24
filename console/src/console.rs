@@ -16,7 +16,7 @@ use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell
 use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
-use crate::persistence::starting_source;
+use crate::persistence::{default_source, starting_source};
 use crate::readout_deadline::until_next;
 use crate::theme::{Appearance, Theme, ThemeIdentity};
 use crate::theme_registry::ThemeRegistry;
@@ -27,6 +27,7 @@ use orcvs::{
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::{PlaybackStartError, PlaybackState},
     render_frame::RenderFrame,
+    source::Source,
 };
 
 const MIN_ZOOM: f32 = 0.25;
@@ -803,6 +804,13 @@ pub struct Console {
     /// `themes`.
     #[cfg(target_arch = "wasm32")]
     web_import: crate::theme_registry::WebImport,
+    /// The question the console is asking before it discards the Source, while
+    /// it asks. Holding it keeps keys from the Source, as an open popup does.
+    discard_confirmation: Option<DiscardConfirmation>,
+    /// The context the console was created in: what an Open wakes the Panel
+    /// through when the new Orcvs's Playback Engine publishes, as
+    /// `Console::new` does for the first.
+    ctx: egui::Context,
 }
 
 impl Console {
@@ -885,13 +893,7 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let orcvs = Orcvs::with_source(start.source)?;
-        wake_panel_when_playback_publishes(cc.egui_ctx.clone(), orcvs.playback_observation_watch());
-        let mut midi = MidiDeviceSelection::new(
-            orcvs.midi_selection_handle(),
-            Box::new(NativeMidiBackend::new()),
-        );
-        midi.refresh_destinations();
+        let (orcvs, midi) = environment(&cc.egui_ctx, start.source)?;
         Ok(Self {
             orcvs,
             midi,
@@ -913,39 +915,171 @@ impl Console {
             persistence: start.persistence,
             #[cfg(target_arch = "wasm32")]
             web_import: crate::theme_registry::WebImport::new(),
+            discard_confirmation: None,
+            ctx: cc.egui_ctx.clone(),
         })
     }
 
     ///
-    /// Replaces the running Orcvs's Source, Grid included, with the Function
-    /// reference — what the File menu offers, since a console that restores
-    /// nothing opens an empty Grid. With the `persistence`
-    /// feature on, the reference then saves like any other Source on the next
-    /// scheduled save.
+    /// Opens `source`: the console's one answer to "replace the environment
+    /// with this Source" (`.scratch/file-new/spec.md`).
     ///
-    /// A Grid change is a whole-Orcvs replacement, so this also rebuilds MIDI
-    /// device selection over the new Orcvs's handle exactly as [`Console::new`]
-    /// does; a previously selected destination does not carry over. Every
-    /// other console setting — Theme, Cursor effects, Diagnostics visibility —
-    /// is untouched, because only the Source was asked to change.
+    /// **An Open replaces the environment:** the running Orcvs — its Source
+    /// and Grid, the Cursor and Region, Playback and the Tick it had reached,
+    /// and its opts, Bpm among them — MIDI device selection, rebuilt over the
+    /// new Orcvs's handle exactly as [`Console::new`] builds it, so a
+    /// previously selected destination does not carry over, and the Source
+    /// View, whose Pan and Zoom return to rest. The replaced Orcvs is dropped
+    /// here, and its Playback Engine with it.
     ///
-    fn load_function_reference(&mut self) {
-        match Orcvs::with_source(function_reference()) {
-            Ok(orcvs) => {
-                let mut midi = MidiDeviceSelection::new(
-                    orcvs.midi_selection_handle(),
-                    Box::new(NativeMidiBackend::new()),
-                );
-                midi.refresh_destinations();
+    /// **An Open leaves the settings standing:** the Theme, which carries the
+    /// Source colours, Cursor effects, and whether Diagnostics is showing.
+    /// They are a viewer's preferences rather than the environment, and only
+    /// the Source was asked to change.
+    ///
+    /// With the `persistence` feature on, the opened Source saves like any
+    /// other on the next scheduled save; nothing is stored here.
+    ///
+    /// A Source whose Orcvs cannot start is reported and not opened: the
+    /// console stays on the environment it already had.
+    ///
+    fn open(&mut self, source: Source) {
+        match environment(&self.ctx, source) {
+            Ok((orcvs, midi)) => {
                 self.orcvs = orcvs;
                 self.midi = midi;
                 self.source_view = SourceView::default();
             }
             Err(error) => {
-                crate::report::error!("failed to load the Function reference: {error}");
+                crate::report::error!("failed to open a Source: {error}");
             }
         }
     }
+
+    ///
+    /// Opens the Function reference — what the File menu offers, since a
+    /// console that restores nothing opens an empty Grid (`source-view/03`).
+    ///
+    fn load_function_reference(&mut self) {
+        self.open(function_reference());
+    }
+
+    ///
+    /// Opens an empty Source on the one 256 by 256 Grid (ADR 0054) — what
+    /// `File → New` offers. Storage is not touched: with the `persistence`
+    /// feature on, the ordinary save stores the empty Source over the old one.
+    ///
+    fn new_source(&mut self) {
+        self.open(default_source());
+    }
+
+    ///
+    /// Whether any Cell of the running Source is written: what `File → New`
+    /// asks before discarding.
+    ///
+    fn source_is_written(&self) -> bool {
+        self.orcvs
+            .render_frame()
+            .cells()
+            .iter()
+            .any(|cell| cell.content().is_some())
+    }
+
+    ///
+    /// Discards the Source through `confirmation.discard`, first asking the
+    /// viewer `confirmation.question` when `ask` is true.
+    ///
+    /// The caller decides whether there is anything to lose — `File → New`
+    /// asks when the Source is written — so the same question serves any
+    /// action that replaces or leaves the environment, whatever its own
+    /// answer to that is. Only one question is asked at a time: a request
+    /// while one is showing replaces it, which a viewer cannot reach, since
+    /// the question blocks the menus behind it.
+    ///
+    fn discard_asking_first(&mut self, ask: bool, confirmation: DiscardConfirmation) {
+        if ask {
+            self.discard_confirmation = Some(confirmation);
+        } else {
+            (confirmation.discard)(self);
+        }
+    }
+
+    ///
+    /// Shows the discard confirmation while one is asking, as a modal over the
+    /// whole console: nothing behind it takes a click or keyboard focus.
+    ///
+    /// It opens with Cancel focused, so Enter on arrival is the safe answer,
+    /// and Tab reaches Discard. Escape and a click outside it cancel, as
+    /// Cancel does; only Discard runs the discarding action.
+    ///
+    fn show_discard_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(confirmation) = self.discard_confirmation.take() else {
+            return;
+        };
+        let modal = egui::Modal::new(egui::Id::new(DISCARD_CONFIRMATION_ID)).show(ctx, |ui| {
+            ui.set_max_width(DISCARD_CONFIRMATION_WIDTH);
+            ui.label(confirmation.question);
+            ui.add_space(MENU_BAR_GAP);
+            ui.horizontal(|ui| {
+                let cancel = ui.button("Cancel");
+                if ui.memory(|memory| memory.focused().is_none()) {
+                    cancel.request_focus();
+                }
+                let discard = ui.button("Discard");
+                if discard.clicked() {
+                    Some(true)
+                } else if cancel.clicked() {
+                    Some(false)
+                } else {
+                    None
+                }
+            })
+            .inner
+        });
+        match modal.inner {
+            Some(true) => (confirmation.discard)(self),
+            Some(false) => {}
+            None if modal.should_close() => {}
+            None => self.discard_confirmation = Some(confirmation),
+        }
+    }
+}
+
+///
+/// A question asked before an action that discards the running Source.
+///
+/// `discard` is the action itself, run only when the viewer confirms; a plain
+/// function, so any action that replaces or leaves the environment can be
+/// asked about without the confirmation knowing which it is.
+///
+struct DiscardConfirmation {
+    question: &'static str,
+    discard: fn(&mut Console),
+}
+
+/// The discard confirmation's modal: one at a time, so one id.
+const DISCARD_CONFIRMATION_ID: &str = "orcvs-discard-confirmation";
+/// How wide the discard confirmation grows before its question wraps.
+const DISCARD_CONFIRMATION_WIDTH: f32 = 360.0;
+
+///
+/// A running Orcvs over `source`, the Panel woken whenever its Playback Engine
+/// publishes, and MIDI device selection over its handle with the destinations
+/// discovered once. What [`Console::new`] starts on and what
+/// [`Console::open`] replaces the running pair with, so the two cannot drift.
+///
+fn environment(
+    ctx: &egui::Context,
+    source: Source,
+) -> Result<(Orcvs, MidiDeviceSelection), PlaybackStartError> {
+    let orcvs = Orcvs::with_source(source)?;
+    wake_panel_when_playback_publishes(ctx.clone(), orcvs.playback_observation_watch());
+    let mut midi = MidiDeviceSelection::new(
+        orcvs.midi_selection_handle(),
+        Box::new(NativeMidiBackend::new()),
+    );
+    midi.refresh_destinations();
+    Ok((orcvs, midi))
 }
 
 ///
@@ -2188,6 +2322,17 @@ impl eframe::App for Console {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
                 ui.menu_button("File", |ui| {
+                    if ui.button("New").clicked() {
+                        let ask = self.source_is_written();
+                        self.discard_asking_first(
+                            ask,
+                            DiscardConfirmation {
+                                question: "The Source holds written content. Discard it and \
+                                           open an empty Source?",
+                                discard: Console::new_source,
+                            },
+                        );
+                    }
                     if ui.button("Load Function reference").clicked() {
                         self.load_function_reference();
                     }
@@ -2299,6 +2444,11 @@ impl eframe::App for Console {
             // Keys a control took are still the event that follows a command
             // Enter, so they disarm its fill as one reaching the Source would.
             self.orcvs.disarm_fill();
+            // A command Zoom chord is a Source key too, though
+            // `show_source_scene` reads it rather than the Source: while the
+            // keys are elsewhere — a discard confirmation asking among them —
+            // it is dropped here, so it zooms nothing behind them.
+            ctx.input_mut(|i| i.events.retain(|event| zoom_command(event).is_none()));
         }
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
@@ -2453,6 +2603,8 @@ impl eframe::App for Console {
                         persistence: _,
                     #[cfg(target_arch = "wasm32")]
                         web_import: _,
+                    discard_confirmation: _,
+                    ctx: _,
                 } = self;
                 let presented = show_source_scene(
                     ui,
@@ -2506,10 +2658,15 @@ impl eframe::App for Console {
             );
         }
 
-        // Sampled once every widget, the Diagnostics window's included, has
-        // been shown and has taken or surrendered focus, and every popup has
-        // opened or closed.
-        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || egui::Popup::is_any_open(&ctx);
+        self.show_discard_confirmation(&ctx);
+
+        // Sampled once every widget, the Diagnostics window's and the
+        // discard confirmation's included, has been shown and has taken or
+        // surrendered focus, and every popup has opened or closed. A
+        // confirmation that is asking holds the keys as an open popup does.
+        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input()
+            || egui::Popup::is_any_open(&ctx)
+            || self.discard_confirmation.is_some();
 
         // Last, once every widget of this frame has been styled from the
         // appearance it began in, so no frame mixes two Themes. The next

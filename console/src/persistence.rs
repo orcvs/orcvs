@@ -87,10 +87,10 @@ pub(crate) const IMPORTED_THEMES_REFUSED_KEY: &str = "imported_themes_refused";
 pub const REFUSED_KEY: &str = "orcvs_source_refused";
 
 ///
-/// The Source a console starts from when it restores nothing: the one Grid,
-/// empty (ADR 0054).
+/// The Source a console starts from when it restores nothing, and the one
+/// `File → New` opens: the one Grid, empty (ADR 0054).
 ///
-fn default_source() -> Source {
+pub(crate) fn default_source() -> Source {
     Source::new(Grid::new())
 }
 
