@@ -9,5 +9,5 @@ Waiting on: an eframe release on winit 0.31. As of 2026-09-25, winit 0.31 is at 
 **Status:** needs-triage
 
 - [ ] The console depends on an eframe release built on winit 0.31.
-- [ ] The nine winit-only skip entries are removed.
+- [ ] The winit-only skip entries are removed: the nine from 01 and `windows-sys` 0.59 from 05.
 - [ ] `cargo deny --locked --all-features check bans` reports no duplicate for those crates and no unused-skip warning.
