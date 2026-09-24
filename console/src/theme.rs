@@ -650,12 +650,12 @@ impl ThemeIdentity {
     }
 
     ///
-    /// A selection restored from storage, as it was stored. It is not
-    /// checked: an identity no Theme answers to is kept so saving writes it
-    /// back.
+    /// The identity a setting names, as written in `~/.orcvs/config.toml`.
+    /// It is not checked here: `SelectedThemes` reports one no Theme of its
+    /// appearance answers to, and presents that appearance's built-in.
     ///
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restored(identity: String) -> Self {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn configured(identity: String) -> Self {
         Self(Cow::Owned(identity))
     }
 

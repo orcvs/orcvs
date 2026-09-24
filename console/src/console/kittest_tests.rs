@@ -111,7 +111,9 @@ fn running_console_with(size: Vec2, themes: ThemeRegistry) -> Harness<'static, C
     Harness::builder()
         .with_size(size)
         .with_pixels_per_point(1.0)
-        .build_eframe(move |cc| Console::new(cc, themes).expect("the test runtime"))
+        .build_eframe(move |cc| {
+            Console::new(cc, themes, crate::config::Config::default()).expect("the test runtime")
+        })
 }
 
 ///
@@ -230,7 +232,7 @@ async fn no_menu_offers_a_reset_to_theme_defaults_button() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    for menu in ["File", "View", "Help", "Settings"] {
+    for menu in ["File", "View", "Help"] {
         harness.get_by_label(menu).click();
         harness.step();
         harness.run_steps(1);
@@ -248,39 +250,98 @@ async fn no_menu_offers_a_reset_to_theme_defaults_button() {
 }
 
 ///
-/// Glitch amount and Glitch frequency are offered by the Settings menu, and
-/// nowhere else: neither is in the tree before Settings is opened.
+/// `.scratch/menu-structure/issues/04`: settings are the config file's, so
+/// there is no Settings menu, and no menu offers Glitch amount, Glitch
+/// frequency, a Theme picker or an appearance radio.
 ///
 #[tokio::test]
-async fn glitch_controls_are_offered_only_by_the_settings_menu() {
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+async fn no_menu_offers_a_setting() {
+    let mut harness = running_console_with(Vec2::from(DEFAULT_VIEW_SIZE), with_my_themes());
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_label("Settings").is_none(),
+        "the Settings menu is still on the top bar"
+    );
+
+    for menu in ["File", "View", "Help"] {
+        harness.get_by_label(menu).click();
+        harness.step();
+        harness.run_steps(1);
+        for setting in [
+            "Glitch amount",
+            "Glitch frequency",
+            "Appearance",
+            "Dark Theme",
+            "Light Theme",
+            "Okabe–Ito",
+            "Orcvs Light",
+            "My Dark",
+            "My Light",
+        ] {
+            assert_eq!(
+                harness.query_all_by_label(setting).count(),
+                0,
+                "the {menu} menu offers {setting:?}"
+            );
+        }
+        for mode in ["Follow the OS", "Dark", "Light"] {
+            assert_eq!(
+                harness.query_all_by_label(mode).count(),
+                1,
+                "the {menu} menu offers a {mode:?} mode beside the top bar's"
+            );
+        }
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+        harness.run_steps(1);
+    }
+}
+
+///
+/// The settings a console is built with are the ones it presents: the
+/// configured dark and light Themes, and the configured Cursor effects. The
+/// config file is read from a directory the test builds, never the viewer's
+/// home, and a problem in it reaches the top bar's notices.
+///
+#[tokio::test]
+async fn configured_settings_reach_the_console_and_their_problems_its_notices() {
+    use crate::config::{CONFIG_FILE, Config};
+    use crate::theme_registry::tests_support::TempDir;
+
+    let dir = TempDir::new();
+    let config = Config::read(&dir.write(
+        CONFIG_FILE,
+        "[theme]\ndark = \"my-dark\"\nlight = \"my-light\"\n\
+         [cursor_effects]\nglitch_amount = 12\nglitch_frequency = 34\nspeed = 1\n",
+    ));
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(move |cc| {
+            Console::new(cc, with_my_themes(), config).expect("the test runtime")
+        });
+    harness.ctx.set_theme(egui::ThemePreference::System);
+    harness.input_mut().system_theme = Some(egui::Theme::Dark);
     harness.run_steps(2);
 
-    assert_eq!(
-        harness.query_all_by_label("Glitch amount").count(),
-        0,
-        "Glitch amount was in the tree before any menu was opened"
-    );
-    assert_eq!(
-        harness.query_all_by_label("Glitch frequency").count(),
-        0,
-        "Glitch frequency was in the tree before any menu was opened"
-    );
+    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "a dark OS");
+    harness.input_mut().system_theme = Some(egui::Theme::Light);
+    harness.run_steps(2);
+    assert_frame_presents(&harness, &my_light(), &[orcvs_light()], "a light OS");
 
-    harness.get_by_label("Settings").click();
+    let effects = harness.state().cursor_effects;
+    assert_eq!((effects.amount(), effects.frequency()), (12, 34));
+
+    // My Dark's own contrast notice sits beside the config's.
+    harness.get_by_label_contains("Notices (").click();
     harness.step();
     harness.run_steps(1);
-    // Both the Slider and the `DragValue` it wraps carry the same
-    // accessible label, so `query_all_by_label` (as the reset-button test
-    // above already uses) rather than `query_by_label`, which requires
-    // exactly one match.
     assert!(
-        harness.query_all_by_label("Glitch amount").count() > 0,
-        "the Settings menu did not offer Glitch amount"
-    );
-    assert!(
-        harness.query_all_by_label("Glitch frequency").count() > 0,
-        "the Settings menu did not offer Glitch frequency"
+        harness
+            .query_all_by_label_contains("cursor_effects.speed")
+            .next()
+            .is_some(),
+        "the unknown key's notice was not shown"
     );
 }
 
@@ -397,16 +458,28 @@ fn console_under_os_appearance(
 }
 
 ///
-/// Opens the View menu and clicks the control labelled `label` in it, then
-/// runs the frame the click lands in and the frame that presents it.
+/// A running console over `with_my_themes`, under a dark OS with the mode
+/// following it, whose settings file selected My Dark and My Light and
+/// Cursor effects of `amount` and `frequency`: every setting moved off its
+/// default, so a test can tell one reset from one that never changed.
 ///
-fn choose_in_view_menu(harness: &mut Harness<'_, Console>, label: &str) {
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.run_steps(1);
-    harness.get_by_label(label).click();
-    harness.step();
-    harness.run_steps(1);
+fn console_with_settings_moved(amount: u8, frequency: u8) -> Harness<'static, Console> {
+    let mut config = crate::config::Config {
+        theme_selection: crate::theme_selection::ThemeSelection::new(id("my-dark"), id("my-light")),
+        ..crate::config::Config::default()
+    };
+    *config.cursor_effects.amount_mut() = amount;
+    *config.cursor_effects.frequency_mut() = frequency;
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(move |cc| {
+            Console::new(cc, with_my_themes(), config).expect("the test runtime")
+        });
+    harness.ctx.set_theme(egui::ThemePreference::System);
+    harness.input_mut().system_theme = Some(egui::Theme::Dark);
+    harness.run_steps(2);
+    harness
 }
 
 ///
@@ -425,71 +498,6 @@ fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
 ///
 fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
     harness.get_by_label(label).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
-}
-
-///
-/// `.scratch/theming/issues/04`: the View menu holds a dark Theme picker
-/// and a light Theme picker, and no mode control
-/// (`.scratch/menu-structure/issues/03` moved it to the top bar); each
-/// picker lists only Themes of its appearance — a loaded Theme only
-/// in its parent's (`.scratch/theming/issues/07`). `my-dark` and `my-light`
-/// are loaded so each picker has two to list.
-///
-/// Where a Theme is listed is read from the menu's own layout: each picker
-/// is a heading followed by its Themes, so a Theme belongs to the picker
-/// whose heading is the nearest one above it.
-///
-#[tokio::test]
-async fn the_view_menu_offers_a_theme_picker_per_appearance_and_no_mode() {
-    let mut harness = running_console_with(Vec2::from(DEFAULT_VIEW_SIZE), with_my_themes());
-    harness.run_steps(2);
-
-    for label in ["Dark Theme", "Okabe–Ito", "Orcvs Light"] {
-        assert!(
-            harness.query_by_label(label).is_none(),
-            "{label:?} was in the tree before the View menu was opened"
-        );
-    }
-
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.run_steps(1);
-
-    for label in ["Follow the OS", "Dark", "Light"] {
-        assert_eq!(
-            harness.query_all_by_label(label).count(),
-            1,
-            "the View menu offers a {label:?} mode beside the top bar's"
-        );
-    }
-    assert!(
-        harness.query_by_label("Appearance").is_none(),
-        "the View menu still holds the Appearance radios"
-    );
-    let top = |label: &str| harness.get_by_label(label).rect().min.y;
-    let dark_heading = top("Dark Theme");
-    let light_heading = top("Light Theme");
-    assert!(dark_heading < light_heading);
-    for dark in ["Okabe–Ito", "My Dark"] {
-        let at = top(dark);
-        assert!(
-            dark_heading < at && at < light_heading,
-            "{dark:?} is not listed in the dark Theme picker"
-        );
-    }
-    for light in ["Orcvs Light", "My Light"] {
-        assert!(
-            top(light) > light_heading,
-            "{light:?} is not listed in the light Theme picker"
-        );
-    }
-    for listed in ["Okabe–Ito", "My Dark", "Orcvs Light", "My Light"] {
-        assert_eq!(
-            harness.query_all_by_label(listed).count(),
-            1,
-            "{listed:?} is listed by more than its own appearance's picker"
-        );
-    }
 }
 
 ///
@@ -782,188 +790,6 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
 }
 
 ///
-/// A dark Theme picker change restyles the chrome and repaints the Source
-/// from the picked Theme on the next frame, records the selection for the
-/// next save, and leaves the light appearance's Theme alone.
-///
-#[tokio::test]
-async fn picking_a_dark_theme_restyles_source_and_chrome() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
-    harness.run_steps(1);
-    assert_frame_presents(&harness, &okabe_ito(), &[my_dark()], "before picking");
-
-    choose_in_view_menu(&mut harness, "My Dark");
-    harness.run_steps(1);
-    assert_frame_presents(
-        &harness,
-        &my_dark(),
-        &[okabe_ito(), orcvs_light(), my_light()],
-        "after picking My Dark",
-    );
-    let themes = &harness.state().themes;
-    assert_eq!(
-        themes.selection().identity(Appearance::Dark).as_str(),
-        "my-dark"
-    );
-    assert_eq!(
-        themes.selection().identity(Appearance::Light).as_str(),
-        "orcvs-light"
-    );
-    assert_eq!(
-        harness.ctx.style_of(egui::Theme::Light).visuals,
-        crate::style::style(&orcvs_light()).visuals,
-        "picking a dark Theme restyled the light appearance"
-    );
-
-    harness.input_mut().system_theme = Some(egui::Theme::Light);
-    harness.run_steps(1);
-    assert_frame_presents(
-        &harness,
-        &orcvs_light(),
-        &[my_dark(), okabe_ito()],
-        "a light OS after picking My Dark",
-    );
-}
-
-///
-/// The light Theme picker, under a light OS: picking a light Theme restyles
-/// the chrome and repaints the Source from it on the next frame, records the
-/// selection for the next save, and leaves the dark appearance's Theme alone.
-///
-#[tokio::test]
-async fn picking_a_light_theme_restyles_source_and_chrome() {
-    let mut harness = console_under_os_appearance(egui::Theme::Light, with_my_themes());
-    harness.run_steps(1);
-    assert_frame_presents(&harness, &orcvs_light(), &[my_light()], "before picking");
-
-    choose_in_view_menu(&mut harness, "My Light");
-    harness.run_steps(1);
-    assert_frame_presents(
-        &harness,
-        &my_light(),
-        &[orcvs_light(), okabe_ito(), my_dark()],
-        "after picking My Light",
-    );
-    let themes = &harness.state().themes;
-    assert_eq!(
-        themes.selection().identity(Appearance::Light).as_str(),
-        "my-light"
-    );
-    assert_eq!(
-        themes.selection().identity(Appearance::Dark).as_str(),
-        "okabe-ito"
-    );
-    assert_eq!(
-        harness.ctx.style_of(egui::Theme::Dark).visuals,
-        crate::style::style(&okabe_ito()).visuals,
-        "picking a light Theme restyled the dark appearance"
-    );
-
-    harness.input_mut().system_theme = Some(egui::Theme::Dark);
-    harness.run_steps(1);
-    assert_frame_presents(
-        &harness,
-        &okabe_ito(),
-        &[my_light(), orcvs_light()],
-        "a dark OS after picking My Light",
-    );
-}
-
-///
-/// The frame a Theme is picked in is presented wholly in the Theme it began
-/// in — chrome and Source both — and the picked Theme reaches the next
-/// frame. The Diagnostics window is open for the reason
-/// `the_frame_a_mode_is_chosen_in_keeps_one_theme` gives: it is chrome egui
-/// styles after the menu bar, so a pick applied on click would style it from
-/// the new Theme within the old frame.
-///
-#[tokio::test]
-async fn the_frame_a_theme_is_picked_in_keeps_one_theme() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
-    harness.state_mut().diagnostics_open = true;
-    harness.run_steps(1);
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.run_steps(1);
-
-    harness.get_by_label("My Dark").click();
-    harness.step();
-    assert_eq!(
-        harness
-            .state()
-            .themes
-            .selection()
-            .identity(Appearance::Dark)
-            .as_str(),
-        "my-dark",
-        "the click did not reach the dark Theme selection"
-    );
-    assert_frame_paints(
-        &harness,
-        &okabe_ito(),
-        &[my_dark()],
-        "the frame My Dark was picked in",
-    );
-
-    harness.run_steps(1);
-    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "the frame after");
-}
-
-///
-/// A restored dark selection no available Theme answers to presents
-/// Okabe–Ito, and the dark picker shows Okabe–Ito as selected, because that
-/// is what is presented. Picking it is then the viewer's own choice, and
-/// replaces the kept selection — `.scratch/theming/issues/07`'s rule is that
-/// the *fallback* never rewrites a selection, and this is not the fallback.
-///
-#[tokio::test]
-async fn picking_the_fallback_theme_replaces_a_kept_selection() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
-    // Selecting an identity nothing answers to keeps it, as a restored one
-    // is kept, and presents the fallback.
-    harness
-        .state_mut()
-        .themes
-        .select(Appearance::Dark, &id("my-dark"));
-    harness.state().themes.install(&harness.ctx);
-    harness.run_steps(1);
-    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "the fallback");
-
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.run_steps(1);
-    assert!(
-        radio_selected(&harness, "Okabe–Ito"),
-        "the dark picker did not show the presented fallback as selected"
-    );
-    assert_eq!(
-        harness
-            .state()
-            .themes
-            .selection()
-            .identity(Appearance::Dark)
-            .as_str(),
-        "my-dark",
-        "opening the menu rewrote the kept selection"
-    );
-
-    harness.get_by_label("Okabe–Ito").click();
-    harness.step();
-    harness.run_steps(1);
-    assert_eq!(
-        harness
-            .state()
-            .themes
-            .selection()
-            .identity(Appearance::Dark)
-            .as_str(),
-        "okabe-ito",
-        "picking the presented Theme did not become the selection"
-    );
-    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "after picking");
-}
-
-///
 /// A Theme file that failed to load is told to the viewer in the top bar, and
 /// the notice lists the file's problem until the viewer dismisses it.
 ///
@@ -982,7 +808,7 @@ async fn a_theme_file_that_failed_to_load_is_shown_until_dismissed() {
     );
     harness.run_steps(2);
 
-    harness.get_by_label("Theme notices (1)").click();
+    harness.get_by_label("Notices (1)").click();
     harness.step();
     harness.run_steps(1);
     assert!(
@@ -998,13 +824,13 @@ async fn a_theme_file_that_failed_to_load_is_shown_until_dismissed() {
     harness.run_steps(2);
     assert_eq!(harness.state().themes.notice_count(), 0);
     assert!(
-        harness.query_by_label("Theme notices (1)").is_none(),
+        harness.query_by_label("Notices (1)").is_none(),
         "the dismissed notice is still in the top bar"
     );
 }
 
 ///
-/// Notices are status, not menus: the Theme notices sit at the right of the
+/// Notices are status, not menus: the notices sit at the right of the
 /// top bar, past the last menu, rather than beside it.
 ///
 #[tokio::test]
@@ -1020,16 +846,16 @@ async fn theme_notices_sit_at_the_right_of_the_top_bar() {
     harness.run_steps(2);
 
     let help = harness.get_by_label("Help").rect();
-    let notices = harness.get_by_label("Theme notices (1)").rect();
+    let notices = harness.get_by_label("Notices (1)").rect();
     let width = DEFAULT_VIEW_SIZE[0];
     assert!(
         notices.min.x > help.max.x && notices.center().x > width / 2.0,
-        "the Theme notices are not right-aligned: {notices:?} beside Help at {help:?}"
+        "the notices are not right-aligned: {notices:?} beside Help at {help:?}"
     );
     let mode = harness.get_by_label("Follow the OS").rect();
     assert!(
         notices.max.x <= mode.min.x,
-        "the Theme notices are not left of the mode control: {notices:?}, {mode:?}"
+        "the notices are not left of the mode control: {notices:?}, {mode:?}"
     );
 }
 
@@ -1053,7 +879,12 @@ async fn a_long_notice_in_a_narrow_window_stays_right_of_the_menus() {
         .with_pixels_per_point(1.0)
         .build_eframe(|cc| {
             cc.storage = Some(&stored);
-            Console::new(cc, ThemeRegistry::built_in()).expect("the test runtime")
+            Console::new(
+                cc,
+                ThemeRegistry::built_in(),
+                crate::config::Config::default(),
+            )
+            .expect("the test runtime")
         });
     harness.run_steps(2);
 
@@ -1340,23 +1171,15 @@ fn choose_in_menu(harness: &mut Harness<'_, Console>, menu: &str, label: &str) {
 /// effects, and whether Diagnostics is showing — are preferences, and stand
 /// across it (`.scratch/file-new/spec.md`).
 ///
-/// Each is moved off its default first, so an Open that reset it would be
-/// seen rather than read back as the default it already held.
+/// Each is configured off its default first, so an Open that reset it would
+/// be seen rather than read back as the default it already held.
 ///
 #[tokio::test]
 async fn an_open_leaves_every_setting_standing() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
-    {
-        let console = harness.state_mut();
-        console.themes.select(Appearance::Dark, &id("my-dark"));
-        console.themes.select(Appearance::Light, &id("my-light"));
-        *console.cursor_effects.amount_mut() = 7;
-        *console.cursor_effects.frequency_mut() = 9;
-        console.diagnostics_open = true;
-    }
-    harness.state().themes.install(&harness.ctx);
-    harness.run_steps(1);
+    let mut harness = console_with_settings_moved(7, 9);
     let cursor_effects = harness.state().cursor_effects;
+    harness.state_mut().diagnostics_open = true;
+    harness.run_steps(2);
 
     // The Diagnostics window opens over the menu bar's left end, so a pointer
     // click at the Help button can land on the window. AccessKit's own click
@@ -1376,19 +1199,15 @@ async fn an_open_leaves_every_setting_standing() {
     );
     assert_eq!(
         (
+            console.themes.presented(Appearance::Dark).identity.as_str(),
             console
                 .themes
-                .selection()
-                .identity(Appearance::Dark)
-                .as_str(),
-            console
-                .themes
-                .selection()
-                .identity(Appearance::Light)
+                .presented(Appearance::Light)
+                .identity
                 .as_str(),
         ),
         ("my-dark", "my-light"),
-        "an Open changed the Theme selection"
+        "an Open changed the Themes presented"
     );
     assert_eq!(
         console.cursor_effects, cursor_effects,
@@ -1946,10 +1765,9 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 
 ///
 /// Keyboard input belongs to whichever control holds egui's focus, not only
-/// to the two the console named. The Settings menu's "Glitch amount" Slider
-/// carries an editable `DragValue`; with its value box focused, command A,
-/// Backspace, and a paste are that box's text editing and must reach nothing
-/// in the Source.
+/// to the two the console named. With a View menu item focused, command A,
+/// Backspace, and a paste are that control's and must reach nothing in the
+/// Source.
 ///
 /// Egui states the rule itself: `RawInput::events` has "no way to know if
 /// egui handles a particular event, but you can check if egui is using the
@@ -1957,7 +1775,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 /// (`egui-0.36.2/src/data/input/raw_input.rs:56-60`).
 ///
 #[tokio::test]
-async fn a_focused_settings_menu_value_box_keeps_region_and_clipboard_commands_from_the_source() {
+async fn a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
@@ -1974,28 +1792,28 @@ async fn a_focused_settings_menu_value_box_keeps_region_and_clipboard_commands_f
         "the setup character never reached the Source"
     );
 
-    harness.get_by_label("Settings").click();
+    harness.get_by_label("View").click();
     harness.step();
     harness.run_steps(1);
-    // A pointer click on the value box closes the menu it sits in
+    // A pointer click on an item closes the menu it sits in
     // (`PopupCloseBehavior::CloseOnClick`, `egui-0.36.2/src/containers/popup.rs:78-82`),
-    // so the viewer who edits it arrives by keyboard: Tab walks egui's focus
-    // order into the open menu.
-    let value_box_focused = |harness: &Harness<'_, Console>| {
+    // so the viewer who reaches one arrives by keyboard: Tab walks egui's
+    // focus order into the open menu.
+    let item_focused = |harness: &Harness<'_, Console>| {
         harness
-            .query_all_by_role(egui::accesskit::Role::SpinButton)
+            .query_all_by_label_contains("Zoom")
             .any(|node| node.is_focused())
     };
     for _ in 0..32 {
-        if value_box_focused(&harness) {
+        if item_focused(&harness) {
             break;
         }
         harness.key_press(Key::Tab);
         harness.step();
     }
     assert!(
-        value_box_focused(&harness) && harness.ctx.egui_wants_keyboard_input(),
-        "Tab never gave a Settings menu value box keyboard focus"
+        item_focused(&harness) && harness.ctx.egui_wants_keyboard_input(),
+        "Tab never gave a View menu item keyboard focus"
     );
 
     harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
@@ -2007,12 +1825,12 @@ async fn a_focused_settings_menu_value_box_keeps_region_and_clipboard_commands_f
     assert_eq!(
         origin_content(harness.state()),
         Some('x'),
-        "command A, Backspace, or a paste in a focused value box reached the Source"
+        "command A, Backspace, or a paste with a menu item focused reached the Source"
     );
     let region = harness.state().orcvs.region();
     assert!(
         region.is_one_cell(),
-        "command A in a focused value box selected the whole Source: {region:?}"
+        "command A with a menu item focused selected the whole Source: {region:?}"
     );
     // The paste would land at the Cursor, which the setup character left on
     // the Cell after the origin.
@@ -2021,7 +1839,7 @@ async fn a_focused_settings_menu_value_box_keeps_region_and_clipboard_commands_f
     assert_eq!(
         frame.at(after_origin).content(),
         None,
-        "a paste into a focused value box wrote the Source"
+        "a paste with a menu item focused wrote the Source"
     );
 }
 
@@ -2030,7 +1848,7 @@ async fn a_focused_settings_menu_value_box_keeps_region_and_clipboard_commands_f
 /// the Cursor must not also step a Sector for the same press.
 ///
 /// A menu button's click does not itself take focus (the previous test's own
-/// comment explains why the value box is reached by Tab rather than a
+/// comment explains why its menu item is reached by Tab rather than a
 /// click), so an open menu has to hold the keys by being open: were it asked
 /// only of focus, the Tab-focus cancellation and the event routing could
 /// disagree about the one press, and it would both move focus and step the
@@ -2041,7 +1859,7 @@ async fn tab_with_a_menu_open_moves_focus_and_not_the_cursor() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    harness.get_by_label("Settings").click();
+    harness.get_by_label("View").click();
     harness.step();
     harness.run_steps(1);
 
@@ -2067,12 +1885,12 @@ async fn typing_with_a_menu_open_leaves_the_source_unwritten() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    harness.get_by_label("Settings").click();
+    harness.get_by_label("View").click();
     harness.step();
     harness.run_steps(1);
     assert!(
         egui::Popup::is_any_open(&harness.ctx) && !harness.ctx.egui_wants_keyboard_input(),
-        "the Settings menu did not open with nothing focused"
+        "the View menu did not open with nothing focused"
     );
 
     let cursor_before = cursor(harness.state());
@@ -2110,12 +1928,12 @@ async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
     let region_before = harness.state().orcvs.region();
     assert!(!region_before.is_one_cell(), "test setup spanned no Region");
 
-    harness.get_by_label("Settings").click();
+    harness.get_by_label("View").click();
     harness.step();
     harness.run_steps(1);
     assert!(
         egui::Popup::is_any_open(&harness.ctx),
-        "the Settings menu did not open"
+        "the View menu did not open"
     );
 
     harness.key_press(egui::Key::Escape);
@@ -2309,17 +2127,12 @@ const ENGINE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 ///
 #[tokio::test]
 async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
+    let mut harness = console_with_settings_moved(7, 9);
     let default_bpm = harness.state().orcvs.bpm();
-    {
-        let console = harness.state_mut();
-        console.themes.select(Appearance::Dark, &id("my-dark"));
-        *console.cursor_effects.amount_mut() = 7;
-        console
-            .orcvs
-            .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
-    }
-    harness.state().themes.install(&harness.ctx);
+    harness
+        .state_mut()
+        .orcvs
+        .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
     let cursor_effects = harness.state().cursor_effects;
 
     harness.event(Event::Text("x".to_owned()));
@@ -2376,13 +2189,9 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
     );
     assert_eq!(console.orcvs.bpm(), default_bpm, "New kept the old Bpm");
     assert_eq!(
-        console
-            .themes
-            .selection()
-            .identity(Appearance::Dark)
-            .as_str(),
+        console.themes.presented(Appearance::Dark).identity.as_str(),
         "my-dark",
-        "New changed the Theme selection"
+        "New changed the Theme presented"
     );
     assert_eq!(
         console.cursor_effects, cursor_effects,
@@ -2422,7 +2231,12 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
         .with_pixels_per_point(1.0)
         .build_eframe(|cc| {
             cc.storage = Some(&stored);
-            Console::new(cc, ThemeRegistry::built_in()).expect("the test runtime")
+            Console::new(
+                cc,
+                ThemeRegistry::built_in(),
+                crate::config::Config::default(),
+            )
+            .expect("the test runtime")
         });
     harness.run_steps(2);
     assert!(
@@ -2446,7 +2260,12 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
         .with_pixels_per_point(1.0)
         .build_eframe(|cc| {
             cc.storage = Some(&saved);
-            Console::new(cc, ThemeRegistry::built_in()).expect("the test runtime")
+            Console::new(
+                cc,
+                ThemeRegistry::built_in(),
+                crate::config::Config::default(),
+            )
+            .expect("the test runtime")
         });
     let grid = restarted.state().orcvs.render_frame().grid();
     assert_eq!(

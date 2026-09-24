@@ -1,6 +1,11 @@
 //!
-//! The console's storage seam: the Source revision and presentation settings
-//! eframe storage holds.
+//! The console's storage seam: the Source revision eframe storage holds.
+//!
+//! Settings are not stored here. The dark and light Theme and the Cursor
+//! Effect's motion come from `~/.orcvs/config.toml` (`crate::config`); the
+//! `cursor_effects`, `dark_theme` and `light_theme` keys earlier builds wrote
+//! are neither read nor written. The appearance mode is egui's own
+//! `ThemePreference`, which eframe stores with egui memory.
 //!
 //! The Language Map, Tokens, diagnostics and parsed Expressions are derived
 //! from the Source, so a restore rebuilds them. The console runtime and
@@ -10,52 +15,16 @@
 use orcvs::grid::Grid;
 use orcvs::source::Source;
 
-use crate::cursor_effects::CursorEffectSettings;
-#[cfg(feature = "persistence")]
-use crate::theme::{Appearance, ThemeIdentity};
-use crate::theme_selection::ThemeSelection;
-
 ///
 /// The Storage key one stored Source revision lives under.
 ///
 /// Deliberately not `eframe::APP_KEY`: that key names the whole App value, and
 /// `source-playback-engine/18` settled that the Console is a runtime
 /// coordinator rather than a serializable application value. This key stores
-/// only the Source payload; presentation settings use their own key.
+/// only the Source payload.
 ///
 #[cfg(feature = "persistence")]
 pub const SOURCE_KEY: &str = "orcvs_source";
-
-///
-/// The Storage key Glitch amount and Glitch frequency are restored from,
-/// encoded as `amount;frequency`. An absent or malformed value falls back to
-/// [`CursorEffectSettings::default`].
-///
-#[cfg(feature = "persistence")]
-pub(crate) const CURSOR_EFFECTS_KEY: &str = "cursor_effects";
-
-///
-/// The Storage keys the dark and light Theme selections live under: each
-/// holds a Theme identity as a plain string, never a Theme's values —
-/// `SourcePaintSettings`, `CursorEffectSettings`' colours and the old
-/// `source_paint` key are gone rather than migrated (ADR 0053). An absent
-/// key takes that appearance's default built-in; the View menu's dark and
-/// light Theme pickers write another. The mode beside them is egui's own
-/// `ThemePreference`, which eframe stores with egui memory, not here.
-///
-#[cfg(feature = "persistence")]
-pub(crate) const DARK_THEME_KEY: &str = "dark_theme";
-#[cfg(feature = "persistence")]
-pub(crate) const LIGHT_THEME_KEY: &str = "light_theme";
-
-/// The Storage key holding `appearance`'s Theme selection.
-#[cfg(feature = "persistence")]
-const fn theme_key(appearance: Appearance) -> &'static str {
-    match appearance {
-        Appearance::Dark => DARK_THEME_KEY,
-        Appearance::Light => LIGHT_THEME_KEY,
-    }
-}
 
 ///
 /// The Storage key the web target's imported Theme documents live under: a
@@ -104,8 +73,6 @@ pub(crate) fn default_source() -> Source {
 pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
     Start {
         source: default_source(),
-        cursor_effects: CursorEffectSettings::default(),
-        theme_selection: ThemeSelection::default(),
     }
 }
 
@@ -128,10 +95,6 @@ enum StoredSource {
 ///
 pub(crate) struct Start {
     pub(crate) source: Source,
-    pub(crate) cursor_effects: CursorEffectSettings,
-    /// The dark and light Theme identities, restored independently of the
-    /// Source and of Cursor effects.
-    pub(crate) theme_selection: ThemeSelection,
     #[cfg(feature = "persistence")]
     pub(crate) persistence: Persistence,
 }
@@ -152,32 +115,16 @@ pub(crate) struct Persistence {
 
 #[cfg(feature = "persistence")]
 impl Persistence {
-    /// Preserves a refused payload once, then stores the current Source and
-    /// the presentation settings.
-    ///
-    /// The Theme identities are plain strings, stored verbatim rather than
-    /// through an `encode`/`decode` pair: a Theme identity is already the
-    /// value a key holds, with no packed fields of its own to round-trip.
-    /// They are the selection as the viewer made it, not the Themes it
-    /// presents, so a selection that fell back is saved unchanged.
+    /// Preserves a refused payload once, then stores the current Source.
     pub(crate) fn save(
         &mut self,
         storage: &mut dyn eframe::Storage,
         source: &orcvs::source::SourceCommander,
-        cursor_effects: CursorEffectSettings,
-        theme_selection: &ThemeSelection,
     ) {
         if let Some(refused) = self.refused.take() {
             storage.set_string(REFUSED_KEY, refused);
         }
         source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
-        storage.set_string(CURSOR_EFFECTS_KEY, cursor_effects.encode());
-        for appearance in [Appearance::Dark, Appearance::Light] {
-            storage.set_string(
-                theme_key(appearance),
-                theme_selection.identity(appearance).as_str().to_owned(),
-            );
-        }
     }
 
     pub(crate) fn notice_visible(&self) -> bool {
@@ -221,33 +168,9 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
 ///
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
-    let cursor_effects = storage
-        .and_then(|storage| storage.get_string(CURSOR_EFFECTS_KEY))
-        .as_deref()
-        .and_then(CursorEffectSettings::decode)
-        .unwrap_or_default();
-    // Restored as plain strings: an absent key, like a first start, takes
-    // that appearance's default built-in. Neither is validated here: a
-    // restored identity that names no available Theme of its appearance is
-    // kept as it is, and `SelectedThemes` presents the default built-in in
-    // its place without rewriting it.
-    let restored_identity = |appearance: Appearance| {
-        storage
-            .and_then(|storage| storage.get_string(theme_key(appearance)))
-            .map_or_else(
-                || ThemeIdentity::default_for(appearance),
-                ThemeIdentity::restored,
-            )
-    };
-    let theme_selection = ThemeSelection::new(
-        restored_identity(Appearance::Dark),
-        restored_identity(Appearance::Light),
-    );
     match stored_source(storage) {
         StoredSource::Restored(source) => Start {
             source,
-            cursor_effects,
-            theme_selection,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -255,8 +178,6 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
         },
         StoredSource::Absent => Start {
             source: default_source(),
-            cursor_effects,
-            theme_selection,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -266,8 +187,6 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
             report_refusal();
             Start {
                 source: default_source(),
-                cursor_effects,
-                theme_selection,
                 persistence: Persistence {
                     refused: Some(stored),
                     notice: true,
@@ -483,27 +402,14 @@ pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::S
         refused: None,
         notice: false,
     }
-    .save(
-        storage,
-        source,
-        CursorEffectSettings::default(),
-        &ThemeSelection::default(),
-    );
+    .save(storage, source);
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "persistence")]
-    use super::{
-        CURSOR_EFFECTS_KEY, DARK_THEME_KEY, InMemoryStorage, LIGHT_THEME_KEY, Persistence,
-        edited_source,
-    };
+    use super::{InMemoryStorage, Persistence, SOURCE_KEY, edited_source};
     use super::{assert_default_grid, starting_source};
-    #[cfg(feature = "persistence")]
-    use crate::cursor_effects::CursorEffectSettings;
-    #[cfg(feature = "persistence")]
-    use crate::theme::{Appearance, ThemeIdentity};
-    use crate::theme_selection::ThemeSelection;
 
     #[test]
     fn a_console_with_no_storage_starts_the_default_grid() {
@@ -511,114 +417,36 @@ mod tests {
         // and what a first start does with the feature.
         let start = starting_source(None);
         assert_default_grid(&start.source);
-        assert_eq!(start.theme_selection, ThemeSelection::default());
-    }
-
-    #[cfg(feature = "persistence")]
-    #[test]
-    fn absent_or_malformed_cursor_effect_settings_fall_back_to_their_own_defaults() {
-        let empty = InMemoryStorage::default();
-        assert_eq!(
-            starting_source(Some(&empty)).cursor_effects,
-            CursorEffectSettings::default()
-        );
-
-        let mut malformed = InMemoryStorage::default();
-        eframe::Storage::set_string(&mut malformed, CURSOR_EFFECTS_KEY, "broken".to_owned());
-        assert_eq!(
-            starting_source(Some(&malformed)).cursor_effects,
-            CursorEffectSettings::default()
-        );
     }
 
     ///
-    /// An absent dark/light Theme key is an ordinary first start: each takes
-    /// its appearance's default built-in, `okabe-ito` and `orcvs-light`.
-    /// Unlike Cursor effects there is no decode to refuse here — a Theme
-    /// identity is a plain string, and one no available Theme answers to is
-    /// kept rather than rejected (`theme_selection`'s fallback tests).
+    /// Settings live in `~/.orcvs/config.toml` now, so a save writes the
+    /// Source and nothing under the keys earlier builds kept settings in
+    /// (`.scratch/menu-structure/issues/04`). Those keys are spelled out here
+    /// because nothing shipped names them any more.
     ///
     #[cfg(feature = "persistence")]
     #[test]
-    fn an_absent_theme_selection_defaults_to_each_appearances_built_in() {
-        let empty = InMemoryStorage::default();
-        let start = starting_source(Some(&empty));
-        assert_eq!(
-            start.theme_selection.identity(Appearance::Dark).as_str(),
-            "okabe-ito"
-        );
-        assert_eq!(
-            start.theme_selection.identity(Appearance::Light).as_str(),
-            "orcvs-light"
-        );
-    }
-
-    #[cfg(feature = "persistence")]
-    #[test]
-    fn cursor_effect_settings_round_trip_without_affecting_the_source() {
+    fn a_save_writes_the_source_and_no_settings() {
         let current = edited_source();
-        let mut settings = CursorEffectSettings::default();
-        *settings.amount_mut() = 82;
-        *settings.frequency_mut() = 0;
         let mut storage = InMemoryStorage::default();
         Persistence {
             refused: None,
             notice: false,
         }
-        .save(&mut storage, &current, settings, &ThemeSelection::default());
+        .save(&mut storage, &current);
 
-        let restored = starting_source(Some(&storage));
-        assert_eq!(restored.cursor_effects, settings);
-        assert_eq!(restored.theme_selection, ThemeSelection::default());
-        assert_eq!(restored.source.snapshot(), current.snapshot());
-    }
-
-    ///
-    /// The dark and light Theme identities round trip at their own keys,
-    /// independently of the Source and Cursor effects — saved alongside them
-    /// in the same call — and of each other.
-    ///
-    #[cfg(feature = "persistence")]
-    #[test]
-    fn theme_identities_round_trip_independently_of_the_source_and_cursor_effects_and_each_other() {
-        let current = edited_source();
-        let cursor_effects = CursorEffectSettings::default();
-        let mut storage = InMemoryStorage::default();
-        Persistence {
-            refused: None,
-            notice: false,
+        for retired in ["cursor_effects", "dark_theme", "light_theme"] {
+            assert_eq!(
+                eframe::Storage::get_string(&storage, retired),
+                None,
+                "a save wrote the retired {retired} key"
+            );
         }
-        .save(
-            &mut storage,
-            &current,
-            cursor_effects,
-            &ThemeSelection::new(
-                ThemeIdentity::restored("my-dark".to_owned()),
-                ThemeIdentity::restored("my-light".to_owned()),
-            ),
-        );
-
-        let restored = starting_source(Some(&storage));
+        assert!(eframe::Storage::get_string(&storage, SOURCE_KEY).is_some());
         assert_eq!(
-            restored.theme_selection.identity(Appearance::Dark).as_str(),
-            "my-dark"
-        );
-        assert_eq!(
-            restored
-                .theme_selection
-                .identity(Appearance::Light)
-                .as_str(),
-            "my-light"
-        );
-        assert_eq!(restored.cursor_effects, cursor_effects);
-        assert_eq!(restored.source.snapshot(), current.snapshot());
-        assert_eq!(
-            eframe::Storage::get_string(&storage, DARK_THEME_KEY).as_deref(),
-            Some("my-dark")
-        );
-        assert_eq!(
-            eframe::Storage::get_string(&storage, LIGHT_THEME_KEY).as_deref(),
-            Some("my-light")
+            starting_source(Some(&storage)).source.snapshot(),
+            current.snapshot()
         );
     }
 }
@@ -631,8 +459,6 @@ mod stored_source_tests {
         InMemoryStorage, REFUSED_KEY, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
         starting_source, store, stored_source,
     };
-    use crate::cursor_effects::CursorEffectSettings;
-    use crate::theme_selection::ThemeSelection;
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
         eframe::Storage::get_string(storage, SOURCE_KEY)
@@ -655,12 +481,7 @@ mod stored_source_tests {
             }
 
             let current = edited_source();
-            persistence.save(
-                &mut storage,
-                &current,
-                CursorEffectSettings::default(),
-                &ThemeSelection::default(),
-            );
+            persistence.save(&mut storage, &current);
             assert_eq!(persistence.notice_visible(), !dismiss_before_save);
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -677,12 +498,7 @@ mod stored_source_tests {
             persistence.dismiss_notice();
             let cell = current.grid().cell_index(0).expect("inside the Grid");
             current.set(cell, " ").expect("a valid empty Cell");
-            persistence.save(
-                &mut storage,
-                &current,
-                CursorEffectSettings::default(),
-                &ThemeSelection::default(),
-            );
+            persistence.save(&mut storage, &current);
             assert!(!persistence.notice_visible());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -705,12 +521,7 @@ mod stored_source_tests {
             let mut persistence = starting_source(Some(&storage)).persistence;
             assert!(!persistence.notice_visible());
             persistence.dismiss_notice();
-            persistence.save(
-                &mut storage,
-                &edited_source(),
-                CursorEffectSettings::default(),
-                &ThemeSelection::default(),
-            );
+            persistence.save(&mut storage, &edited_source());
             assert!(!persistence.notice_visible());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -772,12 +583,7 @@ mod stored_source_tests {
             let mut persistence = start.persistence;
             assert!(persistence.notice_visible());
 
-            persistence.save(
-                &mut storage,
-                &SourceCommander::with_source(start.source),
-                CursorEffectSettings::default(),
-                &ThemeSelection::default(),
-            );
+            persistence.save(&mut storage, &SourceCommander::with_source(start.source));
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY),
                 Some(value),

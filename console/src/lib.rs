@@ -1,5 +1,8 @@
 #![warn(clippy::all)]
 
+// The settings `~/.orcvs/config.toml` holds, read once at native startup
+// (`.scratch/menu-structure/issues/04`).
+mod config;
 pub mod console;
 // Validates a resolved Theme's composited text contrast
 // (`.scratch/theming/issues/08`), reusing `style`'s own composition

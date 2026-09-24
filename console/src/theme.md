@@ -488,11 +488,24 @@ simulated copy of the wide capture per dichromacy.
 ### Selecting a Theme
 
 The mode — **Follow the OS**, **Dark** or **Light** — is three icon buttons
-(◐ ☾ ☼) at the right of the top bar, each explained on hover. The View menu
-holds a **Dark Theme** picker and a **Light Theme** picker. Each picker lists
-only Themes of its own appearance; today that is `okabe-ito` for dark and
-`orcvs-light` for light, and a loaded Theme (`.scratch/theming/issues/07`)
-joins the picker matching its parent's appearance.
+(◐ ☾ ☼) at the right of the top bar, each explained on hover. The dark and
+light Themes are settings, not controls: on native, `~/.orcvs/config.toml`
+names them, read once at startup; the web runs on the built-ins.
+
+```toml
+[theme]
+dark = "okabe-ito"
+light = "orcvs-light"
+
+[cursor_effects]
+glitch_amount = 60      # 0–100
+glitch_frequency = 55   # 0–100
+```
+
+Every key is optional and an absent key is its default. A missing file is an
+ordinary start; an unreadable or malformed file, an unknown key, or a value of
+the wrong type or out of range is a notice in the top bar, and only the keys it
+affects fall back.
 
 `style::install` registers `style()` of the selected dark Theme for
 `egui::Theme::Dark` and of the selected light Theme for `egui::Theme::Light`
@@ -500,30 +513,25 @@ through `set_style_of`. egui chooses the appearance each frame from the mode
 and the operating system's appearance, and the console paints the Source, and
 answers the window's clear colour, from the Theme of that same appearance, so a
 frame never takes its chrome from one Theme and its Source from another. A
-mode or picker change is applied once the frame it was made in is done, and
-the next frame presents it.
+mode change is applied once the frame it was made in is done, and the next
+frame presents it.
 
 The mode is egui's own `ThemePreference`, which eframe stores with egui memory;
 nothing in the console forces it at startup, so a fresh start follows the OS.
-The two Theme selections are Theme identities saved under the `dark_theme` and
-`light_theme` storage keys when `persistence` is on; without it they last for
-the session. An absent key selects that appearance's built-in. A selection that
-names no available Theme of its appearance — including the `okabe-ito` earlier
-builds saved in the light key before a light built-in existed — presents that
-appearance's built-in instead and is saved back unchanged, so the fallback
-never rewrites the viewer's choice.
+The Theme selections and Cursor effects are never stored: the `dark_theme`,
+`light_theme` and `cursor_effects` storage keys earlier builds wrote are no
+longer read or written.
 
-The Themes a picker lists are the built-ins and the custom Themes `07` loads.
-At startup the native console reads `~/.orcvs/themes/`, and the web console
-restores its imported documents; a Theme file dropped on the web console is
-imported, and presented at once if a selection names it. A custom Theme's
-identity is its file name's stem, and its `name` is only the label its picker
-shows. When a selection is missing, malformed, conflicted or of the wrong
-appearance, a Theme notice in the top bar names the Theme and the file problem,
-the appearance's built-in is shown in its place, and the selection is saved
-back unchanged, so repairing the file presents it on the next launch. The
-notices also name any loaded Theme with a text state below the contrast floor;
-such a Theme still loads and can be selected.
+A selection names a built-in or a custom Theme `07` loads. At startup the
+native console reads `~/.orcvs/themes/`, and the web console restores its
+imported documents; a Theme file dropped on the web console is imported. A
+custom Theme's identity is its file name's stem, and its `name` is only a
+display label. When a selection is missing, malformed, conflicted or of the
+wrong appearance, a Theme notice in the top bar names the Theme, the setting
+and the file problem, and the appearance's built-in is shown in its place; the
+settings file is never rewritten, so repairing the Theme file presents it on
+the next launch. The notices also name any loaded Theme with a text state below
+the contrast floor; such a Theme still loads and can be selected.
 
 ## Source colours
 

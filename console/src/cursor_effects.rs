@@ -43,6 +43,13 @@ impl CursorEffectSettings {
     pub fn amount_mut(&mut self) -> &mut u8 {
         &mut self.amount
     }
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only the settings file sets a frequency, and the web reads none"
+        )
+    )]
     pub(crate) fn frequency_mut(&mut self) -> &mut u8 {
         &mut self.frequency
     }
@@ -62,33 +69,6 @@ impl CursorEffectSettings {
             let base = slowest - (slowest - fastest) * u64::from(self.frequency) / 100;
             Duration::from_millis(base + u64::from(variation) * base / 255)
         })
-    }
-
-    ///
-    /// `amount;frequency`. A value stored before `.scratch/theming/issues/06`
-    /// moved the Effect's colours out of this settings value carries more
-    /// groups (colours, in `r,g,b` form, which contains a comma `parse::<u8>`
-    /// below refuses outright) and is refused whole by [`Self::decode`],
-    /// the same "malformed value falls back to the default" rule every
-    /// other settings decode in this crate already holds — not a migration,
-    /// since the two amount/frequency values a viewer had stored moved index
-    /// with the colours removed around them and reading them positionally
-    /// from the old string would misinterpret a colour group as one.
-    ///
-    #[cfg(any(feature = "persistence", test))]
-    pub(crate) fn encode(self) -> String {
-        format!("{};{}", self.amount, self.frequency)
-    }
-
-    #[cfg(any(feature = "persistence", test))]
-    pub(crate) fn decode(value: &str) -> Option<Self> {
-        let mut groups = value.split(';');
-        let settings = Self {
-            amount: groups.next()?.parse().ok()?,
-            frequency: groups.next()?.parse().ok()?,
-        };
-        (groups.next().is_none() && settings.amount <= 100 && settings.frequency <= 100)
-            .then_some(settings)
     }
 }
 
@@ -577,13 +557,9 @@ mod tests {
     }
 
     #[test]
-    fn zero_frequency_stops_animation_and_valid_settings_round_trip() {
+    fn zero_frequency_stops_animation() {
         let settings = settings(73, 0);
         assert_eq!(settings.interval(127), None);
-        assert_eq!(
-            CursorEffectSettings::decode(&settings.encode()),
-            Some(settings)
-        );
     }
 
     ///
@@ -600,23 +576,6 @@ mod tests {
             CursorEffectAnimation::default().repaint_after(Duration::ZERO, settings),
             None,
             "reduced motion's effective settings still scheduled a cursor-effect repaint"
-        );
-    }
-
-    #[test]
-    fn malformed_or_out_of_range_settings_are_refused_whole() {
-        assert_eq!(CursorEffectSettings::decode("garbage"), None);
-        assert_eq!(CursorEffectSettings::decode("101;50"), None);
-        assert_eq!(CursorEffectSettings::decode("50;101"), None);
-        assert_eq!(CursorEffectSettings::decode("50"), None);
-        assert_eq!(CursorEffectSettings::decode("50;50;50"), None);
-        // A value saved before `.scratch/theming/issues/06` moved the
-        // Effect's colours out of this settings value: its colour groups
-        // contain commas, which `str::parse::<u8>` refuses outright, so the
-        // whole value is refused rather than misread positionally.
-        assert_eq!(
-            CursorEffectSettings::decode("234,235,229;76,190,156;60;55;none"),
-            None
         );
     }
 

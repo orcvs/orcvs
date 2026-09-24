@@ -184,7 +184,7 @@ impl ThemeRegistry {
     /// Records a notice for the viewer and reports it on the console's error
     /// channel.
     ///
-    fn notice(&mut self, message: String) {
+    pub(crate) fn notice(&mut self, message: String) {
         crate::report::error!("{message}");
         self.notices.push(message);
     }
@@ -203,14 +203,6 @@ impl ThemeRegistry {
 
     pub(crate) fn dismiss_notices(&mut self) {
         self.notices.clear();
-    }
-
-    ///
-    /// Every Theme a selection can name: the built-ins, then the loaded
-    /// Themes in identity order.
-    ///
-    pub(crate) fn themes(&self) -> impl Iterator<Item = &Theme> {
-        self.built_ins.iter().chain(self.custom.values())
     }
 
     ///
@@ -1973,140 +1965,142 @@ mod discovery_tests {
     ///
     /// `schema.md`: "Unavailable, malformed, conflicted or appearance-mismatched
     /// selections keep their saved references and show the matching built-in
-    /// fallback plus an error. Autosave must not overwrite that reference ...
-    /// Repair restores the intended Theme when next loaded."
+    /// fallback plus an error. ... Repair restores the intended Theme when
+    /// next loaded."
     ///
-    /// Each launch is what `Console::start` and `Console::new` do: discover
-    /// the directory, restore the saved selection, and resolve it into the
-    /// Themes presented. Each save is what eframe's autosave calls.
+    /// The reference is `~/.orcvs/config.toml`'s `theme.dark`, which the
+    /// console only reads, so it is kept by never being written. Each launch
+    /// is what `Console::start` and `Console::new` do: discover the
+    /// directory, read the settings, and resolve the selection into the
+    /// Themes presented. Both are read from directories the test builds.
     ///
-    #[cfg(feature = "persistence")]
     mod selection {
         use super::super::tests_support::{TempDir, dark};
         use super::super::{ThemeRegistry, Unavailable};
-        use crate::cursor_effects::CursorEffectSettings;
-        use crate::persistence::{
-            DARK_THEME_KEY, InMemoryStorage, LIGHT_THEME_KEY, edited_source, starting_source,
-        };
+        use crate::config::{CONFIG_FILE, Config};
         use crate::theme::{Appearance, okabe_ito};
         use crate::theme_selection::SelectedThemes;
 
         ///
-        /// One launch followed by an autosave: the dark selection's
-        /// resolution, the notices the launch raised, and what the save
-        /// left in storage. The Theme presented for dark is the one the
+        /// One launch: the dark selection's resolution and the notices the
+        /// launch raised. The Theme presented for dark is the one the
         /// selection resolved to, or Okabe–Ito when it resolved to none.
         ///
-        fn launch_and_save(
-            storage: &mut InMemoryStorage,
-            dir: &std::path::Path,
+        fn launch(
+            settings: &TempDir,
+            themes: &TempDir,
         ) -> (Result<String, Unavailable>, Vec<String>) {
-            let start = starting_source(Some(storage));
-            let registry = ThemeRegistry::discover(dir);
+            let config = Config::read(&settings.path().join(CONFIG_FILE));
+            let registry = ThemeRegistry::discover(themes.path());
             let selected = registry
                 .select(
                     Appearance::Dark,
-                    start.theme_selection.identity(Appearance::Dark),
+                    config.theme_selection.identity(Appearance::Dark),
                 )
                 .map(|theme| theme.identity.as_str().to_owned());
-            let themes = SelectedThemes::new(registry, start.theme_selection);
+            let themes = SelectedThemes::new(registry, config.theme_selection);
             let presented = themes.presented(Appearance::Dark);
             match &selected {
                 Ok(identity) => assert_eq!(presented.identity.as_str(), identity),
                 Err(_) => assert_eq!(*presented, okabe_ito()),
             }
-            let mut persistence = start.persistence;
-            persistence.save(
-                storage,
-                &edited_source(),
-                CursorEffectSettings::default(),
-                themes.selection(),
-            );
             (selected, themes.notice_list())
         }
 
-        fn saved_dark(storage: &InMemoryStorage) -> Option<String> {
-            eframe::Storage::get_string(storage, DARK_THEME_KEY)
+        /// A settings directory whose `config.toml` selects `identity` for dark.
+        fn selecting_dark(identity: &str) -> TempDir {
+            let settings = TempDir::new();
+            settings.write(CONFIG_FILE, &format!("[theme]\ndark = \"{identity}\"\n"));
+            settings
         }
 
         #[test]
-        fn fallback_then_autosave_then_repair_then_restart_restores_the_selection() {
+        fn a_refused_selected_file_falls_back_and_is_restored_by_its_repair() {
+            let settings = selecting_dark("my-dark");
             let dir = TempDir::new();
             dir.write(
                 "my-dark.toml",
                 "format = \"orcvs-theme\"\nversion = 2\nname = \"Mine\"\ninherits = \"okabe-ito\"\n",
             );
-            let mut storage = InMemoryStorage::default();
-            eframe::Storage::set_string(&mut storage, DARK_THEME_KEY, "my-dark".to_owned());
-            eframe::Storage::set_string(&mut storage, LIGHT_THEME_KEY, "orcvs-light".to_owned());
 
-            let (selected, notices) = launch_and_save(&mut storage, dir.path());
+            let (selected, notices) = launch(&settings, &dir);
             assert!(matches!(
                 selected,
                 Err(Unavailable::Refused(ref reason)) if reason.contains("my-dark.toml")
             ));
             assert!(
                 notices.iter().any(|notice| notice.contains("\"my-dark\"")
+                    && notice.contains("theme.dark")
                     && notice.contains("my-dark.toml")
                     && notice.contains("Okabe–Ito")),
                 "{notices:?}"
             );
-            assert_eq!(saved_dark(&storage).as_deref(), Some("my-dark"));
-
-            // A second launch before the repair still keeps it.
-            let (selected, _) = launch_and_save(&mut storage, dir.path());
-            assert!(selected.is_err());
-            assert_eq!(saved_dark(&storage).as_deref(), Some("my-dark"));
 
             dir.write("my-dark.toml", &dark("Mine"));
-            let (selected, notices) = launch_and_save(&mut storage, dir.path());
+            let (selected, notices) = launch(&settings, &dir);
             assert_eq!(selected, Ok("my-dark".to_owned()));
             assert!(notices.is_empty(), "{notices:?}");
         }
 
         #[test]
         fn a_missing_selected_file_falls_back_and_returns_when_the_file_does() {
+            let settings = selecting_dark("my-dark");
             let dir = TempDir::new();
-            let mut storage = InMemoryStorage::default();
-            eframe::Storage::set_string(&mut storage, DARK_THEME_KEY, "my-dark".to_owned());
 
-            let (selected, notices) = launch_and_save(&mut storage, dir.path());
+            let (selected, notices) = launch(&settings, &dir);
             assert_eq!(selected, Err(Unavailable::Missing));
             assert!(
                 notices.iter().any(|n| n.contains("\"my-dark\"")),
                 "{notices:?}"
             );
-            assert_eq!(saved_dark(&storage).as_deref(), Some("my-dark"));
 
             dir.write("my-dark.toml", &dark("Mine"));
-            let (selected, _) = launch_and_save(&mut storage, dir.path());
+            let (selected, _) = launch(&settings, &dir);
             assert_eq!(selected, Ok("my-dark".to_owned()));
         }
 
+        ///
+        /// `theme.dark` naming a light Theme is refused the same way as one
+        /// naming no Theme.
+        ///
         #[test]
-        fn a_selected_conflicted_identity_falls_back_keeps_the_selection_and_recovers() {
+        fn a_selection_of_the_wrong_appearance_falls_back_with_a_notice() {
+            let settings = selecting_dark("orcvs-light");
+            let dir = TempDir::new();
+
+            let (selected, notices) = launch(&settings, &dir);
+            assert_eq!(
+                selected,
+                Err(Unavailable::WrongAppearance(Appearance::Light))
+            );
+            assert!(
+                notices
+                    .iter()
+                    .any(|n| n.contains("\"orcvs-light\"") && n.contains("theme.dark")),
+                "{notices:?}"
+            );
+        }
+
+        #[test]
+        fn a_selected_conflicted_identity_falls_back_and_recovers() {
+            let settings = selecting_dark("dup");
             let dir = TempDir::new();
             dir.write("dup.toml", &dark("Toml"));
             let json = dir.write("dup.json", &super::dark_json("Json"));
-            let mut storage = InMemoryStorage::default();
-            eframe::Storage::set_string(&mut storage, DARK_THEME_KEY, "dup".to_owned());
 
-            let (selected, notices) = launch_and_save(&mut storage, dir.path());
+            let (selected, notices) = launch(&settings, &dir);
             assert!(matches!(
                 selected,
                 Err(Unavailable::Refused(ref reason)) if reason.contains("dup.json")
                     && reason.contains("dup.toml")
             ));
             assert!(
-                notices
-                    .iter()
-                    .any(|n| n.contains("selected dark Theme \"dup\"")),
+                notices.iter().any(|n| n.contains("dark Theme \"dup\"")),
                 "{notices:?}"
             );
-            assert_eq!(saved_dark(&storage).as_deref(), Some("dup"));
 
             std::fs::remove_file(json).expect("resolving the conflict");
-            let (selected, notices) = launch_and_save(&mut storage, dir.path());
+            let (selected, notices) = launch(&settings, &dir);
             assert_eq!(selected, Ok("dup".to_owned()));
             assert!(notices.is_empty(), "{notices:?}");
         }
