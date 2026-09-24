@@ -31,8 +31,23 @@ multiple-versions = "warn"
 wildcards = "deny"
 highlight = "all"
 skip = [
-  { crate = "thiserror@1.0.69", reason = "winit 0.30's Wayland stack (smithay-client-toolkit 0.19, calloop 0.13) requires thiserror 1, and eframe 0.36 pins winit 0.30; winit 0.31's Wayland stack requires thiserror 2" },
-  { crate = "thiserror-impl@1.0.69", reason = "the proc macro behind thiserror 1.0.69, arriving by the same winit 0.30 Wayland path" },
+  # eframe 0.36 pins winit 0.30. Its Linux Wayland stack and its macOS core-graphics
+  # binding hold these at older versions than the rest of the graph; winit 0.31 does not.
+  { crate = "thiserror@1.0.69", reason = "winit 0.30 Wayland stack (smithay-client-toolkit 0.19, calloop 0.13); eframe 0.36 pins winit 0.30" },
+  { crate = "thiserror-impl@1.0.69", reason = "winit 0.30 Wayland stack, as the proc macro behind thiserror 1.0.69; eframe 0.36 pins winit 0.30" },
+  { crate = "smithay-client-toolkit@0.19.2", reason = "winit 0.30 Wayland backend; eframe 0.36 pins winit 0.30" },
+  { crate = "calloop@0.13.0", reason = "winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "calloop-wayland-source@0.3.0", reason = "winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "rustix@0.38.44", reason = "winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38 in the winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "core-foundation@0.9.4", reason = "winit 0.30 macOS backend and its core-graphics binding; eframe 0.36 pins winit 0.30" },
+  { crate = "bitflags@1.3.2", reason = "core-graphics 0.23 in the winit 0.30 macOS backend; eframe 0.36 pins winit 0.30" },
+  # winit 0.30 and accesskit_macos (0.27.0 still requires objc2 ^0.5.1) both hold the objc2 0.5
+  # family, so these stay until both move to objc2 0.6.
+  { crate = "objc2@0.5.2", reason = "winit 0.30 and accesskit_macos require objc2 0.5" },
+  { crate = "objc2-foundation@0.2.2", reason = "winit 0.30 and accesskit_macos require objc2 0.5" },
+  { crate = "objc2-app-kit@0.2.2", reason = "winit 0.30 and accesskit_macos require objc2 0.5" },
+  { crate = "block2@0.5.1", reason = "winit 0.30 and objc2-foundation 0.2 require it" },
 ]
 
 [sources]
