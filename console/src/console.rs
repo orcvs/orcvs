@@ -16,7 +16,7 @@ use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell
 use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
-use crate::persistence::starting_source;
+use crate::persistence::{default_source, starting_source};
 use crate::readout_deadline::until_next;
 use crate::theme::{Appearance, Theme, ThemeIdentity};
 use crate::theme_registry::ThemeRegistry;
@@ -958,6 +958,15 @@ impl Console {
     ///
     fn load_function_reference(&mut self) {
         self.open(function_reference());
+    }
+
+    ///
+    /// Opens an empty Source on the one 256 by 256 Grid (ADR 0054) — what
+    /// `File → New` offers. Storage is not touched: with the `persistence`
+    /// feature on, the ordinary save stores the empty Source over the old one.
+    ///
+    fn new_source(&mut self) {
+        self.open(default_source());
     }
 }
 
@@ -2221,6 +2230,9 @@ impl eframe::App for Console {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
                 ui.menu_button("File", |ui| {
+                    if ui.button("New").clicked() {
+                        self.new_source();
+                    }
                     if ui.button("Load Function reference").clicked() {
                         self.load_function_reference();
                     }

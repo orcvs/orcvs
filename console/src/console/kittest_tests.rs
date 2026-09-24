@@ -81,6 +81,8 @@ use egui_kittest::{
     Harness,
     kittest::{NodeT as _, Queryable as _},
 };
+use orcvs::grid::{COL_COUNT, ROW_COUNT};
+use orcvs::playback::PlaybackState;
 
 use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
@@ -1939,4 +1941,184 @@ async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
             );
         }
     }
+}
+
+///
+/// Waits, bounded, until `watch` answers `ready`, handing the runtime the
+/// turns a Playback Engine's task needs to act on what it was asked. Playback
+/// runs on its own task (ADR 0041), so this is the one wait the module
+/// allows: on a fact only that task can make true, never on a clock.
+///
+async fn engine_reaches(
+    watch: &mut orcvs::playback::PlaybackObservationWatch,
+    ready: impl FnMut(&orcvs::playback::PlaybackObservation) -> bool,
+) -> bool {
+    tokio::time::timeout(ENGINE_WAIT, watch.wait_for(ready))
+        .await
+        .is_ok_and(|reached| reached.is_ok())
+}
+
+/// How long [`engine_reaches`] and a closing engine are given: far longer than
+/// a task on a current-thread runtime needs, so reaching it is a failure and
+/// not a slow machine.
+const ENGINE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+///
+/// `File → New` replaces the environment with an empty Source on the 256 by
+/// 256 Grid. Everything New resets is moved off its rest first — a written Cell,
+/// the Cursor, the Zoom, Bpm, and a Tick that is playing — and every setting
+/// New leaves standing is moved off its default, so the test can tell a
+/// reset from a value that never changed.
+///
+#[tokio::test]
+async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
+    let default_bpm = harness.state().orcvs.bpm();
+    {
+        let console = harness.state_mut();
+        console.themes.select(Appearance::Dark, &id("my-dark"));
+        *console.cursor_effects.amount_mut() = 7;
+        console
+            .orcvs
+            .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
+    }
+    harness.state().themes.install(&harness.ctx);
+    let cursor_effects = harness.state().cursor_effects;
+
+    harness.event(Event::Text("x".to_owned()));
+    harness.key_press(Key::ArrowDown);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    harness.key_press(Key::Space);
+    harness.step();
+    harness.run_steps(1);
+    let mut replaced = harness.state().orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut replaced, |observed| observed.state
+            == PlaybackState::Playing)
+        .await,
+        "Space did not start the Playback New is to stop"
+    );
+    assert_ne!(cursor(harness.state()), (0, 0), "the Cursor never moved");
+    assert_ne!(
+        harness.state().source_view.zoom,
+        1.0,
+        "the Zoom never moved"
+    );
+    assert!(
+        cells(harness.state()).iter().any(Option::is_some),
+        "nothing was written"
+    );
+
+    choose_in_file_menu(&mut harness, "New");
+
+    let console = harness.state();
+    let grid = console.orcvs.render_frame().grid();
+    assert_eq!(
+        (grid.columns(), grid.rows()),
+        (COL_COUNT, ROW_COUNT),
+        "New did not open the 256 by 256 Grid"
+    );
+    assert!(
+        cells(console).iter().all(Option::is_none),
+        "New left a Cell written"
+    );
+    assert_eq!(
+        cursor(console),
+        (0, 0),
+        "New left the Cursor off the origin"
+    );
+    assert_eq!(
+        (console.source_view.zoom, console.source_view.pan),
+        (1.0, Vec2::ZERO),
+        "New left the Source View off its rest"
+    );
+    assert_eq!(
+        console.orcvs.playback_observation().state,
+        PlaybackState::Stopped,
+        "New left Playback running"
+    );
+    assert_eq!(console.orcvs.bpm(), default_bpm, "New kept the old Bpm");
+    assert_eq!(
+        console
+            .themes
+            .selection()
+            .identity(Appearance::Dark)
+            .as_str(),
+        "my-dark",
+        "New changed the Theme selection"
+    );
+    assert_eq!(
+        console.cursor_effects, cursor_effects,
+        "New changed the Cursor effects"
+    );
+    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "after New");
+    // The replaced engine's task owns the only sender of its observation,
+    // so the watch closing is that engine having ended.
+    assert!(
+        tokio::time::timeout(ENGINE_WAIT, async {
+            while replaced.changed().await.is_ok() {}
+        })
+        .await
+        .is_ok(),
+        "the replaced Playback Engine outlived New"
+    );
+}
+
+///
+/// A console restored onto a stored Source holding written content reaches an
+/// empty Source through `File → New`, and the empty Source is what the next
+/// ordinary save stores — so a restart opens it rather than the Source stored
+/// before New. New itself stores nothing: until that save, the
+/// storage still holds the revision it was restored from.
+///
+#[cfg(feature = "persistence")]
+#[tokio::test]
+async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
+    use crate::persistence::{InMemoryStorage, SOURCE_KEY, edited_source, store};
+
+    let mut stored = InMemoryStorage::default();
+    store(&mut stored, &edited_source());
+    let stored_revision = eframe::Storage::get_string(&stored, SOURCE_KEY);
+
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| {
+            cc.storage = Some(&stored);
+            Console::new(cc, ThemeRegistry::built_in()).expect("the test runtime")
+        });
+    harness.run_steps(2);
+    assert!(
+        cells(harness.state()).iter().any(Option::is_some),
+        "the console did not restore the stored, written Source"
+    );
+
+    choose_in_file_menu(&mut harness, "New");
+
+    assert_eq!(
+        eframe::Storage::get_string(&stored, SOURCE_KEY),
+        stored_revision,
+        "New wrote storage itself rather than leaving it to the ordinary save"
+    );
+    let mut saved = InMemoryStorage::default();
+    eframe::App::save(harness.state_mut(), &mut saved);
+    drop(harness);
+
+    let restarted = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| {
+            cc.storage = Some(&saved);
+            Console::new(cc, ThemeRegistry::built_in()).expect("the test runtime")
+        });
+    let grid = restarted.state().orcvs.render_frame().grid();
+    assert_eq!(
+        (grid.columns(), grid.rows()),
+        (COL_COUNT, ROW_COUNT),
+        "a restart after New did not open the 256 by 256 Grid"
+    );
+    assert!(
+        cells(restarted.state()).iter().all(Option::is_none),
+        "a restart after New opened a written Source"
+    );
 }
