@@ -9,6 +9,8 @@ start would.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `File > New` sits in the File menu beside `Load Function reference` and opens an empty Source
       on the current default Grid.
 - [ ] The Grid is the default the build carries, not the one a stored Source was saved with. A
@@ -36,3 +38,5 @@ start would.
 This is the escape hatch `source-view/13` leaves implicit. That ticket decided a stored Source
 keeps the Grid it was stored with, which is why a console that has stored anything never sees a
 later default. See `spec.md` for why a silent migration is not the answer.
+
+ADR 0054 fixes every Grid at 256 by 256, so "the current default Grid" is that one shape and the older-Grid criterion is met by `menu-structure/01`. New still opens an empty Source and still resets the environment as listed.
