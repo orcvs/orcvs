@@ -1,14 +1,18 @@
 # 05 — Decide whether `claims_by_cell` keeps its clearing loop
 
-**What to build:** A decision on the loop in `claims_by_cell` that clears an earlier claim's ownership of the Cells a later Expression's Span covers. The issue opened asking for a test of that branch, because `03` required focused tests for overlapping Expression ownership and none exercises it. No reachable Source overlaps (see Comments), so the criteria below cannot be met as written, and the issue is in triage for the decision instead.
+**What to build:** Delete the loop in `claims_by_cell` that clears an earlier claim's ownership of the Cells a later Expression's Span covers, and replace the protection it was meant to give with a test-only guard on the invariant that actually makes it dead: every positioned entry lies inside its own Expression's Span. The issue opened asking for a test of that branch, because `03` required focused tests for overlapping Expression ownership. No reachable Source overlaps (see Comments), so the branch cannot be tested without a seam in shipped code, which the repository contract forbids.
+
+Disjoint Spans alone do not make the clear dead. It changes an outcome only when an earlier Expression's entry lands inside a later Expression's Span, and disjoint Spans do not exclude an entry that escapes its own Span. `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for` compares Spans with Spans and never entries with their Span, so today a Parser that recorded an entry outside its Span would change ownership without failing any test. Keeping the loop would not defend against that Parser either: `entry_at` reads only the entries of the Expression whose Span holds the Cell, so `claims_by_cell` and `entry_at` would disagree with or without the clear. The invariant to guard is entry-within-Span, and once it holds, the clear and the "a later Expression owns" wording are both dead.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
-- [ ] A Source whose Expressions overlap reaches `by_index[index] = None` (`orcvs/src/source/language_map.rs:422-424`). The test asserts which Cells keep which Claim, and what their written state reads through `RenderCell`.
-- [ ] The test fails when that clearing line is removed. Confirm this by breaking it once, then revert.
-- [ ] `cargo nextest run --package orcvs --locked` and `--package console` pass.
+- [ ] `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for` (`orcvs/src/source/language_map.rs:2088`) also asserts, for every Expression, that each `expression.positioned()` entry with non-empty `cells` lies within `span.start()..=span.end()`. It fails when the Parser records an entry outside its Expression's Span; confirm this once by widening an entry's range in `lang/src/parser.rs`, then revert.
+- [ ] The clearing loop in `LanguageMap::claims_by_cell` (`orcvs/src/source/language_map.rs:422-424`) is deleted.
+- [ ] The docs on `LanguageMap::claims_by_cell`, `LanguageMap::entry_at` and `RenderFrame::expression_at` no longer say a later Expression owns the Cells its Span covers. They say Expression Spans are disjoint and each positioned entry lies inside its own Span, so at most one Expression and at most one claim answer for a Cell, and name the property that guards both.
+- [x] `03` gains a comment recording that its "overlapping Expression ownership" criterion describes a case the language does not produce, and pointing here. Its ticked box stays as history rather than being unticked. (Landed on `main` as `03`'s 2026-09-24 correction.)
+- [ ] `PROPTEST_CASES=32 cargo nextest run --package orcvs --package console --locked`, plus the scoped `cargo fmt` and `cargo clippy` gates for `orcvs` and `console`, pass.
 
 ## Comments
 
@@ -55,3 +59,7 @@ overlapping Parser would fail that property before it changed ownership. Either 
 "overlapping Expression ownership" criterion describes a case the language does not produce. No
 test was added, because the only way to reach the branch is a seam in shipped code, which the
 repository contract forbids.
+
+**2026-09-24 — audit of this issue; the decision is to delete the loop and guard entry-within-Span.** The claim that no reachable Source overlaps was checked against the code and holds. `walk_row` resumes at `cells.end` (`orcvs/src/source/language_map.rs:770`), and `analyze()` asserts forward progress. In `take_language_unit`, each entry starts at or after where the previous one ended, and the refused-Function arm rewinds to one Cell past `cell_start` before it records, so no recorded range passes the final `consumed`. `build` and `rebuild` split the Source with `chunks_exact` and derive or carry each row alone. The probe and sabotage figures above were not re-run; they rest on the comment, and the code reading supports them independently.
+
+The earlier comment's case for deletion was incomplete. It said deleting the loop is safe while the disjointness property holds, but that property does not check entries against their Span, which is the condition the clear actually depends on (see What to build). The probe asserted entry-within-Span and was removed, so nothing guards it today. The criteria above replace the test this issue opened asking for with that guard. `03` is `resolved` with its overlap criterion ticked and no pointer here, which the fourth criterion corrects.
