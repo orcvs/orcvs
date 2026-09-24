@@ -30,6 +30,10 @@ allow = [
 multiple-versions = "warn"
 wildcards = "deny"
 highlight = "all"
+skip = [
+  { crate = "thiserror@1.0.69", reason = "winit 0.30's Wayland stack (smithay-client-toolkit 0.19, calloop 0.13) requires thiserror 1, and eframe 0.36 pins winit 0.30; winit 0.31's Wayland stack requires thiserror 2" },
+  { crate = "thiserror-impl@1.0.69", reason = "the proc macro behind thiserror 1.0.69, arriving by the same winit 0.30 Wayland path" },
+]
 
 [sources]
 unknown-registry = "deny"
