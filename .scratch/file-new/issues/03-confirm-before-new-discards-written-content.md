@@ -6,7 +6,7 @@ asks nothing and opens straight away.
 
 **Blocked by:** 02 — File > New opens an empty default Grid.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -19,23 +19,40 @@ The console has no confirmation or modal anywhere today. This introduces the fir
 why it is its own ticket rather than a line inside `02`: the pattern it sets will be reached for
 again.
 
-- [ ] New on a Source holding written content asks before opening.
-- [ ] Cancelling leaves the Source, Grid, Cursor, playback state and Source View untouched, and
+- [x] New on a Source holding written content asks before opening.
+- [x] Cancelling leaves the Source, Grid, Cursor, playback state and Source View untouched, and
       stores nothing.
-- [ ] Confirming opens the empty default Grid exactly as `02` specifies.
-- [ ] New on an empty Source does not ask.
-- [ ] The confirmation is keyboard-reachable and dismissable, and Escape cancels rather than
+- [x] Confirming opens the empty default Grid exactly as `02` specifies.
+- [x] New on an empty Source does not ask.
+- [x] The confirmation is keyboard-reachable and dismissable, and Escape cancels rather than
       confirms.
-- [ ] While it is open, Source keys do not reach the Grid behind it — the console already keeps
+- [x] While it is open, Source keys do not reach the Grid behind it — the console already keeps
       keys from the Source while a popup is open, and this follows that rule rather than inventing
       a second one.
-- [ ] The pattern is general enough that `Load Function reference` could adopt it without being
+- [x] The pattern is general enough that `Load Function reference` could adopt it without being
       rewritten. Whether it does is out of scope here.
-- [ ] Tests cover: asked and confirmed, asked and cancelled, and not asked on an empty Source.
-- [ ] The scoped gates for `console` pass, and the egui skill's guidance is followed for any new
+- [x] Tests cover: asked and confirmed, asked and cancelled, and not asked on an empty Source.
+- [x] The scoped gates for `console` pass, and the egui skill's guidance is followed for any new
       presentation.
 
 ## Comments
 
 Deliberately separable. If New is wanted before this lands, `02` ships an unconfirmed, destructive
 New and this follows; the acceptance criteria above do not depend on that ordering.
+
+The question is `Console::discard_asking_first(ask, DiscardConfirmation { question, discard })`.
+The caller decides `ask` — New asks when any Cell of the running Source is written — and
+`discard` is a plain `fn(&mut Console)`, so `Load Function reference` can adopt it by passing its
+own question and `Console::load_function_reference` without the confirmation changing. It is an
+`egui::Modal`: nothing behind it takes a click or focus, it opens with Cancel focused so Enter on
+arrival is the safe answer, Tab reaches Discard, and Escape or a click outside cancels. While it
+asks, `keyboard_elsewhere` is set alongside the open-popup rule, so Source keys never reach the
+Grid behind it. Cancelling touches nothing and stores nothing; confirming runs the same
+`Console::new_source` an unasked New runs.
+
+Tests in `kittest_tests`: `file_new_on_written_content_asks_and_confirming_opens_an_empty_source`,
+`file_new_cancelled_leaves_the_environment_as_it_was` (Playback still playing on the same engine),
+`file_new_on_an_empty_source_opens_without_asking`,
+`escape_cancels_the_question_and_keys_never_reach_the_source_behind_it`, and
+`the_question_is_answered_from_the_keyboard`. The two `02` tests now confirm through
+`choose_new_and_discard`, since each writes content before New.

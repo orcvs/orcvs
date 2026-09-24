@@ -804,6 +804,9 @@ pub struct Console {
     /// `themes`.
     #[cfg(target_arch = "wasm32")]
     web_import: crate::theme_registry::WebImport,
+    /// The question the console is asking before it discards the Source, while
+    /// it asks. Holding it keeps keys from the Source, as an open popup does.
+    discard_confirmation: Option<DiscardConfirmation>,
     /// The context the console was created in: what an Open wakes the Panel
     /// through when the new Orcvs's Playback Engine publishes, as
     /// `Console::new` does for the first.
@@ -912,6 +915,7 @@ impl Console {
             persistence: start.persistence,
             #[cfg(target_arch = "wasm32")]
             web_import: crate::theme_registry::WebImport::new(),
+            discard_confirmation: None,
             ctx: cc.egui_ctx.clone(),
         })
     }
@@ -968,7 +972,95 @@ impl Console {
     fn new_source(&mut self) {
         self.open(default_source());
     }
+
+    ///
+    /// Whether any Cell of the running Source is written: what `File → New`
+    /// asks before discarding.
+    ///
+    fn source_is_written(&self) -> bool {
+        self.orcvs
+            .render_frame()
+            .cells()
+            .iter()
+            .any(|cell| cell.content().is_some())
+    }
+
+    ///
+    /// Discards the Source through `confirmation.discard`, first asking the
+    /// viewer `confirmation.question` when `ask` is true.
+    ///
+    /// The caller decides whether there is anything to lose — `File → New`
+    /// asks when the Source is written — so the same question serves any
+    /// action that replaces or leaves the environment, whatever its own
+    /// answer to that is. Only one question is asked at a time: a request
+    /// while one is showing replaces it, which a viewer cannot reach, since
+    /// the question blocks the menus behind it.
+    ///
+    fn discard_asking_first(&mut self, ask: bool, confirmation: DiscardConfirmation) {
+        if ask {
+            self.discard_confirmation = Some(confirmation);
+        } else {
+            (confirmation.discard)(self);
+        }
+    }
+
+    ///
+    /// Shows the discard confirmation while one is asking, as a modal over the
+    /// whole console: nothing behind it takes a click or keyboard focus.
+    ///
+    /// It opens with Cancel focused, so Enter on arrival is the safe answer,
+    /// and Tab reaches Discard. Escape and a click outside it cancel, as
+    /// Cancel does; only Discard runs the discarding action.
+    ///
+    fn show_discard_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(confirmation) = self.discard_confirmation.take() else {
+            return;
+        };
+        let modal = egui::Modal::new(egui::Id::new(DISCARD_CONFIRMATION_ID)).show(ctx, |ui| {
+            ui.set_max_width(DISCARD_CONFIRMATION_WIDTH);
+            ui.label(confirmation.question);
+            ui.add_space(MENU_BAR_GAP);
+            ui.horizontal(|ui| {
+                let cancel = ui.button("Cancel");
+                if ui.memory(|memory| memory.focused().is_none()) {
+                    cancel.request_focus();
+                }
+                let discard = ui.button("Discard");
+                if discard.clicked() {
+                    Some(true)
+                } else if cancel.clicked() {
+                    Some(false)
+                } else {
+                    None
+                }
+            })
+            .inner
+        });
+        match modal.inner {
+            Some(true) => (confirmation.discard)(self),
+            Some(false) => {}
+            None if modal.should_close() => {}
+            None => self.discard_confirmation = Some(confirmation),
+        }
+    }
 }
+
+///
+/// A question asked before an action that discards the running Source.
+///
+/// `discard` is the action itself, run only when the viewer confirms; a plain
+/// function, so any action that replaces or leaves the environment can be
+/// asked about without the confirmation knowing which it is.
+///
+struct DiscardConfirmation {
+    question: &'static str,
+    discard: fn(&mut Console),
+}
+
+/// The discard confirmation's modal: one at a time, so one id.
+const DISCARD_CONFIRMATION_ID: &str = "orcvs-discard-confirmation";
+/// How wide the discard confirmation grows before its question wraps.
+const DISCARD_CONFIRMATION_WIDTH: f32 = 360.0;
 
 ///
 /// A running Orcvs over `source`, the Panel woken whenever its Playback Engine
@@ -2231,7 +2323,15 @@ impl eframe::App for Console {
                 let is_web = cfg!(target_arch = "wasm32");
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
-                        self.new_source();
+                        let ask = self.source_is_written();
+                        self.discard_asking_first(
+                            ask,
+                            DiscardConfirmation {
+                                question: "The Source holds written content. Discard it and \
+                                           open an empty Source?",
+                                discard: Console::new_source,
+                            },
+                        );
                     }
                     if ui.button("Load Function reference").clicked() {
                         self.load_function_reference();
@@ -2498,6 +2598,7 @@ impl eframe::App for Console {
                         persistence: _,
                     #[cfg(target_arch = "wasm32")]
                         web_import: _,
+                    discard_confirmation: _,
                     ctx: _,
                 } = self;
                 let presented = show_source_scene(
@@ -2552,10 +2653,15 @@ impl eframe::App for Console {
             );
         }
 
-        // Sampled once every widget, the Diagnostics window's included, has
-        // been shown and has taken or surrendered focus, and every popup has
-        // opened or closed.
-        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || egui::Popup::is_any_open(&ctx);
+        self.show_discard_confirmation(&ctx);
+
+        // Sampled once every widget, the Diagnostics window's and the
+        // discard confirmation's included, has been shown and has taken or
+        // surrendered focus, and every popup has opened or closed. A
+        // confirmation that is asking holds the keys as an open popup does.
+        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input()
+            || egui::Popup::is_any_open(&ctx)
+            || self.discard_confirmation.is_some();
 
         // Last, once every widget of this frame has been styled from the
         // appearance it began in, so no frame mixes two Themes. The next

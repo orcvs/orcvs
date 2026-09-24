@@ -2009,7 +2009,7 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
         "nothing was written"
     );
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_new_and_discard(&mut harness);
 
     let console = harness.state();
     let grid = console.orcvs.render_frame().grid();
@@ -2093,7 +2093,7 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
         "the console did not restore the stored, written Source"
     );
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_new_and_discard(&mut harness);
 
     assert_eq!(
         eframe::Storage::get_string(&stored, SOURCE_KEY),
@@ -2120,5 +2120,243 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
     assert!(
         cells(restarted.state()).iter().all(Option::is_none),
         "a restart after New opened a written Source"
+    );
+}
+
+///
+/// A console whose Source holds one written Cell, at the origin, with the
+/// Cursor moved on past it and the Source View zoomed: an environment New
+/// would visibly discard.
+///
+fn console_with_written_content() -> Harness<'static, Console> {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    harness.event(Event::Text("x".to_owned()));
+    harness.key_press(Key::ArrowDown);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        cells(harness.state()).iter().any(Option::is_some),
+        "nothing was written"
+    );
+    harness
+}
+
+///
+/// Whether the console is asking before it discards the Source: the
+/// confirmation's own control is in the tree.
+///
+fn asking(harness: &Harness<'_, Console>) -> bool {
+    harness.query_by_label(DISCARD).is_some()
+}
+
+/// The confirmation's control that goes ahead and discards the Source.
+const DISCARD: &str = "Discard";
+
+///
+/// Chooses `File → New` on a Source holding written content and confirms the
+/// question it asks, as a viewer who means to discard it does.
+///
+fn choose_new_and_discard(harness: &mut Harness<'_, Console>) {
+    choose_in_file_menu(harness, "New");
+    assert!(asking(harness), "New discarded written content unasked");
+    harness.get_by_label(DISCARD).click();
+    harness.step();
+    harness.run_steps(2);
+}
+
+///
+/// New on a Source holding written content asks first, and changes nothing
+/// while it asks; confirming then opens an empty Source exactly as
+/// New does unasked.
+///
+#[tokio::test]
+async fn file_new_on_written_content_asks_and_confirming_opens_an_empty_source() {
+    let mut harness = console_with_written_content();
+    let written = cells(harness.state());
+    let cursor_before = cursor(harness.state());
+
+    choose_in_file_menu(&mut harness, "New");
+
+    assert!(asking(&harness), "New discarded written content unasked");
+    assert_eq!(cells(harness.state()), written, "asking changed the Source");
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "asking moved the Cursor"
+    );
+
+    harness.get_by_label(DISCARD).click();
+    harness.step();
+    harness.run_steps(2);
+
+    assert!(!asking(&harness), "confirming left the question showing");
+    let console = harness.state();
+    let grid = console.orcvs.render_frame().grid();
+    assert_eq!(
+        (grid.columns(), grid.rows()),
+        (COL_COUNT, ROW_COUNT),
+        "confirming did not open the 256 by 256 Grid"
+    );
+    assert!(
+        cells(console).iter().all(Option::is_none),
+        "confirming left a Cell written"
+    );
+    assert_eq!(
+        cursor(console),
+        (0, 0),
+        "confirming left the Cursor off the origin"
+    );
+    assert_eq!(
+        (console.source_view.zoom, console.source_view.pan),
+        (1.0, Vec2::ZERO),
+        "confirming left the Source View off its rest"
+    );
+}
+
+///
+/// Cancelling leaves the environment exactly as it was: the Source, its Grid,
+/// the Cursor, the Source View, and Playback — still playing, on the engine
+/// it was playing on.
+///
+#[tokio::test]
+async fn file_new_cancelled_leaves_the_environment_as_it_was() {
+    let mut harness = console_with_written_content();
+    harness.key_press(Key::Space);
+    harness.step();
+    harness.run_steps(1);
+    let mut engine = harness.state().orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing)
+        .await,
+        "Space did not start Playback"
+    );
+    let written = cells(harness.state());
+    let cursor_before = cursor(harness.state());
+    let zoom = harness.state().source_view.zoom;
+
+    choose_in_file_menu(&mut harness, "New");
+    assert!(asking(&harness), "New discarded written content unasked");
+    harness.get_by_label("Cancel").click();
+    harness.step();
+    harness.run_steps(2);
+
+    assert!(!asking(&harness), "cancelling left the question showing");
+    let console = harness.state();
+    assert_eq!(cells(console), written, "cancelling changed the Source");
+    assert_eq!(
+        cursor(console),
+        cursor_before,
+        "cancelling moved the Cursor"
+    );
+    assert_eq!(console.source_view.zoom, zoom, "cancelling moved the Zoom");
+    assert_eq!(
+        console.orcvs.playback_observation().state,
+        PlaybackState::Playing,
+        "cancelling stopped Playback"
+    );
+    assert!(
+        engine.has_changed().is_ok(),
+        "cancelling replaced the Playback Engine"
+    );
+}
+
+///
+/// New on a Source with nothing written asks nothing and opens straight away.
+/// The Cursor and the Zoom are moved first — neither writes the Source — so
+/// the Open is seen to have happened.
+///
+#[tokio::test]
+async fn file_new_on_an_empty_source_opens_without_asking() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    harness.key_press(Key::ArrowDown);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    harness.step();
+    harness.run_steps(1);
+    assert_ne!(cursor(harness.state()), (0, 0), "the Cursor never moved");
+
+    choose_in_file_menu(&mut harness, "New");
+
+    assert!(!asking(&harness), "New asked before discarding nothing");
+    assert_eq!(cursor(harness.state()), (0, 0), "New did not open");
+    assert_eq!(harness.state().source_view.zoom, 1.0, "New did not open");
+}
+
+///
+/// The question holds the keys, as an open popup does: Escape cancels rather
+/// than confirms, and a character typed while it is asking does not write the
+/// Grid behind it.
+///
+#[tokio::test]
+async fn escape_cancels_the_question_and_keys_never_reach_the_source_behind_it() {
+    let mut harness = console_with_written_content();
+    let written = cells(harness.state());
+    let cursor_before = cursor(harness.state());
+
+    choose_in_file_menu(&mut harness, "New");
+    assert!(asking(&harness), "New discarded written content unasked");
+
+    harness.event(Event::Text("y".to_owned()));
+    harness.key_press(Key::ArrowRight);
+    harness.step();
+    harness.run_steps(1);
+    assert!(asking(&harness), "a key closed the question");
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "a character typed while asking wrote the Source"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "an arrow pressed while asking moved the Cursor"
+    );
+
+    harness.key_press(Key::Escape);
+    harness.step();
+    harness.run_steps(2);
+
+    assert!(!asking(&harness), "Escape left the question showing");
+    assert_eq!(cells(harness.state()), written, "Escape confirmed New");
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "Escape moved the Cursor"
+    );
+}
+
+///
+/// The question is reachable by keyboard alone: it opens with the safe
+/// answer focused, Tab reaches the other, and Enter answers whichever holds
+/// focus.
+///
+#[tokio::test]
+async fn the_question_is_answered_from_the_keyboard() {
+    let mut harness = console_with_written_content();
+
+    choose_in_file_menu(&mut harness, "New");
+    assert!(
+        harness.get_by_label("Cancel").is_focused(),
+        "the question did not open with Cancel focused"
+    );
+
+    harness.key_press(Key::Tab);
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        harness.get_by_label(DISCARD).is_focused(),
+        "Tab did not reach {DISCARD}"
+    );
+    harness.key_press(Key::Enter);
+    harness.step();
+    harness.run_steps(2);
+
+    assert!(!asking(&harness), "Enter left the question showing");
+    assert!(
+        cells(harness.state()).iter().all(Option::is_none),
+        "Enter on {DISCARD} did not open New"
     );
 }
