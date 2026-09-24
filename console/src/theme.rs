@@ -11,11 +11,14 @@
 //! definition, the unresolved `ThemeDocument`, and the pure `resolve`
 //! function. It has no file I/O and no document decoder:
 //! the crate-private `theme_document` module decodes a document's bytes into a
-//! `ThemeDocument`, and native discovery and web import
-//! (`.scratch/theming/issues/07`) will read those bytes and call `resolve`.
+//! `ThemeDocument`, and the crate-private `theme_registry` module's native
+//! discovery and web import (`.scratch/theming/issues/07`) read those bytes
+//! and call `resolve`.
 //! Source painting, settings and persistence are unchanged by this slice;
 //! `.scratch/theming/issues/06`'s later slices consume this module.
 //!
+
+use std::borrow::Cow;
 
 use egui::Color32;
 
@@ -41,6 +44,16 @@ pub(crate) enum Appearance {
 /// (`crate::style::install`), and presents the Source from the Theme of the
 /// appearance egui is presenting.
 ///
+impl Appearance {
+    /// The appearance as a viewer reads it in a sentence.
+    pub(crate) const fn word(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+}
+
 impl From<egui::Theme> for Appearance {
     fn from(theme: egui::Theme) -> Self {
         match theme {
@@ -351,9 +364,9 @@ property_names! {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
     /// The identity a Theme is selected by: a built-in's reserved name, or
-    /// a custom Theme's filename stem, assigned by
-    /// `.scratch/theming/issues/07`'s loader outside this module.
-    pub(crate) identity: String,
+    /// a custom Theme's filename stem, assigned by the crate-private
+    /// `theme_registry` module outside this one.
+    pub(crate) identity: ThemeIdentity,
     /// The declared display label (`name` in `schema.md`'s document).
     /// Never used to select a Theme.
     pub(crate) name: String,
@@ -610,10 +623,73 @@ pub(crate) const fn straight_rgba(rgba: u32) -> Color32 {
     Color32::from_rgba_unmultiplied_const(r, g, b, a)
 }
 
-/// The reserved identity of the Okabe–Ito built-in, and the dark Theme
-/// selection's default and fallback (`crate::theme_selection`).
+// === Identity ===
+
 ///
-pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
+/// The name a Theme is selected by, never its display label.
+///
+/// A built-in's is reserved and fixed here; a custom Theme's is the stem of
+/// its file name (ADR 0053), which the Theme registry supplies. A saved
+/// selection is restored as one too, though it may name no Theme at all:
+/// the fallback keeps it rather than rewriting it.
+///
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ThemeIdentity(Cow<'static, str>);
+
+impl ThemeIdentity {
+    const fn reserved(identity: &'static str) -> Self {
+        Self(Cow::Borrowed(identity))
+    }
+
+    ///
+    /// A custom Theme's identity: its file name's stem. `None` for an empty
+    /// stem, which names nothing.
+    ///
+    pub(crate) fn from_stem(stem: &str) -> Option<Self> {
+        (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
+    }
+
+    ///
+    /// A selection restored from storage, as it was stored. It is not
+    /// checked: an identity no Theme answers to is kept so saving writes it
+    /// back.
+    ///
+    #[cfg(feature = "persistence")]
+    pub(crate) fn restored(identity: String) -> Self {
+        Self(Cow::Owned(identity))
+    }
+
+    ///
+    /// The built-in each appearance starts with and falls back to when its
+    /// selection names no available Theme of that appearance.
+    ///
+    pub(crate) const fn default_for(appearance: Appearance) -> Self {
+        match appearance {
+            Appearance::Dark => OKABE_ITO_IDENTITY,
+            Appearance::Light => ORCVS_LIGHT_IDENTITY,
+        }
+    }
+
+    /// Whether this is a built-in's reserved identity.
+    pub(crate) fn is_reserved(&self) -> bool {
+        *self == OKABE_ITO_IDENTITY || *self == ORCVS_LIGHT_IDENTITY
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ThemeIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The reserved identity of the Okabe–Ito built-in, and the dark Theme
+/// selection's default and fallback.
+///
+pub(crate) const OKABE_ITO_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("okabe-ito");
 
 ///
 /// The Okabe–Ito built-in dark Theme: `schema.md`'s complete dark
@@ -632,7 +708,7 @@ pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
 ///
 pub fn okabe_ito() -> Theme {
     Theme {
-        identity: OKABE_ITO_IDENTITY.to_owned(),
+        identity: OKABE_ITO_IDENTITY,
         name: "Okabe–Ito".to_owned(),
         appearance: Appearance::Dark,
 
@@ -709,7 +785,7 @@ pub fn okabe_ito() -> Theme {
 /// The reserved identity of the light built-in, named by `schema.md`
 /// ("`orcvs-light` the reserved light identity") and recorded in
 /// `console/src/theme.md`'s Shipped Themes table.
-pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
+pub(crate) const ORCVS_LIGHT_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("orcvs-light");
 
 ///
 /// The Orcvs Light built-in Theme: the complete light definition
@@ -755,7 +831,7 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: &str = "orcvs-light";
 ///
 pub fn orcvs_light() -> Theme {
     Theme {
-        identity: ORCVS_LIGHT_IDENTITY.to_owned(),
+        identity: ORCVS_LIGHT_IDENTITY,
         name: "Orcvs Light".to_owned(),
         appearance: Appearance::Light,
 
@@ -871,7 +947,7 @@ pub(crate) enum ThemeError {
     /// The identity being resolved into collides with a built-in's
     /// reserved identity. ADR 0053: "Built-in Theme identities are
     /// reserved: a file using one is refused."
-    ReservedIdentity { identity: String },
+    ReservedIdentity { identity: ThemeIdentity },
     /// `appearance` was declared explicitly and disagrees with the
     /// parent's.
     AppearanceMismatch {
@@ -899,7 +975,7 @@ impl std::fmt::Display for ThemeError {
                 write!(f, "unknown parent Theme identity {parent:?}")
             }
             Self::ReservedIdentity { identity } => {
-                write!(f, "{identity:?} is a reserved built-in Theme identity")
+                write!(f, "\"{identity}\" is a reserved built-in Theme identity")
             }
             Self::AppearanceMismatch { parent, declared } => write!(
                 f,
@@ -943,37 +1019,26 @@ fn width_error(property: &'static str, points: f32, max: f32, error: WidthError)
 /// `document` supplies, and returns the result under `identity`.
 ///
 /// No file I/O: `built_ins` is whatever built-in set the caller already
-/// holds — `.scratch/theming/issues/07` reads native/web documents and
-/// calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
+/// holds — the crate-private `theme_registry` module reads native and web
+/// documents and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
 /// by the caller rather than read from `document`, because a custom
 /// document's identity is its filename stem (ADR 0053), which this module
 /// never reads a file to learn.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by theming/07's loader, which resolves a loaded document against the \
-                   built-in set; this slice's Theme is always the okabe_ito() built-in itself"
-    )
-)]
 pub(crate) fn resolve(
     built_ins: &[Theme],
-    identity: &str,
+    identity: &ThemeIdentity,
     document: &ThemeDocument,
 ) -> Result<Theme, ThemeError> {
-    if built_ins
-        .iter()
-        .any(|built_in| built_in.identity == identity)
-    {
+    if identity.is_reserved() {
         return Err(ThemeError::ReservedIdentity {
-            identity: identity.to_owned(),
+            identity: identity.clone(),
         });
     }
 
     let parent = built_ins
         .iter()
-        .find(|built_in| built_in.identity == document.parent)
+        .find(|built_in| built_in.identity.as_str() == document.parent)
         .ok_or_else(|| ThemeError::UnknownParent {
             parent: document.parent.clone(),
         })?;
@@ -988,7 +1053,7 @@ pub(crate) fn resolve(
     }
 
     let mut resolved = parent.clone();
-    resolved.identity = identity.to_owned();
+    resolved.identity = identity.clone();
     resolved.name = document.name.clone();
 
     for &(key, colour) in &document.colors {
@@ -1040,8 +1105,13 @@ mod tests {
 
     use super::{
         Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
-        ThemeDocument, ThemeError, okabe_ito, orcvs_light, resolve, straight_rgba,
+        ThemeDocument, ThemeError, ThemeIdentity, okabe_ito, orcvs_light, resolve, straight_rgba,
     };
+
+    /// A custom Theme's identity, as a file named `stem` supplies it.
+    fn identity(stem: &str) -> ThemeIdentity {
+        ThemeIdentity::from_stem(stem).expect("a non-empty stem")
+    }
 
     fn child(parent: &str) -> ThemeDocument {
         ThemeDocument {
@@ -1063,7 +1133,7 @@ mod tests {
     fn okabe_ito_defines_every_key_at_the_schema_values() {
         let theme = okabe_ito();
 
-        assert_eq!(theme.identity, "okabe-ito");
+        assert_eq!(theme.identity.as_str(), "okabe-ito");
         assert_eq!(theme.appearance, Appearance::Dark);
 
         assert_eq!(theme.window_background, straight_rgba(0x0B_11_12_FF));
@@ -1214,7 +1284,7 @@ mod tests {
     fn orcvs_light_defines_every_key_at_the_recorded_values() {
         let theme = orcvs_light();
 
-        assert_eq!(theme.identity, "orcvs-light");
+        assert_eq!(theme.identity.as_str(), "orcvs-light");
         assert_eq!(theme.name, "Orcvs Light");
         assert_eq!(theme.appearance, Appearance::Light);
 
@@ -1382,8 +1452,8 @@ mod tests {
         let mut document = child("orcvs-light");
         document.appearance = Some(Appearance::Light);
 
-        let resolved =
-            resolve(&built_ins, "mine", &document).expect("light parent, light document");
+        let resolved = resolve(&built_ins, &identity("mine"), &document)
+            .expect("light parent, light document");
 
         assert_eq!(resolved.appearance, Appearance::Light);
         assert_eq!(resolved.panel_background, orcvs_light().panel_background);
@@ -1391,7 +1461,7 @@ mod tests {
         let mut mismatched = child("orcvs-light");
         mismatched.appearance = Some(Appearance::Dark);
         assert_eq!(
-            resolve(&built_ins, "mine", &mismatched),
+            resolve(&built_ins, &identity("mine"), &mismatched),
             Err(ThemeError::AppearanceMismatch {
                 parent: Appearance::Light,
                 declared: Appearance::Dark,
@@ -1406,9 +1476,9 @@ mod tests {
     fn the_light_built_in_identity_is_reserved() {
         let built_ins = [okabe_ito(), orcvs_light()];
         assert_eq!(
-            resolve(&built_ins, "orcvs-light", &child("okabe-ito")),
+            resolve(&built_ins, &identity("orcvs-light"), &child("okabe-ito")),
             Err(ThemeError::ReservedIdentity {
-                identity: "orcvs-light".to_owned(),
+                identity: identity("orcvs-light"),
             })
         );
     }
@@ -1418,9 +1488,10 @@ mod tests {
         let built_ins = [okabe_ito()];
         let document = child("okabe-ito");
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
-        assert_eq!(resolved.identity, "my-dark");
+        assert_eq!(resolved.identity.as_str(), "my-dark");
         assert_eq!(resolved.name, "Custom");
         assert_eq!(resolved.appearance, Appearance::Dark);
         assert_eq!(resolved.grid_background, built_ins[0].grid_background);
@@ -1437,7 +1508,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.grid_background, overridden);
         // Every other property is untouched.
@@ -1459,7 +1531,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.source_function, retuned);
         assert_eq!(
@@ -1477,7 +1550,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.grid_border_width.points(), 0.25);
         assert_eq!(resolved.panel_border_width.points(), 1.5);
@@ -1494,7 +1568,7 @@ mod tests {
         let built_ins = [okabe_ito()];
         let document = child("not-a-built-in");
 
-        let error = resolve(&built_ins, "my-dark", &document).unwrap_err();
+        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
 
         assert_eq!(
             error,
@@ -1516,11 +1590,12 @@ mod tests {
     fn a_custom_theme_cannot_chain_from_another_custom_theme() {
         let built_ins = [okabe_ito()];
         let grandparent = child("okabe-ito");
-        let custom = resolve(&built_ins, "my-dark", &grandparent).expect("valid document");
+        let custom =
+            resolve(&built_ins, &identity("my-dark"), &grandparent).expect("valid document");
         // `custom` is deliberately not added to `built_ins`.
         let chained = child("my-dark");
 
-        let error = resolve(&built_ins, "my-darker", &chained).unwrap_err();
+        let error = resolve(&built_ins, &identity("my-darker"), &chained).unwrap_err();
 
         assert_eq!(
             error,
@@ -1528,7 +1603,7 @@ mod tests {
                 parent: "my-dark".to_owned()
             }
         );
-        assert_eq!(custom.identity, "my-dark");
+        assert_eq!(custom.identity.as_str(), "my-dark");
     }
 
     #[test]
@@ -1536,12 +1611,12 @@ mod tests {
         let built_ins = [okabe_ito()];
         let document = child("okabe-ito");
 
-        let error = resolve(&built_ins, "okabe-ito", &document).unwrap_err();
+        let error = resolve(&built_ins, &identity("okabe-ito"), &document).unwrap_err();
 
         assert_eq!(
             error,
             ThemeError::ReservedIdentity {
-                identity: "okabe-ito".to_owned()
+                identity: identity("okabe-ito")
             }
         );
     }
@@ -1554,7 +1629,7 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let error = resolve(&built_ins, "my-dark", &document).unwrap_err();
+        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
 
         assert_eq!(
             error,
@@ -1573,7 +1648,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("matching appearance");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("matching appearance");
 
         assert_eq!(resolved.appearance, Appearance::Dark);
     }
@@ -1603,7 +1679,7 @@ mod tests {
                 ..child("okabe-ito")
             };
 
-            let error = resolve(&built_ins, "my-dark", &document).unwrap_err();
+            let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
 
             assert_eq!(error, ThemeError::NonOpaqueWindowBackground { alpha });
         }
@@ -1622,7 +1698,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("opaque window.background");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("opaque window.background");
 
         assert_eq!(resolved.window_background, opaque);
     }
@@ -1689,7 +1766,7 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let error = resolve(&built_ins, "my-dark", &document).unwrap_err();
+        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
 
         assert!(matches!(
             error,
@@ -1708,7 +1785,7 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let error = resolve(&built_ins, "my-dark", &document).unwrap_err();
+        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
 
         assert_eq!(
             error,
@@ -1725,7 +1802,8 @@ mod tests {
         let built_ins = [okabe_ito()];
         let document = child("okabe-ito");
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, built_ins[0].cursor_background);
         assert_eq!(
@@ -1746,7 +1824,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, None);
         assert_eq!(resolved.region_cursor_background, None);
@@ -1766,7 +1845,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, Some(Color32::TRANSPARENT));
         assert_eq!(
@@ -1785,7 +1865,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, Some(colour));
     }
@@ -1799,7 +1880,8 @@ mod tests {
             ..child("okabe-ito")
         };
 
-        let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.color(ColorKey::Text), overridden);
     }
@@ -1876,7 +1958,8 @@ mod tests {
                 ..child("okabe-ito")
             };
 
-            let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
             assert_eq!(
                 resolved.color(key),
@@ -1924,7 +2007,8 @@ mod tests {
                 grid_widths: vec![(key, 0.1)],
                 ..child("okabe-ito")
             };
-            let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
             assert_eq!(
                 resolved.grid_width(key).points(),
                 0.1,
@@ -1949,7 +2033,8 @@ mod tests {
                 chrome_widths: vec![(key, 1.9)],
                 ..child("okabe-ito")
             };
-            let resolved = resolve(&built_ins, "my-dark", &document).expect("valid document");
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
             assert_eq!(
                 resolved.chrome_width(key).points(),
                 1.9,

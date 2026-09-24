@@ -85,21 +85,31 @@ use egui_kittest::{
 use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::theme::{Appearance, okabe_ito, orcvs_light};
-use crate::theme_selection::{SelectedThemes, ThemeSelection, my_dark, my_light, with_stand_ins};
+use crate::theme_registry::ThemeRegistry;
+use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
 
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
 ///
 /// `build_eframe` hands the closure eframe's own headless `CreationContext` —
 /// the same `_new_kittest` constructor `console::tests` and `storage_tests`
-/// reach for — so this is `Console::new` with nothing stubbed. It opens with no
-/// storage, which is the fresh-install start.
+/// reach for — so this is `Console::new` with nothing stubbed but the Theme
+/// registry, which holds the built-ins alone rather than whatever the
+/// machine's own `~/.orcvs/themes` holds. It opens with no storage, which is
+/// the fresh-install start.
 ///
 fn running_console(size: Vec2) -> Harness<'static, Console> {
+    running_console_with(size, ThemeRegistry::built_in())
+}
+
+///
+/// [`running_console`] over the Theme registry a test built.
+///
+fn running_console_with(size: Vec2, themes: ThemeRegistry) -> Harness<'static, Console> {
     Harness::builder()
         .with_size(size)
         .with_pixels_per_point(1.0)
-        .build_eframe(|cc| Console::new(cc).expect("the test runtime"))
+        .build_eframe(move |cc| Console::new(cc, themes).expect("the test runtime"))
 }
 
 ///
@@ -366,15 +376,18 @@ fn assert_frame_presents(
 }
 
 ///
-/// A running console whose OS appearance is `system`, with every frame's
+/// A running console over `themes` whose OS appearance is `system`, with every frame's
 /// input saying so the way the platform integration reports it, and whose
 /// mode follows the OS.
 ///
 /// The harness holds `ThemePreference::Dark` by default; this returns it to
 /// `System`, egui's own default and what a fresh install starts from.
 ///
-fn console_under_os_appearance(system: egui::Theme) -> Harness<'static, Console> {
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+fn console_under_os_appearance(
+    system: egui::Theme,
+    themes: ThemeRegistry,
+) -> Harness<'static, Console> {
+    let mut harness = running_console_with(Vec2::from(DEFAULT_VIEW_SIZE), themes);
     harness.ctx.set_theme(egui::ThemePreference::System);
     harness.input_mut().system_theme = Some(system);
     harness.run_steps(2);
@@ -395,17 +408,6 @@ fn choose_in_view_menu(harness: &mut Harness<'_, Console>, label: &str) {
 }
 
 ///
-/// Gives the running console `themes` to select from and present, the way
-/// `Console::new` does with the ones it builds: held as the console's own,
-/// and installed as egui's dark and light styles, so the chrome and the
-/// Source start from the same pair whatever `themes` presents.
-///
-fn offer_themes(harness: &mut Harness<'_, Console>, themes: SelectedThemes) {
-    themes.install(&harness.ctx);
-    harness.state_mut().themes = themes;
-}
-
-///
 /// Whether the View menu's radio button labelled `label` is shown selected.
 ///
 fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
@@ -415,8 +417,9 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 ///
 /// `.scratch/theming/issues/04`: the View menu holds the mode — follow the
 /// OS, Dark, Light — beside a dark Theme picker and a light Theme picker,
-/// and each picker lists only Themes of its appearance. `my-dark` and
-/// `my-light` stand in for loaded Themes so each picker has two to list.
+/// and each picker lists only Themes of its appearance — a loaded Theme only
+/// in its parent's (`.scratch/theming/issues/07`). `my-dark` and `my-light`
+/// are loaded so each picker has two to list.
 ///
 /// Where a Theme is listed is read from the menu's own layout: each picker
 /// is a heading followed by its Themes, so a Theme belongs to the picker
@@ -424,8 +427,7 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 ///
 #[tokio::test]
 async fn the_view_menu_offers_the_mode_beside_a_theme_picker_per_appearance() {
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
-    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    let mut harness = running_console_with(Vec2::from(DEFAULT_VIEW_SIZE), with_my_themes());
     harness.run_steps(2);
 
     for label in ["Follow the OS", "Dark Theme", "Okabe–Ito", "Orcvs Light"] {
@@ -480,7 +482,7 @@ async fn the_view_menu_offers_the_mode_beside_a_theme_picker_per_appearance() {
 ///
 #[tokio::test]
 async fn the_mode_switches_source_and_chrome_together() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     assert_frame_presents(
         &harness,
         &okabe_ito(),
@@ -520,7 +522,7 @@ async fn the_mode_switches_source_and_chrome_together() {
 ///
 #[tokio::test]
 async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     harness.state_mut().diagnostics_open = true;
     harness.run_steps(1);
     harness.get_by_label("View").click();
@@ -553,7 +555,7 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
 ///
 #[tokio::test]
 async fn an_os_appearance_change_switches_source_and_chrome_together() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark);
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "a dark OS");
 
     harness.input_mut().system_theme = Some(egui::Theme::Light);
@@ -582,8 +584,7 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
 ///
 #[tokio::test]
 async fn picking_a_dark_theme_restyles_source_and_chrome() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark);
-    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
     harness.run_steps(1);
     assert_frame_presents(&harness, &okabe_ito(), &[my_dark()], "before picking");
 
@@ -596,9 +597,12 @@ async fn picking_a_dark_theme_restyles_source_and_chrome() {
         "after picking My Dark",
     );
     let themes = &harness.state().themes;
-    assert_eq!(themes.selection().identity(Appearance::Dark), "my-dark");
     assert_eq!(
-        themes.selection().identity(Appearance::Light),
+        themes.selection().identity(Appearance::Dark).as_str(),
+        "my-dark"
+    );
+    assert_eq!(
+        themes.selection().identity(Appearance::Light).as_str(),
         "orcvs-light"
     );
     assert_eq!(
@@ -624,8 +628,7 @@ async fn picking_a_dark_theme_restyles_source_and_chrome() {
 ///
 #[tokio::test]
 async fn picking_a_light_theme_restyles_source_and_chrome() {
-    let mut harness = console_under_os_appearance(egui::Theme::Light);
-    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    let mut harness = console_under_os_appearance(egui::Theme::Light, with_my_themes());
     harness.run_steps(1);
     assert_frame_presents(&harness, &orcvs_light(), &[my_light()], "before picking");
 
@@ -638,8 +641,14 @@ async fn picking_a_light_theme_restyles_source_and_chrome() {
         "after picking My Light",
     );
     let themes = &harness.state().themes;
-    assert_eq!(themes.selection().identity(Appearance::Light), "my-light");
-    assert_eq!(themes.selection().identity(Appearance::Dark), "okabe-ito");
+    assert_eq!(
+        themes.selection().identity(Appearance::Light).as_str(),
+        "my-light"
+    );
+    assert_eq!(
+        themes.selection().identity(Appearance::Dark).as_str(),
+        "okabe-ito"
+    );
     assert_eq!(
         harness.ctx.style_of(egui::Theme::Dark).visuals,
         crate::style::style(&okabe_ito()).visuals,
@@ -666,8 +675,7 @@ async fn picking_a_light_theme_restyles_source_and_chrome() {
 ///
 #[tokio::test]
 async fn the_frame_a_theme_is_picked_in_keeps_one_theme() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark);
-    offer_themes(&mut harness, with_stand_ins(ThemeSelection::default()));
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
     harness.state_mut().diagnostics_open = true;
     harness.run_steps(1);
     harness.get_by_label("View").click();
@@ -681,7 +689,8 @@ async fn the_frame_a_theme_is_picked_in_keeps_one_theme() {
             .state()
             .themes
             .selection()
-            .identity(Appearance::Dark),
+            .identity(Appearance::Dark)
+            .as_str(),
         "my-dark",
         "the click did not reach the dark Theme selection"
     );
@@ -705,14 +714,14 @@ async fn the_frame_a_theme_is_picked_in_keeps_one_theme() {
 ///
 #[tokio::test]
 async fn picking_the_fallback_theme_replaces_a_kept_selection() {
-    let mut harness = console_under_os_appearance(egui::Theme::Dark);
-    offer_themes(
-        &mut harness,
-        SelectedThemes::new(ThemeSelection::new(
-            "my-dark".to_owned(),
-            "orcvs-light".to_owned(),
-        )),
-    );
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+    // Selecting an identity nothing answers to keeps it, as a restored one
+    // is kept, and presents the fallback.
+    harness
+        .state_mut()
+        .themes
+        .select(Appearance::Dark, &id("my-dark"));
+    harness.state().themes.install(&harness.ctx);
     harness.run_steps(1);
     assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "the fallback");
 
@@ -728,7 +737,8 @@ async fn picking_the_fallback_theme_replaces_a_kept_selection() {
             .state()
             .themes
             .selection()
-            .identity(Appearance::Dark),
+            .identity(Appearance::Dark)
+            .as_str(),
         "my-dark",
         "opening the menu rewrote the kept selection"
     );
@@ -741,11 +751,52 @@ async fn picking_the_fallback_theme_replaces_a_kept_selection() {
             .state()
             .themes
             .selection()
-            .identity(Appearance::Dark),
+            .identity(Appearance::Dark)
+            .as_str(),
         "okabe-ito",
         "picking the presented Theme did not become the selection"
     );
     assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "after picking");
+}
+
+///
+/// A Theme file that failed to load is told to the viewer in the top bar, and
+/// the notice lists the file's problem until the viewer dismisses it.
+///
+/// The registry is discovered from a directory this test builds, never from
+/// the machine's own `~/.orcvs/themes`: only `Console::start` reads that.
+///
+#[tokio::test]
+async fn a_theme_file_that_failed_to_load_is_shown_until_dismissed() {
+    use crate::theme_registry::tests_support::TempDir;
+
+    let dir = TempDir::new();
+    dir.write("broken.toml", "format = \"orcvs-theme\"\nversion = 2\n");
+    let mut harness = running_console_with(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        ThemeRegistry::discover(dir.path()),
+    );
+    harness.run_steps(2);
+
+    harness.get_by_label("Theme notices (1)").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        harness
+            .query_all_by_label_contains("broken.toml")
+            .next()
+            .is_some(),
+        "the notice did not name the refused file"
+    );
+
+    harness.get_by_label("Dismiss").click();
+    harness.step();
+    harness.run_steps(2);
+    assert_eq!(harness.state().themes.notice_count(), 0);
+    assert!(
+        harness.query_by_label("Theme notices (1)").is_none(),
+        "the dismissed notice is still in the top bar"
+    );
 }
 
 ///

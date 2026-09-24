@@ -149,14 +149,6 @@ impl Format {
 /// stripped, since `serde_json` would reject it, and the text is decoded
 /// whole — a document is accepted entirely or not at all.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "native discovery and web import are the callers, and both arrive with the \
-                  Theme registry; no shipped path reads a Theme file yet"
-    )
-)]
 pub(crate) fn decode(file_name: &str, bytes: &[u8]) -> Result<ThemeDocument, DocumentError> {
     let error = |reason| DocumentError {
         file_name: file_name.to_owned(),
@@ -737,9 +729,14 @@ mod tests {
         DocumentError, DocumentErrorReason, MAX_DOCUMENT_BYTES, MAX_MESSAGE_BYTES, Property, decode,
     };
     use crate::theme::{
-        Appearance, ChromeWidthKey, ColorKey, GridWidthKey, OptionalFill, ThemeDocument, okabe_ito,
-        resolve, straight_rgba,
+        Appearance, ChromeWidthKey, ColorKey, GridWidthKey, OptionalFill, ThemeDocument,
+        ThemeIdentity, okabe_ito, resolve, straight_rgba,
     };
+
+    /// A custom Theme's identity, as a file named `stem` supplies it.
+    fn identity(stem: &str) -> ThemeIdentity {
+        ThemeIdentity::from_stem(stem).expect("a non-empty stem")
+    }
 
     const MY_DARK_TOML: &str = include_str!("../../.scratch/theming/examples/my-dark.toml");
     const OKABE_ITO_COPY_TOML: &str =
@@ -929,10 +926,11 @@ style:
         assert_eq!(document.region_cursor_background, Some(OptionalFill::None));
         assert_eq!(document.appearance, Some(Appearance::Dark));
 
-        let resolved = resolve(&[okabe_ito()], "okabe-ito-copy", &document).expect("resolves");
+        let resolved =
+            resolve(&[okabe_ito()], &identity("okabe-ito-copy"), &document).expect("resolves");
 
         let mut expected = okabe_ito();
-        expected.identity = "okabe-ito-copy".to_owned();
+        expected.identity = identity("okabe-ito-copy");
         expected.name = "Okabe-Ito copy".to_owned();
         assert_eq!(resolved, expected);
     }

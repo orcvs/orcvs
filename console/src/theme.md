@@ -512,6 +512,18 @@ builds saved in the light key before a light built-in existed — presents that
 appearance's built-in instead and is saved back unchanged, so the fallback
 never rewrites the viewer's choice.
 
+The Themes a picker lists are the built-ins and the custom Themes `07` loads.
+At startup the native console reads `~/.orcvs/themes/`, and the web console
+restores its imported documents; a Theme file dropped on the web console is
+imported, and presented at once if a selection names it. A custom Theme's
+identity is its file name's stem, and its `name` is only the label its picker
+shows. When a selection is missing, malformed, conflicted or of the wrong
+appearance, a Theme notice in the top bar names the Theme and the file problem,
+the appearance's built-in is shown in its place, and the selection is saved
+back unchanged, so repairing the file presents it on the next launch. The
+notices also name any loaded Theme with a text state below the contrast floor;
+such a Theme still loads and can be selected.
+
 ## Source colours
 
 Each Source Paint role paints its foreground and background from the resolved

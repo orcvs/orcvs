@@ -9,15 +9,14 @@
 //! values, so an improved built-in reaches every install.
 //!
 
-use crate::theme::{
-    Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light,
-};
+use crate::theme::{Appearance, Theme, ThemeIdentity};
+use crate::theme_registry::ThemeRegistry;
 
 ///
 /// One value per appearance, read and written by the appearance's name
 /// rather than by a `match` at every use.
 ///
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ByAppearance<T> {
     dark: T,
     light: T,
@@ -55,7 +54,7 @@ impl<T> ByAppearance<T> {
 /// selection, including on autosave").
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ThemeSelection(ByAppearance<String>);
+pub(crate) struct ThemeSelection(ByAppearance<ThemeIdentity>);
 
 impl Default for ThemeSelection {
     ///
@@ -63,9 +62,7 @@ impl Default for ThemeSelection {
     /// `orcvs-light` for light.
     ///
     fn default() -> Self {
-        Self(ByAppearance::from_fn(|appearance| {
-            default_identity(appearance).to_owned()
-        }))
+        Self(ByAppearance::from_fn(ThemeIdentity::default_for))
     }
 }
 
@@ -81,24 +78,13 @@ impl ThemeSelection {
                       without `persistence` nothing is restored"
         )
     )]
-    pub(crate) fn new(dark: String, light: String) -> Self {
+    pub(crate) fn new(dark: ThemeIdentity, light: ThemeIdentity) -> Self {
         Self(ByAppearance { dark, light })
     }
 
     /// The identity selected for `appearance`.
-    pub(crate) fn identity(&self, appearance: Appearance) -> &str {
+    pub(crate) fn identity(&self, appearance: Appearance) -> &ThemeIdentity {
         self.0.get(appearance)
-    }
-}
-
-///
-/// The built-in Theme each appearance falls back to when its selection names
-/// no available Theme of that appearance.
-///
-pub(crate) fn default_identity(appearance: Appearance) -> &'static str {
-    match appearance {
-        Appearance::Dark => OKABE_ITO_IDENTITY,
-        Appearance::Light => ORCVS_LIGHT_IDENTITY,
     }
 }
 
@@ -106,43 +92,68 @@ pub(crate) fn default_identity(appearance: Appearance) -> &'static str {
 /// The Themes a viewer chooses from, the current selection, and the Theme
 /// that selection presents for each appearance.
 ///
-/// The presented pair is resolved when the selection changes, not per
-/// frame, so a Render Frame only borrows the one its appearance names.
+/// The Themes are the [`ThemeRegistry`]'s: the built-ins and every loaded
+/// Theme. The presented pair is resolved when the selection or the registry
+/// changes, not per frame, so a Render Frame only borrows the one its
+/// appearance names.
 ///
-#[derive(Clone, Debug)]
 pub(crate) struct SelectedThemes {
-    /// Every selectable Theme: the built-ins, which hold both appearances'
-    /// defaults and so make the fallback in `resolve_slot` total.
-    available: Vec<Theme>,
+    registry: ThemeRegistry,
     selection: ThemeSelection,
     presented: ByAppearance<Theme>,
+    /// Why an appearance's selection is not what it presents, while it is
+    /// not and until the viewer dismisses it.
+    selection_notices: ByAppearance<Option<String>>,
 }
 
 impl SelectedThemes {
     ///
-    /// The built-in Themes under `selection`.
+    /// The Themes `registry` holds, under `selection`.
     ///
-    /// Only the built-ins are available: `.scratch/theming/issues/07` is what
-    /// adds loaded Themes beside them, and until it does each picker lists
-    /// one Theme. Tests stand loaded Themes in through the test-only
-    /// `with_stand_ins`, beside this rather than through it.
-    ///
-    pub(crate) fn new(selection: ThemeSelection) -> Self {
-        Self::resolved(vec![okabe_ito(), orcvs_light()], selection)
+    pub(crate) fn new(registry: ThemeRegistry, selection: ThemeSelection) -> Self {
+        let presented = ByAppearance::from_fn(|appearance| registry.fallback(appearance).clone());
+        let mut themes = Self {
+            registry,
+            selection,
+            presented,
+            selection_notices: ByAppearance::default(),
+        };
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            themes.resolve(appearance);
+        }
+        themes
     }
 
     ///
-    /// `available` under `selection`. `available` holds both appearances'
-    /// default built-ins.
+    /// Presents the Theme `appearance`'s selection names: the available
+    /// Theme of that appearance, or that appearance's default built-in when
+    /// it names none (spec: "use the default built-in Theme of the same
+    /// appearance while retaining the saved selection"). A fallback raises a
+    /// notice saying why; a notice that is new is also reported.
     ///
-    fn resolved(available: Vec<Theme>, selection: ThemeSelection) -> Self {
-        let presented =
-            ByAppearance::from_fn(|appearance| resolve_slot(&available, &selection, appearance));
-        Self {
-            available,
-            selection,
-            presented,
+    fn resolve(&mut self, appearance: Appearance) {
+        let identity = self.selection.identity(appearance);
+        let (theme, notice) = match self.registry.select(appearance, identity) {
+            Ok(theme) => (theme, None),
+            Err(unavailable) => {
+                let fallback = self.registry.fallback(appearance);
+                let notice = format!(
+                    "The selected {} Theme \"{identity}\" is unavailable: {unavailable}. {} is \
+                     shown in its place. The saved selection is kept, and the Theme is shown \
+                     once its file loads.",
+                    appearance.word(),
+                    fallback.name,
+                );
+                (fallback, Some(notice))
+            }
+        };
+        *self.presented.get_mut(appearance) = theme.clone();
+        if let Some(message) = &notice
+            && self.selection_notices.get(appearance).as_ref() != Some(message)
+        {
+            crate::report::error!("{message}");
         }
+        *self.selection_notices.get_mut(appearance) = notice;
     }
 
     /// The selection as the viewer made it, for saving.
@@ -162,10 +173,13 @@ impl SelectedThemes {
         self.presented.get(appearance)
     }
 
-    /// The Themes a picker for `appearance` lists: only that appearance's.
+    ///
+    /// The Themes a picker for `appearance` lists: only that appearance's,
+    /// built-ins first. A custom Theme's appearance is its parent's.
+    ///
     pub(crate) fn listed(&self, appearance: Appearance) -> impl Iterator<Item = &Theme> {
-        self.available
-            .iter()
+        self.registry
+            .themes()
             .filter(move |theme| theme.appearance == appearance)
     }
 
@@ -175,10 +189,9 @@ impl SelectedThemes {
     /// This is a viewer's choice, not a fallback, so it replaces whatever the
     /// selection held — a restored identity nothing answered to included.
     ///
-    pub(crate) fn select(&mut self, appearance: Appearance, identity: &str) {
+    pub(crate) fn select(&mut self, appearance: Appearance, identity: &ThemeIdentity) {
         identity.clone_into(self.selection.0.get_mut(appearance));
-        *self.presented.get_mut(appearance) =
-            resolve_slot(&self.available, &self.selection, appearance);
+        self.resolve(appearance);
     }
 
     ///
@@ -192,101 +205,110 @@ impl SelectedThemes {
             self.presented(Appearance::Light),
         );
     }
-}
 
-///
-/// The Theme `selection` presents for `appearance`: the available Theme of
-/// that appearance it names, or that appearance's default built-in when it
-/// names none (spec: "use the default built-in Theme of the same
-/// appearance while retaining the saved selection").
-///
-fn resolve_slot(available: &[Theme], selection: &ThemeSelection, appearance: Appearance) -> Theme {
-    let wanted = selection.identity(appearance);
-    let named = |identity: &str| {
-        available
-            .iter()
-            .find(|theme| theme.appearance == appearance && theme.identity == identity)
-    };
-    named(wanted)
-        .or_else(|| named(default_identity(appearance)))
-        .expect("the available Themes hold every appearance's default built-in")
-        .clone()
-}
+    /// Every notice the viewer has not dismissed: the selection notices
+    /// first, then the registry's in the order they arose.
+    pub(crate) fn notices(&self) -> impl Iterator<Item = &String> {
+        [&self.selection_notices.dark, &self.selection_notices.light]
+            .into_iter()
+            .flatten()
+            .chain(self.registry.notices())
+    }
 
-///
-/// A second dark Theme, `my-dark`, standing in for one
-/// `.scratch/theming/issues/07` will load: built here, because nothing
-/// shipped makes one yet. Its window, panel, input and Grid backgrounds
-/// differ from every other Theme's here, so a test can tell which Theme
-/// painted a frame.
-///
-#[cfg(test)]
-pub(crate) fn my_dark() -> Theme {
-    use egui::Color32;
+    pub(crate) fn notice_count(&self) -> usize {
+        self.notices().count()
+    }
 
-    Theme {
-        identity: "my-dark".to_owned(),
-        name: "My Dark".to_owned(),
-        window_background: Color32::from_rgb(0x20, 0x10, 0x30),
-        panel_background: Color32::from_rgb(0x20, 0x10, 0x30),
-        grid_background: Color32::from_rgb(0x10, 0x00, 0x20),
-        input_background: Color32::from_rgb(0x18, 0x08, 0x28),
-        ..okabe_ito()
+    pub(crate) fn dismiss_notices(&mut self) {
+        self.selection_notices = ByAppearance::default();
+        self.registry.dismiss_notices();
+    }
+
+    /// Every notice, owned, so a test can index, compare and print them.
+    #[cfg(test)]
+    pub(crate) fn notice_list(&self) -> Vec<String> {
+        self.notices().cloned().collect()
     }
 }
 
-///
-/// A second light Theme, `my-light`, standing in for a loaded light Theme the
-/// way [`my_dark`] does for a dark one.
-///
-#[cfg(test)]
-pub(crate) fn my_light() -> Theme {
-    use egui::Color32;
+// === Web import ===
 
-    Theme {
-        identity: "my-light".to_owned(),
-        name: "My Light".to_owned(),
-        window_background: Color32::from_rgb(0xF4, 0xEC, 0xDC),
-        panel_background: Color32::from_rgb(0xF4, 0xEC, 0xDC),
-        grid_background: Color32::from_rgb(0xFE, 0xF8, 0xEE),
-        input_background: Color32::from_rgb(0xFA, 0xF2, 0xE4),
-        ..orcvs_light()
+#[cfg(any(target_arch = "wasm32", test))]
+impl SelectedThemes {
+    ///
+    /// Imports one Theme file into the registry
+    /// ([`ThemeRegistry::import`]). A valid document may be the Theme a
+    /// selection names, or replace the one presented, so each appearance
+    /// whose selection names it is resolved again; the caller installs the
+    /// result. An appearance selecting another Theme is left alone, so a
+    /// notice about it the viewer dismissed stays dismissed.
+    ///
+    pub(crate) fn import(&mut self, file_name: &str, bytes: &[u8]) -> Result<(), String> {
+        let imported = self.registry.import(file_name, bytes)?;
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            if *self.selection.identity(appearance) == imported {
+                self.resolve(appearance);
+            }
+        }
+        Ok(())
     }
 }
 
-///
-/// The built-ins with [`my_dark`] and [`my_light`] beside them, under
-/// `selection`: what `.scratch/theming/issues/07`'s loaded Themes will make
-/// available, built beside [`SelectedThemes::new`] rather than through it.
-///
-#[cfg(test)]
-pub(crate) fn with_stand_ins(selection: ThemeSelection) -> SelectedThemes {
-    SelectedThemes::resolved(
-        vec![okabe_ito(), my_dark(), orcvs_light(), my_light()],
-        selection,
-    )
+#[cfg(target_arch = "wasm32")]
+impl SelectedThemes {
+    /// [`ThemeRegistry::refuse_conflicting_drops`].
+    pub(crate) fn refuse_conflicting_drops(&mut self, file_names: Vec<String>) -> Vec<String> {
+        self.registry.refuse_conflicting_drops(file_names)
+    }
+
+    /// [`ThemeRegistry::refuse_unreadable`].
+    pub(crate) fn refuse_unreadable(&mut self, file_name: &str, error: &str) {
+        self.registry.refuse_unreadable(file_name, error);
+    }
+
+    /// [`ThemeRegistry::store_imported`].
+    #[cfg(feature = "persistence")]
+    pub(crate) fn store_imported(&mut self, storage: &mut dyn eframe::Storage) {
+        self.registry.store_imported(storage);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SelectedThemes, ThemeSelection, my_dark, my_light, with_stand_ins};
-    use crate::theme::{Appearance, okabe_ito, orcvs_light};
+    use super::{SelectedThemes, ThemeSelection};
+    use crate::theme::{
+        Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, okabe_ito, orcvs_light,
+    };
+    use crate::theme_registry::ThemeRegistry;
+    use crate::theme_registry::tests_support::{dark, id, my_dark, my_light, with_my_themes};
 
-    #[test]
-    fn a_default_selection_presents_each_appearances_built_in() {
-        let themes = SelectedThemes::new(ThemeSelection::default());
-        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
-        assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
-        assert_eq!(themes.selection().identity(Appearance::Dark), "okabe-ito");
-        assert_eq!(
-            themes.selection().identity(Appearance::Light),
-            "orcvs-light"
-        );
+    fn mentions(themes: &SelectedThemes, needle: &str) -> bool {
+        themes.notices().any(|notice| notice.contains(needle))
     }
 
     #[test]
+    fn a_default_selection_presents_each_appearances_built_in_and_raises_no_notice() {
+        let themes = SelectedThemes::new(ThemeRegistry::built_in(), ThemeSelection::default());
+        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
+        assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
+        assert_eq!(
+            *themes.selection().identity(Appearance::Dark),
+            OKABE_ITO_IDENTITY
+        );
+        assert_eq!(
+            *themes.selection().identity(Appearance::Light),
+            ORCVS_LIGHT_IDENTITY
+        );
+        assert_eq!(themes.notice_count(), 0, "{:?}", themes.notice_list());
+    }
+
+    ///
+    /// `.scratch/theming/issues/07`: a loaded Theme is listed only in the
+    /// picker matching its parent's appearance, after the built-ins.
+    ///
+    #[test]
     fn each_picker_lists_only_the_themes_of_its_appearance() {
-        let themes = with_stand_ins(ThemeSelection::default());
+        let themes = SelectedThemes::new(with_my_themes(), ThemeSelection::default());
         let listed = |appearance| {
             themes
                 .listed(appearance)
@@ -298,45 +320,60 @@ mod tests {
     }
 
     #[test]
-    fn a_restored_selection_presents_the_themes_it_names() {
-        let themes = with_stand_ins(ThemeSelection::new(
-            "my-dark".to_owned(),
-            "my-light".to_owned(),
-        ));
+    fn a_restored_selection_presents_the_loaded_themes_it_names() {
+        let themes = SelectedThemes::new(
+            with_my_themes(),
+            ThemeSelection::new(id("my-dark"), id("my-light")),
+        );
         assert_eq!(*themes.presented(Appearance::Dark), my_dark());
         assert_eq!(*themes.presented(Appearance::Light), my_light());
+        assert!(
+            !mentions(&themes, "is unavailable"),
+            "{:?}",
+            themes.notice_list()
+        );
     }
 
     ///
     /// An identity no available Theme answers to, and one whose Theme is of
     /// the other appearance — the `okabe-ito` every earlier build saved into
-    /// the light key — both present that appearance's default built-in, and
-    /// neither is rewritten.
+    /// the light key — both present that appearance's default built-in, are
+    /// reported, and neither is rewritten.
     ///
     #[test]
     fn an_unavailable_or_wrong_appearance_selection_falls_back_and_is_kept() {
-        let selection = ThemeSelection::new("missing".to_owned(), "okabe-ito".to_owned());
-        let themes = SelectedThemes::new(selection.clone());
+        let selection = ThemeSelection::new(id("missing"), OKABE_ITO_IDENTITY);
+        let themes = SelectedThemes::new(ThemeRegistry::built_in(), selection.clone());
         assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
         assert_eq!(*themes.selection(), selection);
+        assert!(mentions(&themes, "selected dark Theme \"missing\""));
+        assert!(mentions(&themes, "selected light Theme \"okabe-ito\""));
+        assert!(mentions(&themes, "it is a dark Theme"));
+        assert!(mentions(&themes, "Orcvs Light is shown in its place"));
     }
 
     #[test]
     fn selecting_a_theme_changes_only_its_own_appearance() {
-        let mut themes = with_stand_ins(ThemeSelection::default());
+        let mut themes = SelectedThemes::new(with_my_themes(), ThemeSelection::default());
 
-        themes.select(Appearance::Dark, "my-dark");
+        themes.select(Appearance::Dark, &id("my-dark"));
         assert_eq!(*themes.presented(Appearance::Dark), my_dark());
         assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
-        assert_eq!(themes.selection().identity(Appearance::Dark), "my-dark");
+        assert_eq!(
+            *themes.selection().identity(Appearance::Dark),
+            id("my-dark")
+        );
 
-        themes.select(Appearance::Light, "my-light");
+        themes.select(Appearance::Light, &id("my-light"));
         assert_eq!(*themes.presented(Appearance::Dark), my_dark());
         assert_eq!(*themes.presented(Appearance::Light), my_light());
-        assert_eq!(themes.selection().identity(Appearance::Light), "my-light");
+        assert_eq!(
+            *themes.selection().identity(Appearance::Light),
+            id("my-light")
+        );
 
-        themes.select(Appearance::Dark, "okabe-ito");
+        themes.select(Appearance::Dark, &OKABE_ITO_IDENTITY);
         assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*themes.presented(Appearance::Light), my_light());
     }
@@ -344,20 +381,126 @@ mod tests {
     ///
     /// Picking a Theme is the viewer's choice, not a fallback: picking the
     /// built-in a kept, unresolvable selection falls back to replaces that
-    /// selection, even though what is presented does not change.
+    /// selection, even though what is presented does not change, and its
+    /// notice goes. The other appearance's notice stays: nothing about it
+    /// changed.
     ///
     #[test]
     fn picking_the_fallback_theme_replaces_a_kept_selection() {
-        let mut themes = SelectedThemes::new(ThemeSelection::new(
-            "missing".to_owned(),
-            "okabe-ito".to_owned(),
-        ));
+        let mut themes = SelectedThemes::new(
+            ThemeRegistry::built_in(),
+            ThemeSelection::new(id("missing"), OKABE_ITO_IDENTITY),
+        );
 
-        themes.select(Appearance::Dark, "okabe-ito");
-        themes.select(Appearance::Light, "orcvs-light");
+        themes.select(Appearance::Dark, &OKABE_ITO_IDENTITY);
+        assert!(!mentions(&themes, "\"missing\""));
+        assert!(mentions(&themes, "\"okabe-ito\""));
 
+        themes.select(Appearance::Light, &ORCVS_LIGHT_IDENTITY);
         assert_eq!(*themes.selection(), ThemeSelection::default());
         assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
+        assert_eq!(themes.notice_count(), 0, "{:?}", themes.notice_list());
+    }
+
+    ///
+    /// A dismissed selection notice stays dismissed while the viewer picks a
+    /// Theme for the other appearance.
+    ///
+    #[test]
+    fn picking_one_appearance_does_not_restore_the_others_dismissed_notice() {
+        let mut themes = SelectedThemes::new(
+            with_my_themes(),
+            ThemeSelection::new(id("missing"), ORCVS_LIGHT_IDENTITY),
+        );
+        assert!(mentions(&themes, "\"missing\""));
+        themes.dismiss_notices();
+
+        themes.select(Appearance::Light, &id("my-light"));
+        assert_eq!(themes.notice_count(), 0, "{:?}", themes.notice_list());
+    }
+
+    ///
+    /// A web import of the selected Theme presents it, and clears the notice
+    /// about it; a failed import of it changes neither.
+    ///
+    #[test]
+    fn importing_the_selected_theme_presents_it_and_clears_its_notice() {
+        let mut themes = SelectedThemes::new(
+            ThemeRegistry::built_in(),
+            ThemeSelection::new(id("my-dark"), ORCVS_LIGHT_IDENTITY),
+        );
+        assert!(mentions(&themes, "\"my-dark\" is unavailable"));
+        assert!(
+            mentions(&themes, "the Theme is shown once its file loads"),
+            "{:?}",
+            themes.notice_list()
+        );
+
+        themes
+            .import("my-dark.toml", b"not a document")
+            .expect_err("an invalid document");
+        assert!(mentions(&themes, "\"my-dark\" is unavailable"));
+        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
+
+        themes
+            .import("my-dark.toml", dark("Mine").as_bytes())
+            .expect("a valid document");
+        assert!(
+            !mentions(&themes, "is unavailable"),
+            "a stale unavailable notice survived the import that fixed it: {:?}",
+            themes.notice_list()
+        );
+        assert_eq!(themes.presented(Appearance::Dark).name, "Mine");
+    }
+
+    ///
+    /// A dismissed selection notice stays dismissed while the viewer imports
+    /// a Theme neither selection names.
+    ///
+    #[test]
+    fn importing_an_unrelated_theme_does_not_restore_a_dismissed_notice() {
+        let mut themes = SelectedThemes::new(
+            ThemeRegistry::built_in(),
+            ThemeSelection::new(id("missing"), ORCVS_LIGHT_IDENTITY),
+        );
+        assert!(mentions(&themes, "\"missing\""));
+        themes.dismiss_notices();
+
+        themes
+            .import("other.toml", dark("Other").as_bytes())
+            .expect("a valid document");
+        assert_eq!(themes.notice_count(), 0, "{:?}", themes.notice_list());
+    }
+
+    ///
+    /// `schema.md`: a valid reimport that changes the selected Theme's
+    /// appearance falls back to that appearance's default built-in, is
+    /// reported, and the saved selection is kept.
+    ///
+    #[test]
+    fn a_reimport_that_changes_appearance_falls_back_and_keeps_the_selection() {
+        let mut themes = SelectedThemes::new(
+            ThemeRegistry::built_in(),
+            ThemeSelection::new(id("mine"), ORCVS_LIGHT_IDENTITY),
+        );
+        themes
+            .import("mine.toml", dark("Mine").as_bytes())
+            .expect("a valid document");
+        assert_eq!(themes.presented(Appearance::Dark).name, "Mine");
+
+        let light = "format = \"orcvs-theme\"\nversion = 1\nname = \"Mine\"\n\
+                     inherits = \"orcvs-light\"\n";
+        themes
+            .import("mine.toml", light.as_bytes())
+            .expect("a valid document");
+        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
+        assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
+        assert_eq!(*themes.selection().identity(Appearance::Dark), id("mine"));
+        assert!(
+            mentions(&themes, "selected dark Theme \"mine\""),
+            "{:?}",
+            themes.notice_list()
+        );
     }
 }

@@ -27,9 +27,13 @@ pub mod style;
 #[doc(hidden)]
 pub mod theme;
 // Decodes a TOML, JSON or YAML Theme document's bytes into the unresolved
-// document `theme::resolve` takes (`.scratch/theming/issues/07`). Pure: the
-// native discovery and web import that will call it own the I/O.
+// document `theme::resolve` takes (`.scratch/theming/issues/07`). Pure:
+// `theme_registry`'s native discovery and web import own the I/O.
 mod theme_document;
+// The Themes a console can select — built-ins, loaded Theme documents and
+// their load failures — with native discovery and web import
+// (`.scratch/theming/issues/07`).
+mod theme_registry;
 // The dark and light Theme selections and the Theme each presents
 // (`.scratch/theming/issues/04`).
 mod theme_selection;

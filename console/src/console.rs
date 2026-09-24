@@ -18,7 +18,8 @@ use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
-use crate::theme::{Appearance, Theme};
+use crate::theme::{Appearance, Theme, ThemeIdentity};
+use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
@@ -779,10 +780,10 @@ pub struct Console {
     /// `Memory::begin_pass` has already let Escape clear the focus it was
     /// pressed to leave (`egui-0.36.2/src/memory/mod.rs:596-601`).
     keyboard_elsewhere: bool,
-    /// The dark and light Theme selections and the Theme each presents. The
-    /// same pair is installed as egui's dark and light styles, so whichever
-    /// appearance egui presents a frame in, chrome and Source read the same
-    /// Theme.
+    /// The dark and light Theme selections, the Themes they choose from, and
+    /// the Theme each presents. The same pair is installed as egui's dark and
+    /// light styles, so whichever appearance egui presents a frame in, chrome
+    /// and Source read the same Theme.
     themes: SelectedThemes,
     /// The operating system's reduced-motion preference, read once at
     /// startup (`prefers_reduced_motion`) and combined with `cursor_effects`
@@ -794,6 +795,10 @@ pub struct Console {
     cursor_effect_animation: CursorEffectAnimation,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
+    /// Reads Theme files dropped on the web console and hands their bytes to
+    /// `themes`.
+    #[cfg(target_arch = "wasm32")]
+    web_import: crate::theme_registry::WebImport,
 }
 
 impl Console {
@@ -807,15 +812,33 @@ impl Console {
     /// reached here with neither has no console to show, which is what handing
     /// the error to `eframe` says.
     ///
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
+    pub fn start(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
+        // Custom Themes load here, during construction and never inside a
+        // frame: native reads `~/.orcvs/themes/`, the web restores its
+        // imported documents. This is the only place the shipped console
+        // discovers Themes; `new` takes the registry, so a test builds the
+        // one it needs and never reads the machine's own Theme directory.
+        Self::new(cc, ThemeRegistry::start(cc.storage))
+    }
+
+    ///
+    /// The console over the running Orcvs its storage last held, choosing
+    /// among the Themes `registry` holds. [`Console::start`] is the shipped
+    /// entry point, and discovers `registry` itself.
+    ///
+    pub(crate) fn new(
+        cc: &eframe::CreationContext<'_>,
+        registry: ThemeRegistry,
+    ) -> Result<Self, PlaybackStartError> {
         // The stored Source revision when storage holds one, and the ordinary
         // default Grid otherwise. Every derived view is rebuilt from it.
         let start = starting_source(cc.storage);
 
-        // The restored dark and light Theme selections, resolved once here
-        // so `install` below and `Self`'s own `themes` field hold the same
-        // pair.
-        let themes = SelectedThemes::new(start.theme_selection);
+        // The restored dark and light Theme selections, resolved against the
+        // registry once here so `install` below and `Self`'s own `themes`
+        // field hold the same pair. A selection the registry cannot supply
+        // is kept, falls back, and raises a notice.
+        let themes = SelectedThemes::new(registry, start.theme_selection);
 
         // eframe restores egui memory — `ThemePreference` included — before
         // calling this constructor, but never reinstalls a style. Register
@@ -881,6 +904,8 @@ impl Console {
             cursor_effect_animation: CursorEffectAnimation::default(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
+            #[cfg(target_arch = "wasm32")]
+            web_import: crate::theme_registry::WebImport::new(),
         })
     }
 
@@ -915,6 +940,40 @@ impl Console {
         }
     }
 }
+
+///
+/// The Theme notices, when there are any: a menu in the top bar that lists
+/// each and offers to dismiss them: the selections' and the registry's.
+/// Showing them starts nothing.
+///
+fn show_theme_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes) {
+    let count = themes.notice_count();
+    if count == 0 {
+        return;
+    }
+    ui.add_space(MENU_BAR_GAP);
+    let title =
+        egui::RichText::new(format!("Theme notices ({count})")).color(ui.visuals().error_fg_color);
+    ui.menu_button(title, |ui| {
+        ui.set_max_width(THEME_NOTICE_WIDTH);
+        egui::ScrollArea::vertical()
+            .max_height(THEME_NOTICE_HEIGHT)
+            .show(ui, |ui| {
+                for notice in themes.notices() {
+                    ui.label(notice);
+                }
+            });
+        if ui.button("Dismiss").clicked() {
+            themes.dismiss_notices();
+            ui.close();
+        }
+    });
+}
+
+/// How wide the Theme notices menu grows before its messages wrap.
+const THEME_NOTICE_WIDTH: f32 = 480.0;
+/// How tall the Theme notices list grows before it scrolls.
+const THEME_NOTICE_HEIGHT: f32 = 320.0;
 
 fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
@@ -1915,7 +1974,7 @@ enum AppearanceChange {
     /// Follow the operating system's appearance, or hold dark or light.
     Mode(egui::ThemePreference),
     /// Select the Theme with this identity for this appearance.
-    Theme(Appearance, String),
+    Theme(Appearance, ThemeIdentity),
 }
 
 ///
@@ -1993,6 +2052,29 @@ impl eframe::App for Console {
             self.cursor_effects,
             self.themes.selection(),
         );
+        // Only the web stores Theme documents; native Theme files are
+        // authoritative and re-read at every launch.
+        #[cfg(target_arch = "wasm32")]
+        self.themes.store_imported(storage);
+    }
+
+    ///
+    /// Imports the Theme files dropped on the web console. eframe reads a
+    /// dropped file's bytes asynchronously, so a drop starts the read here
+    /// and a later frame applies what it read. This hook sees each
+    /// `RawInput` exactly once, and takes the dropped files out of it, so no
+    /// drop is read twice; `App::logic` would see a hidden tab's last input
+    /// again on every call. Nothing is imported on native, where
+    /// `~/.orcvs/themes/` is the only source of custom Themes.
+    ///
+    #[cfg(target_arch = "wasm32")]
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.web_import.take_drops(ctx, raw_input, &mut self.themes);
+        if self.web_import.apply(&mut self.themes) {
+            // Before the frame this input starts, so the whole frame is
+            // presented from what the import made available.
+            self.themes.install(ctx);
+        }
     }
 
     ///
@@ -2092,6 +2174,16 @@ impl eframe::App for Console {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                     appearance_change = appearance_controls(ui, &self.themes);
+                    // The web imports a Theme file by drag and drop, eframe's
+                    // own file facility; say so where a viewer looks.
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        ui.separator();
+                        ui.weak(
+                            "Drop a .toml, .json, .yaml or .yml Theme file on the console to \
+                             import it",
+                        );
+                    }
                 });
                 ui.add_space(MENU_BAR_GAP);
                 // Glitch amount and Glitch frequency are motion settings, not
@@ -2127,6 +2219,12 @@ impl eframe::App for Console {
                         self.persistence.dismiss_notice();
                     }
                 }
+                // Theme load, import, selection and contrast notices, beside
+                // the persistence notice for the same reason: they are
+                // start-up answers a viewer reads, not diagnostics of the
+                // running frame. `report` has already sent each to the
+                // developer console.
+                show_theme_notices(ui, &mut self.themes);
             });
         });
 
@@ -2319,6 +2417,8 @@ impl eframe::App for Console {
                     cursor_effect_animation: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
+                    #[cfg(target_arch = "wasm32")]
+                        web_import: _,
                 } = self;
                 let presented = show_source_scene(
                     ui,
@@ -2401,6 +2501,7 @@ mod tests {
     use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
     use crate::paint::{FramePaint, Paint};
     use crate::theme::{Theme, okabe_ito, orcvs_light};
+    use crate::theme_registry::ThemeRegistry;
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
@@ -3328,8 +3429,11 @@ mod tests {
     async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         // One quiet pass, so the top panel has claimed its height and the view
@@ -3377,8 +3481,11 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_theme(egui::ThemePreference::Light);
 
-        let _console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let _console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
 
         assert_eq!(
             ctx.options(|options| options.theme_preference),
@@ -3405,8 +3512,11 @@ mod tests {
     async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
         let ctx = egui::Context::default();
 
-        let _console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let _console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
 
         assert_eq!(
             ctx.options(|options| options.theme_preference),
@@ -3425,8 +3535,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         let painted = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
@@ -3537,8 +3650,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
@@ -3594,8 +3710,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
@@ -3638,8 +3757,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         console.reduced_motion = true;
@@ -3685,8 +3807,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         *console.cursor_effects.amount_mut() = 0;
@@ -3733,8 +3858,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         console.reduced_motion = true;
@@ -3782,8 +3910,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         console.reduced_motion = true;
@@ -3848,8 +3979,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         console.reduced_motion = true;
@@ -3910,8 +4044,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -3955,8 +4092,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -3987,8 +4127,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -4040,8 +4183,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let start = console.orcvs.bpm().beats_per_minute();
         let grid = console.orcvs.grid();
@@ -4089,8 +4235,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let grid = console.orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
@@ -4149,8 +4298,11 @@ mod tests {
 
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let grid = console.orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
@@ -4189,8 +4341,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -4226,8 +4381,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -4266,8 +4424,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -4358,8 +4519,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let start = console.orcvs.bpm().beats_per_minute();
 
@@ -4399,8 +4563,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -4796,8 +4963,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = painted.clone();
@@ -4876,8 +5046,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = painted.clone();
@@ -4909,8 +5082,11 @@ mod tests {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = painted.clone();
@@ -6354,8 +6530,11 @@ mod tests {
     #[tokio::test]
     async fn clear_color_is_the_resolved_themes_opaque_window_background() {
         let ctx = egui::Context::default();
-        let console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("Console::new");
+        let console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+        )
+        .expect("Console::new");
 
         for (slot, theme) in [
             (egui::Theme::Dark, okabe_ito()),
@@ -7910,7 +8089,8 @@ mod storage_tests {
     #[cfg(not(target_arch = "wasm32"))]
     use crate::persistence::{IsolatedRonDir, RonFileStorage};
     use crate::theme::{Appearance, okabe_ito, orcvs_light};
-    use crate::theme_selection::{my_dark, with_stand_ins};
+    use crate::theme_registry::ThemeRegistry;
+    use crate::theme_registry::tests_support::{my_dark, with_my_themes};
 
     ///
     /// Storage holding a value no build can read back, and that value, so a
@@ -7938,7 +8118,7 @@ mod storage_tests {
     fn console_over(storage: &dyn eframe::Storage) -> Console {
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(storage);
-        Console::new(&cc).expect("the test runtime")
+        Console::new(&cc, ThemeRegistry::built_in()).expect("the test runtime")
     }
 
     ///
@@ -8027,8 +8207,8 @@ mod storage_tests {
     /// makes it available — presents that appearance's default built-in,
     /// chrome and Source alike, and saves back unchanged rather than being
     /// reset by the fallback (ADR 0053: the fallback "never replaces the
-    /// saved Theme selection, including on autosave"). The same restored
-    /// reference, once a Theme answers to it, presents that Theme.
+    /// saved Theme selection, including on autosave"). The next launch, once
+    /// a loaded Theme answers to that saved reference, presents it.
     ///
     #[tokio::test]
     async fn restored_theme_references_are_presented_or_fall_back_and_save_back_unchanged() {
@@ -8042,7 +8222,7 @@ mod storage_tests {
         let ctx = egui::Context::default();
         let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
         cc.storage = Some(&storage);
-        let mut console = Console::new(&cc).expect("the test runtime");
+        let mut console = Console::new(&cc, ThemeRegistry::built_in()).expect("the test runtime");
 
         assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
@@ -8051,6 +8231,13 @@ mod storage_tests {
             &okabe_ito(),
             &orcvs_light(),
             "an unavailable dark reference beside a restored light one",
+        );
+
+        let notices: Vec<&String> = console.themes.notices().collect();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("\"my-dark\""),
+            "the unavailable dark selection should be reported: {notices:?}"
         );
 
         let mut written = InMemoryStorage::default();
@@ -8066,11 +8253,29 @@ mod storage_tests {
             "the restored light Theme reference was not saved back unchanged"
         );
 
-        let available = with_stand_ins(console.themes.selection().clone());
+        // The next launch, once a Theme file answers to the saved reference.
+        let ctx = egui::Context::default();
+        let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        cc.storage = Some(&written);
+        let console = Console::new(&cc, with_my_themes()).expect("the test runtime");
         assert_eq!(
-            *available.presented(Appearance::Dark),
+            *console.themes.presented(Appearance::Dark),
             my_dark(),
             "a restored reference did not present the Theme it names once available"
+        );
+        assert_chrome(
+            &ctx,
+            &my_dark(),
+            &orcvs_light(),
+            "the next launch, with the saved dark Theme's file loaded",
+        );
+        assert!(
+            console
+                .themes
+                .notices()
+                .all(|notice| !notice.contains("is unavailable")),
+            "{:?}",
+            console.themes.notices().collect::<Vec<_>>()
         );
     }
 
@@ -8080,8 +8285,8 @@ mod storage_tests {
     /// through `Console::new` the way eframe starts an existing install, it
     /// presents Orcvs Light for the light appearance — chrome and the Theme
     /// the Source reads alike — and saves back unchanged: the fallback never
-    /// rewrites the selection (ADR 0053), and nothing tells it apart from a
-    /// file `.scratch/theming/issues/07` has yet to find.
+    /// rewrites the selection (ADR 0053), and nothing tells it apart from
+    /// any other selection of the wrong appearance.
     ///
     #[tokio::test]
     async fn an_earlier_builds_light_theme_key_presents_orcvs_light_and_is_kept() {
@@ -8091,7 +8296,7 @@ mod storage_tests {
         let ctx = egui::Context::default();
         let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
         cc.storage = Some(&storage);
-        let mut console = Console::new(&cc).expect("the test runtime");
+        let mut console = Console::new(&cc, ThemeRegistry::built_in()).expect("the test runtime");
 
         assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
