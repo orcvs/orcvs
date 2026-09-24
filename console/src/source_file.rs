@@ -1,11 +1,8 @@
 //!
 //! The Source File the native console has open, if any, and whether the
-//! running Source has changed since that file was opened or saved
-//! (`.scratch/menu-structure/issues/06`).
+//! running Source has changed since that file was opened or saved.
 //!
-//! Native only: the web opens and saves no file (`.scratch/menu-structure/
-//! spec.md`, "Web file I/O is deferred"), so it tracks nothing and shows no
-//! marker.
+//! Native only: the web opens and saves no file.
 //!
 
 use std::io::Read as _;
@@ -19,9 +16,7 @@ pub(crate) const EXTENSION: &str = "orcvs";
 
 ///
 /// The most bytes a Source File the console can open holds: every line of
-/// the one Grid full and ended by CRLF. A longer file is refused whatever it
-/// holds, so no more than one byte past this is read — a file picked by
-/// mistake is not read whole to learn that.
+/// the one Grid full and ended by CRLF. A longer file is refused unread.
 ///
 const MAX_SOURCE_FILE_BYTES: usize = ROW_COUNT * (COL_COUNT + 2);
 
@@ -30,10 +25,8 @@ const MAX_SOURCE_FILE_BYTES: usize = ROW_COUNT * (COL_COUNT + 2);
 /// the file could not be read, or `orcvs::source::file::read` refused it,
 /// naming the line and column.
 ///
-/// Reads at most one byte past [`MAX_SOURCE_FILE_BYTES`]. A text that long
-/// already holds a refusal — a 257th line or a line past 256 characters —
-/// and `file::read` finds the first one in reading order, so the prefix is
-/// refused where the whole file would be.
+/// Reads at most one byte past [`MAX_SOURCE_FILE_BYTES`]; a prefix that long
+/// already holds the refusal the whole file would get.
 ///
 pub(crate) fn read_source_file(path: &Path) -> Result<Source, String> {
     let mut bytes = Vec::new();
@@ -56,20 +49,12 @@ pub(crate) fn read_source_file(path: &Path) -> Result<Source, String> {
 /// The open Source File: its path, if the Source came from or went to one,
 /// and the Cells it held when it was last opened or saved.
 ///
-/// **Unsaved** means the running Source's Cells differ from those. It is a
-/// comparison of Cells, not a count of writes, because the console has no
-/// Undo to walk back with: typing a character and deleting it again, or a
-/// Tick writing a Cell back to what the file holds, leaves nothing to save,
-/// and a counter would say otherwise. Playback's Ticks write the Source, so a
-/// running program can leave its file unsaved without a key being pressed —
-/// that is the truth of what Save would write.
+/// **Unsaved** means the running Source's Cells differ from those, so
+/// typing a character and deleting it again leaves nothing unsaved, and a
+/// Tick's write can make the Source unsaved.
 ///
-/// **Cheap per frame.** The comparison copies the Source once, so it is asked
-/// only when the Source is at a revision it has not answered for: the
-/// revision identity ([`SourceCommander::revision`]) is read every frame
-/// under the lock without copying a Cell, and the answer for it is kept.
-/// While nothing writes, every frame reuses it; while Playback runs, it is
-/// answered once per Tick.
+/// The comparison copies the Source, so it runs only when the Source's
+/// [`SourceCommander::revision`] differs from the one last answered for.
 ///
 pub(crate) struct OpenSourceFile {
     path: Option<PathBuf>,
@@ -82,8 +67,7 @@ pub(crate) struct OpenSourceFile {
 
 impl OpenSourceFile {
     ///
-    /// No file, over a Source whose Cells are `saved`: what the console
-    /// starts on, and what a New or the Function reference opens.
+    /// No file, over a Source whose Cells are `saved`.
     ///
     pub(crate) fn untitled(saved: String) -> Self {
         Self {
@@ -94,6 +78,16 @@ impl OpenSourceFile {
     }
 
     ///
+    /// Records that `saved` was just written to `path`, which becomes the open
+    /// file.
+    ///
+    pub(crate) fn saved(&mut self, path: PathBuf, saved: String) {
+        self.path = Some(path);
+        self.saved = saved;
+        self.answered = None;
+    }
+
+    ///
     /// Names the file the Source was just opened from.
     ///
     pub(crate) fn name(&mut self, path: PathBuf) {
@@ -101,14 +95,12 @@ impl OpenSourceFile {
     }
 
     /// Where the open file is, if the Source came from or went to one.
-    #[cfg(test)]
     pub(crate) fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
 
     ///
-    /// Whether `source` holds Cells other than the ones last opened or
-    /// saved: what Save would change, and what discarding it would lose.
+    /// Whether `source` holds Cells other than the ones last opened or saved.
     ///
     pub(crate) fn unsaved(&mut self, source: &SourceCommander) -> bool {
         let revision = source.revision();
@@ -117,9 +109,8 @@ impl OpenSourceFile {
         {
             return unsaved;
         }
-        // The revision and the Cells are read under one lock, so the answer
-        // is kept for the revision it was reached on even when a Tick writes
-        // between the check above and this.
+        // One lock for the revision and the Cells, so the answer is kept for
+        // the revision it was reached on.
         let mut answer = (revision, true);
         source.read_source(|source| {
             answer = (source.revision(), source.snapshot() != self.saved);
@@ -143,6 +134,77 @@ impl OpenSourceFile {
     }
 }
 
+///
+/// `path`, ending in the Source File extension. The extension is appended,
+/// not substituted, so `loop-v1.2` keeps its dot; a name already ending
+/// `.orcvs`, in any case, is kept as it is.
+///
+pub(crate) fn with_source_file_extension(path: PathBuf) -> PathBuf {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(EXTENSION))
+    {
+        return path;
+    }
+    let mut named = path.into_os_string();
+    named.push(".");
+    named.push(EXTENSION);
+    PathBuf::from(named)
+}
+
+///
+/// Writes `text` to `path` without ever leaving a truncated file there: the
+/// text goes to a new hidden file beside it, is flushed, and is renamed over
+/// `path`. A failure at any step removes that file and leaves `path` as it
+/// was.
+///
+/// Beside rather than in the temporary directory, because a rename across
+/// file systems is a copy. A `path` that exists is written where its links
+/// lead, so a linked Source File stays linked, and the new file takes its
+/// permissions; a new file gets default permissions.
+///
+pub(crate) fn write_beside_then_rename(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let existing = std::fs::metadata(path).ok();
+    let resolved = match existing {
+        Some(_) => std::fs::canonicalize(path)?,
+        None => path.to_path_buf(),
+    };
+    let path = resolved.as_path();
+    let name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("the path names no file"))?;
+    let beside = path.with_file_name(format!(
+        ".{}.{}-{}.saving",
+        name.to_string_lossy(),
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&beside)
+        .and_then(|mut file| {
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            // After the write, so a read-only original cannot refuse it.
+            match &existing {
+                Some(existing) => file.set_permissions(existing.permissions()),
+                None => Ok(()),
+            }
+        })
+        .and_then(|()| std::fs::rename(&beside, path));
+    if written.is_err() {
+        // Nothing to do if it is already gone; the write's own error is the
+        // one to report.
+        let _ = std::fs::remove_file(&beside);
+    }
+    written
+}
+
 /// The name a Source with no file goes by.
 const UNTITLED: &str = "Untitled";
 /// What precedes the name in the title while the Source is unsaved.
@@ -153,7 +215,10 @@ mod tests {
     use orcvs::grid::Grid;
     use orcvs::source::SourceCommander;
 
-    use super::{MAX_SOURCE_FILE_BYTES, OpenSourceFile, read_source_file};
+    use super::{
+        MAX_SOURCE_FILE_BYTES, OpenSourceFile, read_source_file, with_source_file_extension,
+        write_beside_then_rename,
+    };
     use crate::theme_registry::tests_support::TempDir;
 
     #[test]
@@ -204,6 +269,102 @@ mod tests {
         source
             .set(cell, content)
             .expect("a Cell the Source accepts");
+    }
+
+    ///
+    /// The names in `dir`, sorted: what a write left there.
+    ///
+    fn entries(dir: &TempDir) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir.path())
+            .expect("the test directory")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_write_replaces_the_file_whole_and_leaves_nothing_beside_it() {
+        let dir = TempDir::new();
+        let path = dir.write("loop.orcvs", &"x".repeat(4096));
+        write_beside_then_rename(&path, "1\n").expect("a write");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "1\n");
+        write_beside_then_rename(&dir.path().join("new.orcvs"), "2\n").expect("a write");
+        assert_eq!(entries(&dir), ["loop.orcvs", "new.orcvs"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_through_a_link_replaces_the_file_it_names_and_keeps_the_link() {
+        let dir = TempDir::new();
+        let target = dir.write("target.orcvs", "old\n");
+        let link = dir.path().join("link.orcvs");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        write_beside_then_rename(&link, "1\n").expect("a write");
+
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "1\n");
+        assert_eq!(entries(&dir), ["link.orcvs", "target.orcvs"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_keeps_the_permissions_of_the_file_it_replaces() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = TempDir::new();
+        let path = dir.write("private.orcvs", "old\n");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        write_beside_then_rename(&path, "1\n").expect("a write");
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_failed_write_leaves_the_target_and_nothing_beside_it() {
+        let dir = TempDir::new();
+        // A directory holding a file: no rename can replace it.
+        let target = dir.path().join("taken.orcvs");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("kept"), "kept").unwrap();
+
+        assert!(write_beside_then_rename(&target, "1\n").is_err());
+        assert_eq!(entries(&dir), ["taken.orcvs"], "the file beside was left");
+        assert_eq!(
+            std::fs::read_to_string(target.join("kept")).unwrap(),
+            "kept"
+        );
+
+        let missing = dir.path().join("no-such-directory").join("loop.orcvs");
+        assert!(write_beside_then_rename(&missing, "1\n").is_err());
+    }
+
+    #[test]
+    fn a_bare_name_takes_the_source_file_extension() {
+        assert_eq!(
+            with_source_file_extension("/music/loop".into()),
+            std::path::PathBuf::from("/music/loop.orcvs")
+        );
+        assert_eq!(
+            with_source_file_extension("/music/loop.orcvs".into()),
+            std::path::PathBuf::from("/music/loop.orcvs")
+        );
+        assert_eq!(
+            with_source_file_extension("/music/loop.ORCVS".into()),
+            std::path::PathBuf::from("/music/loop.ORCVS")
+        );
+        assert_eq!(
+            with_source_file_extension("/music/loop-v1.2".into()),
+            std::path::PathBuf::from("/music/loop-v1.2.orcvs")
+        );
     }
 
     #[test]

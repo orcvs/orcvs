@@ -263,9 +263,8 @@ impl SourceCommander {
     }
 
     ///
-    /// The identity of the revision the Source is now at
-    /// ([`Source::revision`]), without copying a Cell: cheap enough to ask
-    /// every frame.
+    /// The identity of the revision the Source is at ([`Source::revision`]),
+    /// read without copying a Cell.
     ///
     pub fn revision(&self) -> RevisionId {
         read_recover(&self.inner).revision()

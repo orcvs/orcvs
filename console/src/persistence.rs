@@ -1,11 +1,10 @@
 //!
 //! The console's storage seam: the Source revision eframe storage holds.
 //!
-//! Settings are not stored here. The dark and light Theme and the Cursor
-//! Effect's motion come from `~/.orcvs/config.toml` (`crate::config`); the
-//! `cursor_effects`, `dark_theme` and `light_theme` keys earlier builds wrote
-//! are neither read nor written. The appearance mode is egui's own
-//! `ThemePreference`, which eframe stores with egui memory.
+//! Settings are not stored here: the dark and light Theme and the Cursor
+//! Effect's motion come from `~/.orcvs/config.toml` (`crate::config`), and
+//! the appearance mode is egui's own `ThemePreference`, which eframe stores
+//! with egui memory.
 //!
 //! The Language Map, Tokens, diagnostics and parsed Expressions are derived
 //! from the Source, so a restore rebuilds them. The console runtime and
@@ -402,10 +401,7 @@ mod tests {
     }
 
     ///
-    /// Settings live in `~/.orcvs/config.toml` now, so a save writes the
-    /// Source and nothing under the keys earlier builds kept settings in
-    /// (`.scratch/menu-structure/issues/04`). Those keys are spelled out here
-    /// because nothing shipped names them any more.
+    /// A save writes the Source and nothing under the settings keys below.
     ///
     #[cfg(feature = "persistence")]
     #[test]

@@ -44,9 +44,10 @@ dismisses it; the persistence label is a single start-up notice with its own key
 notices are the console's own list (`Console::file_notices`), not the Theme registry's.
 
 **Filters.** The dialog offers "Orcvs Source File" (`orcvs`) and "All files" (`*`). Windows and
-the portal show them as a choice. On macOS `rfd` merges every filter into one
-`setAllowedFileTypes` list; whether `*` there admits every file has not been checked by hand and
-is the one part of this ticket no test can reach.
+the portal show them as a choice. On macOS `rfd` 0.17.2 merges every filter into one
+`setAllowedFileTypes` list (`backend/macos/file_dialog/panel_ffi.rs`, `add_filters`), where `*` is
+a literal extension rather than a wildcard, so the pair would admit `.orcvs` alone. macOS
+therefore adds no filter and the panel allows any file. Neither half is reachable by a test.
 
 **Tests** (`console::kittest_tests`): `an_opened_source_file_is_the_environment_and_saved`,
 `a_refused_file_opens_nothing_and_says_why` (refused and unreadable), `a_cancelled_open_changes_nothing`,

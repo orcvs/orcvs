@@ -1,7 +1,6 @@
 #![warn(clippy::all)]
 
-// The settings `~/.orcvs/config.toml` holds, read once at native startup
-// (`.scratch/menu-structure/issues/04`).
+// The settings `~/.orcvs/config.toml` holds, read once at native startup.
 mod config;
 pub mod console;
 // Validates a resolved Theme's composited text contrast
@@ -28,7 +27,7 @@ pub mod persistence;
 mod readout_deadline;
 mod report;
 // The Source File the native console has open and whether the Source has
-// changed since (`.scratch/menu-structure/issues/06`). The web opens no file.
+// changed since. The web opens no file.
 #[cfg(not(target_arch = "wasm32"))]
 mod source_file;
 pub mod style;

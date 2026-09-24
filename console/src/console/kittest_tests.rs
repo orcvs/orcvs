@@ -250,9 +250,8 @@ async fn no_menu_offers_a_reset_to_theme_defaults_button() {
 }
 
 ///
-/// `.scratch/menu-structure/issues/04`: settings are the config file's, so
-/// there is no Settings menu, and no menu offers Glitch amount, Glitch
-/// frequency, a Theme picker or an appearance radio.
+/// Settings come from the config file alone: no menu offers Glitch amount,
+/// Glitch frequency, a Theme picker or an appearance radio.
 ///
 #[tokio::test]
 async fn no_menu_offers_a_setting() {
@@ -298,10 +297,8 @@ async fn no_menu_offers_a_setting() {
 }
 
 ///
-/// The settings a console is built with are the ones it presents: the
-/// configured dark and light Themes, and the configured Cursor effects. The
-/// config file is read from a directory the test builds, never the viewer's
-/// home, and a problem in it reaches the top bar's notices.
+/// A console presents the configured dark and light Themes and Cursor
+/// effects, and a problem in the config file reaches the top bar's notices.
 ///
 #[tokio::test]
 async fn configured_settings_reach_the_console_and_their_problems_its_notices() {
@@ -459,9 +456,8 @@ fn console_under_os_appearance(
 
 ///
 /// A running console over `with_my_themes`, under a dark OS with the mode
-/// following it, whose settings file selected My Dark and My Light and
-/// Cursor effects of `amount` and `frequency`: every setting moved off its
-/// default, so a test can tell one reset from one that never changed.
+/// following it, with every setting off its default: My Dark, My Light, and
+/// Cursor effects of `amount` and `frequency`.
 ///
 fn console_with_settings_moved(amount: u8, frequency: u8) -> Harness<'static, Console> {
     let mut config = crate::config::Config {
@@ -501,10 +497,9 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 }
 
 ///
-/// `.scratch/menu-structure/issues/03`: the mode is three icon buttons at
-/// the right of the top bar — Follow the OS, Dark, Light, in that order —
-/// each named for a viewer who cannot see the glyph, and each choice sets
-/// egui's `ThemePreference` and is then the one shown selected.
+/// The mode is three named icon buttons at the right of the top bar —
+/// Follow the OS, Dark, Light — and each sets egui's `ThemePreference` and is
+/// then shown selected.
 ///
 #[tokio::test]
 async fn each_mode_button_sets_the_preference_and_is_shown_selected() {
@@ -616,11 +611,8 @@ async fn each_mode_button_explains_itself_on_hover() {
 }
 
 ///
-/// The mode glyphs are drawn from the console's own font. The console
-/// installs one font (`Console::new`; egui's default fonts are not built), so
-/// a glyph it lacks is drawn as that font's replacement glyph rather than
-/// falling back to another face. 💻, 🌙 and ☀ are such glyphs, which is why
-/// the control uses ◐, ☾ and ☼; this holds each to a glyph of its own.
+/// Each mode glyph has a glyph of its own in the console's one font, which
+/// otherwise draws its replacement glyph.
 ///
 #[tokio::test]
 async fn the_mode_glyphs_are_in_the_console_font() {
@@ -830,8 +822,7 @@ async fn a_theme_file_that_failed_to_load_is_shown_until_dismissed() {
 }
 
 ///
-/// Notices are status, not menus: the notices sit at the right of the
-/// top bar, past the last menu, rather than beside it.
+/// The notices sit at the right of the top bar, past the last menu.
 ///
 #[tokio::test]
 async fn theme_notices_sit_at_the_right_of_the_top_bar() {
@@ -1099,9 +1090,8 @@ async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
 }
 
 /// `Help → Function Reference` is reachable from the menu, and clicking it
-/// is an explicit action rather than a no-op: it discards whatever the
-/// running Orcvs currently holds and replaces it, Cursor included, with the
-/// reference.
+/// discards whatever the running Orcvs currently holds and replaces it,
+/// Cursor included, with the reference.
 ///
 /// The Cursor is moved away from the origin first — the same move
 /// `arrow_keys_move_the_cursor_through_the_source_input_path` proves — so a
@@ -1199,13 +1189,8 @@ fn shortcut_text(harness: &Harness<'_, Console>, shift: bool, key: Key) -> Strin
 }
 
 ///
-/// An Open replaces the environment and nothing else. The settings a viewer
-/// chose — the Theme, which carries the Source colours (ADR 0053), Cursor
-/// effects, and whether Diagnostics is showing — are preferences, and stand
-/// across it (`.scratch/file-new/spec.md`).
-///
-/// Each is configured off its default first, so an Open that reset it would
-/// be seen rather than read back as the default it already held.
+/// An Open leaves the viewer's settings standing: the Theme (ADR 0053),
+/// Cursor effects, and whether Diagnostics is showing.
 ///
 #[tokio::test]
 async fn an_open_leaves_every_setting_standing() {
@@ -1252,9 +1237,8 @@ async fn an_open_leaves_every_setting_standing() {
 
 ///
 /// An Open whose Orcvs cannot start leaves the console on the Source it
-/// already had. A running Orcvs needs a runtime to spawn its Playback Engine
-/// on (ADR 0041); the console is built inside one here and the Open is asked
-/// for outside it, which is the one way a build of the Orcvs fails.
+/// already had. Opening outside a runtime is what makes the start fail
+/// (ADR 0041).
 ///
 #[test]
 fn an_open_that_cannot_start_leaves_the_running_source_standing() {
@@ -1284,9 +1268,8 @@ fn an_open_that_cannot_start_leaves_the_running_source_standing() {
 }
 
 ///
-/// `.scratch/menu-structure/issues/02` and `06`: File holds only what is
-/// built, in order, each item showing the chord that runs it on native, and no
-/// longer offers the Function reference, which is Help's.
+/// File holds its items in order, each showing its chord on native, and
+/// not the Function reference, which is Help's.
 ///
 #[tokio::test]
 async fn the_file_menu_offers_its_items_with_their_chords_and_no_function_reference() {
@@ -1335,13 +1318,16 @@ async fn the_file_menu_offers_its_items_with_their_chords_and_no_function_refere
 
 /// The native File menu's chorded items in order, each with its chord: Shift,
 /// key.
-const FILE_ITEMS: [(&str, bool, Key); 2] = [("New", false, Key::N), ("Open…", false, Key::O)];
+const FILE_ITEMS: [(&str, bool, Key); 4] = [
+    ("New", false, Key::N),
+    ("Open…", false, Key::O),
+    ("Save", false, Key::S),
+    ("Save As…", true, Key::S),
+];
 
 ///
-/// The View menu's zoom items, found by name, each carrying its chord as
-/// shortcut text and each doing what that chord does: `ZoomCommand` through
-/// the same `stepped_zoom` step `show_source_scene` applies to a chord.
-/// They sit above Diagnostics.
+/// The View menu's zoom items sit above Diagnostics, each showing its chord
+/// and doing what that chord does.
 ///
 #[tokio::test]
 async fn the_view_menu_zooms_the_source_view_as_its_chords_do() {
@@ -2157,10 +2143,9 @@ async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
 }
 
 ///
-/// Waits, bounded, until `watch` answers `ready`, handing the runtime the
-/// turns a Playback Engine's task needs to act on what it was asked. Playback
-/// runs on its own task (ADR 0041), so this is the one wait the module
-/// allows: on a fact only that task can make true, never on a clock.
+/// Waits, bounded by [`ENGINE_WAIT`], until `watch` answers `ready`. Playback
+/// runs on its own task (ADR 0041), so this waits on a fact only that task can
+/// make true, never on a clock.
 ///
 async fn engine_reaches(
     watch: &mut orcvs::playback::PlaybackObservationWatch,
@@ -2172,16 +2157,13 @@ async fn engine_reaches(
 }
 
 /// How long [`engine_reaches`] and a closing engine are given: far longer than
-/// a task on a current-thread runtime needs, so reaching it is a failure and
-/// not a slow machine.
+/// a current-thread task needs, so running out is a failure.
 const ENGINE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 ///
-/// `File → New` replaces the environment with an empty Source on the 256 by
-/// 256 Grid. Everything New resets is moved off its rest first — a written Cell,
-/// the Cursor, the Zoom, Bpm, and a Tick that is playing — and every setting
-/// New leaves standing is moved off its default, so the test can tell a
-/// reset from a value that never changed.
+/// `File → New` replaces the environment with an empty Source on the one
+/// Grid, resetting the Cells, Cursor, Zoom, Bpm and Playback and leaving the
+/// settings standing.
 ///
 #[tokio::test]
 async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
@@ -2269,11 +2251,8 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
 }
 
 ///
-/// A console restored onto a stored Source holding written content reaches an
-/// empty Source through `File → New`, and the empty Source is what the next
-/// ordinary save stores — so a restart opens it rather than the Source stored
-/// before New. New itself stores nothing: until that save, the
-/// storage still holds the revision it was restored from.
+/// New stores nothing itself; the next ordinary save stores the empty
+/// Source, so a restart opens it.
 ///
 #[cfg(feature = "persistence")]
 #[tokio::test]
@@ -2582,7 +2561,7 @@ async fn the_question_is_answered_from_the_keyboard() {
     );
 }
 
-// === The open Source File (`.scratch/menu-structure/issues/06`) ===
+// === The open Source File ===
 
 ///
 /// The viewport commands the console sent in the last frame the harness ran.
@@ -2620,9 +2599,8 @@ fn request_close(harness: &mut Harness<'_, Console>) {
 }
 
 ///
-/// Runs the one frame a command chord of `key` is pressed in, and no other,
-/// so what the console sent in it can be read. `key_press_modifiers` would
-/// run a frame for each modifier change around it as well.
+/// Runs exactly one frame with a command chord of `key` pressed in it, so
+/// what the console sent in that frame can be read.
 ///
 fn chord_frame(harness: &mut Harness<'_, Console>, key: Key) {
     harness.event(Event::Key {
@@ -2937,13 +2915,10 @@ async fn a_restored_source_is_untitled_and_unsaved() {
     assert!(asking(&harness), "New discarded a restored Source unasked");
 }
 
-// === Open a Source File (`.scratch/menu-structure/issues/07`) ===
+// === Open a Source File ===
 //
-// Nothing here opens the native dialog: `Console::choose_and_open` is the
-// shipped entry that asks `rfd` for a path and hands it to `open_picked`, and
-// these tests call `open_picked` and `open_path` with the path a dialog
-// would have answered. A menu Open is driven only as far as the question
-// asked before the dialog.
+// These tests call `open_picked` and `open_path` with the path a dialog
+// would answer; nothing opens the native dialog.
 
 use crate::theme_registry::tests_support::TempDir;
 
@@ -3133,5 +3108,263 @@ async fn open_asks_before_discarding_unsaved_changes() {
         cells(harness.state()),
         written,
         "cancelling changed the Source"
+    );
+}
+
+// === Save a Source File ===
+//
+// These tests call `save_picked` with the path a dialog would answer; nothing
+// opens the native dialog.
+
+///
+/// The Source a Source File on disk holds, read back through `orcvs`'s own
+/// reader, as its Cells.
+///
+fn read_back(path: &std::path::Path) -> String {
+    let text = std::fs::read(path).expect("the saved file");
+    orcvs::source::file::read(&text)
+        .expect("the saved file is a Source File")
+        .snapshot()
+}
+
+///
+/// A console with `loop.orcvs` from `dir` open and a character typed into it.
+///
+fn console_with_an_edited_file(dir: &TempDir) -> (Harness<'static, Console>, std::path::PathBuf) {
+    let path = dir.write("loop.orcvs", "1\n");
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    open_picked(&mut harness, Some(path.clone()));
+    harness.key_press(Key::ArrowDown);
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("• loop.orcvs — Orcvs"),
+        "the edit left the file saved"
+    );
+    (harness, path)
+}
+
+///
+/// File → Save writes Source File text to the open file and clears the
+/// unsaved marker; ⌘S does the same.
+///
+#[tokio::test]
+async fn save_writes_the_open_file_and_clears_the_marker() {
+    let dir = TempDir::new();
+    let (mut harness, path) = console_with_an_edited_file(&dir);
+
+    choose_in_menu(&mut harness, "File", "Save");
+
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "1\nx\n",
+        "Save did not write the Source as Source File text"
+    );
+    assert_eq!(read_back(&path), harness.state().orcvs.source().snapshot());
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("loop.orcvs — Orcvs"),
+        "Save left the marker"
+    );
+
+    harness.event(Event::Text("y".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "1\nxy\n",
+        "⌘S did not save"
+    );
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("loop.orcvs — Orcvs"),
+        "⌘S left the marker"
+    );
+    assert!(harness.state().file_notices.is_empty());
+}
+
+///
+/// Save As writes to the picked path, given the `.orcvs` extension when the
+/// dialog answered a bare name, and that path becomes the open file.
+///
+#[tokio::test]
+async fn save_as_writes_the_picked_path_and_opens_it() {
+    let dir = TempDir::new();
+    let mut harness = console_with_unsaved_changes();
+
+    harness
+        .state_mut()
+        .save_picked(Some(dir.path().join("song")));
+    harness.run_steps(2);
+
+    let saved = dir.path().join("song.orcvs");
+    assert_eq!(read_back(&saved), harness.state().orcvs.source().snapshot());
+    assert_eq!(harness.state().source_file.path(), Some(saved.as_path()));
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("song.orcvs — Orcvs"),
+        "Save As did not name and clear the new file"
+    );
+    assert!(
+        !dir.path().join("song").exists(),
+        "Save As wrote the bare name as well"
+    );
+}
+
+///
+/// A cancelled Save As writes nothing and leaves the Source unsaved.
+///
+#[tokio::test]
+async fn a_cancelled_save_as_writes_nothing() {
+    let mut harness = console_with_unsaved_changes();
+    harness.state_mut().save_picked(None);
+    harness.run_steps(2);
+    assert_eq!(harness.state().source_file.path(), None);
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("• Untitled — Orcvs"),
+        "a cancelled Save As cleared the marker"
+    );
+    assert!(harness.state().file_notices.is_empty());
+}
+
+///
+/// A write that fails leaves the unsaved marker set, the open file as it
+/// was, nothing beside it, and the error as a notice.
+///
+#[tokio::test]
+async fn a_failed_save_keeps_the_marker_and_says_why() {
+    let dir = TempDir::new();
+    let (mut harness, path) = console_with_an_edited_file(&dir);
+    let taken = dir.path().join("taken.orcvs");
+    std::fs::create_dir(&taken).unwrap();
+
+    harness.state_mut().save_picked(Some(taken.clone()));
+    harness.run_steps(2);
+
+    let console = harness.state();
+    assert_eq!(
+        console.shown_title.as_deref(),
+        Some("• loop.orcvs — Orcvs"),
+        "a failed write cleared the marker or moved the open file"
+    );
+    assert_eq!(console.source_file.path(), Some(path.as_path()));
+    assert_eq!(
+        console.file_notices.len(),
+        1,
+        "a failed write raised no notice"
+    );
+    assert!(
+        console.file_notices[0].contains("taken.orcvs could not be saved"),
+        "{:?}",
+        console.file_notices
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "1\n",
+        "the open file changed"
+    );
+    let mut left: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into())
+        .collect();
+    left.sort();
+    assert_eq!(
+        left,
+        ["loop.orcvs", "taken.orcvs"],
+        "the failed write left a file beside"
+    );
+}
+
+///
+/// Each File chord, and nothing else, is the command its menu item shows:
+/// Shift turns ⌘S into Save As, and Alt or a repeat is no chord at all.
+///
+#[test]
+fn each_file_chord_is_its_command() {
+    use super::{FileCommand, file_command};
+
+    let key = |key, modifiers, repeat| Event::Key {
+        key,
+        pressed: true,
+        modifiers,
+        repeat,
+        physical_key: None,
+    };
+    let command = Modifiers::COMMAND;
+    for (event, expected) in [
+        (key(Key::N, command, false), Some(FileCommand::New)),
+        (key(Key::O, command, false), Some(FileCommand::Open)),
+        (key(Key::S, command, false), Some(FileCommand::Save)),
+        (
+            key(Key::S, command | Modifiers::SHIFT, false),
+            Some(FileCommand::SaveAs),
+        ),
+        (key(Key::Q, command, false), None),
+        (key(Key::S, Modifiers::NONE, false), None),
+        (key(Key::S, command | Modifiers::ALT, false), None),
+        (key(Key::N, command | Modifiers::SHIFT, false), None),
+        (key(Key::S, command, true), None),
+    ] {
+        assert_eq!(file_command(&event), expected, "{event:?}");
+    }
+}
+
+///
+/// Save As never replaces a file the dialog did not ask about: a bare name
+/// whose `.orcvs` file already exists is not saved, and says why.
+///
+#[tokio::test]
+async fn save_as_never_replaces_the_file_the_extension_names_unasked() {
+    let dir = TempDir::new();
+    let existing = dir.write("song.orcvs", "kept\n");
+    let mut harness = console_with_unsaved_changes();
+
+    harness
+        .state_mut()
+        .save_picked(Some(dir.path().join("song")));
+    harness.run_steps(2);
+
+    assert_eq!(std::fs::read_to_string(&existing).unwrap(), "kept\n");
+    assert_eq!(harness.state().source_file.path(), None);
+    assert_eq!(harness.state().file_notices.len(), 1, "no notice said why");
+    assert!(
+        !dir.path().join("song").exists(),
+        "the bare name was written instead"
+    );
+}
+
+///
+/// A Source File that reads cleanly but whose Source cannot start opens
+/// nothing and says so, as a refused file does.
+///
+#[test]
+fn an_opened_file_whose_source_cannot_start_says_so() {
+    let dir = TempDir::new();
+    let path = dir.write("loop.orcvs", "1\n");
+    let runtime = tokio::runtime::Runtime::new().expect("a Tokio runtime");
+    let entered = runtime.enter();
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+    drop(entered);
+
+    open_picked(&mut harness, Some(path));
+
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "a failed Open replaced the Source"
+    );
+    assert_eq!(harness.state().source_file.path(), None);
+    assert_eq!(
+        harness.state().file_notices.len(),
+        1,
+        "a failed Open raised no notice"
     );
 }

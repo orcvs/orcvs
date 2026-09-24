@@ -150,16 +150,12 @@ pub struct Source {
 static NEXT_REVISION_ID: AtomicU64 = AtomicU64::new(1);
 
 ///
-/// Which revision of which Source the Cells are: a new one is minted by
-/// every write — an edit, a block write, a Tick's commit, even one that
-/// writes nothing or writes a Cell the value it already held — and never by
-/// a read. No two Sources share one, so an identity read from a replaced
-/// Source never names a revision of its successor.
+/// Which revision of which Source the Cells are. Every write mints a new one,
+/// even a write that changes nothing, and a read never does. No two Sources
+/// share one.
 ///
-/// It says a write happened, not what the Cells hold: a write back to
-/// earlier Cells is a new revision. A caller asking "have the Cells changed
-/// since?" compares identities to learn whether the question needs asking
-/// again, and compares Cells to answer it.
+/// It says a write happened, not what the Cells hold: to learn whether the
+/// Cells changed, compare identities first and Cells only when they differ.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RevisionId(u64);
@@ -251,7 +247,7 @@ impl Source {
         }
     }
 
-    /// The identity of the revision the Cells are now at.
+    /// The identity of the revision the Cells are at.
     pub fn revision(&self) -> RevisionId {
         self.revision
     }
@@ -522,8 +518,7 @@ mod test {
 
     ///
     /// Every write mints a revision no other write or Source holds, and a read
-    /// mints none: what lets a caller ask "has this Source changed since?" by
-    /// comparing two identities rather than two sets of Cells.
+    /// mints none.
     ///
     #[test]
     fn every_write_and_only_a_write_mints_a_new_revision() {

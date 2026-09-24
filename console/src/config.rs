@@ -1,6 +1,6 @@
 //!
 //! The console's settings, read from `~/.orcvs/config.toml` at startup on
-//! native (`.scratch/menu-structure/issues/04`).
+//! native.
 //!
 //! ```toml
 //! [theme]
@@ -15,9 +15,8 @@
 //! Every key is optional, and an absent key is the built-in default. A
 //! missing file is an ordinary start. An unreadable or malformed file, an
 //! unknown key, a value of the wrong type or out of range is a notice, and
-//! only the keys it affects fall back to their defaults. Whether a Theme
-//! identity names an available Theme of its appearance is the registry's to
-//! answer, so `SelectedThemes` reports that one, through the same channel.
+//! only the keys it affects fall back to their defaults. `SelectedThemes`
+//! reports a Theme identity no available Theme answers to.
 //!
 //! There is no settings UI and no reload: the file is read once, before the
 //! console is built. The web reads no file and runs on the defaults.
@@ -37,15 +36,14 @@ pub(crate) struct Config {
     /// Glitch amount and Glitch frequency, before reduced motion.
     pub(crate) cursor_effects: CursorEffectSettings,
     /// One message per problem, in the order found, for the Theme notice
-    /// channel. Not yet reported: the registry reports what it records.
+    /// channel, which reports them.
     pub(crate) notices: Vec<String>,
 }
 
 impl Config {
     ///
-    /// The shipped console's settings: `~/.orcvs/config.toml`, beside the
-    /// Theme directory. Without a home directory there is no file to read;
-    /// `ThemeRegistry::start` already tells the viewer so.
+    /// The shipped console's settings: `~/.orcvs/config.toml`. Without a home
+    /// directory it runs on the defaults; `ThemeRegistry::start` reports that.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn start() -> Self {

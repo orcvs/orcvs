@@ -577,20 +577,24 @@ fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
 ///
 /// A File menu command, chosen from the menu or, on native, by its chord.
 ///
-/// The web binds no chord: the browser reserves ⌘N and ⌘Q, and the web offers
-/// New alone (`.scratch/menu-structure/spec.md`).
+/// The web binds no chord, since the browser reserves ⌘N and ⌘Q, and offers
+/// New alone.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileCommand {
     New,
     #[cfg(not(target_arch = "wasm32"))]
     Open,
+    #[cfg(not(target_arch = "wasm32"))]
+    Save,
+    #[cfg(not(target_arch = "wasm32"))]
+    SaveAs,
 }
 
 impl FileCommand {
     /// Every command a chord reaches.
     #[cfg(not(target_arch = "wasm32"))]
-    const CHORDED: [Self; 2] = [Self::New, Self::Open];
+    const CHORDED: [Self; 4] = [Self::New, Self::Open, Self::Save, Self::SaveAs];
 
     /// The File menu item's label.
     fn label(self) -> &'static str {
@@ -598,6 +602,10 @@ impl FileCommand {
             Self::New => "New",
             #[cfg(not(target_arch = "wasm32"))]
             Self::Open => "Open…",
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Save => "Save",
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::SaveAs => "Save As…",
         }
     }
 
@@ -607,21 +615,21 @@ impl FileCommand {
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn shortcut(self) -> egui::KeyboardShortcut {
-        let key = match self {
-            Self::New => Key::N,
-            Self::Open => Key::O,
+        let (modifiers, key) = match self {
+            Self::New => (egui::Modifiers::COMMAND, Key::N),
+            Self::Open => (egui::Modifiers::COMMAND, Key::O),
+            Self::Save => (egui::Modifiers::COMMAND, Key::S),
+            Self::SaveAs => (egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::S),
         };
-        egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key)
+        egui::KeyboardShortcut::new(modifiers, key)
     }
 }
 
 ///
 /// The File command a toolkit event's chord asks for, or none.
 ///
-/// A command modifier with exactly the shortcut's Shift, and no Alt: ⌘⇧N is
-/// not ⌘N. A held key's repeats run nothing, so holding a chord runs its
-/// command once. Bare, the letters are Source characters, which reach it as
-/// [`Event::Text`], never through this.
+/// Matches the command modifier with exactly the shortcut's Shift and no Alt,
+/// so ⌘⇧S is Save As and ⌘⇧N is nothing. Key repeats run nothing.
 ///
 #[cfg(not(target_arch = "wasm32"))]
 fn file_command(event: &Event) -> Option<FileCommand> {
@@ -915,31 +923,26 @@ pub struct Console {
     cursor_effect_animation: CursorEffectAnimation,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
-    /// The question the console is asking before it discards the Source, while
-    /// it asks. Holding it keeps keys from the Source, as an open popup does.
+    /// The question asked before discarding the Source, while it is showing.
+    /// It holds the keys, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
-    /// The Source File the Source came from or went to, if any, and the Cells
-    /// it held then: what the window title names and what "unsaved" is asked
-    /// against.
+    /// The open Source File, if any, and the Cells it last held: what the
+    /// window title names and what "unsaved" compares against.
     #[cfg(not(target_arch = "wasm32"))]
     source_file: crate::source_file::OpenSourceFile,
-    /// Why an Open or a Save did not happen, until the viewer dismisses them:
-    /// shown under the top bar's Notices beside the Theme and settings
-    /// notices, the one channel a viewer reads that holds problems until
-    /// dismissed.
+    /// Why an Open or a Save failed, shown under the top bar's Notices until
+    /// the viewer dismisses them.
     #[cfg(not(target_arch = "wasm32"))]
     file_notices: Vec<String>,
     /// The window title last sent, so it is sent again only when it changes.
     #[cfg(not(target_arch = "wasm32"))]
     shown_title: Option<String>,
-    /// Whether the viewer has chosen to quit, unsaved changes discarded or
-    /// none to lose: the close that follows is let through rather than asked
-    /// about again.
+    /// Whether the viewer has chosen to quit, so the close that follows is
+    /// let through rather than asked about again.
     #[cfg(not(target_arch = "wasm32"))]
     closing: bool,
-    /// The context the console was created in: what an Open wakes the Panel
-    /// through when the new Orcvs's Playback Engine publishes, as
-    /// `Console::new` does for the first.
+    /// The context an Open wakes the Panel through when the new Orcvs's
+    /// Playback Engine publishes.
     ctx: egui::Context,
 }
 
@@ -984,10 +987,9 @@ impl Console {
         for notice in config.notices {
             registry.notice(notice);
         }
-        // The configured dark and light Theme selections, resolved against
-        // the registry once here so `install` below and `Self`'s own `themes`
-        // field hold the same pair. A selection the registry cannot supply
-        // falls back to its appearance's built-in and raises a notice.
+        // Resolved once so `install` and `Self::themes` hold the same pair. A
+        // selection the registry cannot supply falls back to its appearance's
+        // built-in and raises a notice.
         let themes = SelectedThemes::new(registry, config.theme_selection);
 
         // eframe restores egui memory — `ThemePreference` included — before
@@ -1032,9 +1034,8 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        // A restored Source is Untitled: storage keeps the Source and not the
-        // file it came from, so it is unsaved against the empty Source a fresh
-        // console opens on. Autosave is session recovery, not the file.
+        // A restored Source is Untitled: storage keeps the Source, not its
+        // file, so it is unsaved against the empty Source.
         #[cfg(not(target_arch = "wasm32"))]
         let source_file = crate::source_file::OpenSourceFile::untitled(default_source().snapshot());
         let (orcvs, midi) = environment(&cc.egui_ctx, start.source)?;
@@ -1071,32 +1072,13 @@ impl Console {
     }
 
     ///
-    /// Opens `source`: the console's one answer to "replace the environment
-    /// with this Source" (`.scratch/file-new/spec.md`).
+    /// Replaces the environment with `source`: the running Orcvs (Source,
+    /// Grid, Cursor, Region, Playback, opts), MIDI device selection, and the
+    /// Source View. Settings — Theme, Cursor effects, Diagnostics — stand.
     ///
-    /// **An Open replaces the environment:** the running Orcvs — its Source
-    /// and Grid, the Cursor and Region, Playback and the Tick it had reached,
-    /// and its opts, Bpm among them — MIDI device selection, rebuilt over the
-    /// new Orcvs's handle exactly as [`Console::new`] builds it, so a
-    /// previously selected destination does not carry over, and the Source
-    /// View, whose Pan and Zoom return to rest. The replaced Orcvs is dropped
-    /// here, and its Playback Engine with it.
-    ///
-    /// **An Open leaves the settings standing:** the Theme, which carries the
-    /// Source colours, Cursor effects, and whether Diagnostics is showing.
-    /// They are a viewer's preferences rather than the environment, and only
-    /// the Source was asked to change.
-    ///
-    /// With the `persistence` feature on, the opened Source saves like any
-    /// other on the next scheduled save; nothing is stored here.
-    ///
-    /// On native the opened Source is Untitled and saved: no file, and
-    /// nothing changed since it was opened. An Open from a file names the
-    /// file once this answers that it opened.
-    ///
-    /// A Source whose Orcvs cannot start is reported and not opened: the
-    /// console stays on the environment it already had, and on its file. The
-    /// answer is whether the Source was opened.
+    /// On native the opened Source is Untitled and saved; a caller opening a
+    /// file names it afterwards. A Source whose Orcvs cannot start is reported
+    /// and not opened. Answers whether the Source was opened.
     ///
     fn open(&mut self, source: Source) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
@@ -1120,30 +1102,43 @@ impl Console {
     }
 
     ///
-    /// Opens the Function reference — what the Help menu offers, since a
-    /// console that restores nothing opens an empty Grid (`source-view/03`).
+    /// Opens the Function reference: `Help → Function Reference`.
     ///
     fn load_function_reference(&mut self) {
-        self.open(function_reference());
+        if !self.open(function_reference()) {
+            self.start_notice("The Function Reference");
+        }
     }
 
     ///
-    /// Opens an empty Source on the one 256 by 256 Grid (ADR 0054) — what
-    /// `File → New` offers. Storage is not touched: with the `persistence`
-    /// feature on, the ordinary save stores the empty Source over the old one.
+    /// Opens an empty Source on the one Grid (ADR 0054): `File → New`.
     ///
     fn new_source(&mut self) {
-        self.open(default_source());
+        if !self.open(default_source()) {
+            self.start_notice("An empty Source");
+        }
+    }
+
+    ///
+    /// Raises a notice that `what` was not opened because its Source could not
+    /// start. The web has no notice for it; `open` reported why to the
+    /// developer console on both.
+    ///
+    fn start_notice(&mut self, what: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.file_notice(format!(
+            "{what} could not be opened: its Source could not start"
+        ));
+        #[cfg(target_arch = "wasm32")]
+        let _ = what;
     }
 
     ///
     /// Whether discarding the running Source would lose anything, so an
     /// action that discards it asks first.
     ///
-    /// On native, whether the Source has unsaved changes: Cells other than
-    /// the ones its file, or the Untitled Source it began as, last held
-    /// (`.scratch/menu-structure/issues/06`). The web tracks no file, and
-    /// asks whether any Cell is written (`Console::source_is_written`).
+    /// On native, whether the Source has unsaved changes. The web tracks no
+    /// file, and asks whether any Cell is written.
     ///
     fn asks_before_discarding(&mut self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
@@ -1157,12 +1152,9 @@ impl Console {
     }
 
     ///
-    /// Opens the Source File at `path` as the environment: its path becomes
-    /// the open file's and the Source counts as saved.
-    ///
-    /// A file that cannot be read, or that `orcvs::source::file::read`
-    /// refuses, opens nothing — the running Source, its file and whether it is
-    /// unsaved all stand — and says why as a notice.
+    /// Opens the Source File at `path` as the environment, as the open file
+    /// and saved. A file that cannot be read or parsed opens nothing and
+    /// raises a notice.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn open_path(&mut self, path: &std::path::Path) {
@@ -1170,6 +1162,8 @@ impl Console {
             Ok(source) => {
                 if self.open(source) {
                     self.source_file.name(path.to_path_buf());
+                } else {
+                    self.start_notice(&path.display().to_string());
                 }
             }
             Err(problem) => self.file_notice(problem),
@@ -1188,22 +1182,100 @@ impl Console {
     }
 
     ///
-    /// `File → Open…` once nothing unsaved is left to ask about: the native
-    /// dialog, filtered to Source Files and still offering any file, then
-    /// the file it picked.
+    /// `File → Open…`: the native dialog, then the file it picked.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn choose_and_open(&mut self) {
-        let picked = rfd::FileDialog::new()
-            .set_title("Open a Source File")
+        let dialog = rfd::FileDialog::new().set_title("Open a Source File");
+        // rfd's macOS panel merges every filter into one list of allowed
+        // extensions, where `*` is no wildcard, so any filter there would
+        // refuse a Source File under another extension.
+        #[cfg(not(target_os = "macos"))]
+        let dialog = dialog
             .add_filter("Orcvs Source File", &[crate::source_file::EXTENSION])
-            .add_filter("All files", &["*"])
-            .pick_file();
+            .add_filter("All files", &["*"]);
+        let picked = dialog.pick_file();
         self.open_picked(picked);
     }
 
     ///
-    /// Raises a notice about a Source File, reported as every notice is.
+    /// `File → Save`: writes the open file, or runs Save As when none is open.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_file(&mut self) {
+        match self.source_file.path() {
+            Some(path) => self.save_to(path.to_path_buf()),
+            None => self.save_file_as(),
+        }
+    }
+
+    ///
+    /// `File → Save As…`: the native save dialog, offering the open file's
+    /// name (or `Untitled.orcvs`) in its folder, then the path it picked.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_file_as(&mut self) {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Save the Source File")
+            .add_filter("Orcvs Source File", &[crate::source_file::EXTENSION]);
+        let path = self.source_file.path();
+        if let Some(folder) = path.and_then(std::path::Path::parent) {
+            dialog = dialog.set_directory(folder);
+        }
+        let name = path.and_then(std::path::Path::file_name).map_or_else(
+            || format!("Untitled.{}", crate::source_file::EXTENSION),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let picked = dialog.set_file_name(name).save_file();
+        self.save_picked(picked);
+    }
+
+    ///
+    /// Saves to the path the viewer picked — given the Source File extension
+    /// when it has none — or nothing when the dialog was cancelled.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_picked(&mut self, picked: Option<std::path::PathBuf>) {
+        let Some(picked) = picked else {
+            return;
+        };
+        let path = crate::source_file::with_source_file_extension(picked.clone());
+        // The dialog confirmed replacing `picked`, not `path`, so an existing
+        // file at `path` is refused rather than replaced unasked.
+        if path != picked && path.exists() {
+            self.file_notice(format!(
+                "{} was not saved: {} already exists; choose Save As… and pick it to replace it",
+                picked.display(),
+                path.display()
+            ));
+            return;
+        }
+        self.save_to(path);
+    }
+
+    ///
+    /// Writes the Source to `path` beside it and renames it over, so a failure
+    /// never truncates it. Success makes `path` the open, saved file; failure
+    /// raises a notice.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_to(&mut self, path: std::path::PathBuf) {
+        // One lock for the text and the snapshot, so a Tick cannot land between.
+        let mut written = (String::new(), String::new());
+        self.orcvs.source().read_source(|source| {
+            written = (orcvs::source::file::write(source), source.snapshot());
+        });
+        let (text, saved) = written;
+        match crate::source_file::write_beside_then_rename(&path, &text) {
+            Ok(()) => self.source_file.saved(path, saved),
+            Err(error) => {
+                self.file_notice(format!("{} could not be saved: {error}", path.display()));
+            }
+        }
+    }
+
+    ///
+    /// Reports and raises a notice about a Source File.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn file_notice(&mut self, message: String) {
@@ -1212,9 +1284,7 @@ impl Console {
     }
 
     ///
-    /// Leaves the console: what a close request comes to once the viewer has
-    /// chosen to discard unsaved changes. The close this sends is let through
-    /// rather than asked about again.
+    /// Closes the window without asking again.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn quit(&mut self) {
@@ -1223,30 +1293,30 @@ impl Console {
     }
 
     ///
-    /// Runs `command`, asking first where it would discard unsaved changes.
-    /// One dispatch for the File menu and the chords, so the two cannot
-    /// disagree.
+    /// Runs `command` for the File menu and the chords alike, asking first
+    /// where it would discard unsaved changes.
     ///
     fn run_file_command(&mut self, command: FileCommand) {
         match command {
             FileCommand::New => {
-                let ask = self.asks_before_discarding();
-                self.discard_asking_first(ask, NEW_CONFIRMATION);
+                self.discard_asking_first(NEW_CONFIRMATION);
             }
             #[cfg(not(target_arch = "wasm32"))]
             FileCommand::Open => {
-                let ask = self.asks_before_discarding();
-                self.discard_asking_first(ask, OPEN_CONFIRMATION);
+                self.discard_asking_first(OPEN_CONFIRMATION);
             }
+            // Saving discards nothing, so neither asks.
+            #[cfg(not(target_arch = "wasm32"))]
+            FileCommand::Save => self.save_file(),
+            #[cfg(not(target_arch = "wasm32"))]
+            FileCommand::SaveAs => self.save_file_as(),
         }
     }
 
     ///
-    /// Asks before a close request, while there are unsaved changes: the
-    /// close is cancelled and becomes the Quit question. The one place a
-    /// close is asked about, whether it came from the window's close button,
-    /// `File → Quit` or egui's quit shortcut. A close that follows a
-    /// confirmed Quit is let through.
+    /// Cancels a close request while there are unsaved changes and asks the
+    /// Quit question instead. Every close — the window's button, `File → Quit`
+    /// or egui's quit shortcut — is asked about here.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn guard_close(&mut self, ctx: &egui::Context) {
@@ -1255,14 +1325,13 @@ impl Console {
             && self.asks_before_discarding()
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.discard_asking_first(true, QUIT_CONFIRMATION);
+            self.discard_confirmation = Some(QUIT_CONFIRMATION);
         }
     }
 
     ///
-    /// Sends the window title — the open file's name, or `Untitled`, marked
-    /// while there are unsaved changes — when it differs from the one last
-    /// sent.
+    /// Sends the window title — the open file's name or `Untitled`, marked
+    /// while unsaved — when it changes.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     fn show_title(&mut self, ctx: &egui::Context) {
@@ -1275,8 +1344,7 @@ impl Console {
     }
 
     ///
-    /// Whether any Cell of the running Source is written: what the web asks
-    /// before `File → New` discards it.
+    /// Whether any Cell of the running Source is written.
     ///
     #[cfg(target_arch = "wasm32")]
     fn source_is_written(&self) -> bool {
@@ -1288,18 +1356,12 @@ impl Console {
     }
 
     ///
-    /// Discards the Source through `confirmation.discard`, first asking the
-    /// viewer `confirmation.question` when `ask` is true.
+    /// Discards the Source through `confirmation.discard`, first asking
+    /// `confirmation.question` when there is anything to lose
+    /// ([`Console::asks_before_discarding`]). One question shows at a time.
     ///
-    /// The caller decides whether there is anything to lose — `File → New`
-    /// asks when the Source is written — so the same question serves any
-    /// action that replaces or leaves the environment, whatever its own
-    /// answer to that is. Only one question is asked at a time: a request
-    /// while one is showing replaces it, which a viewer cannot reach, since
-    /// the question blocks the menus behind it.
-    ///
-    fn discard_asking_first(&mut self, ask: bool, confirmation: DiscardConfirmation) {
-        if ask {
+    fn discard_asking_first(&mut self, confirmation: DiscardConfirmation) {
+        if self.asks_before_discarding() {
             self.discard_confirmation = Some(confirmation);
         } else {
             (confirmation.discard)(self);
@@ -1307,12 +1369,9 @@ impl Console {
     }
 
     ///
-    /// Shows the discard confirmation while one is asking, as a modal over the
-    /// whole console: nothing behind it takes a click or keyboard focus.
-    ///
-    /// It opens with Cancel focused, so Enter on arrival is the safe answer,
-    /// and Tab reaches Discard. Escape and a click outside it cancel, as
-    /// Cancel does; only Discard runs the discarding action.
+    /// Shows the discard confirmation as a modal over the whole console. It
+    /// opens with Cancel focused; Escape and a click outside cancel, and only
+    /// Discard runs the discarding action.
     ///
     fn show_discard_confirmation(&mut self, ctx: &egui::Context) {
         let Some(confirmation) = self.discard_confirmation.take() else {
@@ -1350,9 +1409,7 @@ impl Console {
 ///
 /// A question asked before an action that discards the running Source.
 ///
-/// `discard` is the action itself, run only when the viewer confirms; a plain
-/// function, so any action that replaces or leaves the environment can be
-/// asked about without the confirmation knowing which it is.
+/// `discard` is the action itself, run only when the viewer confirms.
 ///
 struct DiscardConfirmation {
     question: &'static str,
@@ -1398,10 +1455,9 @@ const DISCARD_CONFIRMATION_ID: &str = "orcvs-discard-confirmation";
 const DISCARD_CONFIRMATION_WIDTH: f32 = 360.0;
 
 ///
-/// A running Orcvs over `source`, the Panel woken whenever its Playback Engine
-/// publishes, and MIDI device selection over its handle with the destinations
-/// discovered once. What [`Console::new`] starts on and what
-/// [`Console::open`] replaces the running pair with, so the two cannot drift.
+/// A running Orcvs over `source` that wakes the Panel when its Playback Engine
+/// publishes, and MIDI device selection over its handle. Shared by
+/// [`Console::new`] and [`Console::open`].
 ///
 fn environment(
     ctx: &egui::Context,
@@ -1418,11 +1474,8 @@ fn environment(
 }
 
 ///
-/// The notices, when there are any: a menu in the top bar titled Notices
-/// that lists each and offers to dismiss them — the Theme selections', the
-/// registry's, and the settings file's, which reach the registry at startup,
-/// then `files`: why a Source File was not opened or saved. Showing them
-/// starts nothing.
+/// The top bar's Notices menu, when there are any: the Theme and settings
+/// notices, then the Source File notices in `files`, with a Dismiss button.
 ///
 fn show_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes, files: &mut Vec<String>) {
     let count = themes.notice_count() + files.len();
@@ -2453,8 +2506,7 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
 
 ///
 /// A viewer's change to the console's appearance, made with the top bar's
-/// mode control. The dark and light Themes are settings
-/// (`~/.orcvs/config.toml`), not something the console changes.
+/// mode control. The dark and light Themes themselves are settings.
 ///
 #[derive(Debug)]
 enum AppearanceChange {
@@ -2463,25 +2515,17 @@ enum AppearanceChange {
 }
 
 ///
-/// The mode control's glyphs, in the order it shows them: Follow the OS,
-/// Dark, Light. The spec's 💻, 🌙 and ☀ are not in the console's one font
-/// (egui's default fonts are not built), so each would draw as the font's
-/// replacement glyph; ◐, ☾ and ☼ are in it on native and web alike, which
-/// `kittest_tests::the_mode_glyphs_are_in_the_console_font` holds.
+/// The mode control's glyphs: Follow the OS, Dark, Light. Each must be in the
+/// console's one font (`kittest_tests::the_mode_glyphs_are_in_the_console_font`).
 ///
 const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
 
 ///
 /// The top bar's mode control: Follow the OS, Dark and Light as icon-only
-/// selectable buttons, egui's `global_theme_preference_buttons` without its
-/// text. Each is named for accessibility by what its glyph stands for, and
-/// explains itself on hover; Follow the OS also names the operating
-/// system's current appearance, as `ThemePreference::radio_buttons` does.
-/// Answers the choice a viewer made this frame, if any; the caller applies
-/// it once the frame is done.
+/// selectable buttons, each named for accessibility and explained on hover.
+/// Answers the choice a viewer made this frame, if any.
 ///
-/// Shown into a right-to-left layout, so the buttons are added last first
-/// and read Follow the OS, Dark, Light from left to right.
+/// Shown into a right-to-left layout, so the buttons are added in reverse.
 ///
 fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
     let mode = ui.ctx().options(|options| options.theme_preference);
@@ -2558,7 +2602,7 @@ impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
     /// intervals while running. This stores the current Source revision;
-    /// settings are `~/.orcvs/config.toml`'s, and are never saved.
+    /// settings are never saved.
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -2655,22 +2699,23 @@ impl eframe::App for Console {
 
         top_panel.show(root, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                // File holds only what is built (`.scratch/menu-structure/
-                // spec.md`): New, and Quit on native.
+                // New, Open…, Save, Save As… and Quit on native; New alone on
+                // the web.
                 ui.menu_button("File", |ui| {
                     if file_menu_item(ui, FileCommand::New) {
                         file_command_chosen = Some(FileCommand::New);
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        if file_menu_item(ui, FileCommand::Open) {
-                            file_command_chosen = Some(FileCommand::Open);
+                        for command in [FileCommand::Open, FileCommand::Save, FileCommand::SaveAs] {
+                            if file_menu_item(ui, command) {
+                                file_command_chosen = Some(command);
+                            }
                         }
                         ui.separator();
-                        // Quit asks the window to close, so it is asked about
-                        // where every close is, in `guard_close`. It shows no
-                        // chord: the console binds none, and on macOS the app
-                        // menu's ⌘Q ends the process without a close request.
+                        // Quit is a close request, asked about in `guard_close`.
+                        // It shows no chord: on macOS the app menu's ⌘Q ends the
+                        // process without a close request.
                         if ui.button("Quit").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
@@ -2697,8 +2742,7 @@ impl eframe::App for Console {
                         // native it discards unsaved changes as New does.
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            let ask = self.asks_before_discarding();
-                            self.discard_asking_first(ask, FUNCTION_REFERENCE_CONFIRMATION);
+                            self.discard_asking_first(FUNCTION_REFERENCE_CONFIRMATION);
                         }
                         #[cfg(target_arch = "wasm32")]
                         self.load_function_reference();
@@ -2710,17 +2754,12 @@ impl eframe::App for Console {
                     // Rightmost: the mode, which is a control rather than a
                     // menu, and applied once the frame is done.
                     appearance_change = mode_control(ui);
-                    // Theme load, import, selection and contrast notices, and
-                    // the persistence notice beside them: start-up answers a
-                    // viewer reads, not diagnostics of the running frame, so
-                    // they sit in the bar rather than the Diagnostics window,
-                    // and stay until dismissed. `report` has already sent each
-                    // to the developer console; this is the channel a viewer
-                    // reads.
+                    // Theme, settings, Source File and persistence notices sit
+                    // in the bar until dismissed; `report` has already sent
+                    // each to the developer console.
                     #[cfg(not(target_arch = "wasm32"))]
                     show_notices(ui, &mut self.themes, &mut self.file_notices);
-                    // The web opens and saves no file, so it has none of
-                    // their notices.
+                    // The web opens and saves no file.
                     #[cfg(target_arch = "wasm32")]
                     show_notices(ui, &mut self.themes, &mut Vec::new());
                     #[cfg(feature = "persistence")]
@@ -2787,9 +2826,8 @@ impl eframe::App for Console {
             if let Some(copied) = self.orcvs.event_handler(events).copied {
                 ctx.copy_text(copied);
             }
-            // A File chord answers `run_file_command`, not the Source, which
-            // `translate_event` already keeps it from: a command-modified
-            // letter is no Source key, and the backends withhold its text.
+            // A File chord runs `run_file_command`; `translate_event` already
+            // keeps command-modified letters from the Source.
             #[cfg(not(target_arch = "wasm32"))]
             if file_command_chosen.is_none() {
                 file_command_chosen = ctx.input(|i| i.events.iter().find_map(file_command));
@@ -2798,10 +2836,8 @@ impl eframe::App for Console {
             // Keys a control took are still the event that follows a command
             // Enter, so they disarm its fill as one reaching the Source would.
             self.orcvs.disarm_fill();
-            // A command Zoom chord is a Source key too, though
-            // `show_source_scene` reads it rather than the Source: while the
-            // keys are elsewhere — a discard confirmation asking among them —
-            // it is dropped here, so it zooms nothing behind them.
+            // `show_source_scene` reads Zoom chords, so drop them here while
+            // the keys are elsewhere, such as a discard confirmation.
             ctx.input_mut(|i| i.events.retain(|event| zoom_command(event).is_none()));
         }
         if let Some(command) = file_command_chosen {
@@ -3027,10 +3063,8 @@ impl eframe::App for Console {
         #[cfg(not(target_arch = "wasm32"))]
         self.show_title(&ctx);
 
-        // Sampled once every widget, the Diagnostics window's and the
-        // discard confirmation's included, has been shown and has taken or
-        // surrendered focus, and every popup has opened or closed. A
-        // confirmation that is asking holds the keys as an open popup does.
+        // Sampled once every widget has taken or surrendered focus and every
+        // popup has opened or closed. A showing confirmation holds the keys.
         self.keyboard_elsewhere = ctx.egui_wants_keyboard_input()
             || egui::Popup::is_any_open(&ctx)
             || self.discard_confirmation.is_some();
@@ -4089,7 +4123,7 @@ mod tests {
     ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
     /// C `00:00`, O `None`. File, View and Help are the top bar's menus, in
-    /// that order; the MIDI and Settings menus are gone.
+    /// that order.
     ///
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
@@ -8798,12 +8832,9 @@ mod storage_tests {
     }
 
     ///
-    /// Configured dark and light Theme references
-    /// (`.scratch/menu-structure/issues/04`). A reference no available Theme
-    /// of its appearance answers to — `"my-dark"` before anything makes it
-    /// available — presents that appearance's default built-in, chrome and
-    /// Source alike, with a notice. The next launch, once a loaded Theme
-    /// answers to it, presents it: the settings file was never rewritten.
+    /// A configured Theme reference no available Theme answers to presents
+    /// its appearance's default built-in with a notice, and the configured
+    /// Theme once a later launch loads it.
     ///
     #[tokio::test]
     async fn configured_theme_references_are_presented_or_fall_back() {
@@ -8860,11 +8891,8 @@ mod storage_tests {
     }
 
     ///
-    /// The storage keys earlier builds kept settings under are neither read
-    /// nor written (`.scratch/menu-structure/issues/04`): storage selecting
-    /// `my-dark`, a wrong-appearance light Theme and still Cursor effects
-    /// changes nothing a console presents, and a save writes none of them
-    /// back. The keys are spelled out because nothing shipped names them.
+    /// Settings are not read from or written to storage: the keys below
+    /// change nothing a console presents, and a save writes none of them.
     ///
     #[tokio::test]
     async fn the_retired_settings_keys_are_neither_read_nor_written() {
@@ -8910,14 +8938,8 @@ mod storage_tests {
     }
 
     ///
-    /// `Console::load_function_reference` — what `Help → Function
-    /// Reference` calls — replaces the whole running Orcvs, Grid included,
-    /// rather than only clearing the Cells of the one it already had.
-    ///
-    /// `kittest_tests::the_help_menu_loads_the_function_reference_on_demand`
-    /// proves the menu item reaches this call; this proves what the call
-    /// itself does, against a starting revision on a Grid the reference does
-    /// not share.
+    /// `Console::load_function_reference` replaces the whole running Orcvs,
+    /// Grid included.
     ///
     #[tokio::test]
     async fn loading_the_function_reference_replaces_the_source_and_its_grid() {
