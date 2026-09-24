@@ -50,6 +50,11 @@ asks, `keyboard_elsewhere` is set alongside the open-popup rule, so Source keys 
 Grid behind it. Cancelling touches nothing and stores nothing; confirming runs the same
 `Console::new_source` an unasked New runs.
 
+Review found the command Zoom chords reached the Source View behind the question: `show_source_scene`
+reads them from egui's input rather than through the Source's event routing. They are now dropped
+from input whenever `keyboard_elsewhere` holds, so the same rule covers them. That also applies
+while a menu is open or the Bpm field is focused, where a chord used to zoom the View behind.
+
 Tests in `kittest_tests`: `file_new_on_written_content_asks_and_confirming_opens_an_empty_source`,
 `file_new_cancelled_leaves_the_environment_as_it_was` (Playback still playing on the same engine),
 `file_new_on_an_empty_source_opens_without_asking`,

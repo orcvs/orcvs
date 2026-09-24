@@ -2287,23 +2287,30 @@ async fn file_new_on_an_empty_source_opens_without_asking() {
 
 ///
 /// The question holds the keys, as an open popup does: Escape cancels rather
-/// than confirms, and a character typed while it is asking does not write the
-/// Grid behind it.
+/// than confirms, and a character, an arrow or a Zoom chord pressed while it
+/// is asking reaches neither the Grid nor the Source View behind it.
 ///
 #[tokio::test]
 async fn escape_cancels_the_question_and_keys_never_reach_the_source_behind_it() {
     let mut harness = console_with_written_content();
     let written = cells(harness.state());
     let cursor_before = cursor(harness.state());
+    let zoom = harness.state().source_view.zoom;
 
     choose_in_file_menu(&mut harness, "New");
     assert!(asking(&harness), "New discarded written content unasked");
 
     harness.event(Event::Text("y".to_owned()));
     harness.key_press(Key::ArrowRight);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);
     harness.step();
     harness.run_steps(1);
     assert!(asking(&harness), "a key closed the question");
+    assert_eq!(
+        harness.state().source_view.zoom,
+        zoom,
+        "a Zoom chord pressed while asking zoomed the Source View"
+    );
     assert_eq!(
         cells(harness.state()),
         written,

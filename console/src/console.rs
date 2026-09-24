@@ -2444,6 +2444,11 @@ impl eframe::App for Console {
             // Keys a control took are still the event that follows a command
             // Enter, so they disarm its fill as one reaching the Source would.
             self.orcvs.disarm_fill();
+            // A command Zoom chord is a Source key too, though
+            // `show_source_scene` reads it rather than the Source: while the
+            // keys are elsewhere — a discard confirmation asking among them —
+            // it is dropped here, so it zooms nothing behind them.
+            ctx.input_mut(|i| i.events.retain(|event| zoom_command(event).is_none()));
         }
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
