@@ -25,6 +25,12 @@ and semantics changes as active language design, not public-API breakage.
 - Prefer safe Rust. Keep each unsafe scope minimal and state its safety invariants.
 - Propagate or handle fallible results intentionally; use assertions for proven invariants.
 - Keep lint suppressions narrow and explain why the lint is inapplicable.
+- A comment carries what the code does, why, and the invariant it keeps, not its lineage. What the
+  code replaced, retired or "used to" do, and any alternative it rejected, go in the commit message,
+  an ADR or a ticket; if the history guarded an invariant, keep the invariant as a present-tense
+  constraint. Keep an ADR or `.scratch/` citation only where it names a constraint the code cannot
+  show. `SAFETY:` comments, doctests and intra-doc links are read by gates, so shorten them without
+  removing what the gate reads. See `docs/agents/comments.md`.
 - Keep test-only inputs out of shipped code: no shipped function takes a parameter, or reaches a
   branch, that only a test populates. When a test needs an input production cannot construct, it
   builds that input itself — below the shipped entry point, in a test-only item beside the shipped
