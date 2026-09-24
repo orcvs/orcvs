@@ -6,8 +6,8 @@ The pin doesn't survive a broad `cargo update`, which picks 0.60 again. Until 07
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `Cargo.lock` no longer contains `windows-sys` 0.60, `windows-targets` 0.53 or the `windows_*` 0.53 platform crates, and changes nothing else.
-- [ ] `cargo deny --locked --all-features check bans` no longer warns about `windows-targets`, `windows_x86_64_gnu` or `windows_x86_64_msvc`, and reports three `windows-sys` entries.
-- [ ] `mise run audit_deps` passes.
+- [x] `Cargo.lock` no longer contains `windows-sys` 0.60, `windows-targets` 0.53 or the `windows_*` 0.53 platform crates, and changes nothing else.
+- [x] `cargo deny --locked --all-features check bans` no longer warns about `windows-targets`, `windows_x86_64_gnu` or `windows_x86_64_msvc`, and reports three `windows-sys` entries.
+- [x] `mise run audit_deps` passes.
