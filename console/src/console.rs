@@ -27,6 +27,7 @@ use orcvs::{
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::{PlaybackStartError, PlaybackState},
     render_frame::RenderFrame,
+    source::Source,
 };
 
 const MIN_ZOOM: f32 = 0.25;
@@ -803,6 +804,10 @@ pub struct Console {
     /// `themes`.
     #[cfg(target_arch = "wasm32")]
     web_import: crate::theme_registry::WebImport,
+    /// The context the console was created in: what an Open wakes the Panel
+    /// through when the new Orcvs's Playback Engine publishes, as
+    /// `Console::new` does for the first.
+    ctx: egui::Context,
 }
 
 impl Console {
@@ -885,13 +890,7 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let orcvs = Orcvs::with_source(start.source)?;
-        wake_panel_when_playback_publishes(cc.egui_ctx.clone(), orcvs.playback_observation_watch());
-        let mut midi = MidiDeviceSelection::new(
-            orcvs.midi_selection_handle(),
-            Box::new(NativeMidiBackend::new()),
-        );
-        midi.refresh_destinations();
+        let (orcvs, midi) = environment(&cc.egui_ctx, start.source)?;
         Ok(Self {
             orcvs,
             midi,
@@ -913,39 +912,73 @@ impl Console {
             persistence: start.persistence,
             #[cfg(target_arch = "wasm32")]
             web_import: crate::theme_registry::WebImport::new(),
+            ctx: cc.egui_ctx.clone(),
         })
     }
 
     ///
-    /// Replaces the running Orcvs's Source, Grid included, with the Function
-    /// reference — what the File menu offers, since a console that restores
-    /// nothing opens an empty Grid. With the `persistence`
-    /// feature on, the reference then saves like any other Source on the next
-    /// scheduled save.
+    /// Opens `source`: the console's one answer to "replace the environment
+    /// with this Source" (`.scratch/file-new/spec.md`).
     ///
-    /// A Grid change is a whole-Orcvs replacement, so this also rebuilds MIDI
-    /// device selection over the new Orcvs's handle exactly as [`Console::new`]
-    /// does; a previously selected destination does not carry over. Every
-    /// other console setting — Theme, Cursor effects, Diagnostics visibility —
-    /// is untouched, because only the Source was asked to change.
+    /// **An Open replaces the environment:** the running Orcvs — its Source
+    /// and Grid, the Cursor and Region, Playback and the Tick it had reached,
+    /// and its opts, Bpm among them — MIDI device selection, rebuilt over the
+    /// new Orcvs's handle exactly as [`Console::new`] builds it, so a
+    /// previously selected destination does not carry over, and the Source
+    /// View, whose Pan and Zoom return to rest. The replaced Orcvs is dropped
+    /// here, and its Playback Engine with it.
     ///
-    fn load_function_reference(&mut self) {
-        match Orcvs::with_source(function_reference()) {
-            Ok(orcvs) => {
-                let mut midi = MidiDeviceSelection::new(
-                    orcvs.midi_selection_handle(),
-                    Box::new(NativeMidiBackend::new()),
-                );
-                midi.refresh_destinations();
+    /// **An Open leaves the settings standing:** the Theme, which carries the
+    /// Source colours, Cursor effects, and whether Diagnostics is showing.
+    /// They are a viewer's preferences rather than the environment, and only
+    /// the Source was asked to change.
+    ///
+    /// With the `persistence` feature on, the opened Source saves like any
+    /// other on the next scheduled save; nothing is stored here.
+    ///
+    /// A Source whose Orcvs cannot start is reported and not opened: the
+    /// console stays on the environment it already had.
+    ///
+    fn open(&mut self, source: Source) {
+        match environment(&self.ctx, source) {
+            Ok((orcvs, midi)) => {
                 self.orcvs = orcvs;
                 self.midi = midi;
                 self.source_view = SourceView::default();
             }
             Err(error) => {
-                crate::report::error!("failed to load the Function reference: {error}");
+                crate::report::error!("failed to open a Source: {error}");
             }
         }
     }
+
+    ///
+    /// Opens the Function reference — what the File menu offers, since a
+    /// console that restores nothing opens an empty Grid (`source-view/03`).
+    ///
+    fn load_function_reference(&mut self) {
+        self.open(function_reference());
+    }
+}
+
+///
+/// A running Orcvs over `source`, the Panel woken whenever its Playback Engine
+/// publishes, and MIDI device selection over its handle with the destinations
+/// discovered once. What [`Console::new`] starts on and what
+/// [`Console::open`] replaces the running pair with, so the two cannot drift.
+///
+fn environment(
+    ctx: &egui::Context,
+    source: Source,
+) -> Result<(Orcvs, MidiDeviceSelection), PlaybackStartError> {
+    let orcvs = Orcvs::with_source(source)?;
+    wake_panel_when_playback_publishes(ctx.clone(), orcvs.playback_observation_watch());
+    let mut midi = MidiDeviceSelection::new(
+        orcvs.midi_selection_handle(),
+        Box::new(NativeMidiBackend::new()),
+    );
+    midi.refresh_destinations();
+    Ok((orcvs, midi))
 }
 
 ///
@@ -2453,6 +2486,7 @@ impl eframe::App for Console {
                         persistence: _,
                     #[cfg(target_arch = "wasm32")]
                         web_import: _,
+                    ctx: _,
                 } = self;
                 let presented = show_source_scene(
                     ui,

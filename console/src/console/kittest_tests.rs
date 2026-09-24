@@ -1071,6 +1071,124 @@ async fn the_file_menu_loads_the_function_reference_on_demand() {
 }
 
 ///
+/// What every Cell of the running Source holds, in Grid order.
+///
+fn cells(console: &Console) -> Vec<Option<char>> {
+    let frame = console.orcvs.render_frame();
+    frame.cells().iter().map(|cell| cell.content()).collect()
+}
+
+///
+/// Opens the File menu and clicks the item labelled `label` in it, then runs
+/// the frame the click lands in and the frames that present it.
+///
+fn choose_in_file_menu(harness: &mut Harness<'_, Console>, label: &str) {
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label(label).click();
+    harness.step();
+    harness.run_steps(2);
+}
+
+///
+/// An Open replaces the environment and nothing else. The settings a viewer
+/// chose — the Theme, which carries the Source colours (ADR 0053), Cursor
+/// effects, and whether Diagnostics is showing — are preferences, and stand
+/// across it (`.scratch/file-new/spec.md`).
+///
+/// Each is moved off its default first, so an Open that reset it would be
+/// seen rather than read back as the default it already held.
+///
+#[tokio::test]
+async fn an_open_leaves_every_setting_standing() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, with_my_themes());
+    {
+        let console = harness.state_mut();
+        console.themes.select(Appearance::Dark, &id("my-dark"));
+        console.themes.select(Appearance::Light, &id("my-light"));
+        *console.cursor_effects.amount_mut() = 7;
+        *console.cursor_effects.frequency_mut() = 9;
+        console.diagnostics_open = true;
+    }
+    harness.state().themes.install(&harness.ctx);
+    harness.run_steps(1);
+    let cursor_effects = harness.state().cursor_effects;
+
+    // The Diagnostics window opens over the menu bar's left end, so a pointer
+    // click at the File button lands on the window. AccessKit's own click is
+    // the one that reaches the button beneath it.
+    harness.get_by_label("File").click_accesskit();
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label("Load Function reference").click();
+    harness.step();
+    harness.run_steps(2);
+
+    let console = harness.state();
+    assert_eq!(
+        cursor(console),
+        (0, 0),
+        "the Open did not happen, so it proves nothing about what it left"
+    );
+    assert_eq!(
+        (
+            console
+                .themes
+                .selection()
+                .identity(Appearance::Dark)
+                .as_str(),
+            console
+                .themes
+                .selection()
+                .identity(Appearance::Light)
+                .as_str(),
+        ),
+        ("my-dark", "my-light"),
+        "an Open changed the Theme selection"
+    );
+    assert_eq!(
+        console.cursor_effects, cursor_effects,
+        "an Open changed the Cursor effects"
+    );
+    assert!(console.diagnostics_open, "an Open closed Diagnostics");
+    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "after the Open");
+}
+
+///
+/// An Open whose Orcvs cannot start leaves the console on the Source it
+/// already had. A running Orcvs needs a runtime to spawn its Playback Engine
+/// on (ADR 0041); the console is built inside one here and the Open is asked
+/// for outside it, which is the one way a build of the Orcvs fails.
+///
+#[test]
+fn an_open_that_cannot_start_leaves_the_running_source_standing() {
+    let runtime = tokio::runtime::Runtime::new().expect("a Tokio runtime");
+    let entered = runtime.enter();
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    let before = cells(harness.state());
+    let cursor_before = cursor(harness.state());
+    drop(entered);
+
+    choose_in_file_menu(&mut harness, "Load Function reference");
+
+    assert_eq!(
+        cells(harness.state()),
+        before,
+        "a failed Open replaced the Source"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "a failed Open moved the Cursor"
+    );
+}
+
+///
 /// The pointer-to-Cell round trip after the transform has moved, which is the
 /// one thing a fixed coordinate cannot test.
 ///
