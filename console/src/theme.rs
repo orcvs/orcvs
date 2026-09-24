@@ -162,48 +162,130 @@ pub(crate) enum OptionalFill {
 // === Property keys ===
 
 ///
-/// Writes each key enum's `schema.md` spelling once and derives both
-/// directions from that one table: `name`, an exhaustive `match` over the
-/// enum, so a new variant without a spelling fails to compile; and
-/// `from_name`, its inverse, generated from the same literals, so the two
-/// cannot disagree. A spelling repeated within one enum is an unreachable
-/// `from_name` arm, which the workspace's `-D warnings` gate refuses.
+/// The `style` property catalogue, written once: the two optional Cursor
+/// fills, which [`OptionalFill`] carries and no key enum holds, then each
+/// key enum's variants, each with the field the Theme document decoder's
+/// style table holds it in and its literal, case- and dot-sensitive
+/// `schema.md` spelling.
+/// `style_catalogue!(then)` hands the whole table to the macro `then`: here
+/// `property_names`, which derives each key's `name`, and in
+/// `theme_document` the derived style table, so a property's spelling, its
+/// key and its document field cannot disagree. A field repeated in the table
+/// fails to compile, and a spelling repeated is an unreachable arm in the
+/// derived table's key match, which the workspace's `-D warnings` gate
+/// refuses.
 ///
-macro_rules! property_names {
-    ($key:ident { $($variant:ident => $name:literal),* $(,)? }) => {
-        #[cfg_attr(
-            all(target_arch = "wasm32", not(test)),
-            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
-        )]
-        impl $key {
-            /// The property's literal, case-sensitive `schema.md` name.
-            pub(crate) fn name(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $name,)*
-                }
+macro_rules! style_catalogue {
+    ($then:ident) => {
+        $then! {
+            OptionalFill {
+                CursorBackground(cursor_background) => "cursor.background",
+                RegionCursorBackground(region_cursor_background) => "region.cursor.background",
             }
-
-            /// The key `schema.md` spells `name`, matched exactly — dots
-            /// are literal characters, and case matters.
-            pub(crate) fn from_name(name: &str) -> Option<Self> {
-                match name {
-                    $($name => Some(Self::$variant),)*
-                    _ => None,
-                }
+            ColorKey {
+                WindowBackground(window_background) => "window.background",
+                PanelBackground(panel_background) => "panel.background",
+                GridBackground(grid_background) => "grid.background",
+                CellBackground(cell_background) => "cell.background",
+                SourceOrdinary(source_ordinary) => "source.ordinary",
+                SourceComment(source_comment) => "source.comment",
+                SourceNumber(source_number) => "source.number",
+                SourceNote(source_note) => "source.note",
+                SourceFunction(source_function) => "source.function",
+                SourceBang(source_bang) => "source.bang",
+                SourceSequence(source_sequence) => "source.sequence",
+                SourceOrdinaryBackground(source_ordinary_background) => "source.ordinary.background",
+                SourceCommentBackground(source_comment_background) => "source.comment.background",
+                SourceNumberBackground(source_number_background) => "source.number.background",
+                SourceNoteBackground(source_note_background) => "source.note.background",
+                SourceFunctionBackground(source_function_background) => "source.function.background",
+                SourceBangBackground(source_bang_background) => "source.bang.background",
+                SourceAtomBackground(source_atom_background) => "source.atom.background",
+                SourceSequenceBackground(source_sequence_background) => "source.sequence.background",
+                DiagnosticForeground(diagnostic_foreground) => "diagnostic.foreground",
+                DiagnosticBackground(diagnostic_background) => "diagnostic.background",
+                DiagnosticBorder(diagnostic_border) => "diagnostic.border",
+                OutputPortalForeground(output_portal_foreground) => "output_portal.foreground",
+                OutputPortalBackground(output_portal_background) => "output_portal.background",
+                OutputPortalBorder(output_portal_border) => "output_portal.border",
+                GridBorder(grid_border) => "grid.border",
+                SectorSeam(sector_seam) => "sector.seam",
+                CursorBorder(cursor_border) => "cursor.border",
+                RegionBorder(region_border) => "region.border",
+                CursorArea(cursor_area) => "cursor.area",
+                RegionBackground(region_background) => "region.background",
+                PanelBorder(panel_border) => "panel.border",
+                SelectionBackground(selection_background) => "selection.background",
+                SelectionBorder(selection_border) => "selection.border",
+                SelectionBorderRest(selection_border_rest) => "selection.border.rest",
+                WidgetInactiveBorder(widget_inactive_border) => "widget.inactive.border",
+                Text(text) => "text",
+                TextActive(text_active) => "text.active",
+                TextMuted(text_muted) => "text.muted",
+                InputBackground(input_background) => "input.background",
+                Link(link) => "link",
+                CodeBackground(code_background) => "code.background",
+                InputCursor(input_cursor) => "input.cursor",
+                Error(error) => "error",
+                Warning(warning) => "warning",
+            }
+            GridWidthKey {
+                GridBorder(grid_border_width) => "grid.border.width",
+                SectorSeam(sector_seam_width) => "sector.seam.width",
+                CellSelectionBorder(cell_selection_border_width) => "cell.selection.border.width",
+                CursorBorder(cursor_border_width) => "cursor.border.width",
+                RegionBorder(region_border_width) => "region.border.width",
+                DiagnosticBorder(diagnostic_border_width) => "diagnostic.border.width",
+                OutputPortalBorder(output_portal_border_width) => "output_portal.border.width",
+            }
+            ChromeWidthKey {
+                PanelBorder(panel_border_width) => "panel.border.width",
+                SelectionBorder(selection_border_width) => "selection.border.width",
+                WidgetBorder(widget_border_width) => "widget.border.width",
+                WidgetInactiveBorder(widget_inactive_border_width) => "widget.inactive.border.width",
+                InputCursor(input_cursor_width) => "input.cursor.width",
             }
         }
     };
 }
+pub(crate) use style_catalogue;
+
+///
+/// Derives each key's `name`: an exhaustive `match` over the enum, so a new
+/// variant without a spelling in [`style_catalogue`] fails to compile. The
+/// optional fills have no key enum and so no `name`.
+///
+macro_rules! property_names {
+    (
+        OptionalFill { $($fills:tt)* }
+        $($key:ident { $($variant:ident($field:ident) => $name:literal),* $(,)? })*
+    ) => {
+        $(
+            #[cfg_attr(
+                all(target_arch = "wasm32", not(test)),
+                expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+            )]
+            impl $key {
+                /// The property's literal, case-sensitive `schema.md` name.
+                pub(crate) fn name(self) -> &'static str {
+                    match self {
+                        $(Self::$variant => $name,)*
+                    }
+                }
+            }
+        )*
+    };
+}
+
+style_catalogue!(property_names);
 
 ///
 /// Every named colour property `schema.md`'s catalogue defines, less the
 /// two optional Cursor fills, which [`OptionalFill`] carries instead of a
 /// plain `Color32`. Each variant's case- and dot-sensitive schema spelling
-/// is written once, in the `property_names!` table below it, which the
-/// Theme document decoder reads to map raw document text to a variant.
-/// `Ord` is declaration order, which is the catalogue's: the decoder sorts a
-/// document's properties by it so the same document compares equal whatever
-/// order its format's map yields.
+/// is written once, in [`style_catalogue`], which the Theme document
+/// decoder's style table is derived from. Declaration order is the
+/// catalogue's, and the order a decoded document lists its properties in.
 ///
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
@@ -212,7 +294,7 @@ macro_rules! property_names {
         reason = "only native discovery loads a Theme document; the web has the built-ins alone"
     )
 )]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ColorKey {
     WindowBackground,
     PanelBackground,
@@ -261,56 +343,6 @@ pub(crate) enum ColorKey {
     Warning,
 }
 
-property_names! {
-    ColorKey {
-        WindowBackground => "window.background",
-        PanelBackground => "panel.background",
-        GridBackground => "grid.background",
-        CellBackground => "cell.background",
-        SourceOrdinary => "source.ordinary",
-        SourceComment => "source.comment",
-        SourceNumber => "source.number",
-        SourceNote => "source.note",
-        SourceFunction => "source.function",
-        SourceBang => "source.bang",
-        SourceSequence => "source.sequence",
-        SourceOrdinaryBackground => "source.ordinary.background",
-        SourceCommentBackground => "source.comment.background",
-        SourceNumberBackground => "source.number.background",
-        SourceNoteBackground => "source.note.background",
-        SourceFunctionBackground => "source.function.background",
-        SourceBangBackground => "source.bang.background",
-        SourceAtomBackground => "source.atom.background",
-        SourceSequenceBackground => "source.sequence.background",
-        DiagnosticForeground => "diagnostic.foreground",
-        DiagnosticBackground => "diagnostic.background",
-        DiagnosticBorder => "diagnostic.border",
-        OutputPortalForeground => "output_portal.foreground",
-        OutputPortalBackground => "output_portal.background",
-        OutputPortalBorder => "output_portal.border",
-        GridBorder => "grid.border",
-        SectorSeam => "sector.seam",
-        CursorBorder => "cursor.border",
-        RegionBorder => "region.border",
-        CursorArea => "cursor.area",
-        RegionBackground => "region.background",
-        PanelBorder => "panel.border",
-        SelectionBackground => "selection.background",
-        SelectionBorder => "selection.border",
-        SelectionBorderRest => "selection.border.rest",
-        WidgetInactiveBorder => "widget.inactive.border",
-        Text => "text",
-        TextActive => "text.active",
-        TextMuted => "text.muted",
-        InputBackground => "input.background",
-        Link => "link",
-        CodeBackground => "code.background",
-        InputCursor => "input.cursor",
-        Error => "error",
-        Warning => "warning",
-    }
-}
-
 ///
 /// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point by
 /// [`GridWidth`].
@@ -322,7 +354,7 @@ property_names! {
         reason = "only native discovery loads a Theme document; the web has the built-ins alone"
     )
 )]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GridWidthKey {
     GridBorder,
     SectorSeam,
@@ -331,18 +363,6 @@ pub(crate) enum GridWidthKey {
     RegionBorder,
     DiagnosticBorder,
     OutputPortalBorder,
-}
-
-property_names! {
-    GridWidthKey {
-        GridBorder => "grid.border.width",
-        SectorSeam => "sector.seam.width",
-        CellSelectionBorder => "cell.selection.border.width",
-        CursorBorder => "cursor.border.width",
-        RegionBorder => "region.border.width",
-        DiagnosticBorder => "diagnostic.border.width",
-        OutputPortalBorder => "output_portal.border.width",
-    }
 }
 
 ///
@@ -355,23 +375,13 @@ property_names! {
         reason = "only native discovery loads a Theme document; the web has the built-ins alone"
     )
 )]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChromeWidthKey {
     PanelBorder,
     SelectionBorder,
     WidgetBorder,
     WidgetInactiveBorder,
     InputCursor,
-}
-
-property_names! {
-    ChromeWidthKey {
-        PanelBorder => "panel.border.width",
-        SelectionBorder => "selection.border.width",
-        WidgetBorder => "widget.border.width",
-        WidgetInactiveBorder => "widget.inactive.border.width",
-        InputCursor => "input.cursor.width",
-    }
 }
 
 // === Resolved Theme ===
@@ -964,8 +974,8 @@ pub fn orcvs_light() -> Theme {
 /// The parsed-but-unresolved form of a custom Theme document:
 /// `schema.md`'s `inherits`, `name`, `appearance` and `style` fields,
 /// decoded into typed properties. Holds no file path, byte source or raw
-/// text — [`crate::theme_document::decode`] builds one from a TOML, JSON
-/// or YAML document's bytes; tests in this module construct it directly.
+/// text — [`crate::theme_document::decode`] builds one from a TOML
+/// document's bytes; tests in this module construct it directly.
 ///
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
@@ -1061,7 +1071,8 @@ impl std::fmt::Display for ThemeError {
             ),
             Self::NonOpaqueWindowBackground { alpha } => write!(
                 f,
-                "window.background has alpha {alpha}, not 255: the application window must stay opaque"
+                "{} has alpha {alpha}, not 255: the application window must stay opaque",
+                ColorKey::WindowBackground.name()
             ),
         }
     }
@@ -2125,10 +2136,10 @@ mod tests {
     }
 
     ///
-    /// `schema.md`'s colour table, restated. The decoder maps document keys
-    /// through `ColorKey::from_name`, so a spelling wrong here is a
+    /// `schema.md`'s colour table, restated. The decoder's style table is
+    /// derived from the same spellings, so a spelling wrong here is a
     /// property no document can set — or, swapped with a neighbour, one that
-    /// sets the wrong field. Each spelling also has to come back as its key.
+    /// sets the wrong field.
     ///
     #[test]
     fn color_key_names_match_the_schema_catalogue() {
@@ -2194,10 +2205,7 @@ mod tests {
         assert_eq!(catalogue.len(), 45);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
-            assert_eq!(ColorKey::from_name(name), Some(key));
         }
-        assert_eq!(ColorKey::from_name("Text"), None);
-        assert_eq!(ColorKey::from_name("cursor.background"), None);
     }
 
     #[test]
