@@ -6,13 +6,21 @@ Disjoint Spans alone do not make the clear dead. It changes an outcome only when
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for` (`orcvs/src/source/language_map.rs:2088`) also asserts, for every Expression, that each `expression.positioned()` entry with non-empty `cells` lies within `span.start()..=span.end()`. It fails when the Parser records an entry outside its Expression's Span; confirm this once by widening an entry's range in `lang/src/parser.rs`, then revert.
-- [ ] The clearing loop in `LanguageMap::claims_by_cell` (`orcvs/src/source/language_map.rs:422-424`) is deleted.
-- [ ] The docs on `LanguageMap::claims_by_cell`, `LanguageMap::entry_at` and `RenderFrame::expression_at` no longer say a later Expression owns the Cells its Span covers. They say Expression Spans are disjoint and each positioned entry lies inside its own Span, so at most one Expression and at most one claim answer for a Cell, and name the property that guards both.
+- [x] `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for` (`orcvs/src/source/language_map.rs:2088`) also asserts, for every Expression, that each `expression.positioned()` entry with non-empty `cells` lies within `span.start()..=span.end()`. It fails when the Parser records an entry outside its Expression's Span; confirm this once by widening an entry's range in `lang/src/parser.rs`, then revert.
+- [x] The clearing loop in `LanguageMap::claims_by_cell` (`orcvs/src/source/language_map.rs:422-424`) is deleted.
+- [x] The docs on `LanguageMap::claims_by_cell`, `LanguageMap::entry_at` and `RenderFrame::expression_at` no longer say a later Expression owns the Cells its Span covers. They say Expression Spans are disjoint and each positioned entry lies inside its own Span, so at most one Expression and at most one claim answer for a Cell, and name the property that guards both.
 - [x] `03` gains a comment recording that its "overlapping Expression ownership" criterion describes a case the language does not produce, and pointing here. Its ticked box stays as history rather than being unticked. (Landed on `main` as `03`'s 2026-09-24 correction.)
-- [ ] `PROPTEST_CASES=32 cargo nextest run --package orcvs --package console --locked`, plus the scoped `cargo fmt` and `cargo clippy` gates for `orcvs` and `console`, pass.
+- [x] `PROPTEST_CASES=32 cargo nextest run --package orcvs --package console --locked`, plus the scoped `cargo fmt` and `cargo clippy` gates for `orcvs` and `console`, pass.
+
+## Answer
+
+**2026-09-24.** The clearing loop in `LanguageMap::claims_by_cell` is deleted, and `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for` now also asserts, for every Expression, that each `expression.positioned()` entry with non-empty `cells` lies within `span.start().get()..=span.end().get()`. Together with the existing disjointness check, that is the invariant the clear depended on, so the loop no longer defends anything the property does not already guard.
+
+The docs on `LanguageMap::claims_by_cell`, `LanguageMap::entry_at` and `RenderFrame::expression_at` no longer say a later Expression owns the Cells its Span covers. They say Expression Spans are disjoint and each positioned entry lies inside its own Span, so at most one Expression and at most one claim answer for a Cell, and they name the property that guards both. `entry_at`'s `.rev()` walk and early `return None`, and `expression_at`'s `.rev().find`, are left as they are: with disjoint Spans the order is immaterial and the early return is an exit, not a precedence rule. A search of `orcvs/`, `console/`, `lang/`, `docs/` and `CONTEXT.md` for other prose about a later Expression owning Cells, or overlapping Expression ownership, found none outside these three items and the `.scratch/` history.
+
+Sabotage. With the Function arm of `Parser::take_language_unit` (`lang/src/parser.rs`) recording `cell_start.saturating_sub(1)..self.start + self.consumed()`, starting a Function's entry one Cell before its Expression's Span, `PROPTEST_CASES=32 cargo nextest run --package orcvs --locked -E 'test(expression_spans_are_disjoint)'` failed on the new assertion with `Test failed: "A||~%8169" labelled Cells 2..5 outside its Expression Span 3..=5`, minimal input `(cols, rows, source) = (3, 3, "A||~%8169")`. The parser change was reverted and `git diff lang/` is empty. With the loop deleted and the parser unmodified, `PROPTEST_CASES=32 cargo nextest run --package orcvs --package console --locked` passed all 1067 tests.
 
 ## Comments
 

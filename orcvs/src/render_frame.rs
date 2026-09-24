@@ -277,8 +277,12 @@ impl RenderFrame {
     ///
     /// The Expression whose Span covers `position`, when one does.
     ///
-    /// A later Expression owns the Cells its Span covers, matching
-    /// [`crate::source::LanguageMap::token_at`].
+    /// Expression Spans are disjoint, so at most one Expression answers for a
+    /// Cell, matching [`crate::source::LanguageMap::token_at`]. The Language
+    /// Map property
+    /// `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for`
+    /// guards that, along with each positioned entry lying inside its own
+    /// Expression's Span.
     ///
     pub fn expression_at(&self, position: Position) -> Option<&RenderExpression> {
         self.grid.assert_owns(position);

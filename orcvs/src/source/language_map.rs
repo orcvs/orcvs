@@ -363,8 +363,11 @@ impl LanguageMap {
     ///
     /// The positioned entry that claims `position`, when one does.
     ///
-    /// A later Expression owns the Cells its Span covers, so a Cell an earlier
-    /// Expression had labelled is unread once a later Span takes it. A Cell
+    /// Expression Spans are disjoint and each positioned entry lies inside its
+    /// own Expression's Span, so at most one Expression and at most one entry
+    /// answer for a Cell; the property
+    /// `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for`
+    /// guards both. The walk stops at the one Span that holds the Cell. A Cell
     /// inside a Span that no positioned entry labelled is not a claim. An
     /// unmatched non-space byte is not a claim either — leftover `Char` is the
     /// Source revision's composition, not this Map's.
@@ -401,11 +404,13 @@ impl LanguageMap {
     ///
     /// The parser's claim on each Cell, in the Grid's row-major order.
     ///
-    /// A later Expression owns the Cells its Span covers, matching
-    /// [`Self::entry_at`]: an earlier label is unread once a later Span takes
-    /// the Cell, and a Cell inside a Span that no positioned entry labelled
-    /// is not a claim. Each claim is stored once and shared by every Cell
-    /// it covers.
+    /// Expression Spans are disjoint and each positioned entry lies inside its
+    /// own Expression's Span, so at most one Expression and at most one claim
+    /// answer for a Cell, matching [`Self::entry_at`]; the property
+    /// `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for`
+    /// guards both. A Cell inside a Span that no positioned entry labelled is
+    /// not a claim. Each claim is stored once and shared by every Cell it
+    /// covers.
     ///
     /// `bytes` is the Source revision this Map was derived from, which the
     /// Map deliberately does not retain. Each claim reads its own Cells there
@@ -419,9 +424,6 @@ impl LanguageMap {
         );
         let mut by_index = vec![None; self.grid.count()];
         for expression in self.expressions() {
-            for index in expression.span.range() {
-                by_index[index] = None;
-            }
             for entry in expression.positioned() {
                 let claim = Arc::new(Claim::from_entry(entry, bytes));
                 for index in entry.cells.clone() {
@@ -2132,6 +2134,24 @@ mod property {
                     start,
                 );
                 previous_start = Some(start);
+
+                // Every labelled entry lies inside its own Expression's Span.
+                // With the disjointness below, that is what lets at most one
+                // claim answer for a Cell: an entry that escaped its Span could
+                // land inside a neighbour's.
+                for entry in expression.positioned() {
+                    if entry.cells.is_empty() {
+                        continue;
+                    }
+                    prop_assert!(
+                        start <= entry.cells.start && entry.cells.end - 1 <= end,
+                        "{:?} labelled Cells {:?} outside its Expression Span {}..={}",
+                        source,
+                        entry.cells,
+                        start,
+                        end,
+                    );
+                }
 
                 // Every pair rather than only the neighbouring one: two Spans
                 // that are not adjacent in this order still may not overlap.
