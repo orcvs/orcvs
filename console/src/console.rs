@@ -583,17 +583,21 @@ fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileCommand {
     New,
+    #[cfg(not(target_arch = "wasm32"))]
+    Open,
 }
 
 impl FileCommand {
     /// Every command a chord reaches.
     #[cfg(not(target_arch = "wasm32"))]
-    const CHORDED: [Self; 1] = [Self::New];
+    const CHORDED: [Self; 2] = [Self::New, Self::Open];
 
     /// The File menu item's label.
     fn label(self) -> &'static str {
         match self {
             Self::New => "New",
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Open => "Open…",
         }
     }
 
@@ -605,6 +609,7 @@ impl FileCommand {
     fn shortcut(self) -> egui::KeyboardShortcut {
         let key = match self {
             Self::New => Key::N,
+            Self::Open => Key::O,
         };
         egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key)
     }
@@ -918,6 +923,12 @@ pub struct Console {
     /// against.
     #[cfg(not(target_arch = "wasm32"))]
     source_file: crate::source_file::OpenSourceFile,
+    /// Why an Open or a Save did not happen, until the viewer dismisses them:
+    /// shown under the top bar's Notices beside the Theme and settings
+    /// notices, the one channel a viewer reads that holds problems until
+    /// dismissed.
+    #[cfg(not(target_arch = "wasm32"))]
+    file_notices: Vec<String>,
     /// The window title last sent, so it is sent again only when it changes.
     #[cfg(not(target_arch = "wasm32"))]
     shown_title: Option<String>,
@@ -1050,6 +1061,8 @@ impl Console {
             #[cfg(not(target_arch = "wasm32"))]
             source_file,
             #[cfg(not(target_arch = "wasm32"))]
+            file_notices: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             shown_title: None,
             #[cfg(not(target_arch = "wasm32"))]
             closing: false,
@@ -1144,6 +1157,61 @@ impl Console {
     }
 
     ///
+    /// Opens the Source File at `path` as the environment: its path becomes
+    /// the open file's and the Source counts as saved.
+    ///
+    /// A file that cannot be read, or that `orcvs::source::file::read`
+    /// refuses, opens nothing — the running Source, its file and whether it is
+    /// unsaved all stand — and says why as a notice.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_path(&mut self, path: &std::path::Path) {
+        match crate::source_file::read_source_file(path) {
+            Ok(source) => {
+                if self.open(source) {
+                    self.source_file.name(path.to_path_buf());
+                }
+            }
+            Err(problem) => self.file_notice(problem),
+        }
+    }
+
+    ///
+    /// Opens the Source File the viewer picked, or nothing when the dialog
+    /// was cancelled.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_picked(&mut self, picked: Option<std::path::PathBuf>) {
+        if let Some(path) = picked {
+            self.open_path(&path);
+        }
+    }
+
+    ///
+    /// `File → Open…` once nothing unsaved is left to ask about: the native
+    /// dialog, filtered to Source Files and still offering any file, then
+    /// the file it picked.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn choose_and_open(&mut self) {
+        let picked = rfd::FileDialog::new()
+            .set_title("Open a Source File")
+            .add_filter("Orcvs Source File", &[crate::source_file::EXTENSION])
+            .add_filter("All files", &["*"])
+            .pick_file();
+        self.open_picked(picked);
+    }
+
+    ///
+    /// Raises a notice about a Source File, reported as every notice is.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn file_notice(&mut self, message: String) {
+        crate::report::error!("{message}");
+        self.file_notices.push(message);
+    }
+
+    ///
     /// Leaves the console: what a close request comes to once the viewer has
     /// chosen to discard unsaved changes. The close this sends is let through
     /// rather than asked about again.
@@ -1164,6 +1232,11 @@ impl Console {
             FileCommand::New => {
                 let ask = self.asks_before_discarding();
                 self.discard_asking_first(ask, NEW_CONFIRMATION);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            FileCommand::Open => {
+                let ask = self.asks_before_discarding();
+                self.discard_asking_first(ask, OPEN_CONFIRMATION);
             }
         }
     }
@@ -1303,6 +1376,14 @@ const FUNCTION_REFERENCE_CONFIRMATION: DiscardConfirmation = DiscardConfirmation
     discard: Console::load_function_reference,
 };
 
+/// What `File → Open…` asks before its dialog, while there is anything to
+/// lose.
+#[cfg(not(target_arch = "wasm32"))]
+const OPEN_CONFIRMATION: DiscardConfirmation = DiscardConfirmation {
+    question: "The Source has unsaved changes. Discard them and open a Source File?",
+    discard: Console::choose_and_open,
+};
+
 /// What a close request — `File → Quit` or the window's close button — asks
 /// before discarding the Source.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1339,11 +1420,12 @@ fn environment(
 ///
 /// The notices, when there are any: a menu in the top bar titled Notices
 /// that lists each and offers to dismiss them — the Theme selections', the
-/// registry's, and the settings file's, which reach the registry at startup.
-/// Showing them starts nothing.
+/// registry's, and the settings file's, which reach the registry at startup,
+/// then `files`: why a Source File was not opened or saved. Showing them
+/// starts nothing.
 ///
-fn show_theme_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes) {
-    let count = themes.notice_count();
+fn show_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes, files: &mut Vec<String>) {
+    let count = themes.notice_count() + files.len();
     if count == 0 {
         return;
     }
@@ -1355,12 +1437,13 @@ fn show_theme_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes) {
         egui::ScrollArea::vertical()
             .max_height(THEME_NOTICE_HEIGHT)
             .show(ui, |ui| {
-                for notice in themes.notices() {
+                for notice in themes.notices().chain(files.iter()) {
                     ui.label(notice);
                 }
             });
         if ui.button("Dismiss").clicked() {
             themes.dismiss_notices();
+            files.clear();
             ui.close();
         }
     });
@@ -2580,6 +2663,9 @@ impl eframe::App for Console {
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     {
+                        if file_menu_item(ui, FileCommand::Open) {
+                            file_command_chosen = Some(FileCommand::Open);
+                        }
                         ui.separator();
                         // Quit asks the window to close, so it is asked about
                         // where every close is, in `guard_close`. It shows no
@@ -2631,7 +2717,12 @@ impl eframe::App for Console {
                     // and stay until dismissed. `report` has already sent each
                     // to the developer console; this is the channel a viewer
                     // reads.
-                    show_theme_notices(ui, &mut self.themes);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    show_notices(ui, &mut self.themes, &mut self.file_notices);
+                    // The web opens and saves no file, so it has none of
+                    // their notices.
+                    #[cfg(target_arch = "wasm32")]
+                    show_notices(ui, &mut self.themes, &mut Vec::new());
                     #[cfg(feature = "persistence")]
                     if self.persistence.notice_visible() {
                         ui.add_space(MENU_BAR_GAP);
@@ -2872,6 +2963,8 @@ impl eframe::App for Console {
                     discard_confirmation: _,
                     #[cfg(not(target_arch = "wasm32"))]
                         source_file: _,
+                    #[cfg(not(target_arch = "wasm32"))]
+                        file_notices: _,
                     #[cfg(not(target_arch = "wasm32"))]
                         shown_title: _,
                     #[cfg(not(target_arch = "wasm32"))]

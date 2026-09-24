@@ -1335,7 +1335,7 @@ async fn the_file_menu_offers_its_items_with_their_chords_and_no_function_refere
 
 /// The native File menu's chorded items in order, each with its chord: Shift,
 /// key.
-const FILE_ITEMS: [(&str, bool, Key); 1] = [("New", false, Key::N)];
+const FILE_ITEMS: [(&str, bool, Key); 2] = [("New", false, Key::N), ("Open…", false, Key::O)];
 
 ///
 /// The View menu's zoom items, found by name, each carrying its chord as
@@ -2935,4 +2935,203 @@ async fn a_restored_source_is_untitled_and_unsaved() {
     );
     choose_in_menu(&mut harness, "File", "New");
     assert!(asking(&harness), "New discarded a restored Source unasked");
+}
+
+// === Open a Source File (`.scratch/menu-structure/issues/07`) ===
+//
+// Nothing here opens the native dialog: `Console::choose_and_open` is the
+// shipped entry that asks `rfd` for a path and hands it to `open_picked`, and
+// these tests call `open_picked` and `open_path` with the path a dialog
+// would have answered. A menu Open is driven only as far as the question
+// asked before the dialog.
+
+use crate::theme_registry::tests_support::TempDir;
+
+///
+/// Opens `path` as a viewer's pick would, and runs the frames that present it.
+///
+fn open_picked(harness: &mut Harness<'_, Console>, path: Option<std::path::PathBuf>) {
+    harness.state_mut().open_picked(path);
+    harness.run_steps(2);
+}
+
+///
+/// A picked Source File becomes the environment, its path the open file's,
+/// and the Source counts as saved until it is written.
+///
+#[tokio::test]
+async fn an_opened_source_file_is_the_environment_and_saved() {
+    let dir = TempDir::new();
+    let path = dir.write("loop.orcvs", "  1\n\n*\n");
+    let mut harness = console_with_unsaved_changes();
+
+    open_picked(&mut harness, Some(path.clone()));
+
+    let console = harness.state();
+    let snapshot = console.orcvs.source().snapshot();
+    assert_eq!(
+        &snapshot[..3],
+        "  1",
+        "the file's first line was not opened"
+    );
+    assert_eq!(
+        &snapshot[512..513],
+        "*",
+        "the file's third line was not opened"
+    );
+    assert_eq!(cursor(console), (0, 0), "the Open left the Cursor");
+    assert_eq!(console.source_file.path(), Some(path.as_path()));
+    assert_eq!(
+        console.shown_title.as_deref(),
+        Some("loop.orcvs — Orcvs"),
+        "the opened file is not named, or is marked unsaved"
+    );
+
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("• loop.orcvs — Orcvs"),
+        "a written Cell did not mark the opened file unsaved"
+    );
+}
+
+///
+/// A file the reader refuses opens nothing: the running Source, its file and
+/// its unsaved state stand, and the refusal — naming line and column — is a
+/// notice until dismissed.
+///
+#[tokio::test]
+async fn a_refused_file_opens_nothing_and_says_why() {
+    let dir = TempDir::new();
+    let opened = dir.write("loop.orcvs", "1\n");
+    let refused = dir.write("tabbed.orcvs", "..\n.\t");
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    open_picked(&mut harness, Some(opened.clone()));
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    let written = cells(harness.state());
+
+    open_picked(&mut harness, Some(refused));
+
+    let console = harness.state();
+    assert_eq!(
+        cells(console),
+        written,
+        "a refused file replaced the Source"
+    );
+    assert_eq!(
+        console.source_file.path(),
+        Some(opened.as_path()),
+        "a refused file replaced the open file"
+    );
+    assert_eq!(
+        console.shown_title.as_deref(),
+        Some("• loop.orcvs — Orcvs"),
+        "a refused file changed the unsaved state"
+    );
+
+    harness.get_by_label("Notices (1)").click();
+    harness.step();
+    harness.run_steps(1);
+    for expected in ["tabbed.orcvs is not a Source File", "line 2, column 2"] {
+        assert!(
+            harness
+                .query_all_by_label_contains(expected)
+                .next()
+                .is_some(),
+            "the refusal is not a notice saying {expected:?}"
+        );
+    }
+    harness.get_by_label("Dismiss").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        harness.query_by_label_contains("Notices").is_none(),
+        "Dismiss left the notice"
+    );
+
+    open_picked(&mut harness, Some(dir.path().join("missing.orcvs")));
+    assert_eq!(
+        harness.state().file_notices.len(),
+        1,
+        "an unreadable file raised no notice"
+    );
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "an unreadable file replaced the Source"
+    );
+}
+
+///
+/// A cancelled dialog picks nothing, and nothing changes.
+///
+#[tokio::test]
+async fn a_cancelled_open_changes_nothing() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+
+    open_picked(&mut harness, None);
+
+    let console = harness.state();
+    assert_eq!(
+        cells(console),
+        written,
+        "a cancelled Open changed the Source"
+    );
+    assert_eq!(
+        console.source_file.path(),
+        None,
+        "a cancelled Open named a file"
+    );
+    assert_eq!(
+        console.shown_title.as_deref(),
+        Some("• Untitled — Orcvs"),
+        "a cancelled Open changed the unsaved state"
+    );
+    assert!(
+        console.file_notices.is_empty(),
+        "a cancelled Open raised a notice"
+    );
+}
+
+///
+/// File → Open… and ⌘O ask before discarding unsaved changes, before any
+/// dialog opens; cancelling changes nothing.
+///
+#[tokio::test]
+async fn open_asks_before_discarding_unsaved_changes() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+
+    choose_in_menu(&mut harness, "File", "Open…");
+    assert!(
+        harness
+            .query_by_label_contains("open a Source File?")
+            .is_some(),
+        "Open discarded unsaved changes unasked"
+    );
+    answer(&mut harness, "Cancel");
+    harness.run_steps(2);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        harness
+            .query_by_label_contains("open a Source File?")
+            .is_some(),
+        "⌘O discarded unsaved changes unasked"
+    );
+    answer(&mut harness, "Cancel");
+    harness.run_steps(1);
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "cancelling changed the Source"
+    );
 }

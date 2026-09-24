@@ -8,9 +8,49 @@
 //! marker.
 //!
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use orcvs::source::{RevisionId, SourceCommander};
+use orcvs::grid::{COL_COUNT, ROW_COUNT};
+use orcvs::source::{RevisionId, Source, SourceCommander, file};
+
+/// A Source File's extension, without its dot.
+pub(crate) const EXTENSION: &str = "orcvs";
+
+///
+/// The most bytes a Source File the console can open holds: every line of
+/// the one Grid full and ended by CRLF. A longer file is refused whatever it
+/// holds, so no more than one byte past this is read — a file picked by
+/// mistake is not read whole to learn that.
+///
+const MAX_SOURCE_FILE_BYTES: usize = ROW_COUNT * (COL_COUNT + 2);
+
+///
+/// The Source the Source File at `path` holds, or why it cannot be opened:
+/// the file could not be read, or `orcvs::source::file::read` refused it,
+/// naming the line and column.
+///
+/// Reads at most one byte past [`MAX_SOURCE_FILE_BYTES`]. A text that long
+/// already holds a refusal — a 257th line or a line past 256 characters —
+/// and `file::read` finds the first one in reading order, so the prefix is
+/// refused where the whole file would be.
+///
+pub(crate) fn read_source_file(path: &Path) -> Result<Source, String> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|opened| {
+            opened
+                .take(MAX_SOURCE_FILE_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
+    file::read(&bytes).map_err(|refusal| {
+        format!(
+            "{} is not a Source File, so it was not opened: {refusal}",
+            path.display()
+        )
+    })
+}
 
 ///
 /// The open Source File: its path, if the Source came from or went to one,
@@ -51,6 +91,19 @@ impl OpenSourceFile {
             saved,
             answered: None,
         }
+    }
+
+    ///
+    /// Names the file the Source was just opened from.
+    ///
+    pub(crate) fn name(&mut self, path: PathBuf) {
+        self.path = Some(path);
+    }
+
+    /// Where the open file is, if the Source came from or went to one.
+    #[cfg(test)]
+    pub(crate) fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     ///
@@ -100,7 +153,51 @@ mod tests {
     use orcvs::grid::Grid;
     use orcvs::source::SourceCommander;
 
-    use super::OpenSourceFile;
+    use super::{MAX_SOURCE_FILE_BYTES, OpenSourceFile, read_source_file};
+    use crate::theme_registry::tests_support::TempDir;
+
+    #[test]
+    fn a_source_file_reads_as_its_source() {
+        let dir = TempDir::new();
+        let path = dir.write("loop.orcvs", "  1\r\n\n*\n");
+        let source = read_source_file(&path).expect("a Source File");
+        let snapshot = source.snapshot();
+        assert_eq!(&snapshot[..3], "  1");
+        assert_eq!(&snapshot[512..513], "*");
+    }
+
+    #[test]
+    fn a_refused_or_unreadable_file_says_why_and_where() {
+        let dir = TempDir::new();
+        let path = dir.write("tabbed.orcvs", "..\n.\t");
+        let refused = read_source_file(&path).err().expect("a tab is not a Cell");
+        assert!(refused.contains("tabbed.orcvs"), "{refused}");
+        assert!(refused.contains("line 2, column 2"), "{refused}");
+
+        let missing = read_source_file(&dir.path().join("missing.orcvs"))
+            .err()
+            .expect("a missing file cannot be read");
+        assert!(
+            missing.contains("missing.orcvs could not be read"),
+            "{missing}"
+        );
+    }
+
+    #[test]
+    fn a_file_longer_than_any_source_file_is_refused_without_reading_it_whole() {
+        let dir = TempDir::new();
+        let full = format!("{}\r\n", ".".repeat(256)).repeat(256);
+        assert_eq!(full.len(), MAX_SOURCE_FILE_BYTES);
+        let path = dir.write("full.orcvs", &full);
+        assert!(
+            read_source_file(&path).is_ok(),
+            "the longest Source File was refused"
+        );
+
+        let path = dir.write("long.orcvs", &format!("{full}{}", "x".repeat(1 << 20)));
+        let refused = read_source_file(&path).err().expect("a 257th line");
+        assert!(refused.contains("line 257, column 1"), "{refused}");
+    }
 
     fn written(source: &SourceCommander, index: usize, content: &str) {
         let cell = source.grid().cell_index(index).expect("inside the Grid");
@@ -156,5 +253,6 @@ mod tests {
         };
         assert_eq!(file.title(false), "loop.orcvs — Orcvs");
         assert_eq!(file.title(true), "• loop.orcvs — Orcvs");
+        assert_eq!(file.path(), Some(std::path::Path::new("/music/loop.orcvs")));
     }
 }

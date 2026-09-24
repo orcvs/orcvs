@@ -133,6 +133,30 @@ tracing.workspace = true
 midir = "0.11"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The native Open and Save dialogs (`.scratch/menu-structure/issues/07`, `08`).
+# egui draws no file dialog and eframe opens none, and a hand-written picker
+# inside the console would be a second, worse file browser; `spec.md` chose
+# `rfd`, the dialog crate eframe's own examples use.
+#
+# Synchronous API only: `FileDialog::pick_file` and `save_file` run the
+# platform's modal dialog on the UI thread, which is where `Console::ui` asks
+# for it, so no executor or `AsyncFileDialog` is involved. Native only, because
+# the web defers file I/O (`spec.md`, "Web file I/O is deferred"): `rfd`'s
+# `save_file` is unsupported on wasm32, and Open without Save is half a feature.
+#
+# Defaults are off. They are `xdg-portal` and `wayland`; `wayland` only mints
+# the parent-window identifier a dialog is attached to under Wayland, and the
+# console passes no parent, so it would add `wayland-backend`, `wayland-client`
+# and `wayland-protocols` for nothing. `xdg-portal` is kept because Linux needs a
+# backend (`rfd`'s build script refuses none) and it is the one without a system
+# library at build time: it `dlopen`s `libdbus-1` at run time and falls back to
+# `zenity`, where `gtk3` would link GTK and need its headers in CI. `Cargo.lock`
+# gains `rfd` and `pollster` (Linux and the BSDs) and nothing else: the
+# `objc2` 0.6 / `objc2-*` 0.3 AppKit and Foundation bindings, `block2`,
+# `dispatch2`, `raw-window-handle` and `windows-sys` 0.61 it uses were already
+# locked. MIT licensed; `rfd` calls platform APIs through `unsafe`, as any
+# dialog crate must.
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `main.rs`'s `trace()` is the only user of this crate, and it is itself
 # `cfg(not(target_arch = "wasm32"))`-gated, so a WASM build has no code path
