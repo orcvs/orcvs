@@ -173,7 +173,7 @@ pub(crate) fn decode(file_name: &str, bytes: &[u8]) -> Result<ThemeDocument, Doc
             message: bounded(message),
         })
     };
-    let raw: RawDocument = match format {
+    let Root(raw) = match format {
         Format::Toml => toml::from_str(text).map_err(|e| invalid(toml_message(&e, text)))?,
         Format::Json => serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?,
         Format::Yaml => serde_saphyr::from_str_with_options(text, yaml_options())
@@ -236,6 +236,34 @@ fn yaml_options() -> serde_saphyr::Options {
 }
 
 // === Document type ===
+
+///
+/// The document's root, which must be a mapping. A derived struct also
+/// takes a sequence of its fields in declaration order, and `serde_json`
+/// offers one, so the root asks for a map and hands [`RawDocument`] only
+/// that map's entries.
+///
+struct Root(RawDocument);
+
+impl<'de> Deserialize<'de> for Root {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(RootVisitor).map(Self)
+    }
+}
+
+struct RootVisitor;
+
+impl<'de> Visitor<'de> for RootVisitor {
+    type Value = RawDocument;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a table of Theme document fields")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<RawDocument, A::Error> {
+        RawDocument::deserialize(de::value::MapAccessDeserializer::new(map))
+    }
+}
 
 ///
 /// The one strict document type every format decodes into. Field names are
@@ -1316,6 +1344,25 @@ style:
                 .collect();
             refuses("theme.toml", &toml, &["missing field", missing]);
         }
+    }
+
+    ///
+    /// The root is a mapping of named fields. A derived struct would also
+    /// take a sequence of its fields in declaration order, which `serde_json`
+    /// offers; TOML's root is always a table.
+    ///
+    #[test]
+    fn a_root_sequence_is_refused() {
+        refuses(
+            "theme.json",
+            r#"["orcvs-theme", 1, "Mine", "okabe-ito", "dark", {}]"#,
+            &["invalid type: sequence", "line 1"],
+        );
+        refuses(
+            "theme.yaml",
+            "- orcvs-theme\n- 1\n- Mine\n- okabe-ito\n- dark\n- {}\n",
+            &["expected mapping", "line 1"],
+        );
     }
 
     #[test]
