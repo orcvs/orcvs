@@ -574,6 +574,80 @@ fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
     (steps * GLYPH_SCALE_STEP).clamp(MIN_ZOOM, MAX_ZOOM)
 }
 
+///
+/// A File menu command, chosen from the menu or, on native, by its chord.
+///
+/// The web binds no chord: the browser reserves ⌘N and ⌘Q, and the web offers
+/// New alone (`.scratch/menu-structure/spec.md`).
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileCommand {
+    New,
+}
+
+impl FileCommand {
+    /// Every command a chord reaches.
+    #[cfg(not(target_arch = "wasm32"))]
+    const CHORDED: [Self; 1] = [Self::New];
+
+    /// The File menu item's label.
+    fn label(self) -> &'static str {
+        match self {
+            Self::New => "New",
+        }
+    }
+
+    ///
+    /// The chord that runs this command and that its File menu item shows:
+    /// what [`file_command`] answers.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn shortcut(self) -> egui::KeyboardShortcut {
+        let key = match self {
+            Self::New => Key::N,
+        };
+        egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key)
+    }
+}
+
+///
+/// The File command a toolkit event's chord asks for, or none.
+///
+/// A command modifier with exactly the shortcut's Shift, and no Alt: ⌘⇧N is
+/// not ⌘N. A held key's repeats run nothing, so holding a chord runs its
+/// command once. Bare, the letters are Source characters, which reach it as
+/// [`Event::Text`], never through this.
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn file_command(event: &Event) -> Option<FileCommand> {
+    match event {
+        Event::Key {
+            key,
+            pressed: true,
+            repeat: false,
+            modifiers,
+            ..
+        } if modifiers.command && !modifiers.alt => {
+            FileCommand::CHORDED.into_iter().find(|command| {
+                let shortcut = command.shortcut();
+                shortcut.logical_key == *key && shortcut.modifiers.shift == modifiers.shift
+            })
+        }
+        _ => None,
+    }
+}
+
+///
+/// A File menu item for `command`, carrying its chord as shortcut text on
+/// native, where the chord is bound. Answers whether it was chosen.
+///
+fn file_menu_item(ui: &mut egui::Ui, command: FileCommand) -> bool {
+    let item = egui::Button::new(command.label());
+    #[cfg(not(target_arch = "wasm32"))]
+    let item = item.shortcut_text(ui.ctx().format_shortcut(&command.shortcut()));
+    ui.add(item).clicked()
+}
+
 fn source_bounds(grid: Grid) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
@@ -839,6 +913,19 @@ pub struct Console {
     /// The question the console is asking before it discards the Source, while
     /// it asks. Holding it keeps keys from the Source, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
+    /// The Source File the Source came from or went to, if any, and the Cells
+    /// it held then: what the window title names and what "unsaved" is asked
+    /// against.
+    #[cfg(not(target_arch = "wasm32"))]
+    source_file: crate::source_file::OpenSourceFile,
+    /// The window title last sent, so it is sent again only when it changes.
+    #[cfg(not(target_arch = "wasm32"))]
+    shown_title: Option<String>,
+    /// Whether the viewer has chosen to quit, unsaved changes discarded or
+    /// none to lose: the close that follows is let through rather than asked
+    /// about again.
+    #[cfg(not(target_arch = "wasm32"))]
+    closing: bool,
     /// The context the console was created in: what an Open wakes the Panel
     /// through when the new Orcvs's Playback Engine publishes, as
     /// `Console::new` does for the first.
@@ -934,6 +1021,11 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
+        // A restored Source is Untitled: storage keeps the Source and not the
+        // file it came from, so it is unsaved against the empty Source a fresh
+        // console opens on. Autosave is session recovery, not the file.
+        #[cfg(not(target_arch = "wasm32"))]
+        let source_file = crate::source_file::OpenSourceFile::untitled(default_source().snapshot());
         let (orcvs, midi) = environment(&cc.egui_ctx, start.source)?;
         Ok(Self {
             orcvs,
@@ -955,6 +1047,12 @@ impl Console {
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
             discard_confirmation: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            source_file,
+            #[cfg(not(target_arch = "wasm32"))]
+            shown_title: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            closing: false,
             ctx: cc.egui_ctx.clone(),
         })
     }
@@ -979,18 +1077,31 @@ impl Console {
     /// With the `persistence` feature on, the opened Source saves like any
     /// other on the next scheduled save; nothing is stored here.
     ///
-    /// A Source whose Orcvs cannot start is reported and not opened: the
-    /// console stays on the environment it already had.
+    /// On native the opened Source is Untitled and saved: no file, and
+    /// nothing changed since it was opened. An Open from a file names the
+    /// file once this answers that it opened.
     ///
-    fn open(&mut self, source: Source) {
+    /// A Source whose Orcvs cannot start is reported and not opened: the
+    /// console stays on the environment it already had, and on its file. The
+    /// answer is whether the Source was opened.
+    ///
+    fn open(&mut self, source: Source) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        let saved = source.snapshot();
         match environment(&self.ctx, source) {
             Ok((orcvs, midi)) => {
                 self.orcvs = orcvs;
                 self.midi = midi;
                 self.source_view = SourceView::default();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.source_file = crate::source_file::OpenSourceFile::untitled(saved);
+                }
+                true
             }
             Err(error) => {
                 crate::report::error!("failed to open a Source: {error}");
+                false
             }
         }
     }
@@ -1013,9 +1124,88 @@ impl Console {
     }
 
     ///
-    /// Whether any Cell of the running Source is written: what `File → New`
-    /// asks before discarding.
+    /// Whether discarding the running Source would lose anything, so an
+    /// action that discards it asks first.
     ///
+    /// On native, whether the Source has unsaved changes: Cells other than
+    /// the ones its file, or the Untitled Source it began as, last held
+    /// (`.scratch/menu-structure/issues/06`). The web tracks no file, and
+    /// asks whether any Cell is written (`Console::source_is_written`).
+    ///
+    fn asks_before_discarding(&mut self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.source_file.unsaved(self.orcvs.source())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.source_is_written()
+        }
+    }
+
+    ///
+    /// Leaves the console: what a close request comes to once the viewer has
+    /// chosen to discard unsaved changes. The close this sends is let through
+    /// rather than asked about again.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn quit(&mut self) {
+        self.closing = true;
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    ///
+    /// Runs `command`, asking first where it would discard unsaved changes.
+    /// One dispatch for the File menu and the chords, so the two cannot
+    /// disagree.
+    ///
+    fn run_file_command(&mut self, command: FileCommand) {
+        match command {
+            FileCommand::New => {
+                let ask = self.asks_before_discarding();
+                self.discard_asking_first(ask, NEW_CONFIRMATION);
+            }
+        }
+    }
+
+    ///
+    /// Asks before a close request, while there are unsaved changes: the
+    /// close is cancelled and becomes the Quit question. The one place a
+    /// close is asked about, whether it came from the window's close button,
+    /// `File → Quit` or egui's quit shortcut. A close that follows a
+    /// confirmed Quit is let through.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn guard_close(&mut self, ctx: &egui::Context) {
+        if ctx.input(|input| input.viewport().close_requested())
+            && !self.closing
+            && self.asks_before_discarding()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.discard_asking_first(true, QUIT_CONFIRMATION);
+        }
+    }
+
+    ///
+    /// Sends the window title — the open file's name, or `Untitled`, marked
+    /// while there are unsaved changes — when it differs from the one last
+    /// sent.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn show_title(&mut self, ctx: &egui::Context) {
+        let unsaved = self.source_file.unsaved(self.orcvs.source());
+        let title = self.source_file.title(unsaved);
+        if self.shown_title.as_ref() != Some(&title) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.shown_title = Some(title);
+        }
+    }
+
+    ///
+    /// Whether any Cell of the running Source is written: what the web asks
+    /// before `File → New` discards it.
+    ///
+    #[cfg(target_arch = "wasm32")]
     fn source_is_written(&self) -> bool {
         self.orcvs
             .render_frame()
@@ -1095,6 +1285,31 @@ struct DiscardConfirmation {
     question: &'static str,
     discard: fn(&mut Console),
 }
+
+/// What `File → New` asks before discarding the Source.
+const NEW_CONFIRMATION: DiscardConfirmation = DiscardConfirmation {
+    #[cfg(not(target_arch = "wasm32"))]
+    question: "The Source has unsaved changes. Discard them and open an empty Source?",
+    #[cfg(target_arch = "wasm32")]
+    question: "The Source holds written content. Discard it and open an empty Source?",
+    discard: Console::new_source,
+};
+
+/// What `Help → Function Reference` asks, on native, before discarding the
+/// Source.
+#[cfg(not(target_arch = "wasm32"))]
+const FUNCTION_REFERENCE_CONFIRMATION: DiscardConfirmation = DiscardConfirmation {
+    question: "The Source has unsaved changes. Discard them and open the Function Reference?",
+    discard: Console::load_function_reference,
+};
+
+/// What a close request — `File → Quit` or the window's close button — asks
+/// before discarding the Source.
+#[cfg(not(target_arch = "wasm32"))]
+const QUIT_CONFIRMATION: DiscardConfirmation = DiscardConfirmation {
+    question: "The Source has unsaved changes. Discard them and quit?",
+    discard: Console::quit,
+};
 
 /// The discard confirmation's modal: one at a time, so one id.
 const DISCARD_CONFIRMATION_ID: &str = "orcvs-discard-confirmation";
@@ -2323,6 +2538,9 @@ impl eframe::App for Console {
         // then — so the Source reads the Theme the chrome was styled from.
         let appearance = Appearance::from(ctx.theme());
         let mut appearance_change = None;
+        // A File command chosen from the menu or by its chord, run once the
+        // menu bar is done and the chords are read.
+        let mut file_command_chosen = None;
         // Tab belongs to the Source while it holds the keys. `Memory::begin_pass`
         // already turned an unmodified Tab into `FocusDirection::Next` and a
         // Shift Tab into `FocusDirection::Previous` before this runs
@@ -2354,24 +2572,19 @@ impl eframe::App for Console {
 
         top_panel.show(root, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
                 // File holds only what is built (`.scratch/menu-structure/
                 // spec.md`): New, and Quit on native.
                 ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
-                        let ask = self.source_is_written();
-                        self.discard_asking_first(
-                            ask,
-                            DiscardConfirmation {
-                                question: "The Source holds written content. Discard it and \
-                                           open an empty Source?",
-                                discard: Console::new_source,
-                            },
-                        );
+                    if file_menu_item(ui, FileCommand::New) {
+                        file_command_chosen = Some(FileCommand::New);
                     }
-                    if !is_web {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
                         ui.separator();
+                        // Quit asks the window to close, so it is asked about
+                        // where every close is, in `guard_close`. It shows no
+                        // chord: the console binds none, and on macOS the app
+                        // menu's ⌘Q ends the process without a close request.
                         if ui.button("Quit").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
@@ -2394,6 +2607,14 @@ impl eframe::App for Console {
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("Help", |ui| {
                     if ui.button("Function Reference").clicked() {
+                        // The web keeps its unasked Function reference; on
+                        // native it discards unsaved changes as New does.
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let ask = self.asks_before_discarding();
+                            self.discard_asking_first(ask, FUNCTION_REFERENCE_CONFIRMATION);
+                        }
+                        #[cfg(target_arch = "wasm32")]
                         self.load_function_reference();
                     }
                 });
@@ -2475,6 +2696,13 @@ impl eframe::App for Console {
             if let Some(copied) = self.orcvs.event_handler(events).copied {
                 ctx.copy_text(copied);
             }
+            // A File chord answers `run_file_command`, not the Source, which
+            // `translate_event` already keeps it from: a command-modified
+            // letter is no Source key, and the backends withhold its text.
+            #[cfg(not(target_arch = "wasm32"))]
+            if file_command_chosen.is_none() {
+                file_command_chosen = ctx.input(|i| i.events.iter().find_map(file_command));
+            }
         } else {
             // Keys a control took are still the event that follows a command
             // Enter, so they disarm its fill as one reaching the Source would.
@@ -2485,6 +2713,11 @@ impl eframe::App for Console {
             // it is dropped here, so it zooms nothing behind them.
             ctx.input_mut(|i| i.events.retain(|event| zoom_command(event).is_none()));
         }
+        if let Some(command) = file_command_chosen {
+            self.run_file_command(command);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.guard_close(&ctx);
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
         let sampled_run_clock = observation.run_clock();
@@ -2637,6 +2870,12 @@ impl eframe::App for Console {
                     #[cfg(feature = "persistence")]
                         persistence: _,
                     discard_confirmation: _,
+                    #[cfg(not(target_arch = "wasm32"))]
+                        source_file: _,
+                    #[cfg(not(target_arch = "wasm32"))]
+                        shown_title: _,
+                    #[cfg(not(target_arch = "wasm32"))]
+                        closing: _,
                     ctx: _,
                 } = self;
                 let presented = show_source_scene(
@@ -2692,6 +2931,8 @@ impl eframe::App for Console {
         }
 
         self.show_discard_confirmation(&ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.show_title(&ctx);
 
         // Sampled once every widget, the Diagnostics window's and the
         // discard confirmation's included, has been shown and has taken or

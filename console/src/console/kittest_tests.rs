@@ -1160,9 +1160,42 @@ fn choose_in_menu(harness: &mut Harness<'_, Console>, menu: &str, label: &str) {
     harness.get_by_label(menu).click();
     harness.step();
     harness.run_steps(1);
-    harness.get_by_label(label).click();
+    menu_item(harness, label).click();
     harness.step();
     harness.run_steps(2);
+}
+
+///
+/// The menu item labelled `item`, with or without the shortcut text egui
+/// appends to its accessible name: `New` is `New` or `New Ctrl+N`, and never
+/// `New Thing`, so `Save` is not `Save As… Ctrl+Shift+S`.
+///
+fn menu_item<'h>(harness: &'h Harness<'_, Console>, item: &str) -> egui_kittest::Node<'h> {
+    let item = item.to_owned();
+    harness.get(egui_kittest::kittest::by().predicate(move |node| {
+        node.label().is_some_and(|label| {
+            label == item
+                || label
+                    .strip_prefix(item.as_str())
+                    .and_then(|rest| rest.strip_prefix(' '))
+                    .is_some_and(|shortcut| !shortcut.contains(char::is_whitespace))
+        })
+    }))
+}
+
+///
+/// The shortcut text egui shows for the command chord of `key`, with Shift
+/// when `shift`.
+///
+fn shortcut_text(harness: &Harness<'_, Console>, shift: bool, key: Key) -> String {
+    let modifiers = if shift {
+        Modifiers::COMMAND | Modifiers::SHIFT
+    } else {
+        Modifiers::COMMAND
+    };
+    harness
+        .ctx
+        .format_shortcut(&egui::KeyboardShortcut::new(modifiers, key))
 }
 
 ///
@@ -1251,12 +1284,12 @@ fn an_open_that_cannot_start_leaves_the_running_source_standing() {
 }
 
 ///
-/// `.scratch/menu-structure/issues/02`: File holds only what is built — New,
-/// and Quit on native — and no longer offers the Function reference, which
-/// is Help's.
+/// `.scratch/menu-structure/issues/02` and `06`: File holds only what is
+/// built, in order, each item showing the chord that runs it on native, and no
+/// longer offers the Function reference, which is Help's.
 ///
 #[tokio::test]
-async fn the_file_menu_offers_new_and_quit_and_no_function_reference() {
+async fn the_file_menu_offers_its_items_with_their_chords_and_no_function_reference() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
@@ -1264,11 +1297,32 @@ async fn the_file_menu_offers_new_and_quit_and_no_function_reference() {
     harness.step();
     harness.run_steps(1);
 
-    let new = harness.get_by_label("New").rect();
-    let quit = harness.get_by_label("Quit").rect();
+    let mut previous_bottom = f32::NEG_INFINITY;
+    for (item, shift, key) in FILE_ITEMS {
+        let shortcut = shortcut_text(&harness, shift, key);
+        let node = menu_item(&harness, item);
+        let label = node.accesskit_node().label().unwrap_or_default();
+        assert_eq!(
+            label,
+            format!("{item} {shortcut}"),
+            "{item} does not show its chord"
+        );
+        assert!(
+            previous_bottom <= node.rect().min.y,
+            "the native File menu does not offer {item} after the item before it"
+        );
+        previous_bottom = node.rect().max.y;
+    }
+    // Quit ends the menu and shows no chord: the console binds none.
+    let quit = menu_item(&harness, "Quit");
+    assert_eq!(
+        quit.accesskit_node().label().unwrap_or_default(),
+        "Quit",
+        "Quit shows a chord"
+    );
     assert!(
-        new.max.y <= quit.min.y,
-        "the native File menu does not offer New, then Quit"
+        previous_bottom <= quit.rect().min.y,
+        "the native File menu does not end with Quit"
     );
     assert!(
         harness
@@ -1278,6 +1332,10 @@ async fn the_file_menu_offers_new_and_quit_and_no_function_reference() {
         "the File menu still offers the Function reference"
     );
 }
+
+/// The native File menu's chorded items in order, each with its chord: Shift,
+/// key.
+const FILE_ITEMS: [(&str, bool, Key); 1] = [("New", false, Key::N)];
 
 ///
 /// The View menu's zoom items, found by name, each carrying its chord as
@@ -2522,4 +2580,359 @@ async fn the_question_is_answered_from_the_keyboard() {
         cells(harness.state()).iter().all(Option::is_none),
         "Enter on {DISCARD} did not open New"
     );
+}
+
+// === The open Source File (`.scratch/menu-structure/issues/06`) ===
+
+///
+/// The viewport commands the console sent in the last frame the harness ran.
+///
+fn sent(harness: &Harness<'_, Console>) -> Vec<egui::ViewportCommand> {
+    harness
+        .output()
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .map(|viewport| viewport.commands.clone())
+        .unwrap_or_default()
+}
+
+/// The window title the console sent in the last frame, if it sent one.
+fn sent_title(harness: &Harness<'_, Console>) -> Option<String> {
+    sent(harness).into_iter().find_map(|command| match command {
+        egui::ViewportCommand::Title(title) => Some(title),
+        _ => None,
+    })
+}
+
+///
+/// Runs one frame in which the window asks to close, as eframe reports the
+/// close button and a `ViewportCommand::Close` alike.
+///
+fn request_close(harness: &mut Harness<'_, Console>) {
+    harness
+        .input_mut()
+        .viewports
+        .entry(egui::ViewportId::ROOT)
+        .or_default()
+        .events
+        .push(egui::ViewportEvent::Close);
+    harness.step();
+}
+
+///
+/// Runs the one frame a command chord of `key` is pressed in, and no other,
+/// so what the console sent in it can be read. `key_press_modifiers` would
+/// run a frame for each modifier change around it as well.
+///
+fn chord_frame(harness: &mut Harness<'_, Console>, key: Key) {
+    harness.event(Event::Key {
+        key,
+        pressed: true,
+        modifiers: Modifiers::COMMAND,
+        repeat: false,
+        physical_key: None,
+    });
+    harness.step();
+}
+
+/// Answers the question the console is asking with `answer`, in one frame.
+fn answer(harness: &mut Harness<'_, Console>, answer: &str) {
+    harness.get_by_label(answer).click();
+    harness.step();
+}
+
+///
+/// A console with one unsaved change: a character typed into the Untitled
+/// Source it opened on.
+///
+fn console_with_unsaved_changes() -> Harness<'static, Console> {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    harness
+}
+
+///
+/// The title names the Source `Untitled` until it has a file, marks it while
+/// it has unsaved changes, and is sent once per change rather than every
+/// frame.
+///
+#[tokio::test]
+async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("Untitled — Orcvs"),
+        "a fresh console is not an unmarked Untitled"
+    );
+    assert_eq!(
+        sent_title(&harness),
+        None,
+        "an unchanged title was sent again"
+    );
+
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    assert_eq!(
+        sent_title(&harness).as_deref(),
+        Some("• Untitled — Orcvs"),
+        "a written Cell did not mark the title in the frame it was written"
+    );
+    harness.run_steps(1);
+    assert_eq!(
+        sent_title(&harness),
+        None,
+        "an unchanged title was sent again"
+    );
+
+    // No Undo: deleting what was typed leaves nothing to save.
+    harness.key_press(Key::ArrowLeft);
+    harness.key_press(Key::Delete);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("Untitled — Orcvs"),
+        "a Source written back to what it opened on is still marked"
+    );
+}
+
+///
+/// Help → Function Reference asks before discarding unsaved changes and
+/// changes nothing when cancelled; confirmed, it opens the reference as a
+/// saved Source, so opening it again, or New over it, asks nothing.
+///
+#[tokio::test]
+async fn the_function_reference_asks_before_discarding_unsaved_changes() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+
+    choose_in_menu(&mut harness, "Help", "Function Reference");
+    assert!(
+        asking(&harness),
+        "the Function Reference discarded unsaved changes unasked"
+    );
+    answer(&mut harness, "Cancel");
+    harness.run_steps(1);
+    assert!(!asking(&harness), "cancelling left the question showing");
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "cancelling changed the Source"
+    );
+
+    choose_in_menu(&mut harness, "Help", "Function Reference");
+    assert!(
+        asking(&harness),
+        "the Function Reference discarded unsaved changes unasked"
+    );
+    answer(&mut harness, DISCARD);
+    harness.run_steps(1);
+    let reference = crate::function_reference::function_reference().snapshot();
+    assert_eq!(
+        harness.state().orcvs.source().snapshot(),
+        reference,
+        "confirming did not open the Function Reference"
+    );
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("Untitled — Orcvs"),
+        "the opened Function Reference counts as unsaved"
+    );
+
+    choose_in_menu(&mut harness, "Help", "Function Reference");
+    assert!(!asking(&harness), "an unchanged Function Reference asked");
+    choose_in_menu(&mut harness, "File", "New");
+    assert!(
+        !asking(&harness),
+        "New over an unchanged Function Reference asked"
+    );
+    assert!(
+        cells(harness.state()).iter().all(Option::is_none),
+        "New did not open"
+    );
+}
+
+///
+/// File → Quit asks the window to close and asks nothing itself: the
+/// question is the close request's, as it is for the close button.
+///
+#[tokio::test]
+async fn quit_requests_a_close() {
+    let mut harness = console_with_unsaved_changes();
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+    menu_item(&harness, "Quit").click();
+    harness.step();
+    assert!(
+        sent(&harness).contains(&egui::ViewportCommand::Close),
+        "Quit did not ask the window to close"
+    );
+    assert!(!asking(&harness), "Quit asked before the close request");
+
+    // The close request Quit raises is the one that asks.
+    request_close(&mut harness);
+    assert!(
+        sent(&harness).contains(&egui::ViewportCommand::CancelClose),
+        "Quit's close went ahead over unsaved changes"
+    );
+    harness.run_steps(1);
+    assert!(asking(&harness), "Quit's close asked nothing");
+}
+
+///
+/// Closing the window with unsaved changes is cancelled and becomes the Quit
+/// question. Cancelled, the console stays; confirmed, it closes, and the close
+/// that follows is let through rather than asked about again.
+///
+#[tokio::test]
+async fn closing_the_window_asks_before_discarding_unsaved_changes() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+
+    request_close(&mut harness);
+    assert!(
+        sent(&harness).contains(&egui::ViewportCommand::CancelClose),
+        "the close went ahead over unsaved changes"
+    );
+    harness.run_steps(1);
+    assert!(asking(&harness), "the cancelled close asked nothing");
+    answer(&mut harness, "Cancel");
+    harness.run_steps(1);
+    assert!(!asking(&harness), "cancelling left the question showing");
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "cancelling changed the Source"
+    );
+
+    request_close(&mut harness);
+    harness.run_steps(1);
+    answer(&mut harness, DISCARD);
+    assert!(
+        sent(&harness).contains(&egui::ViewportCommand::Close),
+        "confirming did not close the window"
+    );
+    request_close(&mut harness);
+    assert!(
+        !sent(&harness).contains(&egui::ViewportCommand::CancelClose),
+        "the close a confirmed Quit sent was cancelled"
+    );
+}
+
+///
+/// Closing a window whose Source has nothing unsaved is let through unasked.
+///
+#[tokio::test]
+async fn closing_an_unchanged_window_is_let_through() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    request_close(&mut harness);
+    assert!(
+        !sent(&harness).contains(&egui::ViewportCommand::CancelClose),
+        "a close with nothing unsaved was cancelled"
+    );
+    harness.run_steps(1);
+    assert!(!asking(&harness), "a close with nothing unsaved asked");
+}
+
+///
+/// ⌘N runs New through the same question the menu asks, and never reaches
+/// the Source.
+///
+#[tokio::test]
+async fn the_file_chords_run_their_commands_and_never_the_source() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::N);
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        harness
+            .query_by_label_contains("open an empty Source")
+            .is_some(),
+        "⌘N did not ask New's question"
+    );
+    answer(&mut harness, "Cancel");
+    harness.run_steps(1);
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "a File chord wrote the Source"
+    );
+
+    // Shift is part of the chord: ⌘⇧N is not New.
+    harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::N);
+    harness.step();
+    harness.run_steps(1);
+    assert!(!asking(&harness), "⌘⇧N ran New");
+}
+
+///
+/// A File chord pressed while the keys are elsewhere — a menu open, or the
+/// question asking — runs nothing, as a Zoom chord does (ADR 0048).
+///
+#[tokio::test]
+async fn the_file_chords_run_nothing_while_the_keys_are_elsewhere() {
+    let mut harness = console_with_unsaved_changes();
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::N);
+    harness.step();
+    harness.run_steps(1);
+    assert!(!asking(&harness), "⌘N ran New with a menu open");
+
+    harness.key_press(Key::Escape);
+    harness.step();
+    harness.run_steps(1);
+    choose_in_menu(&mut harness, "File", "New");
+    assert!(asking(&harness), "New discarded unsaved changes unasked");
+    chord_frame(&mut harness, Key::O);
+    harness.run_steps(1);
+    assert!(
+        harness
+            .query_by_label_contains("open an empty Source")
+            .is_some(),
+        "⌘O replaced the question showing"
+    );
+}
+
+///
+/// A Source restored from autosave is Untitled and unsaved: storage keeps the
+/// Source, not the file it came from, and discarding it would lose it.
+///
+#[cfg(feature = "persistence")]
+#[tokio::test]
+async fn a_restored_source_is_untitled_and_unsaved() {
+    use crate::persistence::{InMemoryStorage, edited_source, store};
+
+    let mut stored = InMemoryStorage::default();
+    store(&mut stored, &edited_source());
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| {
+            cc.storage = Some(&stored);
+            Console::new(
+                cc,
+                ThemeRegistry::built_in(),
+                crate::config::Config::default(),
+            )
+            .expect("the test runtime")
+        });
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().shown_title.as_deref(),
+        Some("• Untitled — Orcvs"),
+        "a restored Source is not an unsaved Untitled"
+    );
+    choose_in_menu(&mut harness, "File", "New");
+    assert!(asking(&harness), "New discarded a restored Source unasked");
 }

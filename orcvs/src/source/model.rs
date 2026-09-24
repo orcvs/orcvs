@@ -1,5 +1,11 @@
 use lang::Tick;
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 use tracing::debug;
 
 use crate::grid::{CellIndex, Grid, Position};
@@ -138,6 +144,33 @@ pub struct Source {
     grid: Grid,
     inner: String,
     language_map: Arc<LanguageMap>,
+    revision: RevisionId,
+}
+
+static NEXT_REVISION_ID: AtomicU64 = AtomicU64::new(1);
+
+///
+/// Which revision of which Source the Cells are: a new one is minted by
+/// every write — an edit, a block write, a Tick's commit, even one that
+/// writes nothing or writes a Cell the value it already held — and never by
+/// a read. No two Sources share one, so an identity read from a replaced
+/// Source never names a revision of its successor.
+///
+/// It says a write happened, not what the Cells hold: a write back to
+/// earlier Cells is a new revision. A caller asking "have the Cells changed
+/// since?" compares identities to learn whether the question needs asking
+/// again, and compares Cells to answer it.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RevisionId(u64);
+
+impl RevisionId {
+    fn mint() -> Self {
+        let id = NEXT_REVISION_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("Source revision identity space exhausted");
+        Self(id)
+    }
 }
 
 #[cfg(feature = "persistence")]
@@ -214,7 +247,13 @@ impl Source {
             grid,
             inner,
             language_map,
+            revision: RevisionId::mint(),
         }
+    }
+
+    /// The identity of the revision the Cells are now at.
+    pub fn revision(&self) -> RevisionId {
+        self.revision
     }
 
     ///
@@ -413,6 +452,7 @@ impl Source {
             self.inner.as_bytes(),
             written,
         ));
+        self.revision = RevisionId::mint();
     }
 
     ///
@@ -478,6 +518,48 @@ mod test {
             );
             assert_eq!(source.snapshot(), if accepted { input } else { before });
         }
+    }
+
+    ///
+    /// Every write mints a revision no other write or Source holds, and a read
+    /// mints none: what lets a caller ask "has this Source changed since?" by
+    /// comparing two identities rather than two sets of Cells.
+    ///
+    #[test]
+    fn every_write_and_only_a_write_mints_a_new_revision() {
+        let grid = grid();
+        let cell = grid.cell_index(3).unwrap();
+        let mut source = Source::new(grid);
+        let other = Source::new(grid);
+        let first = source.revision();
+        assert_ne!(first, other.revision(), "two Sources share a revision");
+
+        let _ = source.snapshot();
+        let _ = source.get(cell);
+        assert_eq!(source.revision(), first, "a read minted a revision");
+
+        source.set(cell, "a").unwrap();
+        let set = source.revision();
+        assert_ne!(set, first, "a set kept the revision");
+
+        source.unset(cell);
+        let unset = source.revision();
+        assert_ne!(unset, set, "an unset kept the revision");
+
+        // Back to the Cells `first` held, and still a revision of its own:
+        // the identity says a write happened, not what the Cells hold.
+        assert_eq!(source.snapshot(), other.snapshot());
+        assert_ne!(
+            unset, first,
+            "a write back to earlier Cells reused a revision"
+        );
+
+        source.write_cells(&[]);
+        assert_ne!(source.revision(), unset, "an empty write kept the revision");
+
+        let failed = source.revision();
+        assert!(source.set(cell, "\t").is_err());
+        assert_eq!(source.revision(), failed, "a refused set minted a revision");
     }
 
     #[test]
