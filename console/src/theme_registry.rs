@@ -29,9 +29,8 @@ use crate::theme::{
 };
 use crate::theme_document::decode;
 
-/// The file name suffixes a Theme document may carry, matched
-/// case-insensitively. `theme_document::decode` selects its decoder from the
-/// same four.
+/// The one extension a Theme file carries, matched case-insensitively by
+/// [`stem`] alone: `decode` takes the name only to label its errors.
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
     expect(
@@ -39,12 +38,14 @@ use crate::theme_document::decode;
         reason = "only native discovery loads a Theme document; the web has the built-ins alone"
     )
 )]
-const SUFFIXES: [&str; 4] = [".toml", ".json", ".yaml", ".yml"];
+const EXTENSION: &str = "toml";
 
 ///
-/// The Theme identity a file name supplies: the name without its Theme
-/// document suffix. `None` when the name carries none of [`SUFFIXES`].
-/// Matching is case-insensitive; the identity keeps its own case.
+/// The Theme identity a file name supplies: the name without its `.toml`
+/// extension ([`EXTENSION`]). `None` when the name does not end in it, and
+/// such a name is not a Theme file. Matching is case-insensitive; the
+/// identity keeps its own case, so `Dark.toml` and `dark.toml` are two
+/// identities, while `dark.toml` and `dark.TOML` are one.
 ///
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
@@ -54,11 +55,8 @@ const SUFFIXES: [&str; 4] = [".toml", ".json", ".yaml", ".yml"];
     )
 )]
 fn stem(file_name: &str) -> Option<&str> {
-    SUFFIXES.iter().find_map(|suffix| {
-        let split = file_name.len().checked_sub(suffix.len())?;
-        let (stem, tail) = (file_name.get(..split)?, file_name.get(split..)?);
-        tail.eq_ignore_ascii_case(suffix).then_some(stem)
-    })
+    let (stem, extension) = file_name.rsplit_once('.')?;
+    extension.eq_ignore_ascii_case(EXTENSION).then_some(stem)
 }
 
 ///
@@ -182,9 +180,8 @@ impl ThemeRegistry {
         )
     )]
     fn load(&self, file_name: &str, bytes: &[u8]) -> Result<Theme, String> {
-        let stem = stem(file_name).ok_or_else(|| {
-            format!("{file_name}: not a Theme file; expected .toml, .json, .yaml or .yml")
-        })?;
+        let stem = stem(file_name)
+            .ok_or_else(|| format!("{file_name}: not a Theme file; expected .{EXTENSION}"))?;
         let identity = ThemeIdentity::from_stem(stem)
             .ok_or_else(|| format!("{file_name}: a Theme file's name needs a stem"))?;
         let document: ThemeDocument = decode(file_name, bytes).map_err(|e| e.to_string())?;
@@ -450,18 +447,7 @@ mod native {
             }
 
             let (unique, conflicts) = group(candidates);
-            for (identity, paths) in conflicts {
-                let listed = paths
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let reason = format!("several Theme files share its identity: {listed}");
-                registry.notice(format!(
-                    "Refused every Theme file with the identity \"{identity}\": {reason}"
-                ));
-                registry.refused.insert(identity, reason);
-            }
+            registry.refuse_conflicts(conflicts);
             for (identity, candidate) in unique {
                 // An entry that cannot be loaded was reported when it was
                 // found; it refuses its identity without a second notice.
@@ -491,6 +477,31 @@ mod native {
             }
             registry
         }
+
+        ///
+        /// Refuses every identity [`group`] found several files for, with a
+        /// notice and a refusal reason that name every file's path. It reads
+        /// nothing: only a case-sensitive file system can hold such a
+        /// conflict, and keeping it apart from reading the directory lets its
+        /// tests run on every platform.
+        ///
+        pub(super) fn refuse_conflicts(
+            &mut self,
+            conflicts: BTreeMap<ThemeIdentity, Vec<PathBuf>>,
+        ) {
+            for (identity, paths) in conflicts {
+                let listed = paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let reason = format!("several Theme files share its identity: {listed}");
+                self.notice(format!(
+                    "Refused every Theme file with the identity \"{identity}\": {reason}"
+                ));
+                self.refused.insert(identity, reason);
+            }
+        }
     }
 }
 
@@ -507,14 +518,35 @@ mod tests {
     fn a_file_name_stem_is_its_identity_matched_case_insensitively_by_suffix() {
         assert_eq!(stem("my-dark.toml"), Some("my-dark"));
         assert_eq!(stem("My-Dark.TOML"), Some("My-Dark"));
-        assert_eq!(stem("a.b.Json"), Some("a.b"));
-        assert_eq!(stem("x.yaml"), Some("x"));
-        assert_eq!(stem("x.YML"), Some("x"));
+        assert_eq!(stem("a.b.Toml"), Some("a.b"));
         assert_eq!(stem(".toml"), Some(""));
         assert_eq!(stem("notes.txt"), None);
         assert_eq!(stem("x.toml.bak"), None);
         assert_eq!(stem("toml"), None);
+        assert_eq!(stem("x."), None);
+        assert_eq!(stem("x"), None);
+        assert_eq!(stem("x.tOmL"), Some("x"));
         assert_eq!(stem("é.toml"), Some("é"));
+    }
+
+    ///
+    /// TOML is the only Theme representation: a JSON or YAML file, whatever
+    /// its extension's case, is not a Theme file, and the refusal names the
+    /// one extension that is.
+    ///
+    #[test]
+    fn only_a_toml_file_is_a_theme_file() {
+        let registry = ThemeRegistry::built_in();
+        for file_name in ["x.json", "x.JSON", "x.yaml", "x.YAML", "x.yml", "x.Yml"] {
+            assert_eq!(stem(file_name), None, "{file_name}");
+            let error = registry
+                .load(file_name, dark("Other").as_bytes())
+                .expect_err("not a Theme file");
+            assert!(
+                error.contains(file_name) && error.ends_with("not a Theme file; expected .toml"),
+                "{error}"
+            );
+        }
     }
 
     #[test]
@@ -609,7 +641,7 @@ mod discovery_tests {
 
     use super::ThemeRegistry;
     use super::native::{Candidate, group};
-    use super::tests_support::{TempDir, dark, dark_json, id};
+    use super::tests_support::{TempDir, dark, id};
     use crate::theme::{
         Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, ThemeIdentity, okabe_ito, orcvs_light,
     };
@@ -651,15 +683,18 @@ mod discovery_tests {
     fn only_direct_children_with_a_theme_suffix_load_and_other_files_are_ignored() {
         let dir = TempDir::new();
         dir.write("lower.toml", &dark("Lower"));
-        dir.write("Upper.JSON", &dark_json("Upper"));
+        dir.write("Upper.TOML", &dark("Upper"));
+        dir.write("mixed.Toml", &dark("Mixed"));
         dir.write(
-            "short.Yml",
-            "format: orcvs-theme\nversion: 1\nname: Short\ninherits: okabe-ito\n",
+            "json.json",
+            r#"{"format": "orcvs-theme", "version": 1, "name": "J", "inherits": "okabe-ito"}"#,
         );
-        dir.write(
-            "long.yaml",
-            "format: orcvs-theme\nversion: 1\nname: Long\ninherits: okabe-ito\n",
-        );
+        for name in ["yaml.yaml", "yml.YML"] {
+            dir.write(
+                name,
+                "format: orcvs-theme\nversion: 1\nname: Y\ninherits: okabe-ito\n",
+            );
+        }
         dir.write("notes.txt", "not a Theme");
         dir.write("backup.toml.bak", &dark("Backup"));
         dir.write("README", "not a Theme");
@@ -669,7 +704,7 @@ mod discovery_tests {
         std::fs::create_dir(dir.path().join("folder.toml")).expect("a directory with a suffix");
 
         let registry = ThemeRegistry::discover(dir.path());
-        assert_eq!(names(&registry), ["Upper", "long", "lower", "short"]);
+        assert_eq!(names(&registry), ["Upper", "lower", "mixed"]);
         assert!(
             registry.notice_list().is_empty(),
             "{:?}",
@@ -723,7 +758,7 @@ mod discovery_tests {
         let impostor = "format = \"orcvs-theme\"\nversion = 1\nname = \"Impostor\"\n\
                         inherits = \"okabe-ito\"\n[style]\ntext = \"#FF0000\"\n";
         dir.write("okabe-ito.toml", impostor);
-        dir.write("orcvs-light.json", &dark_json("Impostor"));
+        dir.write("orcvs-light.TOML", &dark("Impostor"));
 
         let mut registry = ThemeRegistry::discover(dir.path());
         assert!(registry.custom.is_empty());
@@ -796,41 +831,118 @@ mod discovery_tests {
         );
     }
 
-    #[test]
-    fn duplicate_identities_conflict_whatever_the_enumeration_order() {
-        let candidate = |file_name: &str| Candidate {
+    /// A candidate for `file_name` in `/themes`, as discovery lists it.
+    fn candidate(file_name: &str) -> Candidate {
+        Candidate {
             path: PathBuf::from("/themes").join(file_name),
             file_name: file_name.to_owned(),
             identity: id(super::stem(file_name).expect("a Theme file")),
             unloadable: None,
+        }
+    }
+
+    ///
+    /// Grouping is where a conflict is decided, and it takes no file system,
+    /// so it is asserted here on every platform: a case-insensitive one
+    /// cannot hold two files of one stem, and the discovery tests of a
+    /// conflict set nothing up there.
+    ///
+    #[test]
+    fn duplicate_identities_conflict_whatever_the_enumeration_order() {
+        let unreadable = Candidate {
+            unloadable: Some("ocean.TOML: No such file or directory".to_owned()),
+            ..candidate("ocean.TOML")
         };
         let forward = vec![
             candidate("dup.toml"),
             candidate("solo.toml"),
-            candidate("dup.json"),
-            candidate("dup.YAML"),
+            candidate("dup.TOML"),
+            candidate("dark.toml"),
+            candidate("dup.Toml"),
+            candidate("ocean.toml"),
+            candidate("Dark.toml"),
+            unreadable,
         ];
         let mut backward = forward.clone();
         backward.reverse();
 
         let (unique, conflicts) = group(forward);
         assert_eq!(group(backward), (unique.clone(), conflicts.clone()));
-        assert_eq!(unique.keys().collect::<Vec<_>>(), [&id("solo")]);
+        assert_eq!(
+            unique.keys().collect::<Vec<_>>(),
+            [&id("Dark"), &id("dark"), &id("solo")],
+            "stems that differ only in case are two identities"
+        );
+        assert_eq!(
+            conflicts.keys().collect::<Vec<_>>(),
+            [&id("dup"), &id("ocean")]
+        );
         assert_eq!(
             conflicts[&id("dup")],
             [
-                Path::new("/themes/dup.YAML"),
-                Path::new("/themes/dup.json"),
+                Path::new("/themes/dup.TOML"),
+                Path::new("/themes/dup.Toml"),
                 Path::new("/themes/dup.toml"),
             ]
         );
+        assert_eq!(
+            conflicts[&id("ocean")],
+            [
+                Path::new("/themes/ocean.TOML"),
+                Path::new("/themes/ocean.toml"),
+            ],
+            "an unreadable file still conflicts with a readable one of its stem"
+        );
     }
 
+    ///
+    /// What discovery does with a conflict, asserted on every platform: each
+    /// conflicted identity is reported once by every path and refused with a
+    /// reason naming them, so a selection of it falls back with that reason.
+    ///
+    #[test]
+    fn every_conflicted_identity_is_refused_and_reported_by_path() {
+        let (unique, conflicts) = group(vec![
+            candidate("dup.toml"),
+            candidate("dup.TOML"),
+            candidate("solo.toml"),
+        ]);
+        assert_eq!(unique.keys().collect::<Vec<_>>(), [&id("solo")]);
+
+        let upper = candidate("dup.TOML").path.display().to_string();
+        let lower = candidate("dup.toml").path.display().to_string();
+
+        let mut registry = ThemeRegistry::built_in();
+        registry.refuse_conflicts(conflicts);
+        let notices = registry.notice_list();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("\"dup\"") && notices[0].contains(&format!("{upper}, {lower}")),
+            "{notices:?}"
+        );
+        assert!(matches!(
+            registry.select(Appearance::Dark, &id("dup")),
+            Err(super::Unavailable::Refused(reason))
+                if reason.contains(&upper) && reason.contains(&lower)
+        ));
+        assert!(registry.custom.is_empty());
+    }
+
+    ///
+    /// With `.toml` the only suffix, two files share a stem only when their
+    /// extensions differ in case, which a case-sensitive file system alone
+    /// can hold; elsewhere this sets nothing up and asserts nothing.
+    /// `every_conflicted_identity_is_refused_and_reported_by_path` asserts
+    /// the same refusal on every platform.
+    ///
     #[test]
     fn every_file_of_a_duplicate_identity_is_refused_and_reported_by_path() {
         let dir = TempDir::new();
+        if !dir.is_case_sensitive() {
+            return;
+        }
         let toml = dir.write("dup.toml", &dark("Toml"));
-        let json = dir.write("dup.json", &dark_json("Json"));
+        let upper = dir.write("dup.TOML", &dark("Upper"));
         dir.write("solo.toml", &dark("Solo"));
 
         let registry = ThemeRegistry::discover(dir.path());
@@ -841,11 +953,39 @@ mod discovery_tests {
             .find(|notice| notice.contains("\"dup\""))
             .expect("the conflict is reported");
         assert!(conflict.contains(&toml.display().to_string()), "{conflict}");
-        assert!(conflict.contains(&json.display().to_string()), "{conflict}");
+        assert!(
+            conflict.contains(&upper.display().to_string()),
+            "{conflict}"
+        );
         assert!(matches!(
             registry.select(Appearance::Dark, &id("dup")),
-            Err(super::Unavailable::Refused(reason)) if reason.contains("dup.json")
+            Err(super::Unavailable::Refused(reason)) if reason.contains("dup.TOML")
         ));
+    }
+
+    ///
+    /// The identity keeps its case, so stems that differ only in case are two
+    /// Themes rather than a conflict, where the file system can hold both;
+    /// elsewhere this asserts nothing, and
+    /// `duplicate_identities_conflict_whatever_the_enumeration_order` asserts
+    /// the grouping on every platform.
+    ///
+    #[test]
+    fn stems_that_differ_only_in_case_are_two_identities() {
+        let dir = TempDir::new();
+        if !dir.is_case_sensitive() {
+            return;
+        }
+        dir.write("dark.toml", &dark("Lower"));
+        dir.write("Dark.toml", &dark("Upper"));
+
+        let registry = ThemeRegistry::discover(dir.path());
+        assert_eq!(names(&registry), ["Dark", "dark"]);
+        assert!(
+            registry.notice_list().is_empty(),
+            "{:?}",
+            registry.notice_list()
+        );
     }
 
     #[cfg(unix)]
@@ -928,8 +1068,11 @@ mod discovery_tests {
     #[test]
     fn an_unreadable_file_still_conflicts_with_a_readable_one_of_the_same_stem() {
         let dir = TempDir::new();
+        if !dir.is_case_sensitive() {
+            return;
+        }
         let toml = dir.write("ocean.toml", &dark("Ocean"));
-        let dangling = dir.path().join("ocean.yaml");
+        let dangling = dir.path().join("ocean.TOML");
         std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("a dangling link");
 
         let registry = ThemeRegistry::discover(dir.path());
@@ -938,7 +1081,7 @@ mod discovery_tests {
         assert!(
             notices
                 .iter()
-                .any(|n| n.contains("Could not read") && n.contains("ocean.yaml")),
+                .any(|n| n.contains("Could not read") && n.contains("ocean.TOML")),
             "the unreadable file is still reported: {notices:?}"
         );
         let conflict = notices
@@ -1106,13 +1249,16 @@ mod discovery_tests {
         fn a_selected_conflicted_identity_falls_back_and_recovers() {
             let settings = selecting_dark("dup");
             let dir = TempDir::new();
+            if !dir.is_case_sensitive() {
+                return;
+            }
             dir.write("dup.toml", &dark("Toml"));
-            let json = dir.write("dup.json", &super::dark_json("Json"));
+            let upper = dir.write("dup.TOML", &dark("Upper"));
 
             let (selected, notices) = launch(&settings, &dir);
             assert!(matches!(
                 selected,
-                Err(Unavailable::Refused(ref reason)) if reason.contains("dup.json")
+                Err(Unavailable::Refused(ref reason)) if reason.contains("dup.TOML")
                     && reason.contains("dup.toml")
             ));
             assert!(
@@ -1120,7 +1266,7 @@ mod discovery_tests {
                 "{notices:?}"
             );
 
-            std::fs::remove_file(json).expect("resolving the conflict");
+            std::fs::remove_file(upper).expect("resolving the conflict");
             let (selected, notices) = launch(&settings, &dir);
             assert_eq!(selected, Ok("dup".to_owned()));
             assert!(notices.is_empty(), "{notices:?}");
@@ -1196,15 +1342,6 @@ pub(crate) mod tests_support {
         )
     }
 
-    /// The same document in JSON.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn dark_json(name: &str) -> String {
-        format!(
-            "{{\"format\": \"orcvs-theme\", \"version\": 1, \"name\": \"{name}\", \
-             \"inherits\": \"okabe-ito\"}}"
-        )
-    }
-
     ///
     /// A directory of its own under the system temporary directory, removed
     /// on drop: the Theme directory a test discovers, never the viewer's
@@ -1230,6 +1367,18 @@ pub(crate) mod tests_support {
 
         pub(crate) fn path(&self) -> &Path {
             &self.0
+        }
+
+        ///
+        /// Whether this directory's file system tells names apart by case.
+        /// Where it does not, two Theme files cannot share a stem, so a test
+        /// of that conflict has nothing to set up.
+        ///
+        pub(crate) fn is_case_sensitive(&self) -> bool {
+            self.write("case-probe", "");
+            let sensitive = !self.0.join("CASE-PROBE").exists();
+            std::fs::remove_file(self.0.join("case-probe")).expect("the probe just written");
+            sensitive
         }
 
         /// Writes `contents` to `name` in this directory, returning its path.
