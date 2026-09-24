@@ -608,7 +608,7 @@ mod refused_revision {
         // The report is the whole of what the browser has: the console shows a
         // developer-console record or it shows nothing at all. A `tracing`
         // event alone reaches no subscriber on this target and is dropped.
-        let reported = records_from(|| console = Some(Console::new(&cc)));
+        let reported = records_from(|| console = Some(Console::start(&cc)));
         let mut console = console
             .expect("the console was built inside the capture")
             .expect("browser playback does not require a Tokio runtime");
@@ -684,7 +684,7 @@ mod product_path {
     fn console_over(storage: &dyn eframe::Storage) -> Console {
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(storage);
-        Console::new(&cc).expect("browser playback does not require a Tokio runtime")
+        Console::start(&cc).expect("browser playback does not require a Tokio runtime")
     }
 
     fn edited_source() -> Source {

@@ -45,15 +45,9 @@
 /// other is the difference this module exists to close. A value worth
 /// recording goes in the message.
 ///
-/// Every call site is conditional — the storage seam's on the `persistence`
-/// feature, the Playback failure report's on the target — so a native build
-/// with `--no-default-features` compiles no caller at all. That is a fact
-/// about which sites that build contains, not about the channel: this is the
-/// console's error channel on every target, and the next site to need it must
-/// not have to re-derive what it knows. `unused_macros`, and the
-/// `unused_imports` the re-export below draws with it, cannot see that, so
-/// they are silenced on these two items and nowhere else.
-#[allow(unused_macros)]
+/// Every build has a caller: `theme_registry` reports every Theme notice
+/// through this macro on every target and feature set, beside the storage
+/// seam's reports under `persistence` and the Playback failure report.
 macro_rules! error {
     ($($argument:tt)*) => {{
         ::tracing::error!($($argument)*);
@@ -64,5 +58,4 @@ macro_rules! error {
     }};
 }
 
-#[allow(unused_imports)]
 pub(crate) use error;

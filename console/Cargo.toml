@@ -96,6 +96,37 @@ eframe = { version = "=0.36.2", default-features = false, features = [
     "x11",
 ] }
 egui = { version = "=0.36.2", default-features = false }
+# The Theme document decoders (`theme_document.rs`, `.scratch/theming/issues/07`).
+# `schema.md` accepts one document model in three representations, and its
+# 2026-09-23 comment records why each format's own Serde deserializer decodes
+# straight into the strict document type: the `config` crate's intermediate
+# value layer converted types, kept the last duplicate JSON key and dropped line
+# and column, so it could not meet the model.
+#
+# `toml` and `serde_json` were already in the locked graph as dev-only
+# dependencies (`egui_kittest`, `wasm-bindgen-test`, `orcvs`); these entries make
+# them shipped. `toml`'s defaults are off only to drop `display`, its
+# serializer; decoding needs `parse`, `serde` and `std`. `Cargo.lock` still lists
+# `indexmap` and `toml_writer` under `toml`, because `std` names them as weak
+# `?/std` features, but neither is built (`cargo tree -i toml_writer` is empty).
+# `serde-saphyr` is the YAML decoder, and exposes the options that reject
+# duplicate keys, merge keys, unknown tags and YAML 1.1 booleans. Only
+# `deserialize` is enabled; that feature is indivisible and brings every other
+# crate new to the lockfile: `granit-parser` (its parser), `arraydeque`,
+# `annotate-snippets`, `encoding_rs_io`, `encoding_rs`, `multiversion`,
+# `multiversion-macros`, `multiversion_no_op` and `core_detect`. `serde-saphyr`
+# and `granit-parser` `forbid(unsafe_code)`; `arraydeque` and `encoding_rs`
+# contain `unsafe`, as does `core_detect` (CPUID, x86 only), and
+# `multiversion-macros` is a proc macro, built only on x86 targets without AVX2
+# and BMI1, that emits `unsafe` feature-dispatch calls. The rest have none.
+# `serde_yaml` is deprecated, `serde_yml` carries RUSTSEC-2025-0068, and `serde_norway` accepts
+# unknown tags and rejects a leading byte-order mark — the issue comment has the
+# full comparison. `serde` itself is here for `derive` on the document's root
+# struct; it is already in the graph through `orcvs/persistence`.
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde-saphyr = { version = "1.3.0", default-features = false, features = ["deserialize"] }
+serde_json = "1.0.151"
+toml = { version = "1.1.6", default-features = false, features = ["parse", "serde", "std"] }
 tracing.workspace = true
 
 [target.'cfg(all(not(target_arch = "wasm32"), any(target_os = "macos", target_os = "windows", target_os = "linux")))'.dependencies]
@@ -124,9 +155,16 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 log = "0.4"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+# `Blob` and `File` let a dropped Theme file's size be checked against the
+# 1 MiB document limit before its bytes are read (`theme_registry::WebImport`,
+# `.scratch/theming/schema.md`'s "Check both native files and web blobs").
+# `eframe`'s own drag-and-drop already enables both on this same `web-sys`, so
+# declaring them adds nothing to the graph; it states what this crate calls.
 web-sys = { version = "0.3", features = [
+    "Blob",
     "Document",
     "Element",
+    "File",
     "HtmlCanvasElement",
     "MediaQueryList",
     "Window",

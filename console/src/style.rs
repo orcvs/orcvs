@@ -1512,8 +1512,9 @@ mod tests {
 
         // A changed Theme reaches `cell_visuals_with_cursor_colour` on the
         // very next call — the Source Grid paints from the resolved Theme,
-        // not from a fixed palette, so a custom Theme's colours would preview
-        // immediately once loading exists (`.scratch/theming/issues/07`).
+        // not from a fixed palette, so a loaded custom Theme's colours
+        // preview immediately once `.scratch/theming/issues/04` lets a
+        // selection paint.
         let retuned = Theme {
             source_function: Color32::from_rgb(1, 2, 3),
             ..okabe_ito()

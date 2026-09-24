@@ -1,0 +1,12 @@
+format = "orcvs-theme"
+version = 1
+name = "My Dark"
+inherits = "okabe-ito"
+
+[style]
+"text" = "#E0E0E0"
+"grid.background" = "#101820"
+"grid.border" = "#35506080"
+"grid.border.width" = 0.5
+"cursor.background" = "none"
+"source.function.background" = "#001912FF"

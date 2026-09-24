@@ -12,10 +12,8 @@ use orcvs::source::Source;
 
 use crate::cursor_effects::CursorEffectSettings;
 #[cfg(feature = "persistence")]
-use crate::theme::Appearance;
+use crate::theme::{Appearance, ThemeIdentity};
 use crate::theme_selection::ThemeSelection;
-#[cfg(feature = "persistence")]
-use crate::theme_selection::default_identity;
 
 ///
 /// The Storage key one stored Source revision lives under.
@@ -58,6 +56,24 @@ const fn theme_key(appearance: Appearance) -> &'static str {
         Appearance::Light => LIGHT_THEME_KEY,
     }
 }
+
+///
+/// The Storage key the web target's imported Theme documents live under: a
+/// JSON list of each document's file name and source text, never its
+/// resolved values, so every restore decodes and validates it again
+/// (`.scratch/theming/issues/07`). Native Theme files are authoritative and
+/// are never stored; only the web imports anything.
+///
+#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
+pub(crate) const IMPORTED_THEMES_KEY: &str = "imported_themes";
+
+///
+/// The Storage key an [`IMPORTED_THEMES_KEY`] value that could not be decoded
+/// is moved to before anything writes that key again — the same refuse-aside
+/// rule [`REFUSED_KEY`] applies to the Source.
+///
+#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
+pub(crate) const IMPORTED_THEMES_REFUSED_KEY: &str = "imported_themes_refused";
 
 ///
 /// The Storage key a value that could not be read back is moved to.
@@ -159,7 +175,7 @@ impl Persistence {
         for appearance in [Appearance::Dark, Appearance::Light] {
             storage.set_string(
                 theme_key(appearance),
-                theme_selection.identity(appearance).to_owned(),
+                theme_selection.identity(appearance).as_str().to_owned(),
             );
         }
     }
@@ -218,7 +234,10 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
     let restored_identity = |appearance: Appearance| {
         storage
             .and_then(|storage| storage.get_string(theme_key(appearance)))
-            .unwrap_or_else(|| default_identity(appearance).to_owned())
+            .map_or_else(
+                || ThemeIdentity::default_for(appearance),
+                ThemeIdentity::restored,
+            )
     };
     let theme_selection = ThemeSelection::new(
         restored_identity(Appearance::Dark),
@@ -483,7 +502,7 @@ mod tests {
     #[cfg(feature = "persistence")]
     use crate::cursor_effects::CursorEffectSettings;
     #[cfg(feature = "persistence")]
-    use crate::theme::Appearance;
+    use crate::theme::{Appearance, ThemeIdentity};
     use crate::theme_selection::ThemeSelection;
 
     #[test]
@@ -525,11 +544,11 @@ mod tests {
         let empty = InMemoryStorage::default();
         let start = starting_source(Some(&empty));
         assert_eq!(
-            start.theme_selection.identity(Appearance::Dark),
+            start.theme_selection.identity(Appearance::Dark).as_str(),
             "okabe-ito"
         );
         assert_eq!(
-            start.theme_selection.identity(Appearance::Light),
+            start.theme_selection.identity(Appearance::Light).as_str(),
             "orcvs-light"
         );
     }
@@ -573,16 +592,22 @@ mod tests {
             &mut storage,
             &current,
             cursor_effects,
-            &ThemeSelection::new("my-dark".to_owned(), "my-light".to_owned()),
+            &ThemeSelection::new(
+                ThemeIdentity::restored("my-dark".to_owned()),
+                ThemeIdentity::restored("my-light".to_owned()),
+            ),
         );
 
         let restored = starting_source(Some(&storage));
         assert_eq!(
-            restored.theme_selection.identity(Appearance::Dark),
+            restored.theme_selection.identity(Appearance::Dark).as_str(),
             "my-dark"
         );
         assert_eq!(
-            restored.theme_selection.identity(Appearance::Light),
+            restored
+                .theme_selection
+                .identity(Appearance::Light)
+                .as_str(),
             "my-light"
         );
         assert_eq!(restored.cursor_effects, cursor_effects);

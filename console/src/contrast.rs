@@ -82,7 +82,7 @@ use egui::{Color32, Style};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style};
-use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme};
+use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity};
 
 ///
 /// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio every
@@ -91,13 +91,6 @@ use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme};
 /// [`ContrastReport::floor`] for a caller reading the report rather than
 /// this source file.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 
 ///
@@ -123,14 +116,6 @@ pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 /// painting ever changes to draw one.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows validate's report when a viewer loads a scheme"
-    )
-)]
 pub(crate) enum Role {
     Ordinary,
     Function,
@@ -158,7 +143,8 @@ pub(crate) enum Role {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "SOURCE_ROLES is read by validate, but the glyph-channel mapping here only by \
+                  distinguish, which no shipped path runs; theming/07 shows validate's report"
     )
 )]
 impl Role {
@@ -261,13 +247,6 @@ impl Role {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 const fn operand(token: Token, state: OperandState) -> SourcePaint {
     SourcePaint::Operand { token, state }
 }
@@ -304,14 +283,6 @@ impl fmt::Display for Role {
 /// Reservation (see [`State::SourceGrid`]).
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows validate's report when a viewer loads a scheme"
-    )
-)]
 pub(crate) enum CursorPlacement {
     /// Not the Cursor, not inside a Region: the ordinary Cell.
     Plain,
@@ -324,13 +295,6 @@ pub(crate) enum CursorPlacement {
     RegionCursor,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 impl CursorPlacement {
     const ALL: [Self; 4] = [Self::Plain, Self::Cursor, Self::Region, Self::RegionCursor];
 }
@@ -358,14 +322,6 @@ impl fmt::Display for CursorPlacement {
 /// outright over everything above, on its own Cell").
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows validate's report when a viewer loads a scheme"
-    )
-)]
 pub(crate) enum State {
     SourceGrid {
         cursor: CursorPlacement,
@@ -438,13 +394,6 @@ impl fmt::Display for State {
 /// background therefore resolves against its underlying surface rather than
 /// against itself.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 fn painted(
     fact: SourcePaint,
     cursor: CursorPlacement,
@@ -533,13 +482,6 @@ const CHROME_STATES: usize = 15;
 /// source-over egui's painter applies and [`painted`] composites the
 /// Source Grid with.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
     let installed = style(theme);
     let visuals = &installed.visuals;
@@ -616,14 +558,6 @@ fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
 /// One reachable painted text state's measured result.
 ///
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows validate's report when a viewer loads a scheme"
-    )
-)]
 pub(crate) struct ContrastResult {
     pub(crate) role: Role,
     pub(crate) state: State,
@@ -640,13 +574,6 @@ pub(crate) struct ContrastResult {
     pub(crate) accepted: bool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 impl ContrastResult {
     /// Whether [`Self::ratio`] clears [`CONTRAST_FLOOR`].
     pub(crate) fn passes(&self) -> bool {
@@ -663,8 +590,8 @@ impl ContrastResult {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows validate's report when a viewer loads a scheme"
+        reason = "scope is read only by tests: theming/07's Theme notice names the floor and the \
+                  failing states, not the scope text"
     )
 )]
 pub(crate) struct ContrastReport {
@@ -676,13 +603,6 @@ pub(crate) struct ContrastReport {
 }
 
 /// [`ContrastReport::scope`]'s exact text.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
 background it is actually painted on. Not pairwise Token-colour distinguishability, \
 border/focus visibility, or the Cursor Effect's animated area field. Colour vision is \
@@ -702,16 +622,10 @@ Theme maps from text, so the open fill is measured with text instead).";
 /// Never refuses `theme`: a scheme that fails a state is measured and
 /// reported exactly like one that passes, because the floor is a fact about
 /// the scheme worth seeing rather than a gate a Theme must clear before it
-/// loads. `.scratch/theming/issues/07` shows this report when a viewer loads
-/// a scheme; a failing one loads anyway, because the viewer chose it.
+/// loads. `crate::theme_registry` shows the states below the floor as a
+/// Theme notice when a custom Theme loads (`.scratch/theming/issues/07`); a
+/// failing one loads anyway, because the viewer chose it.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 pub(crate) fn validate(theme: &Theme) -> ContrastReport {
     let mut results = Vec::with_capacity(
         Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * 2 + CHROME_STATES,
@@ -761,19 +675,12 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
 /// [`contrast`] between the two, and looks `identity`'s accepted exceptions
 /// up for a matching entry.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 fn measure(
     role: Role,
     state: State,
     foreground: Color32,
     background: Color32,
-    identity: &str,
+    identity: &ThemeIdentity,
 ) -> ContrastResult {
     let displayed = background.blend(foreground);
     let ratio = contrast(displayed, background);
@@ -797,13 +704,6 @@ fn measure(
 /// only at full alpha. Every caller in this module guarantees this by
 /// compositing down to the opaque window backdrop first.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 fn contrast(foreground: Color32, background: Color32) -> f32 {
     let luminance = |colour: Color32| {
         let channel = |value: u8| {
@@ -826,13 +726,6 @@ fn contrast(foreground: Color32, background: Color32) -> f32 {
 /// colour pair it was accepted at.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 struct AcceptedFailure {
     role: Role,
     state: State,
@@ -840,13 +733,6 @@ struct AcceptedFailure {
     background: Color32,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
 impl AcceptedFailure {
     fn matches(&self, role: Role, state: State, foreground: Color32, background: Color32) -> bool {
         self.role == role
@@ -875,29 +761,22 @@ impl AcceptedFailure {
 /// colour or lowers the floor to reach this empty list.
 ///
 /// Called from [`measure`], which every [`validate`] result passes through —
-/// not test-only, even though nothing outside this module's own tests calls
-/// `validate` itself yet. `ContrastResult::accepted` has to come from
+/// not test-only: `theme_registry` validates every Theme file it loads.
+/// `ContrastResult::accepted` has to come from
 /// somewhere for the report to carry its acceptance annotation in the
 /// returned data rather than only in test code, and this table is that
 /// somewhere. [`unaccepted`], the shipped-Theme *gate*'s comparison, has no
 /// such production reason and lives in `mod tests`.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
-    )
-)]
-fn accepted_failures(identity: &str) -> &'static [AcceptedFailure] {
+fn accepted_failures(identity: &ThemeIdentity) -> &'static [AcceptedFailure] {
     match identity {
-        id if id == OKABE_ITO_IDENTITY => &[],
+        id if *id == OKABE_ITO_IDENTITY => &[],
         // Orcvs Light's list is empty for the same reason, and for a
         // stronger one: `.scratch/theming/issues/04` tuned the light
         // definition against this validator until every reachable state
         // cleared the floor, so it ships with no exception to record.
         // `console/src/theme.md` states the measured figures.
-        id if id == ORCVS_LIGHT_IDENTITY => &[],
+        id if *id == ORCVS_LIGHT_IDENTITY => &[],
         _ => &[],
     }
 }
@@ -921,7 +800,8 @@ fn accepted_failures(identity: &str) -> &'static [AcceptedFailure] {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 pub(crate) const CONFUSION_FLOOR: f32 = 5.0;
@@ -950,7 +830,8 @@ pub(crate) const CONFUSION_FLOOR: f32 = 5.0;
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 pub(crate) enum ColourVision {
@@ -963,7 +844,8 @@ pub(crate) enum ColourVision {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 impl ColourVision {
@@ -998,7 +880,8 @@ impl fmt::Display for ColourVision {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 pub(crate) enum GlyphChannel {
@@ -1042,8 +925,8 @@ impl fmt::Display for GlyphChannel {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows distinguish's report when a viewer loads a scheme"
+        reason = "distinguish's report, which no shipped path runs: theming/07 shows \
+                  validate's report (08's validator) on load, and nothing yet shows this one"
     )
 )]
 pub(crate) struct ConfusionResult {
@@ -1066,7 +949,8 @@ pub(crate) struct ConfusionResult {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 impl ConfusionResult {
@@ -1087,8 +971,8 @@ impl ConfusionResult {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside this module's own tests until theming/07 wires a loader \
-                   and shows distinguish's report when a viewer loads a scheme"
+        reason = "distinguish's report, which no shipped path runs: theming/07 shows \
+                  validate's report (08's validator) on load, and nothing yet shows this one"
     )
 )]
 pub(crate) struct ConfusionReport {
@@ -1102,7 +986,8 @@ pub(crate) struct ConfusionReport {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 const CONFUSION_SCOPE: &str = "Pairwise separation of the Source glyph channels under \
@@ -1125,7 +1010,8 @@ anomalous trichromacy, which is a continuum this reports the endpoint of.";
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 pub(crate) fn distinguish(theme: &Theme) -> ConfusionReport {
@@ -1223,7 +1109,8 @@ pub(crate) fn distinguish(theme: &Theme) -> ConfusionReport {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 fn simulate(colour: Color32, vision: ColourVision) -> Color32 {
@@ -1263,7 +1150,8 @@ fn simulate(colour: Color32, vision: ColourVision) -> Color32 {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 fn lab(colour: Color32) -> [f32; 3] {
@@ -1300,7 +1188,8 @@ fn lab(colour: Color32) -> [f32; 3] {
     not(test),
     expect(
         dead_code,
-        reason = "unconsumed outside tests until theming/07 shows a report"
+        reason = "read only by distinguish, a review gate over the built-ins that no shipped \
+                  path runs; theming/07 shows validate's report alone"
     )
 )]
 fn difference(first: [f32; 3], second: [f32; 3]) -> f32 {
@@ -2174,7 +2063,7 @@ mod tests {
         }
 
         assert!(
-            super::accepted_failures(OKABE_ITO_IDENTITY).is_empty(),
+            super::accepted_failures(&OKABE_ITO_IDENTITY).is_empty(),
             "Okabe-Ito's accepted-exception list should be empty: nothing currently fails \
              that this issue's comments record as accepted"
         );
@@ -2193,7 +2082,7 @@ mod tests {
         let report = validate(&orcvs_light());
 
         assert!(
-            super::accepted_failures(ORCVS_LIGHT_IDENTITY).is_empty(),
+            super::accepted_failures(&ORCVS_LIGHT_IDENTITY).is_empty(),
             "Orcvs Light ships with no accepted contrast exception"
         );
         let below_floor: Vec<_> = report
@@ -2225,9 +2114,10 @@ mod tests {
     /// `orcvs_light()` joins it under `.scratch/theming/issues/04`, and
     /// clears the floor in every reachable state for the same reason rather
     /// than by exception: its colours were tuned against this validator
-    /// until they did. `07`'s loader is still not built, so `shipped` is a
-    /// hand-kept array rather than an iterated built-in registry — a known
-    /// weakness recorded in `.scratch/theming/issues/08`'s comments.
+    /// until they did. `shipped` is a hand-kept array rather than the
+    /// Theme registry's built-ins, which `.scratch/theming/issues/07` added
+    /// privately to `crate::theme_registry` — a known weakness recorded in
+    /// `.scratch/theming/issues/08`'s comments.
     ///
     #[test]
     fn shipped_theme_gate() {

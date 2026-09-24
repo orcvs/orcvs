@@ -7,7 +7,8 @@ No runtime implementation has been performed in this preparation branch.
 
 ## Settled scope
 
-One YAML document format: `format: orcvs-theme`, `version: 1`, `name`, `inherits`
+One Theme data model in TOML by default, with JSON and YAML representations:
+`format = "orcvs-theme"`, `version = 1`, `name`, `inherits`
 and `style`. No Base16 palette, importer or conversion work is required now.
 Named properties cover Source colours, console colours, alpha, fills and bounded
 border widths. Custom files inherit exactly one built-in and its appearance.
@@ -61,9 +62,9 @@ restoration and OS appearance changes.
 ## Preparation complete; remaining implementation evidence
 
 The named-property catalogue, exact dark values, weak/IME mappings, explicit
-role backgrounds, parser subset, format/version handling, optional-fill encoding,
+role backgrounds, direct TOML/JSON/YAML decoding and its strictness cases, format/version handling, optional-fill encoding,
 resource limits and native/web error behaviour are specified in `schema.md`.
-`examples/okabe-ito-copy.yaml` supplies every property; `examples/my-dark.yaml`
+`examples/okabe-ito-copy.toml` supplies every property; `examples/my-dark.toml`
 is a small inherited custom Theme. The legacy schema-draft link redirects there.
 
 The implementation must still verify actual paint/composite results, native/web
@@ -81,7 +82,8 @@ Follow the current repository contract and the Rust/egui skills at implementatio
 time. For console changes: formatting, console clippy and nextest; persistence-off
 workspace tests for storage work; `mise run check_wasm` for platform/rendering.
 Use the inspection feature gate only if touched. Run dependency audit if manifests,
-features or lockfile change. Run workspace and doctest gates once before a PR.
+features or lockfile change; issue `07` adds `toml`, `serde_json` and `serde-saphyr`
+to `console`, so its PR owes `mise run audit_deps` and a recorded rationale. Run workspace and doctest gates once before a PR.
 
 Regression cases must cover inheritance, invalid documents, duplicate identities,
 web replacement, fallback/autosave/repair, alpha composition, optional fills,
