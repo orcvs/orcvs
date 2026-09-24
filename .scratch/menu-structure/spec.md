@@ -44,7 +44,7 @@ Help
 
 **A document model on native.** The console tracks the open Source File's path and whether the Source has changed since it was opened or saved. The window title shows the file name and an unsaved marker. New, Open, Help > Function Reference, Quit and closing the window ask before discarding unsaved changes. Autosave stays as session recovery; Save writes the file.
 
-**Web file I/O is deferred.** `rfd` reads a picked file on wasm32, but its `save_file` and `FileHandle::write` are unsupported there (0.17.2), and a download through `web-sys` or the Chromium-only File System Access API is its own work. Open without Save is half a feature, so the web gets neither, and no config file. It keeps autosave, built-in defaults, and Theme import by drag and drop.
+**Web file I/O is deferred.** `rfd` reads a picked file on wasm32, but its `save_file` and `FileHandle::write` are unsupported there (0.17.2), and a download through `web-sys` or the Chromium-only File System Access API is its own work. Open without Save is half a feature, so the web gets neither, and no config file. It keeps autosave and built-in defaults. Theme import by drag and drop is disabled for v1: with no config file the web cannot select an imported Theme, so an import would be stored and never shown.
 
 **Native dialogs use `rfd`,** synchronous API, added through `rust-dependency-change` with its rationale recorded.
 

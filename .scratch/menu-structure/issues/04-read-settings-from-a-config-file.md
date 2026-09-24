@@ -34,12 +34,12 @@
   Tests call `Config::read(path)` on a temporary directory, or build a `Config` value directly.
 - ADR 0053 still describes Theme pickers in its Consequences; it is an accepted record and was left
   as written. `console/src/theme.md` describes the config file.
-- Open question from review (not changed here): on the web nothing can select an imported Theme.
-  The pickers and the stored selection keys are gone and the web reads no config file, so the
-  selection is always the two built-ins, and a dropped Theme file is imported and stored but never
-  presented. The spec keeps both "built-in defaults" and "Theme import by drag and drop" for the
-  web; making an import take effect needs a decision (select on import for the session, persist a
-  web-only selection, or drop web import).
+- Resolved after review: on the web nothing could select an imported Theme. The pickers and the
+  stored selection keys are gone and the web reads no config file, so the selection is always the
+  two built-ins, and a dropped Theme file was imported and stored but never presented. Web Theme
+  import is disabled for v1: the drop reader, the import path, the `imported_themes` storage keys
+  and the View menu's drop hint are removed, and the web has the built-ins alone. Values earlier
+  builds stored under `imported_themes` are no longer read.
 - Open question from review (not changed here): values earlier builds stored under `dark_theme`,
   `light_theme` and `cursor_effects` are ignored without a notice, as this issue asks. An upgrading
   viewer who had picked a custom Theme is not told to move it to `config.toml`.

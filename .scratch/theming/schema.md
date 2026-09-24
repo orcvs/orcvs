@@ -299,6 +299,8 @@ of the same identity if valid. Cancellation leaves registry/selection unchanged.
 With persistence, web retains imported source documents and selections; without
 it these remain session-only. Failed storage writes are reported rather than
 claiming persistence succeeded; the valid in-memory Theme may remain usable.
+Web import is disabled for v1 (`.scratch/menu-structure/issues/04`); the web
+rules here are the design for when it returns.
 
 Unavailable, malformed, conflicted or appearance-mismatched selections keep their
 saved references and show the matching built-in fallback plus an error. Autosave

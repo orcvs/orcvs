@@ -27,24 +27,6 @@ use orcvs::source::Source;
 pub const SOURCE_KEY: &str = "orcvs_source";
 
 ///
-/// The Storage key the web target's imported Theme documents live under: a
-/// JSON list of each document's file name and source text, never its
-/// resolved values, so every restore decodes and validates it again
-/// (`.scratch/theming/issues/07`). Native Theme files are authoritative and
-/// are never stored; only the web imports anything.
-///
-#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-pub(crate) const IMPORTED_THEMES_KEY: &str = "imported_themes";
-
-///
-/// The Storage key an [`IMPORTED_THEMES_KEY`] value that could not be decoded
-/// is moved to before anything writes that key again — the same refuse-aside
-/// rule [`REFUSED_KEY`] applies to the Source.
-///
-#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-pub(crate) const IMPORTED_THEMES_REFUSED_KEY: &str = "imported_themes_refused";
-
-///
 /// The Storage key a value that could not be read back is moved to.
 ///
 /// A refused value is Cells a viewer may still recover by hand, and the

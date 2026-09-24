@@ -105,12 +105,11 @@ re-importing; this release has no file watcher or reload action. Settings refer
 to each native Theme by its filename stem; its declared name is a display label.
 Built-in identities are reserved and cannot be replaced by files.
 If multiple native files have the same filename stem, all files with that identity are refused and the conflict is reported with the conflicting filenames. Directory enumeration order never chooses a winner. If the selected identity is conflicted, use the default built-in Theme of the same appearance while retaining the saved selection; resolving the conflict restores the intended Theme on the next launch.
-Web imports use files and the same filename-stem identity; a successful reimport
-of the same identity updates its document. Imported documents remain in browser
-storage when persistence is enabled. A missing or malformed selected native Theme file shows an error and
+The web console loads no Theme files and has the built-ins alone; web Theme
+import is deferred past v1. A missing or malformed selected native Theme file shows an error and
 falls back to the default built-in Theme of the same appearance. The saved
 selection is retained, so fixing the file restores it on the next launch.
-Unknown appearance keys and out-of-range widths reject the entire Theme document. The error identifies the offending setting and explains the valid key or range; values are neither silently ignored nor clamped. A failed web reimport preserves the previous valid document. Contrast warnings alone do not reject a document.
+Unknown appearance keys and out-of-range widths reject the entire Theme document. The error identifies the offending setting and explains the valid key or range; values are neither silently ignored nor clamped. Contrast warnings alone do not reject a document.
 Glitch amount and Glitch frequency are settings, not Theme values.
 
 Themes choose colours and channels within fixed painting precedence. They cannot
@@ -523,8 +522,8 @@ The Theme selections and Cursor effects are never stored: the `dark_theme`,
 longer read or written.
 
 A selection names a built-in or a custom Theme `07` loads. At startup the
-native console reads `~/.orcvs/themes/`, and the web console restores its
-imported documents; a Theme file dropped on the web console is imported. A
+native console reads `~/.orcvs/themes/`; the web console has the built-ins
+alone. A
 custom Theme's identity is its file name's stem, and its `name` is only a
 display label. When a selection is missing, malformed, conflicted or of the
 wrong appearance, a Theme notice in the top bar names the Theme, the setting

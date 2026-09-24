@@ -8,6 +8,8 @@
 
 **Tags:** release/v1
 
+**Scope for v1:** the web Theme import is disabled (`.scratch/menu-structure/issues/04`), so the WASM clauses below — imported documents, web reimport, the web parser path and stored web documents — are deferred past v1. v1 is the native file path; the web has the built-ins alone.
+
 - [ ] A custom Theme references one built-in Theme identity as its parent, and holds a display name and only the named properties it sets; its appearance is inherited from its parent. Everything else resolves from its parent. On both targets, its filename stem is its identity, following `07`; the display name is not a settings reference.
 - [ ] A custom Theme inherits its built-in parent's dark/light appearance. An omitted appearance resolves from the parent; an explicit conflicting declaration rejects the document with an error identifying the mismatch. A light custom Theme must start from a light built-in, and a dark custom Theme from a dark built-in. Tests cover omitted appearance, matching explicit appearance and a rejected conflicting declaration on both loading paths.
 - [ ] A custom Theme can never be a parent. A loaded or stored custom Theme naming another, or naming an unknown parent, is refused whole and reported.

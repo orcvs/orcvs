@@ -836,10 +836,6 @@ pub struct Console {
     cursor_effect_animation: CursorEffectAnimation,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
-    /// Reads Theme files dropped on the web console and hands their bytes to
-    /// `themes`.
-    #[cfg(target_arch = "wasm32")]
-    web_import: crate::theme_registry::WebImport,
     /// The question the console is asking before it discards the Source, while
     /// it asks. Holding it keeps keys from the Source, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
@@ -958,8 +954,6 @@ impl Console {
             cursor_effect_animation: CursorEffectAnimation::default(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
-            #[cfg(target_arch = "wasm32")]
-            web_import: crate::theme_registry::WebImport::new(),
             discard_confirmation: None,
             ctx: cc.egui_ctx.clone(),
         })
@@ -2271,29 +2265,6 @@ impl eframe::App for Console {
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.persistence.save(storage, self.orcvs.source());
-        // Only the web stores Theme documents; native Theme files are
-        // authoritative and re-read at every launch.
-        #[cfg(target_arch = "wasm32")]
-        self.themes.store_imported(storage);
-    }
-
-    ///
-    /// Imports the Theme files dropped on the web console. eframe reads a
-    /// dropped file's bytes asynchronously, so a drop starts the read here
-    /// and a later frame applies what it read. This hook sees each
-    /// `RawInput` exactly once, and takes the dropped files out of it, so no
-    /// drop is read twice; `App::logic` would see a hidden tab's last input
-    /// again on every call. Nothing is imported on native, where
-    /// `~/.orcvs/themes/` is the only source of custom Themes.
-    ///
-    #[cfg(target_arch = "wasm32")]
-    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        self.web_import.take_drops(ctx, raw_input, &mut self.themes);
-        if self.web_import.apply(&mut self.themes) {
-            // Before the frame this input starts, so the whole frame is
-            // presented from what the import made available.
-            self.themes.install(ctx);
-        }
     }
 
     ///
@@ -2419,16 +2390,6 @@ impl eframe::App for Console {
                     }
                     ui.separator();
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
-                    // The web imports a Theme file by drag and drop, eframe's
-                    // own file facility; say so where a viewer looks.
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        ui.separator();
-                        ui.weak(
-                            "Drop a .toml, .json, .yaml or .yml Theme file on the console to \
-                             import it",
-                        );
-                    }
                 });
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("Help", |ui| {
@@ -2675,8 +2636,6 @@ impl eframe::App for Console {
                     cursor_effect_animation: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
-                    #[cfg(target_arch = "wasm32")]
-                        web_import: _,
                     discard_confirmation: _,
                     ctx: _,
                 } = self;

@@ -6,20 +6,15 @@
 //!
 //! Every custom document reaches the registry through one path —
 //! [`crate::theme_document::decode`], then [`crate::theme::resolve`] against
-//! the built-ins under the identity its file name's stem supplies — whether
-//! it came from a native file or a web import. Built-in identities are
-//! reserved by `resolve` itself.
+//! the built-ins under the identity its file name's stem supplies. Built-in
+//! identities are reserved by `resolve` itself.
 //!
 //! On native, [`ThemeRegistry::start`] scans `~/.orcvs/themes/` once, while
 //! `Console::start` runs and before any frame is shown; `Console::new` takes
 //! the registry as a parameter, so tests build their own. The files are
 //! authoritative: they are read at every launch, never cached in application
-//! storage, and never watched. On the web, a Theme file dropped on the console
-//! is imported: its bytes are read asynchronously by eframe's own
-//! drag-and-drop support, and a valid document atomically replaces the one of
-//! the same identity. With `persistence`, imported source documents are
-//! stored, within [`MAX_STORED_IMPORTED_BYTES`], and restored on the next
-//! start; without it they are session-only.
+//! storage, and never watched. The web reads no Theme files: it has the
+//! built-ins alone.
 //!
 //! Nothing here chooses what the console paints: `theme_selection`'s
 //! `SelectedThemes` holds the registry, resolves the saved dark and light
@@ -37,6 +32,13 @@ use crate::theme_document::decode;
 /// The file name suffixes a Theme document may carry, matched
 /// case-insensitively. `theme_document::decode` selects its decoder from the
 /// same four.
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 const SUFFIXES: [&str; 4] = [".toml", ".json", ".yaml", ".yml"];
 
 ///
@@ -44,6 +46,13 @@ const SUFFIXES: [&str; 4] = [".toml", ".json", ".yaml", ".yml"];
 /// document suffix. `None` when the name carries none of [`SUFFIXES`].
 /// Matching is case-insensitive; the identity keeps its own case.
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 fn stem(file_name: &str) -> Option<&str> {
     SUFFIXES.iter().find_map(|suffix| {
         let split = file_name.len().checked_sub(suffix.len())?;
@@ -79,26 +88,6 @@ impl std::fmt::Display for Unavailable {
 }
 
 ///
-/// A stored web-imported document's source: the file name selects its decoder
-/// again on the next start.
-///
-#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Imported {
-    file_name: String,
-    text: String,
-}
-
-///
-/// The most the stored imported documents may take together, as the exact
-/// string written to storage. They share the browser's local storage with the
-/// Source, and a full store would make the Source's own autosave fail, so an
-/// import that would pass this stays usable for the session but is not stored.
-///
-#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-pub(crate) const MAX_STORED_IMPORTED_BYTES: usize = 2 * 1024 * 1024;
-
-///
 /// The built-in Themes, the resolved custom Themes, and the notices a viewer
 /// is shown about them.
 ///
@@ -109,25 +98,9 @@ pub(crate) struct ThemeRegistry {
     /// Identities a document claimed but that could not be loaded, with the
     /// reason — what a selection of one of them reports.
     refused: BTreeMap<ThemeIdentity, String>,
-    /// Load, import and contrast messages, in the order they arose, until the
+    /// Load and contrast messages, in the order they arose, until the
     /// viewer dismisses them.
     notices: Vec<String>,
-    /// Every stored imported document, including one restored from storage
-    /// that no longer loads, so the next store writes it back rather than
-    /// losing it. Exactly what `store_imported` writes.
-    #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-    imported: Vec<Imported>,
-    /// Whether `imported` changed since the last write was attempted.
-    #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-    unstored: bool,
-    /// Whether the last write of `imported` was not kept, so a failure is
-    /// reported once rather than at every attempt.
-    #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-    store_failed: bool,
-    /// A stored `imported_themes` value that could not be decoded, to be moved
-    /// aside, and out of that key, at the next store.
-    #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-    refused_store: Option<String>,
 }
 
 impl ThemeRegistry {
@@ -141,14 +114,6 @@ impl ThemeRegistry {
             custom: BTreeMap::new(),
             refused: BTreeMap::new(),
             notices: Vec::new(),
-            #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-            imported: Vec::new(),
-            #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-            unstored: false,
-            #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-            store_failed: false,
-            #[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-            refused_store: None,
         }
     }
 
@@ -156,8 +121,7 @@ impl ThemeRegistry {
     /// The registry the shipped console starts with, built by
     /// `Console::start` before `Console::new`. Native reads the canonical
     /// Theme directory, `~/.orcvs/themes/`, and never application storage;
-    /// the web restores its imported documents from storage when
-    /// `persistence` stores them.
+    /// the web has the built-ins alone.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn start(_storage: Option<&dyn eframe::Storage>) -> Self {
@@ -176,8 +140,8 @@ impl ThemeRegistry {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub(crate) fn start(storage: Option<&dyn eframe::Storage>) -> Self {
-        Self::web_start(storage)
+    pub(crate) fn start(_storage: Option<&dyn eframe::Storage>) -> Self {
+        Self::built_in()
     }
 
     ///
@@ -189,7 +153,7 @@ impl ThemeRegistry {
         self.notices.push(message);
     }
 
-    /// Every load, import and contrast notice the viewer has not dismissed,
+    /// Every load and contrast notice the viewer has not dismissed,
     /// in the order they arose.
     pub(crate) fn notices(&self) -> impl Iterator<Item = &String> {
         self.notices.iter()
@@ -210,6 +174,13 @@ impl ThemeRegistry {
     /// supplies. Pure: the registry is not touched, so a refusal leaves it
     /// exactly as it was.
     ///
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
     fn load(&self, file_name: &str, bytes: &[u8]) -> Result<Theme, String> {
         let stem = stem(file_name).ok_or_else(|| {
             format!("{file_name}: not a Theme file; expected .toml, .json, .yaml or .yml")
@@ -224,6 +195,13 @@ impl ThemeRegistry {
     /// Adds a loaded Theme, with a notice when `08`'s contrast validator finds
     /// a state below the floor. A contrast failure never refuses the Theme.
     ///
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
     fn add(&mut self, theme: Theme) {
         if let Some(message) = contrast_notice(&theme) {
             self.notice(message);
@@ -274,6 +252,13 @@ impl ThemeRegistry {
 /// `08`'s report on `theme`, as a notice naming every state below the floor,
 /// or `None` when every state clears it.
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 fn contrast_notice(theme: &Theme) -> Option<String> {
     let report = contrast::validate(theme);
     let failing: Vec<String> = report
@@ -509,388 +494,14 @@ mod native {
     }
 }
 
-// === Web import ===
-
-#[cfg(any(target_arch = "wasm32", test))]
-impl ThemeRegistry {
-    ///
-    /// The web target's start: the built-ins, plus the documents storage
-    /// holds when `persistence` stored them.
-    ///
-    pub(crate) fn web_start(storage: Option<&dyn eframe::Storage>) -> Self {
-        #[cfg_attr(
-            not(feature = "persistence"),
-            expect(unused_mut, reason = "restored only with persistence")
-        )]
-        let mut registry = Self::built_in();
-        #[cfg(feature = "persistence")]
-        if let Some(storage) = storage {
-            registry.restore_imported(storage);
-        }
-        #[cfg(not(feature = "persistence"))]
-        let _ = storage;
-        registry
-    }
-
-    ///
-    /// The file names in one drop that may be read and imported. Files that
-    /// share a stem would otherwise race, the last read to finish winning, so
-    /// every file of such a stem is refused and reported by name, as native
-    /// discovery refuses a duplicate identity. A name with no Theme suffix
-    /// passes through, for `import` to refuse.
-    ///
-    pub(crate) fn refuse_conflicting_drops(&mut self, file_names: Vec<String>) -> Vec<String> {
-        let mut by_stem: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for file_name in &file_names {
-            if let Some(identity) = stem(file_name) {
-                by_stem.entry(identity).or_default().push(file_name);
-            }
-        }
-        let conflicted: BTreeMap<String, Vec<String>> = by_stem
-            .into_iter()
-            .filter(|(_, names)| names.len() > 1)
-            .map(|(identity, mut names)| {
-                names.sort_unstable();
-                (
-                    identity.to_owned(),
-                    names.into_iter().map(str::to_owned).collect(),
-                )
-            })
-            .collect();
-        for (identity, names) in &conflicted {
-            self.notice(format!(
-                "Refused every dropped Theme file with the identity \"{identity}\": several \
-                 files in one drop share it: {}",
-                names.join(", ")
-            ));
-        }
-        file_names
-            .into_iter()
-            .filter(|file_name| stem(file_name).is_none_or(|s| !conflicted.contains_key(s)))
-            .collect()
-    }
-
-    ///
-    /// Imports one Theme file. A valid document replaces the one of the same
-    /// identity whole, and its identity is returned. An invalid one is
-    /// reported and leaves the registry, and any previous document of that
-    /// identity, exactly as they were.
-    ///
-    pub(crate) fn import(
-        &mut self,
-        file_name: &str,
-        bytes: &[u8],
-    ) -> Result<ThemeIdentity, String> {
-        match self.load(file_name, bytes) {
-            Ok(theme) => {
-                #[cfg(feature = "persistence")]
-                self.stage_for_storage(&theme.identity, file_name, bytes);
-                let identity = theme.identity.clone();
-                self.add(theme);
-                Ok(identity)
-            }
-            Err(reason) => {
-                self.notice(format!("Refused the imported Theme file {reason}"));
-                Err(reason)
-            }
-        }
-    }
-
-    ///
-    /// Reports a dropped file the browser could not read.
-    ///
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn refuse_unreadable(&mut self, file_name: &str, error: &str) {
-        self.notice(format!(
-            "Could not read the dropped file {file_name}: {error}"
-        ));
-    }
-}
-
-#[cfg(all(feature = "persistence", any(target_arch = "wasm32", test)))]
-impl ThemeRegistry {
-    ///
-    /// The exact string `store_imported` writes for `documents`.
-    ///
-    fn serialised(documents: &[Imported]) -> String {
-        let pairs: Vec<(&str, &str)> = documents
-            .iter()
-            .map(|imported| (imported.file_name.as_str(), imported.text.as_str()))
-            .collect();
-        serde_json::to_string(&pairs).expect("a list of string pairs always serialises")
-    }
-
-    ///
-    /// Replaces the stored document of `identity` with a newly imported one,
-    /// unless the stored documents would then pass
-    /// [`MAX_STORED_IMPORTED_BYTES`]: then the import is used for this
-    /// session only, the stored documents are left as they were, and a notice
-    /// says so, naming any stored document of `identity` the next start
-    /// restores in its place.
-    ///
-    fn stage_for_storage(&mut self, identity: &ThemeIdentity, file_name: &str, bytes: &[u8]) {
-        // `load` refused anything that is not UTF-8.
-        let text = String::from_utf8_lossy(bytes).into_owned();
-        let mut staged: Vec<Imported> = self
-            .imported
-            .iter()
-            .filter(|imported| stem(&imported.file_name) != Some(identity.as_str()))
-            .cloned()
-            .collect();
-        staged.push(Imported {
-            file_name: file_name.to_owned(),
-            text,
-        });
-        if Self::serialised(&staged).len() > MAX_STORED_IMPORTED_BYTES {
-            // The stored documents are left as they were, so a stored
-            // document of this identity is what the next start restores.
-            let returning = self
-                .imported
-                .iter()
-                .find(|imported| stem(&imported.file_name) == Some(identity.as_str()))
-                .map_or_else(String::new, |stored| {
-                    format!(
-                        "; the stored {} returns on the next start",
-                        stored.file_name
-                    )
-                });
-            self.notice(format!(
-                "Imported {file_name} for this session only: storing it would take the imported \
-                 Themes past their {MAX_STORED_IMPORTED_BYTES}-byte storage budget{returning}"
-            ));
-            return;
-        }
-        self.imported = staged;
-        self.unstored = true;
-    }
-
-    ///
-    /// Loads every stored imported document. One that no longer loads — a
-    /// malformed document, or a name with no Theme suffix — is reported and
-    /// kept, so a selection of it falls back with the reason and the next
-    /// store does not discard it. A stored value that is not a list of
-    /// documents at all is kept whole, moved aside at the next store, and
-    /// then replaced under its key by the documents imported since.
-    ///
-    fn restore_imported(&mut self, storage: &dyn eframe::Storage) {
-        use crate::persistence::{IMPORTED_THEMES_KEY, IMPORTED_THEMES_REFUSED_KEY};
-
-        let Some(raw) = storage.get_string(IMPORTED_THEMES_KEY) else {
-            return;
-        };
-        let Ok(stored) = serde_json::from_str::<Vec<(String, String)>>(&raw) else {
-            self.notice(format!(
-                "The stored imported Themes could not be read back; they are kept under \
-                 \"{IMPORTED_THEMES_REFUSED_KEY}\""
-            ));
-            self.refused_store = Some(raw);
-            return;
-        };
-        for (file_name, text) in stored {
-            match self.load(&file_name, text.as_bytes()) {
-                Ok(theme) => self.add(theme),
-                Err(reason) => {
-                    self.notice(format!("Refused the stored imported Theme {reason}"));
-                    if let Some(identity) = stem(&file_name).and_then(ThemeIdentity::from_stem) {
-                        self.refused.insert(identity, reason);
-                    }
-                }
-            }
-            self.imported.push(Imported { file_name, text });
-        }
-    }
-
-    ///
-    /// Moves an undecodable stored value aside, then writes the imported
-    /// documents when they changed or when that value must leave their key,
-    /// and reports a write storage did not keep
-    /// rather than claiming it did. A failed write is not retried until the
-    /// imported documents change again, and is reported once. A copy of the
-    /// undecodable value that storage did not keep is retried at every store,
-    /// and until one is kept nothing is written over the value.
-    ///
-    pub(crate) fn store_imported(&mut self, storage: &mut dyn eframe::Storage) {
-        use crate::persistence::{IMPORTED_THEMES_KEY, IMPORTED_THEMES_REFUSED_KEY};
-
-        if let Some(refused) = &self.refused_store {
-            storage.set_string(IMPORTED_THEMES_REFUSED_KEY, refused.clone());
-            // Only once the copy is kept does the undecodable value leave its
-            // key, so the next start neither reports it again nor overwrites
-            // the copy. A copy storage did not keep leaves the value where it
-            // was, and nothing is written over it until a later store keeps
-            // the copy.
-            if storage.get_string(IMPORTED_THEMES_REFUSED_KEY).as_deref() == Some(refused.as_str())
-            {
-                self.refused_store = None;
-                self.unstored = true;
-            } else {
-                self.report_store_failure();
-                return;
-            }
-        }
-        if !self.unstored {
-            return;
-        }
-        self.unstored = false;
-        let written = Self::serialised(&self.imported);
-        storage.set_string(IMPORTED_THEMES_KEY, written.clone());
-        if storage.get_string(IMPORTED_THEMES_KEY).as_deref() == Some(written.as_str()) {
-            self.store_failed = false;
-        } else {
-            self.report_store_failure();
-        }
-    }
-
-    ///
-    /// Reports a write storage did not keep, once until a write is kept.
-    /// A copy not kept and a document write not kept share the report: until
-    /// a document write is kept the imported documents were never stored, so
-    /// a document write that fails after the copy is kept continues the
-    /// failure already reported rather than starting a new one.
-    ///
-    fn report_store_failure(&mut self) {
-        if !self.store_failed {
-            self.store_failed = true;
-            self.notice(
-                "Could not store the imported Themes; they remain for this session only".to_owned(),
-            );
-        }
-    }
-}
-
-// === Web file drops ===
-
-///
-/// One dropped file's name and what reading it produced.
-///
-#[cfg(target_arch = "wasm32")]
-type Read = (String, Result<Vec<u8>, String>);
-
-#[cfg(target_arch = "wasm32")]
-use crate::theme_selection::SelectedThemes;
-
-///
-/// Reads Theme files dropped on the web console and hands their bytes to the
-/// console's [`SelectedThemes`], which imports them into its registry.
-///
-/// eframe's web backend turns a browser `drop` into
-/// [`egui::RawInput::dropped_files`], and each file reads its own bytes
-/// asynchronously through [`egui::DroppedFile::bytes_async`]. The console
-/// takes the files out of each `RawInput` in `App::raw_input_hook`, which
-/// sees every `RawInput` once, so a drop is read exactly once — `App::logic`
-/// would see a hidden tab's last input again on every call. A read runs on
-/// the page's event loop and sends its result here; a later frame applies it.
-/// A drag the viewer abandons delivers no file, so it changes nothing.
-///
-#[cfg(target_arch = "wasm32")]
-pub(crate) struct WebImport {
-    sender: std::sync::mpsc::Sender<Read>,
-    receiver: std::sync::mpsc::Receiver<Read>,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl WebImport {
-    pub(crate) fn new() -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        Self { sender, receiver }
-    }
-
-    ///
-    /// Takes the files dropped in `raw_input` and starts reading each one
-    /// `registry` does not refuse outright. A file the browser says is over
-    /// the document limit is refused before any of it is read;
-    /// `theme_document::decode` checks the bytes actually read again.
-    ///
-    pub(crate) fn take_drops(
-        &self,
-        ctx: &egui::Context,
-        raw_input: &mut egui::RawInput,
-        themes: &mut SelectedThemes,
-    ) {
-        use crate::theme_document::MAX_DOCUMENT_BYTES;
-
-        let dropped = std::mem::take(&mut raw_input.dropped_files);
-        if dropped.is_empty() {
-            return;
-        }
-        let named: Vec<(String, egui::DroppedFileHandle)> = dropped
-            .into_iter()
-            .map(|file| {
-                let path = file.path();
-                let name = path
-                    .file_name()
-                    .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
-                    .into_owned();
-                (name, file)
-            })
-            .collect();
-        let accepted =
-            themes.refuse_conflicting_drops(named.iter().map(|(name, _)| name.clone()).collect());
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "the limit is 1 MiB, exactly representable as an f64"
-        )]
-        let limit = MAX_DOCUMENT_BYTES as f64;
-        for (file_name, file) in named {
-            if !accepted.contains(&file_name) {
-                continue;
-            }
-            let sender = self.sender.clone();
-            if file.web_file().is_some_and(|web| web.size() > limit) {
-                let _ = sender.send((
-                    file_name,
-                    Err(format!(
-                        "the Theme document is over the {MAX_DOCUMENT_BYTES}-byte limit"
-                    )),
-                ));
-                continue;
-            }
-            let ctx = ctx.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let bytes = file.bytes_async().await;
-                // The receiver lives as long as the console; a send can only
-                // fail once the console is gone, when there is nothing left
-                // to import into.
-                let _ = sender.send((file_name, bytes));
-                ctx.request_repaint();
-            });
-        }
-    }
-
-    ///
-    /// Imports every file whose read has finished, and answers whether any
-    /// import succeeded, which may change what is presented. Draining is
-    /// idempotent, so calling this more than once a frame imports nothing
-    /// twice.
-    ///
-    pub(crate) fn apply(&self, themes: &mut SelectedThemes) -> bool {
-        let mut imported = false;
-        while let Ok((file_name, read)) = self.receiver.try_recv() {
-            match read {
-                // `import` records its own refusal notice.
-                Ok(bytes) => imported |= themes.import(&file_name, &bytes).is_ok(),
-                Err(error) => themes.refuse_unreadable(&file_name, &error),
-            }
-        }
-        imported
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::tests_support::{dark, dark_json, id};
+    use super::tests_support::{dark, id, load};
     use super::{ThemeRegistry, Unavailable, stem};
     use crate::theme::{
         Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, okabe_ito, orcvs_light,
     };
     use crate::theme_selection::{SelectedThemes, ThemeSelection};
-
-    fn notices_mention(registry: &ThemeRegistry, needle: &str) -> bool {
-        registry
-            .notice_list()
-            .iter()
-            .any(|notice| notice.contains(needle))
-    }
 
     #[test]
     fn a_file_name_stem_is_its_identity_matched_case_insensitively_by_suffix() {
@@ -934,126 +545,12 @@ mod tests {
         );
     }
 
-    // === Web import ===
-
-    #[test]
-    fn a_web_import_takes_its_identity_from_the_file_name_and_its_label_from_the_document() {
-        let mut registry = ThemeRegistry::built_in();
-        registry
-            .import("my-dark.toml", dark("Midnight").as_bytes())
-            .expect("a valid document");
-
-        let theme = registry
-            .select(Appearance::Dark, &id("my-dark"))
-            .expect("imported");
-        assert_eq!(theme.identity.as_str(), "my-dark");
-        assert_eq!(theme.name, "Midnight");
-        assert!(registry.select(Appearance::Dark, &id("Midnight")).is_err());
-    }
-
-    #[test]
-    fn a_valid_reimport_replaces_the_document_of_the_same_identity_whole() {
-        let mut registry = ThemeRegistry::built_in();
-        let with_text = "format = \"orcvs-theme\"\nversion = 1\nname = \"First\"\n\
-                         inherits = \"okabe-ito\"\n[style]\ntext = \"#123456\"\n";
-        registry
-            .import("my-dark.toml", with_text.as_bytes())
-            .expect("a valid document");
-
-        registry
-            .import("my-dark.json", dark_json("Second").as_bytes())
-            .expect("a valid document");
-
-        let theme = registry
-            .select(Appearance::Dark, &id("my-dark"))
-            .expect("replaced");
-        assert_eq!(theme.name, "Second");
-        assert_eq!(
-            theme.text,
-            okabe_ito().text,
-            "the replacement merged with the document it replaced"
-        );
-        #[cfg(feature = "persistence")]
-        {
-            assert_eq!(registry.imported.len(), 1);
-            assert_eq!(registry.imported[0].file_name, "my-dark.json");
-        }
-    }
-
-    #[test]
-    fn a_failed_reimport_preserves_the_previous_valid_document() {
-        let mut registry = ThemeRegistry::built_in();
-        registry
-            .import("my-dark.toml", dark("Kept").as_bytes())
-            .expect("a valid document");
-        let before = registry
-            .select(Appearance::Dark, &id("my-dark"))
-            .expect("imported")
-            .clone();
-        #[cfg(feature = "persistence")]
-        let stored_before = registry.imported.clone();
-
-        for (file_name, bytes) in [
-            (
-                "my-dark.toml",
-                "format = \"orcvs-theme\"\nversion = 1\nname = \"Broken\"\n\
-                 inherits = \"okabe-ito\"\n[style]\n\"grid.border.width\" = 5\n"
-                    .as_bytes(),
-            ),
-            ("my-dark.json", b"{\"format\": \"orcvs-theme\"".as_slice()),
-            ("my-dark.yaml", b"\xFF\xFE".as_slice()),
-        ] {
-            let error = registry
-                .import(file_name, bytes)
-                .expect_err("an invalid document");
-            assert!(error.contains(file_name), "{error}");
-            assert_eq!(
-                registry.select(Appearance::Dark, &id("my-dark")),
-                Ok(&before),
-                "a failed reimport of {file_name} changed the Theme"
-            );
-            #[cfg(feature = "persistence")]
-            assert_eq!(registry.imported, stored_before);
-            assert!(notices_mention(&registry, file_name));
-        }
-        assert!(notices_mention(&registry, "grid.border.width"));
-    }
-
-    #[test]
-    fn a_web_import_refuses_reserved_identities_and_names_that_are_not_theme_files() {
-        let mut registry = ThemeRegistry::built_in();
-        for (file_name, document) in [
-            ("okabe-ito.toml", dark("Impostor")),
-            ("orcvs-light.json", dark_json("Impostor")),
-        ] {
-            let error = registry
-                .import(file_name, document.as_bytes())
-                .expect_err("a reserved identity");
-            assert!(error.contains("reserved"), "{error}");
-        }
-        assert_eq!(
-            registry.select(Appearance::Dark, &OKABE_ITO_IDENTITY),
-            Ok(&okabe_ito())
-        );
-
-        for file_name in ["theme.txt", ".toml"] {
-            registry
-                .import(file_name, dark("Nameless").as_bytes())
-                .expect_err("not a Theme file name");
-        }
-        #[cfg(feature = "persistence")]
-        assert!(registry.imported.is_empty());
-        assert!(registry.custom.is_empty());
-    }
-
     #[test]
     fn a_theme_below_the_contrast_floor_is_loaded_and_its_report_shown() {
         let mut registry = ThemeRegistry::built_in();
         let unreadable = "format = \"orcvs-theme\"\nversion = 1\nname = \"Dim\"\n\
                           inherits = \"okabe-ito\"\n[style]\n\"source.ordinary\" = \"#050505\"\n";
-        registry
-            .import("dim.toml", unreadable.as_bytes())
-            .expect("a contrast failure never refuses a Theme");
+        load(&mut registry, "dim.toml", unreadable.as_bytes());
 
         assert!(registry.select(Appearance::Dark, &id("dim")).is_ok());
         assert!(
@@ -1071,9 +568,7 @@ mod tests {
     #[test]
     fn a_theme_that_clears_the_contrast_floor_raises_no_notice() {
         let mut registry = ThemeRegistry::built_in();
-        registry
-            .import("copy.toml", dark("Copy").as_bytes())
-            .expect("a valid document");
+        load(&mut registry, "copy.toml", dark("Copy").as_bytes());
         assert!(
             registry.notice_list().is_empty(),
             "{:?}",
@@ -1086,9 +581,7 @@ mod tests {
         let mut registry = ThemeRegistry::built_in();
         let light = "format = \"orcvs-theme\"\nversion = 1\nname = \"Paper\"\n\
                      inherits = \"orcvs-light\"\n";
-        registry
-            .import("paper.toml", light.as_bytes())
-            .expect("a valid document");
+        load(&mut registry, "paper.toml", light.as_bytes());
 
         assert_eq!(
             registry.select(Appearance::Dark, &id("paper")),
@@ -1107,476 +600,6 @@ mod tests {
             "{:?}",
             themes.notice_list()
         );
-    }
-
-    #[test]
-    fn files_in_one_drop_that_share_a_stem_are_all_refused_and_named() {
-        let mut registry = ThemeRegistry::built_in();
-        let dropped = [
-            "dup.toml",
-            "solo.toml",
-            "dup.json",
-            "readme.txt",
-            "dup.YAML",
-        ]
-        .map(str::to_owned)
-        .to_vec();
-        let mut reversed = dropped.clone();
-        reversed.reverse();
-
-        let accepted = registry.refuse_conflicting_drops(dropped);
-        assert_eq!(accepted, ["solo.toml", "readme.txt"]);
-        let notices = registry.notice_list();
-        assert_eq!(notices.len(), 1, "{notices:?}");
-        assert!(
-            notices[0].contains("\"dup\"") && notices[0].contains("dup.YAML, dup.json, dup.toml"),
-            "{notices:?}"
-        );
-
-        let mut other = ThemeRegistry::built_in();
-        let accepted = other.refuse_conflicting_drops(reversed);
-        assert_eq!(accepted, ["readme.txt", "solo.toml"]);
-        assert_eq!(
-            other.notice_list(),
-            notices,
-            "drop order chose a different outcome"
-        );
-    }
-
-    #[test]
-    fn a_conflicting_drop_leaves_the_previous_document_of_that_identity() {
-        let mut registry = ThemeRegistry::built_in();
-        registry
-            .import("dup.toml", dark("Kept").as_bytes())
-            .expect("a valid document");
-        let accepted =
-            registry.refuse_conflicting_drops(["dup.toml", "dup.json"].map(str::to_owned).to_vec());
-        assert!(accepted.is_empty());
-        assert_eq!(
-            registry
-                .select(Appearance::Dark, &id("dup"))
-                .map(|theme| theme.name.as_str()),
-            Ok("Kept")
-        );
-    }
-
-    #[cfg(not(feature = "persistence"))]
-    #[test]
-    fn without_persistence_imported_documents_are_session_only() {
-        /// Storage holding the key a persistence build would restore from.
-        struct Holding;
-        impl eframe::Storage for Holding {
-            fn get_string(&self, _key: &str) -> Option<String> {
-                Some("[(\"my-dark.toml\", \"format = \\\"orcvs-theme\\\"\")]".to_owned())
-            }
-            fn set_string(&mut self, _key: &str, _value: String) {}
-            fn remove_string(&mut self, _key: &str) {}
-            fn flush(&mut self) {}
-        }
-
-        let mut session = ThemeRegistry::web_start(Some(&Holding));
-        session
-            .import("my-dark.toml", dark("Session").as_bytes())
-            .expect("a valid document");
-        assert!(session.select(Appearance::Dark, &id("my-dark")).is_ok());
-
-        let restarted = ThemeRegistry::web_start(Some(&Holding));
-        assert_eq!(
-            restarted.select(Appearance::Dark, &id("my-dark")),
-            Err(Unavailable::Missing)
-        );
-        assert!(restarted.notice_list().is_empty());
-    }
-
-    #[cfg(feature = "persistence")]
-    mod stored {
-        use super::super::tests_support::{dark, id};
-        use super::super::{MAX_STORED_IMPORTED_BYTES, ThemeRegistry, Unavailable};
-        use super::notices_mention;
-        use crate::persistence::{
-            IMPORTED_THEMES_KEY, IMPORTED_THEMES_REFUSED_KEY, InMemoryStorage,
-        };
-        use crate::theme::Appearance;
-
-        #[test]
-        fn imported_documents_survive_a_restart_and_reload_from_their_source() {
-            let mut storage = InMemoryStorage::default();
-            let mut session = ThemeRegistry::web_start(Some(&storage));
-            session
-                .import("my-dark.toml", dark("Stored").as_bytes())
-                .expect("a valid document");
-            session.store_imported(&mut storage);
-            assert!(session.notice_list().is_empty());
-
-            let stored = eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY)
-                .expect("the imported documents were stored");
-            assert!(
-                stored.contains("name = \\\"Stored\\\""),
-                "storage holds the source document, not resolved values: {stored}"
-            );
-
-            let restarted = ThemeRegistry::web_start(Some(&storage));
-            let theme = restarted
-                .select(Appearance::Dark, &id("my-dark"))
-                .expect("restored");
-            assert_eq!(theme.name, "Stored");
-        }
-
-        #[test]
-        fn a_replacement_is_what_the_next_restart_restores() {
-            let mut storage = InMemoryStorage::default();
-            let mut session = ThemeRegistry::web_start(Some(&storage));
-            session
-                .import("my-dark.toml", dark("First").as_bytes())
-                .expect("a valid document");
-            session.store_imported(&mut storage);
-            session
-                .import("my-dark.toml", dark("Second").as_bytes())
-                .expect("a valid document");
-            session
-                .import("my-dark.toml", b"not a document")
-                .expect_err("an invalid document");
-            session.store_imported(&mut storage);
-
-            let restarted = ThemeRegistry::web_start(Some(&storage));
-            assert_eq!(
-                restarted
-                    .select(Appearance::Dark, &id("my-dark"))
-                    .map(|theme| theme.name.as_str()),
-                Ok("Second")
-            );
-        }
-
-        /// `documents` stored the way `store_imported` stores them.
-        fn storage_holding(documents: &[(&str, &str)]) -> InMemoryStorage {
-            let mut storage = InMemoryStorage::default();
-            eframe::Storage::set_string(
-                &mut storage,
-                IMPORTED_THEMES_KEY,
-                serde_json::to_string(documents).expect("string pairs"),
-            );
-            storage
-        }
-
-        #[test]
-        fn a_stored_document_that_no_longer_loads_falls_back_and_is_kept_for_the_next_save() {
-            // A malformed document, and a name with no Theme suffix at all.
-            let mut storage =
-                storage_holding(&[("my-dark.toml", "version = 7"), ("notes", "no suffix")]);
-            let stored = eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY);
-
-            let mut restarted = ThemeRegistry::web_start(Some(&storage));
-            assert!(matches!(
-                restarted.select(Appearance::Dark, &id("my-dark")),
-                Err(Unavailable::Refused(reason)) if reason.contains("my-dark.toml")
-            ));
-            assert!(notices_mention(&restarted, "my-dark.toml"));
-            assert!(notices_mention(&restarted, "notes"));
-
-            restarted.store_imported(&mut storage);
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY),
-                stored,
-                "a save with nothing new imported rewrote storage"
-            );
-
-            restarted
-                .import("other.toml", dark("Other").as_bytes())
-                .expect("a valid document");
-            restarted.store_imported(&mut storage);
-            let again = ThemeRegistry::web_start(Some(&storage));
-            assert!(again.select(Appearance::Dark, &id("other")).is_ok());
-            assert!(
-                again.refused.contains_key(&id("my-dark")),
-                "the malformed document was dropped by a later save"
-            );
-            let names: Vec<&str> = again
-                .imported
-                .iter()
-                .map(|imported| imported.file_name.as_str())
-                .collect();
-            assert_eq!(names, ["my-dark.toml", "notes", "other.toml"]);
-        }
-
-        #[test]
-        fn an_undecodable_stored_value_is_moved_aside_before_anything_writes_over_it() {
-            let mut storage = InMemoryStorage::default();
-            eframe::Storage::set_string(
-                &mut storage,
-                IMPORTED_THEMES_KEY,
-                "not a list of documents".to_owned(),
-            );
-
-            let mut restarted = ThemeRegistry::web_start(Some(&storage));
-            assert!(
-                notices_mention(&restarted, IMPORTED_THEMES_REFUSED_KEY),
-                "{:?}",
-                restarted.notice_list()
-            );
-            restarted
-                .import("mine.toml", dark("Mine").as_bytes())
-                .expect("a valid document");
-            restarted.store_imported(&mut storage);
-
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_REFUSED_KEY).as_deref(),
-                Some("not a list of documents"),
-                "the undecodable value was lost"
-            );
-            let again = ThemeRegistry::web_start(Some(&storage));
-            assert!(again.select(Appearance::Dark, &id("mine")).is_ok());
-        }
-
-        #[test]
-        fn an_undecodable_stored_value_leaves_its_key_at_the_first_save_and_is_reported_once() {
-            let mut storage = InMemoryStorage::default();
-            eframe::Storage::set_string(
-                &mut storage,
-                IMPORTED_THEMES_KEY,
-                "not a list of documents".to_owned(),
-            );
-
-            // A session that imports nothing still moves the value aside.
-            let mut restarted = ThemeRegistry::web_start(Some(&storage));
-            restarted.store_imported(&mut storage);
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_REFUSED_KEY).as_deref(),
-                Some("not a list of documents")
-            );
-            assert_ne!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY).as_deref(),
-                Some("not a list of documents"),
-                "the undecodable value stayed under its key"
-            );
-
-            let again = ThemeRegistry::web_start(Some(&storage));
-            assert!(
-                !notices_mention(&again, IMPORTED_THEMES_REFUSED_KEY),
-                "the next start reported the same value again: {:?}",
-                again.notice_list()
-            );
-        }
-
-        #[test]
-        fn an_undecodable_stored_value_stays_under_its_key_until_its_copy_is_kept() {
-            /// Storage whose quota is spent, as a browser's local storage is
-            /// when full: replacing an existing value still succeeds, while a
-            /// new key is not kept — until space is freed.
-            #[derive(Default)]
-            struct QuotaSpent {
-                entries: std::collections::BTreeMap<String, String>,
-                full: bool,
-            }
-            impl eframe::Storage for QuotaSpent {
-                fn get_string(&self, key: &str) -> Option<String> {
-                    self.entries.get(key).cloned()
-                }
-                fn set_string(&mut self, key: &str, value: String) {
-                    if !self.full || self.entries.contains_key(key) {
-                        self.entries.insert(key.to_owned(), value);
-                    }
-                }
-                fn remove_string(&mut self, key: &str) {
-                    self.entries.remove(key);
-                }
-                fn flush(&mut self) {}
-            }
-
-            let mut storage = QuotaSpent::default();
-            eframe::Storage::set_string(
-                &mut storage,
-                IMPORTED_THEMES_KEY,
-                "not a list of documents".to_owned(),
-            );
-            storage.full = true;
-
-            let mut restarted = ThemeRegistry::web_start(Some(&storage));
-            restarted
-                .import("mine.toml", dark("Mine").as_bytes())
-                .expect("a valid document");
-            restarted.store_imported(&mut storage);
-            restarted.store_imported(&mut storage);
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY).as_deref(),
-                Some("not a list of documents"),
-                "the undecodable value was overwritten before its copy was kept"
-            );
-            let store_failures = |registry: &ThemeRegistry| {
-                registry
-                    .notice_list()
-                    .iter()
-                    .filter(|notice| notice.contains("Could not store"))
-                    .count()
-            };
-            assert_eq!(
-                store_failures(&restarted),
-                1,
-                "a copy not kept is reported once across stores: {:?}",
-                restarted.notice_list()
-            );
-            assert!(
-                restarted.select(Appearance::Dark, &id("mine")).is_ok(),
-                "the imported Theme stays usable for the session"
-            );
-
-            // Once space is freed, the next save moves the value aside and
-            // stores the imported documents.
-            storage.full = false;
-            restarted.store_imported(&mut storage);
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_REFUSED_KEY).as_deref(),
-                Some("not a list of documents")
-            );
-            assert_eq!(
-                store_failures(&restarted),
-                1,
-                "{:?}",
-                restarted.notice_list()
-            );
-            let again = ThemeRegistry::web_start(Some(&storage));
-            assert!(again.select(Appearance::Dark, &id("mine")).is_ok());
-        }
-
-        /// A valid dark document named `name`, padded just under the 1 MiB
-        /// document limit: two fit the 2 MiB budget, three cannot.
-        fn padded(name: &str) -> String {
-            let mut text = dark(name);
-            text.push('#');
-            text.push_str(&"x".repeat(900 * 1024));
-            text.push('\n');
-            text
-        }
-
-        #[test]
-        fn an_import_past_the_storage_budget_is_kept_for_the_session_and_not_stored() {
-            let mut storage = InMemoryStorage::default();
-            let mut session = ThemeRegistry::web_start(Some(&storage));
-            for name in ["one", "two"] {
-                session
-                    .import(&format!("{name}.toml"), padded(name).as_bytes())
-                    .expect("a valid document");
-            }
-            session.store_imported(&mut storage);
-            let before = eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY)
-                .expect("the first two were stored");
-            assert!(before.len() <= MAX_STORED_IMPORTED_BYTES);
-
-            session
-                .import("three.toml", padded("three").as_bytes())
-                .expect("a valid document");
-            assert!(
-                session.select(Appearance::Dark, &id("three")).is_ok(),
-                "an import past the budget stays usable for the session"
-            );
-            assert!(
-                notices_mention(&session, "three.toml")
-                    && notices_mention(&session, "session only"),
-                "{:?}",
-                session.notice_list()
-            );
-            session.store_imported(&mut storage);
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY).as_deref(),
-                Some(before.as_str()),
-                "storage was written past its budget"
-            );
-
-            let restarted = ThemeRegistry::web_start(Some(&storage));
-            assert!(restarted.select(Appearance::Dark, &id("one")).is_ok());
-            assert!(restarted.select(Appearance::Dark, &id("three")).is_err());
-        }
-
-        #[test]
-        fn a_replacement_past_the_storage_budget_says_the_stored_copy_returns_on_restart() {
-            let mut storage = InMemoryStorage::default();
-            let mut session = ThemeRegistry::web_start(Some(&storage));
-            for name in ["one", "two"] {
-                session
-                    .import(&format!("{name}.toml"), padded(name).as_bytes())
-                    .expect("a valid document");
-            }
-            session
-                .import("foo.toml", dark("Stored").as_bytes())
-                .expect("a valid document");
-            session.store_imported(&mut storage);
-
-            session
-                .import("foo.toml", padded("Larger").as_bytes())
-                .expect("a valid document");
-            assert_eq!(
-                session
-                    .select(Appearance::Dark, &id("foo"))
-                    .map(|theme| theme.name.as_str()),
-                Ok("Larger"),
-                "the larger import is used for the session"
-            );
-            assert!(
-                notices_mention(&session, "the stored foo.toml")
-                    && notices_mention(&session, "next start"),
-                "the notice does not say the stored copy comes back: {:?}",
-                session.notice_list()
-            );
-
-            // What the notice promises is what a restart does.
-            session.store_imported(&mut storage);
-            let restarted = ThemeRegistry::web_start(Some(&storage));
-            assert_eq!(
-                restarted
-                    .select(Appearance::Dark, &id("foo"))
-                    .map(|theme| theme.name.as_str()),
-                Ok("Stored")
-            );
-        }
-
-        #[test]
-        fn a_storage_write_that_is_not_kept_is_reported_once_and_retried_only_on_change() {
-            /// Storage that accepts every write and keeps none of them, as a
-            /// browser does when local storage is full.
-            struct Full;
-            impl eframe::Storage for Full {
-                fn get_string(&self, _key: &str) -> Option<String> {
-                    None
-                }
-                fn set_string(&mut self, _key: &str, _value: String) {}
-                fn remove_string(&mut self, _key: &str) {}
-                fn flush(&mut self) {}
-            }
-
-            let mut registry = ThemeRegistry::web_start(None);
-            registry
-                .import("my-dark.toml", dark("Unstored").as_bytes())
-                .expect("a valid document");
-            registry.store_imported(&mut Full);
-            registry.store_imported(&mut Full);
-
-            let failures = registry
-                .notice_list()
-                .iter()
-                .filter(|notice| notice.contains("Could not store"))
-                .count();
-            assert_eq!(failures, 1, "{:?}", registry.notice_list());
-            assert!(
-                registry.select(Appearance::Dark, &id("my-dark")).is_ok(),
-                "the imported Theme stays usable for the session"
-            );
-
-            // No retry at the next autosave: nothing has changed.
-            let mut storage = InMemoryStorage::default();
-            registry.store_imported(&mut storage);
-            assert_eq!(
-                eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY),
-                None
-            );
-
-            // The imported set changes, so the next save writes it.
-            registry
-                .import("other.toml", dark("Other").as_bytes())
-                .expect("a valid document");
-            registry.store_imported(&mut storage);
-            let restarted = ThemeRegistry::web_start(Some(&storage));
-            assert!(restarted.select(Appearance::Dark, &id("my-dark")).is_ok());
-            assert!(restarted.select(Appearance::Dark, &id("other")).is_ok());
-        }
     }
 }
 
@@ -2134,17 +1157,21 @@ pub(crate) mod tests_support {
         \"grid.background\" = \"#FEF8EE\"\n\"input.background\" = \"#FAF2E4\"\n";
 
     ///
-    /// The built-ins with [`MY_DARK`] and [`MY_LIGHT`] loaded beside them,
-    /// through the same import a dropped file takes.
+    /// Loads the valid Theme file `file_name` into `registry`, as native
+    /// discovery loads each file it reads, without a Theme directory.
+    ///
+    pub(crate) fn load(registry: &mut super::ThemeRegistry, file_name: &str, bytes: &[u8]) {
+        let theme = registry.load(file_name, bytes).expect("a valid document");
+        registry.add(theme);
+    }
+
+    ///
+    /// The built-ins with [`MY_DARK`] and [`MY_LIGHT`] loaded beside them.
     ///
     pub(crate) fn with_my_themes() -> super::ThemeRegistry {
         let mut registry = super::ThemeRegistry::built_in();
-        registry
-            .import("my-dark.toml", MY_DARK.as_bytes())
-            .expect("a valid document");
-        registry
-            .import("my-light.toml", MY_LIGHT.as_bytes())
-            .expect("a valid document");
+        load(&mut registry, "my-dark.toml", MY_DARK.as_bytes());
+        load(&mut registry, "my-light.toml", MY_LIGHT.as_bytes());
         registry
     }
 
@@ -2172,6 +1199,7 @@ pub(crate) mod tests_support {
     }
 
     /// The same document in JSON.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn dark_json(name: &str) -> String {
         format!(
             "{{\"format\": \"orcvs-theme\", \"version\": 1, \"name\": \"{name}\", \

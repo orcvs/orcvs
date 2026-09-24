@@ -205,48 +205,6 @@ impl SelectedThemes {
     }
 }
 
-// === Web import ===
-
-#[cfg(any(target_arch = "wasm32", test))]
-impl SelectedThemes {
-    ///
-    /// Imports one Theme file into the registry
-    /// ([`ThemeRegistry::import`]). A valid document may be the Theme a
-    /// selection names, or replace the one presented, so each appearance
-    /// whose selection names it is resolved again; the caller installs the
-    /// result. An appearance selecting another Theme is left alone, so a
-    /// notice about it the viewer dismissed stays dismissed.
-    ///
-    pub(crate) fn import(&mut self, file_name: &str, bytes: &[u8]) -> Result<(), String> {
-        let imported = self.registry.import(file_name, bytes)?;
-        for appearance in [Appearance::Dark, Appearance::Light] {
-            if *self.selection.identity(appearance) == imported {
-                self.resolve(appearance);
-            }
-        }
-        Ok(())
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl SelectedThemes {
-    /// [`ThemeRegistry::refuse_conflicting_drops`].
-    pub(crate) fn refuse_conflicting_drops(&mut self, file_names: Vec<String>) -> Vec<String> {
-        self.registry.refuse_conflicting_drops(file_names)
-    }
-
-    /// [`ThemeRegistry::refuse_unreadable`].
-    pub(crate) fn refuse_unreadable(&mut self, file_name: &str, error: &str) {
-        self.registry.refuse_unreadable(file_name, error);
-    }
-
-    /// [`ThemeRegistry::store_imported`].
-    #[cfg(feature = "persistence")]
-    pub(crate) fn store_imported(&mut self, storage: &mut dyn eframe::Storage) {
-        self.registry.store_imported(storage);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{SelectedThemes, ThemeSelection};
@@ -254,7 +212,7 @@ mod tests {
         Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, okabe_ito, orcvs_light,
     };
     use crate::theme_registry::ThemeRegistry;
-    use crate::theme_registry::tests_support::{dark, id, my_dark, my_light, with_my_themes};
+    use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
 
     fn mentions(themes: &SelectedThemes, needle: &str) -> bool {
         themes.notices().any(|notice| notice.contains(needle))
@@ -310,90 +268,5 @@ mod tests {
         ));
         assert!(mentions(&themes, "it is a dark Theme"));
         assert!(mentions(&themes, "Orcvs Light is shown in its place"));
-    }
-
-    ///
-    /// A web import of the selected Theme presents it, and clears the notice
-    /// about it; a failed import of it changes neither.
-    ///
-    #[test]
-    fn importing_the_selected_theme_presents_it_and_clears_its_notice() {
-        let mut themes = SelectedThemes::new(
-            ThemeRegistry::built_in(),
-            ThemeSelection::new(id("my-dark"), ORCVS_LIGHT_IDENTITY),
-        );
-        assert!(mentions(
-            &themes,
-            "\"my-dark\" that `theme.dark` names is unavailable"
-        ));
-
-        themes
-            .import("my-dark.toml", b"not a document")
-            .expect_err("an invalid document");
-        assert!(mentions(
-            &themes,
-            "\"my-dark\" that `theme.dark` names is unavailable"
-        ));
-        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
-
-        themes
-            .import("my-dark.toml", dark("Mine").as_bytes())
-            .expect("a valid document");
-        assert!(
-            !mentions(&themes, "is unavailable"),
-            "a stale unavailable notice survived the import that fixed it: {:?}",
-            themes.notice_list()
-        );
-        assert_eq!(themes.presented(Appearance::Dark).name, "Mine");
-    }
-
-    ///
-    /// A dismissed selection notice stays dismissed while the viewer imports
-    /// a Theme neither selection names.
-    ///
-    #[test]
-    fn importing_an_unrelated_theme_does_not_restore_a_dismissed_notice() {
-        let mut themes = SelectedThemes::new(
-            ThemeRegistry::built_in(),
-            ThemeSelection::new(id("missing"), ORCVS_LIGHT_IDENTITY),
-        );
-        assert!(mentions(&themes, "\"missing\""));
-        themes.dismiss_notices();
-
-        themes
-            .import("other.toml", dark("Other").as_bytes())
-            .expect("a valid document");
-        assert_eq!(themes.notice_count(), 0, "{:?}", themes.notice_list());
-    }
-
-    ///
-    /// `schema.md`: a valid reimport that changes the selected Theme's
-    /// appearance falls back to that appearance's default built-in, is
-    /// reported, and the selection is kept.
-    ///
-    #[test]
-    fn a_reimport_that_changes_appearance_falls_back_and_keeps_the_selection() {
-        let mut themes = SelectedThemes::new(
-            ThemeRegistry::built_in(),
-            ThemeSelection::new(id("mine"), ORCVS_LIGHT_IDENTITY),
-        );
-        themes
-            .import("mine.toml", dark("Mine").as_bytes())
-            .expect("a valid document");
-        assert_eq!(themes.presented(Appearance::Dark).name, "Mine");
-
-        let light = "format = \"orcvs-theme\"\nversion = 1\nname = \"Mine\"\n\
-                     inherits = \"orcvs-light\"\n";
-        themes
-            .import("mine.toml", light.as_bytes())
-            .expect("a valid document");
-        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
-        assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
-        assert_eq!(*themes.selection().identity(Appearance::Dark), id("mine"));
-        assert!(
-            mentions(&themes, "dark Theme \"mine\""),
-            "{:?}",
-            themes.notice_list()
-        );
     }
 }
