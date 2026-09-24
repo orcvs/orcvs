@@ -181,6 +181,17 @@ reporting on them once they are already on `main`. `mise run check_merge_native`
 again after a merge; the audit is cheap, and each tier reading correctly on its own is worth more
 than removing the overlap.
 
+The audit denies a second version of any crate. The `[bans] skip` list in `deny.toml` is the
+complete set of duplicates the graph carries on purpose, and each entry names the upstream crate
+whose latest release holds the older copy. An entry names a release line (`syn@2`, `rustix@0.38`),
+not an exact version, because a full version after `@` matches only that version, and a routine
+`cargo update` to a new patch release would then fail the audit. When a change fails it with
+`error[duplicate]`, first check whether the dependents' version requirements allow one shared
+version, and move the lockfile onto it with `cargo update -p <crate>@<version> --precise <version>`.
+If they don't, add a skip entry that names the upstream crate holding the older version. When an
+upstream release lifts the constraint, cargo-deny reports the entry as an unmatched skip, which is
+the signal to remove it.
+
 A third trigger runs the same audit on a schedule. `cargo deny` sees the dependency graph whenever a
 commit changes the graph, and an advisory is published against code nobody changed, so between two
 quiet weeks a new RUSTSEC entry can land against a locked dependency with nothing in the repository

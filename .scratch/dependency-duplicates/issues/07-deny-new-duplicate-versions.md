@@ -6,8 +6,8 @@ A routine `cargo update` must not fail the gate. It can move a skipped crate to 
 
 **Blocked by:** 04 — Unify arboard's windows-sys on 0.52; 05 — Skip the duplicates upstream releases still hold.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `[bans] multiple-versions` is `"deny"`, and `mise run audit_deps` passes.
-- [ ] Every skip entry, including the ones from 01, still matches after a patch release of the crate it names.
-- [ ] `docs/tooling.md` records how to resolve a duplicate-version failure.
+- [x] `[bans] multiple-versions` is `"deny"`, and `mise run audit_deps` passes.
+- [x] Every skip entry, including the ones from 01, still matches after a patch release of the crate it names.
+- [x] `docs/tooling.md` records how to resolve a duplicate-version failure.
