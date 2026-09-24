@@ -10,8 +10,8 @@
 
 **Blocked by:** 04 — Unify arboard's windows-sys on 0.52.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each entry names the held version and the upstream crate that holds it.
-- [ ] `cargo deny --locked --all-features check bans` reports no duplicate warnings and no unused-skip warning.
-- [ ] `mise run audit_deps` passes.
+- [x] Each entry names the held version and the upstream crate that holds it.
+- [x] `cargo deny --locked --all-features check bans` reports no duplicate warnings and no unused-skip warning.
+- [x] `mise run audit_deps` passes.
