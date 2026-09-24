@@ -7,27 +7,31 @@ contract; it does not claim runtime implementation or approve the light palette.
 
 ## Document
 
-```yaml
-format: orcvs-theme
-version: 1
-name: "My Dark"
-inherits: "okabe-ito"
-style:
-  text: "#E0E0E0"
-  grid.background: "#101820"
-  grid.border: "#35506080"
-  grid.border.width: 0.5
-  cursor.background: "none"
+```toml
+format = "orcvs-theme"
+version = 1
+name = "My Dark"
+inherits = "okabe-ito"
+
+[style]
+text = "#E0E0E0"
+"grid.background" = "#101820"
+"grid.border" = "#35506080"
+"grid.border.width" = 0.5
+"cursor.background" = "none"
 ```
 
 Required root fields are `format`, `version`, `name` and `inherits`. `style` is
-optional; omission or `style: {}` inherits the complete parent unchanged.
+optional; omitting it or leaving it empty inherits the complete parent unchanged.
 Optional `appearance` is `dark` or `light` and must match the parent. The filename
 stem is the identity; `name` is a nonempty display label. `okabe-ito` is the reserved
 dark built-in identity, `orcvs-light` the reserved light identity. The latter's
 palette must pass the separate review gate before switching is exposed.
 
-Only this native format is supported. No palette slots, Base16 import, tint
+This is one versioned Orcvs Theme data model, represented in TOML by default.
+Files may instead use JSON or YAML; their extension selects the decoder. All
+three representations deserialize into the same typed document and receive the
+same semantic validation. No palette slots, Base16 import, tint
 scalar, general expressions, font assets or in-app authoring are required.
 Unsupported format/version and unknown root/style keys reject the whole document.
 
@@ -37,7 +41,7 @@ Every row is a named `style` property. Built-ins define every property explicitl
 custom documents replace only supplied properties. Property names are case-sensitive,
 including dots, which are literal characters rather than nested object access.
 All colour values use straight RGB/RGBA hex. Six digits mean opaque. `none` is a
-string accepted only for the two optional Cursor fills; it is not YAML null.
+string accepted only for the two optional Cursor fills; it is not a null value.
 
 `source.ordinary` supplies Ordinary, Char and Atom foregrounds. Atom background
 is separate because the existing declared Atom operand has a fill. Char has no
@@ -202,44 +206,84 @@ it remains distinct from absence. The uniform base layer still shows beneath it.
 The single-Cursor `none` case does not restore the ordinary role fill it suppresses.
 
 Compute finite fact combinations and colour composites outside the per-Cell loop.
-No per-Cell string lookup, hashing, YAML access or colour interpolation is allowed.
+No per-Cell string lookup, hashing, configuration access or colour interpolation is allowed.
 Cursor area alpha must propagate through tears/strands, including complete hiding
 at zero; do not reinterpret premultiplied bytes as straight RGB.
 
-## Parser subset and limits
+## Decoding and limits
 
-Accept UTF-8 with optional initial BOM, LF or CRLF, blank lines and comments outside
-strings. Root entries start at column zero. Nonempty `style` mappings use exactly
-two leading spaces; tabs for indentation are rejected. Only a root mapping plus
-one mapping of literal style keys is supported. Optional initial `---` is accepted;
-further document markers, sequences, anchors, aliases, tags, merge keys and
-multiline scalars are rejected. An empty mapping may be written only as `{}`.
+Decode each document directly with its format's own Serde deserializer, into one
+strict Serde document type: `toml` for `.toml`, `serde_json` for `.json`, and
+`serde-saphyr` for `.yaml` and `.yml`. The extension, matched case-insensitively,
+selects exactly one decoder. No configuration framework, layering, environment
+overlay, format-specific intermediate model or Orcvs-written parser sits between
+the bytes and the document type. TOML is the documented default. Unknown
+extensions are ignored during native discovery and rejected for an explicit web
+import. Strip one leading UTF-8 byte-order mark before any decoder; `serde_json`
+would otherwise reject it.
 
-String values may use single or double quotes. Single quotes escape an apostrophe
-by doubling it. Double quotes support `\\`, `\"`, `\n`, `\r`, `\t` and four-hex-digit
-`\u` escapes, pairing UTF-16 surrogates correctly; unsupported escapes are errors.
-Names/identities must decode to nonempty strings with no control characters.
-Plain `orcvs-theme`, `dark` and `light` are allowed for their header fields.
-Colours and `none` must be quoted. A comment starts with `#` outside a string,
-after whitespace; a quoted hex prefix is never a comment.
+The document type, not the decoder, decides what is strict, so the three formats
+behave alike:
 
-Version syntax is the integer `1`. Width lexical syntax is `[0-9]+(\.[0-9]+)?`:
-no signs, exponents, separators, NaN or infinity. Parse to finite numeric values,
-then check inclusive property bounds. Reject duplicate keys even if values agree.
-Colours are exactly `#` plus 6 or 8 hexadecimal digits; normalize channels, not
-property/identity case. Decode the document completely and validate before registry
-mutation. Error reports identify filename, line and offending field where available.
+- The root denies unknown fields; field names are case-sensitive, and a repeated
+  root field is an error.
+- Every scalar is read through `deserialize_any` with a visitor that accepts only
+  its own kind. Strings accept only strings; `version` accepts only an integer;
+  widths accept only numbers. Type-hinted entry points such as
+  `deserialize_u32` or `deserialize_f64` are not used, because `serde-saphyr`
+  1.3.0's typed numeric paths parse a quoted scalar (`version: "1"`) as a number;
+  through `deserialize_any` an untagged quoted scalar is a string and is refused.
+  Null, booleans, sequences and nested mappings are never a valid value.
+- `style` is a custom map visitor. Its keys are literal, case-sensitive dotted
+  property names, never nested paths. The key selects the value's kind from the
+  catalogue above; an unknown property or a repeated key is an error in the
+  visitor itself, because `serde_json` otherwise keeps the last duplicate.
+
+YAML is decoded with these `serde-saphyr` options: duplicate keys error, merge
+keys error, unsupported tags are rejected, YAML 1.1 booleans are off (strict
+booleans), non-finite typeless floats are rejected, and the default parse budget
+and alias limits stay on. Aliases of scalars are therefore accepted; a single
+document is required. Strict booleans make the YAML 1.1 forms (`yes`, `no`,
+`on`, `off`) plain strings, but the YAML 1.2 core schema's boolean and null
+spellings (`true`, `True`, `TRUE`, `false`, …, `null`, `Null`, `NULL`, `~`)
+are still typed as booleans and null, not strings; a string field holding such
+a word must quote it (`name: "True"`). An explicit YAML core tag decides its
+node's type, as YAML intends: `version: !!int "1"` is the integer `1`, and
+`!!binary` decodes to its text. Unknown tags are rejected. The format crates
+own each representation's syntax, strings and comments; Orcvs owns the common schema and semantic checks.
+
+Version is the integer `1`. Widths must be finite, then receive their inclusive
+property bounds; TOML can spell `nan` and `inf`, so finiteness is a semantic
+check, not a decoder guarantee. Colours are strings of exactly `#` plus 6 or 8
+hexadecimal digits. Names and parent identities must be nonempty, contain no
+control characters and stay within 256 UTF-8 bytes. Decode and validate the whole
+document before registry mutation. Errors identify the filename and carry the
+decoder's line and column, which all three decoders supply for syntax and type
+errors.
+
+The model above was demonstrated against `toml` 1.1.6, `serde_json` 1.0.151 and
+`serde-saphyr` 1.3.0 in a throwaway probe: valid documents in each format,
+unknown and wrong-case root fields, unknown style properties, duplicate root and
+style keys, string and float versions, string widths, numeric, boolean, null,
+sequence and table values, an unquoted YAML `#` colour, non-finite widths, YAML
+merge keys, unknown tags, multiple documents, tab indentation, an alias bomb and
+a leading byte-order mark all behaved as specified. The implementation's tests
+must carry these cases through the shipped loader, one per format where the
+format can express them.
 
 Set a 1 MiB per-document byte limit before allocation/read completion. Check both
 native files and web blobs, and recheck actual bytes. Limit decoded display names
 and parent identities to 256 UTF-8 bytes; error rather than truncate. The fixed
-key catalogue bounds map entries; duplicate keys fail immediately. These are
+key catalogue bounds map entries; duplicate keys fail immediately. Stored web
+imports share a 2 MiB aggregate budget; an import past it stays usable for the
+session but is not stored, and a notice says so. These are
 implementation resource limits, not a second format or extensibility mechanism.
 
 ## Discovery, persistence and failures
 
-Scan direct `.yaml` and `.yml` children of `~/.orcvs/themes/`, case-insensitive
-suffix matching, without recursion. Missing directory means no custom Themes.
+Scan direct `.toml`, `.json`, `.yaml` and `.yml` children of `~/.orcvs/themes/`,
+using case-insensitive suffix matching and without recursion. Missing directory
+means no custom Themes.
 Report unreadable files/directory without preventing startup. File symlinks may
 be followed subject to the same byte limit; do not traverse directory symlinks.
 Use the discovered filename stem as identity, case-sensitive; reserve built-in
