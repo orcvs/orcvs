@@ -27,9 +27,45 @@ allow = [
 ]
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "deny"
 wildcards = "deny"
 highlight = "all"
+skip = [
+  # eframe 0.36 pins winit 0.30. Its Linux Wayland stack and its macOS core-graphics
+  # binding hold these at older versions than the rest of the graph; winit 0.31 does not.
+  { crate = "thiserror@1", reason = "winit 0.30 Wayland stack (smithay-client-toolkit 0.19, calloop 0.13); eframe 0.36 pins winit 0.30" },
+  { crate = "thiserror-impl@1", reason = "winit 0.30 Wayland stack, as the proc macro behind thiserror 1; eframe 0.36 pins winit 0.30" },
+  { crate = "smithay-client-toolkit@0.19", reason = "winit 0.30 Wayland backend; eframe 0.36 pins winit 0.30" },
+  { crate = "calloop@0.13", reason = "winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "calloop-wayland-source@0.3", reason = "winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "rustix@0.38", reason = "winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "linux-raw-sys@0.4", reason = "rustix 0.38 in the winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  { crate = "core-foundation@0.9", reason = "winit 0.30 macOS backend and its core-graphics binding; eframe 0.36 pins winit 0.30" },
+  { crate = "bitflags@1", reason = "core-graphics 0.23 in the winit 0.30 macOS backend; eframe 0.36 pins winit 0.30" },
+  # winit 0.30 and accesskit_macos (0.27.0 still requires objc2 ^0.5.1) both hold the objc2 0.5
+  # family, so these stay until both move to objc2 0.6.
+  { crate = "objc2@0.5", reason = "winit 0.30 and accesskit_macos require objc2 0.5" },
+  { crate = "objc2-foundation@0.2", reason = "winit 0.30 and accesskit_macos require objc2 0.5" },
+  { crate = "objc2-app-kit@0.2", reason = "winit 0.30 and accesskit_macos require objc2 0.5" },
+  { crate = "block2@0.5", reason = "winit 0.30 and objc2-foundation 0.2 require it" },
+  { crate = "windows-sys@0.59", reason = "rustix 0.38 in the winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
+  # glutin 0.32 requires windows-sys ^0.52 in its latest release, as winit 0.30 does.
+  { crate = "windows-sys@0.52", reason = "glutin 0.32 and winit 0.30 require windows-sys 0.52" },
+  { crate = "windows-targets@0.52", reason = "windows-sys 0.52 and 0.59 require it" },
+  { crate = "windows_x86_64_gnu@0.52", reason = "windows-targets 0.52 requires it" },
+  { crate = "windows_x86_64_msvc@0.52", reason = "windows-targets 0.52 requires it" },
+  # arboard 3.6 accepts windows-sys >=0.52, <0.61, and cargo resolves an open range to its greatest
+  # version rather than to one the graph already carries.
+  { crate = "windows-sys@0.60", reason = "arboard 3.6 resolves its open windows-sys range to 0.60" },
+  # egui's accesskit_winit pins platform adapters that each require a different accesskit_consumer,
+  # and kittest 0.4 (egui_kittest's harness) requires ^0.35.
+  { crate = "accesskit_consumer@0.35", reason = "accesskit_windows 0.32 and kittest 0.4 require it" },
+  { crate = "accesskit_consumer@0.36", reason = "accesskit_atspi_common 0.18 requires it" },
+  { crate = "hashbrown@0.16", reason = "the accesskit_consumer, accesskit_macos and accesskit_windows releases egui pins require it" },
+  # Most proc macros in the graph (zerocopy-derive, enumn, tracing-attributes, zbus) are on syn 2.
+  { crate = "syn@2", reason = "proc macros in egui's and zbus's dependencies have not moved to syn 3" },
+  { crate = "getrandom@0.3", reason = "ahash 0.8 (via epaint) and rand_core 0.9 (via proptest) require it" },
+]
 
 [sources]
 unknown-registry = "deny"
