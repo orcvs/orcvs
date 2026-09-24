@@ -991,11 +991,9 @@ mod discovery_tests {
     /// fallback plus an error. ... Repair restores the intended Theme when
     /// next loaded."
     ///
-    /// The reference is `~/.orcvs/config.toml`'s `theme.dark`, which the
-    /// console only reads, so it is kept by never being written. Each launch
-    /// is what `Console::start` and `Console::new` do: discover the
-    /// directory, read the settings, and resolve the selection into the
-    /// Themes presented. Both are read from directories the test builds.
+    /// The reference is `config.toml`'s `theme.dark`, which the console never
+    /// writes. Each launch discovers the directory, reads the settings, and
+    /// resolves the selection, as `Console::new` does.
     ///
     mod selection {
         use super::super::tests_support::{TempDir, dark};

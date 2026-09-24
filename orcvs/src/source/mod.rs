@@ -21,7 +21,7 @@ pub use error::SourceError;
 pub use lang::Tick;
 pub use model::{
     BendLsb, BendMsb, CellWrite, ControlValue, Controller, Diagnostic, Length, MidiChannel, Note,
-    Performance, PlayCommand, Source, TickPlan, Velocity,
+    Performance, PlayCommand, RevisionId, Source, TickPlan, Velocity,
 };
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -236,8 +236,8 @@ impl SourceCommander {
     }
 
     ///
-    /// Hands the current revision to `read` as the Source root persistence
-    /// stores.
+    /// Hands the current revision to `read` as the Source root: what
+    /// persistence stores and what a Source File is written from.
     ///
     /// The Source stays behind the lock: it is the live state every reader of
     /// this handle shares, not a value to hand out.
@@ -258,9 +258,16 @@ impl SourceCommander {
     /// assert_eq!(&stored[..1], "1");
     /// ```
     ///
-    #[cfg(feature = "persistence")]
     pub fn read_source(&self, read: impl FnOnce(&Source)) {
         read(&read_recover(&self.inner));
+    }
+
+    ///
+    /// The identity of the revision the Source is at ([`Source::revision`]),
+    /// read without copying a Cell.
+    ///
+    pub fn revision(&self) -> RevisionId {
+        read_recover(&self.inner).revision()
     }
 
     ///
@@ -358,6 +365,18 @@ mod tests {
         assert_eq!(source.snapshot(), "  ");
         source.set(cell(0), "x").unwrap();
         assert_eq!(source.get(cell(0)).as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn the_commander_answers_the_revision_its_source_is_at() {
+        let grid = Grid::with_shape(2, 1);
+        let source = SourceCommander::new(grid);
+        let before = source.revision();
+        source.set(grid.cell_index(0).unwrap(), "x").unwrap();
+        let mut held = None;
+        source.read_source(|source| held = Some(source.revision()));
+        assert_ne!(source.revision(), before);
+        assert_eq!(Some(source.revision()), held);
     }
 
     #[test]
