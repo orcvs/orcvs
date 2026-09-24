@@ -2,6 +2,7 @@ mod cell;
 pub use cell::CellContent;
 mod encoding;
 pub mod error;
+pub mod file;
 mod language_map;
 pub use lang::Token;
 // `Claim::atom`'s type: re-exported so a caller naming a `Claim` value — the

@@ -9,7 +9,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use orcvs::app::Orcvs;
 use orcvs::grid::{CellIndex, Grid};
 use orcvs::playback::InMemoryOutputAdapter;
-use orcvs::source::{CellContent, CellWrite, LanguageMap, Source, SourceCommander, Tick};
+use orcvs::source::{CellContent, CellWrite, LanguageMap, Source, SourceCommander, Tick, file};
 use std::hint::black_box;
 use std::sync::OnceLock;
 
@@ -559,9 +559,32 @@ fn whole_grid(c: &mut Criterion) {
     group.finish();
 }
 
+///
+/// Reading and writing a Source File of the whole shipped Grid: what opening
+/// and saving a file costs (ADR 0054, `menu-structure/05`). Reading builds a
+/// Source and derives its Language Map once, so it is measured beside
+/// `source_whole_grid/language_map_derive` rather than instead of it.
+///
+fn source_file(c: &mut Criterion) {
+    let mut group = c.benchmark_group("source_file");
+    let source = whole_grid_source();
+    let text = file::write(&source);
+
+    group.bench_function("read/256x256", |b| {
+        b.iter(|| black_box(file::read(black_box(text.as_bytes())).expect("a Source File")))
+    });
+
+    group.bench_function("write/256x256", |b| {
+        b.iter(|| black_box(file::write(black_box(&source))))
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     whole_grid,
+    source_file,
     read_revision,
     render_frame,
     edit_rebuild_valid,

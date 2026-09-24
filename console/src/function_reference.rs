@@ -120,9 +120,10 @@
 //! rows. Editors and formatters strip trailing whitespace on save, which
 //! would otherwise turn a checked-in padded rectangle ragged on its next
 //! untouched edit and fail a loader that demanded one.
-//! `source_from_reference_text` instead places the text on the one 256 by 256
-//! Grid (ADR 0054), and every short line and every row past the last line
-//! reads as empty Cells — see its doc comment.
+//! `source_from_reference_text` instead reads the text as a Source File
+//! (`orcvs::source::file`), which places it on the one 256 by 256 Grid
+//! (ADR 0054) and reads every short line and every row past the last line as
+//! empty Cells — see its doc comment.
 //!
 //! # Completeness and diagnostic-cleanliness are proven, not asserted
 //!
@@ -154,8 +155,7 @@
 //! afterwards.
 //!
 
-use orcvs::grid::Grid;
-use orcvs::source::Source;
+use orcvs::source::{Source, file};
 
 const REFERENCE: &str = include_str!("../assets/function_reference.orcvs");
 
@@ -167,33 +167,23 @@ pub(crate) fn function_reference() -> Source {
 }
 
 ///
-/// Places `text` on the one Grid (ADR 0054): line *n* is row *n*, character
-/// *m* is column *m*.
+/// Reads `text` as a Source File (`orcvs::source::file::read`): line *n* is
+/// row *n*, character *m* is column *m*, on the one Grid (ADR 0054).
 ///
 /// A short line is padded with empty Cells rather than required to reach the
-/// Grid's width, and any row past the last line is left entirely empty —
-/// both are ordinary unset Cells, not a special case, since [`Source::get`]
-/// already reads an unset Cell back as empty. This tolerates a ragged
-/// `text`, which is what an editor or formatter that strips trailing
-/// whitespace leaves behind: a padded rectangle with every trailing space
-/// removed is ragged the moment one row's content ends before another's.
+/// Grid's width, and any row past the last line is left entirely empty. This
+/// tolerates a ragged `text`, which is what an editor or formatter that
+/// strips trailing whitespace leaves behind: a padded rectangle with every
+/// trailing space removed is ragged the moment one row's content ends before
+/// another's.
+///
+/// The reference is checked in and compiled into the build, so a refusal is
+/// a defect in the asset rather than something a viewer can cause, and
+/// `the_checked_in_reference_is_a_source_file` is what catches it first.
 ///
 fn source_from_reference_text(text: &str) -> Source {
-    let grid = Grid::new();
-    let mut source = Source::new(grid);
-    for (y, line) in text.lines().enumerate() {
-        for (x, content) in line.chars().enumerate() {
-            if content != ' ' {
-                let position = grid.position(x, y).expect("inside the reference Grid");
-                let cell = grid.index(position);
-                source
-                    .set(cell, &content.to_string())
-                    .expect("the Function reference holds only printable ASCII");
-            }
-        }
-    }
-
-    source
+    file::read(text.as_bytes())
+        .unwrap_or_else(|refusal| panic!("the Function reference is not a Source File: {refusal}"))
 }
 
 #[cfg(test)]
@@ -242,6 +232,18 @@ mod tests {
             None,
             "a row past the last line is empty padding, not an error"
         );
+    }
+
+    ///
+    /// The asset is read the way any Source File is, so a stray tab, a
+    /// non-ASCII character, or a line past 256 characters refuses it here,
+    /// with its line and column, rather than panicking at console start.
+    ///
+    #[test]
+    fn the_checked_in_reference_is_a_source_file() {
+        if let Err(refusal) = orcvs::source::file::read(super::REFERENCE.as_bytes()) {
+            panic!("function_reference.orcvs: {refusal}");
+        }
     }
 
     /// One Cell of `source` at `(x, y)`, read back through `grid` — the one
