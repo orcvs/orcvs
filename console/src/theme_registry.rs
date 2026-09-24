@@ -745,6 +745,10 @@ impl ThemeRegistry {
 
     ///
     /// Reports a write storage did not keep, once until a write is kept.
+    /// A copy not kept and a document write not kept share the report: until
+    /// a document write is kept the imported documents were never stored, so
+    /// a document write that fails after the copy is kept continues the
+    /// failure already reported rather than starting a new one.
     ///
     fn report_store_failure(&mut self) {
         if !self.store_failed {
@@ -1399,9 +1403,17 @@ mod tests {
                 Some("not a list of documents"),
                 "the undecodable value was overwritten before its copy was kept"
             );
-            assert!(
-                notices_mention(&restarted, "Could not store"),
-                "{:?}",
+            let store_failures = |registry: &ThemeRegistry| {
+                registry
+                    .notice_list()
+                    .iter()
+                    .filter(|notice| notice.contains("Could not store"))
+                    .count()
+            };
+            assert_eq!(
+                store_failures(&restarted),
+                1,
+                "a copy not kept is reported once across stores: {:?}",
                 restarted.notice_list()
             );
             assert!(
@@ -1416,6 +1428,12 @@ mod tests {
             assert_eq!(
                 eframe::Storage::get_string(&storage, IMPORTED_THEMES_REFUSED_KEY).as_deref(),
                 Some("not a list of documents")
+            );
+            assert_eq!(
+                store_failures(&restarted),
+                1,
+                "{:?}",
+                restarted.notice_list()
             );
             let again = ThemeRegistry::web_start(Some(&storage));
             assert!(again.select(Appearance::Dark, &id("mine")).is_ok());
