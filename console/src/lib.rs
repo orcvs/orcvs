@@ -1,9 +1,19 @@
 #![warn(clippy::all)]
 
+// The settings `~/.orcvs/config.toml` holds, read once at native startup
+// (`.scratch/menu-structure/issues/04`).
+mod config;
 pub mod console;
 // Validates a resolved Theme's composited text contrast
 // (`.scratch/theming/issues/08`), reusing `style`'s own composition
 // functions so painting and validation cannot independently drift.
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 mod contrast;
 #[doc(hidden)]
 pub mod cursor_effects;
@@ -28,11 +38,17 @@ pub mod style;
 pub mod theme;
 // Decodes a TOML, JSON or YAML Theme document's bytes into the unresolved
 // document `theme::resolve` takes (`.scratch/theming/issues/07`). Pure:
-// `theme_registry`'s native discovery and web import own the I/O.
+// `theme_registry`'s native discovery owns the I/O.
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 mod theme_document;
 // The Themes a console can select — built-ins, loaded Theme documents and
-// their load failures — with native discovery and web import
-// (`.scratch/theming/issues/07`).
+// their load failures — with native discovery (`.scratch/theming/issues/07`).
 mod theme_registry;
 // The dark and light Theme selections and the Theme each presents
 // (`.scratch/theming/issues/04`).

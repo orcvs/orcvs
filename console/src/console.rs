@@ -7,6 +7,7 @@ use egui::{
     epaint::RectShape, text::Galley,
 };
 
+use crate::config::Config;
 use crate::cursor_effects::{
     CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, cursor_effect_shapes,
     effect_bounds,
@@ -18,7 +19,7 @@ use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::{default_source, starting_source};
 use crate::readout_deadline::until_next;
-use crate::theme::{Appearance, Theme, ThemeIdentity};
+use crate::theme::{Appearance, Theme};
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
 use orcvs::{
@@ -494,6 +495,37 @@ enum ZoomCommand {
     Reset,
 }
 
+impl ZoomCommand {
+    const ALL: [Self; 3] = [Self::In, Self::Out, Self::Reset];
+
+    ///
+    /// The key that, with a command modifier, is this command's chord: what
+    /// [`zoom_command`] answers and the View menu shows. `+` is also Zoom In,
+    /// since it shares `=`'s key on most layouts.
+    ///
+    fn key(self) -> Key {
+        match self {
+            Self::In => Key::Equals,
+            Self::Out => Key::Minus,
+            Self::Reset => Key::Num0,
+        }
+    }
+
+    /// The chord as the View menu shows it.
+    fn shortcut(self) -> egui::KeyboardShortcut {
+        egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, self.key())
+    }
+
+    /// The View menu item's label.
+    fn label(self) -> &'static str {
+        match self {
+            Self::In => "Zoom In",
+            Self::Out => "Zoom Out",
+            Self::Reset => "Reset Zoom",
+        }
+    }
+}
+
 ///
 /// The Zoom command a toolkit event asks for, or none.
 ///
@@ -511,10 +543,10 @@ fn zoom_command(event: &Event) -> Option<ZoomCommand> {
             modifiers,
             ..
         } if modifiers.command => match key {
-            Key::Equals | Key::Plus => Some(ZoomCommand::In),
-            Key::Minus => Some(ZoomCommand::Out),
-            Key::Num0 => Some(ZoomCommand::Reset),
-            _ => None,
+            Key::Plus => Some(ZoomCommand::In),
+            key => ZoomCommand::ALL
+                .into_iter()
+                .find(|command| command.key() == *key),
         },
         _ => None,
     }
@@ -579,6 +611,9 @@ struct SourceView {
     /// The anchor of the primary drag selecting a Region, while one is in
     /// progress. The Cursor follow is paced to the pointer while it is.
     region_drag: Option<Position>,
+    /// A Zoom command the View menu asked for this frame, applied by the
+    /// next [`show_source_scene`] exactly as the chord it names would be.
+    requested_zoom: Option<ZoomCommand>,
     to_global: TSTransform,
 }
 
@@ -589,6 +624,7 @@ impl Default for SourceView {
             pan: Vec2::ZERO,
             previous_cursor: None,
             region_drag: None,
+            requested_zoom: None,
             to_global: TSTransform::IDENTITY,
         }
     }
@@ -800,10 +836,6 @@ pub struct Console {
     cursor_effect_animation: CursorEffectAnimation,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
-    /// Reads Theme files dropped on the web console and hands their bytes to
-    /// `themes`.
-    #[cfg(target_arch = "wasm32")]
-    web_import: crate::theme_registry::WebImport,
     /// The question the console is asking before it discards the Source, while
     /// it asks. Holding it keeps keys from the Source, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
@@ -830,26 +862,35 @@ impl Console {
         // imported documents. This is the only place the shipped console
         // discovers Themes; `new` takes the registry, so a test builds the
         // one it needs and never reads the machine's own Theme directory.
-        Self::new(cc, ThemeRegistry::start(cc.storage))
+        // Settings are read here for the same reason: native reads
+        // `~/.orcvs/config.toml` and the web runs on the defaults.
+        Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())
     }
 
     ///
     /// The console over the running Orcvs its storage last held, choosing
-    /// among the Themes `registry` holds. [`Console::start`] is the shipped
-    /// entry point, and discovers `registry` itself.
+    /// among the Themes `registry` holds under the settings `config` holds.
+    /// [`Console::start`] is the shipped entry point, and discovers
+    /// `registry` and reads `config` itself.
     ///
     pub(crate) fn new(
         cc: &eframe::CreationContext<'_>,
-        registry: ThemeRegistry,
+        mut registry: ThemeRegistry,
+        config: Config,
     ) -> Result<Self, PlaybackStartError> {
         // The stored Source revision, or an empty Source when storage holds none.
         let start = starting_source(cc.storage);
 
-        // The restored dark and light Theme selections, resolved against the
-        // registry once here so `install` below and `Self`'s own `themes`
+        // What the settings file could not supply reaches the viewer through
+        // the Theme notice channel, as a Theme file's problem does.
+        for notice in config.notices {
+            registry.notice(notice);
+        }
+        // The configured dark and light Theme selections, resolved against
+        // the registry once here so `install` below and `Self`'s own `themes`
         // field hold the same pair. A selection the registry cannot supply
-        // is kept, falls back, and raises a notice.
-        let themes = SelectedThemes::new(registry, start.theme_selection);
+        // falls back to its appearance's built-in and raises a notice.
+        let themes = SelectedThemes::new(registry, config.theme_selection);
 
         // eframe restores egui memory — `ThemePreference` included — before
         // calling this constructor, but never reinstalls a style. Register
@@ -909,12 +950,10 @@ impl Console {
                 .window_background,
             themes,
             reduced_motion: prefers_reduced_motion(),
-            cursor_effects: start.cursor_effects,
+            cursor_effects: config.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
-            #[cfg(target_arch = "wasm32")]
-            web_import: crate::theme_registry::WebImport::new(),
             discard_confirmation: None,
             ctx: cc.egui_ctx.clone(),
         })
@@ -957,7 +996,7 @@ impl Console {
     }
 
     ///
-    /// Opens the Function reference — what the File menu offers, since a
+    /// Opens the Function reference — what the Help menu offers, since a
     /// console that restores nothing opens an empty Grid (`source-view/03`).
     ///
     fn load_function_reference(&mut self) {
@@ -1083,8 +1122,9 @@ fn environment(
 }
 
 ///
-/// The Theme notices, when there are any: a menu in the top bar that lists
-/// each and offers to dismiss them: the selections' and the registry's.
+/// The notices, when there are any: a menu in the top bar titled Notices
+/// that lists each and offers to dismiss them — the Theme selections', the
+/// registry's, and the settings file's, which reach the registry at startup.
 /// Showing them starts nothing.
 ///
 fn show_theme_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes) {
@@ -1094,7 +1134,7 @@ fn show_theme_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes) {
     }
     ui.add_space(MENU_BAR_GAP);
     let title =
-        egui::RichText::new(format!("Theme notices ({count})")).color(ui.visuals().error_fg_color);
+        egui::RichText::new(format!("Notices ({count})")).color(ui.visuals().error_fg_color);
     ui.menu_button(title, |ui| {
         ui.set_max_width(THEME_NOTICE_WIDTH);
         egui::ScrollArea::vertical()
@@ -1111,9 +1151,9 @@ fn show_theme_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes) {
     });
 }
 
-/// How wide the Theme notices menu grows before its messages wrap.
+/// How wide the notices menu grows before its messages wrap.
 const THEME_NOTICE_WIDTH: f32 = 480.0;
-/// How tall the Theme notices list grows before it scrolls.
+/// How tall the notices list grows before it scrolls.
 const THEME_NOTICE_HEIGHT: f32 = 320.0;
 
 fn frames_per_second(frame_time: f32) -> Option<f32> {
@@ -1926,7 +1966,13 @@ fn show_source_scene(
     view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
 
     let zoom_before_command = view.zoom;
-    if let Some(command) = ui.input(|i| i.events.iter().find_map(zoom_command)) {
+    // A View menu item and a chord are the same command: the menu's is
+    // taken first, since a click that closed the menu carries no chord.
+    let command = view
+        .requested_zoom
+        .take()
+        .or_else(|| ui.input(|i| i.events.iter().find_map(zoom_command)));
+    if let Some(command) = command {
         view.zoom = stepped_zoom(view.zoom, command);
     }
     let zoomed = view.zoom != zoom_before_command;
@@ -2108,72 +2154,89 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
 }
 
 ///
-/// A viewer's change to the console's appearance, made in the View menu.
+/// A viewer's change to the console's appearance, made with the top bar's
+/// mode control. The dark and light Themes are settings
+/// (`~/.orcvs/config.toml`), not something the console changes.
 ///
 #[derive(Debug)]
 enum AppearanceChange {
     /// Follow the operating system's appearance, or hold dark or light.
     Mode(egui::ThemePreference),
-    /// Select the Theme with this identity for this appearance.
-    Theme(Appearance, ThemeIdentity),
 }
 
 ///
-/// The View menu's appearance controls: the mode, then the dark Theme picker
-/// and the light Theme picker, each listing only Themes of its appearance.
-/// Answers the change a viewer made this frame, if any; the caller applies
+/// The mode control's glyphs, in the order it shows them: Follow the OS,
+/// Dark, Light. The spec's 💻, 🌙 and ☀ are not in the console's one font
+/// (egui's default fonts are not built), so each would draw as the font's
+/// replacement glyph; ◐, ☾ and ☼ are in it on native and web alike, which
+/// `kittest_tests::the_mode_glyphs_are_in_the_console_font` holds.
+///
+const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
+
+///
+/// The top bar's mode control: Follow the OS, Dark and Light as icon-only
+/// selectable buttons, egui's `global_theme_preference_buttons` without its
+/// text. Each is named for accessibility by what its glyph stands for, and
+/// explains itself on hover; Follow the OS also names the operating
+/// system's current appearance, as `ThemePreference::radio_buttons` does.
+/// Answers the choice a viewer made this frame, if any; the caller applies
 /// it once the frame is done.
 ///
-fn appearance_controls(ui: &mut egui::Ui, themes: &SelectedThemes) -> Option<AppearanceChange> {
-    let mut change = None;
+/// Shown into a right-to-left layout, so the buttons are added last first
+/// and read Follow the OS, Dark, Light from left to right.
+///
+fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
     let mode = ui.ctx().options(|options| options.theme_preference);
-
-    ui.separator();
-    ui.label("Appearance");
-    for (preference, label) in [
-        (egui::ThemePreference::System, "Follow the OS"),
-        (egui::ThemePreference::Dark, "Dark"),
-        (egui::ThemePreference::Light, "Light"),
-    ] {
-        if ui.radio(mode == preference, label).clicked() {
+    let system = ui.input(|input| input.raw.system_theme);
+    let choices = [
+        (
+            egui::ThemePreference::System,
+            "Follow the OS",
+            "Follow the operating system's appearance.",
+        ),
+        (
+            egui::ThemePreference::Dark,
+            "Dark",
+            "Always use the dark appearance.",
+        ),
+        (
+            egui::ThemePreference::Light,
+            "Light",
+            "Always use the light appearance.",
+        ),
+    ];
+    let mut change = None;
+    for ((preference, name, explanation), glyph) in choices.into_iter().zip(MODE_GLYPHS).rev() {
+        let selected = mode == preference;
+        let response = ui.selectable_label(selected, glyph);
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, name)
+        });
+        let response = response.on_hover_ui(|ui| {
+            ui.label(explanation);
+            if preference == egui::ThemePreference::System {
+                ui.label(match system {
+                    Some(egui::Theme::Dark) => "The operating system's appearance is dark.",
+                    Some(egui::Theme::Light) => "The operating system's appearance is light.",
+                    None => "The operating system's appearance is unknown.",
+                });
+            }
+        });
+        if response.clicked() {
             change = Some(AppearanceChange::Mode(preference));
         }
     }
-
-    for (appearance, heading) in [
-        (Appearance::Dark, "Dark Theme"),
-        (Appearance::Light, "Light Theme"),
-    ] {
-        ui.separator();
-        ui.label(heading);
-        let presented = &themes.presented(appearance).identity;
-        for theme in themes.listed(appearance) {
-            if ui
-                .radio(theme.identity == *presented, &theme.name)
-                .clicked()
-            {
-                change = Some(AppearanceChange::Theme(appearance, theme.identity.clone()));
-            }
-        }
-    }
-
     change
 }
 
 impl Console {
     ///
-    /// Applies a View menu change. A mode is egui's own `ThemePreference`,
-    /// which egui memory holds and eframe persists; a Theme selection is
-    /// this console's, and reinstalls the chrome from what each appearance
-    /// then presents.
+    /// Applies an appearance change. A mode is egui's own `ThemePreference`,
+    /// which egui memory holds and eframe persists.
     ///
-    fn change_appearance(&mut self, ctx: &egui::Context, change: AppearanceChange) {
+    fn change_appearance(ctx: &egui::Context, change: AppearanceChange) {
         match change {
             AppearanceChange::Mode(preference) => ctx.set_theme(preference),
-            AppearanceChange::Theme(appearance, identity) => {
-                self.themes.select(appearance, &identity);
-                self.themes.install(ctx);
-            }
         }
         ctx.request_repaint();
     }
@@ -2196,40 +2259,12 @@ impl Console {
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
-    /// intervals while running. This stores the current Source revision and
-    /// the persisted presentation settings.
+    /// intervals while running. This stores the current Source revision;
+    /// settings are `~/.orcvs/config.toml`'s, and are never saved.
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence.save(
-            storage,
-            self.orcvs.source(),
-            self.cursor_effects,
-            self.themes.selection(),
-        );
-        // Only the web stores Theme documents; native Theme files are
-        // authoritative and re-read at every launch.
-        #[cfg(target_arch = "wasm32")]
-        self.themes.store_imported(storage);
-    }
-
-    ///
-    /// Imports the Theme files dropped on the web console. eframe reads a
-    /// dropped file's bytes asynchronously, so a drop starts the read here
-    /// and a later frame applies what it read. This hook sees each
-    /// `RawInput` exactly once, and takes the dropped files out of it, so no
-    /// drop is read twice; `App::logic` would see a hidden tab's last input
-    /// again on every call. Nothing is imported on native, where
-    /// `~/.orcvs/themes/` is the only source of custom Themes.
-    ///
-    #[cfg(target_arch = "wasm32")]
-    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        self.web_import.take_drops(ctx, raw_input, &mut self.themes);
-        if self.web_import.apply(&mut self.themes) {
-            // Before the frame this input starts, so the whole frame is
-            // presented from what the import made available.
-            self.themes.install(ctx);
-        }
+        self.persistence.save(storage, self.orcvs.source());
     }
 
     ///
@@ -2321,6 +2356,8 @@ impl eframe::App for Console {
             egui::MenuBar::new().ui(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
+                // File holds only what is built (`.scratch/menu-structure/
+                // spec.md`): New, and Quit on native.
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
                         let ask = self.source_is_written();
@@ -2333,9 +2370,6 @@ impl eframe::App for Console {
                             },
                         );
                     }
-                    if ui.button("Load Function reference").clicked() {
-                        self.load_function_reference();
-                    }
                     if !is_web {
                         ui.separator();
                         if ui.button("Quit").clicked() {
@@ -2345,59 +2379,60 @@ impl eframe::App for Console {
                 });
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
+                    for command in ZoomCommand::ALL {
+                        let item = egui::Button::new(command.label())
+                            .shortcut_text(ctx.format_shortcut(&command.shortcut()));
+                        if ui.add(item).clicked() {
+                            // Applied by this frame's `show_source_scene`,
+                            // which runs after the menu bar, as the chord is.
+                            self.source_view.requested_zoom = Some(command);
+                        }
+                    }
+                    ui.separator();
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
-                    appearance_change = appearance_controls(ui, &self.themes);
-                    // The web imports a Theme file by drag and drop, eframe's
-                    // own file facility; say so where a viewer looks.
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        ui.separator();
-                        ui.weak(
-                            "Drop a .toml, .json, .yaml or .yml Theme file on the console to \
-                             import it",
+                });
+                ui.add_space(MENU_BAR_GAP);
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Function Reference").clicked() {
+                        self.load_function_reference();
+                    }
+                });
+                // Notices are status, not menus: they sit at the bar's right
+                // edge. Right to left, so what is shown first is rightmost.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Rightmost: the mode, which is a control rather than a
+                    // menu, and applied once the frame is done.
+                    appearance_change = mode_control(ui);
+                    // Theme load, import, selection and contrast notices, and
+                    // the persistence notice beside them: start-up answers a
+                    // viewer reads, not diagnostics of the running frame, so
+                    // they sit in the bar rather than the Diagnostics window,
+                    // and stay until dismissed. `report` has already sent each
+                    // to the developer console; this is the channel a viewer
+                    // reads.
+                    show_theme_notices(ui, &mut self.themes);
+                    #[cfg(feature = "persistence")]
+                    if self.persistence.notice_visible() {
+                        ui.add_space(MENU_BAR_GAP);
+                        if ui.button("Dismiss").clicked() {
+                            self.persistence.dismiss_notice();
+                        }
+                        // Truncated to the space the menus leave, with its
+                        // whole text on hover, so a narrow window never
+                        // lays it over them.
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(format!(
+                                    "Stored Source could not be read back; it was kept under \
+                                     \"{}\"",
+                                    crate::persistence::REFUSED_KEY
+                                ))
+                                .color(ui.visuals().error_fg_color),
+                            )
+                            .truncate(),
                         );
                     }
                 });
-                ui.add_space(MENU_BAR_GAP);
-                // Glitch amount and Glitch frequency are motion settings, not
-                // Theme values (ADR 0053), so they get their own menu.
-                ui.menu_button("Settings", |ui| {
-                    ui.label("Cursor effects");
-                    ui.add(
-                        egui::Slider::new(self.cursor_effects.amount_mut(), 0..=100)
-                            .text("Glitch amount"),
-                    );
-                    ui.add(
-                        egui::Slider::new(self.cursor_effects.frequency_mut(), 0..=100)
-                            .text("Glitch frequency"),
-                    );
-                });
-                // Presented in the menu bar rather than the Diagnostics window,
-                // which opens on a viewer's request and reports the running
-                // frame. This is a start-up answer about the Source in front of
-                // them, and it stays until they dismiss it. `report` reaches a
-                // developer console; this is the channel a viewer reads.
-                #[cfg(feature = "persistence")]
-                if self.persistence.notice_visible() {
-                    ui.add_space(MENU_BAR_GAP);
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        format!(
-                            "Stored Source could not be read back; it was kept under \
-                             \"{}\"",
-                            crate::persistence::REFUSED_KEY
-                        ),
-                    );
-                    if ui.button("Dismiss").clicked() {
-                        self.persistence.dismiss_notice();
-                    }
-                }
-                // Theme load, import, selection and contrast notices, beside
-                // the persistence notice for the same reason: they are
-                // start-up answers a viewer reads, not diagnostics of the
-                // running frame. `report` has already sent each to the
-                // developer console.
-                show_theme_notices(ui, &mut self.themes);
             });
         });
 
@@ -2601,8 +2636,6 @@ impl eframe::App for Console {
                     cursor_effect_animation: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
-                    #[cfg(target_arch = "wasm32")]
-                        web_import: _,
                     discard_confirmation: _,
                     ctx: _,
                 } = self;
@@ -2672,7 +2705,7 @@ impl eframe::App for Console {
         // appearance it began in, so no frame mixes two Themes. The next
         // frame presents the change.
         if let Some(change) = appearance_change {
-            self.change_appearance(&ctx, change);
+            Self::change_appearance(&ctx, change);
         }
     }
 }
@@ -3623,6 +3656,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -3675,6 +3709,7 @@ mod tests {
         let _console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
 
@@ -3706,6 +3741,7 @@ mod tests {
         let _console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
 
@@ -3718,8 +3754,8 @@ mod tests {
 
     ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
-    /// C `00:00`, O `None`. File, View, and Settings remain on the top bar;
-    /// the MIDI menu is gone.
+    /// C `00:00`, O `None`. File, View and Help are the top bar's menus, in
+    /// that order; the MIDI and Settings menus are gone.
     ///
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
@@ -3729,6 +3765,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -3779,11 +3816,16 @@ mod tests {
             text.contains("00:00"),
             "the Panel is missing Run Clock 00:00 in {text:?}"
         );
-        for menu in ["File", "View", "Settings"] {
+        let mut previous_menu = 0;
+        for menu in ["File", "View", "Help"] {
+            let at = text
+                .find(menu)
+                .unwrap_or_else(|| panic!("the top bar is missing {menu} in {text:?}"));
             assert!(
-                text.contains(menu),
-                "the top bar is missing {menu} in {text:?}"
+                previous_menu <= at,
+                "the top bar does not hold {menu} in order in {text:?}"
             );
+            previous_menu = at;
         }
         assert!(
             !text.contains("Theme"),
@@ -3844,6 +3886,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -3904,6 +3947,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -3951,6 +3995,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4001,6 +4046,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4052,6 +4098,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4104,6 +4151,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4173,6 +4221,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4238,6 +4287,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4286,6 +4336,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4321,6 +4372,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4377,6 +4429,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4429,6 +4482,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4492,6 +4546,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4535,6 +4590,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4575,6 +4631,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4618,6 +4675,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4713,6 +4771,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -4757,6 +4816,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -5157,6 +5217,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -5240,6 +5301,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -5276,6 +5338,7 @@ mod tests {
         let mut console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
@@ -6724,6 +6787,7 @@ mod tests {
         let console = Console::new(
             &eframe::CreationContext::_new_kittest(ctx.clone()),
             ThemeRegistry::built_in(),
+            crate::config::Config::default(),
         )
         .expect("Console::new");
 
@@ -8275,14 +8339,15 @@ mod storage_tests {
     use super::Console;
     use super::tests::assert_chrome;
     use crate::persistence::{
-        DARK_THEME_KEY, InMemoryStorage, LIGHT_THEME_KEY, REFUSED_KEY, SOURCE_KEY, edited_source,
-        starting_source, store,
+        InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source, store,
     };
     #[cfg(not(target_arch = "wasm32"))]
     use crate::persistence::{IsolatedRonDir, RonFileStorage};
+    use crate::theme::ThemeIdentity;
     use crate::theme::{Appearance, okabe_ito, orcvs_light};
     use crate::theme_registry::ThemeRegistry;
-    use crate::theme_registry::tests_support::{my_dark, with_my_themes};
+    use crate::theme_registry::tests_support::{id, my_dark, with_my_themes};
+    use crate::theme_selection::ThemeSelection;
 
     ///
     /// Storage holding a value no build can read back, and that value, so a
@@ -8310,7 +8375,12 @@ mod storage_tests {
     fn console_over(storage: &dyn eframe::Storage) -> Console {
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(storage);
-        Console::new(&cc, ThemeRegistry::built_in()).expect("the test runtime")
+        Console::new(
+            &cc,
+            ThemeRegistry::built_in(),
+            crate::config::Config::default(),
+        )
+        .expect("the test runtime")
     }
 
     ///
@@ -8394,131 +8464,123 @@ mod storage_tests {
     }
 
     ///
-    /// Restored dark and light Theme references. A reference no available
-    /// Theme of its appearance answers to — `"my-dark"` before anything
-    /// makes it available — presents that appearance's default built-in,
-    /// chrome and Source alike, and saves back unchanged rather than being
-    /// reset by the fallback (ADR 0053: the fallback "never replaces the
-    /// saved Theme selection, including on autosave"). The next launch, once
-    /// a loaded Theme answers to that saved reference, presents it.
+    /// Configured dark and light Theme references
+    /// (`.scratch/menu-structure/issues/04`). A reference no available Theme
+    /// of its appearance answers to — `"my-dark"` before anything makes it
+    /// available — presents that appearance's default built-in, chrome and
+    /// Source alike, with a notice. The next launch, once a loaded Theme
+    /// answers to it, presents it: the settings file was never rewritten.
     ///
     #[tokio::test]
-    async fn restored_theme_references_are_presented_or_fall_back_and_save_back_unchanged() {
-        let mut storage = InMemoryStorage::default();
-        eframe::Storage::set_string(&mut storage, DARK_THEME_KEY, "my-dark".to_owned());
-        eframe::Storage::set_string(&mut storage, LIGHT_THEME_KEY, "orcvs-light".to_owned());
+    async fn configured_theme_references_are_presented_or_fall_back() {
+        let config = || crate::config::Config {
+            theme_selection: ThemeSelection::new(
+                id("my-dark"),
+                ThemeIdentity::default_for(Appearance::Light),
+            ),
+            ..crate::config::Config::default()
+        };
 
-        // `console_over` builds its own `Context` and does not expose it,
-        // so this repeats its shape rather than reusing it, to keep a handle
-        // on `ctx` for the chrome assertion below.
         let ctx = egui::Context::default();
-        let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
-        cc.storage = Some(&storage);
-        let mut console = Console::new(&cc, ThemeRegistry::built_in()).expect("the test runtime");
-
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let console =
+            Console::new(&cc, ThemeRegistry::built_in(), config()).expect("the test runtime");
         assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
         assert_chrome(
             &ctx,
             &okabe_ito(),
             &orcvs_light(),
-            "an unavailable dark reference beside a restored light one",
+            "an unavailable dark reference beside the default light one",
         );
-
         let notices: Vec<&String> = console.themes.notices().collect();
         assert_eq!(notices.len(), 1, "{notices:?}");
         assert!(
-            notices[0].contains("\"my-dark\""),
+            notices[0].contains("\"my-dark\"") && notices[0].contains("theme.dark"),
             "the unavailable dark selection should be reported: {notices:?}"
         );
 
-        let mut written = InMemoryStorage::default();
-        console.save(&mut written);
-        assert_eq!(
-            eframe::Storage::get_string(&written, DARK_THEME_KEY).as_deref(),
-            Some("my-dark"),
-            "the fallback rewrote the restored dark Theme reference"
-        );
-        assert_eq!(
-            eframe::Storage::get_string(&written, LIGHT_THEME_KEY).as_deref(),
-            Some("orcvs-light"),
-            "the restored light Theme reference was not saved back unchanged"
-        );
-
-        // The next launch, once a Theme file answers to the saved reference.
         let ctx = egui::Context::default();
-        let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
-        cc.storage = Some(&written);
-        let console = Console::new(&cc, with_my_themes()).expect("the test runtime");
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let console = Console::new(&cc, with_my_themes(), config()).expect("the test runtime");
         assert_eq!(
             *console.themes.presented(Appearance::Dark),
             my_dark(),
-            "a restored reference did not present the Theme it names once available"
+            "a configured reference did not present the Theme it names once available"
         );
         assert_chrome(
             &ctx,
             &my_dark(),
             &orcvs_light(),
-            "the next launch, with the saved dark Theme's file loaded",
+            "the next launch, with the configured dark Theme's file loaded",
         );
+        // My Dark's own contrast notice is the only one.
         assert!(
             console
                 .themes
                 .notices()
-                .all(|notice| !notice.contains("is unavailable")),
+                .all(|notice| notice.contains("contrast floor")),
             "{:?}",
-            console.themes.notices().collect::<Vec<_>>()
+            console.themes.notice_list()
         );
     }
 
     ///
-    /// The light key every build before `.scratch/theming/issues/04` wrote:
-    /// `okabe-ito`, a dark Theme, which no light Theme answers to. Started
-    /// through `Console::new` the way eframe starts an existing install, it
-    /// presents Orcvs Light for the light appearance — chrome and the Theme
-    /// the Source reads alike — and saves back unchanged: the fallback never
-    /// rewrites the selection (ADR 0053), and nothing tells it apart from
-    /// any other selection of the wrong appearance.
+    /// The storage keys earlier builds kept settings under are neither read
+    /// nor written (`.scratch/menu-structure/issues/04`): storage selecting
+    /// `my-dark`, a wrong-appearance light Theme and still Cursor effects
+    /// changes nothing a console presents, and a save writes none of them
+    /// back. The keys are spelled out because nothing shipped names them.
     ///
     #[tokio::test]
-    async fn an_earlier_builds_light_theme_key_presents_orcvs_light_and_is_kept() {
+    async fn the_retired_settings_keys_are_neither_read_nor_written() {
         let mut storage = InMemoryStorage::default();
-        eframe::Storage::set_string(&mut storage, LIGHT_THEME_KEY, "okabe-ito".to_owned());
+        for (key, value) in [
+            ("dark_theme", "my-dark"),
+            ("light_theme", "okabe-ito"),
+            ("cursor_effects", "0;0"),
+        ] {
+            eframe::Storage::set_string(&mut storage, key, value.to_owned());
+        }
 
-        let ctx = egui::Context::default();
-        let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(&storage);
-        let mut console = Console::new(&cc, ThemeRegistry::built_in()).expect("the test runtime");
+        let mut console = Console::new(&cc, with_my_themes(), crate::config::Config::default())
+            .expect("the test runtime");
 
         assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
         assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
-        assert_chrome(
-            &ctx,
-            &okabe_ito(),
-            &orcvs_light(),
-            "an earlier build's light key beside an absent dark key",
+        // My Dark's own contrast notice is the only one.
+        assert!(
+            console
+                .themes
+                .notices()
+                .all(|notice| notice.contains("contrast floor")),
+            "{:?}",
+            console.themes.notice_list()
+        );
+        assert_eq!(
+            console.cursor_effects,
+            crate::cursor_effects::CursorEffectSettings::default()
         );
 
         let mut written = InMemoryStorage::default();
         console.save(&mut written);
-        assert_eq!(
-            eframe::Storage::get_string(&written, LIGHT_THEME_KEY).as_deref(),
-            Some("okabe-ito"),
-            "the fallback rewrote an earlier build's light Theme key"
-        );
-        assert_eq!(
-            eframe::Storage::get_string(&written, DARK_THEME_KEY).as_deref(),
-            Some("okabe-ito"),
-            "an absent dark key did not save as its default"
-        );
+        for key in ["dark_theme", "light_theme", "cursor_effects"] {
+            assert_eq!(
+                eframe::Storage::get_string(&written, key),
+                None,
+                "a save wrote the retired {key} key"
+            );
+        }
     }
 
     ///
-    /// `Console::load_function_reference` — what `File → Load Function
-    /// reference` calls — replaces the whole running Orcvs, Grid included,
+    /// `Console::load_function_reference` — what `Help → Function
+    /// Reference` calls — replaces the whole running Orcvs, Grid included,
     /// rather than only clearing the Cells of the one it already had.
     ///
-    /// `kittest_tests::the_file_menu_loads_the_function_reference_on_demand`
+    /// `kittest_tests::the_help_menu_loads_the_function_reference_on_demand`
     /// proves the menu item reaches this call; this proves what the call
     /// itself does, against a starting revision on a Grid the reference does
     /// not share.

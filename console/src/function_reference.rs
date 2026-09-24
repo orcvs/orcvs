@@ -7,7 +7,7 @@
 //! `assets/function_reference.orcvs` are the one checked-in Source it comes
 //! from. The console opens on it whenever no stored Source is available (no
 //! `persistence` feature, no stored revision, or a stored revision this build
-//! refuses), and `Console`'s File menu offers it as an explicit "load"
+//! refuses), and `Console`'s Help menu offers it as an explicit "load"
 //! action that replaces the running Source, Grid included.
 //!
 //! # Column layout

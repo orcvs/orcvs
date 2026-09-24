@@ -12,8 +12,8 @@
 //! function. It has no file I/O and no document decoder:
 //! the crate-private `theme_document` module decodes a document's bytes into a
 //! `ThemeDocument`, and the crate-private `theme_registry` module's native
-//! discovery and web import (`.scratch/theming/issues/07`) read those bytes
-//! and call `resolve`.
+//! discovery (`.scratch/theming/issues/07`) reads those bytes and calls
+//! `resolve`.
 //! Source painting, settings and persistence are unchanged by this slice;
 //! `.scratch/theming/issues/06`'s later slices consume this module.
 //!
@@ -140,6 +140,13 @@ impl ChromeWidth {
 /// the property entirely inherits the parent's resolved value instead of
 /// holding one of these two states — see [`ThemeDocument::cursor_background`].
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OptionalFill {
     /// The document string `"none"`: clears the optional fill and enables its
@@ -164,6 +171,10 @@ pub(crate) enum OptionalFill {
 ///
 macro_rules! property_names {
     ($key:ident { $($variant:ident => $name:literal),* $(,)? }) => {
+        #[cfg_attr(
+            all(target_arch = "wasm32", not(test)),
+            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+        )]
         impl $key {
             /// The property's literal, case-sensitive `schema.md` name.
             pub(crate) fn name(self) -> &'static str {
@@ -194,6 +205,13 @@ macro_rules! property_names {
 /// document's properties by it so the same document compares equal whatever
 /// order its format's map yields.
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ColorKey {
     WindowBackground,
@@ -297,6 +315,13 @@ property_names! {
 /// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point by
 /// [`GridWidth`].
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum GridWidthKey {
     GridBorder,
@@ -323,6 +348,13 @@ property_names! {
 ///
 /// The chrome width properties, bounded 0 to 2 points by [`ChromeWidth`].
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChromeWidthKey {
     PanelBorder,
@@ -645,17 +677,24 @@ impl ThemeIdentity {
     /// A custom Theme's identity: its file name's stem. `None` for an empty
     /// stem, which names nothing.
     ///
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
     pub(crate) fn from_stem(stem: &str) -> Option<Self> {
         (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
     }
 
     ///
-    /// A selection restored from storage, as it was stored. It is not
-    /// checked: an identity no Theme answers to is kept so saving writes it
-    /// back.
+    /// The identity a setting names, as written in `~/.orcvs/config.toml`.
+    /// It is not checked here: `SelectedThemes` reports one no Theme of its
+    /// appearance answers to, and presents that appearance's built-in.
     ///
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restored(identity: String) -> Self {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn configured(identity: String) -> Self {
         Self(Cow::Owned(identity))
     }
 
@@ -671,10 +710,24 @@ impl ThemeIdentity {
     }
 
     /// Whether this is a built-in's reserved identity.
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
     pub(crate) fn is_reserved(&self) -> bool {
         *self == OKABE_ITO_IDENTITY || *self == ORCVS_LIGHT_IDENTITY
     }
 
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -914,6 +967,13 @@ pub fn orcvs_light() -> Theme {
 /// text — [`crate::theme_document::decode`] builds one from a TOML, JSON
 /// or YAML document's bytes; tests in this module construct it directly.
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ThemeDocument {
     /// The built-in identity named by `inherits`.
@@ -937,6 +997,13 @@ pub(crate) struct ThemeDocument {
 ///
 /// Why [`resolve`] refused a document.
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ThemeError {
     /// `inherits` names an identity absent from the built-in set passed to
@@ -1000,6 +1067,13 @@ impl std::fmt::Display for ThemeError {
     }
 }
 
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 fn width_error(property: &'static str, points: f32, max: f32, error: WidthError) -> ThemeError {
     match error {
         WidthError::NonFinite => ThemeError::NonFiniteWidth { property, points },
@@ -1025,6 +1099,13 @@ fn width_error(property: &'static str, points: f32, max: f32, error: WidthError)
 /// document's identity is its filename stem (ADR 0053), which this module
 /// never reads a file to learn.
 ///
+#[cfg_attr(
+    all(target_arch = "wasm32", not(test)),
+    expect(
+        dead_code,
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+    )
+)]
 pub(crate) fn resolve(
     built_ins: &[Theme],
     identity: &ThemeIdentity,
