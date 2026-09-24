@@ -323,6 +323,10 @@ mod native {
         pub(super) path: PathBuf,
         pub(super) file_name: String,
         pub(super) identity: ThemeIdentity,
+        /// Whether the entry is a file that can be loaded. One that is not
+        /// has already been reported, but still claims its identity, so it
+        /// conflicts with any other file of the same stem.
+        pub(super) loadable: bool,
     }
 
     ///
@@ -385,7 +389,8 @@ mod native {
         /// are considered; other files are ignored. A directory, or a
         /// symbolic link to one, is never entered. A file symbolic link is
         /// followed. A missing `dir` means no custom Themes; an unreadable
-        /// `dir` or file is reported and skipped.
+        /// `dir` or file is reported and skipped, though a file still refuses
+        /// every other file of its stem.
         ///
         pub(crate) fn discover(dir: &Path) -> Self {
             let mut registry = Self::built_in();
@@ -429,22 +434,24 @@ mod native {
                 };
                 // `metadata` follows a symbolic link, so a link to a
                 // directory is skipped here like a directory, and a dangling
-                // link is an unreadable file.
-                match std::fs::metadata(&path) {
+                // link is an unreadable file. An entry that cannot be loaded
+                // is reported here and still grouped, so it refuses every
+                // other file of its stem.
+                let loadable = match std::fs::metadata(&path) {
                     Ok(metadata) if metadata.is_dir() => continue,
-                    Ok(metadata) if metadata.is_file() => {}
+                    Ok(metadata) if metadata.is_file() => true,
                     Ok(_) => {
                         registry.notice(format!("{}: not a regular Theme file", path.display()));
-                        continue;
+                        false
                     }
                     Err(error) => {
                         registry.notice(format!(
                             "Could not read the Theme file {}: {error}",
                             path.display()
                         ));
-                        continue;
+                        false
                     }
-                }
+                };
                 let Some(identity) = ThemeIdentity::from_stem(stem) else {
                     registry.notice(format!(
                         "{}: a Theme file's name needs a stem, which is its identity",
@@ -456,6 +463,7 @@ mod native {
                     identity,
                     file_name: file_name.to_owned(),
                     path,
+                    loadable,
                 });
             }
 
@@ -473,6 +481,9 @@ mod native {
                 registry.refused.insert(identity, reason);
             }
             for (identity, candidate) in unique {
+                if !candidate.loadable {
+                    continue;
+                }
                 let loaded = read_bounded(&candidate.path)
                     .map_err(|error| format!("{}: {error}", candidate.file_name))
                     .and_then(|bytes| registry.load(&candidate.file_name, &bytes));
@@ -1748,6 +1759,7 @@ mod discovery_tests {
             path: PathBuf::from("/themes").join(file_name),
             file_name: file_name.to_owned(),
             identity: id(super::stem(file_name).expect("a Theme file")),
+            loadable: true,
         };
         let forward = vec![
             candidate("dup.toml"),
@@ -1867,6 +1879,38 @@ mod discovery_tests {
         }
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644))
             .expect("permissions");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_still_conflicts_with_a_readable_one_of_the_same_stem() {
+        let dir = TempDir::new();
+        let toml = dir.write("ocean.toml", &dark("Ocean"));
+        let dangling = dir.path().join("ocean.yaml");
+        std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("a dangling link");
+
+        let registry = ThemeRegistry::discover(dir.path());
+        assert!(names(&registry).is_empty(), "{:?}", names(&registry));
+        let notices = registry.notice_list();
+        assert!(
+            notices
+                .iter()
+                .any(|n| n.contains("Could not read") && n.contains("ocean.yaml")),
+            "the unreadable file is still reported: {notices:?}"
+        );
+        let conflict = notices
+            .iter()
+            .find(|notice| notice.contains("\"ocean\""))
+            .expect("the conflict is reported");
+        assert!(conflict.contains(&toml.display().to_string()), "{conflict}");
+        assert!(
+            conflict.contains(&dangling.display().to_string()),
+            "{conflict}"
+        );
+        assert!(matches!(
+            registry.select(Appearance::Dark, &id("ocean")),
+            Err(super::Unavailable::Refused(_))
+        ));
     }
 
     ///
