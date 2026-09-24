@@ -4,7 +4,7 @@
 nominated commit SHA, publishing authoritative native, persistence, WASM, browser, semantic, and
 documentation results without moving the full cost onto every ordinary pull request.
 
-**Blocked by:** property-testing/02; property-testing/04; property-testing/05; sequence-values/03; sequence-values/05; spatial-tick-planning/03; spatial-tick-planning/06; spatial-tick-planning/04; spatial-tick-planning/05; tick-functions/02; tick-functions/03; tick-functions/04; restyle-egui-console/02; native-midi/02; midi-output-family/06; v1-release/02; syntax-highlighting/07; syntax-highlighting/11; syntax-highlighting/13; theming/04; theming/05; theming/07; theming/08; theming/09; theming/10; paint-cell-cost/04; zoom-alignment/01; zoom-alignment/02; midi-port-ownership/06; spatial-tick-planning/07; syntax-highlighting/14; v1-roadmap-wayfinding/08; theming/16.
+**Blocked by:** property-testing/02; property-testing/04; property-testing/05; sequence-values/03; sequence-values/05; spatial-tick-planning/03; spatial-tick-planning/06; spatial-tick-planning/04; spatial-tick-planning/05; tick-functions/02; tick-functions/03; tick-functions/04; restyle-egui-console/02; native-midi/02; midi-output-family/06; v1-release/02; syntax-highlighting/07; theming/04; theming/05; theming/07; theming/08; theming/09; theming/10; paint-cell-cost/04; zoom-alignment/01; zoom-alignment/02; midi-port-ownership/06; spatial-tick-planning/07; syntax-highlighting/14; v1-roadmap-wayfinding/08; theming/16.
 **Status:** ready-for-agent
 
 **Tags:** release/v1
