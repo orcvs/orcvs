@@ -410,16 +410,28 @@ fn choose_in_view_menu(harness: &mut Harness<'_, Console>, label: &str) {
 }
 
 ///
-/// Whether the View menu's radio button labelled `label` is shown selected.
+/// Clicks the top bar's mode button named `label`, then runs the frame the
+/// click lands in and the frame that presents it.
+///
+fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
+    harness.get_by_label(label).click();
+    harness.step();
+    harness.run_steps(1);
+}
+
+///
+/// Whether the control labelled `label` — a View menu radio button or a mode
+/// button — is shown selected.
 ///
 fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
     harness.get_by_label(label).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
 }
 
 ///
-/// `.scratch/theming/issues/04`: the View menu holds the mode — follow the
-/// OS, Dark, Light — beside a dark Theme picker and a light Theme picker,
-/// and each picker lists only Themes of its appearance — a loaded Theme only
+/// `.scratch/theming/issues/04`: the View menu holds a dark Theme picker
+/// and a light Theme picker, and no mode control
+/// (`.scratch/menu-structure/issues/03` moved it to the top bar); each
+/// picker lists only Themes of its appearance — a loaded Theme only
 /// in its parent's (`.scratch/theming/issues/07`). `my-dark` and `my-light`
 /// are loaded so each picker has two to list.
 ///
@@ -428,11 +440,11 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 /// whose heading is the nearest one above it.
 ///
 #[tokio::test]
-async fn the_view_menu_offers_the_mode_beside_a_theme_picker_per_appearance() {
+async fn the_view_menu_offers_a_theme_picker_per_appearance_and_no_mode() {
     let mut harness = running_console_with(Vec2::from(DEFAULT_VIEW_SIZE), with_my_themes());
     harness.run_steps(2);
 
-    for label in ["Follow the OS", "Dark Theme", "Okabe–Ito", "Orcvs Light"] {
+    for label in ["Dark Theme", "Okabe–Ito", "Orcvs Light"] {
         assert!(
             harness.query_by_label(label).is_none(),
             "{label:?} was in the tree before the View menu was opened"
@@ -444,11 +456,16 @@ async fn the_view_menu_offers_the_mode_beside_a_theme_picker_per_appearance() {
     harness.run_steps(1);
 
     for label in ["Follow the OS", "Dark", "Light"] {
-        assert!(
-            harness.query_by_label(label).is_some(),
-            "the View menu does not offer the {label:?} mode"
+        assert_eq!(
+            harness.query_all_by_label(label).count(),
+            1,
+            "the View menu offers a {label:?} mode beside the top bar's"
         );
     }
+    assert!(
+        harness.query_by_label("Appearance").is_none(),
+        "the View menu still holds the Appearance radios"
+    );
     let top = |label: &str| harness.get_by_label(label).rect().min.y;
     let dark_heading = top("Dark Theme");
     let light_heading = top("Light Theme");
@@ -476,6 +493,159 @@ async fn the_view_menu_offers_the_mode_beside_a_theme_picker_per_appearance() {
 }
 
 ///
+/// `.scratch/menu-structure/issues/03`: the mode is three icon buttons at
+/// the right of the top bar — Follow the OS, Dark, Light, in that order —
+/// each named for a viewer who cannot see the glyph, and each choice sets
+/// egui's `ThemePreference` and is then the one shown selected.
+///
+#[tokio::test]
+async fn each_mode_button_sets_the_preference_and_is_shown_selected() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+
+    let buttons =
+        ["Follow the OS", "Dark", "Light"].map(|label| harness.get_by_label(label).rect());
+    assert!(
+        buttons
+            .windows(2)
+            .all(|pair| pair[0].max.x <= pair[1].min.x),
+        "the mode buttons are not Follow the OS, Dark, Light from left to right: {buttons:?}"
+    );
+    let right_edge = DEFAULT_VIEW_SIZE[0];
+    assert!(
+        right_edge - buttons[2].max.x < 16.0,
+        "the mode control is not at the right of the top bar: {buttons:?}"
+    );
+    let file = harness.get_by_label("File").rect();
+    assert!(
+        buttons
+            .iter()
+            .all(|button| button.height() <= file.height() + 1.0
+                && button.width() < 2.0 * file.height()),
+        "a mode button is wider than an icon: {buttons:?}"
+    );
+
+    for (label, preference) in [
+        ("Light", egui::ThemePreference::Light),
+        ("Dark", egui::ThemePreference::Dark),
+        ("Follow the OS", egui::ThemePreference::System),
+    ] {
+        choose_mode(&mut harness, label);
+        assert_eq!(
+            harness.ctx.options(|options| options.theme_preference),
+            preference,
+            "the {label:?} button did not set the mode"
+        );
+        for other in ["Follow the OS", "Dark", "Light"] {
+            assert_eq!(
+                radio_selected(&harness, other),
+                other == label,
+                "after choosing {label:?}, {other:?} is shown with the wrong selection"
+            );
+        }
+    }
+}
+
+///
+/// A preference eframe restored before the first frame — egui memory holds
+/// it, and the console never sets one at startup — is the button shown
+/// selected.
+///
+#[tokio::test]
+async fn a_restored_mode_is_the_one_shown_selected() {
+    for (preference, label) in [
+        (egui::ThemePreference::System, "Follow the OS"),
+        (egui::ThemePreference::Dark, "Dark"),
+        (egui::ThemePreference::Light, "Light"),
+    ] {
+        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        harness.ctx.set_theme(preference);
+        harness.run_steps(2);
+        for other in ["Follow the OS", "Dark", "Light"] {
+            assert_eq!(
+                radio_selected(&harness, other),
+                other == label,
+                "restoring {preference:?} showed {other:?} with the wrong selection"
+            );
+        }
+    }
+}
+
+///
+/// Hovering a mode button says what it does; Follow the OS also says what
+/// the operating system's appearance is right now, as egui's own
+/// `ThemePreference::radio_buttons` does.
+///
+#[tokio::test]
+async fn each_mode_button_explains_itself_on_hover() {
+    for (system, word) in [(egui::Theme::Dark, "dark"), (egui::Theme::Light, "light")] {
+        let mut harness = console_under_os_appearance(system, ThemeRegistry::built_in());
+        for (label, explanation) in [
+            ("Follow the OS", "Follow the operating system's appearance"),
+            ("Dark", "Always use the dark appearance"),
+            ("Light", "Always use the light appearance"),
+        ] {
+            harness.get_by_label(label).hover();
+            harness.run_steps(3);
+            assert!(
+                harness
+                    .query_all_by_label_contains(explanation)
+                    .next()
+                    .is_some(),
+                "hovering {label:?} did not explain it"
+            );
+        }
+        harness.get_by_label("Follow the OS").hover();
+        harness.run_steps(3);
+        let current = format!("The operating system's appearance is {word}");
+        assert!(
+            harness
+                .query_all_by_label_contains(&current)
+                .next()
+                .is_some(),
+            "hovering Follow the OS under a {word} OS did not say so"
+        );
+    }
+}
+
+///
+/// The mode glyphs are drawn from the console's own font. The console
+/// installs one font (`Console::new`; egui's default fonts are not built), so
+/// a glyph it lacks is drawn as that font's replacement glyph rather than
+/// falling back to another face. 💻, 🌙 and ☀ are such glyphs, which is why
+/// the control uses ◐, ☾ and ☼; this holds each to a glyph of its own.
+///
+#[tokio::test]
+async fn the_mode_glyphs_are_in_the_console_font() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let font = egui::FontId::proportional(14.0);
+    let uv = |text: &str| {
+        let galley = harness.ctx.fonts_mut(|fonts| {
+            fonts.layout_no_wrap(text.to_owned(), font.clone(), egui::Color32::WHITE)
+        });
+        galley.rows[0].row.glyphs[0].uv_rect
+    };
+    let replacement = uv("💻");
+    assert_eq!(
+        uv("🌙"),
+        replacement,
+        "the probe no longer tells a missing glyph from a present one"
+    );
+    assert_ne!(
+        uv("A"),
+        replacement,
+        "the probe no longer tells a missing glyph from a present one"
+    );
+    for glyph in super::MODE_GLYPHS {
+        assert_ne!(
+            uv(glyph),
+            replacement,
+            "{glyph:?} is not in the console font and would draw as a replacement glyph"
+        );
+    }
+}
+
+///
 /// The mode control, under an OS in dark appearance: holding Light presents
 /// Orcvs Light whatever the OS says, and Follow the OS returns to the OS's
 /// appearance. The frame a choice is made in is still wholly the old Theme;
@@ -492,7 +662,7 @@ async fn the_mode_switches_source_and_chrome_together() {
         "following a dark OS",
     );
 
-    choose_in_view_menu(&mut harness, "Light");
+    choose_mode(&mut harness, "Light");
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
         egui::ThemePreference::Light
@@ -500,7 +670,7 @@ async fn the_mode_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "holding Light");
 
-    choose_in_view_menu(&mut harness, "Follow the OS");
+    choose_mode(&mut harness, "Follow the OS");
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
         egui::ThemePreference::System
@@ -526,9 +696,6 @@ async fn the_mode_switches_source_and_chrome_together() {
 async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     harness.state_mut().diagnostics_open = true;
-    harness.run_steps(1);
-    harness.get_by_label("View").click();
-    harness.step();
     harness.run_steps(1);
 
     harness.get_by_label("Light").click();
@@ -560,9 +727,6 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
 #[tokio::test]
 async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.run_steps(1);
 
     harness.get_by_label("Light").click();
     harness.step();
@@ -606,7 +770,7 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "a dark OS again");
 
-    choose_in_view_menu(&mut harness, "Dark");
+    choose_mode(&mut harness, "Dark");
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
     assert_frame_presents(
@@ -861,6 +1025,11 @@ async fn theme_notices_sit_at_the_right_of_the_top_bar() {
     assert!(
         notices.min.x > help.max.x && notices.center().x > width / 2.0,
         "the Theme notices are not right-aligned: {notices:?} beside Help at {help:?}"
+    );
+    let mode = harness.get_by_label("Follow the OS").rect();
+    assert!(
+        notices.max.x <= mode.min.x,
+        "the Theme notices are not left of the mode control: {notices:?}, {mode:?}"
     );
 }
 

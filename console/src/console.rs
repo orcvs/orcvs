@@ -2149,7 +2149,8 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
 }
 
 ///
-/// A viewer's change to the console's appearance, made in the View menu.
+/// A viewer's change to the console's appearance, made with the top bar's
+/// mode control or in the View menu.
 ///
 #[derive(Debug)]
 enum AppearanceChange {
@@ -2160,26 +2161,78 @@ enum AppearanceChange {
 }
 
 ///
-/// The View menu's appearance controls: the mode, then the dark Theme picker
-/// and the light Theme picker, each listing only Themes of its appearance.
-/// Answers the change a viewer made this frame, if any; the caller applies
+/// The mode control's glyphs, in the order it shows them: Follow the OS,
+/// Dark, Light. The spec's 💻, 🌙 and ☀ are not in the console's one font
+/// (egui's default fonts are not built), so each would draw as the font's
+/// replacement glyph; ◐, ☾ and ☼ are in it on native and web alike, which
+/// `kittest_tests::the_mode_glyphs_are_in_the_console_font` holds.
+///
+const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
+
+///
+/// The top bar's mode control: Follow the OS, Dark and Light as icon-only
+/// selectable buttons, egui's `global_theme_preference_buttons` without its
+/// text. Each is named for accessibility by what its glyph stands for, and
+/// explains itself on hover; Follow the OS also names the operating
+/// system's current appearance, as `ThemePreference::radio_buttons` does.
+/// Answers the choice a viewer made this frame, if any; the caller applies
 /// it once the frame is done.
 ///
-fn appearance_controls(ui: &mut egui::Ui, themes: &SelectedThemes) -> Option<AppearanceChange> {
-    let mut change = None;
+/// Shown into a right-to-left layout, so the buttons are added last first
+/// and read Follow the OS, Dark, Light from left to right.
+///
+fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
     let mode = ui.ctx().options(|options| options.theme_preference);
-
-    ui.separator();
-    ui.label("Appearance");
-    for (preference, label) in [
-        (egui::ThemePreference::System, "Follow the OS"),
-        (egui::ThemePreference::Dark, "Dark"),
-        (egui::ThemePreference::Light, "Light"),
-    ] {
-        if ui.radio(mode == preference, label).clicked() {
+    let system = ui.input(|input| input.raw.system_theme);
+    let choices = [
+        (
+            egui::ThemePreference::System,
+            "Follow the OS",
+            "Follow the operating system's appearance.",
+        ),
+        (
+            egui::ThemePreference::Dark,
+            "Dark",
+            "Always use the dark appearance.",
+        ),
+        (
+            egui::ThemePreference::Light,
+            "Light",
+            "Always use the light appearance.",
+        ),
+    ];
+    let mut change = None;
+    for ((preference, name, explanation), glyph) in choices.into_iter().zip(MODE_GLYPHS).rev() {
+        let selected = mode == preference;
+        let response = ui.selectable_label(selected, glyph);
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, name)
+        });
+        let response = response.on_hover_ui(|ui| {
+            ui.label(explanation);
+            if preference == egui::ThemePreference::System {
+                ui.label(match system {
+                    Some(egui::Theme::Dark) => "The operating system's appearance is dark.",
+                    Some(egui::Theme::Light) => "The operating system's appearance is light.",
+                    None => "The operating system's appearance is unknown.",
+                });
+            }
+        });
+        if response.clicked() {
             change = Some(AppearanceChange::Mode(preference));
         }
     }
+    change
+}
+
+///
+/// The View menu's appearance controls: the dark Theme picker and the light
+/// Theme picker, each listing only Themes of its appearance. Answers the
+/// change a viewer made this frame, if any; the caller applies it once the
+/// frame is done.
+///
+fn appearance_controls(ui: &mut egui::Ui, themes: &SelectedThemes) -> Option<AppearanceChange> {
+    let mut change = None;
 
     for (appearance, heading) in [
         (Appearance::Dark, "Dark Theme"),
@@ -2203,7 +2256,7 @@ fn appearance_controls(ui: &mut egui::Ui, themes: &SelectedThemes) -> Option<App
 
 impl Console {
     ///
-    /// Applies a View menu change. A mode is egui's own `ThemePreference`,
+    /// Applies an appearance change. A mode is egui's own `ThemePreference`,
     /// which egui memory holds and eframe persists; a Theme selection is
     /// this console's, and reinstalls the chrome from what each appearance
     /// then presents.
@@ -2396,7 +2449,9 @@ impl eframe::App for Console {
                     }
                     ui.separator();
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
-                    appearance_change = appearance_controls(ui, &self.themes);
+                    if let Some(change) = appearance_controls(ui, &self.themes) {
+                        appearance_change = Some(change);
+                    }
                     // The web imports a Theme file by drag and drop, eframe's
                     // own file facility; say so where a viewer looks.
                     #[cfg(target_arch = "wasm32")]
@@ -2431,6 +2486,11 @@ impl eframe::App for Console {
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Rightmost: the mode, which is a control rather than a
+                    // menu, and applied once the frame is done.
+                    if let Some(change) = mode_control(ui) {
+                        appearance_change = Some(change);
+                    }
                     // Theme load, import, selection and contrast notices, and
                     // the persistence notice beside them: start-up answers a
                     // viewer reads, not diagnostics of the running frame, so

@@ -487,8 +487,9 @@ simulated copy of the wide capture per dichromacy.
 
 ### Selecting a Theme
 
-The View menu holds the mode — **Follow the OS**, **Dark** or **Light** —
-beside a **Dark Theme** picker and a **Light Theme** picker. Each picker lists
+The mode — **Follow the OS**, **Dark** or **Light** — is three icon buttons
+(◐ ☾ ☼) at the right of the top bar, each explained on hover. The View menu
+holds a **Dark Theme** picker and a **Light Theme** picker. Each picker lists
 only Themes of its own appearance; today that is `okabe-ito` for dark and
 `orcvs-light` for light, and a loaded Theme (`.scratch/theming/issues/07`)
 joins the picker matching its parent's appearance.
@@ -499,8 +500,8 @@ through `set_style_of`. egui chooses the appearance each frame from the mode
 and the operating system's appearance, and the console paints the Source, and
 answers the window's clear colour, from the Theme of that same appearance, so a
 frame never takes its chrome from one Theme and its Source from another. A
-View menu change is applied once the frame it was made in is done, and the
-next frame presents it.
+mode or picker change is applied once the frame it was made in is done, and
+the next frame presents it.
 
 The mode is egui's own `ThemePreference`, which eframe stores with egui memory;
 nothing in the console forces it at startup, so a fresh start follows the OS.
