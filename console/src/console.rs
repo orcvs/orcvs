@@ -785,6 +785,11 @@ pub struct Console {
     /// light styles, so whichever appearance egui presents a frame in, chrome
     /// and Source read the same Theme.
     themes: SelectedThemes,
+    /// The `window.background` of the Theme the last frame was painted
+    /// from: the backdrop the web runner clears to, since it asks after the
+    /// frame, when a View menu change may already have switched the style.
+    #[cfg(any(target_arch = "wasm32", test))]
+    painted_backdrop: egui::Color32,
     /// The operating system's reduced-motion preference, read once at
     /// startup (`prefers_reduced_motion`) and combined with `cursor_effects`
     /// each frame through `CursorEffectSettings::respecting_reduced_motion`.
@@ -898,6 +903,10 @@ impl Console {
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
+            #[cfg(any(target_arch = "wasm32", test))]
+            painted_backdrop: themes
+                .presented(Appearance::from(cc.egui_ctx.theme()))
+                .window_background,
             themes,
             reduced_motion: prefers_reduced_motion(),
             cursor_effects: start.cursor_effects,
@@ -2038,6 +2047,20 @@ impl Console {
     }
 }
 
+impl Console {
+    ///
+    /// The web runner's clear colour: the backdrop of the Theme the frame it
+    /// clears under was painted from. eframe's web runner asks
+    /// `clear_color` after the frame (`eframe-0.36.2/src/web/app_runner.rs`,
+    /// `paint` after `logic`), so the active style can already be the one a
+    /// View menu change in that frame switched to.
+    ///
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn web_clear_color(&self) -> [f32; 4] {
+        self.painted_backdrop.to_normalized_gamma_f32()
+    }
+}
+
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
@@ -2094,14 +2117,13 @@ impl eframe::App for Console {
     /// "Transparency reveals the underlying console surface; the application
     /// window remains opaque."
     ///
-    /// The Theme is the one of the appearance `visuals` belongs to:
-    /// `style::style` sets `dark_mode` from the Theme's declared appearance,
-    /// and eframe passes egui's active style. The native glow integration
-    /// asks before it runs the frame, so the backdrop always matches the
-    /// chrome it sits under. The web runner asks after the frame, so on the
-    /// one frame a View menu change is applied in, it clears to the new
-    /// appearance's backdrop under the old frame — visible only through a
-    /// translucent panel, Grid or Cell layer, which neither built-in has.
+    /// The native glow integration asks before it runs the frame, passing
+    /// egui's active style, so the Theme is the one of the appearance
+    /// `visuals` belongs to (`style::style` sets `dark_mode` from the Theme's
+    /// declared appearance), which the frame is about to be styled from. The
+    /// web runner asks after the frame, when a View menu change made in it
+    /// has already switched the style, so it clears to the backdrop of the
+    /// Theme that frame was painted from instead (`Console::web_clear_color`).
     ///
     /// Every built-in's `window_background` is opaque by construction, and a
     /// custom Theme's is refused at resolution if it is not
@@ -2111,9 +2133,17 @@ impl eframe::App for Console {
     /// this reads the field directly rather than re-validating it here.
     ///
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-        let appearance = egui::Theme::from_dark_mode(visuals.dark_mode).into();
-        let theme = self.themes.presented(appearance);
-        theme.window_background.to_normalized_gamma_f32()
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = visuals;
+            self.web_clear_color()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let appearance = egui::Theme::from_dark_mode(visuals.dark_mode).into();
+            let theme = self.themes.presented(appearance);
+            theme.window_background.to_normalized_gamma_f32()
+        }
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -2286,6 +2316,10 @@ impl eframe::App for Console {
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
         let theme = self.themes.presented(appearance).clone();
+        #[cfg(any(target_arch = "wasm32", test))]
+        {
+            self.painted_backdrop = theme.window_background;
+        }
 
         // Shown before CentralPanel so it takes height rather than overlaying
         // the Grid. Static: no resize handle, no drag. BPM is a TextEdit:
@@ -2412,6 +2446,8 @@ impl eframe::App for Console {
                         bpm_widget_id: _,
                     keyboard_elsewhere: _,
                     themes: _,
+                    #[cfg(any(target_arch = "wasm32", test))]
+                        painted_backdrop: _,
                     reduced_motion: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,

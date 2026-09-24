@@ -548,6 +548,44 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
 }
 
 ///
+/// The backdrop the web clears to agrees with the frame it sits under.
+/// eframe's web runner asks `clear_color` after the frame
+/// (`eframe-0.36.2/src/web/app_runner.rs`, `paint` after `logic`), so on the
+/// frame a mode is chosen in — still wholly the old Theme — the backdrop is
+/// the old Theme's too, and the next frame's is the new one's. A translucent
+/// loaded Theme would otherwise show the other Theme's backdrop through it.
+///
+#[tokio::test]
+async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+
+    harness.get_by_label("Light").click();
+    harness.step();
+    assert_frame_paints(
+        &harness,
+        &okabe_ito(),
+        &[orcvs_light()],
+        "the frame Light was chosen in",
+    );
+    assert_eq!(
+        harness.state().web_clear_color(),
+        okabe_ito().window_background.to_normalized_gamma_f32(),
+        "the web backdrop under the frame Light was chosen in is not Okabe–Ito's"
+    );
+
+    harness.run_steps(1);
+    assert_frame_paints(&harness, &orcvs_light(), &[okabe_ito()], "the frame after");
+    assert_eq!(
+        harness.state().web_clear_color(),
+        orcvs_light().window_background.to_normalized_gamma_f32(),
+        "the web backdrop under the frame after is not Orcvs Light's"
+    );
+}
+
+///
 /// An operating-system appearance change, arriving as
 /// `RawInput::system_theme` the way egui's integrations report it, switches
 /// Source and chrome together while the mode follows the OS — and changes
