@@ -12,7 +12,7 @@
 - [ ] `console/src/console.rs:1515-1517` says the Grid lines and seams take the zoom scale. They stay a fixed display-point width.
 - [x] `console/src/contrast.rs:539-541` says chrome has no reused composition because `03` has not landed. Delete it here if `11` has not already replaced it. *(Removed by `11` on `theming-11-chrome-contrast`, which replaced the hand-written layering with `contrast::chrome`.)*
 - [ ] The `shipped_theme_gate` rustdoc (`contrast.rs:2226-2230`), and the `ContrastResult::accepted` rustdoc (`contrast.rs:633`), which says acceptances are recorded in `08`'s comments although `08` records none and both accepted lists are empty, cites a "known weakness recorded in `08`'s comments" that does not exist. Record the weakness (the hand-kept `[okabe_ito(), orcvs_light()]` array) somewhere real, or remove the citation.
-- [ ] `console/src/style.rs:2439` says the byte arrays were "copied verbatim from the `ba987f6` capture". The test's own doc (`:2436-2439`) says they were recaptured after the retune.
+- [ ] `console/src/style.rs:2439` says the byte arrays were "copied verbatim from the `ba987f6` capture". The test's own doc (`:2405-2411`) says they were recaptured after the retune.
 - [x] *(Moved to `syntax-highlighting/14`, which fixes the defect it describes.)* The public rustdoc on `RenderCell::output_portal` (`orcvs/src/render_frame.rs:83-85`) states the "each following written Cell pair" rule that `syntax-highlighting/12`'s review rejected. The shipped rule is the run of written Cells, stopping at the first blank Cell and clipped to the Reservation.
 - [ ] `cargo fmt --all -- --check`, clippy and nextest pass on `console` and `orcvs`. `cargo test --workspace --doc --locked` passes.
 

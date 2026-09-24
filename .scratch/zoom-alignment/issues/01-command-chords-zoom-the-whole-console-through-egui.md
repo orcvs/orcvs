@@ -17,6 +17,6 @@
 - [ ] The web build is checked in the headless browser suite: command `+` changes egui's zoom factor, and whether the browser also zooms the page is recorded. If both zoom, the double zoom is removed.
 - [ ] A new ADR supersedes ADR 0045's zoom section. It records egui's whole-UI zoom as the console's only zoom, and command-shift withdrawn because it collides with egui's logical match of command `+`. ADR 0045's Status line points to it.
 - [ ] CONTEXT.md's **Zoom** is redefined as egui's whole-UI zoom.
-- [ ] `source-view/12` is marked superseded by this issue.
+- [x] `source-view/12` is marked superseded by this issue.
 - [ ] `command_zoom_chords_change_the_source_view_and_never_the_source` becomes a test that the chords change egui's zoom factor and never the Source. The kittest harness over the running console is the seam.
 - [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and the `--no-default-features` arm pass. `mise run check_wasm` passes.
