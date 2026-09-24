@@ -6,8 +6,12 @@ The pin doesn't survive a broad `cargo update`, which picks 0.60 again. Until 07
 
 **Blocked by:** None (can start immediately).
 
-**Status:** resolved
+**Status:** wontfix
 
-- [x] `Cargo.lock` no longer contains `windows-sys` 0.60, `windows-targets` 0.53 or the `windows_*` 0.53 platform crates, and changes nothing else.
-- [x] `cargo deny --locked --all-features check bans` no longer warns about `windows-targets`, `windows_x86_64_gnu` or `windows_x86_64_msvc`, and reports three `windows-sys` entries.
-- [x] `mise run audit_deps` passes.
+- [ ] `Cargo.lock` no longer contains `windows-sys` 0.60, `windows-targets` 0.53 or the `windows_*` 0.53 platform crates, and changes nothing else.
+- [ ] `cargo deny --locked --all-features check bans` no longer warns about `windows-targets`, `windows_x86_64_gnu` or `windows_x86_64_msvc`, and reports three `windows-sys` entries.
+- [ ] `mise run audit_deps` passes.
+
+## Comments
+
+Reverted. The lockfile held arboard on `windows-sys` 0.52 only until the next `cargo update`: Cargo resolves each requirement to its greatest version and does not deduplicate across incompatible versions (the Cargo reference, "Dependency Resolution"), so the 0.60 copy is what the resolver produces for arboard's open range. Under the `deny` policy from 07, that re-raise failed the audit for a duplicate we already knew about. The 0.60 family is recorded as a skip entry in 05's group instead, and the lockfile matches what the resolver produces.

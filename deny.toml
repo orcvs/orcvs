@@ -51,6 +51,12 @@ skip = [
   { crate = "windows-sys@0.59", reason = "rustix 0.38 in the winit 0.30 Wayland stack; eframe 0.36 pins winit 0.30" },
   # glutin 0.32 requires windows-sys ^0.52 in its latest release, as winit 0.30 does.
   { crate = "windows-sys@0.52", reason = "glutin 0.32 and winit 0.30 require windows-sys 0.52" },
+  { crate = "windows-targets@0.52", reason = "windows-sys 0.52 and 0.59 require it" },
+  { crate = "windows_x86_64_gnu@0.52", reason = "windows-targets 0.52 requires it" },
+  { crate = "windows_x86_64_msvc@0.52", reason = "windows-targets 0.52 requires it" },
+  # arboard 3.6 accepts windows-sys >=0.52, <0.61, and cargo resolves an open range to its greatest
+  # version rather than to one the graph already carries.
+  { crate = "windows-sys@0.60", reason = "arboard 3.6 resolves its open windows-sys range to 0.60" },
   # egui's accesskit_winit pins platform adapters that each require a different accesskit_consumer,
   # and kittest 0.4 (egui_kittest's harness) requires ^0.35.
   { crate = "accesskit_consumer@0.35", reason = "accesskit_windows 0.32 and kittest 0.4 require it" },
