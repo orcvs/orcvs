@@ -494,6 +494,37 @@ enum ZoomCommand {
     Reset,
 }
 
+impl ZoomCommand {
+    const ALL: [Self; 3] = [Self::In, Self::Out, Self::Reset];
+
+    ///
+    /// The key that, with a command modifier, is this command's chord: what
+    /// [`zoom_command`] answers and the View menu shows. `+` is also Zoom In,
+    /// since it shares `=`'s key on most layouts.
+    ///
+    fn key(self) -> Key {
+        match self {
+            Self::In => Key::Equals,
+            Self::Out => Key::Minus,
+            Self::Reset => Key::Num0,
+        }
+    }
+
+    /// The chord as the View menu shows it.
+    fn shortcut(self) -> egui::KeyboardShortcut {
+        egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, self.key())
+    }
+
+    /// The View menu item's label.
+    fn label(self) -> &'static str {
+        match self {
+            Self::In => "Zoom In",
+            Self::Out => "Zoom Out",
+            Self::Reset => "Reset Zoom",
+        }
+    }
+}
+
 ///
 /// The Zoom command a toolkit event asks for, or none.
 ///
@@ -511,10 +542,10 @@ fn zoom_command(event: &Event) -> Option<ZoomCommand> {
             modifiers,
             ..
         } if modifiers.command => match key {
-            Key::Equals | Key::Plus => Some(ZoomCommand::In),
-            Key::Minus => Some(ZoomCommand::Out),
-            Key::Num0 => Some(ZoomCommand::Reset),
-            _ => None,
+            Key::Plus => Some(ZoomCommand::In),
+            key => ZoomCommand::ALL
+                .into_iter()
+                .find(|command| command.key() == *key),
         },
         _ => None,
     }
@@ -579,6 +610,9 @@ struct SourceView {
     /// The anchor of the primary drag selecting a Region, while one is in
     /// progress. The Cursor follow is paced to the pointer while it is.
     region_drag: Option<Position>,
+    /// A Zoom command the View menu asked for this frame, applied by the
+    /// next [`show_source_scene`] exactly as the chord it names would be.
+    requested_zoom: Option<ZoomCommand>,
     to_global: TSTransform,
 }
 
@@ -589,6 +623,7 @@ impl Default for SourceView {
             pan: Vec2::ZERO,
             previous_cursor: None,
             region_drag: None,
+            requested_zoom: None,
             to_global: TSTransform::IDENTITY,
         }
     }
@@ -957,7 +992,7 @@ impl Console {
     }
 
     ///
-    /// Opens the Function reference — what the File menu offers, since a
+    /// Opens the Function reference — what the Help menu offers, since a
     /// console that restores nothing opens an empty Grid (`source-view/03`).
     ///
     fn load_function_reference(&mut self) {
@@ -1926,7 +1961,13 @@ fn show_source_scene(
     view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
 
     let zoom_before_command = view.zoom;
-    if let Some(command) = ui.input(|i| i.events.iter().find_map(zoom_command)) {
+    // A View menu item and a chord are the same command: the menu's is
+    // taken first, since a click that closed the menu carries no chord.
+    let command = view
+        .requested_zoom
+        .take()
+        .or_else(|| ui.input(|i| i.events.iter().find_map(zoom_command)));
+    if let Some(command) = command {
         view.zoom = stepped_zoom(view.zoom, command);
     }
     let zoomed = view.zoom != zoom_before_command;
@@ -2321,6 +2362,8 @@ impl eframe::App for Console {
             egui::MenuBar::new().ui(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
+                // File holds only what is built (`.scratch/menu-structure/
+                // spec.md`): New, and Quit on native.
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
                         let ask = self.source_is_written();
@@ -2333,9 +2376,6 @@ impl eframe::App for Console {
                             },
                         );
                     }
-                    if ui.button("Load Function reference").clicked() {
-                        self.load_function_reference();
-                    }
                     if !is_web {
                         ui.separator();
                         if ui.button("Quit").clicked() {
@@ -2345,6 +2385,16 @@ impl eframe::App for Console {
                 });
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
+                    for command in ZoomCommand::ALL {
+                        let item = egui::Button::new(command.label())
+                            .shortcut_text(ctx.format_shortcut(&command.shortcut()));
+                        if ui.add(item).clicked() {
+                            // Applied by this frame's `show_source_scene`,
+                            // which runs after the menu bar, as the chord is.
+                            self.source_view.requested_zoom = Some(command);
+                        }
+                    }
+                    ui.separator();
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                     appearance_change = appearance_controls(ui, &self.themes);
                     // The web imports a Theme file by drag and drop, eframe's
@@ -2356,6 +2406,12 @@ impl eframe::App for Console {
                             "Drop a .toml, .json, .yaml or .yml Theme file on the console to \
                              import it",
                         );
+                    }
+                });
+                ui.add_space(MENU_BAR_GAP);
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Function Reference").clicked() {
+                        self.load_function_reference();
                     }
                 });
                 ui.add_space(MENU_BAR_GAP);
@@ -2372,32 +2428,39 @@ impl eframe::App for Console {
                             .text("Glitch frequency"),
                     );
                 });
-                // Presented in the menu bar rather than the Diagnostics window,
-                // which opens on a viewer's request and reports the running
-                // frame. This is a start-up answer about the Source in front of
-                // them, and it stays until they dismiss it. `report` reaches a
-                // developer console; this is the channel a viewer reads.
-                #[cfg(feature = "persistence")]
-                if self.persistence.notice_visible() {
-                    ui.add_space(MENU_BAR_GAP);
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        format!(
-                            "Stored Source could not be read back; it was kept under \
-                             \"{}\"",
-                            crate::persistence::REFUSED_KEY
-                        ),
-                    );
-                    if ui.button("Dismiss").clicked() {
-                        self.persistence.dismiss_notice();
+                // Notices are status, not menus: they sit at the bar's right
+                // edge. Right to left, so what is shown first is rightmost.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Theme load, import, selection and contrast notices, and
+                    // the persistence notice beside them: start-up answers a
+                    // viewer reads, not diagnostics of the running frame, so
+                    // they sit in the bar rather than the Diagnostics window,
+                    // and stay until dismissed. `report` has already sent each
+                    // to the developer console; this is the channel a viewer
+                    // reads.
+                    show_theme_notices(ui, &mut self.themes);
+                    #[cfg(feature = "persistence")]
+                    if self.persistence.notice_visible() {
+                        ui.add_space(MENU_BAR_GAP);
+                        if ui.button("Dismiss").clicked() {
+                            self.persistence.dismiss_notice();
+                        }
+                        // Truncated to the space the menus leave, with its
+                        // whole text on hover, so a narrow window never
+                        // lays it over them.
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(format!(
+                                    "Stored Source could not be read back; it was kept under \
+                                     \"{}\"",
+                                    crate::persistence::REFUSED_KEY
+                                ))
+                                .color(ui.visuals().error_fg_color),
+                            )
+                            .truncate(),
+                        );
                     }
-                }
-                // Theme load, import, selection and contrast notices, beside
-                // the persistence notice for the same reason: they are
-                // start-up answers a viewer reads, not diagnostics of the
-                // running frame. `report` has already sent each to the
-                // developer console.
-                show_theme_notices(ui, &mut self.themes);
+                });
             });
         });
 
@@ -3718,8 +3781,8 @@ mod tests {
 
     ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
-    /// C `00:00`, O `None`. File, View, and Settings remain on the top bar;
-    /// the MIDI menu is gone.
+    /// C `00:00`, O `None`. File, View, Help and Settings are the top bar's
+    /// menus, in that order; the MIDI menu is gone.
     ///
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
@@ -3779,11 +3842,16 @@ mod tests {
             text.contains("00:00"),
             "the Panel is missing Run Clock 00:00 in {text:?}"
         );
-        for menu in ["File", "View", "Settings"] {
+        let mut previous_menu = 0;
+        for menu in ["File", "View", "Help", "Settings"] {
+            let at = text
+                .find(menu)
+                .unwrap_or_else(|| panic!("the top bar is missing {menu} in {text:?}"));
             assert!(
-                text.contains(menu),
-                "the top bar is missing {menu} in {text:?}"
+                previous_menu <= at,
+                "the top bar does not hold {menu} in order in {text:?}"
             );
+            previous_menu = at;
         }
         assert!(
             !text.contains("Theme"),
@@ -8514,11 +8582,11 @@ mod storage_tests {
     }
 
     ///
-    /// `Console::load_function_reference` — what `File → Load Function
-    /// reference` calls — replaces the whole running Orcvs, Grid included,
+    /// `Console::load_function_reference` — what `Help → Function
+    /// Reference` calls — replaces the whole running Orcvs, Grid included,
     /// rather than only clearing the Cells of the one it already had.
     ///
-    /// `kittest_tests::the_file_menu_loads_the_function_reference_on_demand`
+    /// `kittest_tests::the_help_menu_loads_the_function_reference_on_demand`
     /// proves the menu item reaches this call; this proves what the call
     /// itself does, against a starting revision on a Grid the reference does
     /// not share.

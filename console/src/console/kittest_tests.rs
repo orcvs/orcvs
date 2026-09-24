@@ -230,7 +230,7 @@ async fn no_menu_offers_a_reset_to_theme_defaults_button() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    for menu in ["File", "View", "Settings"] {
+    for menu in ["File", "View", "Help", "Settings"] {
         harness.get_by_label(menu).click();
         harness.step();
         harness.run_steps(1);
@@ -840,6 +840,78 @@ async fn a_theme_file_that_failed_to_load_is_shown_until_dismissed() {
 }
 
 ///
+/// Notices are status, not menus: the Theme notices sit at the right of the
+/// top bar, past the last menu, rather than beside it.
+///
+#[tokio::test]
+async fn theme_notices_sit_at_the_right_of_the_top_bar() {
+    use crate::theme_registry::tests_support::TempDir;
+
+    let dir = TempDir::new();
+    dir.write("broken.toml", "format = \"orcvs-theme\"\nversion = 2\n");
+    let mut harness = running_console_with(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        ThemeRegistry::discover(dir.path()),
+    );
+    harness.run_steps(2);
+
+    let help = harness.get_by_label("Help").rect();
+    let notices = harness.get_by_label("Theme notices (1)").rect();
+    let width = DEFAULT_VIEW_SIZE[0];
+    assert!(
+        notices.min.x > help.max.x && notices.center().x > width / 2.0,
+        "the Theme notices are not right-aligned: {notices:?} beside Help at {help:?}"
+    );
+}
+
+///
+/// In a window too narrow for every notice, the persistence notice is cut
+/// short — its whole text on hover — rather than growing left over the
+/// menus, where it would cover them and take their clicks.
+///
+#[cfg(feature = "persistence")]
+#[tokio::test]
+async fn a_long_notice_in_a_narrow_window_stays_right_of_the_menus() {
+    let mut stored = crate::persistence::InMemoryStorage::default();
+    eframe::Storage::set_string(
+        &mut stored,
+        crate::persistence::SOURCE_KEY,
+        "not a Source".to_owned(),
+    );
+    let width = 420.0;
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(width, DEFAULT_VIEW_SIZE[1]))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| {
+            cc.storage = Some(&stored);
+            Console::new(cc, ThemeRegistry::built_in()).expect("the test runtime")
+        });
+    harness.run_steps(2);
+
+    let help = harness.get_by_label("Help").rect();
+    let notice = harness
+        .query_all_by_label_contains("Stored Source could not be read back")
+        .next()
+        .expect("the refused start raised no persistence notice")
+        .rect();
+    assert!(
+        notice.min.x >= help.max.x,
+        "the persistence notice at {notice:?} grew over Help at {help:?}"
+    );
+    assert!(
+        notice.max.x <= width,
+        "the persistence notice at {notice:?} ran past the window"
+    );
+    harness.get_by_label("Help").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        harness.query_by_label("Function Reference").is_some(),
+        "Help could not be opened beside a long notice"
+    );
+}
+
+///
 /// The Source's own input path, which is keyboard rather than widget.
 ///
 /// A key press reaches `Context::filtered_events`, survives the console's
@@ -1026,8 +1098,8 @@ async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
     );
 }
 
-/// `File → Load Function reference` is reachable from the menu, and clicking
-/// it is an explicit action rather than a no-op: it discards whatever the
+/// `Help → Function Reference` is reachable from the menu, and clicking it
+/// is an explicit action rather than a no-op: it discards whatever the
 /// running Orcvs currently holds and replaces it, Cursor included, with the
 /// reference.
 ///
@@ -1037,7 +1109,7 @@ async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
 /// check below would still read the blank default a fresh console opens on.
 ///
 #[tokio::test]
-async fn the_file_menu_loads_the_function_reference_on_demand() {
+async fn the_help_menu_loads_the_function_reference_on_demand() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
@@ -1051,10 +1123,10 @@ async fn the_file_menu_loads_the_function_reference_on_demand() {
         "the arrow presses above did not move the Cursor"
     );
 
-    harness.get_by_label("File").click();
+    harness.get_by_label("Help").click();
     harness.step();
     harness.run_steps(1);
-    harness.get_by_label("Load Function reference").click();
+    harness.get_by_label("Function Reference").click();
     harness.step();
     harness.run_steps(2);
 
@@ -1081,11 +1153,11 @@ fn cells(console: &Console) -> Vec<Option<char>> {
 }
 
 ///
-/// Opens the File menu and clicks the item labelled `label` in it, then runs
-/// the frame the click lands in and the frames that present it.
+/// Opens the `menu` menu and clicks the item labelled `label` in it, then
+/// runs the frame the click lands in and the frames that present it.
 ///
-fn choose_in_file_menu(harness: &mut Harness<'_, Console>, label: &str) {
-    harness.get_by_label("File").click();
+fn choose_in_menu(harness: &mut Harness<'_, Console>, menu: &str, label: &str) {
+    harness.get_by_label(menu).click();
     harness.step();
     harness.run_steps(1);
     harness.get_by_label(label).click();
@@ -1118,12 +1190,12 @@ async fn an_open_leaves_every_setting_standing() {
     let cursor_effects = harness.state().cursor_effects;
 
     // The Diagnostics window opens over the menu bar's left end, so a pointer
-    // click at the File button lands on the window. AccessKit's own click is
-    // the one that reaches the button beneath it.
-    harness.get_by_label("File").click_accesskit();
+    // click at the Help button can land on the window. AccessKit's own click
+    // is the one that reaches the button beneath it.
+    harness.get_by_label("Help").click_accesskit();
     harness.step();
     harness.run_steps(1);
-    harness.get_by_label("Load Function reference").click();
+    harness.get_by_label("Function Reference").click();
     harness.step();
     harness.run_steps(2);
 
@@ -1176,7 +1248,7 @@ fn an_open_that_cannot_start_leaves_the_running_source_standing() {
     let cursor_before = cursor(harness.state());
     drop(entered);
 
-    choose_in_file_menu(&mut harness, "Load Function reference");
+    choose_in_menu(&mut harness, "Help", "Function Reference");
 
     assert_eq!(
         cells(harness.state()),
@@ -1187,6 +1259,102 @@ fn an_open_that_cannot_start_leaves_the_running_source_standing() {
         cursor(harness.state()),
         cursor_before,
         "a failed Open moved the Cursor"
+    );
+}
+
+///
+/// `.scratch/menu-structure/issues/02`: File holds only what is built — New,
+/// and Quit on native — and no longer offers the Function reference, which
+/// is Help's.
+///
+#[tokio::test]
+async fn the_file_menu_offers_new_and_quit_and_no_function_reference() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+
+    let new = harness.get_by_label("New").rect();
+    let quit = harness.get_by_label("Quit").rect();
+    assert!(
+        new.max.y <= quit.min.y,
+        "the native File menu does not offer New, then Quit"
+    );
+    assert!(
+        harness
+            .query_all_by_label_contains("Function")
+            .next()
+            .is_none(),
+        "the File menu still offers the Function reference"
+    );
+}
+
+///
+/// The View menu's zoom items, found by name, each carrying its chord as
+/// shortcut text and each doing what that chord does: `ZoomCommand` through
+/// the same `stepped_zoom` step `show_source_scene` applies to a chord.
+/// They sit above Diagnostics.
+///
+#[tokio::test]
+async fn the_view_menu_zooms_the_source_view_as_its_chords_do() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert_eq!(harness.state().source_view.zoom, 1.0);
+
+    let open_view = |harness: &mut Harness<'_, Console>| {
+        harness.get_by_label("View").click();
+        harness.step();
+        harness.run_steps(1);
+    };
+    open_view(&mut harness);
+    let diagnostics_top = harness.get_by_label("Diagnostics").rect().min.y;
+    let mut previous_top = f32::NEG_INFINITY;
+    for (item, key) in [
+        ("Zoom In", Key::Equals),
+        ("Zoom Out", Key::Minus),
+        ("Reset Zoom", Key::Num0),
+    ] {
+        let shortcut = harness
+            .ctx
+            .format_shortcut(&egui::KeyboardShortcut::new(Modifiers::COMMAND, key));
+        let node = harness.get_by_label_contains(item);
+        let label = node.accesskit_node().label().unwrap_or_default();
+        assert!(
+            label.contains(&shortcut),
+            "{item} does not show its chord {shortcut:?}: {label:?}"
+        );
+        let top = node.rect().min.y;
+        assert!(
+            previous_top < top && top < diagnostics_top,
+            "{item} is not in order above Diagnostics"
+        );
+        previous_top = top;
+    }
+
+    for (item, expected) in [
+        ("Zoom In", 1.125),
+        ("Zoom In", 1.25),
+        ("Zoom Out", 1.125),
+        ("Reset Zoom", 1.0),
+    ] {
+        if harness.query_all_by_label_contains(item).next().is_none() {
+            open_view(&mut harness);
+        }
+        harness.get_by_label_contains(item).click();
+        harness.step();
+        harness.run_steps(1);
+        assert_eq!(
+            harness.state().source_view.zoom,
+            expected,
+            "View → {item} did not step the Zoom as its chord does"
+        );
+    }
+    assert_eq!(
+        harness.ctx.zoom_factor(),
+        1.0,
+        "a View zoom item moved egui's own UI zoom"
     );
 }
 
@@ -2159,7 +2327,7 @@ const DISCARD: &str = "Discard";
 /// question it asks, as a viewer who means to discard it does.
 ///
 fn choose_new_and_discard(harness: &mut Harness<'_, Console>) {
-    choose_in_file_menu(harness, "New");
+    choose_in_menu(harness, "File", "New");
     assert!(asking(harness), "New discarded written content unasked");
     harness.get_by_label(DISCARD).click();
     harness.step();
@@ -2177,7 +2345,7 @@ async fn file_new_on_written_content_asks_and_confirming_opens_an_empty_source()
     let written = cells(harness.state());
     let cursor_before = cursor(harness.state());
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_in_menu(&mut harness, "File", "New");
 
     assert!(asking(&harness), "New discarded written content unasked");
     assert_eq!(cells(harness.state()), written, "asking changed the Source");
@@ -2237,7 +2405,7 @@ async fn file_new_cancelled_leaves_the_environment_as_it_was() {
     let cursor_before = cursor(harness.state());
     let zoom = harness.state().source_view.zoom;
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_in_menu(&mut harness, "File", "New");
     assert!(asking(&harness), "New discarded written content unasked");
     harness.get_by_label("Cancel").click();
     harness.step();
@@ -2278,7 +2446,7 @@ async fn file_new_on_an_empty_source_opens_without_asking() {
     harness.run_steps(1);
     assert_ne!(cursor(harness.state()), (0, 0), "the Cursor never moved");
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_in_menu(&mut harness, "File", "New");
 
     assert!(!asking(&harness), "New asked before discarding nothing");
     assert_eq!(cursor(harness.state()), (0, 0), "New did not open");
@@ -2297,7 +2465,7 @@ async fn escape_cancels_the_question_and_keys_never_reach_the_source_behind_it()
     let cursor_before = cursor(harness.state());
     let zoom = harness.state().source_view.zoom;
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_in_menu(&mut harness, "File", "New");
     assert!(asking(&harness), "New discarded written content unasked");
 
     harness.event(Event::Text("y".to_owned()));
@@ -2344,7 +2512,7 @@ async fn escape_cancels_the_question_and_keys_never_reach_the_source_behind_it()
 async fn the_question_is_answered_from_the_keyboard() {
     let mut harness = console_with_written_content();
 
-    choose_in_file_menu(&mut harness, "New");
+    choose_in_menu(&mut harness, "File", "New");
     assert!(
         harness.get_by_label("Cancel").is_focused(),
         "the question did not open with Cancel focused"
