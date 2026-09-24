@@ -323,6 +323,11 @@ mod native {
         pub(super) path: PathBuf,
         pub(super) file_name: String,
         pub(super) identity: ThemeIdentity,
+        /// Why the entry cannot be loaded, if it cannot. Such an entry has
+        /// already been reported, but still claims its identity: it conflicts
+        /// with any other file of the same stem, and alone it refuses the
+        /// identity with this reason.
+        pub(super) unloadable: Option<String>,
     }
 
     ///
@@ -385,7 +390,8 @@ mod native {
         /// are considered; other files are ignored. A directory, or a
         /// symbolic link to one, is never entered. A file symbolic link is
         /// followed. A missing `dir` means no custom Themes; an unreadable
-        /// `dir` or file is reported and skipped.
+        /// `dir` is reported and skipped; an unreadable file is reported and
+        /// refuses its identity, along with every other file of its stem.
         ///
         pub(crate) fn discover(dir: &Path) -> Self {
             let mut registry = Self::built_in();
@@ -429,33 +435,40 @@ mod native {
                 };
                 // `metadata` follows a symbolic link, so a link to a
                 // directory is skipped here like a directory, and a dangling
-                // link is an unreadable file.
-                match std::fs::metadata(&path) {
+                // link is an unreadable file. An entry that cannot be loaded
+                // is reported here and still grouped, so it refuses its
+                // identity and every other file of its stem.
+                let unloadable = match std::fs::metadata(&path) {
                     Ok(metadata) if metadata.is_dir() => continue,
-                    Ok(metadata) if metadata.is_file() => {}
+                    Ok(metadata) if metadata.is_file() => None,
                     Ok(_) => {
                         registry.notice(format!("{}: not a regular Theme file", path.display()));
-                        continue;
+                        Some(format!("{file_name}: not a regular Theme file"))
                     }
                     Err(error) => {
                         registry.notice(format!(
                             "Could not read the Theme file {}: {error}",
                             path.display()
                         ));
-                        continue;
+                        Some(format!("{file_name}: {error}"))
                     }
-                }
+                };
                 let Some(identity) = ThemeIdentity::from_stem(stem) else {
-                    registry.notice(format!(
-                        "{}: a Theme file's name needs a stem, which is its identity",
-                        path.display()
-                    ));
+                    // An entry that cannot be loaded was reported above, and
+                    // one without an identity conflicts with nothing.
+                    if unloadable.is_none() {
+                        registry.notice(format!(
+                            "{}: a Theme file's name needs a stem, which is its identity",
+                            path.display()
+                        ));
+                    }
                     continue;
                 };
                 candidates.push(Candidate {
                     identity,
                     file_name: file_name.to_owned(),
                     path,
+                    unloadable,
                 });
             }
 
@@ -473,6 +486,14 @@ mod native {
                 registry.refused.insert(identity, reason);
             }
             for (identity, candidate) in unique {
+                // An entry that cannot be loaded was reported when it was
+                // found; it refuses its identity without a second notice.
+                if let Some(reason) = candidate.unloadable {
+                    if !identity.is_reserved() {
+                        registry.refused.insert(identity, reason);
+                    }
+                    continue;
+                }
                 let loaded = read_bounded(&candidate.path)
                     .map_err(|error| format!("{}: {error}", candidate.file_name))
                     .and_then(|bytes| registry.load(&candidate.file_name, &bytes));
@@ -692,19 +713,27 @@ impl ThemeRegistry {
     /// documents when they changed or when that value must leave their key,
     /// and reports a write storage did not keep
     /// rather than claiming it did. A failed write is not retried until the
-    /// imported documents change again, and is reported once.
+    /// imported documents change again, and is reported once. A copy of the
+    /// undecodable value that storage did not keep is retried at every store,
+    /// and until one is kept nothing is written over the value.
     ///
     pub(crate) fn store_imported(&mut self, storage: &mut dyn eframe::Storage) {
         use crate::persistence::{IMPORTED_THEMES_KEY, IMPORTED_THEMES_REFUSED_KEY};
 
-        if let Some(refused) = self.refused_store.take() {
+        if let Some(refused) = &self.refused_store {
             storage.set_string(IMPORTED_THEMES_REFUSED_KEY, refused.clone());
             // Only once the copy is kept does the undecodable value leave its
             // key, so the next start neither reports it again nor overwrites
-            // the copy; a copy storage did not keep leaves it where it was.
+            // the copy. A copy storage did not keep leaves the value where it
+            // was, and nothing is written over it until a later store keeps
+            // the copy.
             if storage.get_string(IMPORTED_THEMES_REFUSED_KEY).as_deref() == Some(refused.as_str())
             {
+                self.refused_store = None;
                 self.unstored = true;
+            } else {
+                self.report_store_failure();
+                return;
             }
         }
         if !self.unstored {
@@ -715,7 +744,20 @@ impl ThemeRegistry {
         storage.set_string(IMPORTED_THEMES_KEY, written.clone());
         if storage.get_string(IMPORTED_THEMES_KEY).as_deref() == Some(written.as_str()) {
             self.store_failed = false;
-        } else if !self.store_failed {
+        } else {
+            self.report_store_failure();
+        }
+    }
+
+    ///
+    /// Reports a write storage did not keep, once until a write is kept.
+    /// A copy not kept and a document write not kept share the report: until
+    /// a document write is kept the imported documents were never stored, so
+    /// a document write that fails after the copy is kept continues the
+    /// failure already reported rather than starting a new one.
+    ///
+    fn report_store_failure(&mut self) {
+        if !self.store_failed {
             self.store_failed = true;
             self.notice(
                 "Could not store the imported Themes; they remain for this session only".to_owned(),
@@ -1323,6 +1365,86 @@ mod tests {
             );
         }
 
+        #[test]
+        fn an_undecodable_stored_value_stays_under_its_key_until_its_copy_is_kept() {
+            /// Storage whose quota is spent, as a browser's local storage is
+            /// when full: replacing an existing value still succeeds, while a
+            /// new key is not kept — until space is freed.
+            #[derive(Default)]
+            struct QuotaSpent {
+                entries: std::collections::BTreeMap<String, String>,
+                full: bool,
+            }
+            impl eframe::Storage for QuotaSpent {
+                fn get_string(&self, key: &str) -> Option<String> {
+                    self.entries.get(key).cloned()
+                }
+                fn set_string(&mut self, key: &str, value: String) {
+                    if !self.full || self.entries.contains_key(key) {
+                        self.entries.insert(key.to_owned(), value);
+                    }
+                }
+                fn remove_string(&mut self, key: &str) {
+                    self.entries.remove(key);
+                }
+                fn flush(&mut self) {}
+            }
+
+            let mut storage = QuotaSpent::default();
+            eframe::Storage::set_string(
+                &mut storage,
+                IMPORTED_THEMES_KEY,
+                "not a list of documents".to_owned(),
+            );
+            storage.full = true;
+
+            let mut restarted = ThemeRegistry::web_start(Some(&storage));
+            restarted
+                .import("mine.toml", dark("Mine").as_bytes())
+                .expect("a valid document");
+            restarted.store_imported(&mut storage);
+            restarted.store_imported(&mut storage);
+            assert_eq!(
+                eframe::Storage::get_string(&storage, IMPORTED_THEMES_KEY).as_deref(),
+                Some("not a list of documents"),
+                "the undecodable value was overwritten before its copy was kept"
+            );
+            let store_failures = |registry: &ThemeRegistry| {
+                registry
+                    .notice_list()
+                    .iter()
+                    .filter(|notice| notice.contains("Could not store"))
+                    .count()
+            };
+            assert_eq!(
+                store_failures(&restarted),
+                1,
+                "a copy not kept is reported once across stores: {:?}",
+                restarted.notice_list()
+            );
+            assert!(
+                restarted.select(Appearance::Dark, &id("mine")).is_ok(),
+                "the imported Theme stays usable for the session"
+            );
+
+            // Once space is freed, the next save moves the value aside and
+            // stores the imported documents.
+            storage.full = false;
+            restarted.store_imported(&mut storage);
+            assert_eq!(
+                eframe::Storage::get_string(&storage, IMPORTED_THEMES_REFUSED_KEY).as_deref(),
+                Some("not a list of documents")
+            );
+            assert_eq!(
+                store_failures(&restarted),
+                1,
+                "{:?}",
+                restarted.notice_list()
+            );
+            let again = ThemeRegistry::web_start(Some(&storage));
+            assert!(again.select(Appearance::Dark, &id("mine")).is_ok());
+        }
+
         /// A valid dark document named `name`, padded just under the 1 MiB
         /// document limit: two fit the 2 MiB budget, three cannot.
         fn padded(name: &str) -> String {
@@ -1665,6 +1787,7 @@ mod discovery_tests {
             path: PathBuf::from("/themes").join(file_name),
             file_name: file_name.to_owned(),
             identity: id(super::stem(file_name).expect("a Theme file")),
+            unloadable: None,
         };
         let forward = vec![
             candidate("dup.toml"),
@@ -1784,6 +1907,67 @@ mod discovery_tests {
         }
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644))
             .expect("permissions");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_still_conflicts_with_a_readable_one_of_the_same_stem() {
+        let dir = TempDir::new();
+        let toml = dir.write("ocean.toml", &dark("Ocean"));
+        let dangling = dir.path().join("ocean.yaml");
+        std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("a dangling link");
+
+        let registry = ThemeRegistry::discover(dir.path());
+        assert!(names(&registry).is_empty(), "{:?}", names(&registry));
+        let notices = registry.notice_list();
+        assert!(
+            notices
+                .iter()
+                .any(|n| n.contains("Could not read") && n.contains("ocean.yaml")),
+            "the unreadable file is still reported: {notices:?}"
+        );
+        let conflict = notices
+            .iter()
+            .find(|notice| notice.contains("\"ocean\""))
+            .expect("the conflict is reported");
+        assert!(conflict.contains(&toml.display().to_string()), "{conflict}");
+        assert!(
+            conflict.contains(&dangling.display().to_string()),
+            "{conflict}"
+        );
+        assert!(matches!(
+            registry.select(Appearance::Dark, &id("ocean")),
+            Err(super::Unavailable::Refused(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lone_unreadable_file_refuses_its_identity_with_the_file_problem() {
+        let dir = TempDir::new();
+        let dangling = dir.path().join("ocean.toml");
+        std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("a dangling link");
+
+        let registry = ThemeRegistry::discover(dir.path());
+        let notices = registry.notice_list();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(matches!(
+            registry.select(Appearance::Dark, &id("ocean")),
+            Err(super::Unavailable::Refused(reason)) if reason.contains("ocean.toml")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_without_a_stem_is_reported_once() {
+        let dir = TempDir::new();
+        let dangling = dir.path().join(".toml");
+        std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("a dangling link");
+
+        let registry = ThemeRegistry::discover(dir.path());
+        let notices = registry.notice_list();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("Could not read"), "{notices:?}");
     }
 
     ///
