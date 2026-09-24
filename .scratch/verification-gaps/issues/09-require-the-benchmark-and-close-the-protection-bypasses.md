@@ -60,3 +60,5 @@ Three notes for whoever runs this:
 #125 and #126 recovered the cost, and `main` is under every floor as of run 35821771051. The cause of #121's breach was not confirmed; translucent tints taking `blend_channel`'s blend path is the likely candidate.
 
 A required floor check faces the path-filter trap above: "Check bench floors" runs inside the path-filtered Benchmark jobs, so it needs the same stub. Record the decision in `docs/tooling.md`.
+
+**2026-09-24 — decided: advisory for v1.** Recorded in `v1-release/01`. The benchmark gate stays advisory and branch protection is unchanged for the first release; this issue remains open as post-v1 work.

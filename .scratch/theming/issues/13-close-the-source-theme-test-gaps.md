@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] A Paint-level test shows that an explicit transparent `region.cursor.background` suppresses the fallback to the Cursor fill for the Cursor inside a Region. The code at `console/src/paint.rs:246` (`Some(TRANSPARENT).or(..)`) is right; only the resolver covers the three optional-fill states today.
-- [ ] A test measures the composited pixel colour of a transparent Grid and of a partial-alpha Grid over the console surface. `console.rs:5643` checks only that `source_panel_frame` passes the fill through.
+- [x] *(Moved to `17`.)* A Paint-level test shows that an explicit transparent `region.cursor.background` suppresses the fallback to the Cursor fill for the Cursor inside a Region. The code at `console/src/paint.rs:246` (`Some(TRANSPARENT).or(..)`) is right; only the resolver covers the three optional-fill states today.
+- [x] *(Moved to `17`.)* A test measures the composited pixel colour of a transparent Grid and of a partial-alpha Grid over the console surface. `console.rs:5643` checks only that `source_panel_frame` passes the fill through.
 - [ ] A test holds hit-testing unchanged across Cell border widths from 0 to 1 point, at more than one zoom.
 - [ ] `sector_line` (`console/src/style.rs:562`), called per seam Cell from `paint.rs:312` and `:318`, stops un-premultiplying and re-premultiplying `sector.seam` for every Cell. `../schema.md:205` rules out per-Cell colour interpolation. The per-Cell strength is a hash, so this is a once-per-Paint unpack or a premultiplied-space scale, not a table. `paint_derive` stays within `benches/floors.toml`.
 - [ ] `contrast.rs:397` and `paint.rs:246` share one derivation of the Region Cursor fill instead of each restating `region_cursor_background.or(cursor_fill)`.
@@ -16,3 +16,5 @@
 ## Comments
 
 **2026-09-23 — opened by the audit of the merged pull requests against their issues.** Residuals of `06`, which is resolved with these lines pointing here.
+
+**2026-09-24 — split.** The two transparent-value tests moved to `17`, which joins `release/v1` and blocks `10`. The remaining lines (hit-testing across border widths, the per-seam colour conversion, the shared Region Cursor fill derivation) stay out of the release as improvements.

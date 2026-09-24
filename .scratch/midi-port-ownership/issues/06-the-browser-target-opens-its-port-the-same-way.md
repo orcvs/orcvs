@@ -10,6 +10,8 @@ being the one that has to be reasoned about separately.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 ## Already landed
 
 The console owns the backend on every target, calls discovery and connect synchronously, and queues
@@ -31,3 +33,7 @@ than a stub that lists nothing and refuses every connect.
 - [ ] A performer can refresh destinations in the browser, select one, and hear output from it.
 - [ ] A build for a target with no MIDI service still falls back to the silent backend and offers an
       empty destination list rather than an error.
+
+## Comments
+
+**2026-09-24 — joins `release/v1`.** The release decision is to build Web MIDI: the WASM build promises MIDI output, as the release goal ("deterministic native and WASM playback") and ADR 0041 state. This issue blocks `v1-release/03`. Proof is fake-adapter tests of exact bytes and lifecycle on the browser path; physical-device evidence stays native-only under `v1-release/04`. Until this lands, the web console's MIDI list and Refresh are offered while `AVAILABLE` is true on wasm but can never find a destination.

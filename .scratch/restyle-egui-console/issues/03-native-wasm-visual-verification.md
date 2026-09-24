@@ -3,7 +3,7 @@
 **What to build:** Capture the nominated candidate on native and WASM at wide and tall viewport
 sizes in both built-in Themes, with enough metadata and human review to reproduce and assess the rendered evidence. The release capture workflow (`release-captures`) produces the eight CI captures; a person adds one native macOS capture per Theme and reviews all ten.
 
-**Blocked by:** 01 — Square, centred Source Grid viewport; 02 — Prototype-aligned console palette; v1-release/03 — Run the exact-candidate verification workflow; release-captures/01 — Capture the native console in CI; release-captures/02 — Capture the web console in CI.
+**Blocked by:** 01 — Square, centred Source Grid viewport; 02 — Prototype-aligned console palette; v1-release/03 — Run the exact-candidate verification workflow; release-captures/01 — Capture the native console in CI; release-captures/02 — Capture the web console in CI; theming/18 — Correct the Theme record the captures are checked against.
 
 **Status:** ready-for-agent
 

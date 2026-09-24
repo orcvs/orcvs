@@ -6,16 +6,18 @@
 
 **Status:** ready-for-agent
 
-- [ ] ADR 0053 gains a dated amendment. The "Contrast acceptance preserves Okabe–Ito's Sequence colour… accepted exception" paragraph (around line 67) and the "Known dark failures awaiting acceptance" table (lines 69-86, with the opaque tints `#0E1D25`, `#26240B`) are superseded: the retune cleared every failure, and both accepted lists are empty. The amendment states that.
+- [x] *(Moved to `18`.)* ADR 0053 gains a dated amendment. The "Contrast acceptance preserves Okabe–Ito's Sequence colour… accepted exception" paragraph (around line 67) and the "Known dark failures awaiting acceptance" table (lines 69-86, with the opaque tints `#0E1D25`, `#26240B`) are superseded: the retune cleared every failure, and both accepted lists are empty. The amendment states that.
 - [ ] ADR 0053 records the colour-vision gate: `CONFUSION_FLOOR`, the simulation and CIEDE2000.
 - [ ] ADR 0053's Consequences say the pickers were built and exposed under `04` (`theme_selection::SelectedThemes::listed`, on `theming-04-switching`), not prepared by `03`.
-- [ ] `console/src/theme.md:706-710` stops claiming Okabe–Ito's Region states repeat plain's figures. `region.background` is `#FFFFFF2B`. The Region and Portal-over-role figures are recorded: Bang/Region 4.63, Comment/Region 4.97, Ordinary/Region 11.81, and Portal-over-role 6.18–7.77. Recompute them rather than copying these.
-- [ ] `theme.md:301` and `:363` ("Five of the seven") agree with the "What moved" table at `:286-292`: six of the seven hues moved, four darkened until the contrast floor held and two past it for colour vision, and Sequence did not move. `:361` says five were darkened until the floor held, which counts Sequence among them; `:300` counts five and then Sequence again.
+- [x] *(Moved to `18`.)* `console/src/theme.md:706-710` stops claiming Okabe–Ito's Region states repeat plain's figures. `region.background` is `#FFFFFF2B`. The Region and Portal-over-role figures are recorded: Bang/Region 4.63, Comment/Region 4.97, Ordinary/Region 11.81, and Portal-over-role 6.18–7.77. Recompute them rather than copying these.
+- [x] *(Moved to `18`.)* `theme.md:301` and `:363` ("Five of the seven") agree with the "What moved" table at `:286-292`: six of the seven hues moved, four darkened until the contrast floor held and two past it for colour vision, and Sequence did not move. `:361` says five were darkened until the floor held, which counts Sequence among them; `:300` counts five and then Sequence again.
 - [ ] ADR 0044's Status line stops opening with "superseded by ADR 0050". 0050 was rejected, and 0052 refines 0044.
-- [ ] The amendment is reviewed by a human before merge, since it changes a decision record.
+- [x] *(Moved to `18`.)* The amendment is reviewed by a human before merge, since it changes a decision record.
 
 ## Comments
 
 **2026-09-23 — opened by the audit of the merged pull requests against their issues.**
 
 **2026-09-24 — rechecked against `origin/main` after #128-#130 merged.** Every line is still open. #130 added the chrome figures to `theme.md` but left the Region claim, now at `theme.md:706-710`; line references were refreshed.
+
+**2026-09-24 — split.** The `theme.md` corrections and the ADR 0053 exception amendment moved to `18`, which joins `release/v1`. The remaining lines (recording the colour-vision gate in ADR 0053, the pickers wording, ADR 0044's Status line) stay out of the release as record accuracy.

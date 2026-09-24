@@ -34,8 +34,11 @@ and an explicit, unwaived human GO/NO-GO decision.
 - [ ] Known defects, Improvement-only work, accepted deferrals, `CONTEXT.md`, and user-facing
       documentation are reconciled against implemented behavior rather than speculative scope. The
       review names `verification-gaps/09` (advisory benchmark gate and branch-protection bypasses)
-      and `benchmarks/07` (no enforced benchmark floor) explicitly, and records a decision to
+      explicitly, and records a decision to
       accept each or to move it into `release/v1`.
+- [ ] Every Benchmark floor breach on the series since the last clean run is cleared by a later
+      run or accepted by the reviewer with its reason. Known at nomination time: `execute` measured
+      108 ns against its 100 ns floor on `fbc1344c` (run 35855592973).
 - [ ] A named reviewer and date conclude with `GO` only when every requirement passes; otherwise the
       ticket records `NO-GO`. Missing evidence cannot be waived inside this ticket.
 
@@ -44,3 +47,11 @@ and an explicit, unwaived human GO/NO-GO decision.
 Append the completed evidence index, known-defect and deferral review, reviewer, date, and explicit
 `GO` or `NO-GO` here. Resolving this ticket closes the dependency sink declared by
 `.scratch/ROADMAP.md`; the roadmap retains that settled Gate as release history.
+
+## Comments
+
+**2026-09-24 — benchmark decisions recorded.**
+- `verification-gaps/09`: **accepted as advisory for v1.** The benchmark comparison and floor check stay advisory, and branch protection is unchanged. This ticket's series and floor review stands in for enforcement. Candidate evidence stays trustworthy because it is bound to the exact SHA and re-verified by CI.
+- `benchmarks/07`: joined `release/v1` and resolved (`benches/floors.toml`, #119 and #124), so the known-defect line no longer names it.
+- `verification-gaps/15`: out of the release. `v1-release/03` requires the candidate to carry its own push-triggered Benchmark run instead.
+- The `execute` floor breach after #129 is tracked by the new floor-breach line above.
