@@ -56,9 +56,11 @@ implementation and this evidence agree; glossary presence alone does not make a 
       made `persistence` a default feature of `console`, so the candidate binary is the persisting one
       and the deferral branch of this line is closed. What is left is the proof, which
       `v1-release/02` owns.
-- [ ] Four candidate-bound captures—native/WASM × wide/tall—record SHA, platform, viewport,
-      procedure, and reviewer and pass the decided geometry, palette, semantic-state, diagnostic,
-      and Cursor checklist.
+- [ ] Eight candidate-bound captures—native/WASM × wide/tall × both built-in Themes (Okabe–Ito
+      and Orcvs Light)—produced by the release capture workflow, plus one manual native macOS
+      capture per Theme, record SHA, platform, renderer, viewport, mode, Theme, zoom, procedure,
+      and reviewer and pass the decided geometry, palette, semantic-state, diagnostic, and Cursor
+      checklist.
 - [ ] Deterministic fake MIDI tests prove exact bytes and lifecycle; one recorded physical-device
       smoke proves the exact candidate's native adapter and OS/port/device integration.
 - [ ] Criterion output compares the candidate against the nominated `gh-pages` series point under

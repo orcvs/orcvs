@@ -20,7 +20,7 @@ and an explicit, unwaived human GO/NO-GO decision.
       regression.
 - [ ] Product persistence evidence covers model authority/rebuild and native/WASM
       save–restart–reload behavior on the candidate.
-- [ ] Four visual captures and physical MIDI evidence carry the required candidate metadata and
+- [ ] The eight workflow captures, the two macOS spot-check captures, and physical MIDI evidence carry the required candidate metadata and
       human checklists; fake MIDI results prove exact deterministic software behavior.
 - [ ] The benchmark record links the candidate's `.github/workflows/bench.yml` run and the
       archived `gh-pages` series, reviews the series history for cumulative drift, and records the
