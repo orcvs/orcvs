@@ -300,10 +300,10 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// The Source root, for the storage a console saves the current revision
-    /// into.
+    /// The Source root: what a console saves the current revision into
+    /// storage from, writes a Source File from, and asks whether the Source
+    /// has changed.
     ///
-    #[cfg(feature = "persistence")]
     pub fn source(&self) -> &SourceCommander {
         &self.source
     }
