@@ -453,10 +453,14 @@ mod native {
                     }
                 };
                 let Some(identity) = ThemeIdentity::from_stem(stem) else {
-                    registry.notice(format!(
-                        "{}: a Theme file's name needs a stem, which is its identity",
-                        path.display()
-                    ));
+                    // An entry that cannot be loaded was reported above, and
+                    // one without an identity conflicts with nothing.
+                    if loadable {
+                        registry.notice(format!(
+                            "{}: a Theme file's name needs a stem, which is its identity",
+                            path.display()
+                        ));
+                    }
                     continue;
                 };
                 candidates.push(Candidate {
@@ -1911,6 +1915,19 @@ mod discovery_tests {
             registry.select(Appearance::Dark, &id("ocean")),
             Err(super::Unavailable::Refused(_))
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_without_a_stem_is_reported_once() {
+        let dir = TempDir::new();
+        let dangling = dir.path().join(".toml");
+        std::os::unix::fs::symlink(dir.path().join("absent"), &dangling).expect("a dangling link");
+
+        let registry = ThemeRegistry::discover(dir.path());
+        let notices = registry.notice_list();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("Could not read"), "{notices:?}");
     }
 
     ///
