@@ -8,6 +8,8 @@ written out at its only call site. Nothing a viewer can see changes.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 This is the prefactor. `02` adds a second caller, and without this it would be a second copy of the
 same four-step sequence — build the Orcvs, rebuild MIDI device selection over its new handle, rest
 the Source View, report a failure — with the two free to drift apart.

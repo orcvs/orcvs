@@ -3,7 +3,7 @@
 **What to build:** Close the release definition with the complete candidate-bound evidence bundle
 and an explicit, unwaived human GO/NO-GO decision.
 
-**Blocked by:** v1-release/04; restyle-egui-console/03; v1-roadmap-wayfinding/07.
+**Blocked by:** v1-release/04; restyle-egui-console/03; v1-roadmap-wayfinding/07; menu-structure/03; menu-structure/04; menu-structure/08.
 
 **Status:** ready-for-agent
 

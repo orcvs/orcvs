@@ -867,7 +867,7 @@ mod tests {
         // to spare or with the Source running out under it. Both Expressions
         // report rather than answer, so neither contributes a Bang.
         for source in ["!>00**C4", "!>**7F  "] {
-            let grid = Grid::new(8, 2);
+            let grid = Grid::with_shape(8, 2);
             let map = LanguageMap::build(grid, format!("{source}        ").as_bytes());
             assert_eq!(map.bangs().count(), 0, "{source}");
             assert!(
@@ -884,7 +884,7 @@ mod tests {
         // `**` no Function claims is a Bang, and the invalid Source beside it
         // costs only its own Cells. `**X0**` was one refused six-Cell run
         // before the partition was decided by the parse.
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let map = LanguageMap::build(grid, b"**X0**");
 
         assert_eq!(
@@ -898,7 +898,7 @@ mod tests {
     #[test]
     fn parsed_function_candidates_survive_missing_or_invalid_operands() {
         for source in ["!>", "!>007F", "!>00**C4"] {
-            let grid = Grid::new(source.len(), 1);
+            let grid = Grid::with_shape(source.len(), 1);
             let map = LanguageMap::build(grid, source.as_bytes());
             let expression = map.expressions().next().unwrap();
             assert_eq!(
@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn expression_layout_retains_slots_beyond_invalid_and_missing_source() {
         for source in ["!>**7F", "!>00  "] {
-            let grid = Grid::new(12, 1);
+            let grid = Grid::with_shape(12, 1);
             let map = LanguageMap::build(grid, format!("{source}      ").as_bytes());
             let expression = map.expressions().next().unwrap();
             assert_eq!(
@@ -943,7 +943,7 @@ mod tests {
         // is what ADR 0033's partition buys a person mid-keystroke: a mistyped
         // Cell costs that Cell rather than the rest of the row.
         for (source, column) in [("XX!>007FC4", 2), ("**!>007FC4", 2), ("0!>007FC4", 1)] {
-            let grid = Grid::new(source.len(), 1);
+            let grid = Grid::with_shape(source.len(), 1);
             let map = LanguageMap::build(grid, source.as_bytes());
             assert_eq!(
                 map.expressions()
@@ -958,7 +958,7 @@ mod tests {
 
     #[test]
     fn adjacent_standalone_bangs_have_distinct_parsed_spans() {
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let map = LanguageMap::build(grid, b"**>>**");
         assert_eq!(
             map.bangs()
@@ -980,7 +980,7 @@ mod tests {
 
     #[test]
     fn public_language_map_expression_exposes_root_nested_functions_and_spans() {
-        let grid = Grid::new(10, 1);
+        let grid = Grid::with_shape(10, 1);
         let map = LanguageMap::derive(grid, ".+.x010203").unwrap();
         let expression = map.expressions().next().unwrap();
 
@@ -1025,7 +1025,7 @@ mod tests {
         // drops its last operand. Two Spans in one row put a neighbour on
         // each side of both edges, so either slip shows up as a missing or
         // borrowed anchor rather than as a crash.
-        let grid = Grid::new(14, 1);
+        let grid = Grid::with_shape(14, 1);
         let map = LanguageMap::derive(grid, ".+0102 .-0304 ").unwrap();
         let expressions = map.expressions().collect::<Vec<_>>();
 
@@ -1043,7 +1043,7 @@ mod tests {
 
     #[test]
     fn expression_and_diagnostic_positions_belong_to_the_derived_revision_grid() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let map = LanguageMap::derive(grid, ".+01xxxx").unwrap();
         let first = map.expressions().next().unwrap();
         let diagnostic = map.diagnostics().next().unwrap();
@@ -1085,9 +1085,9 @@ mod tests {
 
     #[test]
     fn language_map_partitions_complete_units_left_to_right_without_overlap() {
-        let bangs = LanguageMap::build(Grid::new(3, 1), b"***");
-        let west = LanguageMap::build(Grid::new(3, 1), b"<<<");
-        let north = LanguageMap::build(Grid::new(4, 1), b"^^^^");
+        let bangs = LanguageMap::build(Grid::with_shape(3, 1), b"***");
+        let west = LanguageMap::build(Grid::with_shape(3, 1), b"<<<");
+        let north = LanguageMap::build(Grid::with_shape(4, 1), b"^^^^");
 
         assert_eq!(unit_spellings(&bangs), vec![(0, vec![0, 1])]);
         assert_eq!(unit_spellings(&west), vec![(0, vec![0, 1])]);
@@ -1110,7 +1110,7 @@ mod tests {
         // an Operand Literal is spelled in a Function's slot, because a pair
         // of hexadecimal characters standing on its own is no longer part of
         // any Expression for a unit to belong to.
-        let map = LanguageMap::build(Grid::new(12, 2), b".+C4**>>    ^^vv<<.+00  ");
+        let map = LanguageMap::build(Grid::with_shape(12, 2), b".+C4**>>    ^^vv<<.+00  ");
 
         assert_eq!(
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
@@ -1143,7 +1143,7 @@ mod tests {
 
     #[test]
     fn language_map_never_forms_a_unit_across_a_row_edge() {
-        let map = LanguageMap::build(Grid::new(3, 2), b"  **  ");
+        let map = LanguageMap::build(Grid::with_shape(3, 2), b"  **  ");
 
         assert!(map.units().next().is_none());
         assert_eq!(
@@ -1168,7 +1168,7 @@ mod tests {
     ///
     #[test]
     fn a_comment_forms_one_row_length_language_unit_that_is_not_a_value() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b"**||**00");
 
         assert_eq!(
@@ -1208,8 +1208,8 @@ mod tests {
     ///
     #[test]
     fn live_edit_fragments_do_not_form_language_units() {
-        let rule = LanguageMap::build(Grid::new(8, 1), b".+| **  ");
-        let hash = LanguageMap::build(Grid::new(8, 1), b".+# **  ");
+        let rule = LanguageMap::build(Grid::with_shape(8, 1), b".+| **  ");
+        let hash = LanguageMap::build(Grid::with_shape(8, 1), b".+# **  ");
 
         assert_eq!(unit_spellings(&rule), vec![(0, vec![0, 1])]);
         assert!(
@@ -1233,7 +1233,7 @@ mod tests {
 
     #[test]
     fn build_leaves_empty_rows_without_expressions() {
-        assert!(expression_spans(Grid::new(5, 1), b"     ").is_empty());
+        assert!(expression_spans(Grid::with_shape(5, 1), b"     ").is_empty());
     }
 
     #[test]
@@ -1243,7 +1243,7 @@ mod tests {
         // first operand, which is why they are inside the Span rather than
         // beside it: a space no longer ends anything, so what bounds this
         // Expression is arity.
-        let grid = Grid::new(5, 1);
+        let grid = Grid::with_shape(5, 1);
         let spans = expression_spans(grid, b" .+1 ");
 
         assert_eq!(spans, vec![span(grid, 1, 4)]);
@@ -1259,7 +1259,7 @@ mod tests {
         // both rather than deriving one from the other: neither of these Cells
         // is half of a two-Cell spelling, so the partition names no unit for
         // either, and each is still a Span in its own right.
-        let grid = Grid::new(5, 1);
+        let grid = Grid::with_shape(5, 1);
         let map = LanguageMap::build(grid, b" x  x");
 
         assert!(map.units().next().is_none());
@@ -1271,7 +1271,7 @@ mod tests {
 
     #[test]
     fn build_separates_the_expressions_in_one_row() {
-        let grid = Grid::new(16, 1);
+        let grid = Grid::with_shape(16, 1);
 
         // asserting the whole list, not Cell by Cell: a spurious extra Span
         // shows up here and would not show up in per-Cell probing. Both
@@ -1289,14 +1289,14 @@ mod tests {
         // likely to be surprised by. `.+` claims six Cells whatever they hold,
         // so the two spaces and the `.-` after them are its operands rather
         // than the next Expression: one Span, not two.
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
 
         assert_eq!(expression_spans(grid, b".+  .-  "), vec![span(grid, 0, 7)]);
     }
 
     #[test]
     fn build_keeps_edge_touching_expressions_inside_their_rows() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
 
         // the Expressions touch across the row edge but are two Spans, not
         // one: each claims what is left of its own row and stops there
@@ -1309,12 +1309,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "LanguageMap Source length must match its Grid")]
     fn build_rejects_source_content_with_the_wrong_length() {
-        let _ = expression_spans(Grid::new(5, 1), b"    ");
+        let _ = expression_spans(Grid::with_shape(5, 1), b"    ");
     }
 
     #[test]
     fn language_map_builds_cohesive_expression_state() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102 x");
         let expressions = map.expressions().collect::<Vec<_>>();
         assert_eq!(expressions.len(), 2);
@@ -1335,7 +1335,7 @@ mod tests {
         // Expression with a Span of its own and Atoms of its own, where the
         // assembly path this replaces reported one four-Cell Expression that
         // no single parse ever produced.
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, b"**^^");
 
         assert_eq!(
@@ -1361,7 +1361,7 @@ mod tests {
         // stray character costs the Cell it occupies and nothing more. The
         // trailing-content verdict this replaces refused the Bang along with
         // it.
-        let map = LanguageMap::build(Grid::new(3, 1), b"***");
+        let map = LanguageMap::build(Grid::with_shape(3, 1), b"***");
 
         assert_eq!(
             map.expressions()
@@ -1374,9 +1374,9 @@ mod tests {
 
     #[test]
     fn language_map_partitions_adjacent_standalone_units() {
-        let bang_grid = Grid::new(4, 1);
+        let bang_grid = Grid::with_shape(4, 1);
         let bangs = LanguageMap::build(bang_grid, b"****");
-        let activations = LanguageMap::build(Grid::new(4, 1), b">>>>");
+        let activations = LanguageMap::build(Grid::with_shape(4, 1), b">>>>");
 
         // Two Bangs, and two Expressions: a standalone Atom is one whole
         // Expression, so a run of them is a run of Expressions rather than one
@@ -1447,7 +1447,7 @@ mod tests {
 
         #[test]
         fn a_scalar_root_covers_the_cell_pair_south_of_its_output_portal() {
-            let grid = Grid::new(6, 2);
+            let grid = Grid::with_shape(6, 2);
             let map = build(grid, &[".+0102"]);
 
             assert!(covered(&map, grid, 0, 1));
@@ -1461,7 +1461,7 @@ mod tests {
             // `.+01` is Add one operand short: `root()` is `None`, but
             // `function_candidate()` still names it, and `05` covers it the
             // same as a complete root.
-            let grid = Grid::new(4, 2);
+            let grid = Grid::with_shape(4, 2);
             let map = build(grid, &[".+01"]);
             let expression = map.expressions().next().expect("one Expression");
             assert!(expression.root().is_none(), "operands are incomplete");
@@ -1477,7 +1477,7 @@ mod tests {
             // nested Multiply's own would-be Output Portal, one row south of
             // its own anchor, is not, because a nested Function's answer
             // goes to its parent's operand rather than to a Cell of its own.
-            let grid = Grid::new(10, 2);
+            let grid = Grid::with_shape(10, 2);
             let map = build(grid, &[".+.x010203"]);
 
             assert!(covered(&map, grid, 0, 1), "the root's own Reservation");
@@ -1491,7 +1491,7 @@ mod tests {
         #[test]
         fn a_sequence_capable_root_covers_its_row_to_the_end() {
             // `:-0102` is NumberRange: it answers a Sequence outright.
-            let grid = Grid::new(8, 2);
+            let grid = Grid::with_shape(8, 2);
             let map = build(grid, &[":-0102"]);
 
             for x in 0..grid.columns() {
@@ -1505,7 +1505,7 @@ mod tests {
             // widens over an operand a nested Function answers a Sequence
             // to, per ADR 0036, even though NumberRange stands in a
             // Number-typed operand position.
-            let grid = Grid::new(10, 2);
+            let grid = Grid::with_shape(10, 2);
             let map = build(grid, &[".+:-010203"]);
             assert_eq!(
                 map.expressions()
@@ -1525,7 +1525,7 @@ mod tests {
         fn a_terminal_output_function_is_never_covered() {
             // `!>` (RawPlay) answers Play, not a Cell: `output_portal()` is
             // `None` for it.
-            let grid = Grid::new(8, 2);
+            let grid = Grid::with_shape(8, 2);
             let map = build(grid, &["!>007F"]);
 
             for x in 0..grid.columns() {
@@ -1536,7 +1536,7 @@ mod tests {
         #[test]
         fn halt_is_never_covered() {
             // `*!` locks its root at its Output Portal rather than writing.
-            let grid = Grid::new(4, 2);
+            let grid = Grid::with_shape(4, 2);
             let map = build(grid, &["*!"]);
 
             for x in 0..grid.columns() {
@@ -1550,7 +1550,7 @@ mod tests {
             // its Advance, including the anchor it clears, not an answer
             // through an Output Portal. Nothing in the whole Grid is covered,
             // including the anchor itself and the Cells it moves onto.
-            let grid = Grid::new(6, 1);
+            let grid = Grid::with_shape(6, 1);
             let map = build(grid, &[">>    "]);
 
             for x in 0..grid.columns() {
@@ -1561,7 +1561,7 @@ mod tests {
         #[test]
         fn a_directional_bangs_emit_is_never_covered() {
             // `*>` (DirectionalBangEast) also declares a Source effect.
-            let grid = Grid::new(6, 1);
+            let grid = Grid::with_shape(6, 1);
             let map = build(grid, &["*>    "]);
 
             for x in 0..grid.columns() {
@@ -1573,7 +1573,7 @@ mod tests {
         fn a_scalar_root_in_the_bottom_row_is_never_covered() {
             // No row exists south of the last row for the Output Portal to
             // resolve at: `Portal::below` answers `None`.
-            let grid = Grid::new(6, 1);
+            let grid = Grid::with_shape(6, 1);
             let map = build(grid, &[".+0102"]);
 
             for x in 0..grid.columns() {
@@ -1583,7 +1583,7 @@ mod tests {
 
         #[test]
         fn each_jump_is_covered_at_its_own_declared_direction() {
-            let grid = Grid::new(8, 3);
+            let grid = Grid::with_shape(8, 3);
 
             let east = build(grid, &["&>      ", "        ", "        "]);
             assert!(covered(&east, grid, 2, 0));
@@ -1604,7 +1604,7 @@ mod tests {
 
         #[test]
         fn a_jump_off_the_grid_is_never_covered() {
-            let grid = Grid::new(6, 2);
+            let grid = Grid::with_shape(6, 2);
 
             // JumpNorth from the top row: one row up does not exist.
             let north = build(grid, &["&^    ", "      "]);
@@ -1635,7 +1635,7 @@ mod tests {
             // last two Cells, reached here through a Jump because an
             // ordinary Function's south Portal shares its own row's width
             // and so never meets this edge on its own.
-            let grid = Grid::new(6, 1);
+            let grid = Grid::with_shape(6, 1);
             let map = build(grid, &["   &> "]);
 
             for x in 0..grid.columns() {
@@ -1830,7 +1830,7 @@ mod property {
         fn deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from(
             (cols, rows, source) in revision(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
             let map = LanguageMap::derive(grid, &source)
                 .expect("one printable ASCII Cell per Position");
             let bytes = source.as_bytes();
@@ -1952,7 +1952,7 @@ mod property {
         fn every_expression_and_diagnostic_answers_to_the_revision_that_derived_it(
             (cols, rows, source) in revision(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
             let map = LanguageMap::derive(grid, &source)
                 .expect("one printable ASCII Cell per Position");
 
@@ -2090,7 +2090,7 @@ mod property {
         fn expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for(
             (cols, rows, source) in revision(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
             let map = LanguageMap::derive(grid, &source)
                 .expect("one printable ASCII Cell per Position");
             let bytes = source.as_bytes();
@@ -2205,7 +2205,7 @@ mod property {
 
         TestRunner::new(config)
             .run(&revision(), |(cols, rows, source)| {
-                let map = LanguageMap::derive(Grid::new(cols, rows), &source)
+                let map = LanguageMap::derive(Grid::with_shape(cols, rows), &source)
                     .expect("one printable ASCII Cell per Position");
                 let bytes = source.as_bytes();
 
@@ -2371,7 +2371,7 @@ mod rebuild_property {
         ) {
             let count = cols * rows;
 
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
             let mut bytes: Vec<u8> = before[..count].iter().map(|i| ALPHABET[*i]).collect();
             let previous = LanguageMap::build(grid, &bytes);
 

@@ -560,7 +560,7 @@ mod tests {
     use std::ops::Range;
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
-        Orcvs::new(cols, rows).expect("the test runtime")
+        Orcvs::with_shape(cols, rows).expect("the test runtime")
     }
 
     /// Writes `text` into `row`, one Cell at a time, the way every other
@@ -2398,7 +2398,7 @@ mod tests {
     /// every case below an exercise in arranging production state around it.
     ///
     fn paint_of(rows: &[&[Option<Color32>]]) -> Paint {
-        let grid = Grid::new(rows[0].len(), rows.len());
+        let grid = Grid::with_shape(rows[0].len(), rows.len());
         assert!(
             rows.iter().all(|row| row.len() == rows[0].len()),
             "a Grid's rows are all one length"
@@ -2732,7 +2732,7 @@ mod tests {
     async fn frame_paint_refuses_visible_positions_minted_for_another_grid() {
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let other = Grid::new(8, 8);
+        let other = Grid::with_shape(8, 8);
         let drawn = VisiblePositions::for_grid(other, 0..8, 0..8);
 
         let _ = FramePaint::new(&frame, drawn);

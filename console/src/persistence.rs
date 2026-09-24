@@ -7,7 +7,7 @@
 //! animation state are not stored.
 //!
 
-use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
+use orcvs::grid::Grid;
 use orcvs::source::Source;
 
 use crate::cursor_effects::CursorEffectSettings;
@@ -87,18 +87,18 @@ pub(crate) const IMPORTED_THEMES_REFUSED_KEY: &str = "imported_themes_refused";
 pub const REFUSED_KEY: &str = "orcvs_source_refused";
 
 ///
-/// The Source a console starts from when it restores nothing: the ordinary
-/// default Grid, empty.
+/// The Source a console starts from when it restores nothing: the one Grid,
+/// empty (ADR 0054).
 ///
 fn default_source() -> Source {
-    Source::new(Grid::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT))
+    Source::new(Grid::new())
 }
 
 ///
 /// The Source the console starts from.
 ///
 /// Without the `persistence` feature no revision is ever stored, so the
-/// console always starts the ordinary default Grid.
+/// console always starts an empty Source on the one Grid.
 ///
 #[cfg(not(feature = "persistence"))]
 pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
@@ -211,13 +211,13 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
 }
 
 ///
-/// The Source the console starts from: the stored revision, or the ordinary
-/// default Grid.
+/// The Source the console starts from: the stored revision, or an empty
+/// Source on the one Grid.
 ///
-/// A stored value that does not decode — a Grid dimension, a Cell count or a
-/// Cell character the Source refuses among the reasons — is refused whole and
-/// reported, so the console starts the default Grid rather than a partly
-/// restored one.
+/// A stored value that does not decode — a Grid shape other than the one
+/// (ADR 0054), or a Cell count or character the Source refuses — is refused
+/// whole and reported, so the console starts an empty Source rather than a
+/// partly restored one.
 ///
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
@@ -288,7 +288,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
 #[cfg(feature = "persistence")]
 fn report_refusal() {
     const REFUSED: &str = "refused the stored Source: it is not a Source this build can read; \
-                           starting the default Grid";
+                           starting an empty Grid";
 
     crate::report::error!(
         "{}: {}; the stored value is kept under {}",
@@ -304,14 +304,15 @@ fn report_refusal() {
 ///
 #[cfg(test)]
 fn assert_default_grid(source: &Source) {
+    use orcvs::grid::{COL_COUNT, ROW_COUNT};
+
     let grid = source.grid();
 
-    assert_eq!(grid.count(), DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT);
-    assert!(
-        grid.position(DEFAULT_COL_COUNT - 1, DEFAULT_ROW_COUNT - 1)
-            .is_some()
-    );
-    assert!(grid.position(DEFAULT_COL_COUNT, 0).is_none());
+    assert_eq!((COL_COUNT, ROW_COUNT), (256, 256));
+    assert_eq!(grid.count(), COL_COUNT * ROW_COUNT);
+    assert!(grid.position(COL_COUNT - 1, ROW_COUNT - 1).is_some());
+    assert!(grid.position(COL_COUNT, 0).is_none());
+    assert!(grid.position(0, ROW_COUNT).is_none());
     assert!(source.snapshot().bytes().all(|byte| byte == b' '));
 }
 
@@ -449,15 +450,14 @@ impl eframe::Storage for RonFileStorage {
 }
 
 ///
-/// An edited Source on a non-square Grid: a restore that read the two
-/// dimensions the wrong way round addresses different Cells than the Source
-/// that was stored, and a start that read nothing holds no Cells at all.
+/// An edited Source on the one Grid: a start that read nothing holds no Cells
+/// at all, so the edit is what tells a restore from a fresh start.
 ///
 #[cfg(all(test, feature = "persistence"))]
 pub(crate) fn edited_source() -> orcvs::source::SourceCommander {
     use orcvs::source::SourceCommander;
 
-    let grid = Grid::new(6, 3);
+    let grid = Grid::new();
     let source = SourceCommander::new(grid);
     for (index, content) in ".+0102".chars().enumerate() {
         source
@@ -733,9 +733,9 @@ mod stored_source_tests {
         let restored = SourceCommander::with_source(starting_source(Some(&storage)).source);
 
         assert_eq!(restored.snapshot(), saved.snapshot());
-        assert_eq!(restored.grid().count(), 18);
-        assert!(restored.grid().position(5, 2).is_some());
-        assert!(restored.grid().position(6, 2).is_none());
+        assert_eq!(restored.grid().count(), 256 * 256);
+        assert!(restored.grid().position(255, 255).is_some());
+        assert!(restored.grid().position(256, 255).is_none());
         // The Language Map is derived, never stored: a restored Source parses
         // its Cells again, so the Tokens the console draws come back with it.
         let revision = restored.read_revision();
@@ -747,31 +747,43 @@ mod stored_source_tests {
     }
 
     ///
-    /// ADR 0045: "Nothing resizes a Grid, so a Source stored at the previous
-    /// 40 by 25 default opens at 40 by 25." The default has since moved to 64
-    /// by 40 (`orcvs/src/grid.rs`), so this pins the Grid dimensions
-    /// themselves to the stored Source rather than to whatever the console
-    /// opens with no storage — a restore that read today's default instead of
-    /// the stored Grid would silently resize a Source nothing asked to
-    /// resize.
+    /// A Source stored at any shape but the one is refused rather than
+    /// migrated (ADR 0054): set aside under `REFUSED_KEY` by the next save,
+    /// noticed, and replaced by the empty Grid.
     ///
     #[test]
-    fn a_source_stored_at_the_previous_default_grid_reopens_at_that_grid() {
-        use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
+    fn a_source_stored_at_a_previous_default_grid_is_refused_rather_than_migrated() {
+        use orcvs::grid::Grid;
 
-        assert_ne!(
-            (DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
-            (40, 25),
-            "the default Grid is 40 by 25 again, so this test no longer proves anything"
-        );
+        for (cols, rows) in [(128, 80), (64, 40)] {
+            let previous = SourceCommander::new(Grid::with_shape(cols, rows));
+            let cell = previous.grid().cell_index(0).expect("inside the Grid");
+            previous.set(cell, "1").expect("a Cell the Source accepts");
+            let mut storage = InMemoryStorage::default();
+            store(&mut storage, &previous);
+            let value = stored(&storage).expect("the stored revision");
 
-        let stored = SourceCommander::new(Grid::new(40, 25));
-        let mut storage = InMemoryStorage::default();
-        store(&mut storage, &stored);
+            assert!(
+                matches!(stored_source(Some(&storage)), StoredSource::Refused(_)),
+                "a Source stored at {cols} by {rows} is not one this build reads"
+            );
+            let start = starting_source(Some(&storage));
+            assert_default_grid(&start.source);
+            let mut persistence = start.persistence;
+            assert!(persistence.notice_visible());
 
-        let restored = starting_source(Some(&storage)).source;
-        assert_eq!(restored.grid().columns(), 40);
-        assert_eq!(restored.grid().rows(), 25);
+            persistence.save(
+                &mut storage,
+                &SourceCommander::with_source(start.source),
+                CursorEffectSettings::default(),
+                &ThemeSelection::default(),
+            );
+            assert_eq!(
+                eframe::Storage::get_string(&storage, REFUSED_KEY),
+                Some(value),
+                "the {cols} by {rows} Source is set aside whole, not rewritten"
+            );
+        }
     }
 
     #[test]
@@ -791,21 +803,24 @@ mod stored_source_tests {
         store(&mut written, &edited_source());
         let encoded = stored(&written).expect("the save call stored the revision");
         assert!(
-            encoded.contains("cols:6"),
+            encoded.contains("cols:256"),
             "the stored revision names its Grid: {encoded}"
         );
 
-        // Two ways a stored value goes bad: bytes that are not the stored
-        // encoding at all, and a well-formed encoding whose Grid no longer
-        // matches the Cells beside it. A restore that trusted the second would
-        // start a partly restored Source.
+        // Three ways a stored value goes bad: bytes that are not the stored
+        // encoding, Cells that do not match the Grid beside them, and a Grid
+        // of another shape (ADR 0054).
         //
         // What refuses the second is `Source`'s own `Deserialize`, and
         // `orcvs/src/source/model.rs` already covers that validation directly.
         // What this adds is the end-to-end assertion that the refusal survives
-        // eframe's codec and reaches the console as a default Grid, not new
+        // eframe's codec and reaches the console as an empty Grid, not new
         // coverage of the validation itself.
-        for value in ["not a stored Source", &encoded.replace("cols:6", "cols:7")] {
+        for value in [
+            "not a stored Source",
+            &encoded.replacen(".+0102 ", ".+0102", 1),
+            &encoded.replace("rows:256", "rows:255"),
+        ] {
             let mut storage = InMemoryStorage::default();
             storage
                 .entries

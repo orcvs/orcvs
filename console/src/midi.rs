@@ -237,8 +237,11 @@ mod tests {
     use super::{MidiDeviceSelection, destination_presentation_for, destination_selected_text};
 
     fn selection_for(backend: impl MidiBackend + 'static) -> (Orcvs, MidiDeviceSelection) {
-        let orcvs = Orcvs::with_midi_output_adapter(1, 1, MidiOutputAdapter::new())
-            .expect("the test runtime");
+        let orcvs = Orcvs::with_source_and_midi_output_adapter(
+            orcvs::source::Source::new(orcvs::grid::Grid::with_shape(1, 1)),
+            MidiOutputAdapter::new(),
+        )
+        .expect("the test runtime");
         let midi = MidiDeviceSelection::new(
             orcvs.midi_selection_handle(),
             Box::new(backend) as Box<dyn MidiBackend>,
@@ -302,7 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_console_selection_comes_from_a_default_running_orcvs() {
-        let orcvs = Orcvs::new(1, 1).expect("the test runtime");
+        let orcvs = Orcvs::with_shape(1, 1).expect("the test runtime");
 
         let mut midi =
             MidiDeviceSelection::new(orcvs.midi_selection_handle(), Box::new(FakeBackend));

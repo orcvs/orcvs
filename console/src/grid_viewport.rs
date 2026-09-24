@@ -129,7 +129,7 @@ impl GridViewport {
     /// the one drawn under it.
     ///
     pub(crate) fn cell_at(&self, point: Pos2, grid: Grid) -> Option<(usize, usize)> {
-        // `Grid::new` asserts both counts are non-zero, so an empty Grid is
+        // Every Grid is 256 by 256 (ADR 0054), so an empty Grid is
         // unrepresentable. Only a degenerate Cell size is refused here.
         if !(self.cell_size.is_finite() && self.cell_size > 0.0) {
             return None;
@@ -407,11 +407,11 @@ mod tests {
     }
 
     fn square() -> Grid {
-        Grid::new(GRID, GRID)
+        Grid::with_shape(GRID, GRID)
     }
 
     fn sized(columns: usize, rows: usize) -> Grid {
-        Grid::new(columns, rows)
+        Grid::with_shape(columns, rows)
     }
 
     fn area(width: f32, height: f32) -> Rect {
@@ -701,8 +701,7 @@ mod tests {
     ///
     /// A clip that shows no part of the Grid and a console with no area both
     /// range over nothing — which draws nothing rather than drawing a Position
-    /// that is not there. A Grid with no Cell is unrepresentable (`Grid::new`
-    /// asserts both counts are non-zero).
+    /// that is not there. A Grid with no Cell is unrepresentable (ADR 0054).
     ///
     #[test]
     fn a_console_showing_no_part_of_the_grid_ranges_over_nothing() {
@@ -729,8 +728,8 @@ mod tests {
 
     #[test]
     fn visible_positions_minted_for_a_grid_are_owned_by_that_grid() {
-        let grid = Grid::new(10, 8);
-        let other = Grid::new(10, 8);
+        let grid = Grid::with_shape(10, 8);
+        let other = Grid::with_shape(10, 8);
         let visible = VisiblePositions::for_grid(grid, 2..6, 1..5);
 
         assert!(grid.owns_identity(visible.grid().expect("minted for a Grid")));
@@ -739,7 +738,7 @@ mod tests {
 
     #[test]
     fn for_grid_clamps_out_of_bounds_ranges_to_the_grid() {
-        let grid = Grid::new(10, 8);
+        let grid = Grid::with_shape(10, 8);
 
         assert_eq!(
             VisiblePositions::for_grid(grid, 12..20, 10..20),

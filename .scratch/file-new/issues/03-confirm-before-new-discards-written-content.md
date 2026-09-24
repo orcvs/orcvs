@@ -8,6 +8,8 @@ asks nothing and opens straight away.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 New is irreversible and it destroys work: there is no undo across an Open, and with `persistence`
 on the next ordinary save overwrites the stored revision the discarded Source came from. It is one
 menu click away from `Load Function reference`, which is equally destructive and equally unasked —

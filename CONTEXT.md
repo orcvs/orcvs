@@ -12,8 +12,12 @@ _Avoid_: App, Session, Instance, Machine
 The rectangular grid that holds the current Orcvs program as Cells.
 _Avoid_: Document, buffer, canvas
 
+**Source File**:
+A Source written out as plain text: one line per row, one character per Cell, a space for an empty Cell. It states Cells and never a shape, so a short or missing line reads back as empty Cells.
+_Avoid_: Document, save file, project
+
 **Grid**:
-The fixed rectangular shape a Source occupies: its column and row counts, and the valid positions within them. The Grid is the shape; the Source is the contents. A Grid has at least one and at most 256 columns and rows, and a position outside it does not exist.
+The fixed rectangular shape a Source occupies: 256 columns by 256 rows, and the valid positions within them. The Grid is the shape; the Source is the contents. Every Grid has that one shape, and a position outside it does not exist.
 _Avoid_: Canvas, matrix, bounds
 
 **Position**:

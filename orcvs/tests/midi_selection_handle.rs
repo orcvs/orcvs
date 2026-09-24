@@ -109,8 +109,11 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
     let mut backend = FakeBackend {
         state: state.clone(),
     };
-    let mut orcvs =
-        Orcvs::with_midi_output_adapter(10, 3, MidiOutputAdapter::new()).expect("the test runtime");
+    let mut orcvs = Orcvs::with_source_and_midi_output_adapter(
+        orcvs::source::Source::new(orcvs::grid::Grid::with_shape(10, 3)),
+        MidiOutputAdapter::new(),
+    )
+    .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
 
     assert_eq!(
@@ -148,8 +151,11 @@ async fn selection_observations_become_unavailable_as_soon_as_the_owner_is_dropp
     let mut backend = FakeBackend {
         state: Arc::new(Mutex::new(FakeState::default())),
     };
-    let orcvs =
-        Orcvs::with_midi_output_adapter(10, 2, MidiOutputAdapter::new()).expect("the test runtime");
+    let orcvs = Orcvs::with_source_and_midi_output_adapter(
+        orcvs::source::Source::new(orcvs::grid::Grid::with_shape(10, 2)),
+        MidiOutputAdapter::new(),
+    )
+    .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
     backend
         .install(&midi, &MidiDestinationId::new("studio"))
@@ -177,8 +183,11 @@ async fn selection_requests_fail_when_the_engine_task_has_ended() {
     let mut backend = PanickingBackend {
         delivery_started: delivery_started.clone(),
     };
-    let mut orcvs =
-        Orcvs::with_midi_output_adapter(10, 6, MidiOutputAdapter::new()).expect("the test runtime");
+    let mut orcvs = Orcvs::with_source_and_midi_output_adapter(
+        orcvs::source::Source::new(orcvs::grid::Grid::with_shape(10, 6)),
+        MidiOutputAdapter::new(),
+    )
+    .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
     backend
         .install(&midi, &MidiDestinationId::new("studio"))
@@ -222,8 +231,11 @@ async fn selection_handle_cannot_outlive_the_running_orcvs() {
     let mut backend = FakeBackend {
         state: state.clone(),
     };
-    let mut orcvs =
-        Orcvs::with_midi_output_adapter(10, 2, MidiOutputAdapter::new()).expect("the test runtime");
+    let mut orcvs = Orcvs::with_source_and_midi_output_adapter(
+        orcvs::source::Source::new(orcvs::grid::Grid::with_shape(10, 2)),
+        MidiOutputAdapter::new(),
+    )
+    .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
     backend
         .install(&midi, &MidiDestinationId::new("studio"))

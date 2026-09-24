@@ -20,6 +20,16 @@ default = []
 # crate keeps the MIDI vocabulary and output adapter; it carries no platform
 # MIDI or system audio dependency.
 persistence = ["dep:serde"]
+# Test-only. Every shipped Grid is 256 by 256 (ADR 0054), but most tests state
+# their Source as a few short rows and assert on its edges, so they build a
+# smaller Grid through `Grid::with_shape` and `Orcvs::with_shape`. Those two
+# constructors exist only under this feature (and this crate's own `cfg(test)`),
+# which is enabled solely through the workspace's dev-dependencies: this crate's
+# own below, for its integration tests, benchmarks and doctests, and the
+# console's. No shipped build selects it, so no shipped function takes a
+# dimension only a test supplies. It adds no dependency and no code to a build
+# that does not name it.
+test-grid-shapes = []
 
 [dependencies]
 lang = { path = "../lang", version = "0.1.0" }
@@ -45,6 +55,11 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
+# This crate itself, with `test-grid-shapes`: the only way a Cargo package turns
+# a feature on for its own integration tests, benchmarks and doctests without
+# every test invocation having to name it. A dev-dependency never reaches a
+# normal build, so the shipped library is compiled without it.
+orcvs = { path = ".", features = ["test-grid-shapes"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 serde_json = "1"
 tokio = { workspace = true, features = ["test-util"] }

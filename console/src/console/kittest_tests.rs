@@ -1360,8 +1360,11 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     harness.event(Event::ModifiersChanged(Modifiers::default()));
     harness.step();
 
-    // At `MIN_ZOOM` the default Grid and its margins are smaller than the
-    // default window's console on both axes.
+    // A Grid with nowhere to Pan: at `MIN_ZOOM` this one and its margins are
+    // smaller than the default window's console on both axes.
+    harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
+    harness.state_mut().source_view = super::SourceView::default();
+    harness.step();
     for _ in 0..8 {
         harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);
     }
@@ -1677,9 +1680,8 @@ async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
 /// Tab and Shift Tab reach the Source through the same input path the arrow
 /// keys do: Tab steps the Cursor to the first Cell of the next Sector on its
 /// row, Shift Tab steps back, and neither moves anything once the keys stop
-/// coming. The default Grid is 64 Cells wide at the default Sector Seam
-/// spacing of 8, so column 8 and column 16 are the first two Sector starts
-/// past the origin.
+/// coming. At the default Sector Seam spacing of 8, column 8 and column 16
+/// are the first two Sector starts past the origin.
 ///
 #[tokio::test]
 async fn tab_and_shift_tab_move_the_cursor_by_sector_through_the_source_input_path() {

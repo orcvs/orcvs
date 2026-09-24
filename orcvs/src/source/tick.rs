@@ -1251,7 +1251,7 @@ mod test {
     #[test]
     fn write_claims_answer_overlapping_reservations() {
         let claims = super::WriteClaims::new(
-            Grid::new(8, 1),
+            Grid::with_shape(8, 1),
             vec![
                 super::Claim {
                     cells: 0..4,
@@ -1269,7 +1269,7 @@ mod test {
     #[test]
     fn write_claims_skip_a_nested_short_span() {
         let claims = super::WriteClaims::new(
-            Grid::new(20, 1),
+            Grid::with_shape(20, 1),
             vec![
                 super::Claim {
                     cells: 0..20,
@@ -1287,7 +1287,7 @@ mod test {
     #[test]
     fn write_claims_on_a_dense_row_touch_only_the_covering_write() {
         let claims = super::WriteClaims::new(
-            Grid::new(64, 1),
+            Grid::with_shape(64, 1),
             (0..8)
                 .map(|index| super::Claim {
                     cells: index * 8..index * 8 + 2,
@@ -1462,14 +1462,14 @@ mod test {
         // later-write-wins commits the Cell the two writes share. Carving the
         // clear around that Cell and testing both Cells a horizontal move
         // lands on are the two symmetrical bugs this states the answer to.
-        let column = Grid::new(6, 3);
+        let column = Grid::with_shape(6, 3);
         let (_, north, _) = tick_by_tick(column, &["", "^^", ""], 1);
         assert_eq!(north[0], ["^^    ", "      ", "      "]);
 
         let (_, south, _) = tick_by_tick(column, &["", "vv", ""], 1);
         assert_eq!(south[0], ["      ", "      ", "vv    "]);
 
-        let row = Grid::new(6, 1);
+        let row = Grid::with_shape(6, 1);
         let (_, east, _) = tick_by_tick(row, &["  >>  "], 1);
         assert_eq!(east[0], ["   >> "]);
 
@@ -1483,7 +1483,7 @@ mod test {
         // Function is in the Snapshot each time, so it moves each time. The
         // last Tick is the edge, which is the other half — an out-of-Grid move
         // costs it the Span it stood in and leaves `**` there.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["  >>  "], 3);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["  >>  "], 3);
 
         assert_eq!(grids[0], ["   >> "]);
         assert_eq!(grids[1], ["    >>"]);
@@ -1513,7 +1513,7 @@ mod test {
         // stands in, which is an edge each way and an order no sort satisfies.
         // Before `order_turns` dropped one of them the Tick was rejected, and
         // the Grid never moved again.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 1), &[">>  <<  "], 3);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">>  <<  "], 3);
 
         assert_eq!(grids[0], [" >><<   "]);
         assert_eq!(grids[1], [" ****   "]);
@@ -1526,7 +1526,7 @@ mod test {
         // geometry: a vertical destination shares no Cell with the Span it
         // leaves, so each mover tests the whole of the other's Span rather than
         // the one Cell a horizontal move enters.
-        let (plans, grids, _) = tick_by_tick(Grid::new(4, 2), &["vv", "^^"], 2);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 2), &["vv", "^^"], 2);
 
         assert_eq!(grids[0], ["**  ", "**  "]);
         assert_eq!(grids[1], ["    ", "    "]);
@@ -1542,7 +1542,7 @@ mod test {
         // with a facing pair fell silent with nothing wrong with it and no
         // diagnostic of its own. The pair reports in its own four Cells and the
         // Addition answers `03` in the same Tick.
-        let (plans, grids, _) = tick_by_tick(Grid::new(13, 2), &[" >><<  .+0102", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(13, 2), &[" >><<  .+0102", ""], 1);
 
         assert_eq!(grids[0], [" ****  .+0102", "       03    "]);
         assert!(
@@ -1560,7 +1560,7 @@ mod test {
         // that stays inside the Grid but runs past the row edge resolves one
         // and is refused the whole write. ADR 0006 gives both the same cost,
         // so the Grid says the same thing four times.
-        let column = Grid::new(4, 1);
+        let column = Grid::with_shape(4, 1);
         let (_, north, _) = tick_by_tick(column, &["^^  "], 1);
         assert_eq!(north[0], ["**  "]);
 
@@ -1587,11 +1587,11 @@ mod test {
         // ADR 0006's cardinal rule, because the emission has to land somewhere
         // the Bang is not. Equality Bangs on every Tick, so the Bang display
         // and the emitted spelling are both in the Grid these compare.
-        let tall = Grid::new(8, 3);
+        let tall = Grid::with_shape(8, 3);
         let (_, south, _) = tick_by_tick(tall, &[".=0101", "  *v", ""], 1);
         assert_eq!(south[0], [".=0101  ", "***v    ", "  vv    "]);
 
-        let wide = Grid::new(10, 2);
+        let wide = Grid::with_shape(10, 2);
         let (_, east, _) = tick_by_tick(wide, &[".=0101", "  *>"], 1);
         assert_eq!(east[0], [".=0101    ", "***>>>    "]);
 
@@ -1609,7 +1609,7 @@ mod test {
         // kind of Portal and differ in where the Turn comes from; with no Bang
         // to deliver one, this Grid stands still where the `>>` test's Grid
         // moves every Tick.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["  *>", ""], 2);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  *>", ""], 2);
 
         assert_eq!(grids[0], ["  *>    ", "        "]);
         assert_eq!(grids[1], ["  *>    ", "        "]);
@@ -1634,7 +1634,7 @@ mod test {
         // would point the author at Cells holding `>>` when the Grid contains
         // no `>>` at all. Both spellings are here because both are the author's
         // question: which Cell to fix, and what it was trying to put where.
-        let occupied = Grid::new(10, 2);
+        let occupied = Grid::with_shape(10, 2);
         let (plans, grids, _) = tick_by_tick(occupied, &[".=0101", "  *>xx"], 1);
         assert_eq!(grids[0], [".=0101    ", "***>xx    "]);
         assert_eq!(
@@ -1642,7 +1642,7 @@ mod test {
             vec!["*> has no empty destination inside the Grid for >>"]
         );
 
-        let edge = Grid::new(10, 2);
+        let edge = Grid::with_shape(10, 2);
         let (plans, grids, _) = tick_by_tick(edge, &["  .=0101", "*<"], 1);
         assert_eq!(grids[0], ["  .=0101  ", "*<**      "]);
         assert_eq!(
@@ -1665,7 +1665,7 @@ mod test {
         // in the first row would need a Bang in that row, and nothing writes
         // one there — a producer Bangs into the row below itself, and a
         // Source-resident `**` is cleared before any Turn.
-        let floor = Grid::new(8, 2);
+        let floor = Grid::with_shape(8, 2);
         let (plans, grids, _) = tick_by_tick(floor, &[".=0101", "  *v"], 1);
         assert_eq!(grids[0], [".=0101  ", "***v    "]);
         assert_eq!(
@@ -1687,7 +1687,7 @@ mod test {
         // The Delay is what keeps the second half legible. An Equality would
         // Bang again on Tick 1, and `*>` would then be pointing at the Cells
         // its own emission had not yet vacated.
-        let (plans, grids, _) = tick_by_tick(Grid::new(12, 3), &["~*0401", "", "*>"], 3);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 3), &["~*0401", "", "*>"], 3);
 
         assert_eq!(grids[0], ["~*0401      ", "**          ", "*>>>        "]);
         assert_eq!(grids[1], ["~*0401      ", "            ", "*> >>       "]);
@@ -1701,7 +1701,7 @@ mod test {
     fn a_single_east_jump_relays_one_aligned_language_unit() {
         // `&>` reads the aligned two-Cell unit at its input Portal and writes
         // that unit through its output Portal.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 1), &["01&>    "], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &["01&>    "], 1);
         assert_eq!(grids[0], ["01&>01  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1712,13 +1712,13 @@ mod test {
 
     #[test]
     fn each_jump_direction_relays_one_aligned_language_unit() {
-        let (_, north, _) = tick_by_tick(Grid::new(2, 3), &["  ", "&^", "01"], 1);
+        let (_, north, _) = tick_by_tick(Grid::with_shape(2, 3), &["  ", "&^", "01"], 1);
         assert_eq!(north[0], ["01", "&^", "01"]);
 
-        let (_, south, _) = tick_by_tick(Grid::new(2, 3), &["01", "&v", "  "], 1);
+        let (_, south, _) = tick_by_tick(Grid::with_shape(2, 3), &["01", "&v", "  "], 1);
         assert_eq!(south[0], ["01", "&v", "01"]);
 
-        let (_, west, _) = tick_by_tick(Grid::new(8, 1), &["    &<01"], 1);
+        let (_, west, _) = tick_by_tick(Grid::with_shape(8, 1), &["    &<01"], 1);
         assert_eq!(west[0], ["  01&<01"]);
     }
 
@@ -1727,7 +1727,7 @@ mod test {
         // Each Jump's output Portal is its own displacement. Two touching
         // east Jumps overlap: the first writes onto the second and suppresses
         // it, the same way any Source write covering a Function does.
-        let (plans, grids, _) = tick_by_tick(Grid::new(10, 1), &["01&>&>    "], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 1), &["01&>&>    "], 1);
         assert_eq!(grids[0], ["01&>01    "]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1735,13 +1735,13 @@ mod test {
             plans[0].diagnostics
         );
 
-        let (_, north, _) = tick_by_tick(Grid::new(2, 4), &["  ", "&^", "&^", "01"], 1);
+        let (_, north, _) = tick_by_tick(Grid::with_shape(2, 4), &["  ", "&^", "&^", "01"], 1);
         assert_eq!(north[0], ["  ", "01", "&^", "01"]);
 
-        let (_, south, _) = tick_by_tick(Grid::new(2, 4), &["01", "&v", "&v", "  "], 1);
+        let (_, south, _) = tick_by_tick(Grid::with_shape(2, 4), &["01", "&v", "&v", "  "], 1);
         assert_eq!(south[0], ["01", "&v", "01", "  "]);
 
-        let (_, west, _) = tick_by_tick(Grid::new(10, 1), &["    &<&<01"], 1);
+        let (_, west, _) = tick_by_tick(Grid::with_shape(10, 1), &["    &<&<01"], 1);
         assert_eq!(west[0], ["    01&<01"]);
     }
 
@@ -1750,17 +1750,17 @@ mod test {
         // A space between two `&>` is each Function's own Portals: the first
         // writes into the gap; the second reads that write and writes past
         // itself.
-        let (_, gap, _) = tick_by_tick(Grid::new(12, 1), &["01&>  &>    "], 1);
+        let (_, gap, _) = tick_by_tick(Grid::with_shape(12, 1), &["01&>  &>    "], 1);
         assert_eq!(gap[0], ["01&>01&>01  "]);
 
         // `&v` sits on `&>`'s output Portal, so the east Jump writes onto it.
-        let (_, split, _) = tick_by_tick(Grid::new(8, 1), &["01&>&v  "], 1);
+        let (_, split, _) = tick_by_tick(Grid::with_shape(8, 1), &["01&>&v  "], 1);
         assert_eq!(split[0], ["01&>01  "]);
     }
 
     #[test]
     fn a_jump_overwrites_an_occupied_destination() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["01&>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["01&>xx"], 1);
         assert_eq!(grids[0], ["01&>01"]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1771,7 +1771,7 @@ mod test {
 
     #[test]
     fn an_empty_jump_input_clears_the_destination() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["  &>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["  &>xx"], 1);
         assert_eq!(grids[0], ["  &>  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1782,7 +1782,7 @@ mod test {
 
     #[test]
     fn a_partial_jump_input_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["0 &>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["0 &>xx"], 1);
         assert_eq!(grids[0], ["0 &>xx"]);
         assert_eq!(messages(&plans[0]), vec!["&> has partial or invalid input"]);
     }
@@ -1791,7 +1791,7 @@ mod test {
     fn a_jump_does_not_transport_an_incomplete_language_unit() {
         // Cells 3–4 of `.+0102` are the last Cell of `01` and the first of
         // `02`: a slice across two Language Units, not one unit to copy.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 3), &[".+0102", "   &v", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "   &v", ""], 1);
         assert_eq!(grids[0], [".+0102  ", "03 &v   ", "        "]);
         assert_eq!(messages(&plans[0]), vec!["&v has partial or invalid input"]);
     }
@@ -1800,7 +1800,7 @@ mod test {
     fn a_jump_does_not_transport_a_sequence() {
         // `:-0001` writes `0001` on the row below. The Jump's input is the
         // first Atom of that Sequence, not a Language Unit of its own.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &[":-0001", "    &>"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[":-0001", "    &>"], 1);
         assert_eq!(grids[0][0], ":-0001  ");
         assert_eq!(grids[0][1], "0001&>  ");
         assert_eq!(messages(&plans[0]), vec!["&> has partial or invalid input"]);
@@ -1812,7 +1812,7 @@ mod test {
         // The Jump's aligned input sits in that reserved tail — empty, past
         // the admitted write — so it is ordinary empty input, not Sequence
         // transport.
-        let (plans, grids, _) = tick_by_tick(Grid::new(12, 2), &[":-0001", "      &>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 2), &[":-0001", "      &>xx"], 1);
         assert_eq!(grids[0][0], ":-0001      ");
         assert_eq!(grids[0][1], "0001  &>    ");
         assert!(
@@ -1827,7 +1827,7 @@ mod test {
         // `:-0001` writes `0001` and reserves the rest of the destination row.
         // The Jump's input is the Number `01` sitting in that reserved tail,
         // not a member of the Sequence the Range wrote.
-        let (plans, grids, _) = tick_by_tick(Grid::new(12, 2), &[":-0001", "    01&>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 2), &[":-0001", "    01&>xx"], 1);
         assert_eq!(grids[0][0], ":-0001      ");
         assert_eq!(grids[0][1], "000101&>01  ");
         assert!(
@@ -1839,7 +1839,7 @@ mod test {
 
     #[test]
     fn an_out_of_grid_jump_destination_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(4, 1), &["01&>"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 1), &["01&>"], 1);
         assert_eq!(grids[0], ["01&>"]);
         assert_eq!(
             messages(&plans[0]),
@@ -1849,7 +1849,7 @@ mod test {
 
     #[test]
     fn a_relayed_bang_writes_into_empty_source() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &[".=0101", "  &>"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  &>"], 1);
         assert_eq!(grids[0], [".=0101    ", "**&>**    "]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1862,8 +1862,11 @@ mod test {
     fn a_relayed_bang_activates_a_neighbour_of_empty_source() {
         // `**` written into empty Source is ordinary Bang output: a MIDI
         // south of that write sounds this Tick.
-        let (plans, grids, _) =
-            tick_by_tick(Grid::new(12, 3), &[".=0101", "  &>", "    !>007FC4"], 1);
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(12, 3),
+            &[".=0101", "  &>", "    !>007FC4"],
+            1,
+        );
         assert_eq!(grids[0][1], "**&>**      ");
         assert_eq!(plans[0].play_commands.len(), 1);
         assert!(
@@ -1878,7 +1881,8 @@ mod test {
         // Equality Bangs on every Tick; the Jump relays that Bang onto Raw
         // Play. The Play Command is the evidence the root was activated
         // without its Source being overwritten.
-        let (plans, grids, _) = tick_by_tick(Grid::new(12, 2), &[".=0101", "  &>!>007FC4"], 1);
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(12, 2), &[".=0101", "  &>!>007FC4"], 1);
         assert_eq!(grids[0], [".=0101      ", "**&>!>007FC4"]);
         assert_eq!(plans[0].play_commands.len(), 1);
         assert!(
@@ -1893,8 +1897,11 @@ mod test {
         // MIDI sits at the earliest Position. A North Jump below it relays
         // Bang onto that root, so the Play Command is also the evidence that
         // the schedule ordered the Jump first.
-        let (plans, grids, _) =
-            tick_by_tick(Grid::new(10, 3), &["!>007FC4", "&^  .=0101", "  &<"], 1);
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(10, 3),
+            &["!>007FC4", "&^  .=0101", "  &<"],
+            1,
+        );
         assert_eq!(grids[0][0], "!>007FC4  ");
         assert_eq!(plans[0].play_commands.len(), 1);
         assert!(
@@ -1906,7 +1913,7 @@ mod test {
 
     #[test]
     fn a_relayed_bang_on_an_occupied_non_root_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &[".=0101", "  &>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  &>xx"], 1);
         assert_eq!(grids[0], [".=0101    ", "**&>xx    "]);
         assert_eq!(
             messages(&plans[0]),
@@ -1921,7 +1928,7 @@ mod test {
         // Delay Bangs once; `*>` emits `>>`; the Jump copies that spelling.
         // The copy sits at columns 8–9 on this Tick. If it were actionable
         // from the Snapshot that wrote it, it would already have moved to 9.
-        let (plans, grids, _) = tick_by_tick(Grid::new(16, 2), &["~*0401", "  *>  &>"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(16, 2), &["~*0401", "  *>  &>"], 1);
         assert_eq!(grids[0][1], "***>>>&>>>      ");
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1932,7 +1939,8 @@ mod test {
     fn a_jump_below_its_consumer_reaches_it_the_same_tick() {
         // Backward routing is ordinary: the Jump is below Addition and still
         // supplies `02` in time for `03` to be written this Tick.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 3), &[".+  02", "  &^", "  01"], 1);
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(6, 3), &[".+  02", "  &^", "  01"], 1);
         assert_eq!(grids[0], [".+0102", "03&^  ", "  01  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1946,7 +1954,8 @@ mod test {
         // Nested `&^` writes no Cell, but it still reads the Portal one row
         // south. The root Jump lands `01` there this Tick; without that read
         // span the nested Jump would run first and add empty Source to `01`.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
         assert_eq!(grids[0], [".+&^01", "0201  ", "  &^  ", "  01  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1959,7 +1968,7 @@ mod test {
     fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
         // Increment reads and writes one row south. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", "&^"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", "&^"], 1);
         assert_eq!(grids[0], ["~+0104", "&^    "]);
         assert!(
             plans[0]
@@ -1978,7 +1987,7 @@ mod test {
         // 1, so a displacement alone cannot tell the two apart; the row-edge
         // refusal is what does, and it costs the whole write. The second row
         // stays empty, which is the assertion that says so.
-        let (_, grids, _) = tick_by_tick(Grid::new(4, 2), &["  >>", ""], 1);
+        let (_, grids, _) = tick_by_tick(Grid::with_shape(4, 2), &["  >>", ""], 1);
 
         assert_eq!(grids[0], ["  **", "    "]);
     }
@@ -1991,7 +2000,7 @@ mod test {
         // resolves a destination in each case and the row-edge check is the
         // only thing that refuses it. The single-row edge tests above take the
         // other path, where no Portal resolves at all.
-        let (_, grids, _) = tick_by_tick(Grid::new(4, 2), &["", "<<  "], 1);
+        let (_, grids, _) = tick_by_tick(Grid::with_shape(4, 2), &["", "<<  "], 1);
 
         assert_eq!(grids[0], ["    ", "**  "]);
     }
@@ -2008,7 +2017,7 @@ mod test {
         // is the rejected alternative ADR 0036 names. Both are blocked by
         // complete root contact and both bang, which is what ADR 0006 gives a
         // blocked move whatever blocked it.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &[">><<  "], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &[">><<  "], 1);
 
         assert_eq!(grids[0], ["****  "]);
         assert!(
@@ -2020,7 +2029,7 @@ mod test {
         // The vertical pair shares no Cell at all, so it says the same thing
         // about reservations rather than about the overlap a horizontal move
         // has with its own old Span.
-        let (vertical, rows, _) = tick_by_tick(Grid::new(2, 2), &["vv", "^^"], 1);
+        let (vertical, rows, _) = tick_by_tick(Grid::with_shape(2, 2), &["vv", "^^"], 1);
 
         assert_eq!(rows[0], ["**", "**"]);
         assert!(
@@ -2038,7 +2047,7 @@ mod test {
         // Addition beside it still answers, which is what says the `**` is
         // this Function reporting its own blocked move rather than the Tick
         // going wrong around it.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 3), &[".+0102", "  ^^", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "  ^^", ""], 1);
 
         assert_eq!(grids[0], [".+0102  ", "03**    ", "        "]);
         assert!(
@@ -2056,7 +2065,7 @@ mod test {
         // exactly as a complete contact blocks it — the diagnostic is the only
         // difference, because a misalignment is the one outcome the `**` alone
         // does not tell a Source author about.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 3), &[".+0102", "   ^^", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "   ^^", ""], 1);
 
         assert_eq!(grids[0], [".+0102  ", "03 **   ", "        "]);
         assert_eq!(
@@ -2072,7 +2081,7 @@ mod test {
         // Play Command is the whole evidence that activation was delivered —
         // and the `**` is the evidence the move was still blocked, because
         // ADR 0006 gives contact both outcomes and not a choice between them.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["!>007FC4", "^^"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["!>007FC4", "^^"], 1);
 
         assert_eq!(grids[0], ["!>007FC4", "**      "]);
         assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
@@ -2092,7 +2101,7 @@ mod test {
         // contact rather than by a Source-resident Bang, and it is why the
         // contact rule asks which unit covers the Cells entered rather than
         // which unit begins at them.
-        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &[">>!>007FC4", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[">>!>007FC4", ""], 1);
 
         assert_eq!(grids[0], ["**!>007FC4", "          "]);
         assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
@@ -2116,7 +2125,7 @@ mod test {
         // empty, planning a write over Cells a computation that had already
         // run was scheduled at. That is the defect ADR 0034 rejects a Tick for,
         // and this is the ordering that stops it arising.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["", ">>^^  "], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["", ">>^^  "], 1);
 
         assert_eq!(grids[0], ["  ^^  ", "**    "]);
         assert!(
@@ -2133,7 +2142,7 @@ mod test {
         // answers an effect, and ADR 0028's nesting rule refuses it where a
         // value is required. The refusal is the Expression's, so the Cells are
         // left standing and nothing moves.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &[".+^^01", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+^^01", ""], 1);
 
         assert_eq!(grids[0], [".+^^01  ", "        "]);
         assert_eq!(
@@ -2149,8 +2158,11 @@ mod test {
     fn halt_does_not_supply_cells_read_by_a_jump() {
         // Halt targets the empty Cells west of East Jump. Treating that lock
         // as a write closes a false cycle through both other Jumps and Equality.
-        let (plans, grids, _) =
-            tick_by_tick(Grid::new(8, 3), &[".=0101&<", "  *!  &^", "    &>  "], 1);
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &[".=0101&<", "  *!  &^", "    &>  "],
+            1,
+        );
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2163,7 +2175,7 @@ mod test {
 
     #[test]
     fn an_inactive_or_suppressed_halt_does_not_diagnose_its_target() {
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["  *!    ", "  ||    "], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  *!    ", "  ||    "], 1);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2173,7 +2185,7 @@ mod test {
         assert_eq!(grids[0], ["  *!    ", "  ||    "]);
 
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(8, 4),
+            Grid::with_shape(8, 4),
             &[".=0101  ", "  *!    ", "  *!    ", "  ||    "],
             1,
         );
@@ -2190,7 +2202,7 @@ mod test {
     fn halt_locks_nested_computations_before_they_can_diagnose() {
         // The nested Divide would diagnose its zero divisor if it took a Turn.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(12, 4),
+            Grid::with_shape(12, 4),
             &[
                 ".=0101      ",
                 "  *!        ",
@@ -2225,7 +2237,7 @@ mod test {
         // one row south of Halt is intrinsically active, so the lock is the
         // only reason it contributes no `07` and its Source is unchanged.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(8, 4),
+            Grid::with_shape(8, 4),
             &[".=0101  ", "  *!    ", "  .+0304", "        "],
             1,
         );
@@ -2248,8 +2260,11 @@ mod test {
         // "When active" is load-bearing: an unactivated `*!` establishes no
         // lock. The Add one row south is intrinsically active, so it writes
         // `07` the way it would if Halt were absent.
-        let (plans, grids, _) =
-            tick_by_tick(Grid::new(8, 3), &["*!      ", ".+0304  ", "        "], 1);
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &["*!      ", ".+0304  ", "        "],
+            1,
+        );
 
         assert_eq!(grids[0], ["*!      ", ".+0304  ", "07      "]);
         assert!(plans[0].locks.is_empty(), "{:?}", plans[0].locks);
@@ -2267,7 +2282,7 @@ mod test {
         // Add and Tick 1 clears that display with Halt inert, and the Add
         // runs.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(8, 4),
+            Grid::with_shape(8, 4),
             &["~*0201  ", "  *!    ", "  .+0304", "        "],
             2,
         );
@@ -2288,7 +2303,7 @@ mod test {
     fn an_empty_halt_target_is_a_noop() {
         // Off the last row, and an empty row that exists: neither diagnoses
         // and neither invents a lock.
-        let last_row = tick_by_tick(Grid::new(8, 2), &[".=0101  ", "  *!    "], 1);
+        let last_row = tick_by_tick(Grid::with_shape(8, 2), &[".=0101  ", "  *!    "], 1);
         assert_eq!(last_row.1[0], [".=0101  ", "***!    "]);
         assert!(last_row.0[0].locks.is_empty(), "{:?}", last_row.0[0].locks);
         assert!(
@@ -2297,7 +2312,11 @@ mod test {
             last_row.0[0].diagnostics
         );
 
-        let empty_row = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "        "], 1);
+        let empty_row = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &[".=0101  ", "  *!    ", "        "],
+            1,
+        );
         assert_eq!(empty_row.1[0], [".=0101  ", "***!    ", "        "]);
         assert!(
             empty_row.0[0].locks.is_empty(),
@@ -2316,7 +2335,11 @@ mod test {
         // Comment, Bang display, and an operand Cell are each occupied and
         // none is a root anchored one row south. Halt diagnoses and invents
         // no lock — the Add whose operand sits south of Halt still writes.
-        let comment = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  ||    "], 1);
+        let comment = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &[".=0101  ", "  *!    ", "  ||    "],
+            1,
+        );
         assert_eq!(comment.1[0], [".=0101  ", "***!    ", "  ||    "]);
         assert!(comment.0[0].locks.is_empty(), "{:?}", comment.0[0].locks);
         assert_eq!(
@@ -2324,7 +2347,11 @@ mod test {
             vec!["*! target is not an Expression root"]
         );
 
-        let bang = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  **    "], 1);
+        let bang = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &[".=0101  ", "  *!    ", "  **    "],
+            1,
+        );
         assert_eq!(bang.1[0], [".=0101  ", "***!    ", "        "]);
         assert!(bang.0[0].locks.is_empty(), "{:?}", bang.0[0].locks);
         assert_eq!(
@@ -2333,7 +2360,7 @@ mod test {
         );
 
         let operand = tick_by_tick(
-            Grid::new(8, 4),
+            Grid::with_shape(8, 4),
             &[".=0101  ", "  *!    ", ".+0304  ", "        "],
             1,
         );
@@ -2353,7 +2380,7 @@ mod test {
         // Two-row Halt stack: A locks B, and B therefore does not lock the
         // Add below it. The Add writes `07`.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(8, 5),
+            Grid::with_shape(8, 5),
             &[".=0101  ", "  *!    ", "  *!    ", "  .+0304", "        "],
             1,
         );
@@ -2391,7 +2418,7 @@ mod test {
         // that would reach an already-executed root is therefore
         // inexpressible; the existing late-write reject path still holds.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(14, 4),
+            Grid::with_shape(14, 4),
             &[
                 ".=0101  .+0901",
                 "  *!          ",
@@ -2420,7 +2447,7 @@ mod test {
             plans[0].diagnostics
         );
 
-        let grid = Grid::new(8, 4);
+        let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let (_, states) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
@@ -2438,8 +2465,11 @@ mod test {
         // Halt's lock withholds the south root's Turn, including a Self-Banging
         // North whose Advance names Halt's Cells. The lock edge wins: the Tick
         // is ordered, `^^` stays, and it does not become `**`.
-        let (plans, grids, source) =
-            tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  ^^    "], 1);
+        let (plans, grids, source) = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &[".=0101  ", "  *!    ", "  ^^    "],
+            1,
+        );
 
         assert_eq!(grids[0], [".=0101  ", "***!    ", "  ^^    "]);
         assert_eq!(
@@ -2459,7 +2489,7 @@ mod test {
         // Its north emission names Halt's Cells. The lock edge wins: the Tick
         // is ordered, `*^` stays, and it does not emit `^^`.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(12, 3),
+            Grid::with_shape(12, 3),
             &[".=0101      ", "  *!  .=0202", "  *^        "],
             1,
         );
@@ -2482,7 +2512,7 @@ mod test {
         // output Portal is Halt. The lock wins: the Tick is ordered, Halt
         // stays, and `01` is not copied onto it.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(8, 4),
+            Grid::with_shape(8, 4),
             &[".=0101  ", "  *!    ", "  &^    ", "  01    "],
             1,
         );
@@ -2505,7 +2535,7 @@ mod test {
         // two columns east; Position breaks the tie between the two
         // Equalities and then between the two Halts. Both Adds stay locked.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[
                 ".=0101  .=0202",
                 "  *!      *!  ",
@@ -2543,7 +2573,7 @@ mod test {
         // Equality Bangs from the west and `<<` contacts from the east.
         // Two activation paths, one Turn: a second visit would have
         // doubled Halt's interpretation count.
-        let grid = Grid::new(8, 4);
+        let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!<<  ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let (plan, states) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
@@ -2568,7 +2598,7 @@ mod test {
         // The complete target Expression contributes no effects: a locked
         // Raw Play emits no Play Command, and its Source is unchanged.
         let (plans, grids, source) = tick_by_tick(
-            Grid::new(10, 3),
+            Grid::with_shape(10, 3),
             &[".=0101    ", "  *!      ", "  !>007FC4"],
             1,
         );
@@ -2594,7 +2624,7 @@ mod test {
     /// Portal. The Tick's only diagnostic is the row-edge layout `.+01` owes.
     #[test]
     fn a_carried_destination_on_terminal_output_does_not_displace_row_edge_layout() {
-        let grid = Grid::new(16, 4);
+        let grid = Grid::with_shape(16, 4);
         let rows = ["!>007FC4", "", "", "            .+01"];
 
         let (plan, _) = carried_source(grid, &rows, &[(0, 16)]);
@@ -2780,7 +2810,7 @@ mod test {
 
         // An Addition whose second operand is Source it cannot read: the Turn
         // is syntax-blocked, which settles it without a Tick diagnostic.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [".+02", ""];
         let (plan, source) = stated_source(
             grid,
@@ -2849,7 +2879,7 @@ mod test {
             "the root's reservation can only have been derived from its child",
         );
 
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let (plan, source) = stated_source(
             grid,
             &["                ", ".+.-000003"],
@@ -2879,7 +2909,7 @@ mod test {
         // between two answers of `Pair` proves nothing. The pervasive `.+`
         // reserves a Row derived from its stated child, and `would_reserve`
         // has to answer `Row` for it.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let mut source = crate::source::Source::new(grid);
         for (index, byte) in snapshot(grid, &["                ", ".+.-000003"])
             .bytes()
@@ -2931,7 +2961,7 @@ mod test {
         // A Self-Banging Function states its displaced destination from its
         // declaration; a Terminal Output Function resolves none. The two share
         // a schedule through [`computations`], not through [`carry`].
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let source = seeded_source(grid, &["^^", "", "!>007FC4"]);
         let (nodes, diagnostics) = super::computations(grid, &source.shared_language_map());
 
@@ -2970,7 +3000,7 @@ mod test {
         // Number Range is the first built-in row that answers a Sequence, so
         // this is the first schedule where production derives `Reserved::Row`
         // rather than stating it through a fixture.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &[":-0003", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
@@ -2992,7 +3022,7 @@ mod test {
             "the widening rule needs at least one pervasive Function",
         );
 
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &["                ", ".+:-0003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
@@ -3014,7 +3044,7 @@ mod test {
 
     #[test]
     fn a_non_pervasive_parent_does_not_widen_over_a_declared_number_range_child() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &["                ", ".:?00:-0003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
@@ -3033,7 +3063,7 @@ mod test {
 
     #[test]
     fn a_declared_note_range_row_derives_its_own_reservation() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &[":#C4C7", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
@@ -3050,7 +3080,7 @@ mod test {
 
     #[test]
     fn live_a_declared_number_range_that_leaves_its_row_writes_no_cell_of_it() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [" :-000F        ", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3069,7 +3099,7 @@ mod test {
     fn live_a_declared_note_range_that_leaves_its_row_writes_no_cell_of_it() {
         // Each Note encodes as two Cells, so nine chromatic steps need eighteen
         // and do not fit a sixteen-Cell row even from column zero.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [":#C0C8          ", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3089,7 +3119,7 @@ mod test {
         // Select may return a Bang member unchanged. Scheduling trusts
         // `can_emit_bang` to build activation edges for scalar Bang results,
         // the same way it does for Equality's pulse.
-        let grid = Grid::new(24, 6);
+        let grid = Grid::with_shape(24, 6);
         let rows = ["", ":?00:<:=00.=0101:-0101", "", "!>007FC4", "", ""];
         let bytes = rows
             .iter()
@@ -3112,7 +3142,7 @@ mod test {
 
     #[test]
     fn replacing_a_cell_pair_function_with_number_range_changes_width() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &[".-000003", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
@@ -3127,7 +3157,7 @@ mod test {
     #[test]
     fn a_scalar_computation_still_reserves_a_cell_pair() {
         // The Range rows do not change what a purely scalar schedule derives.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &["                ", ".+.-000003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
@@ -3153,7 +3183,7 @@ mod test {
         // check a cycle switches off. The Addition writes over its own operand
         // and the answer names an operand Cell: both are wrong, and the one
         // the fixture author can fix is the one reported.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         stated_source(
             grid,
             &[".+0102", ""],
@@ -3169,7 +3199,7 @@ mod test {
         // The second answer could only ever be dropped: one computation takes
         // one Turn. Reported as the duplicate it is rather than as the Turn
         // that appeared not to reach it.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         stated_source(
             grid,
             &[".+0203", ""],
@@ -3193,7 +3223,7 @@ mod test {
         // The Equality above it answers the Bang that activates it, because an
         // unactivated Terminal Output root takes no Turn at all and would be
         // refused a Cell before reaching the arm under test.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         stated_source(
             grid,
             &[".=0101", "", "!>007FC4"],
@@ -3211,7 +3241,7 @@ mod test {
         // computation is anchored at would leave the schedule deriving every
         // width itself, and a Sequence answer would then be refused for a
         // reason that has nothing to do with what the test is asking.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         stated_source(
             grid,
             &[".+0203", ""],
@@ -3232,7 +3262,7 @@ mod test {
         // pervasive `.+` at Cell 16 would widen over the row-reserving `.-` at
         // Cell 18 and answer Row again, leaving a test that states the parent
         // does not widen asserting the opposite of what it says and passing.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         stated_source(
             grid,
             &["                ", ".+.-000003"],
@@ -3250,7 +3280,7 @@ mod test {
         // Falling through to an ordinary Tick would leave a test asking
         // whether little happened and being told that it did, which is what
         // this refuses to do quietly.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         stated_source(
             grid,
             &[".+0203", ""],
@@ -3269,7 +3299,7 @@ mod test {
         let denominator = ".+".repeat(24) + &"01".repeat(25);
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
-        let (plan, source) = carried_source(Grid::new(width, 2), &[&text, ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(width, 2), &[&text, ""], &[]);
         // 50 / 25 = 2. Reversing the siblings instead produces zero.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
@@ -3278,7 +3308,7 @@ mod test {
 
     #[test]
     fn live_unchanged_nested_syntax_errors_do_not_repeat_as_tick_failures() {
-        let grid = Grid::new(20, 2);
+        let grid = Grid::with_shape(20, 2);
         let rows = [".+01.x02.+03??", ""];
         let (plan, mut source) = carried_source(grid, &rows, &[]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -3309,7 +3339,7 @@ mod test {
 
         // A writer can also repair the bad leaf before its reserved turn.
         let (repaired, source) = carried_source(
-            Grid::new(20, 3),
+            Grid::with_shape(20, 3),
             &[".+01.x02.+03??", ".+0004", ""],
             &[(0, 40), (20, 12)],
         );
@@ -3323,7 +3353,7 @@ mod test {
 
     #[test]
     fn live_non_pair_scalar_projection_is_rejected_at_the_row_edge() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [".+0203", ""];
         // A single Cell at the last Cell of a row: the Portal admits it and the
         // schedule never reserved it, which is the pair of facts this rejection
@@ -3350,7 +3380,7 @@ mod test {
     #[test]
     fn live_inactive_nested_portal_cannot_create_a_cycle() {
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &["!>007F.^3C", ".+0203", ""],
             &[(6, 8), (16, 32)],
         );
@@ -3378,7 +3408,7 @@ mod test {
     fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         // `.|` at Cells 0 and 1 with a `|` at Cell 2: the pair at Cells 1 and
         // 2 spells `||` and means nothing, because nothing reads it.
-        let (plan, source) = carried_source(Grid::new(8, 2), &[".||102", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(8, 2), &[".||102", ""], &[]);
 
         assert!(plan.writes.is_empty());
         assert!(
@@ -3394,7 +3424,7 @@ mod test {
         // The same Function beside a real introducer. The Absolute Difference
         // of 01 and 02 answers 01 and writes it below; the Comment claims the
         // rest of the row and answers nothing.
-        let (plan, source) = carried_source(Grid::new(8, 2), &[".|0102||", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(8, 2), &[".|0102||", ""], &[]);
 
         assert_eq!(&source.snapshot()[8..10], "01");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -3434,7 +3464,7 @@ mod test {
     ///
     #[test]
     fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
-        let (plan, source) = carried_source(Grid::new(8, 2), &["** :##", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(8, 2), &["** :##", ""], &[]);
 
         assert!(
             !source
@@ -3466,7 +3496,7 @@ mod test {
 
     #[test]
     fn live_claims_and_glyphs_survive_source_edits_and_publication() {
-        let (plan, source) = carried_source(Grid::new(16, 2), &[".+01 02", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".+01 02", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(
             source
@@ -3486,7 +3516,7 @@ mod test {
                 .token_at(source.grid().position(4, 0).unwrap()),
             Some(Token::Number)
         );
-        let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".+0102.+0304", ""], &[]);
         assert_eq!(&source.snapshot()[16..24], "03    07");
         assert!(plan.diagnostics.is_empty());
         assert_eq!(
@@ -3498,15 +3528,15 @@ mod test {
                 .count(),
             2
         );
-        let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102Z", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".+0102Z", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "03");
         assert!(plan.diagnostics.is_empty());
         assert!(source.language_map().diagnostics().any(|d| d.start() == 6));
-        let (plan, source) = carried_source(Grid::new(16, 2), &["***", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &["***", ""], &[]);
         assert_eq!(&source.snapshot()[..3], "  *");
         assert_eq!(plan.writes.len(), 2);
         assert!(source.language_map().diagnostics().any(|d| d.start() == 2));
-        let (plan, source) = carried_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".=0101 !>007FC4", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "**");
         assert!(plan.play_commands.is_empty());
         assert!(plan.diagnostics.is_empty());
@@ -3521,7 +3551,7 @@ mod test {
         );
         // Pin the current display of plausible standalone data. These rejected
         // Function candidates have Function glyphs, no units and no execution.
-        let (plan, source) = carried_source(Grid::new(16, 2), &["C4 EA 01", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &["C4 EA 01", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(source.language_map().units().count(), 0);
         for column in [0, 1, 3, 4, 6, 7] {
@@ -3537,7 +3567,7 @@ mod test {
     #[test]
     fn live_bang_in_half_typed_terminal_claim_diagnoses_without_activation() {
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &["    .=0101", "!>00", "    !>007FC4"],
             &[],
         );
@@ -3561,7 +3591,7 @@ mod test {
     #[test]
     fn live_function_replacement_cannot_change_activation_or_output_kind() {
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0204", ".+0000", ""],
             &[(0, 32), (16, 0)],
             &[(16, lang::Function::RawPlay)],
@@ -3593,7 +3623,7 @@ mod test {
         // question would admit the replacement and leave the schedule holding
         // edges derived from a root that now needs no Bang.
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0000", "!>007FC4", ""],
             &[(0, 16)],
             &[(0, lang::Function::SelfBangingNorth)],
@@ -3622,7 +3652,7 @@ mod test {
         // it, and a neighbouring root waiting on a Bang the schedule never
         // ordered.
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0000", ".+0102", ""],
             &[(0, 16)],
             &[(0, lang::Function::Equality)],
@@ -3652,7 +3682,7 @@ mod test {
         // writing at Cells no dependency edge names, which is the ADR 0036
         // defect this guard exists to refuse.
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0000", "^^", ""],
             &[(0, 16)],
             &[(0, lang::Function::SelfBangingEast)],
@@ -3689,7 +3719,7 @@ mod test {
         // guard is the only thing that changes it. That agreement is an
         // invariant about the guard itself, held nowhere and by nothing else,
         // and reading the running Function is what stops it being load-bearing.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let (plan, source) = replaced_source(
             grid,
             &[".+0503", ".x0405", ".-0607"],
@@ -3721,7 +3751,7 @@ mod test {
         // is stated against the Subtraction already in place rather than
         // against the parsed Addition; the two answer alike, which is the
         // invariant the test above records.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let (plan, source) = replaced_source(
             grid,
             &[".+0503", ".x0405", ".-0607"],
@@ -3760,7 +3790,7 @@ mod test {
         // one is what separates this from the scalar case it now shares a path
         // with — including ADR 0036's width guard, which refuses any answer
         // that is not a Cell pair from a computation reserving one.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let (plan, source) =
             sequence_source(grid, &[".+0102", ""], &[], &[(0, &[0x0A, 0x0B, 0x0C])]);
 
@@ -3775,7 +3805,7 @@ mod test {
         // The same complete-fit path as the stated Sequence fixtures, but the
         // row-wide reservation is derived from Number Range's own declaration
         // rather than stated beside the answer.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [":-0003", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3789,7 +3819,7 @@ mod test {
     fn live_a_declared_number_range_reservation_orders_computations_it_covers() {
         // ADR 0036's reservation, observed as the ordering it buys, with a
         // declared Range row rather than a stated Sequence answer.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = ["        .+0102", ":-0005"];
         let mut source = seeded_source(grid, &rows);
         let (plan, states) =
@@ -3815,7 +3845,7 @@ mod test {
         // The Number Range happy path above, repeated for Note Range: each Note
         // encodes as two Cells and the complete Sequence must fit the row.
         // Bounds are chromatic by MIDI value, so C4–D4 is three semitones.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [":#C4D4", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3827,7 +3857,7 @@ mod test {
 
     #[test]
     fn live_a_declared_note_range_reservation_orders_computations_it_covers() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = ["        .+0102", ":#C4F4"];
         let mut source = seeded_source(grid, &rows);
         let (plan, states) =
@@ -3849,7 +3879,7 @@ mod test {
 
     #[test]
     fn live_a_declared_reverse_result_reaches_its_destination_cells() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [":<:-0003", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3860,7 +3890,7 @@ mod test {
 
     #[test]
     fn live_a_declared_concatenate_result_reaches_its_destination_cells() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [":&:-0101:-0202", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3874,7 +3904,7 @@ mod test {
 
     #[test]
     fn live_a_declared_replace_result_reaches_its_destination_cells() {
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [":=01.+0102:-0103", ""];
         let (plan, source) = carried_source(grid, &rows, &[]);
 
@@ -3898,7 +3928,7 @@ mod test {
         // overruns has another row after it: what is refused here is leaving
         // the row, not approaching the end of the Grid. The Grid's own edges
         // are the test below.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let rows = [".+0102", "", ""];
         let (plan, source) = sequence_source(grid, &rows, &[(0, 28)], &[(0, &[0x0A, 0x0B, 0x0C])]);
 
@@ -3922,7 +3952,7 @@ mod test {
         // third case is the one that must still work: a Sequence ending exactly
         // on the Grid's last Cell is admitted, so the refusals above are about
         // leaving the Grid and not about being near its edge.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let below = ["", ".+0102"];
         let (plan, source) = sequence_source(grid, &below, &[], &[(16, &[0x0A, 0x0B])]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
@@ -3964,7 +3994,7 @@ mod test {
         // contested Cells as it has characters. The later producer wins the two
         // Cells it overlaps and the earlier producer's first four Cells stand,
         // which a rule resolving whole writes would have replaced together.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let (plan, source) = sequence_source(
             grid,
             &[".+0000.+0000", ""],
@@ -3990,7 +4020,7 @@ mod test {
         // a refused one, so it plans no Cell write and reports nothing. It
         // never reaches a Portal, which is what lets `Portal::admit` assert
         // that a write places at least one Cell.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = [".+0102", ""];
         let (plan, source) = sequence_source(grid, &rows, &[], &[(0, &[])]);
 
@@ -4011,7 +4041,7 @@ mod test {
         // destination row instead orders the producer first, and the
         // Expression it covers is suppressed rather than executed against a
         // spelling that is no longer there.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let (plan, turns, source) = sequence_turns(
             grid,
             &["        .+0102", ".+0000"],
@@ -4043,7 +4073,7 @@ mod test {
         // is ordered after the producer and then executes normally, answering
         // `03` into row 1. Suppressing everything the reservation names would
         // leave that Cell pair empty.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let (plan, turns, source) = sequence_turns(
             grid,
             &["        .+0102", ".+0000"],
@@ -4081,7 +4111,7 @@ mod test {
         // makes that Tick a cycle and discards every write and Play Command in
         // the Grid, which is the outcome ADR 0036's rejected alternative names
         // — a cycle manufactured between computations that never touch.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let (plan, source) = sequence_source(
             grid,
             &["        .+0102", ""],
@@ -4104,7 +4134,7 @@ mod test {
         // so the Tick is rejected entire and the Source is unchanged. The
         // Expression that is left standing when the write stops short is the
         // test above; this is what happens when it does not.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let rows = ["        .+0102", ""];
         let (plan, source) = sequence_source(
             grid,
@@ -4139,7 +4169,7 @@ mod test {
         // indistinguishable. The Source cannot tell them apart either: a
         // rejected Tick writes nothing, so a computation that ran and one that
         // never did leave the same Cells behind.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let rows = ["        .+0102", ".+0000", ""];
         let (plan, turns, source) = sequence_turns(
             grid,
@@ -4177,7 +4207,7 @@ mod test {
         // two writes contest. A reservation running on into row 1 would cover
         // the Addition's spelling and its literals, order that Addition after
         // the Sequence, and hand those two Cells to it instead.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let (plan, turns, source) = sequence_turns(
             grid,
             &["", ".+0102", ".+0000"],
@@ -4205,7 +4235,7 @@ mod test {
             first in proptest::prelude::any::<u8>(), second in proptest::prelude::any::<u8>(),
             first_column in 2usize..6, second_column in 2usize..6,
         ) {
-            let grid = Grid::new(16, 4);
+            let grid = Grid::with_shape(16, 4);
             let first_source = format!(".+00{first:02X}");
             let second_source = format!(".+00{second:02X}");
             let rows = [".+0101", first_source.as_str(), second_source.as_str(), ""];
@@ -4232,7 +4262,7 @@ mod test {
 
         #[test]
         fn live_rejected_complete_write_changes_no_cell(value in proptest::prelude::any::<u8>()) {
-            let grid = Grid::new(16, 2);
+            let grid = Grid::with_shape(16, 2);
             let producer = format!(".+00{value:02X}");
             let rows = [producer.as_str(), ""];
             let (plan, source) = carried_source(grid, &rows, &[(0, 31)]);
@@ -4244,7 +4274,7 @@ mod test {
     #[test]
     fn live_cross_boundary_chain_uses_lower_producers() {
         let (plan, source) = carried_source(
-            Grid::new(16, 5),
+            Grid::with_shape(16, 5),
             &[".+0101", ".+0001", ".+0001", "", ""],
             &[(0, 64), (16, 34), (32, 3)],
         );
@@ -4256,7 +4286,7 @@ mod test {
     #[test]
     fn live_competing_writers_follow_position_and_emissions_follow_their_destinations() {
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[".+0101", ".+0101", ".+0102", ""],
             &[(0, 48), (16, 3), (32, 3)],
         );
@@ -4264,7 +4294,7 @@ mod test {
         assert_eq!(&source.snapshot()[48..50], "31");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         let (plan, interpreted, source) = carried_tick(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0101", ".+0203", ""],
             &[(0, 32), (16, 2), (16, 3)],
         );
@@ -4277,7 +4307,7 @@ mod test {
     #[test]
     fn live_pending_note_decodes_only_after_all_writers_settle() {
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[".vE4", ".+E901", ".+E401", ""],
             &[(0, 48), (16, 2), (32, 2)],
         );
@@ -4285,7 +4315,7 @@ mod test {
         assert_eq!(&source.snapshot()[48..50], "4C");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".vE4", ".+E901", ""],
             &[(0, 32), (16, 2)],
         );
@@ -4299,7 +4329,7 @@ mod test {
             plan.diagnostics
         );
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0000", ".+E901", ""],
             &[(0, 32), (16, 2)],
         );
@@ -4310,14 +4340,14 @@ mod test {
     #[test]
     fn live_spatial_note_is_an_encoding_and_nested_note_stays_typed() {
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0001", ".^48", ""],
             &[(0, 32), (16, 2)],
         );
         assert_eq!(&source.snapshot()[..6], ".+C501");
         assert_eq!(&source.snapshot()[32..34], "C6");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) = carried_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)]);
+        let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".+.^4801", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -4335,7 +4365,7 @@ mod test {
         // Carry cannot mint a Portal onto it. The sibling `.+` is a root, so
         // it still writes after the parent divides by zero.
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &["./.x030400", ".+0001", "", ""],
             &[(0, 48), (2, 18), (16, 52)],
         );
@@ -4349,8 +4379,11 @@ mod test {
         );
         // The nested multiply still supplies 0C, so `.+` writes 0E. Naming a
         // Cell for that nested Function does not create a row-edge write.
-        let (plan, source) =
-            carried_source(Grid::new(16, 2), &[".+02.x0304", ""], &[(0, 16), (4, 31)]);
+        let (plan, source) = carried_source(
+            Grid::with_shape(16, 2),
+            &[".+02.x0304", ""],
+            &[(0, 16), (4, 31)],
+        );
         assert_eq!(&source.snapshot()[16..18], "0E");
         assert_eq!(&source.snapshot()[31..], " ");
         assert!(
@@ -4365,7 +4398,7 @@ mod test {
     #[test]
     fn live_failed_suppliers_preserve_spatial_data_but_not_nested_answers() {
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[".+0001", ".+0203", "./0100", ""],
             &[(0, 48), (16, 2), (32, 2)],
         );
@@ -4376,7 +4409,8 @@ mod test {
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
-        let (plan, source) = carried_source(Grid::new(16, 2), &[".+02./0100", ""], &[(0, 16)]);
+        let (plan, source) =
+            carried_source(Grid::with_shape(16, 2), &[".+02./0100", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -4385,7 +4419,7 @@ mod test {
         );
         // A failed structural writer leaves the original computation connected.
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+02.x0304", "./0100", ""],
             &[(0, 32), (16, 4)],
         );
@@ -4403,7 +4437,7 @@ mod test {
         // Carrying a Cell onto `!>` cannot mint a Portal. Nested `.^80` still
         // supplies no Note, so this Expression neither plays nor writes.
         let (plan, interpreted, source) = carried_tick(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &["!>007F.^80", "", ""],
             &[(0, 16), (6, 20)],
         );
@@ -4419,7 +4453,7 @@ mod test {
         );
         assert_eq!(&source.snapshot()[16..32], "                ");
         let (plan, _) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &["!>007FC4", "", ".=0101", ""],
             &[(0, 34), (32, 16)],
         );
@@ -4436,7 +4470,7 @@ mod test {
     #[test]
     fn live_deep_and_top_level_replacement_suppress_descendant_portals() {
         let (plan, interpreted, source) = carried_tick(
-            Grid::new(20, 3),
+            Grid::with_shape(20, 3),
             &[".+02.x03.+0101", ".+0203", ""],
             &[(0, 40), (4, 44), (8, 48), (20, 4)],
         );
@@ -4451,7 +4485,7 @@ mod test {
                 .is_some_and(|root| root.x() == 8 && root.y() == 0)
         }));
         let (plan, interpreted, source) = carried_tick(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+02.x0304", ".+0203", ""],
             &[(0, 32), (4, 36), (16, 0)],
         );
@@ -4473,7 +4507,7 @@ mod test {
     #[test]
     fn live_function_replacement_keeps_nesting_and_reinterprets_only_literals() {
         let (plan, source) = replaced_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[".+02.x0304", ".+0000", ".+0001", ""],
             &[(0, 48), (4, 34), (16, 0), (32, 52)],
             &[(16, lang::Function::Multiply)],
@@ -4483,7 +4517,7 @@ mod test {
         assert_eq!(&source.snapshot()[52..54], "01");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".vC4", ".+0000", ""],
             &[(0, 32), (16, 0)],
             &[(16, lang::Function::ConvertToNote)],
@@ -4496,7 +4530,7 @@ mod test {
                 .any(|d| d.message == "Number C4 cannot be converted to a Note")
         );
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".v.^3C", ".+0000", ""],
             &[(0, 32), (16, 0)],
             &[(16, lang::Function::ConvertToNote)],
@@ -4509,7 +4543,7 @@ mod test {
     #[test]
     fn live_replacement_checks_retained_arity_and_never_runs_new_anchors() {
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0204", ".+0000", ""],
             &[(0, 32), (16, 0)],
             &[(16, lang::Function::ConvertToNote)],
@@ -4534,7 +4568,7 @@ mod test {
         );
         assert!(source.language_map().diagnostics().any(|d| d.start() == 4));
         let (plan, interpreted, source) = replaced_tick(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0101", ".+0000", ""],
             &[(0, 32), (16, 1)],
             &[(16, lang::Function::Multiply)],
@@ -4563,7 +4597,7 @@ mod test {
             vec![(0, 2), (16, 64), (32, 48)],
         ] {
             let (plan, interpreted, source) = carried_tick(
-                Grid::new(16, 5),
+                Grid::with_shape(16, 5),
                 &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
                 &outputs,
             );
@@ -4578,7 +4612,7 @@ mod test {
             );
         }
         let (plan, _) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+02.x0304", ".+0001", ""],
             &[(0, 18), (4, 18), (16, 6)],
         );
@@ -4593,7 +4627,7 @@ mod test {
     #[test]
     fn a_late_spatial_write_rejects_the_tick_even_when_the_earlier_turn_failed() {
         for target in [".+0101", "./0100", ".+01??"] {
-            let grid = Grid::new(16, 11);
+            let grid = Grid::with_shape(16, 11);
             let bytes = snapshot(
                 grid,
                 &[
@@ -4674,7 +4708,7 @@ mod test {
     #[test]
     fn original_anchor_function_replacement_retains_inputs() {
         let (plan, source) = replaced_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0204", ".+0000", ""],
             &[(0, 32), (16, 0)],
             &[(16, lang::Function::Multiply)],
@@ -4687,7 +4721,7 @@ mod test {
     #[test]
     fn a_value_replaces_nested_computation_and_preserves_next_tick_source() {
         let (plan, interpreted, source) = carried_tick(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[".+02.x0304", ".+0203", "", ""],
             &[(0, 48), (4, 52), (16, 4)],
         );
@@ -4706,7 +4740,7 @@ mod test {
     fn nested_computation_returns_and_projects_once() {
         // Nested `.x` answers 0C to `.+` and writes no Cell. Naming one for it
         // cannot mint a Portal; the sibling `.+0101` keeps its own literals.
-        let grid = Grid::new(16, 4);
+        let grid = Grid::with_shape(16, 4);
         let (plan, interpreted, source) = carried_tick(
             grid,
             &[".+02.x0304", ".+0101", "", ""],
@@ -4730,7 +4764,7 @@ mod test {
     #[test]
     fn partial_writers_settle_before_consumption() {
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &[".+0101", ".+0203", ".+0101", ""],
             &[(0, 56), (16, 2), (32, 3)],
         );
@@ -4761,7 +4795,7 @@ mod test {
         // The Bang is delivered to (0, 2) so the roots around it are ordinary
         // Terminal Output Expressions rather than an arrangement bent to reach
         // a downward Portal.
-        let grid = Grid::new(16, 6);
+        let grid = Grid::with_shape(16, 6);
         let bytes = snapshot(
             grid,
             &["", "!>007FC4", "", "!>007FC5", "!>007FC6", ".=0101"],
@@ -4789,7 +4823,7 @@ mod test {
 
     #[test]
     fn fixed_bang_destinations_respect_alignment_and_operand_contact() {
-        let grid = Grid::new(16, 6);
+        let grid = Grid::with_shape(16, 6);
         // One terminal at (4, 2). A Bang two Cells east of it is in its
         // channel operand, so cardinal alignment alone cannot activate it.
         for (column, row, performs) in [
@@ -4847,7 +4881,7 @@ mod test {
         // silent anyway -- narrowing the contact test to the anchor Cell alone
         // would sound it.
         let (plan, _) = carried_source(
-            Grid::new(16, 6),
+            Grid::with_shape(16, 6),
             &["", "", "   .=0101", "    !>007FC4", "", ".=0101"],
             &[(80, 2 * 16 + 4)],
         );
@@ -4862,7 +4896,7 @@ mod test {
         // It still belongs to an operand, so neither its inactive owner nor
         // the aligned terminal below it can perform.
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &["    .=0101", "!>00.+0101C4", "    !>007FC5", ""],
             &[],
         );
@@ -4881,7 +4915,7 @@ mod test {
         // Function and so no root. Nothing is eligible, so the terminal that
         // owns that `.+` never performs and its row is left exactly as typed.
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &["", "!>00.+0101C4", "", ".=0101"],
             &[(48, 4)],
         );
@@ -4898,7 +4932,7 @@ mod test {
         // Bang lands in `.+`'s left Number slot, so it is a rejected operand
         // spelling and not an activation event, even though it is Cell-aligned
         // with the terminal root below it.
-        let grid = Grid::new(16, 5);
+        let grid = Grid::with_shape(16, 5);
         let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -4918,7 +4952,7 @@ mod test {
     #[test]
     fn a_result_written_where_stale_bang_display_stood_joins_nothing() {
         // Cleared display may be rewritten successfully in the same Tick.
-        let grid = Grid::new(16, 3);
+        let grid = Grid::with_shape(16, 3);
         let bytes = snapshot(grid, &[".=0101", "**", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -4937,12 +4971,13 @@ mod test {
     #[test]
     fn outputs_beside_and_over_standalone_source_are_admitted() {
         // These exact Sources used to trip the obsolete join guard.
-        let (plan, source) = carried_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[]);
+        let (plan, source) = carried_source(Grid::with_shape(8, 3), &[".=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[8..14], "**0102");
         assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
         assert!(plan.diagnostics.is_empty());
         assert_eq!(source.language_map().bangs().count(), 1);
-        let (plan, source) = carried_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[]);
+        let (plan, source) =
+            carried_source(Grid::with_shape(10, 3), &["    .=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[10..16], "  01**");
         assert_eq!(planned(&plan), vec![(14, '*'), (15, '*')]);
         assert!(plan.diagnostics.is_empty());
@@ -4952,7 +4987,7 @@ mod test {
     fn a_destination_at_the_row_edge_costs_one_expression_its_turn_not_the_tick() {
         // A complete destination must fit even when the stated Portal is at
         // the final Cell, independently of other computations.
-        let grid = Grid::new(16, 4);
+        let grid = Grid::with_shape(16, 4);
         let bytes = snapshot(grid, &[".+0102", "", ".+0304", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let destinations = [(
@@ -4983,7 +5018,7 @@ mod test {
     #[test]
     fn overlapping_outputs_beside_standalone_source_both_contribute_cells() {
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0102 .+0304", "0102", ""],
             &[(0, 20), (7, 21)],
         );
@@ -5001,7 +5036,7 @@ mod test {
         //
         // A fifth row so the Addition has somewhere to put its result: what
         // this test is about is that the Addition takes a turn at all.
-        let grid = Grid::new(16, 5);
+        let grid = Grid::with_shape(16, 5);
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -5023,7 +5058,7 @@ mod test {
     #[test]
     fn a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing() {
         // A row-edge fragment is local syntax failure, not a graph error.
-        let grid = Grid::new(16, 4);
+        let grid = Grid::with_shape(16, 4);
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", "            .+01"]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -5042,7 +5077,7 @@ mod test {
     #[test]
     fn an_activated_consumer_uses_surviving_cells_after_supplier_failure() {
         let (plan, source) = carried_source(
-            Grid::new(16, 4),
+            Grid::with_shape(16, 4),
             &["  .+", "!>007FC4", "", ".=0101"],
             &[(48, 32)],
         );
@@ -5071,7 +5106,7 @@ mod test {
         // result to be visible in and is read off the execution states here
         // instead. When one does, this asserts through that Function's answer
         // and stops reading states at all.
-        let grid = Grid::new(20, 3);
+        let grid = Grid::with_shape(20, 3);
         let bytes = snapshot(grid, &[".+0102 .+0304", "          .-0504", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let tick = Tick::new(11);
@@ -5106,7 +5141,7 @@ mod test {
         // Cell pair directly south of its anchor, so the expected writes are
         // literal Cell indices and characters rather than anything the code
         // under test could satisfy by agreeing with itself.
-        let grid = Grid::new(24, 2);
+        let grid = Grid::with_shape(24, 2);
         let bytes = snapshot(grid, &["~.0304 ~*0202 ~%0304", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -5147,7 +5182,7 @@ mod test {
         // one, and the diagnostic has to reach the Source through the ordinary
         // Tick Plan: it names the Function's spelling and the operand role, so
         // the console can say which of the two Cell pairs to edit.
-        let grid = Grid::new(16, 2);
+        let grid = Grid::with_shape(16, 2);
         let bytes = snapshot(grid, &["~*0300 ~%0400", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -5180,7 +5215,7 @@ mod test {
         // and a missing one at neither, so the pair is what makes this about
         // the pulse rather than about scheduling in general.
         for (spelling, banging, silent) in [("~*0202", 4, 1), ("~%0304", 4, 1)] {
-            let grid = Grid::new(16, 6);
+            let grid = Grid::with_shape(16, 6);
             let bytes = snapshot(grid, &["", "!>007FC4", "", "", "", spelling]);
             let map = LanguageMap::build(grid, bytes.as_bytes());
             let destinations = [(
@@ -5228,7 +5263,7 @@ mod test {
         // the first step toward the target for Interpolation. The expected
         // writes are literal Cells, so a body that treated empty as occupied
         // would diagnose here rather than write.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", ""], 1);
 
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -5237,7 +5272,7 @@ mod test {
         );
         assert_eq!(grids[0], ["~+0104", "01    "]);
 
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~>0210", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~>0210", ""], 1);
 
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -5254,11 +5289,11 @@ mod test {
         // Interpolation walks `04 08` toward `10`. A hidden counter that
         // ignored the Portal would still pass the first Tick and fail the
         // second once the Cells were live-edited, which the next test does.
-        let (_, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", ""], 2);
+        let (_, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", ""], 2);
         assert_eq!(grids[0], ["~+0104", "01    "]);
         assert_eq!(grids[1], ["~+0104", "02    "]);
 
-        let (_, grids, _) = tick_by_tick(Grid::new(6, 2), &["~>0410", ""], 2);
+        let (_, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~>0410", ""], 2);
         assert_eq!(grids[0], ["~>0410", "04    "]);
         assert_eq!(grids[1], ["~>0410", "08    "]);
     }
@@ -5269,7 +5304,7 @@ mod test {
         // memory: after Tick 0 writes `01`, the Portal is set to `05` and
         // Tick 1 must wrap from that Number. A hidden previous that remembered
         // `01` would write `02` here.
-        let grid = Grid::new(6, 2);
+        let grid = Grid::with_shape(6, 2);
         let mut source = seeded_source(grid, &["~+0108", ""]);
         source.execute(Tick::ZERO);
         assert_eq!(rows_of(grid, &source)[1], "01    ");
@@ -5286,7 +5321,7 @@ mod test {
         // The carried output fixture places Add's answer at the feedback
         // input. The later Turn must read `05`, not the empty Snapshot Cells.
         for (function, expected) in [("~+0108", "06"), ("~>0208", "07")] {
-            let grid = Grid::new(14, 2);
+            let grid = Grid::with_shape(14, 2);
             let row = format!(".+0203  {function}");
             let (plan, source) = carried_source(grid, &[&row, ""], &[(0, 22), (8, 22)]);
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -5299,7 +5334,7 @@ mod test {
         // ADR 0009: an ordinary result writes only its current encoding and
         // never clears a stale tail outside that Span. The Portal already
         // holds `00ABCD`; Increment writes `01` and leaves `ABCD`.
-        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["~+0104", "00ABCD"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["~+0104", "00ABCD"], 1);
 
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -5321,7 +5356,7 @@ mod test {
             ("0X    ", "invalid hex"),
             ("0     ", "truncated pair"),
         ] {
-            let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", portal], 1);
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", portal], 1);
             assert_eq!(
                 messages(&plans[0]),
                 ["~+ cannot read a previous value that is not a Number"],
@@ -5341,7 +5376,7 @@ mod test {
         // A root in the last row resolves no Portal. Clamping would invent a
         // previous of `00` and write nowhere; diagnosing names the missing
         // read instead.
-        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["~+0104"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["~+0104"], 1);
 
         assert_eq!(
             messages(&plans[0]),
@@ -5357,7 +5392,8 @@ mod test {
         // are a function of Position, so `~?010010` at column 0 writes `02`
         // and the one at column 9 writes `00`. A body that seeded both at
         // the Expression — or at a shared origin — would write `02` twice.
-        let (plans, grids, _) = tick_by_tick(Grid::new(18, 2), &["~?010010 ~?010010", ""], 1);
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(18, 2), &["~?010010 ~?010010", ""], 1);
 
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -5374,7 +5410,8 @@ mod test {
         // own `node.anchor`: the left sits at column 2 and draws `0A`, the
         // right at column 10 and draws `0F`. Their sum is `19`. Seeding both
         // at the Add's origin would draw `02` twice and write `04`.
-        let (plans, grids, _) = tick_by_tick(Grid::new(18, 2), &[".+~?010010~?010010", ""], 1);
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(18, 2), &[".+~?010010~?010010", ""], 1);
 
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -5391,7 +5428,7 @@ mod test {
         // `0A`. Planning the origin Grid a second time at the same Tick
         // writes `02` again, which is what "identical inputs reproduce"
         // means when there is no hidden activation count.
-        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &["~?010010", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &["~?010010", ""], 1);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -5399,7 +5436,7 @@ mod test {
         );
         assert_eq!(grids[0], ["~?010010  ", "02        "]);
 
-        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &["  ~?010010", ""], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &["  ~?010010", ""], 1);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -5407,7 +5444,7 @@ mod test {
         );
         assert_eq!(grids[0], ["  ~?010010", "  0A      "]);
 
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         let bytes = snapshot(grid, &["~?010010", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let first = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
@@ -5417,7 +5454,7 @@ mod test {
 
     #[test]
     fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
-        let grid = Grid::new(16, 5);
+        let grid = Grid::with_shape(16, 5);
         let rows = ["", "", "!>007FD4", "      .^3C", ".=0101"];
         let bytes = rows
             .iter()
@@ -5450,7 +5487,7 @@ mod test {
 
     #[test]
     fn two_current_bang_results_still_execute_midi_once() {
-        let grid = Grid::new(16, 6);
+        let grid = Grid::with_shape(16, 6);
         let rows = ["", ".=0101", "", "!>007FC4", "", ".=0202"];
         let bytes = rows
             .iter()
@@ -5479,7 +5516,7 @@ mod test {
 
     #[test]
     fn one_failed_bang_candidate_does_not_suppress_another_fresh_bang() {
-        let grid = Grid::new(16, 7);
+        let grid = Grid::with_shape(16, 7);
         let rows = [".=0101", ".=./010001", "", "", "", "!>007FC4", ""];
         let bytes = rows
             .iter()
@@ -5513,7 +5550,7 @@ mod test {
     #[test]
     fn competing_writers_preserve_an_independent_rejected_destination_diagnostic() {
         let (plan, source) = carried_source(
-            Grid::new(16, 3),
+            Grid::with_shape(16, 3),
             &[".+0102", ".+0304", ".+0506"],
             &[(0, 26), (16, 26), (32, 31)],
         );
@@ -5526,7 +5563,7 @@ mod test {
 
     #[test]
     fn competing_writers_publish_but_dependency_cycles_abort_before_output() {
-        let conflict_grid = Grid::new(16, 2);
+        let conflict_grid = Grid::with_shape(16, 2);
         let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
         let conflict_map = LanguageMap::build(conflict_grid, conflict_bytes.as_bytes());
         let shared = conflict_grid.position(10, 1).unwrap();
@@ -5547,7 +5584,7 @@ mod test {
         assert!(conflict.play_commands.is_empty());
         assert!(conflict.diagnostics.is_empty());
 
-        let cycle_grid = Grid::new(16, 2);
+        let cycle_grid = Grid::with_shape(16, 2);
         let cycle_bytes = format!("{:<16}{:<16}", ".+0001", ".+0001");
         let cycle_map = LanguageMap::build(cycle_grid, cycle_bytes.as_bytes());
         let cycle_destinations = [
@@ -5643,7 +5680,7 @@ mod test {
         // so its result has nowhere to go and the Tick contributes a
         // diagnostic and nothing else — not the first Cell of a result that
         // could not be placed.
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         let bytes = snapshot(grid, &["", ".+0102"]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
@@ -5671,7 +5708,7 @@ mod test {
         // least three columns apart. The Source-writing Functions of issues 03
         // and 04 emit exactly this shape of overlapping bundle, so the
         // resolution they rely on is pinned here at the seam that owns it.
-        let grid = Grid::new(20, 3);
+        let grid = Grid::with_shape(20, 3);
         let plan = resolve(vec![write(grid, 10, "ABC"), write(grid, 12, "XY")]);
 
         assert_eq!(
@@ -5711,7 +5748,7 @@ mod test {
         // field that can be read back, so a group flattened in reverse, or a
         // producer order that let the later Expression in first, is a different
         // Tick Plan rather than the same one.
-        let grid = Grid::new(10, 3);
+        let grid = Grid::with_shape(10, 3);
         let first = raw(0, 1, 60);
         let second = raw(0, 1, 64);
         let third = raw(1, 2, 61);
@@ -5757,7 +5794,7 @@ mod test {
         // shape Sequence results make ordinary. Each root's encoding is
         // admitted through the Portal below it, which is where a Sequence
         // answer would arrive.
-        let grid = Grid::new(20, 3);
+        let grid = Grid::with_shape(20, 3);
         let effects = vec![write(grid, 20, "0A0B0C"), write(grid, 22, "0D0E0F")];
 
         assert_eq!(
@@ -5911,43 +5948,43 @@ mod output_portal_agreement {
 
     #[test]
     fn agrees_on_a_scalar_root() {
-        let grid = Grid::new(6, 2);
+        let grid = Grid::with_shape(6, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+0102"]));
     }
 
     #[test]
     fn agrees_on_an_incomplete_root() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+01"]));
     }
 
     #[test]
     fn agrees_on_a_nested_function() {
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+.x010203"]));
     }
 
     #[test]
     fn agrees_on_a_sequence_capable_root() {
-        let grid = Grid::new(8, 2);
+        let grid = Grid::with_shape(8, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &[":-0102"]));
     }
 
     #[test]
     fn agrees_on_a_root_widened_by_a_nested_sequence_operand() {
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+:-010203"]));
     }
 
     #[test]
     fn agrees_on_a_terminal_output_function() {
-        let grid = Grid::new(8, 2);
+        let grid = Grid::with_shape(8, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["!>007F"]));
     }
 
     #[test]
     fn agrees_on_halt() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["*!"]));
     }
 
@@ -5962,7 +5999,7 @@ mod output_portal_agreement {
     ///
     #[test]
     fn agrees_on_a_self_banging_functions_advance() {
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let bytes = rows_bytes(grid, &[">>    "]);
         assert_output_portal_agreement(grid, &bytes);
 
@@ -5987,7 +6024,7 @@ mod output_portal_agreement {
     ///
     #[test]
     fn agrees_on_a_directional_bangs_emit() {
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let bytes = rows_bytes(grid, &["*>    "]);
         assert_output_portal_agreement(grid, &bytes);
 
@@ -6009,7 +6046,7 @@ mod output_portal_agreement {
 
     #[test]
     fn agrees_on_every_jump_direction() {
-        let grid = Grid::new(8, 3);
+        let grid = Grid::with_shape(8, 3);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["&>      "]));
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["    &<  "]));
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["&v      "]));
@@ -6018,7 +6055,7 @@ mod output_portal_agreement {
 
     #[test]
     fn agrees_on_a_jump_off_the_grid() {
-        let grid = Grid::new(6, 2);
+        let grid = Grid::with_shape(6, 2);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["&^    "]));
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["&<    "]));
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["    &>"]));
@@ -6026,13 +6063,13 @@ mod output_portal_agreement {
 
     #[test]
     fn agrees_on_a_scalar_the_row_edge_leaves_no_room_for() {
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &["   &> "]));
     }
 
     #[test]
     fn agrees_on_a_scalar_root_in_the_bottom_row() {
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+0102"]));
     }
 
@@ -6047,7 +6084,7 @@ mod output_portal_agreement {
         let lines: Vec<&str> = FUNCTION_REFERENCE.lines().collect();
         let columns = lines.iter().map(|line| line.len()).max().unwrap_or(0);
         let rows = lines.len();
-        let grid = Grid::new(columns, rows);
+        let grid = Grid::with_shape(columns, rows);
         let mut bytes = vec![b' '; grid.count()];
         for (y, line) in lines.iter().enumerate() {
             let start = y * columns;
@@ -6123,7 +6160,7 @@ mod output_portal_agreement {
             fn output_portal_cells_agree_with_the_scheduler_for_generated_sources(
                 (cols, rows, source) in revision(),
             ) {
-                let grid = Grid::new(cols, rows);
+                let grid = Grid::with_shape(cols, rows);
                 assert_output_portal_agreement(grid, source.as_bytes());
             }
         }
@@ -6172,7 +6209,7 @@ mod property {
         fn a_tick_plan_gives_each_cell_to_the_last_admitted_write_covering_it(
             requested in prop::collection::vec((0usize..WIDTH, "[A-Z]{1,8}"), 0..5),
         ) {
-            let grid = Grid::new(WIDTH, 2);
+            let grid = Grid::with_shape(WIDTH, 2);
             // The first Cell of the destination row, asked of the same Grid the
             // writes are admitted through rather than recomputed from its width.
             let destination_row = grid

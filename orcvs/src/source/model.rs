@@ -228,7 +228,7 @@ impl Source {
     /// ```
     /// use orcvs::{grid::Grid, source::Source};
     ///
-    /// let grid = Grid::new(10, 10);
+    /// let grid = Grid::new();
     /// let mut source = Source::new(grid);
     /// let cell = grid.cell_index(33).expect("inside the Grid");
     /// source.set(cell, "!").unwrap();
@@ -374,16 +374,18 @@ impl Source {
     /// ```
     /// use orcvs::{grid::Grid, source::{CellContent, CellWrite, Source}};
     ///
-    /// let grid = Grid::new(4, 2);
+    /// let grid = Grid::new();
     /// let mut source = Source::new(grid);
     /// let write = |idx, byte| CellWrite {
     ///     cell: grid.cell_index(idx).expect("inside the Grid"),
     ///     content: CellContent::new(byte).expect("printable ASCII"),
     /// };
     ///
-    /// source.write_cells(&[write(1, b'a'), write(6, b'b')]);
+    /// source.write_cells(&[write(1, b'a'), write(257, b'b')]);
     ///
-    /// assert_eq!(source.snapshot(), " a    b ");
+    /// let snapshot = source.snapshot();
+    /// assert_eq!(&snapshot[..3], " a ");
+    /// assert_eq!(&snapshot[256..259], " b ");
     /// ```
     ///
     pub fn write_cells(&mut self, writes: &[CellWrite]) {
@@ -462,7 +464,7 @@ mod test {
 
     #[test]
     fn editing_and_derivation_agree_on_every_byte_character() {
-        let grid = Grid::new(1, 1);
+        let grid = Grid::with_shape(1, 1);
         let cell = grid.cell_index(0).unwrap();
         let mut source = Source::new(grid);
         for byte in u8::MIN..=u8::MAX {
@@ -484,7 +486,8 @@ mod test {
             .filter(|byte| *byte == b' ' || byte.is_ascii_graphic())
             .map(char::from)
             .collect();
-        let grid = Grid::new(encoding.len(), 2);
+        // The one Grid, so the persisted round trip below is one this build reads.
+        let grid = Grid::new();
         let mut source = Source::new(grid);
         let root = grid.position(0, 0).unwrap();
         source.commit_tick(&plan_result(
@@ -492,9 +495,14 @@ mod test {
             root,
             Interpretation::Sequence(Sequence::new(encoding.chars().map(Atom::Char)).unwrap()),
         ));
-        assert_eq!(
-            source.snapshot(),
-            format!("{}{encoding}", " ".repeat(encoding.len()))
+        let snapshot = source.snapshot();
+        let row = grid.columns();
+        assert_eq!(&snapshot[row..row + encoding.len()], encoding);
+        assert!(
+            snapshot[..row]
+                .bytes()
+                .chain(snapshot[row + encoding.len()..].bytes())
+                .all(|byte| byte == b' ')
         );
 
         #[cfg(feature = "persistence")]
@@ -511,7 +519,7 @@ mod test {
     /// way round, addresses different Cells here than it does on a square one.
     ///
     fn grid() -> Grid {
-        Grid::new(10, 6)
+        Grid::with_shape(10, 6)
     }
 
     ///
@@ -807,7 +815,7 @@ mod test {
         // A Source built on a shape other than this module's default. The row
         // helper must read the Cells of *this* Source, not the ones a Grid it
         // was never built from would name.
-        let mut src = SourceUnderTest::new(Grid::new(8, 4));
+        let mut src = SourceUnderTest::new(Grid::with_shape(8, 4));
         let at = src.cells();
 
         src.write(at(0), ".+0102");
@@ -849,7 +857,7 @@ mod test {
     #[cfg(feature = "persistence")]
     #[test]
     fn test_source_round_trip_restores_shape_contents_and_derived_state() {
-        let grid = Grid::new(10, 3);
+        let grid = Grid::new();
         let mut source = Source::new(grid);
         for (idx, content) in ".+0102".chars().enumerate() {
             source
@@ -860,16 +868,16 @@ mod test {
                 .unwrap();
         }
         source
-            .set(grid.cell_index(15).expect("inside the Grid"), "x")
+            .set(grid.cell_index(261).expect("inside the Grid"), "x")
             .unwrap();
 
         let encoded = serde_json::to_string(&source).unwrap();
         let mut restored: Source = serde_json::from_str(&encoded).unwrap();
 
         assert_eq!(restored.snapshot(), source.snapshot());
-        assert_eq!(restored.grid.count(), 30);
-        assert!(restored.grid.position(9, 2).is_some());
-        assert!(restored.grid.position(10, 2).is_none());
+        assert_eq!(restored.grid.count(), 256 * 256);
+        assert!(restored.grid.position(255, 255).is_some());
+        assert!(restored.grid.position(256, 255).is_none());
         // The Language Map and the Token each Cell presents are derived, never
         // stored. Compare by Cell index and relative column/row: two Sources
         // mint different Grid identities, so Position equality would fail a
@@ -891,15 +899,15 @@ mod test {
                 .cell_index(idx)
                 .expect("inside the restored Grid")
         };
-        assert_eq!(restored.get(restored_cell(10)), Some("0".to_string()));
-        assert_eq!(restored.get(restored_cell(11)), Some("3".to_string()));
+        assert_eq!(restored.get(restored_cell(256)), Some("0".to_string()));
+        assert_eq!(restored.get(restored_cell(257)), Some("3".to_string()));
         assert_eq!(tokens(&restored), tokens(&source));
     }
 
     #[cfg(feature = "persistence")]
     #[test]
     fn test_source_deserialization_rejects_a_grid_that_does_not_match_its_cells() {
-        let grid = Grid::new(6, 3);
+        let grid = Grid::new();
         let mut source = Source::new(grid);
         for (idx, content) in ".+0102".chars().enumerate() {
             source
@@ -911,18 +919,41 @@ mod test {
         }
         let encoded = serde_json::to_string(&source).unwrap();
         assert!(
-            encoded.contains("\"cols\":6"),
+            encoded.contains("\"cols\":256"),
             "the stored revision names its Grid: {encoded}"
         );
 
-        // A well-formed encoding whose Grid no longer matches the Cells beside
-        // it. The console already refuses this through eframe; this is the
-        // model Deserialize seam that refusal is built on.
-        let mismatched = encoded.replace("\"cols\":6", "\"cols\":7");
+        // A well-formed encoding whose Cells do not fill the one Grid.
+        let short = serde_json::to_string(&serde_json::json!({
+            "grid": {"cols": 256, "rows": 256},
+            "inner": " ".repeat(256 * 256 - 1),
+        }))
+        .unwrap();
         assert!(
-            serde_json::from_str::<Source>(&mismatched).is_err(),
-            "a Grid that no longer matches its Cells must be refused whole"
+            serde_json::from_str::<Source>(&short).is_err(),
+            "Cells that do not fill the Grid must be refused whole"
         );
+    }
+
+    ///
+    /// A Source stored at any shape but the one is refused rather than
+    /// migrated (ADR 0054), even when its Cells match the shape it names.
+    ///
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_source_deserialization_refuses_a_source_stored_at_another_shape() {
+        for (cols, rows) in [(128, 80), (64, 40), (6, 3), (256, 255)] {
+            let encoded = serde_json::to_string(&serde_json::json!({
+                "grid": {"cols": cols, "rows": rows},
+                "inner": " ".repeat(cols * rows),
+            }))
+            .unwrap();
+
+            assert!(
+                serde_json::from_str::<Source>(&encoded).is_err(),
+                "a Source stored at {cols} by {rows} must be refused"
+            );
+        }
     }
 
     #[cfg(feature = "persistence")]
@@ -938,7 +969,7 @@ mod test {
     fn test_source_deserialization_rejects_a_grid_wider_than_a_number_addresses() {
         let encoded = format!(
             r#"{{"grid":{{"cols":{},"rows":2}},"inner":""}}"#,
-            crate::grid::MAX_COL_COUNT + 1
+            crate::grid::COL_COUNT + 1
         );
 
         assert!(serde_json::from_str::<Source>(&encoded).is_err());
@@ -969,7 +1000,7 @@ mod test {
 
     #[test]
     fn edits_accept_long_expressions() {
-        let mut src = SourceUnderTest::new(Grid::new(140, 1));
+        let mut src = SourceUnderTest::new(Grid::with_shape(140, 1));
         let at = src.cells();
         src.write(at(0), &(".+".repeat(33) + &"01".repeat(34)));
         assert!(diagnostics(&src).is_empty());
@@ -1046,7 +1077,7 @@ mod test {
 
     #[test]
     fn test_editing_an_operand_slot_hint_restores_the_current_tokens() {
-        let mut src = SourceUnderTest::new(Grid::new(10, 1));
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 1));
         let at = src.cells();
         src.set(at(0), ".").unwrap();
         src.set(at(1), "+").unwrap();
@@ -1063,7 +1094,7 @@ mod test {
 
     #[test]
     fn test_editing_an_operand_slot_matches_a_source_rebuilt_from_its_snapshot() {
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         let mut src = SourceUnderTest::new(grid);
         let at = src.cells();
         src.write(at(0), ".+");
@@ -1091,7 +1122,7 @@ mod test {
 
     #[test]
     fn test_operand_hints_and_invalidation_stop_at_the_row_edge() {
-        let mut src = SourceUnderTest::new(Grid::new(10, 2));
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 2));
         let at = src.cells();
         src.write(at(10), ".+0102");
         src.set(at(8), ".").unwrap();
@@ -1362,7 +1393,7 @@ mod test {
     #[test]
     fn a_note_and_bang_produced_this_tick_play_the_new_note_this_tick() {
         for initial_call in ["!>007FD4", "!>007F", "!>007FXX"] {
-            let mut src = SourceUnderTest::new(Grid::new(16, 4));
+            let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
             let at = src.cells();
             src.write(at(0), ".=0101");
             src.write(at(22), ".^3C");
@@ -1386,7 +1417,7 @@ mod test {
 
     #[test]
     fn a_generated_pulse_does_not_replay_on_the_next_tick() {
-        let mut src = SourceUnderTest::new(Grid::new(16, 4));
+        let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
         let at = src.cells();
         src.write(at(0), ".=0101");
         src.write(at(22), ".^3C");
@@ -1406,7 +1437,7 @@ mod test {
 
     #[test]
     fn manually_entered_bang_is_display_only_and_never_activates_midi() {
-        let mut src = SourceUnderTest::new(Grid::new(10, 3));
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
         let at = src.cells();
         src.write(at(10), "!>007FC4");
         src.write(at(20), "**");
@@ -1420,7 +1451,7 @@ mod test {
 
     #[test]
     fn a_later_calculation_reads_an_operand_written_this_tick() {
-        let mut src = SourceUnderTest::new(Grid::new(12, 3));
+        let mut src = SourceUnderTest::new(Grid::with_shape(12, 3));
         let at = src.cells();
         src.write(at(2), ".+0203");
         src.write(at(12), ".+0102");
@@ -1434,7 +1465,7 @@ mod test {
 
     #[test]
     fn a_rejected_bang_operand_neither_activates_nor_erases() {
-        let mut src = SourceUnderTest::new(Grid::new(16, 3));
+        let mut src = SourceUnderTest::new(Grid::with_shape(16, 3));
         let at = src.cells();
         src.write(at(0), "!>00**C4");
         src.write(at(20), "!>007FC4");
@@ -1548,7 +1579,7 @@ mod test {
         // activation *before* the Tick publishes, and reported either way;
         // `cell-indexed-parse/03` is where that verdict is drawn, and until it
         // lands this Source is refused silently rather than loudly.
-        let mut src = SourceUnderTest::new(Grid::new(16, 4));
+        let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
         let at = src.cells();
         src.write(at(6), ".=0101");
         // Velocity at columns 4-5, Note at columns 6-7. The Bang lands on the
@@ -1801,7 +1832,7 @@ mod test {
 
     #[test]
     fn test_nested_play_is_diagnosed_without_emitting_a_command() {
-        let mut src = SourceUnderTest::new(Grid::new(12, 3));
+        let mut src = SourceUnderTest::new(Grid::with_shape(12, 3));
         let at = src.cells();
         src.write(at(0), ".+!>007FC401");
 
@@ -1828,7 +1859,7 @@ mod test {
             ("!>00.^7FC4", "expected a number, found \"G9\""),
             ("!>007F.vC4", "expected a note, found \"3C\""),
         ] {
-            let mut src = SourceUnderTest::new(Grid::new(expression.len(), 3));
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
             let at = src.cells();
             src.write(at(0), ".=0101");
             src.write(at(expression.len() * 2), expression);
@@ -1943,7 +1974,7 @@ mod test {
             // The Grid is as wide as the spelling it holds. The geometry under
             // test is horizontal, so a spelling that outran the row would wrap
             // onto the next one and pin nothing.
-            let mut src = SourceUnderTest::new(Grid::new(expression.len(), 6));
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 6));
             let at = src.cells();
             src.write(at(0), expression);
 
@@ -2210,7 +2241,7 @@ mod test {
         // them, so the two are unrelated — which is the whole of what this
         // test is about, and now a fact about arity rather than about the
         // space between them.
-        let mut src = SourceUnderTest::new(Grid::new(16, 2));
+        let mut src = SourceUnderTest::new(Grid::with_shape(16, 2));
 
         let at = src.cells();
 
@@ -2226,7 +2257,7 @@ mod test {
 
     #[test]
     fn test_writes_play_commands_and_diagnostics_follow_one_producer_order() {
-        let mut src = SourceUnderTest::new(Grid::new(20, 9));
+        let mut src = SourceUnderTest::new(Grid::with_shape(20, 9));
         let at = src.cells();
         src.write(at(0), ".=0101");
         src.write(at(40), "!>0001C4");
@@ -2306,7 +2337,7 @@ mod test {
 
     #[test]
     fn a_failed_spatial_supplier_preserves_original_operand_cells() {
-        let mut src = SourceUnderTest::new(Grid::new(8, 3));
+        let mut src = SourceUnderTest::new(Grid::with_shape(8, 3));
         let at = src.cells();
         src.write(at(2), ".+01");
         src.write(at(8), ".+0502");
@@ -2336,7 +2367,7 @@ mod test {
         // One Grid for both, because a Tick Plan names Cells by index and an
         // index belongs to the Grid that minted it: two Grids of one shape
         // would differ here without either Snapshot differing.
-        let grid = Grid::new(10, 9);
+        let grid = Grid::with_shape(10, 9);
         let plan_at = |tick| {
             let mut src = SourceUnderTest::new(grid);
             let at = src.cells();
@@ -2549,7 +2580,7 @@ mod test {
         // derives no `Serialize` — and this is the half a test can hold: the
         // persisted form has exactly two members, so no destination, and
         // nothing else one Tick resolved, can have joined it unnoticed.
-        let source = Source::new(Grid::new(4, 2));
+        let source = Source::new(Grid::new());
 
         let persisted = serde_json::to_value(&source).unwrap();
 

@@ -23,7 +23,7 @@ use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
-    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
+    grid::{Grid, Position},
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::{PlaybackStartError, PlaybackState},
     render_frame::RenderFrame,
@@ -153,12 +153,11 @@ const OUTPUT_READOUT_WIDTH: f32 = 196.0;
 const OUTPUT_SCAN: &str = "Scan";
 
 ///
-/// How many Cells the default window's console shows at Zoom 1.0, margin
-/// included: half the default Grid on each axis, so a fresh console opens on
-/// its top-left quarter with room to Pan (ADR 0047).
+/// How many Cells the default window (ADR 0047) shows at Zoom 1.0, margin
+/// included. The Grid (ADR 0054) is larger, so the rest of it is a Pan away.
 ///
-const DEFAULT_VIEW_COLUMNS: usize = DEFAULT_COL_COUNT / 2;
-const DEFAULT_VIEW_ROWS: usize = DEFAULT_ROW_COUNT / 2;
+const DEFAULT_VIEW_COLUMNS: usize = 64;
+const DEFAULT_VIEW_ROWS: usize = 40;
 
 ///
 /// The window size that presents `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS`
@@ -835,8 +834,7 @@ impl Console {
         cc: &eframe::CreationContext<'_>,
         registry: ThemeRegistry,
     ) -> Result<Self, PlaybackStartError> {
-        // The stored Source revision when storage holds one, and the ordinary
-        // default Grid otherwise. Every derived view is rebuilt from it.
+        // The stored Source revision, or an empty Source when storage holds none.
         let start = starting_source(cc.storage);
 
         // The restored dark and light Theme selections, resolved against the
@@ -921,7 +919,7 @@ impl Console {
     ///
     /// Replaces the running Orcvs's Source, Grid included, with the Function
     /// reference — what the File menu offers, since a console that restores
-    /// nothing opens the blank default Grid (`source-view/03`). With the `persistence`
+    /// nothing opens an empty Grid. With the `persistence`
     /// feature on, the reference then saves like any other Source on the next
     /// scheduled save.
     ///
@@ -2538,7 +2536,7 @@ mod tests {
     use crate::paint::{FramePaint, Paint};
     use crate::theme::{Theme, okabe_ito, orcvs_light};
     use crate::theme_registry::ThemeRegistry;
-    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
+    use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
     use super::{
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
@@ -3208,7 +3206,7 @@ mod tests {
     }
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
-        Orcvs::new(cols, rows).expect("the test runtime")
+        Orcvs::with_shape(cols, rows).expect("the test runtime")
     }
 
     fn selected_cell(orcvs: &Orcvs) -> (usize, usize) {
@@ -4712,19 +4710,19 @@ mod tests {
     }
 
     ///
-    /// The console opens on the default Grid at the Source's own Cell size,
-    /// one margin in from its top-left, with the Grid running past the far
-    /// edges so there is room to Pan, and no Glyph is resampled to be shown.
+    /// The console opens on the one Grid at the Source's own Cell size, on its
+    /// top-left corner one margin in, with the Grid running past the far edges
+    /// so there is room to Pan, and no Glyph is resampled to be shown.
     ///
     #[tokio::test]
-    async fn the_default_window_presents_the_default_grid_at_its_own_scale() {
+    async fn the_default_window_presents_the_grid_at_its_own_scale() {
         let ctx = egui::Context::default();
         let console = Vec2::new(
             DEFAULT_VIEW_SIZE[0],
             DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT - BOTTOM_PANEL_HEIGHT,
         );
         let screen = Rect::from_min_size(Pos2::ZERO, console);
-        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut orcvs = Orcvs::new().expect("the test runtime");
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -4744,7 +4742,7 @@ mod tests {
         );
         assert!(
             viewport.rect.max.x > screen.max.x && viewport.rect.max.y > screen.max.y,
-            "the default Grid does not run past the default console, so there is nowhere to Pan"
+            "the Grid does not run past the default console, so there is nowhere to Pan"
         );
     }
 
@@ -5184,7 +5182,7 @@ mod tests {
     /// `grid_viewport.rs`.
     ///
     fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
-        let grid = Grid::new(columns, rows);
+        let grid = Grid::with_shape(columns, rows);
         let source = source_bounds(grid);
 
         let side = crate::grid_viewport::snapped_cell_side(CELL_SIZE, pixels_per_point);
@@ -5850,7 +5848,7 @@ mod tests {
     /// is the `CentralPanel` frame. The two values are stated in different
     /// places, so nothing but this holds them together: give the panel any
     /// other fill and every ordinary Cell — outside the Cursor effect, most of
-    /// the default Grid — renders on a ground the Theme never chose for it.
+    /// an empty Grid — renders on a ground the Theme never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
     /// is the painted result that has to sit on the right colour.
@@ -6995,17 +6993,18 @@ mod tests {
     #[tokio::test]
     async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let ctx = egui::Context::default();
-        // The default Grid at the Source's own Cell size, with its margin on
+        // A 128 by 80 Grid at the Source's own Cell size, with its margin on
         // every side, is exactly this console, so the first pass at Zoom 1.0
-        // has every Cell on screen.
+        // has every Cell on screen. Smaller than the one Grid so the whole of
+        // it fits a console this test can afford to paint.
+        const COLUMNS: usize = 128;
+        const ROWS: usize = 80;
         let screen = Rect::from_min_size(
             Pos2::ZERO,
-            Vec2::new(
-                DEFAULT_COL_COUNT as f32 * CELL_SIZE,
-                DEFAULT_ROW_COUNT as f32 * CELL_SIZE,
-            ) + Vec2::splat(2.0 * MARGIN),
+            Vec2::new(COLUMNS as f32 * CELL_SIZE, ROWS as f32 * CELL_SIZE)
+                + Vec2::splat(2.0 * MARGIN),
         );
-        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut orcvs = running_orcvs(COLUMNS, ROWS);
         let mut view = SourceView::default();
 
         let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -7021,7 +7020,7 @@ mod tests {
         let all_positions = whole.visible_positions(screen, orcvs.grid());
         assert_eq!(
             all_positions.count(),
-            DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT,
+            COLUMNS * ROWS,
             "the console did not show the whole Grid at Zoom 1.0"
         );
 
@@ -7094,7 +7093,7 @@ mod tests {
         let ctx = egui::Context::default();
         // Narrow enough that every drawn row starts and ends inside the Grid.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
-        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
         let mut view = SourceView::default();
         // Below the window the console shows, keeping the Cursor near the
         // visible range while its area remains separate geometry.
@@ -7108,7 +7107,7 @@ mod tests {
         let visible = viewport.visible_positions(screen, orcvs.grid());
 
         assert!(
-            visible.columns.start > 0 && visible.columns.end < DEFAULT_COL_COUNT,
+            visible.columns.start > 0 && visible.columns.end < COL_COUNT,
             "the zoom culled nothing on one side, so no run begins or ends mid-row"
         );
 
@@ -7195,7 +7194,7 @@ mod tests {
 
         let mut asserted = 0;
         for translation in [Vec2::new(-486.0, -333.0), Vec2::new(-525.0, -333.0)] {
-            let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
             let mut view = SourceView::default();
 
             let frame = orcvs.render_frame();
@@ -7212,9 +7211,9 @@ mod tests {
 
             assert!(
                 visible.columns.start > 0
-                    && visible.columns.end < DEFAULT_COL_COUNT
+                    && visible.columns.end < COL_COUNT
                     && visible.rows.start > 0
-                    && visible.rows.end < DEFAULT_ROW_COUNT,
+                    && visible.rows.end < ROW_COUNT,
                 "the pan {translation:?} culled nothing on one side, so no seam is near a culled edge: {visible:?}"
             );
 
@@ -8137,7 +8136,7 @@ mod storage_tests {
         store(&mut written, &edited_source());
         let refused = eframe::Storage::get_string(&written, SOURCE_KEY)
             .expect("the save call stored the revision")
-            .replace("cols:6", "cols:7");
+            .replace("rows:256", "rows:255");
 
         let mut storage = InMemoryStorage::default();
         eframe::Storage::set_string(&mut storage, SOURCE_KEY, refused.clone());
@@ -8234,7 +8233,7 @@ mod storage_tests {
             saved.snapshot(),
             "the Console did not start the revision storage held"
         );
-        assert_eq!(console.orcvs.source().grid().count(), 18);
+        assert_eq!(console.orcvs.source().grid().count(), 256 * 256);
     }
 
     ///
@@ -8373,9 +8372,9 @@ mod storage_tests {
         store(&mut storage, &edited_source());
         let mut console = console_over(&storage);
         assert_eq!(
-            console.orcvs.source().grid().count(),
-            18,
-            "the console did not start the 6x3 revision storage held"
+            console.orcvs.source().snapshot(),
+            edited_source().snapshot(),
+            "the console did not start the revision storage held"
         );
 
         console.load_function_reference();
@@ -8416,7 +8415,7 @@ mod storage_tests {
         console.save(&mut storage);
 
         // A Console that never saves leaves storage empty, and the start that
-        // reads it opens the ordinary default Grid instead of this revision.
+        // reads it opens an empty Grid instead of this revision.
         let next_start = SourceCommander::with_source(starting_source(Some(&storage)).source);
         assert_eq!(
             next_start.snapshot(),
@@ -8451,9 +8450,9 @@ mod storage_tests {
         let storage = RonFileStorage::from_file(dir.path());
         let restored = starting_source(Some(&storage)).source;
         assert_eq!(restored.snapshot(), saved.snapshot());
-        assert_eq!(restored.grid().count(), 18);
-        assert!(restored.grid().position(5, 2).is_some());
-        assert!(restored.grid().position(6, 2).is_none());
+        assert_eq!(restored.grid().count(), 256 * 256);
+        assert!(restored.grid().position(255, 255).is_some());
+        assert!(restored.grid().position(256, 255).is_none());
 
         let console = console_over(&storage);
         assert_eq!(

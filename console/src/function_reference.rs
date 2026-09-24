@@ -115,15 +115,9 @@
 //!
 //! # Checked-in text is ragged, not a padded rectangle
 //!
-//! `function_reference.orcvs` stores each line with its trailing whitespace
-//! removed, and stops at the last line with any content — no trailing blank
-//! rows. Editors and formatters strip trailing whitespace on save, which
-//! would otherwise turn a checked-in padded rectangle ragged on its next
-//! untouched edit and fail a loader that demanded one.
-//! `source_from_reference_text` instead derives the Grid's width from the
-//! widest line and its height from the line count, each rounded up to the
-//! Sector Seam spacing, and pads every short line and every row past the
-//! last line with empty Cells — see its doc comment.
+//! `function_reference.orcvs` is a Source File (`orcvs::source::file`):
+//! trailing whitespace is trimmed, and every short line and every row past
+//! the last line reads as empty Cells of the one Grid (ADR 0054).
 //!
 //! # Completeness and diagnostic-cleanliness are proven, not asserted
 //!
@@ -155,13 +149,9 @@
 //! afterwards.
 //!
 
-use orcvs::grid::Grid;
-use orcvs::source::Source;
+use orcvs::source::{Source, file};
 
 const REFERENCE: &str = include_str!("../assets/function_reference.orcvs");
-
-/// The Sector Seam spacing every Grid dimension here is a multiple of.
-const SECTOR_SEAM: usize = 8;
 
 ///
 /// The Function reference Source, rebuilt fresh each call.
@@ -171,48 +161,18 @@ pub(crate) fn function_reference() -> Source {
 }
 
 ///
-/// Parses `text` into a Source whose Grid is exactly wide and tall enough for
-/// it: the widest line's Cell count and the line count, each rounded up to
-/// the Sector Seam spacing.
+/// Reads `text` as a Source File (`orcvs::source::file::read`) on the one
+/// Grid (ADR 0054).
 ///
-/// A short line is padded with empty Cells rather than required to reach the
-/// Grid's width, and any row past the last line is left entirely empty —
-/// both are ordinary unset Cells, not a special case, since [`Source::get`]
-/// already reads an unset Cell back as empty. This tolerates a ragged
-/// `text`, which is what an editor or formatter that strips trailing
-/// whitespace leaves behind: a padded rectangle with every trailing space
-/// removed is ragged the moment one row's content ends before another's.
+/// # Panics
+///
+/// If `text` is refused: the reference is compiled in, so a refusal is a
+/// defect in the asset, which `the_checked_in_reference_is_a_source_file`
+/// catches.
 ///
 fn source_from_reference_text(text: &str) -> Source {
-    let lines: Vec<&str> = text.lines().collect();
-    let widest = lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0);
-    let columns = round_up_to_sector_seam(widest);
-    let rows = round_up_to_sector_seam(lines.len());
-
-    let grid = Grid::new(columns, rows);
-    let mut source = Source::new(grid);
-    for (y, line) in lines.into_iter().enumerate() {
-        for (x, content) in line.chars().enumerate() {
-            if content != ' ' {
-                let position = grid.position(x, y).expect("inside the reference Grid");
-                let cell = grid.index(position);
-                source
-                    .set(cell, &content.to_string())
-                    .expect("the Function reference holds only printable ASCII");
-            }
-        }
-    }
-
-    source
-}
-
-/// Rounds `value` up to the next multiple of [`SECTOR_SEAM`] (`0` stays `0`).
-fn round_up_to_sector_seam(value: usize) -> usize {
-    value.div_ceil(SECTOR_SEAM) * SECTOR_SEAM
+    file::read(text.as_bytes())
+        .unwrap_or_else(|refusal| panic!("the Function reference is not a Source File: {refusal}"))
 }
 
 #[cfg(test)]
@@ -225,24 +185,17 @@ mod tests {
     };
 
     ///
-    /// A checked-in, padded rectangle is not the only shape the loader must
-    /// accept: an editor or formatter that strips trailing whitespace turns
-    /// every padded row short of the widest into a ragged one, and a blank
-    /// row into an empty line. The loader rounds the widest line and the
-    /// line count up to the Sector Seam spacing instead of asserting a
-    /// rectangle already at that shape, so this ragged text — never checked
-    /// in, built by the test itself — loads rather than panics.
+    /// Ragged text, as an editor stripping trailing whitespace leaves it,
+    /// loads onto the one Grid with short lines and missing rows empty.
     ///
     #[test]
-    fn a_ragged_text_with_stripped_trailing_whitespace_loads_at_rounded_up_dimensions() {
-        // Three lines, none the same length: 6 Cells, 0 (a blank line
-        // stripped bare), and 2. The widest, 6, rounds up to 8 Cells; the 3
-        // lines round up to 8 rows.
+    fn a_ragged_text_with_stripped_trailing_whitespace_loads_onto_the_one_grid() {
+        // Three lines of 6, 0 and 2 Cells.
         let source = source_from_reference_text(".+0102\n\n0C");
         let grid = source.grid();
 
-        assert_eq!(grid.columns(), 8);
-        assert_eq!(grid.rows(), 8);
+        assert_eq!(grid.columns(), 256);
+        assert_eq!(grid.rows(), 256);
 
         assert_eq!(read_cell(&source, grid, 0, 0), Some(".".to_string()));
         assert_eq!(read_cell(&source, grid, 5, 0), Some("2".to_string()));
@@ -263,6 +216,16 @@ mod tests {
             None,
             "a row past the last line is empty padding, not an error"
         );
+    }
+
+    ///
+    /// The checked-in asset is a Source File the reader accepts.
+    ///
+    #[test]
+    fn the_checked_in_reference_is_a_source_file() {
+        if let Err(refusal) = orcvs::source::file::read(super::REFERENCE.as_bytes()) {
+            panic!("function_reference.orcvs: {refusal}");
+        }
     }
 
     /// One Cell of `source` at `(x, y)`, read back through `grid` — the one
@@ -437,11 +400,10 @@ mod tests {
     }
 
     #[test]
-    fn the_reference_grid_dimensions_are_multiples_of_the_sector_seam_spacing() {
+    fn the_reference_loads_onto_the_one_grid_rather_than_one_rounded_up_from_its_text() {
         let grid = function_reference().grid();
 
-        assert_eq!(grid.columns() % super::SECTOR_SEAM, 0);
-        assert_eq!(grid.rows() % super::SECTOR_SEAM, 0);
+        assert_eq!((grid.columns(), grid.rows()), (256, 256));
     }
 
     /// A rectangle of Cells, half-open on both axes, matching one example's

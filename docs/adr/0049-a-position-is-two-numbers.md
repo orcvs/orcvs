@@ -1,6 +1,6 @@
 # A Position is two Numbers
 
-Status: accepted. Supersedes the addressing deferral in [ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md) and closes the infinite canvas that [ADR 0043](0043-the-grid-is-bounded-by-definition.md) left open.
+Status: accepted. Supersedes the addressing deferral in [ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md) and closes the infinite canvas that [ADR 0043](0043-the-grid-is-bounded-by-definition.md) left open. [ADR 0054](0054-a-grid-is-always-256-by-256.md) amends it: the limit is now the only shape.
 
 **A Grid is at most 256 columns by 256 rows, and that limit is part of the language.** A shape wider or taller than that is not a Grid, just as one with no columns is not. Every Position can then be spelled as two Numbers under [ADR 0010](0010-two-cell-hexadecimal-numbers.md): column first, then row, each `00`–`FF`, counted from `00 00` at the top-left. A Grid may be smaller than the limit on either axis; its shape is still its own, and the default stays exploratory.
 

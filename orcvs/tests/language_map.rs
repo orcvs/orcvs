@@ -6,7 +6,7 @@ use orcvs::{
 
 #[test]
 fn token_at_answers_the_claiming_expressions_token() {
-    let grid = Grid::new(6, 1);
+    let grid = Grid::with_shape(6, 1);
     let map = LanguageMap::derive(grid, ".+0102").unwrap();
 
     assert_eq!(
@@ -25,7 +25,7 @@ fn token_at_answers_the_claiming_expressions_token() {
 
 #[test]
 fn token_at_answers_none_when_no_expression_covers_the_cell() {
-    let grid = Grid::new(16, 1);
+    let grid = Grid::with_shape(16, 1);
     let map = LanguageMap::derive(grid, ".+0102  .-0304  ").unwrap();
 
     assert_eq!(
@@ -39,16 +39,18 @@ fn token_at_answers_none_when_no_expression_covers_the_cell() {
 #[test]
 #[should_panic]
 fn token_at_refuses_a_position_minted_by_another_grid() {
-    let grid = Grid::new(4, 1);
+    let grid = Grid::with_shape(4, 1);
     let map = LanguageMap::derive(grid, ".+01").unwrap();
-    let foreign = Grid::new(4, 1).position(0, 0).expect("inside the Grid");
+    let foreign = Grid::with_shape(4, 1)
+        .position(0, 0)
+        .expect("inside the Grid");
 
     map.token_at(foreign);
 }
 
 #[test]
 fn truncated_operand_owns_the_available_row_tail() {
-    let grid = Grid::new(5, 1);
+    let grid = Grid::with_shape(5, 1);
     let map = LanguageMap::derive(grid, ".+01Z").unwrap();
     let expressions = map.expressions().collect::<Vec<_>>();
     assert_eq!(expressions.len(), 1);
@@ -74,7 +76,7 @@ fn truncated_operand_owns_the_available_row_tail() {
 /// bind, and the row holds no Comment at all.
 #[test]
 fn an_operand_claim_reaches_over_a_comment_introducer() {
-    let grid = Grid::new(8, 1);
+    let grid = Grid::with_shape(8, 1);
     let map = LanguageMap::derive(grid, ".+01||xx").unwrap();
 
     assert!(
@@ -97,7 +99,7 @@ fn an_operand_claim_reaches_over_a_comment_introducer() {
 /// the Function before it keeps the claim its arity declares.
 #[test]
 fn a_comment_claims_the_row_after_the_expression_that_precedes_it() {
-    let grid = Grid::new(10, 1);
+    let grid = Grid::with_shape(10, 1);
     let map = LanguageMap::derive(grid, ".+0102||xx").unwrap();
 
     let expressions = map.expressions().collect::<Vec<_>>();
@@ -126,7 +128,7 @@ fn a_comment_claims_the_row_after_the_expression_that_precedes_it() {
 /// unrelated root on another row still executes and still writes.
 #[test]
 fn a_root_refused_by_a_comment_introducer_stays_inert_while_an_unrelated_root_executes() {
-    let grid = Grid::new(12, 3);
+    let grid = Grid::with_shape(12, 3);
     let mut source = Source::new(grid);
     for (row, text) in [(0, "      .+0102"), (1, ".+01||xx")] {
         for (column, byte) in text.bytes().enumerate() {
@@ -174,7 +176,7 @@ fn long_expressions_keep_their_complete_ownership() {
         ".+".repeat(33) + ".=0101",
         ".+".repeat(33) + &"01".repeat(34) + ".=0101",
     ] {
-        let grid = Grid::new(source.len(), 1);
+        let grid = Grid::with_shape(source.len(), 1);
         let map = LanguageMap::derive(grid, &source).unwrap();
         let expressions = map.expressions().collect::<Vec<_>>();
         let first = expressions[0];
@@ -207,7 +209,7 @@ fn long_expressions_keep_their_complete_ownership() {
 #[test]
 fn long_expressions_execute_and_keep_independent_roots() {
     let row = ".+".repeat(33) + &"01".repeat(34) + ".=0101";
-    let grid = Grid::new(row.len(), 2);
+    let grid = Grid::with_shape(row.len(), 2);
     let mut source = Source::new(grid);
     for (index, byte) in row.bytes().enumerate() {
         source
@@ -239,7 +241,7 @@ fn long_expressions_execute_and_keep_independent_roots() {
 
 #[test]
 fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions() {
-    let grid = Grid::new(10, 2);
+    let grid = Grid::with_shape(10, 2);
     let map = LanguageMap::derive(grid, ".+.x010203**        ").unwrap();
     let expressions = map.expressions().collect::<Vec<_>>();
 
@@ -284,19 +286,19 @@ fn language_map_reports_literal_incomplete_and_invalid_outcomes() {
     // `00` is not a Function spelling, so it is two refused Cells rather than
     // one Expression: each is diagnosed where a Function was expected, and
     // each is diagnosed again as a Cell that spells no Language Unit.
-    let literal_grid = Grid::new(2, 1);
+    let literal_grid = Grid::with_shape(2, 1);
     let literal = LanguageMap::derive(literal_grid, "00").unwrap();
     assert_eq!(literal.expressions().next().unwrap().root(), None);
     assert_eq!(literal.diagnostics().count(), 4);
 
-    let incomplete_grid = Grid::new(4, 1);
+    let incomplete_grid = Grid::with_shape(4, 1);
     let incomplete = LanguageMap::derive(incomplete_grid, ".+01").unwrap();
     assert_eq!(
         incomplete.diagnostics().next().unwrap().message,
         "expected a token"
     );
 
-    let invalid_grid = Grid::new(2, 1);
+    let invalid_grid = Grid::with_shape(2, 1);
     let invalid = LanguageMap::derive(invalid_grid, "xx").unwrap();
     assert_eq!(
         invalid.diagnostics().next().unwrap().message,
@@ -304,7 +306,7 @@ fn language_map_reports_literal_incomplete_and_invalid_outcomes() {
     );
 
     let source = ".+".repeat(16) + "00";
-    let long_incomplete_grid = Grid::new(source.len(), 1);
+    let long_incomplete_grid = Grid::with_shape(source.len(), 1);
     let long_incomplete = LanguageMap::derive(long_incomplete_grid, &source).unwrap();
     assert_eq!(
         long_incomplete.diagnostics().next().unwrap().message,
@@ -314,7 +316,7 @@ fn language_map_reports_literal_incomplete_and_invalid_outcomes() {
 
 #[test]
 fn unmatched_characters_have_revision_consistent_diagnostic_spans() {
-    let grid = Grid::new(3, 1);
+    let grid = Grid::with_shape(3, 1);
     let map = LanguageMap::derive(grid, "***").unwrap();
     let unmatched = map
         .diagnostics()
@@ -333,7 +335,7 @@ fn unmatched_characters_have_revision_consistent_diagnostic_spans() {
 
 #[test]
 fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
-    let grid = Grid::new(6, 2);
+    let grid = Grid::with_shape(6, 2);
     let mut source = Source::new(grid);
     let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
     source.set(cell(4), ".").unwrap();
@@ -377,7 +379,7 @@ fn expression_units_refuses_an_expression_from_another_revision() {
     // one is a valid extent in the other. Without a revision identity the
     // foreign Expression is silently answered with this Map's own units:
     // `[Function(Add), OperandLiteral]` becomes `[OperandLiteral]`.
-    let grid = Grid::new(10, 1);
+    let grid = Grid::with_shape(10, 1);
     let first = LanguageMap::derive(grid, ".+01      ").unwrap();
     let second = LanguageMap::derive(grid, ".*0203    ").unwrap();
     let expression = first.expressions().next().unwrap();
@@ -388,7 +390,7 @@ fn expression_units_refuses_an_expression_from_another_revision() {
 #[test]
 #[should_panic(expected = "ExpressionEntry belongs to another LanguageMap")]
 fn an_edit_refuses_old_expression_entries_even_from_an_unchanged_row() {
-    let grid = Grid::new(4, 2);
+    let grid = Grid::with_shape(4, 2);
     let mut source = Source::new(grid);
     source.set(grid.cell_index(4).unwrap(), "*").unwrap();
     source.set(grid.cell_index(5).unwrap(), "*").unwrap();
@@ -402,7 +404,7 @@ fn an_edit_refuses_old_expression_entries_even_from_an_unchanged_row() {
 
 #[test]
 fn diagnostics_keep_expression_reports_before_lexical_reports_across_rows() {
-    let grid = Grid::new(4, 2);
+    let grid = Grid::with_shape(4, 2);
     let map = LanguageMap::derive(grid, "X   Z   ").unwrap();
     assert_eq!(
         map.diagnostics()
@@ -420,7 +422,7 @@ fn diagnostics_keep_expression_reports_before_lexical_reports_across_rows() {
 /// the_available_row_tail`'s Invalid one does.
 #[test]
 fn a_row_truncated_operand_with_an_empty_tail_cell_still_carries_its_token() {
-    let grid = Grid::new(5, 1);
+    let grid = Grid::with_shape(5, 1);
     let map = LanguageMap::derive(grid, ".+01 ").unwrap();
 
     assert_eq!(

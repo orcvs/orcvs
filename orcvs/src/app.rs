@@ -111,11 +111,11 @@ pub struct Handled {
 /// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let _runtime = runtime.enter();
 ///
-/// let mut orcvs = Orcvs::new(16, 16).expect("a Tokio runtime");
+/// let mut orcvs = Orcvs::new().expect("a Tokio runtime");
 /// let grid = orcvs.grid();
 ///
 /// // the Grid refuses a pair outside itself, so there is no Position to select
-/// assert_eq!(grid.position(99, 99), None);
+/// assert_eq!(grid.position(256, 256), None);
 ///
 /// // every Position `select` can be handed is one this Grid minted
 /// let position = grid.position(15, 15).expect("inside the grid");
@@ -168,8 +168,23 @@ pub struct Orcvs<S = MidiSelectionHandle> {
 }
 
 impl Orcvs {
-    pub fn new(cols: usize, rows: usize) -> Result<Self, PlaybackStartError> {
-        Self::with_midi_output_adapter(cols, rows, MidiOutputAdapter::new())
+    ///
+    /// A running Orcvs over an empty Source on the one Grid (ADR 0054), on the
+    /// output the platform supplies.
+    ///
+    pub fn new() -> Result<Self, PlaybackStartError> {
+        Self::with_midi_output_adapter(MidiOutputAdapter::new())
+    }
+
+    ///
+    /// A running Orcvs over an empty Source on a Grid smaller than the one
+    /// shape, for tests that state their Source as a few short rows.
+    ///
+    /// Test-only, beside [`Orcvs::new`], for the reason [`Grid::with_shape`] is.
+    ///
+    #[cfg(any(test, feature = "test-grid-shapes"))]
+    pub fn with_shape(cols: usize, rows: usize) -> Result<Self, PlaybackStartError> {
+        Self::with_source(Source::new(Grid::with_shape(cols, rows)))
     }
 
     ///
@@ -183,7 +198,7 @@ impl Orcvs {
     ///
     /// # let runtime = tokio::runtime::Runtime::new().unwrap();
     /// # let _runtime = runtime.enter();
-    /// let mut restored = Source::new(Grid::new(6, 3));
+    /// let mut restored = Source::new(Grid::new());
     /// let cell = restored.grid().cell_index(0).expect("inside the Grid");
     /// restored.set(cell, "1").expect("a Cell the Source accepts");
     ///
@@ -192,8 +207,8 @@ impl Orcvs {
     /// // the Source arrives whole: its Cells, and the Grid it was built from
     /// let frame = orcvs.render_frame();
     /// let grid = frame.grid();
-    /// assert_eq!(grid.rows(), 3);
-    /// assert_eq!(grid.columns(), 6);
+    /// assert_eq!(grid.rows(), 256);
+    /// assert_eq!(grid.columns(), 256);
     /// assert_eq!(frame.at(grid.origin()).content(), Some('1'));
     /// ```
     ///
@@ -211,7 +226,7 @@ impl Orcvs<()> {
     ///
     /// ```compile_fail
     /// use orcvs::{app::Orcvs, playback::InMemoryOutputAdapter};
-    /// let app = Orcvs::with_output_adapter(1, 1, InMemoryOutputAdapter::default()).unwrap();
+    /// let app = Orcvs::with_output_adapter(InMemoryOutputAdapter::default()).unwrap();
     /// app.midi_selection_handle();
     /// ```
     ///
@@ -219,14 +234,12 @@ impl Orcvs<()> {
     /// use orcvs::app::Orcvs;
     /// use orcvs::midi::MidiOutputAdapter;
     ///
-    /// let _orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new()).unwrap();
+    /// let _orcvs = Orcvs::with_output_adapter(MidiOutputAdapter::new()).unwrap();
     /// ```
     pub fn with_output_adapter<A: OutputOnlyAdapter + Send + 'static>(
-        cols: usize,
-        rows: usize,
         adapter: A,
     ) -> Result<Self, PlaybackStartError> {
-        Self::with_source_and_output_adapter(Source::new(Grid::new(cols, rows)), adapter)
+        Self::with_source_and_output_adapter(Source::new(Grid::new()), adapter)
     }
 
     ///
@@ -247,14 +260,14 @@ impl Orcvs<()> {
     ///
     /// # let runtime = tokio::runtime::Runtime::new().unwrap();
     /// # let _runtime = runtime.enter();
-    /// let restored = Source::new(Grid::new(6, 3));
+    /// let restored = Source::new(Grid::new());
     /// let orcvs = Orcvs::with_source_and_output_adapter(restored, InMemoryOutputAdapter::default())
     ///     .expect("a Tokio runtime");
     ///
     /// // the shape is the Source's, not a pair passed alongside it, and the
     /// // Cursor opens on that Grid's origin
     /// let frame = orcvs.render_frame();
-    /// assert_eq!(frame.grid().rows(), 3);
+    /// assert_eq!(frame.grid().rows(), 256);
     /// assert_eq!(frame.cursor(), frame.grid().origin());
     /// ```
     ///
@@ -396,7 +409,7 @@ impl<S> Orcvs<S> {
     ///
     /// # let runtime = tokio::runtime::Runtime::new().unwrap();
     /// # let _runtime = runtime.enter();
-    /// let mut orcvs = Orcvs::new(8, 4).expect("a Tokio runtime");
+    /// let mut orcvs = Orcvs::new().expect("a Tokio runtime");
     /// let grid = orcvs.grid();
     /// let at = |x, y| grid.position(x, y).expect("inside the Grid");
     ///
@@ -699,11 +712,9 @@ impl<S> Orcvs<S> {
 impl Orcvs {
     /// A running Orcvs with MIDI discovery and selection connected to Playback.
     pub fn with_midi_output_adapter(
-        cols: usize,
-        rows: usize,
         adapter: MidiOutputAdapter,
     ) -> Result<Self, PlaybackStartError> {
-        Self::with_source_and_midi_output_adapter(Source::new(Grid::new(cols, rows)), adapter)
+        Self::with_source_and_midi_output_adapter(Source::new(Grid::new()), adapter)
     }
 
     /// Restores Source with MIDI publication established before Playback owns the adapter.
@@ -723,7 +734,7 @@ impl Orcvs {
     /// A running Orcvs does not hand its complete Playback Engine to callers:
     ///
     /// ```compile_fail
-    /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
+    /// let orcvs = orcvs::app::Orcvs::new().unwrap();
     /// let _playback = orcvs.playback_engine();
     /// ```
     ///
@@ -731,7 +742,7 @@ impl Orcvs {
     ///
     /// ```compile_fail
     /// use std::time::Duration;
-    /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
+    /// let orcvs = orcvs::app::Orcvs::new().unwrap();
     /// orcvs
     ///     .midi_selection_handle()
     ///     .start(Duration::from_millis(100));
@@ -740,24 +751,24 @@ impl Orcvs {
     /// It cannot stop or disconnect Playback:
     ///
     /// ```compile_fail
-    /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
+    /// let orcvs = orcvs::app::Orcvs::new().unwrap();
     /// orcvs.midi_selection_handle().stop();
     /// ```
     ///
     /// ```compile_fail
-    /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
+    /// let orcvs = orcvs::app::Orcvs::new().unwrap();
     /// orcvs.midi_selection_handle().disconnect();
     /// ```
     ///
     /// It cannot read the Playback lifecycle state or drain its diagnostics:
     ///
     /// ```compile_fail
-    /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
+    /// let orcvs = orcvs::app::Orcvs::new().unwrap();
     /// let _state = orcvs.midi_selection_handle().state();
     /// ```
     ///
     /// ```compile_fail
-    /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
+    /// let orcvs = orcvs::app::Orcvs::new().unwrap();
     /// let _diagnostics = orcvs.midi_selection_handle().drain_diagnostics();
     /// ```
     pub fn midi_selection_handle(&self) -> MidiSelectionHandle {
@@ -782,9 +793,11 @@ mod test {
 
     #[tokio::test]
     async fn playback_observation_is_tick_zero_stopped_and_run_clock_zero_before_the_first_run() {
-        let orcvs =
-            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default())
-                .expect("the test runtime");
+        let orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            crate::playback::InMemoryOutputAdapter::default(),
+        )
+        .expect("the test runtime");
 
         let observation = orcvs.playback_observation();
 
@@ -836,8 +849,11 @@ mod test {
     async fn space_after_the_engine_ended_its_own_run_asks_to_play_again() {
         use crate::playback::PlaybackDiagnostic;
 
-        let mut orcvs =
-            Orcvs::with_output_adapter(10, 6, PanickingOutputAdapter).expect("the test runtime");
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(10, 6)),
+            PanickingOutputAdapter,
+        )
+        .expect("the test runtime");
         {
             let source = &orcvs.source;
             let grid = source.grid();
@@ -892,18 +908,22 @@ mod test {
 
     #[tokio::test]
     async fn a_fresh_orcvs_opens_at_one_hundred_and_twenty_bpm() {
-        let orcvs =
-            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default())
-                .expect("the test runtime");
+        let orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            crate::playback::InMemoryOutputAdapter::default(),
+        )
+        .expect("the test runtime");
 
         assert_eq!(orcvs.bpm().beats_per_minute(), 120);
     }
 
     #[tokio::test]
     async fn user_can_change_the_tempo() {
-        let mut orcvs =
-            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default())
-                .expect("the test runtime");
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            crate::playback::InMemoryOutputAdapter::default(),
+        )
+        .expect("the test runtime");
 
         orcvs.set_bpm(Bpm::new(120).unwrap());
 
@@ -913,8 +933,11 @@ mod test {
     #[tokio::test(start_paused = true)]
     async fn repeated_tempo_changes_preserve_the_current_beat_phase() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
-        let mut orcvs =
-            Orcvs::with_output_adapter(2, 1, adapter.clone()).expect("the test runtime");
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            adapter.clone(),
+        )
+        .expect("the test runtime");
         orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
         tokio::task::yield_now().await;
         assert_eq!(adapter.command_lists().len(), 1);
@@ -959,8 +982,11 @@ mod test {
     #[tokio::test]
     async fn a_second_space_in_one_batch_cancels_the_first() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
-        let mut orcvs =
-            Orcvs::with_output_adapter(2, 1, adapter.clone()).expect("the test runtime");
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            adapter.clone(),
+        )
+        .expect("the test runtime");
 
         orcvs.event_handler(vec![
             super::InputEvent::KeyPressed(super::InputKey::Space),
@@ -996,7 +1022,10 @@ mod test {
     fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
 
-        let outside = Orcvs::with_output_adapter(2, 1, adapter.clone());
+        let outside = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            adapter.clone(),
+        );
 
         assert_eq!(
             outside.err(),
@@ -1006,7 +1035,13 @@ mod test {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let _runtime = runtime.enter();
 
-        assert!(Orcvs::with_output_adapter(2, 1, adapter).is_ok());
+        assert!(
+            Orcvs::with_source_and_output_adapter(
+                crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+                adapter
+            )
+            .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1031,7 +1066,7 @@ mod test {
     ///
     #[tokio::test]
     async fn render_frame_answers_the_cursor_it_was_derived_for() {
-        let mut app = Orcvs::new(4, 3).expect("the test runtime");
+        let mut app = Orcvs::with_shape(4, 3).expect("the test runtime");
         let origin = app.grid.origin();
         let initial = app.render_frame();
         assert_eq!(initial.cursor(), origin);
@@ -1046,7 +1081,7 @@ mod test {
 
     #[tokio::test]
     async fn a_fresh_orcvs_has_a_region_of_the_cursors_one_cell() {
-        let app = Orcvs::new(4, 3).expect("the test runtime");
+        let app = Orcvs::with_shape(4, 3).expect("the test runtime");
 
         let region = app.render_frame().region();
 
@@ -1060,7 +1095,7 @@ mod test {
     ///
     #[tokio::test]
     async fn extend_spans_a_region_that_select_and_a_write_collapse() {
-        let mut app = Orcvs::new(6, 4).expect("the test runtime");
+        let mut app = Orcvs::with_shape(6, 4).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
 
@@ -1086,7 +1121,7 @@ mod test {
     async fn shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it() {
         use super::{Arrow, InputEvent, InputKey};
 
-        let mut app = Orcvs::new(8, 6).expect("the test runtime");
+        let mut app = Orcvs::with_shape(8, 6).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(3, 3));
@@ -1121,7 +1156,7 @@ mod test {
 
         // 10 columns and spacing 3: sectors at 0-2, 3-5, 6-8, and a last
         // Sector cut short to the single Cell at column 9.
-        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
         app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
@@ -1158,7 +1193,7 @@ mod test {
         use super::InputEvent;
         use crate::opts::SectorSeamSpacing;
 
-        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
         app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
@@ -1195,7 +1230,7 @@ mod test {
         use super::{InputEvent, InputKey};
         use crate::opts::SectorSeamSpacing;
 
-        let mut app = Orcvs::new(10, 4).expect("the test runtime");
+        let mut app = Orcvs::with_shape(10, 4).expect("the test runtime");
         app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
@@ -1229,7 +1264,7 @@ mod test {
     async fn select_all_spans_the_grid_and_collapse_returns_to_the_cursor() {
         use super::InputEvent;
 
-        let mut app = Orcvs::new(5, 4).expect("the test runtime");
+        let mut app = Orcvs::with_shape(5, 4).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(2, 1));
@@ -1260,7 +1295,7 @@ mod test {
     async fn a_shift_arrow_after_select_all_moves_the_live_corner() {
         use super::{Arrow, InputEvent};
 
-        let mut app = Orcvs::new(5, 4).expect("the test runtime");
+        let mut app = Orcvs::with_shape(5, 4).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(2, 1));
@@ -1280,7 +1315,7 @@ mod test {
     async fn typing_after_select_all_writes_at_the_cursor() {
         use super::InputEvent;
 
-        let mut app = Orcvs::new(5, 2).expect("the test runtime");
+        let mut app = Orcvs::with_shape(5, 2).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(2, 1));
@@ -1311,7 +1346,7 @@ mod test {
     ///
     fn written(text: &[&str]) -> Orcvs {
         let columns = text.iter().map(|row| row.len()).max().unwrap_or(1);
-        let mut app = Orcvs::new(columns, text.len()).expect("the test runtime");
+        let mut app = Orcvs::with_shape(columns, text.len()).expect("the test runtime");
         for (y, row) in text.iter().enumerate() {
             for (x, character) in row.chars().enumerate() {
                 app.set_at(x, y, &character.to_string());
@@ -1569,14 +1604,14 @@ mod test {
     /// running Orcvs needs to spawn its Playback Engine onto.
     ///
     fn orcvs() -> Orcvs {
-        Orcvs::new(2, 1).expect("the test runtime")
+        Orcvs::with_shape(2, 1).expect("the test runtime")
     }
 
     fn app() -> Orcvs {
         let rows = 1; // * (DEFAULT_SECTOR_SEAM_SPACING as usize);
         let cols = DEFAULT_SECTOR_SEAM_SPACING;
 
-        Orcvs::new(cols, rows).expect("the test runtime")
+        Orcvs::with_shape(cols, rows).expect("the test runtime")
     }
 
     fn rendered(app: &Orcvs, position: crate::grid::Position) -> (Option<char>, Option<Token>) {
@@ -1627,7 +1662,7 @@ mod test {
         trace();
 
         // 4 columns, 2 rows: transposing the axes addresses a different Cell.
-        let mut app = Orcvs::new(4, 2).expect("the test runtime");
+        let mut app = Orcvs::with_shape(4, 2).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
@@ -1676,7 +1711,7 @@ mod test {
     async fn test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty() {
         trace();
 
-        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
         let position = app.grid.position(5, 0).expect("inside the grid");
         app.set_at(0, 0, ".");
         app.set_at(1, 0, "+");
@@ -1765,7 +1800,7 @@ mod test {
     async fn test_a_comment_renders_its_own_text_and_leaves_its_empty_cells_empty() {
         trace();
 
-        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.src("||hi there");
@@ -1784,7 +1819,7 @@ mod test {
 
         // The same row with a tail the text does not reach. A second Grid
         // places its own Positions, so the Cells are named through it.
-        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.src("||hi");
@@ -1799,7 +1834,7 @@ mod test {
 
     #[tokio::test]
     async fn test_empty_cells_between_markers_remain_spaces() {
-        let mut app = Orcvs::new(24, 16).expect("the test runtime");
+        let mut app = Orcvs::with_shape(24, 16).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(8, 8));
