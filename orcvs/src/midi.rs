@@ -524,7 +524,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_source_control_change_and_pitch_bend_reach_the_wire_as_their_bytes() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 6);
+        let grid = Grid::with_shape(10, 6);
         let source = SourceCommander::new(grid);
         // The whole path in one run: two terminal roots, each activated by the
         // producer one row above it, delivered through the Playback Engine to
@@ -567,7 +567,7 @@ mod tests {
             state: state.clone(),
         };
         let playback = engine(
-            SourceCommander::new(Grid::new(1, 1)),
+            SourceCommander::new(Grid::with_shape(1, 1)),
             MidiOutputAdapter::new(),
         );
 
@@ -766,7 +766,7 @@ mod tests {
         const SOURCE_MESSAGES: usize = 2;
 
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 6);
+        let grid = Grid::with_shape(10, 6);
         let source = SourceCommander::new(grid);
         // Controller `40` is sustain and value `7F` latches it down; the bend
         // on channel `03` is deflected to its top. Neither is a note, so
@@ -846,7 +846,7 @@ mod tests {
         // emits no bytes, so what a device receives can only be read off the
         // adapter that assembles it.
         let playback = engine(
-            SourceCommander::new(Grid::new(1, 1)),
+            SourceCommander::new(Grid::with_shape(1, 1)),
             MidiOutputAdapter::new(),
         );
         select(&playback, &mut backend, &MidiDestinationId::new("one"));
@@ -862,7 +862,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 4);
+        let grid = Grid::with_shape(10, 4);
         let source = SourceCommander::new(grid);
         // The comparison produces a fresh Bang one row above the Raw Play
         // each Tick; displayed or manually entered Bangs do not activate it.
@@ -893,7 +893,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn disconnected_output_reports_delivery_failure_once() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 4);
+        let grid = Grid::with_shape(10, 4);
         let source = SourceCommander::new(grid);
         // The comparison generates a fresh Bang for every attempted delivery, including
         // repeated attempts after the adapter has disconnected.
@@ -931,7 +931,7 @@ mod tests {
         // that reached the Timed claims and left the Mono ones standing.
         for expression in ["!~007FC402", "!%007FC402"] {
             let state = Arc::new(Mutex::new(FakeState::default()));
-            let grid = Grid::new(10, 4);
+            let grid = Grid::with_shape(10, 4);
             let source = SourceCommander::new(grid);
             // A note stopped two Ticks after it starts, and the comparison
             // whose output one row above the root activates it.
@@ -992,7 +992,7 @@ mod tests {
         // both: the clear is the one the two schedules share.
         for expression in ["!~007FC402", "!%007FC402"] {
             let state = Arc::new(Mutex::new(FakeState::default()));
-            let grid = Grid::new(10, 4);
+            let grid = Grid::with_shape(10, 4);
             let source = SourceCommander::new(grid);
             // The same Play the successful change uses: a note stopped two
             // Ticks after it starts, and the comparison that generates its
@@ -1062,7 +1062,7 @@ mod tests {
         let mut backend = FakeBackend {
             state: state.clone(),
         };
-        let source = SourceCommander::new(Grid::new(1, 1));
+        let source = SourceCommander::new(Grid::with_shape(1, 1));
         let playback = engine(source, MidiOutputAdapter::new());
         select(&playback, &mut backend, &MidiDestinationId::new("one"));
         settle_until!(

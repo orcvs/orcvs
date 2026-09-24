@@ -294,7 +294,7 @@ fn populated_source(cols: usize, rows: usize) -> Source {
 /// filled in, so the unwritten rows below are the ordinary case rather than a
 /// contrived one.
 fn source_written_to(cols: usize, rows: usize, written: usize) -> Source {
-    let grid = Grid::new(cols, rows);
+    let grid = Grid::with_shape(cols, rows);
     let mut source = Source::new(grid);
 
     for (idx, content) in source_text(cols, written).chars().enumerate() {

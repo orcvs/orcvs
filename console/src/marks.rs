@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn cell_noise_uses_the_wasm32_integer_domain_on_every_target() {
-        let grid = Grid::new(8, 8);
+        let grid = Grid::with_shape(8, 8);
         let position = grid.position(7, 5).unwrap();
 
         assert_eq!(cell_hash(position), 0xea1e_857c);
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn sector_seams_form_four_fading_arms_around_each_corner() {
-        let grid = Grid::new(16, 16);
+        let grid = Grid::with_shape(16, 16);
         let corner = grid.position(8, 0).unwrap();
         let before_corner = grid.position(8, 7).unwrap();
         let middle = grid.position(8, 4).unwrap();
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn only_the_faint_space_between_sector_corners_has_deterministic_gaps() {
-        let grid = Grid::new(256, 8);
+        let grid = Grid::with_shape(256, 8);
         let positions = grid.positions_by_row().flatten().collect::<Vec<_>>();
 
         assert!(
@@ -110,7 +110,7 @@ mod tests {
 
     #[tokio::test]
     async fn sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
-        let grid = Grid::new(7, 3);
+        let grid = Grid::with_shape(7, 3);
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
 
         assert_eq!(
@@ -125,7 +125,7 @@ mod tests {
         // Token half: empty Cells stay unclaimed. Custom seam periods are not
         // settable from outside `orcvs`, so the spacing=2/1 pattern above is
         // pure strength arithmetic; emptiness is checked on a default Frame.
-        let orcvs = orcvs::app::Orcvs::new(7, 3).expect("the test runtime");
+        let orcvs = orcvs::app::Orcvs::with_shape(7, 3).expect("the test runtime");
         let frame = orcvs.render_frame();
         assert!((0..7).all(|x| {
             frame

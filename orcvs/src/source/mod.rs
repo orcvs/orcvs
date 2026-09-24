@@ -216,7 +216,7 @@ impl SourceCommander {
     /// use orcvs::grid::Grid;
     /// use orcvs::source::{Source, SourceCommander};
     ///
-    /// let mut built = Source::new(Grid::new(6, 3));
+    /// let mut built = Source::new(Grid::new());
     /// let cell = built.grid().cell_index(0).expect("inside the Grid");
     /// built.set(cell, "1").expect("a Cell the Source accepts");
     ///
@@ -224,7 +224,7 @@ impl SourceCommander {
     ///
     /// // the Grid comes with the Source, and it is the Grid that mints the
     /// // index naming one of its Cells
-    /// assert_eq!(source.grid().count(), 18);
+    /// assert_eq!(source.grid().count(), 256 * 256);
     /// assert_eq!(source.get(cell), Some("1".to_owned()));
     /// ```
     ///
@@ -245,7 +245,7 @@ impl SourceCommander {
     /// use orcvs::grid::Grid;
     /// use orcvs::source::SourceCommander;
     ///
-    /// let source = SourceCommander::new(Grid::new(6, 3));
+    /// let source = SourceCommander::new(Grid::new());
     /// let cell = source.grid().cell_index(0).expect("inside the Grid");
     /// source.set(cell, "1").expect("a Cell the Source accepts");
     ///
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn source_access_recovers_after_the_lock_is_poisoned() {
-        let grid = Grid::new(2, 1);
+        let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         let poisoned = source.clone();
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn tick_writes_into_a_long_expression() {
-        let grid = Grid::new(100, 3);
+        let grid = Grid::with_shape(100, 3);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         // Row 1 holds the chain, which claims Cells 100 to 161.
@@ -396,7 +396,7 @@ mod tests {
         // The whole editing seam in one place, now that it has one shape.
         // Addressing is settled before the Source is asked anything, so the
         // only rules left are about content.
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
 
@@ -429,15 +429,17 @@ mod tests {
         // What the seam has instead of an out-of-range error: a Cell this
         // Source does not have cannot be presented to it at all, and an index
         // from a Grid of the same shape is still not one of this Source's.
-        let source = SourceCommander::new(Grid::new(4, 2));
-        let foreign = Grid::new(4, 2).cell_index(0).expect("inside the Grid");
+        let source = SourceCommander::new(Grid::with_shape(4, 2));
+        let foreign = Grid::with_shape(4, 2)
+            .cell_index(0)
+            .expect("inside the Grid");
 
         let _ = source.set(foreign, "x");
     }
 
     #[test]
     fn coherent_read_pairs_every_cell_with_its_source_derived_token() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         source.set(cell(0), ".").unwrap();
@@ -462,7 +464,7 @@ mod tests {
 
     #[test]
     fn unchanged_revision_reads_share_the_language_map() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         source.set(cell(0), ".").unwrap();
@@ -476,7 +478,7 @@ mod tests {
 
     #[test]
     fn token_at_answers_none_when_the_cell_is_empty_and_unclaimed() {
-        let grid = Grid::new(16, 1);
+        let grid = Grid::with_shape(16, 1);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         for (index, content) in ".+0102  .-0304  ".chars().enumerate() {
@@ -551,7 +553,7 @@ mod tests {
         fn a_sequence_answer_of_four_cells_or_more_is_covered_exactly() {
             // `12`'s four worked examples, each answer written south of the
             // root that would produce it.
-            let wide = Grid::new(10, 2);
+            let wide = Grid::with_shape(10, 2);
             let range = revision(wide, &[":-0104", "01020304"]);
             assert_eq!(row(&range, wide, 1), "########..");
 
@@ -561,7 +563,7 @@ mod tests {
             let reversed = revision(wide, &[":<:-0104", "04030201"]);
             assert_eq!(row(&reversed, wide, 1), "########..");
 
-            let widest = Grid::new(16, 2);
+            let widest = Grid::with_shape(16, 2);
             let concatenated = revision(widest, &[":&.+0001:-0203", "010203"]);
             assert_eq!(row(&concatenated, widest, 1), "######..........");
         }
@@ -571,7 +573,7 @@ mod tests {
             // Before any Tick, with nothing written south of it at all: the
             // four-Cell minimum is what tells a Sequence-capable root from a
             // scalar one on sight.
-            let grid = Grid::new(10, 2);
+            let grid = Grid::with_shape(10, 2);
             let empty = revision(grid, &[":-0104"]);
 
             assert_eq!(row(&empty, grid, 1), "####......");
@@ -581,7 +583,7 @@ mod tests {
         fn a_one_atom_answer_shows_four_cells() {
             // The answer is narrower than the minimum, and the minimum wins:
             // the two Cells past it are covered although they are blank.
-            let grid = Grid::new(10, 2);
+            let grid = Grid::with_shape(10, 2);
             let one_atom = revision(grid, &[":-0101", "01"]);
 
             assert_eq!(row(&one_atom, grid, 1), "####......");
@@ -592,7 +594,7 @@ mod tests {
             // Six written Cells, a blank pair, then four more written Cells
             // the highlight never reaches: the first blank Cell ends it,
             // whatever lies beyond.
-            let grid = Grid::new(12, 2);
+            let grid = Grid::with_shape(12, 2);
             let gapped = revision(grid, &[":-0104", "010203  0405"]);
 
             assert_eq!(row(&gapped, grid, 1), "######......");
@@ -604,7 +606,7 @@ mod tests {
             // would draw column 4's glyph outside the highlight that covers
             // the Atom it belongs to, so the pair it stopped inside is taken
             // whole.
-            let grid = Grid::new(10, 2);
+            let grid = Grid::with_shape(10, 2);
             let half = revision(grid, &[":-0104", "01020"]);
 
             assert_eq!(row(&half, grid, 1), "######....");
@@ -616,7 +618,7 @@ mod tests {
             // however narrow the gutter between them. One blank Cell is
             // enough to end the answer, even where completing the pair the
             // run stopped inside covers the gutter's own first Cell.
-            let grid = Grid::new(20, 2);
+            let grid = Grid::with_shape(20, 2);
 
             // A one-column gutter: `.` at column 9 is the right column's
             // Expression, and the blank at column 8 ends the answer.
@@ -636,7 +638,7 @@ mod tests {
             // reserves. Anchored at column 5 of an 8-wide row, its Reservation
             // is the three Cells to the row's end, and the four-Cell minimum
             // does not reach past them.
-            let grid = Grid::new(8, 2);
+            let grid = Grid::with_shape(8, 2);
             let clipped = revision(grid, &["     :-", "     01"]);
 
             assert_eq!(row(&clipped, grid, 1), ".....###");
@@ -647,7 +649,7 @@ mod tests {
             // Neither widened to the minimum nor extended by the written
             // Cells that follow: the fit applies to Sequence-capable roots
             // alone.
-            let grid = Grid::new(10, 2);
+            let grid = Grid::with_shape(10, 2);
             let scalar = revision(grid, &[".+0304", "07"]);
             assert_eq!(row(&scalar, grid, 1), "##........");
 

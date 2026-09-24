@@ -71,31 +71,16 @@ impl CellIndex {
 }
 
 ///
-/// The shape a console starts with, until something states another one. A
-/// Grid's dimensions are its own: they are stated here as Cell counts, and
-/// derived from nothing else.
+/// The one shape every Grid has: 256 columns by 256 rows (ADR 0054). As many
+/// columns and rows as one Number spells, so every pair of Numbers, column
+/// then row, `00 00` through `FF FF`, names a Position (ADR 0049). A Number is
+/// one byte (ADR 0010), so each count is every value a `u8` holds.
 ///
-/// The default is 128 by 80 — a Grid that reads left to right in time, in the
-/// proportion a console is most often given. Cells are square, so these counts
-/// are the Grid's aspect ratio. It is twice the default window on each axis at
-/// Zoom 1.0, so a fresh console opens with room to Pan (ADR 0047).
+/// A Source carries no shape of its own: a stored Source or a Source File at
+/// another shape is not a Source this build reads.
 ///
-pub const DEFAULT_COL_COUNT: usize = 128;
-pub const DEFAULT_ROW_COUNT: usize = 80;
-
-///
-/// The most columns and rows a Grid has: as many as one Number spells, so
-/// every Position is two Numbers, column then row, `00 00` through `FF FF`
-/// (ADR 0049). A shape past either is not a Grid. A Number is one byte
-/// (ADR 0010), so the count is every value a `u8` holds.
-///
-pub const MAX_COL_COUNT: usize = u8::MAX as usize + 1;
-pub const MAX_ROW_COUNT: usize = u8::MAX as usize + 1;
-
-const _: () = assert!(
-    DEFAULT_COL_COUNT <= MAX_COL_COUNT && DEFAULT_ROW_COUNT <= MAX_ROW_COUNT,
-    "the default Grid must be a Grid"
-);
+pub const COL_COUNT: usize = u8::MAX as usize + 1;
+pub const ROW_COUNT: usize = u8::MAX as usize + 1;
 
 ///
 /// Which Grid a value bound to one Grid came from.
@@ -145,34 +130,51 @@ impl TryFrom<PersistedGrid> for Grid {
     type Error = &'static str;
 
     fn try_from(grid: PersistedGrid) -> Result<Self, Self::Error> {
-        if grid.cols == 0 || grid.rows == 0 {
-            return Err("persisted Grid dimensions must be greater than zero");
-        }
-        if grid.cols > MAX_COL_COUNT || grid.rows > MAX_ROW_COUNT {
-            return Err("persisted Grid dimensions exceed the largest Grid");
+        // One shape, and a stored Grid of any other is refused rather than
+        // migrated (ADR 0054): every stored Source is a developer's autosave.
+        if (grid.cols, grid.rows) != (COL_COUNT, ROW_COUNT) {
+            return Err("persisted Grid is not 256 by 256");
         }
 
-        Ok(Self::new(grid.cols, grid.rows))
+        Ok(Self::new())
+    }
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl Grid {
     ///
-    /// A Grid has at least one column and one row, and at most
-    /// [`MAX_COL_COUNT`] columns and [`MAX_ROW_COUNT`] rows, so its Cell count
-    /// cannot overflow.
+    /// A new Grid, [`COL_COUNT`] by [`ROW_COUNT`]: the only shape there is
+    /// (ADR 0054). Each call mints a Grid of its own identity.
     ///
-    pub fn new(cols: usize, rows: usize) -> Self {
+    pub fn new() -> Self {
+        Self {
+            id: GridId::new(),
+            cols: COL_COUNT,
+            rows: ROW_COUNT,
+        }
+    }
+
+    ///
+    /// A Grid smaller than the one shape, for tests that state a Source as a
+    /// few short rows and assert on its edges.
+    ///
+    /// Test-only: nothing shipped constructs a Grid of any shape but
+    /// [`Grid::new`]'s. It is compiled for this crate's own tests and for any
+    /// build that enables `test-grid-shapes`, which only the workspace's
+    /// dev-dependencies do (`orcvs/Cargo.toml`). At least one column and one
+    /// row, and at most the one shape's, so a Cell count cannot overflow.
+    ///
+    #[cfg(any(test, feature = "test-grid-shapes"))]
+    pub fn with_shape(cols: usize, rows: usize) -> Self {
         assert!(cols > 0, "cols must be greater than zero");
         assert!(rows > 0, "rows must be greater than zero");
-        assert!(
-            cols <= MAX_COL_COUNT,
-            "cols must be at most {MAX_COL_COUNT}"
-        );
-        assert!(
-            rows <= MAX_ROW_COUNT,
-            "rows must be at most {MAX_ROW_COUNT}"
-        );
+        assert!(cols <= COL_COUNT, "cols must be at most {COL_COUNT}");
+        assert!(rows <= ROW_COUNT, "rows must be at most {ROW_COUNT}");
 
         Self {
             id: GridId::new(),
@@ -472,7 +474,7 @@ mod test {
     #[cfg(feature = "persistence")]
     use crate::grid::PersistedGrid;
     use crate::{
-        grid::{Grid, MAX_COL_COUNT, MAX_ROW_COUNT, Position},
+        grid::{COL_COUNT, Grid, Position, ROW_COUNT},
         opts::SectorSeamSpacing,
         test::trace,
     };
@@ -483,7 +485,7 @@ mod test {
 
         // Rectangular on purpose: a transposed implementation yields 4 rows of
         // 2 Positions and fails here.
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         let rows: Vec<Vec<Position>> = grid.positions_by_row().map(|row| row.collect()).collect();
@@ -510,7 +512,7 @@ mod test {
     fn test_grid_cannot_have_zero_cols() {
         trace();
 
-        let _ = Grid::new(0, 2);
+        let _ = Grid::with_shape(0, 2);
     }
 
     #[test]
@@ -518,17 +520,34 @@ mod test {
     fn test_grid_cannot_have_zero_rows() {
         trace();
 
-        let _ = Grid::new(4, 0);
+        let _ = Grid::with_shape(4, 0);
     }
 
     #[test]
-    fn test_grid_can_be_as_large_as_two_numbers_address() {
+    fn test_every_grid_is_as_large_as_two_numbers_address() {
         trace();
 
-        let grid = Grid::new(MAX_COL_COUNT, MAX_ROW_COUNT);
+        let grid = Grid::new();
 
         assert_eq!((grid.columns(), grid.rows()), (256, 256));
+        assert_eq!((COL_COUNT, ROW_COUNT), (256, 256));
         assert!(grid.position(0xFF, 0xFF).is_some());
+        assert!(grid.position(0x100, 0).is_none());
+        assert!(grid.position(0, 0x100).is_none());
+    }
+
+    #[test]
+    fn test_each_new_grid_is_a_grid_of_its_own() {
+        trace();
+
+        let first = Grid::new();
+        let second = Grid::default();
+
+        assert_eq!(
+            (first.columns(), first.rows()),
+            (second.columns(), second.rows())
+        );
+        assert!(!first.owns_identity(second.identity()));
     }
 
     #[test]
@@ -536,7 +555,7 @@ mod test {
     fn test_grid_cannot_have_more_cols_than_a_number_addresses() {
         trace();
 
-        let _ = Grid::new(MAX_COL_COUNT + 1, 2);
+        let _ = Grid::with_shape(COL_COUNT + 1, 2);
     }
 
     #[test]
@@ -544,26 +563,32 @@ mod test {
     fn test_grid_cannot_have_more_rows_than_a_number_addresses() {
         trace();
 
-        let _ = Grid::new(4, MAX_ROW_COUNT + 1);
+        let _ = Grid::with_shape(4, ROW_COUNT + 1);
     }
 
     #[cfg(feature = "persistence")]
     #[test]
-    fn test_persisted_grid_is_refused_past_what_a_number_addresses() {
+    fn test_a_persisted_grid_of_any_shape_but_the_one_is_refused() {
         trace();
 
         let refused = |cols, rows| Grid::try_from(PersistedGrid { cols, rows }).is_err();
 
-        assert!(!refused(MAX_COL_COUNT, MAX_ROW_COUNT));
-        assert!(refused(MAX_COL_COUNT + 1, 1));
-        assert!(refused(1, MAX_ROW_COUNT + 1));
+        assert!(!refused(COL_COUNT, ROW_COUNT));
+        // the previous defaults, one Cell short on each axis, one Cell past,
+        // and an empty shape: none is migrated (ADR 0054)
+        assert!(refused(128, 80));
+        assert!(refused(64, 40));
+        assert!(refused(COL_COUNT - 1, ROW_COUNT));
+        assert!(refused(COL_COUNT, ROW_COUNT - 1));
+        assert!(refused(COL_COUNT + 1, ROW_COUNT));
+        assert!(refused(0, 0));
     }
 
     #[test]
     fn test_grid_mints_positions_inside_it() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
 
         let pos = grid.position(3, 1).expect("3, 1 is inside a 4 x 2 grid");
 
@@ -575,7 +600,7 @@ mod test {
     fn test_grid_refuses_positions_outside_it() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
 
         // past the last column
         assert_eq!(grid.position(4, 0), None);
@@ -589,7 +614,7 @@ mod test {
     fn test_grid_origin_is_the_first_position() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
 
         let origin = grid.origin();
 
@@ -601,7 +626,7 @@ mod test {
     fn test_grid_converts_positions_to_indices_in_row_order() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
 
         let index = |x, y| {
             grid.index(grid.position(x, y).expect("inside the grid"))
@@ -618,8 +643,8 @@ mod test {
     #[test]
     #[should_panic(expected = "Position belongs to another Grid")]
     fn test_grid_refuses_a_position_minted_by_another_grid() {
-        let first = Grid::new(4, 2);
-        let second = Grid::new(4, 2);
+        let first = Grid::with_shape(4, 2);
+        let second = Grid::with_shape(4, 2);
         let foreign = first.position(1, 0).expect("inside the first Grid");
 
         second.index(foreign);
@@ -634,8 +659,8 @@ mod test {
         // them different because their Grid identities differ. An ordering
         // that answers `Equal` there contradicts equality and corrupts any
         // ordered collection holding indices from more than one Grid.
-        let first = Grid::new(4, 2);
-        let second = Grid::new(4, 2);
+        let first = Grid::with_shape(4, 2);
+        let second = Grid::with_shape(4, 2);
         let a = first.cell_index(1).expect("inside the first Grid");
         let b = second.cell_index(1).expect("inside the second Grid");
 
@@ -654,7 +679,7 @@ mod test {
 
     #[test]
     fn test_grid_identity_survives_copying() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let copied = grid;
         let position = grid.position(1, 0).expect("inside the Grid");
 
@@ -664,9 +689,9 @@ mod test {
 
     #[test]
     fn test_a_grid_mints_an_identity_that_survives_copying_and_differs_from_another_grid() {
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let copied = grid;
-        let other = Grid::new(4, 2);
+        let other = Grid::with_shape(4, 2);
         let identity = grid.identity();
 
         assert_eq!(identity, copied.identity());
@@ -679,7 +704,7 @@ mod test {
     fn test_grid_indices_cover_every_cell_exactly_once() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
 
         // every index names a Position, and that Position converts back to the
         // index it came from: no two Cells share an index, and none is missed
@@ -695,7 +720,7 @@ mod test {
     fn test_grid_moves_up_and_stops_at_the_top_row() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         // from the bottom row up to the top
@@ -708,7 +733,7 @@ mod test {
     fn test_grid_moves_down_and_stops_at_the_bottom_row() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         // from the top row down to the bottom
@@ -721,7 +746,7 @@ mod test {
     fn test_grid_moves_left_and_stops_at_the_first_column() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         assert_eq!(grid.left(at(3, 1)), at(2, 1));
@@ -734,7 +759,7 @@ mod test {
     fn test_grid_moves_right_and_stops_at_the_last_column() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         assert_eq!(grid.right(at(0, 1)), at(1, 1));
@@ -751,7 +776,7 @@ mod test {
 
         // Sector boundaries at columns 0, 3 and 6, in a row that also carries
         // a row number so a transposed implementation would leak into `y`.
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
 
@@ -769,7 +794,7 @@ mod test {
 
         // 9 columns and spacing 3 divide evenly: three whole Sectors, the
         // last spanning columns 6 through 8.
-        let grid = Grid::new(9, 1);
+        let grid = Grid::with_shape(9, 1);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
 
@@ -784,7 +809,7 @@ mod test {
 
         // 10 columns are not a whole multiple of spacing 8: the last Sector
         // is cut short to the two Cells at columns 8 and 9.
-        let grid = Grid::new(10, 1);
+        let grid = Grid::with_shape(10, 1);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(8).expect("a positive spacing");
 
@@ -797,7 +822,7 @@ mod test {
     fn test_grid_steps_to_the_current_sectors_start_then_the_previous_sector() {
         trace();
 
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
 
@@ -822,7 +847,7 @@ mod test {
 
         // The same cut-short Grid as the Tab case, stepped backwards: from
         // its interior to its own start, then on to the whole Sector before it.
-        let grid = Grid::new(10, 1);
+        let grid = Grid::with_shape(10, 1);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(8).expect("a positive spacing");
 
@@ -836,7 +861,7 @@ mod test {
 
         // Spacing 1 makes every Cell its own Sector, so Tab and Shift Tab
         // degenerate to the ordinary one-Cell `right` and `left` step.
-        let grid = Grid::new(5, 1);
+        let grid = Grid::with_shape(5, 1);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(1).expect("a positive spacing");
 
@@ -855,7 +880,7 @@ mod test {
 
         // A single Sector spans the whole row, cut short at the Grid's own
         // edge: there is no next Sector on either side.
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let spacing = SectorSeamSpacing::new(8).expect("a positive spacing");
 
@@ -869,7 +894,7 @@ mod test {
     fn test_grid_names_the_cell_an_index_addresses() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         let cell = |idx| grid.cell_index(idx).expect("inside the grid");
@@ -890,7 +915,7 @@ mod test {
     fn test_grid_answers_the_row_below_and_stops_past_the_bottom_row() {
         trace();
 
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         // one row down, same column
@@ -906,7 +931,7 @@ mod test {
     fn test_grid_displaces_in_both_axes_and_stops_at_every_edge() {
         trace();
 
-        let grid = Grid::new(4, 3);
+        let grid = Grid::with_shape(4, 3);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let middle = at(1, 1);
 
@@ -970,13 +995,14 @@ mod test {
 /// proof, so keeping the seed beside it would be a second, weaker statement of
 /// the same law.
 ///
-/// Dimensions start at one because `Grid::new` refuses zero: both counts are
-/// `assert!`ed rather than `debug_assert!`ed, so a Grid of no Cells cannot be
-/// constructed in a release build either, and no property here has to admit
-/// one. `mod test`'s `test_grid_cannot_have_zero_cols` and
-/// `test_grid_cannot_have_zero_rows` pin that, and the `persistence`
-/// `TryFrom<PersistedGrid>` refuses the same shape with an error rather than a
-/// panic, so a deserialized Grid cannot arrive empty either.
+/// Every shipped Grid is 256 by 256 (ADR 0054); these properties sweep the
+/// test-only `Grid::with_shape` so the arithmetic is checked across shapes a
+/// case can afford. Dimensions start at one because
+/// `with_shape` refuses zero: both counts are `assert!`ed, and `mod test`'s
+/// `test_grid_cannot_have_zero_cols` and `test_grid_cannot_have_zero_rows` pin
+/// that. The `persistence` `TryFrom<PersistedGrid>` refuses every shape but
+/// the one with an error rather than a panic, so a deserialized Grid cannot
+/// arrive empty either.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
@@ -1080,7 +1106,7 @@ mod property {
         fn a_position_exists_exactly_where_the_grid_has_a_cell(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
 
             for y in 0..rows + PAST_THE_END {
                 for x in 0..cols + PAST_THE_END {
@@ -1128,7 +1154,7 @@ mod property {
         fn every_position_the_grid_mints_round_trips_through_its_index(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
 
             for pos in every_position(grid, cols, rows) {
                 let idx = grid.index(pos);
@@ -1157,7 +1183,7 @@ mod property {
         fn every_index_the_grid_answers_round_trips_through_its_position(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
 
             // `cols * rows` rather than `count`, for the reason
             // `every_position` gives: a sweep bounded by the Grid's own answer
@@ -1195,7 +1221,7 @@ mod property {
         fn an_index_exists_exactly_below_the_cell_count(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
             let count = cols * rows;
 
             prop_assert_eq!(grid.count(), count);
@@ -1227,7 +1253,7 @@ mod property {
         fn positions_by_row_yields_every_cell_of_the_grid_once(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
 
             let yielded: Vec<Vec<Position>> = grid.positions_by_row().map(|row| row.collect()).collect();
 
@@ -1271,7 +1297,7 @@ mod property {
         fn an_offset_in_row_stays_inside_the_row_it_started_in(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
 
             for pos in every_position(grid, cols, rows) {
                 let start = grid.index(pos);
@@ -1329,7 +1355,7 @@ mod property {
         fn every_move_lands_on_a_cell_of_the_grid(
             (cols, rows) in dimensions(),
         ) {
-            let grid = Grid::new(cols, rows);
+            let grid = Grid::with_shape(cols, rows);
 
             for pos in every_position(grid, cols, rows) {
                 for landed in [grid.up(pos), grid.down(pos), grid.left(pos), grid.right(pos)] {

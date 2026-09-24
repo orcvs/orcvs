@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn render_frame_is_a_complete_row_structured_visual_snapshot() {
-        let grid = Grid::new(2, 2);
+        let grid = Grid::with_shape(2, 2);
         let source = SourceCommander::new(grid);
         source.set(cell(grid, 1), "x").unwrap();
         let selected = grid.position(1, 0).unwrap();
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn only_complete_bang_units_receive_bang_glyphs() {
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let source = SourceCommander::new(grid);
         for (index, content) in "***x".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn a_self_banging_function_is_painted_as_a_function() {
-        let grid = Grid::new(2, 1);
+        let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
         source.set(cell(grid, 0), ">").unwrap();
         source.set(cell(grid, 1), ">").unwrap();
@@ -476,7 +476,7 @@ mod tests {
         // is not hexadecimal, so both fail `Token::Number::decode` and the
         // Parser records each as `(Token::Number, None)`. The Function itself
         // bound. Each claim is stored once and shared by every Cell it covers.
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+c40G");
         let frame = derive_frame(&source, grid.origin());
@@ -524,7 +524,7 @@ mod tests {
         // `.+01  `: the first Number binds; the second operand is two blank
         // Cells the arity still claims. Pending and Invalid are not told
         // apart here — `atom: None` covers both.
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+01  ");
         let frame = derive_frame(&source, grid.origin());
@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn a_partly_written_operand_is_invalid_on_every_cell() {
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+0");
         let frame = derive_frame(&source, grid.origin());
@@ -587,7 +587,7 @@ mod tests {
         //              written one;
         //   `|| a  b ` one Comment over the whole row, blanks included;
         //   `x       ` a refused Function spelling, then empty Cells.
-        let grid = Grid::new(8, 4);
+        let grid = Grid::with_shape(8, 4);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+01  **.+c40   || a  b x       ");
         let frame = derive_frame(&source, grid.origin());
@@ -651,7 +651,7 @@ mod tests {
         // reads this from the Parser's own record of the Cells the row's
         // tail held, so the Render Frame carries it through unchanged rather
         // than needing a second per-Cell classifier of its own.
-        let grid = Grid::new(5, 1);
+        let grid = Grid::with_shape(5, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+01");
 
@@ -678,7 +678,7 @@ mod tests {
         // A lone `|` is a refused Function spelling (ADR 0018): every unit
         // starts as a Function slot, the two-Cell read fails
         // `Function::try_from`, and the refusal advances one character.
-        let grid = Grid::new(2, 1);
+        let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "|");
         let frame = derive_frame(&source, grid.origin());
@@ -698,7 +698,7 @@ mod tests {
         // A written `07` is two refused Function spellings (ADR 0018).
         // Nothing distinguishes `0`'s refusal from `7`'s — both are
         // `(Token::Function, None)` over one Cell.
-        let grid = Grid::new(2, 1);
+        let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "07");
         let frame = derive_frame(&source, grid.origin());
@@ -723,7 +723,7 @@ mod tests {
         // A Comment records `Token::Comment` and no Atom (ADR 0035), the same
         // shape as an unbound entry, but it is a complete Language Unit. The
         // claim is one record shared across the introducer and the body.
-        let grid = Grid::new(5, 1);
+        let grid = Grid::with_shape(5, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "||abc");
         let frame = derive_frame(&source, grid.origin());
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn a_standalone_bang_is_one_bound_bang_claim() {
-        let grid = Grid::new(2, 1);
+        let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "**");
         let frame = derive_frame(&source, grid.origin());
@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn an_unclaimed_cell_answers_no_claim() {
-        let grid = Grid::new(2, 2);
+        let grid = Grid::with_shape(2, 2);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+");
         let frame = derive_frame(&source, grid.origin());
@@ -781,7 +781,7 @@ mod tests {
 
     #[test]
     fn occupied_glyphs_win_over_sector_presentation() {
-        let grid = Grid::new(2, 2);
+        let grid = Grid::with_shape(2, 2);
         let source = SourceCommander::new(grid);
         source.set(cell(grid, 0), "x").unwrap();
 
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn concurrent_ticks_cannot_mix_source_revisions_within_a_render_frame() {
-        let grid = Grid::new(8, 2);
+        let grid = Grid::with_shape(8, 2);
         let source = SourceCommander::new(grid);
         for (idx, content) in ".+010E".chars().enumerate() {
             source.set(cell(grid, idx), &content.to_string()).unwrap();
@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn render_frame_answers_the_presentation_spacings_it_was_derived_with() {
-        let grid = Grid::new(2, 2);
+        let grid = Grid::with_shape(2, 2);
         let source = SourceCommander::new(grid);
         let sector_seam_spacing = SectorSeamSpacing::new(3).unwrap();
         let cursor_bloom_radius = CursorBloomRadius::new(5).unwrap();
@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn render_frame_carries_the_region_it_was_derived_for() {
-        let grid = Grid::new(4, 3);
+        let grid = Grid::with_shape(4, 3);
         let source = SourceCommander::new(grid);
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         let region = Region::span(grid, at(3, 2), at(1, 0));
@@ -921,7 +921,7 @@ mod tests {
     fn a_parse_error_reaches_the_render_frame_for_the_expression_span() {
         // `.+0102` is a complete Add. `.+01` is the same Function one operand
         // short; the Language Map reports "expected a token" across that Span.
-        let complete_grid = Grid::new(6, 1);
+        let complete_grid = Grid::with_shape(6, 1);
         let complete = SourceCommander::new(complete_grid);
         write_row(&complete, complete_grid, ".+0102");
         let complete_frame = derive_frame(&complete, complete_grid.origin());
@@ -942,7 +942,7 @@ mod tests {
                 .is_none()
         );
 
-        let incomplete_grid = Grid::new(4, 1);
+        let incomplete_grid = Grid::with_shape(4, 1);
         let incomplete = SourceCommander::new(incomplete_grid);
         write_row(&incomplete, incomplete_grid, ".+01");
         let incomplete_frame = derive_frame(&incomplete, incomplete_grid.origin());
@@ -969,7 +969,7 @@ mod tests {
     fn an_incomplete_function_is_not_executable_on_the_render_frame() {
         // A complete Add keeps its Function root. The same spelling one
         // operand short has no root: it will not run on the next Tick.
-        let complete_grid = Grid::new(6, 1);
+        let complete_grid = Grid::with_shape(6, 1);
         let complete = SourceCommander::new(complete_grid);
         write_row(&complete, complete_grid, ".+0102");
         let complete_frame = derive_frame(&complete, complete_grid.origin());
@@ -982,7 +982,7 @@ mod tests {
             complete_grid.position(0, 0)
         );
 
-        let incomplete_grid = Grid::new(4, 1);
+        let incomplete_grid = Grid::with_shape(4, 1);
         let incomplete = SourceCommander::new(incomplete_grid);
         write_row(&incomplete, incomplete_grid, ".+01");
         let incomplete_frame = derive_frame(&incomplete, incomplete_grid.origin());
@@ -1001,7 +1001,7 @@ mod tests {
         // `***`: a Bang occupies cells 0-1. The leftover `*` is unmatched and
         // is not a Cell of that Expression; LanguageMap diagnoses it lexically
         // on its own Cell.
-        let grid = Grid::new(3, 1);
+        let grid = Grid::with_shape(3, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "***");
         let frame = derive_frame(&source, grid.origin());

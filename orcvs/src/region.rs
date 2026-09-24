@@ -18,7 +18,7 @@ use crate::grid::{Grid, Position};
 /// use orcvs::grid::Grid;
 /// use orcvs::region::Region;
 ///
-/// let grid = Grid::new(8, 4);
+/// let grid = Grid::new();
 /// let at = |x, y| grid.position(x, y).expect("inside the Grid");
 ///
 /// // the Cursor above and left of the anchor spans the same rectangle as
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn a_region_spans_from_its_anchor_to_the_cursor_whichever_way_it_points() {
-        let grid = Grid::new(10, 6);
+        let grid = Grid::with_shape(10, 6);
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
 
         let forward = Region::span(grid, at(2, 1), at(5, 3));
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn moving_the_cursor_past_the_anchor_flips_the_rectangle() {
-        let grid = Grid::new(10, 6);
+        let grid = Grid::with_shape(10, 6);
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         let anchor = at(4, 2);
 
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn a_region_at_one_cell_is_that_cell() {
-        let grid = Grid::new(3, 3);
+        let grid = Grid::with_shape(3, 3);
         let cell = grid.position(1, 2).expect("inside the Grid");
 
         let region = Region::at(grid, cell);
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn a_region_walks_its_cells_row_by_row() {
-        let grid = Grid::new(5, 5);
+        let grid = Grid::with_shape(5, 5);
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
 
         let region = Region::span(grid, at(3, 2), at(2, 1));
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn the_whole_region_is_every_cell_of_the_grid_around_the_cursor() {
-        let grid = Grid::new(4, 3);
+        let grid = Grid::with_shape(4, 3);
         let cursor = grid.position(2, 1).expect("inside the Grid");
 
         let region = Region::whole(grid, cursor);
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn the_whole_region_of_a_one_cell_grid_is_one_cell() {
-        let grid = Grid::new(1, 1);
+        let grid = Grid::with_shape(1, 1);
 
         assert!(Region::whole(grid, grid.origin()).is_one_cell());
     }
@@ -267,8 +267,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "Position belongs to another Grid")]
     fn a_region_refuses_a_position_another_grid_minted() {
-        let grid = Grid::new(3, 3);
-        let other = Grid::new(3, 3);
+        let grid = Grid::with_shape(3, 3);
+        let other = Grid::with_shape(3, 3);
 
         Region::span(grid, grid.origin(), other.origin());
     }

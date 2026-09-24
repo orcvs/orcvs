@@ -25,8 +25,10 @@ use console::{
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use egui::{Pos2, Rect, Vec2};
 use orcvs::app::Orcvs;
+use orcvs::grid::Grid;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::RenderFrame;
+use orcvs::source::Source;
 use std::hint::black_box;
 use std::sync::OnceLock;
 
@@ -84,8 +86,13 @@ fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
 
 fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
     let _runtime = benchmark_runtime().enter();
-    let mut orcvs = Orcvs::with_output_adapter(cols, rows, InMemoryOutputAdapter::default())
-        .expect("a benchmark runtime");
+    // The smaller shapes are the test-only `Grid::with_shape`; 256x256 is the
+    // one shipped Grid (ADR 0054).
+    let mut orcvs = Orcvs::with_source_and_output_adapter(
+        Source::new(Grid::with_shape(cols, rows)),
+        InMemoryOutputAdapter::default(),
+    )
+    .expect("a benchmark runtime");
     let text = source_text(cols, rows);
     let positions = orcvs
         .grid()

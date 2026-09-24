@@ -120,10 +120,9 @@
 //! rows. Editors and formatters strip trailing whitespace on save, which
 //! would otherwise turn a checked-in padded rectangle ragged on its next
 //! untouched edit and fail a loader that demanded one.
-//! `source_from_reference_text` instead derives the Grid's width from the
-//! widest line and its height from the line count, each rounded up to the
-//! Sector Seam spacing, and pads every short line and every row past the
-//! last line with empty Cells — see its doc comment.
+//! `source_from_reference_text` instead places the text on the one 256 by 256
+//! Grid (ADR 0054), and every short line and every row past the last line
+//! reads as empty Cells — see its doc comment.
 //!
 //! # Completeness and diagnostic-cleanliness are proven, not asserted
 //!
@@ -160,9 +159,6 @@ use orcvs::source::Source;
 
 const REFERENCE: &str = include_str!("../assets/function_reference.orcvs");
 
-/// The Sector Seam spacing every Grid dimension here is a multiple of.
-const SECTOR_SEAM: usize = 8;
-
 ///
 /// The Function reference Source, rebuilt fresh each call.
 ///
@@ -171,9 +167,8 @@ pub(crate) fn function_reference() -> Source {
 }
 
 ///
-/// Parses `text` into a Source whose Grid is exactly wide and tall enough for
-/// it: the widest line's Cell count and the line count, each rounded up to
-/// the Sector Seam spacing.
+/// Places `text` on the one Grid (ADR 0054): line *n* is row *n*, character
+/// *m* is column *m*.
 ///
 /// A short line is padded with empty Cells rather than required to reach the
 /// Grid's width, and any row past the last line is left entirely empty —
@@ -184,18 +179,9 @@ pub(crate) fn function_reference() -> Source {
 /// removed is ragged the moment one row's content ends before another's.
 ///
 fn source_from_reference_text(text: &str) -> Source {
-    let lines: Vec<&str> = text.lines().collect();
-    let widest = lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0);
-    let columns = round_up_to_sector_seam(widest);
-    let rows = round_up_to_sector_seam(lines.len());
-
-    let grid = Grid::new(columns, rows);
+    let grid = Grid::new();
     let mut source = Source::new(grid);
-    for (y, line) in lines.into_iter().enumerate() {
+    for (y, line) in text.lines().enumerate() {
         for (x, content) in line.chars().enumerate() {
             if content != ' ' {
                 let position = grid.position(x, y).expect("inside the reference Grid");
@@ -208,11 +194,6 @@ fn source_from_reference_text(text: &str) -> Source {
     }
 
     source
-}
-
-/// Rounds `value` up to the next multiple of [`SECTOR_SEAM`] (`0` stays `0`).
-fn round_up_to_sector_seam(value: usize) -> usize {
-    value.div_ceil(SECTOR_SEAM) * SECTOR_SEAM
 }
 
 #[cfg(test)]
@@ -228,21 +209,19 @@ mod tests {
     /// A checked-in, padded rectangle is not the only shape the loader must
     /// accept: an editor or formatter that strips trailing whitespace turns
     /// every padded row short of the widest into a ragged one, and a blank
-    /// row into an empty line. The loader rounds the widest line and the
-    /// line count up to the Sector Seam spacing instead of asserting a
-    /// rectangle already at that shape, so this ragged text — never checked
-    /// in, built by the test itself — loads rather than panics.
+    /// row into an empty line. The loader places the text on the one 256 by
+    /// 256 Grid instead of asserting a rectangle, so this ragged text — never
+    /// checked in, built by the test itself — loads rather than panics.
     ///
     #[test]
-    fn a_ragged_text_with_stripped_trailing_whitespace_loads_at_rounded_up_dimensions() {
+    fn a_ragged_text_with_stripped_trailing_whitespace_loads_onto_the_one_grid() {
         // Three lines, none the same length: 6 Cells, 0 (a blank line
-        // stripped bare), and 2. The widest, 6, rounds up to 8 Cells; the 3
-        // lines round up to 8 rows.
+        // stripped bare), and 2. The Grid is the one shape regardless.
         let source = source_from_reference_text(".+0102\n\n0C");
         let grid = source.grid();
 
-        assert_eq!(grid.columns(), 8);
-        assert_eq!(grid.rows(), 8);
+        assert_eq!(grid.columns(), 256);
+        assert_eq!(grid.rows(), 256);
 
         assert_eq!(read_cell(&source, grid, 0, 0), Some(".".to_string()));
         assert_eq!(read_cell(&source, grid, 5, 0), Some("2".to_string()));
@@ -437,11 +416,10 @@ mod tests {
     }
 
     #[test]
-    fn the_reference_grid_dimensions_are_multiples_of_the_sector_seam_spacing() {
+    fn the_reference_loads_onto_the_one_grid_rather_than_one_rounded_up_from_its_text() {
         let grid = function_reference().grid();
 
-        assert_eq!(grid.columns() % super::SECTOR_SEAM, 0);
-        assert_eq!(grid.rows() % super::SECTOR_SEAM, 0);
+        assert_eq!((grid.columns(), grid.rows()), (256, 256));
     }
 
     /// A rectangle of Cells, half-open on both axes, matching one example's

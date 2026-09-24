@@ -9,7 +9,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use orcvs::app::Orcvs;
 use orcvs::grid::{CellIndex, Grid};
 use orcvs::playback::InMemoryOutputAdapter;
-use orcvs::source::{Source, SourceCommander, Tick};
+use orcvs::source::{CellContent, CellWrite, LanguageMap, Source, SourceCommander, Tick};
 use std::hint::black_box;
 use std::sync::OnceLock;
 
@@ -24,40 +24,21 @@ const SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64)];
 /// sizes as the Tick series below does.
 ///
 /// A Render Frame is derived whole, once per frame, over every Position of the
-/// Grid (`orcvs/src/render_frame.rs:74-112`), so what one costs is a question
-/// about the largest Grid a console is allowed to grow to — and no such bound
-/// has been chosen. Resize is gated on the `GridId` rearchitecture that
-/// `.scratch/grid-boundedness/` decides, and the spec that would set a cap does
-/// not exist yet. These two added shapes therefore stand in for that undecided
-/// upper end rather than claiming it: 128x128 is 16,384 Cells and 256x256 is
-/// 65,536, sixty-five times the 1000 Cells a console opens on and past the
-/// 200x200 at which `.scratch/render-frame-derivation/spec.md` says the question
-/// starts to matter. Each step still quadruples the Cell count, so five points
-/// across a 256-fold range is what tells the flat O(Cells) the code reads as
-/// apart from anything steeper. The three editing shapes stay at the head of the
-/// list rather than being replaced: the action keys each stored point by its
-/// benchmark name, so keeping them keeps the history already recorded for
-/// `source_read_revision` and `source_render_frame` at those shapes, and the two
-/// added names simply start series of their own.
+/// Grid (`orcvs/src/render_frame.rs`), so what one costs follows the Cell
+/// count. Every shipped Grid is now 256 by 256 (ADR 0054), so the last shape is
+/// the one a console actually pays; the smaller ones are built through the
+/// test-only `Grid::with_shape` and stay so the series already recorded against
+/// them stays comparable and the curve still tells a flat O(Cells) apart from
+/// anything steeper. Each step quadruples the Cell count.
 ///
-/// Nothing larger is measured, and 256x256 is already the expensive one. A
-/// fixture is populated one accepted Cell edit at a time, and each edit rebuilds
-/// the Language Map across every row (`orcvs/src/source/language_map.rs:201-211`
-/// re-stamps the clean rows rather than skipping them), so building a fixture
-/// costs about the square of its Cell count. Timed locally over the whole
-/// benchmark binary, constructing every fixture takes 1.5s at the editing shapes
-/// alone, 4.7s once 128x128 is added, and 62.9s once 256x256 is: that one shape
-/// is some 58 seconds, paid again in the warm-up run each benchmark job performs
-/// before the measured one. It is kept because it is the only point that reaches
-/// the size the effort's spec says the question is about, and because its
-/// measured spread is the tightest in the group — a per-Cell constant is
-/// resolvable there and lost in the noise at 64x64. If the benchmark tier ever
-/// needs that time back, dropping this one shape recovers nearly all of it and
-/// leaves a curve that still has four points.
+/// A fixture is populated one accepted Cell edit at a time, and each edit
+/// rebuilds the Language Map across every row, so building a fixture costs
+/// about the square of its Cell count: the 256x256 one is most of a minute,
+/// paid again in the warm-up run each benchmark job performs. The whole-Grid
+/// group below builds its fixture in one revision instead.
 ///
 /// The Tick series keeps `TICK_SIZES`: a Tick iterates Expressions rather than
-/// Positions, which `.scratch/grid-boundedness/spec.md` records, so a Grid the
-/// console cannot yet open is not what would stress it.
+/// Positions, which `.scratch/grid-boundedness/spec.md` records.
 const FRAME_SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256)];
 
 /// The Expression shapes an editing session actually holds: complete arithmetic,
@@ -120,7 +101,7 @@ fn source_text(cols: usize, rows: usize) -> String {
 }
 
 fn populated_source(cols: usize, rows: usize) -> SourceCommander {
-    let grid = Grid::new(cols, rows);
+    let grid = Grid::with_shape(cols, rows);
     let source = SourceCommander::new(grid);
 
     for (idx, content) in source_text(cols, rows).chars().enumerate() {
@@ -157,8 +138,11 @@ fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
 
 fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
     let _runtime = benchmark_runtime().enter();
-    let mut orcvs = Orcvs::with_output_adapter(cols, rows, InMemoryOutputAdapter::default())
-        .expect("a benchmark runtime");
+    let mut orcvs = Orcvs::with_source_and_output_adapter(
+        Source::new(Grid::with_shape(cols, rows)),
+        InMemoryOutputAdapter::default(),
+    )
+    .expect("a benchmark runtime");
     let text = source_text(cols, rows);
     // Only the Grid that owns a Position mints one, and a Render Frame is how the
     // application hands those Positions out.
@@ -295,7 +279,7 @@ fn edged_source_text(cols: usize, rows: usize) -> String {
 /// state rather than the one Tick that first writes every result.
 ///
 fn settled_source(cols: usize, rows: usize, text: fn(usize, usize) -> String) -> Source {
-    let grid = Grid::new(cols, rows);
+    let grid = Grid::with_shape(cols, rows);
     let mut source = Source::new(grid);
 
     for (idx, content) in text(cols, rows).chars().enumerate() {
@@ -506,8 +490,78 @@ fn tick_series(c: &mut Criterion, name: &str, text: fn(usize, usize) -> String) 
     group.finish();
 }
 
+///
+/// The Source on the one shipped Grid, 256 by 256 (ADR 0054), populated with
+/// the editing fixture's text in one revision.
+///
+/// `Source::write_cells` commits every Cell before one Language Map rebuild,
+/// so this fixture costs one derivation to build rather than the one per Cell
+/// the series fixtures above pay.
+///
+fn whole_grid_source() -> Source {
+    let grid = Grid::new();
+    let mut source = Source::new(grid);
+    let writes = source_text(grid.columns(), grid.rows())
+        .bytes()
+        .enumerate()
+        .filter(|(_, byte)| *byte != b' ')
+        .map(|(idx, byte)| CellWrite {
+            cell: cell(grid, idx),
+            content: CellContent::new(byte).expect("benchmark Source is printable ASCII"),
+        })
+        .collect::<Vec<_>>();
+    source.write_cells(&writes);
+    source
+}
+
+///
+/// Measures each path that walks every Cell of the shipped Grid (ADR 0054's
+/// consequences): deriving the whole Language Map, which a restored or opened
+/// Source pays once; copying a Source snapshot; and one accepted Cell edit,
+/// whose rebuild parses its own row and re-stamps the other 255.
+///
+/// The stored value is the fourth such path, and it is measured beside the
+/// codec that writes it, in `console/benches/stored_source.rs`: this crate's
+/// Serde impls are behind `persistence`, which its benchmarks do not enable.
+///
+fn whole_grid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("source_whole_grid");
+    let source = whole_grid_source();
+    let grid = source.grid();
+    let text = source.snapshot();
+
+    group.bench_function("language_map_derive", |b| {
+        b.iter(|| black_box(LanguageMap::derive(black_box(grid), black_box(&text))))
+    });
+
+    group.bench_function("snapshot", |b| {
+        b.iter(|| black_box(black_box(&source).snapshot()))
+    });
+
+    let commander = SourceCommander::with_source(source);
+    let edited = cell(grid, grid.columns() + EDIT_COLUMN);
+    group.bench_function("edit_rebuild_valid", |b| {
+        b.iter_batched(
+            || {
+                commander
+                    .set(edited, RESTORED)
+                    .expect("the restored Cell is accepted");
+            },
+            |()| {
+                black_box(&commander)
+                    .set(black_box(edited), EDITED_VALID)
+                    .expect("the edited Cell is accepted");
+            },
+            BatchSize::PerIteration,
+        )
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    whole_grid,
     read_revision,
     render_frame,
     edit_rebuild_valid,

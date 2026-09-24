@@ -100,7 +100,7 @@ fn web_linear_memory_settles_after_warm_up() {
     // leaked bytes per Tick — that much is 64 KiB, one whole page.
     const MEASURED_TICKS: u64 = WARM_UP_TICKS * 4;
 
-    let mut source = Source::new(Grid::new(10, 3));
+    let mut source = Source::new(Grid::with_shape(10, 3));
 
     for tick in 0..WARM_UP_TICKS {
         write_source(&mut source, PROGRAM);
@@ -122,7 +122,7 @@ fn web_linear_memory_settles_after_warm_up() {
 
 #[wasm_bindgen_test]
 fn web_app_and_cursor_effects_construct_without_panicking() {
-    let app = Orcvs::new(2, 1).expect("browser playback needs no Tokio runtime");
+    let app = Orcvs::with_shape(2, 1).expect("browser playback needs no Tokio runtime");
     assert_eq!(app.render_frame().grid().rows(), 1);
 
     let mut animation = CursorEffectAnimation::default();
@@ -144,7 +144,7 @@ fn missing_canvas_reports_an_in_page_startup_error_without_panicking() {
 
 #[wasm_bindgen_test(async)]
 async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling() {
-    let source = SourceCommander::new(Grid::new(10, 3));
+    let source = SourceCommander::new(Grid::with_shape(10, 3));
     // Equality produces a fresh Bang in the middle row, activating Raw Play
     // immediately below it on every Tick.
     write(&source, ".=0101              !>007FC4");
@@ -211,7 +211,7 @@ impl OutputOnlyAdapter for StallingOutputAdapter {}
 async fn web_clock_yields_to_the_event_loop_between_ticks() {
     let submissions = Arc::new(AtomicUsize::new(0));
     let engine = PlaybackEngine::new(
-        SourceCommander::new(Grid::new(1, 1)),
+        SourceCommander::new(Grid::with_shape(1, 1)),
         StallingOutputAdapter {
             submissions: Arc::clone(&submissions),
             cost_millis: 115.0,
@@ -241,8 +241,11 @@ async fn web_clock_yields_to_the_event_loop_between_ticks() {
 #[wasm_bindgen_test(async)]
 async fn web_start_executes_its_first_tick_before_a_browser_timer() {
     let adapter = InMemoryOutputAdapter::default();
-    let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone())
-        .expect("browser playback does not require a Tokio runtime");
+    let engine = PlaybackEngine::new(
+        SourceCommander::new(Grid::with_shape(1, 1)),
+        adapter.clone(),
+    )
+    .expect("browser playback does not require a Tokio runtime");
     // The period is long enough that only the first Tick can fall inside this
     // test, so the count answers where that Tick landed and nothing else. It
     // is the one-millisecond end of `Bpm` that makes the answer matter — a
@@ -264,8 +267,11 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
     use orcvs::playback::PlaybackDiagnostic;
 
     let adapter = InMemoryOutputAdapter::default();
-    let mut app = Orcvs::with_output_adapter(1, 1, adapter.clone())
-        .expect("browser playback does not require a Tokio runtime");
+    let mut app = Orcvs::with_source_and_output_adapter(
+        orcvs::source::Source::new(orcvs::grid::Grid::with_shape(1, 1)),
+        adapter.clone(),
+    )
+    .expect("browser playback does not require a Tokio runtime");
     app.set_bpm(Bpm::new(1).unwrap()); // 15 seconds: only the immediate Tick runs.
     app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
     TimeoutFuture::new(0).await;
@@ -350,8 +356,11 @@ async fn web_two_space_events_in_one_batch_leave_playback_stopped() {
     use orcvs::app::{InputEvent, InputKey};
 
     let adapter = InMemoryOutputAdapter::default();
-    let mut app = Orcvs::with_output_adapter(1, 1, adapter.clone())
-        .expect("browser playback does not require a Tokio runtime");
+    let mut app = Orcvs::with_source_and_output_adapter(
+        orcvs::source::Source::new(orcvs::grid::Grid::with_shape(1, 1)),
+        adapter.clone(),
+    )
+    .expect("browser playback does not require a Tokio runtime");
 
     app.event_handler(vec![
         InputEvent::KeyPressed(InputKey::Space),
@@ -377,7 +386,7 @@ async fn web_two_space_events_in_one_batch_leave_playback_stopped() {
 
 #[wasm_bindgen_test(async)]
 async fn web_playback_evaluates_dot_family_arithmetic() {
-    let source = SourceCommander::new(Grid::new(10, 2));
+    let source = SourceCommander::new(Grid::with_shape(10, 2));
     write(&source, ".+0102");
     let engine = PlaybackEngine::new(source.clone(), InMemoryOutputAdapter::default())
         .expect("browser playback does not require a Tokio runtime");
@@ -391,7 +400,7 @@ async fn web_playback_evaluates_dot_family_arithmetic() {
 
 #[wasm_bindgen_test(async)]
 async fn web_playback_stop_ends_the_run_and_a_restart_begins_a_new_one() {
-    let source = SourceCommander::new(Grid::new(10, 3));
+    let source = SourceCommander::new(Grid::with_shape(10, 3));
     write(&source, ".=0101              !>007FC4");
     let adapter = InMemoryOutputAdapter::default();
     let engine = PlaybackEngine::new(source, adapter.clone())
@@ -547,7 +556,7 @@ mod playback_failure {
 mod refused_revision {
     use console::console::Console;
     use eframe::App as _;
-    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
+    use orcvs::grid::{COL_COUNT, ROW_COUNT};
     use orcvs::source::Source;
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -624,10 +633,7 @@ mod refused_revision {
         console.save(&mut saved);
         let started: Source = eframe::get_value(&saved, console::persistence::SOURCE_KEY)
             .expect("the console saved a revision");
-        assert_eq!(
-            started.grid().count(),
-            DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT
-        );
+        assert_eq!(started.grid().count(), COL_COUNT * ROW_COUNT);
         assert!(started.snapshot().bytes().all(|byte| byte == b' '));
     }
 }
@@ -641,7 +647,7 @@ mod refused_revision {
 mod product_path {
     use console::console::Console;
     use eframe::App as _;
-    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
+    use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
     use orcvs::source::{Source, Token};
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -688,7 +694,7 @@ mod product_path {
     }
 
     fn edited_source() -> Source {
-        let grid = Grid::new(6, 3);
+        let grid = Grid::new();
         let mut source = Source::new(grid);
         for (index, content) in ".+0102".chars().enumerate() {
             source
@@ -724,9 +730,9 @@ mod product_path {
         let mut console = console_over(&storage);
         let restored = saved_revision(&mut console);
         assert_eq!(restored.snapshot(), saved.snapshot());
-        assert_eq!(restored.grid().count(), 18);
-        assert!(restored.grid().position(5, 2).is_some());
-        assert!(restored.grid().position(6, 2).is_none());
+        assert_eq!(restored.grid().count(), COL_COUNT * ROW_COUNT);
+        assert!(restored.grid().position(255, 255).is_some());
+        assert!(restored.grid().position(256, 255).is_none());
         let add = restored
             .grid()
             .position(0, 0)
@@ -751,10 +757,7 @@ mod product_path {
         let storage = BrowserStorage;
         let mut console = console_over(&storage);
         let started = saved_revision(&mut console);
-        assert_eq!(
-            started.grid().count(),
-            DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT
-        );
+        assert_eq!(started.grid().count(), COL_COUNT * ROW_COUNT);
         assert!(started.snapshot().bytes().all(|byte| byte == b' '));
         // A Console that never read storage would also start empty and save
         // an empty Grid. Moving the refused payload aside is the half that

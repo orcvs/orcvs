@@ -574,7 +574,7 @@ mod test {
         for (columns, column, first, last) in
             [(5, 0, 5, 9), (5, 2, 7, 9), (5, 4, 9, 9), (1, 0, 1, 1)]
         {
-            let grid = Grid::new(columns, 3);
+            let grid = Grid::with_shape(columns, 3);
             let portal = Portal::at(grid, grid.position(column, 1).unwrap());
             let span = portal.remaining_span();
             assert_eq!(span.start(), cell(grid, first));
@@ -584,7 +584,7 @@ mod test {
 
     #[test]
     fn portal_coverage_fits_the_complete_width_or_refuses_it() {
-        let grid = Grid::new(5, 3);
+        let grid = Grid::with_shape(5, 3);
         let portal = Portal::at(grid, grid.position(3, 1).unwrap());
         let span = portal.span(2).unwrap();
         assert_eq!(span.start(), cell(grid, 8));
@@ -603,7 +603,7 @@ mod test {
         // What a Portal is left holding once content validity belongs to
         // `Encoding`: the Cells arrive as given, and the refusal that used to
         // sit here is tested where the rule now lives.
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(
             placed(&portal, " ~"),
@@ -653,7 +653,7 @@ mod test {
         // coordinates: a Portal that kept the root's own Cell, dropped to the
         // row below but reset to column 0, or transposed the two coordinates
         // lands somewhere other than 13 and 14.
-        let grid = Grid::new(10, 3);
+        let grid = Grid::with_shape(10, 3);
         let root = grid.position(3, 0).expect("inside the Grid");
 
         let portal = Portal::below(grid, root).expect("a row below the root");
@@ -670,7 +670,7 @@ mod test {
         // sits at column 3 of row 1 in a Grid ten wide, so each of the four
         // displacements lands on a different index and a transposed or
         // sign-flipped offset lands on none of them.
-        let grid = Grid::new(10, 3);
+        let grid = Grid::with_shape(10, 3);
         let root = grid.position(3, 1).expect("inside the Grid");
 
         for (columns, rows, first) in [(0, -1, 3), (0, 1, 23), (-1, 0, 12), (1, 0, 14)] {
@@ -690,7 +690,7 @@ mod test {
         // Grid in one coordinate, and none of them is clamped to the edge Cell
         // beside it: a destination that does not exist is what ADR 0009 wants
         // reported.
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let corner = grid.position(0, 0).expect("inside the Grid");
 
         for (columns, rows) in [(0, -1), (-1, 0), (4, 0), (0, 2)] {
@@ -708,7 +708,7 @@ mod test {
         // proves it: displacing east from the last column pair of row 0 names
         // a Position the Grid holds, and the two-Cell encoding placed there
         // runs into row 1. Resolution succeeds and admission does not.
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let root = grid.position(2, 0).expect("inside the Grid");
         let portal = Portal::displaced(grid, root, 1, 0).expect("inside the Grid");
 
@@ -724,7 +724,7 @@ mod test {
         // rather than with a destination the caller then has to re-check. The
         // last row has no row below it, so there is no Portal to admit
         // anything through — not one whose writes would be refused later.
-        let grid = Grid::new(10, 2);
+        let grid = Grid::with_shape(10, 2);
         let last_row = grid.position(0, 1).expect("inside the Grid");
 
         assert_eq!(
@@ -740,7 +740,7 @@ mod test {
         // encoding running past its end is refused entire — the two Cells that
         // would have fitted are not admitted on their own — while the widest
         // encoding the row does hold is accepted.
-        let grid = Grid::new(4, 2);
+        let grid = Grid::with_shape(4, 2);
         let near_edge = grid.position(2, 1).expect("inside the Grid");
         let portal = Portal::at(grid, near_edge);
 
@@ -760,7 +760,7 @@ mod test {
         // of Cell writes. A six-Cell encoding is therefore admitted by the
         // same call a two-Cell Atom uses, and lands on six consecutive Cells
         // of the destination row in encoding order.
-        let grid = Grid::new(10, 3);
+        let grid = Grid::with_shape(10, 3);
         let root = grid.position(0, 0).expect("inside the Grid");
         let portal = Portal::below(grid, root).expect("a row below the root");
 
@@ -784,7 +784,7 @@ mod test {
         // no fit check of its own. Five Atoms need ten Cells; the destination
         // row has eight left, and the refusal costs the whole Sequence rather
         // than its first four Atoms.
-        let grid = Grid::new(10, 3);
+        let grid = Grid::with_shape(10, 3);
         let root = grid.position(2, 0).expect("inside the Grid");
         let portal = Portal::below(grid, root).expect("a row below the root");
 
@@ -804,7 +804,7 @@ mod test {
         // a computation interacts with Portals: a root `!>` never demands a
         // write site, and carry cannot mint one. Empty-vec silence was the
         // leak — it could be stuffed.
-        let grid = Grid::new(8, 2);
+        let grid = Grid::with_shape(8, 2);
         let anchor = grid.position(0, 0).expect("inside the Grid");
         let elsewhere = grid.position(0, 1).expect("inside the Grid");
         let mut access = PortalAccess::resolve(grid, anchor, lang::Function::RawPlay, false);
@@ -818,7 +818,7 @@ mod test {
         // Nested Jump answers a value to its parent and writes no Cell. The
         // opposite Portal is still a read, so a producer of those Cells is
         // ordered first. Carry cannot mint a write the resolve step refused.
-        let grid = Grid::new(8, 2);
+        let grid = Grid::with_shape(8, 2);
         let anchor = grid.position(2, 0).expect("inside the Grid");
         let input = grid.position(2, 1).expect("inside the Grid");
         let expected = Portal::at(grid, input)
@@ -834,7 +834,7 @@ mod test {
 
     #[test]
     fn occupancy_of_empty_cells_is_empty() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Empty);
@@ -842,7 +842,7 @@ mod test {
 
     #[test]
     fn occupancy_of_a_complete_non_root_is_non_root() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
@@ -850,7 +850,7 @@ mod test {
 
     #[test]
     fn occupancy_of_a_complete_root_is_root() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let root = grid.position(0, 0).unwrap();
         let portal = Portal::at(grid, root);
@@ -862,7 +862,7 @@ mod test {
 
     #[test]
     fn occupancy_across_two_units_is_partial() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Partial);
@@ -873,7 +873,7 @@ mod test {
         // A horizontal move enters one Cell. The root whose Span holds that
         // Cell is anchored two columns west, which is ADR 0006's east-anchor
         // geometry rather than a root that begins at the entered Cell.
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let root = grid.position(0, 0).unwrap();
         assert_eq!(
@@ -884,7 +884,7 @@ mod test {
 
     #[test]
     fn last_column_occupancy_covers_the_one_cell_it_holds() {
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, b"  >>");
         let root = grid.position(2, 0).unwrap();
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
@@ -896,7 +896,7 @@ mod test {
 
     #[test]
     fn occupied_in_answers_working_source_spaces() {
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert!(!portal.occupied_in(b"    ", 2));
         assert!(portal.occupied_in(b"x   ", 2));
@@ -907,7 +907,7 @@ mod test {
 
     #[test]
     fn language_unit_of_empty_working_cells_is_empty() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
         assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Empty);
@@ -917,7 +917,7 @@ mod test {
     fn language_unit_of_a_cleaned_bang_is_empty() {
         // Occupancy still names the Map unit. Jump copies working Source, so
         // a cleaned standalone Bang is Empty rather than Invalid.
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, b"**  ");
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
@@ -926,7 +926,7 @@ mod test {
 
     #[test]
     fn language_unit_of_working_bang_is_bang() {
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, b"**  ");
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"**  ", &map, false), PortalUnit::Bang);
@@ -934,7 +934,7 @@ mod test {
 
     #[test]
     fn language_unit_of_a_complete_aligned_unit_is_unit() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
         assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Unit);
@@ -942,7 +942,7 @@ mod test {
 
     #[test]
     fn language_unit_across_two_units_is_invalid() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b".+0102  ");
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Invalid);
@@ -950,7 +950,7 @@ mod test {
 
     #[test]
     fn language_unit_of_a_partial_pair_is_invalid() {
-        let grid = Grid::new(6, 1);
+        let grid = Grid::with_shape(6, 1);
         let map = LanguageMap::build(grid, b"0 &>xx");
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"0 &>xx", &map, false), PortalUnit::Invalid);
@@ -958,7 +958,7 @@ mod test {
 
     #[test]
     fn language_unit_inside_a_sequence_write_is_invalid() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b"        ");
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"0001    ", &map, true), PortalUnit::Invalid);
@@ -966,7 +966,7 @@ mod test {
 
     #[test]
     fn language_unit_past_a_sequence_write_is_the_working_cells() {
-        let grid = Grid::new(8, 1);
+        let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, b"        ");
         let empty = Portal::at(grid, grid.position(4, 0).unwrap());
         assert_eq!(unit(empty, b"0001    ", &map, false), PortalUnit::Empty);
@@ -976,7 +976,7 @@ mod test {
 
     #[test]
     fn language_unit_of_a_comment_is_invalid() {
-        let grid = Grid::new(2, 1);
+        let grid = Grid::with_shape(2, 1);
         let map = LanguageMap::build(grid, b"||");
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"||", &map, false), PortalUnit::Invalid);
@@ -986,7 +986,7 @@ mod test {
     fn language_unit_alignment_does_not_decode_the_spelling() {
         // "xx" is not an Atom. The Portal still admits the aligned pair; jump()
         // is the decoder that diagnoses it.
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, b"    ");
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"xx  ", &map, false), PortalUnit::Unit);
@@ -994,7 +994,7 @@ mod test {
 
     #[test]
     fn language_unit_that_cannot_fit_is_invalid() {
-        let grid = Grid::new(4, 1);
+        let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, b"   x");
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(unit(portal, b"   x", &map, false), PortalUnit::Invalid);

@@ -40,7 +40,7 @@ mod test {
     fn test_cursor_starts_where_it_is_placed() {
         trace();
 
-        let grid = Grid::new(10, 4);
+        let grid = Grid::with_shape(10, 4);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let cursor = Cursor::new(grid.origin());
 
@@ -55,7 +55,7 @@ mod test {
     fn test_cursor_follows_the_positions_the_grid_yields() {
         trace();
 
-        let grid = Grid::new(10, 4);
+        let grid = Grid::with_shape(10, 4);
         let mut cursor = Cursor::new(grid.origin());
 
         cursor.select(grid.down(cursor.position()));
