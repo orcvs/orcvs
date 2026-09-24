@@ -561,7 +561,14 @@ fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
 pub(crate) struct ContrastResult {
     pub(crate) role: Role,
     pub(crate) state: State,
+    /// The Theme's own effective foreground before compositing, which may be
+    /// translucent. [`Self::ratio`] measures it composited over
+    /// [`Self::background`]. Do not store the composited colour here:
+    /// accepted exceptions match on this exact colour, and a composited one
+    /// no longer matches them.
     pub(crate) foreground: Color32,
+    /// The opaque surface the text is painted on, resolved down to the
+    /// window backdrop.
     pub(crate) background: Color32,
     pub(crate) ratio: f32,
     /// Whether `.scratch/theming/issues/08`'s comments record this exact
