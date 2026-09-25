@@ -609,7 +609,7 @@ mod tests {
     ///
     /// This is the range a fitted console hands `derive` —
     /// `GridViewport::visible_positions` answers exactly it when the whole
-    /// Grid is on screen, which `console.rs` asserts through a console pass.
+    /// Grid is on screen, which `console::tests` asserts through a console pass.
     /// Stated directly here so that a test about what colour a Cell is still
     /// needs no viewport to say "all of them".
     ///

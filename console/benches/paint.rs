@@ -163,7 +163,7 @@ fn empty(frame: &RenderFrame) -> VisiblePositions {
 /// The Okabe–Ito built-in, the same Theme every fixture below is walked
 /// against. `Theme`'s fields are `pub(crate)`, and a benchmark is a separate
 /// crate, so this cannot override the Cursor or Region fill the way
-/// `console.rs`'s own tests do; it does not need to — the per-Cell walk
+/// `console::tests` do; it does not need to — the per-Cell walk
 /// [`paint`] measures reads every Theme channel but branches on none of the
 /// *values*, only on which fact a Cell carries (its own doc explains why), so
 /// the built-in's own defaults (an unset Cursor fill, the default Region
