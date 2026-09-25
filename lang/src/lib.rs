@@ -341,7 +341,7 @@ fn interpret_source(source: &str) -> Result<Interpretation, Error> {
         .collect();
     Interpreter::execute_function(
         *function,
-        &operands,
+        operands,
         TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
     )
 }

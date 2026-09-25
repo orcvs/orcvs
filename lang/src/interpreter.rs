@@ -81,21 +81,31 @@ impl Interpreter {
     /// clock, static, or thread-local is read, so the same Function over the
     /// same operands and inputs answers the same way every time.
     ///
+    /// The operands are taken by value, in signature order. Each moves onto
+    /// the Operand Stack and from there into the role that binds it, so a
+    /// Sequence operand's members are not copied on the way to the Function
+    /// that consumes them.
+    ///
     /// ```
     /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Sequence, Tick, TickInputs, Value};
     /// let sequence = Sequence::new([Atom::Number(5), Atom::Number(9)]).unwrap();
     /// let answer = Interpreter::execute_function(
-    ///     Function::Subtract, &[Value::Sequence(sequence), Value::Atom(Atom::Number(2))],
+    ///     Function::Subtract, [Value::Sequence(sequence), Value::Atom(Atom::Number(2))],
     ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
     /// ).unwrap();
     /// assert_eq!(answer, Interpretation::Sequence(
     ///     Sequence::new([Atom::Number(3), Atom::Number(7)]).unwrap()));
     /// ```
-    pub fn execute_function(
+    pub fn execute_function<I>(
         function: Function,
-        operands: &[Value],
+        operands: I,
         inputs: FunctionInputs<'_>,
-    ) -> Result<Interpretation, Error> {
+    ) -> Result<Interpretation, Error>
+    where
+        I: IntoIterator<Item = Value>,
+        I::IntoIter: ExactSizeIterator + DoubleEndedIterator,
+    {
+        let operands = operands.into_iter();
         let expected = function.signature().len();
         if operands.len() != expected {
             return Err(crate::ArgumentError::Arity {
@@ -116,8 +126,8 @@ impl Interpreter {
             return Ok(Interpretation::Source(effect));
         }
         let mut ctx = Context::new(inputs, operands.len());
-        for operand in operands.iter().rev() {
-            ctx.stack.push(operand.clone())?;
+        for operand in operands.rev() {
+            ctx.stack.push(operand)?;
         }
         // Every Function answers a language Value, so a Function that returns
         // a Sequence needs an arm here and nothing else: the match below
@@ -202,8 +212,8 @@ mod test {
     /// Evaluates one Function over literal operands, the way a Turn hands
     /// them over once it has resolved them.
     fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
-        let operands: Vec<Value> = operands.iter().copied().map(Value::Atom).collect();
-        Interpreter::execute_function(function, &operands, inputs().into())
+        let operands = operands.iter().copied().map(Value::Atom);
+        Interpreter::execute_function(function, operands, inputs().into())
     }
 
     /// `evaluate` for a Function that answers one Cell.

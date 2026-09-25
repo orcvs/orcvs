@@ -765,3 +765,62 @@ fn writing_a_source_file_allocates_less_than_one_copy_of_the_cells() {
         grid.count()
     );
 }
+
+/// A Source holding one Expression at the Grid origin, on a Grid wide enough
+/// for the Sequence it answers to be written whole on the row below.
+fn expression_source(expression: &str) -> Source {
+    let grid = Grid::with_shape(160, 4);
+    let mut source = Source::new(grid);
+
+    for (idx, content) in expression.chars().enumerate() {
+        source
+            .set(cell(grid, idx), &content.to_string())
+            .expect("fixture Source content is accepted");
+    }
+
+    source
+}
+
+/// What one steady-state Tick over `expression` allocates, after the Tick that
+/// first writes its answer and a warm-up Tick over the settled Source.
+fn measure_one_tick(expression: &str) -> Allocations {
+    let mut source = expression_source(expression);
+    let plan = source.execute(Tick::new(0));
+    assert!(
+        plan.diagnostics.is_empty() && !plan.writes.is_empty(),
+        "{expression} writes its answer: {:?}",
+        plan.diagnostics
+    );
+    black_box(source.execute(Tick::new(1)));
+    let (tick, plan) = measure(|| source.execute(black_box(Tick::new(2))));
+    black_box(plan);
+
+    tick
+}
+
+#[test]
+fn nesting_a_sequence_answer_costs_the_same_whatever_its_length() {
+    // `:<:-00NN` and `:-00NN` write the same Sequence under the same anchor, so
+    // what separates their Ticks is the Reverse Turn alone: the nested Range's
+    // answer handed to it as an operand, bound, reversed and answered. That
+    // difference is taken at two lengths and asserted equal, so any copy of
+    // the nested answer's members on the way — out of the child's state, onto
+    // the Operand Stack, into the bound role, or a rendering of an answer
+    // nothing writes — fails it by growing with the length.
+    let nesting = |last: &str| {
+        let alone = measure_one_tick(&format!(":-00{last}"));
+        let nested = measure_one_tick(&format!(":<:-00{last}"));
+        Allocations {
+            blocks: nested.blocks - alone.blocks,
+            bytes: nested.bytes - alone.bytes,
+        }
+    };
+
+    let sixteen = nesting("0F");
+    let sixty_four = nesting("3F");
+
+    assert_eq!(
+        sixteen, sixty_four,
+        "nesting a 16-member Sequence in a Reverse cost {sixteen:?}, a 64-member one {sixty_four:?}"
+    );
+}

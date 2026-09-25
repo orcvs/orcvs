@@ -285,7 +285,8 @@ impl<'a> Execution<'a> {
         let Some(signature) = self.opens_turn(index) else {
             return Continue(());
         };
-        let node = &self.lookup.nodes()[index];
+        let lookup = self.lookup;
+        let node = &lookup.nodes()[index];
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
         let result = self.operands(node, signature).and_then(|operands| {
@@ -299,7 +300,7 @@ impl<'a> Execution<'a> {
             }
             let inputs =
                 FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
-            Interpreter::execute_function(function, &operands, inputs)
+            Interpreter::execute_function(function, operands, inputs)
                 .map_err(|error| error.to_string())
         });
         match result {
@@ -380,7 +381,16 @@ impl<'a> Execution<'a> {
         }
     }
 
-    fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Value>, String> {
+    /// The operands of `node`'s Turn, in signature order.
+    ///
+    /// A surviving nested child's answer is moved out of its state rather than
+    /// copied: the child's one consumer is this Turn, so a Sequence answer
+    /// reaches the Interpreter without its members being duplicated.
+    fn operands(
+        &mut self,
+        node: &Computation,
+        signature: lang::Tokens,
+    ) -> Result<Vec<Value>, String> {
         node.operands
             .iter()
             .zip(signature)
@@ -390,7 +400,7 @@ impl<'a> Execution<'a> {
                     .filter(|child| !self.states[*child].suppressed)
                 {
                     let anchor = self.lookup.nodes()[child].anchor;
-                    return self.states[child].result.clone().ok_or_else(|| {
+                    return self.states[child].result.take().ok_or_else(|| {
                         format!(
                             "nested computation at column {}, row {} supplied no typed result",
                             anchor.x(),
@@ -411,9 +421,22 @@ impl<'a> Execution<'a> {
     }
 
     fn deliver_value(&mut self, index: usize, value: Value) -> ControlFlow<Diagnostic> {
-        let node = &self.lookup.nodes()[index];
+        let flow = self.project_value(index, &value);
         // A successful nested answer survives every refusal to project it.
-        self.states[index].result = Some(value.clone());
+        // Projection only borrows it, so it is stored afterwards, by move.
+        self.states[index].result = Some(value);
+        flow
+    }
+
+    /// Plans the Cell writes, activation, or clear one typed answer makes.
+    fn project_value(&mut self, index: usize, value: &Value) -> ControlFlow<Diagnostic> {
+        let node = &self.lookup.nodes()[index];
+        // Every arm below plans or diagnoses a write at an Output Portal, so an
+        // answer with none to write, which only its consumer reads, is not
+        // rendered at all.
+        if !node.portal_access.writes_cells() {
+            return Continue(());
+        }
         // Whether this answer can be Cells at all is a question about the
         // value, settled before any destination is asked: the two values that
         // plan no write answer `Nothing`, and a rendering a Cell cannot hold
@@ -422,7 +445,7 @@ impl<'a> Execution<'a> {
         // entire and `SpanWrite::cells` fans one admitted write out Cell-wise,
         // so ADR 0007's complete-fit rule and ADR 0020's Cell-wise conflict
         // resolution are inherited rather than restated for a second width.
-        let encoding = match Encoding::render(&value) {
+        let encoding = match Encoding::render(value) {
             Ok(Rendered::Nothing) => {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
@@ -458,7 +481,7 @@ impl<'a> Execution<'a> {
             return Continue(());
         }
         for output in node.portal_access.write_sites() {
-            self.deliver_output(index, &value, &encoding, *output)?;
+            self.deliver_output(index, value, &encoding, *output)?;
         }
         Continue(())
     }

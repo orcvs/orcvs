@@ -128,7 +128,7 @@ mod test {
     ) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            &[left.into(), right.into()],
+            [left.into(), right.into()],
             TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }
