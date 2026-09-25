@@ -142,12 +142,12 @@ mod backend {
     use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
 
     ///
-    /// A build with no platform MIDI service, or the browser before Web MIDI
-    /// is wired up.
+    /// A build with no platform MIDI service, the browser among them: it finds
+    /// no destination and refuses every connect.
     ///
     pub struct NativeMidiBackend;
 
-    pub const AVAILABLE: bool = cfg!(target_arch = "wasm32");
+    pub const AVAILABLE: bool = false;
 
     impl Default for NativeMidiBackend {
         fn default() -> Self {

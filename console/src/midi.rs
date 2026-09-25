@@ -3,8 +3,6 @@ use orcvs::playback::PlaybackDiagnostic;
 
 use crate::diagnostics::failure_message;
 
-const UNAVAILABLE: &str = "running Orcvs is no longer available";
-
 ///
 /// Output readout copy when nothing is selected or the last discovery returned
 /// no destinations.
@@ -209,9 +207,6 @@ impl MidiDeviceSelection {
     }
 
     pub(crate) fn status(&self) -> Option<&str> {
-        if self.status.as_deref() == Some(UNAVAILABLE) {
-            return Some(UNAVAILABLE);
-        }
         self.status.as_deref().or(self.engine_status.as_deref())
     }
 
