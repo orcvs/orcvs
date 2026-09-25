@@ -10,8 +10,8 @@ use orcvs::{
 };
 
 use super::glyphs::GLYPH_SCALE_STEP;
+use super::input::{ZoomCommand, zoom_command};
 use super::shapes::show_source;
-use super::{ZoomCommand, zoom_command};
 use crate::cursor_effects::{CursorEffectSample, CursorEffectSettings};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::theme::Theme;

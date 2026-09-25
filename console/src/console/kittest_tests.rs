@@ -3259,7 +3259,7 @@ async fn a_failed_save_keeps_the_marker_and_says_why() {
 ///
 #[test]
 fn each_file_chord_is_its_command() {
-    use super::{FileCommand, file_command};
+    use super::input::{FileCommand, file_command};
 
     let key = |key, modifiers, repeat| Event::Key {
         key,
