@@ -342,11 +342,10 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
     // `Source::set` in `orcvs/src/source/model.rs` validates the content and
     // calls `edit`, and `edit` does two things: `set_source`, which is the
     // workspace's one `unsafe` block writing the byte in place, and then
-    // `rebuild_rows`, which builds a fresh `Arc<LanguageMap>`. `set_source` is
-    // private, so no public call reaches the byte write without also paying
-    // for the rebuild, and everything one write allocates is the rebuild's.
-    // See
-    // `.scratch/memory-verification/issues/02-count-allocations-on-the-source-write-and-language-map-rebuild.md`.
+    // `rebuild_rows`, which builds a fresh `Arc<LanguageMap>` for the row the
+    // write touched. `set_source` is private, so no public call reaches the
+    // byte write without also paying for the rebuild, and everything one write
+    // allocates is the rebuild's.
     //
     // So this test asserts the two things that *are* observable through the
     // public API, and the two tests below bound the rebuild itself:
@@ -539,8 +538,9 @@ fn a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster() 
     //
     // This test asserts the weaker bound over the populated series: the cost
     // per carried Expression never rises as the Source grows, which a carry
-    // that copied Expressions would also pass if it were linear. The test
-    // above asserts that the carried rows add nothing at all. The series is
+    // that copied Expressions would also pass if it were linear.
+    // `a_rebuild_costs_the_same_however_many_expressions_the_rows_it_carries_hold`
+    // asserts that the carried rows add nothing at all. The series is
     // what `.github/workflows/bench.yml` publishes, and the Expressions
     // carried are published beside it as its divisor.
     //

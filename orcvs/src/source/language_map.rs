@@ -648,10 +648,12 @@ impl DerivedRow {
     /// nothing shares `empty`, so a Grid of blank rows costs one allocation
     /// rather than one per row.
     fn shared(self, empty: &mut Option<Arc<Self>>) -> Arc<Self> {
-        if self.units.is_empty()
-            && self.expressions.is_empty()
-            && self.lexical_diagnostics.is_empty()
-        {
+        let Self {
+            units,
+            expressions,
+            lexical_diagnostics,
+        } = &self;
+        if units.is_empty() && expressions.is_empty() && lexical_diagnostics.is_empty() {
             Arc::clone(empty.get_or_insert_with(|| Arc::new(self)))
         } else {
             Arc::new(self)
