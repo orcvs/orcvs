@@ -8,7 +8,7 @@
 
 None of the three is a defect in the sense of a wrong answer. Every one of them is work the path does not need to do, on a path that repeats:
 
-- A Tick runs on a musical clock, once per Tick period, which `Bpm::delay_ms` puts under 20ms at the tempos a fast pattern reaches.
+- A Tick runs on a musical clock, once per Tick period, which `Bpm::tick_period` puts under 20ms at the tempos a fast pattern reaches.
 - A Render Frame re-reads the Source many times a second.
 - A Language Map rebuild happens on every keystroke, and on every Tick that writes a Cell.
 

@@ -18,7 +18,7 @@ const TICKS_PER_BEAT: usize = 4;
 const QUARTER_MINUTE_NANOS: u64 = 60_000_000_000 / TICKS_PER_BEAT as u64;
 
 /// The fastest tempo, whose Tick period is one millisecond.
-const MAX_BPM: usize = 15_000;
+const MAX_BPM: usize = (QUARTER_MINUTE_NANOS / 1_000_000) as usize;
 
 ///
 /// How the console presents and plays a Source. Nothing in this file is a
@@ -205,20 +205,19 @@ mod tests {
 
     ///
     /// The rounding error of a fixed period accumulates once per Tick, so an
-    /// hour of Ticks stays within one nanosecond per Tick of the hour it
-    /// represents, and within the half nanosecond per Tick rounding to the
-    /// nearest promises. An hour at 130 BPM is 31200 Ticks, so it lands within
-    /// 15.6 µs; a whole-millisecond period would land 12 seconds early.
+    /// hour of Ticks stays within the half nanosecond per Tick that rounding
+    /// to the nearest promises. An hour at 130 BPM is 31200 Ticks, so it lands
+    /// within 15.6 µs; a whole-millisecond period would land 12 seconds early.
     ///
     #[test]
-    fn an_hour_of_ticks_drifts_at_most_one_nanosecond_per_tick() {
+    fn an_hour_of_ticks_drifts_at_most_half_a_nanosecond_per_tick() {
         for beats_per_minute in [130, 9_000, MAX_BPM] {
             let bpm = bpm(beats_per_minute);
             let ticks = u32::try_from(beats_per_minute * TICKS_PER_BEAT * 60)
                 .expect("an hour of Ticks fits in u32");
             let drift = drift_nanos(bpm, ticks);
             assert!(
-                drift <= u128::from(ticks),
+                2 * drift <= u128::from(ticks),
                 "{beats_per_minute} BPM drifts {drift} ns over {ticks} Ticks"
             );
         }
