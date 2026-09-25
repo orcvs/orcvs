@@ -234,6 +234,25 @@ impl Portal {
     }
 
     ///
+    /// The Cells ADR 0036 reserves from this destination for one answer: the
+    /// Cell pair one Atom occupies, or every Cell through the end of the row
+    /// for an answer that may be a Sequence. `None` where the row edge leaves
+    /// no room for the pair, because a pair whose second Cell is in the next
+    /// row is not a Span.
+    ///
+    /// A Sequence's width is not known before it is answered, and no Span
+    /// reaches past the row it begins in, so the rest of the row is the
+    /// smallest reservation that names every Cell such an answer might reach.
+    ///
+    pub(super) fn reservation(self, may_be_a_sequence: bool) -> Option<Span> {
+        if may_be_a_sequence {
+            Some(self.remaining_span())
+        } else {
+            self.span(PAIR_WIDTH).ok()
+        }
+    }
+
+    ///
     /// Language-Map occupancy of up to `width` Cells from this destination.
     ///
     /// A destination in the last column still answers the one Cell it holds,

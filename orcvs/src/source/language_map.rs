@@ -295,6 +295,21 @@ impl<'a> ExpressionEntry<'a> {
         self.derived.expression.positioned()
     }
 
+    ///
+    /// Per entry of [`Self::positioned`], in the same order, whether it may
+    /// answer a Sequence, per ADR 0036.
+    ///
+    /// This is the one derivation of Sequence-capability: the Output Portal
+    /// Reservations read the root's answer from it, and Tick scheduling reads
+    /// every computation's reservation width from it. An entry whose Atom is
+    /// not a Function, including a missing or invalid operand, never answers a
+    /// Sequence.
+    ///
+    pub(super) fn sequence_capability(self) -> Vec<bool> {
+        let entries: Vec<&lang::PositionedEntry> = self.positioned().collect();
+        sequence_capable(&entries)
+    }
+
     pub fn span(self) -> Span {
         self.derived.span
     }
@@ -546,23 +561,19 @@ impl LanguageMap {
     /// operand, not to a Cell of its own.
     ///
     /// Coverage is the Reservation ADR 0036 states, read from
-    /// [`lang::Function`]'s declared facts and this Expression's own nesting
-    /// rather than from tick planning's `Computation` nodes: the Cell pair
-    /// from the Output Portal for a Function that can only answer a scalar,
-    /// or the Output Portal through the end of that row for one that can
-    /// answer a Sequence. A Terminal Output Function, Halt, and a
+    /// [`lang::Function`]'s declared facts and
+    /// [`ExpressionEntry::sequence_capability`]: [`Portal::reservation`] from
+    /// the Output Portal. A Terminal Output Function, Halt, and a
     /// Source-writing Function (including an Advance's cleared anchor) cover
     /// no Cell, because none of them writes an answer through its Output
     /// Portal; neither does a scalar destination the row edge leaves no room
     /// for a Cell pair.
     ///
-    /// This is the one Reservation derivation. [`Self::output_portal_cells`]
-    /// flattens it for the agreement test against the scheduler
-    /// (`.scratch/syntax-highlighting/issues/10`), and
-    /// `SourceRevision::output_portal_highlight`
-    /// (`.scratch/syntax-highlighting/issues/12`) narrows each Sequence-capable
-    /// one to the answer it holds. Both read this list, so the agreement test
-    /// answers for the geometry the highlight is fitted inside.
+    /// Tick scheduling reserves the same Cells for the same root: it reads
+    /// its widths from the same `sequence_capability`, resolves the same
+    /// Output Portal through [`Portal::named`], and measures it with the same
+    /// [`Portal::reservation`]. `SourceRevision::output_portal_highlight`
+    /// narrows each Sequence-capable Reservation to the answer it holds.
     ///
     pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
         self.expressions()
@@ -578,8 +589,7 @@ impl LanguageMap {
     /// Portal Reservation, in the Grid's row-major order.
     ///
     /// The Reservation, not the fitted highlight: it is what the Tick
-    /// scheduler reserves, which is what `10`'s agreement test compares
-    /// against. The console reads
+    /// scheduler reserves. The console reads
     /// `SourceRevision::output_portal_highlight` instead.
     ///
     #[cfg(test)]
@@ -616,30 +626,17 @@ impl LanguageMap {
         }
         let coords = function.output_portal()?;
         let portal = Portal::named(self.grid, anchor, coords).ok()?;
-        let sequence_capable = self.root_may_answer_a_sequence(expression);
-        let range = if sequence_capable {
-            portal.remaining_span().range()
-        } else {
-            portal
-                .span(OUTPUT_PORTAL_SCALAR_WIDTH)
-                .ok()
-                .map(Span::range)?
-        };
+        // The root is the first entry in preorder.
+        let sequence_capable = expression
+            .sequence_capability()
+            .first()
+            .copied()
+            .unwrap_or(false);
+        let range = portal.reservation(sequence_capable)?.range();
         Some(OutputPortalReservation {
             range,
             sequence_capable,
         })
-    }
-
-    ///
-    /// Whether `expression`'s root Function may answer a Sequence, per ADR
-    /// 0036, propagated bottom-up over the Expression's own
-    /// [`ExpressionEntry::positioned`] entries rather than over tick
-    /// planning's `Computation` nodes.
-    ///
-    fn root_may_answer_a_sequence(&self, expression: ExpressionEntry<'_>) -> bool {
-        let entries: Vec<&lang::PositionedEntry> = expression.positioned().collect();
-        sequence_capable(&entries).first().copied().unwrap_or(false)
     }
 
     ///
@@ -664,22 +661,30 @@ impl LanguageMap {
 }
 
 ///
-/// Per entry of one Expression's [`ExpressionEntry::positioned`], in the same
-/// order, whether it may answer a Sequence.
+/// Whether `function` may answer a Sequence, given whether any of its direct
+/// operands may: ADR 0036's rule for one Function, which every
+/// Sequence-capability question in this crate asks.
 ///
-/// Mirrors `tick.rs`'s `derive_reservations`/`reserved_for` (ADR 0036)
-/// without reaching into tick planning's `Computation` nodes: a Function
-/// entry may answer a Sequence when [`Function::answers_sequence`] declares
-/// it outright, or when [`Function::widens_over_a_sequence_operand`] and a
-/// direct operand entry — one whose `parent` names it — is itself a Function
-/// entry that may. An entry whose Atom is not a Function, including a missing
-/// or invalid operand, never widens and stays `false`, exactly as such an
-/// entry never becomes a `Computation` node to ask the question of.
+/// Sequence-capability is derivable before any Function evaluates because a
+/// Sequence can only reach a Function from a nested child: ADR 0034 makes a
+/// spatial write literal characters that the receiving operand decodes by its
+/// declared literal type, and ADR 0007 gives a Sequence no literal spelling to
+/// decode. So the two declared columns decide it — a Function that answers a
+/// Sequence outright, or one that widens over an operand that is itself one.
+///
+pub(super) fn may_answer_a_sequence(function: Function, an_operand_may: bool) -> bool {
+    function.answers_sequence() || (an_operand_may && function.widens_over_a_sequence_operand())
+}
+
+///
+/// Per entry of one Expression's [`ExpressionEntry::positioned`], in the same
+/// order, whether it may answer a Sequence: [`may_answer_a_sequence`] applied
+/// to each Function entry, where a direct operand is an entry whose `parent`
+/// names it.
 ///
 /// Preorder puts every operand child at a higher index than the Function
-/// that owns it — the same property `derive_reservations` relies on — so one
-/// reverse pass settles every entry: a child is answered before the parent
-/// that reads it.
+/// that owns it, so one reverse pass settles every entry: a child is answered
+/// before the parent that reads it.
 ///
 fn sequence_capable(entries: &[&lang::PositionedEntry]) -> Vec<bool> {
     let mut capable = vec![false; entries.len()];
@@ -687,12 +692,11 @@ fn sequence_capable(entries: &[&lang::PositionedEntry]) -> Vec<bool> {
         let Some(Atom::Function(function)) = entries[index].atom else {
             continue;
         };
-        let widened = function.widens_over_a_sequence_operand()
-            && entries
-                .iter()
-                .enumerate()
-                .any(|(child, entry)| entry.parent == Some(index) && capable[child]);
-        capable[index] = function.answers_sequence() || widened;
+        let an_operand_may = entries
+            .iter()
+            .enumerate()
+            .any(|(child, entry)| entry.parent == Some(index) && capable[child]);
+        capable[index] = may_answer_a_sequence(function, an_operand_may);
     }
     capable
 }
@@ -1567,11 +1571,12 @@ mod tests {
     }
 
     ///
-    /// `.scratch/syntax-highlighting/issues/10`: `output_portal_cells`, one
-    /// focused test per row of `05`'s coverage table plus the row-edge and
-    /// off-Grid geometry it calls for. The agreement test against the
-    /// scheduler's own reservations lives in `tick.rs`, the one place that
-    /// can reach its private `Lookup`.
+    /// `output_portal_cells`, one focused test per kind of Function the
+    /// Output Portal Reservation covers or excludes, plus the row-edge and
+    /// off-Grid geometry. The Source-writing
+    /// exclusion is also checked against the scheduler's own write
+    /// reservations in `tick.rs`, the one place that can reach its private
+    /// `Lookup`.
     ///
     mod output_portal {
         use super::{Function, Grid, LanguageMap};
@@ -1679,6 +1684,20 @@ mod tests {
         }
 
         #[test]
+        fn sequence_capability_answers_every_entry_in_preorder() {
+            // Add(NumberRange(01, 02), 03): NumberRange answers a Sequence,
+            // Add widens over it, and no literal operand is a Function.
+            let grid = Grid::with_shape(10, 1);
+            let map = build(grid, &[".+:-010203"]);
+            let expression = map.expressions().next().expect("one Expression");
+
+            assert_eq!(
+                expression.sequence_capability(),
+                [true, true, false, false, false]
+            );
+        }
+
+        #[test]
         fn a_terminal_output_function_is_never_covered() {
             // `!>` (RawPlay) answers Play, not a Cell: `output_portal()` is
             // `None` for it.
@@ -1723,6 +1742,21 @@ mod tests {
 
             for x in 0..grid.columns() {
                 assert!(!covered(&map, grid, x, 0), "column {x}");
+            }
+        }
+
+        #[test]
+        fn no_function_declares_an_output_portal_it_does_not_answer_through() {
+            // `output_portal_reservation` gates on `output_portal()` alone,
+            // where the scheduler's `PortalAccess::resolve` first routes
+            // terminal output and a Source effect elsewhere. The two reserve
+            // the same Cells only while no Function declares an Output Portal
+            // beside either.
+            for &function in Function::ALL {
+                if function.output_portal().is_some() {
+                    assert!(!function.performs_terminal_output(), "{function:?}");
+                    assert!(function.source_effect().is_none(), "{function:?}");
+                }
             }
         }
 

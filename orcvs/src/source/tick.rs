@@ -16,7 +16,7 @@ use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use super::encoding::{Encoding, RenderError, Rendered};
-use super::language_map::{LanguageMap, Span};
+use super::language_map::{LanguageMap, Span, may_answer_a_sequence};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit, occupancy_of};
 use super::portal::{Portal, PortalAccess, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
@@ -46,11 +46,10 @@ struct Computation {
     syntax_valid: bool,
     portal_access: PortalAccess,
     /// How wide this computation's result may be, per ADR 0036, and the one
-    /// home that fact has. A computation is built reserving the Cell pair
-    /// every result reserves unless a declaration widens it, and
-    /// [`derive_reservations`] — which [`Lookup::new`] runs once over every
-    /// computation, because a Function's reservation reads its operand
-    /// children's — settles which of them it is.
+    /// home that fact has in a schedule. [`computations`] reads it from the
+    /// Language Map's `ExpressionEntry::sequence_capability`, the derivation
+    /// the Output Portal Reservations read, so a root reserves exactly the
+    /// Cells its Output Portal Reservation names.
     reserved: Reserved,
 }
 
@@ -189,16 +188,13 @@ impl Reserved {
     /// `None` where a scalar pair cannot fit before the row edge — a Cell pair
     /// whose second Cell is in the next row is not a Span at all.
     ///
-    /// This is ADR 0036's width rule itself rather than a reading of it, which
-    /// is why the callers ask for the Cells instead of matching on the variant
-    /// and measuring them again.
+    /// This is [`Portal::reservation`], the width rule the Output Portal
+    /// Reservations measure with, which is why the callers ask for the Cells
+    /// instead of matching on the variant and measuring them again.
     fn cells_from(self, grid: Grid, output: Position) -> Option<Range<usize>> {
-        let portal = Portal::at(grid, output);
-        let span = match self {
-            Self::Pair => portal.span(SCALAR_WIDTH).ok()?,
-            Self::Row => portal.remaining_span(),
-        };
-        Some(span.range())
+        Portal::at(grid, output)
+            .reservation(self.may_be_a_sequence())
+            .map(Span::range)
     }
 
     /// Whether a result `width` Cells wide is one this reservation covers.
@@ -272,7 +268,7 @@ struct FunctionContact {
 const SCALAR_WIDTH: usize = 2;
 
 impl Lookup {
-    fn new(grid: Grid, mut nodes: Vec<Computation>, map: &LanguageMap) -> Self {
+    fn new(grid: Grid, nodes: Vec<Computation>, map: &LanguageMap) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
@@ -310,7 +306,6 @@ impl Lookup {
                 subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[index]);
             }
         }
-        derive_reservations(&mut nodes);
         let mut writes = Vec::new();
         for (index, node) in nodes.iter().enumerate() {
             for output in node
@@ -363,25 +358,14 @@ impl Lookup {
         // re-derives, so asking about a replacement is a different question
         // rather than a settled fact answered a second way.
         //
-        // It is not a cross-check between two derivations, and reading it as
-        // one would overstate it. Both sides call the same [`reserved_for`]
-        // over the same children, and the pass above settled every node: each
-        // computation is built holding `Reserved::Pair`, so
-        // [`derive_reservations`] skips none of them, and its reverse loop
-        // settles every child before the parent that reads it and never
-        // revisits one. Re-deriving here therefore reads the inputs that pass
-        // read and answers what it answered.
-        //
-        // What it does prove is that those conditions still hold, which is why
-        // it is kept: that the nodes are still ordered parent-before-child — a
-        // child stored ahead of its parent would leave the parent holding a
-        // width derived from a `Reserved::Pair` the child had not settled yet
-        // — and that no skip added to the pass leaves a computation underived.
-        // Both are cheap to hold in debug builds and silent everywhere else.
-        //
-        // It also pins an ordering `stated::plan_with_answers` depends on: the
-        // `Reserved::Row` that fixture states is a width no declaration
-        // derives, so it can only be written after this has run.
+        // The widths were read from the Language Map's per-entry derivation,
+        // and `would_reserve` applies the same one-Function rule,
+        // `may_answer_a_sequence`, to this computation's settled children. The
+        // two agree only while the computations mirror the Expression's
+        // entries — every Function entry a computation, every operand child
+        // linked to the parent that owns it — which is what a replacement's
+        // width check relies on. It is cheap to hold in debug builds and silent
+        // everywhere else.
         debug_assert!(
             (0..lookup.nodes.len()).all(|index| {
                 lookup.would_reserve(index, lookup.nodes[index].function)
@@ -424,9 +408,8 @@ impl Lookup {
     /// same guard keeps stable.
     ///
     /// Asked with the computation's own Function it answers what that
-    /// computation already reserves — for every computation
-    /// [`derive_reservations`] settled, which is every one production builds,
-    /// and what `Lookup::new` asserts. A width a test states rather than
+    /// computation already reserves — for every computation production
+    /// builds, which is what `Lookup::new` asserts. A width a test states rather than
     /// derives is the exception, and the only one: `stated::plan_with_answers`
     /// writes a `Reserved::Row` no declaration produces, and this answers
     /// `Reserved::Pair` for that computation ever after. That fixture refuses
@@ -517,37 +500,26 @@ impl Lookup {
 }
 
 ///
-/// What every computation reserves, per ADR 0036, derived in one reverse pass.
+/// Widens every ancestor over a [`Reserved::Row`] a test stated, in one reverse
+/// pass.
+///
+/// Production never runs this: [`computations`] reads every width from the
+/// Language Map's derivation. A fixture that states a width no declaration
+/// derives runs it after stating one, so an ancestor that widens over a
+/// row-reserving operand widens over the stated one exactly as it does over a
+/// declared Sequence.
 ///
 /// Preorder puts every operand child at a higher index than the Function that
 /// owns it, so one pass backwards is enough: a node's children are answered
-/// before its own turn comes, which is what lets a pervasive Function widen
-/// over an operand that reserves a row.
+/// before its own turn comes.
 ///
 /// A reservation already settled as [`Reserved::Row`] is left where it stands,
 /// and the guard that leaves it there is load-bearing rather than a shortcut.
 /// [`reserved_for`] is a pure function of the Function table and the children's
 /// settled reservations: it has no memory of what the computation already held,
-/// so for a `Row` no declaration produced — one a test states, because no built
-/// Function declares a Sequence answer — it answers `Pair` and narrows the
-/// statement away. Skipping such a computation is what lets this pass run over
-/// reservations decided before it rather than only over freshly built
-/// computations, which is the whole reason it is a function and not a loop
-/// inside [`Lookup::new`]. Production never reaches that case: every
-/// computation is built reserving a `Pair`, so every one of them is derived
-/// exactly once.
+/// so for a stated `Row` it answers `Pair` and would narrow the statement away.
 ///
-/// The guard is what makes this a derivation forward from all-`Pair` rather
-/// than a re-derivation. A computation already holding [`Reserved::Row`] is
-/// never revisited, so running this again after its Function changed would
-/// answer the pre-change width without complaint. Giving the reserved width one
-/// home did not make that reachable: this pass reads the parsed Function on the
-/// computation, and a replacement changes only the running Function on its
-/// execution state, so no width derived here is ever derived from a Function a
-/// replacement has replaced. The one caller that runs the pass a second time is
-/// `stated::plan_with_answers`, and it does so to widen ancestors over a width
-/// the fixture stated rather than to re-derive a changed declaration.
-///
+#[cfg(test)]
 fn derive_reservations(nodes: &mut [Computation]) {
     for index in (0..nodes.len()).rev() {
         if nodes[index].reserved == Reserved::Pair {
@@ -556,28 +528,20 @@ fn derive_reservations(nodes: &mut [Computation]) {
     }
 }
 
-/// Whether a computation's answer can be wider than one Atom, given the
-/// reservations already settled for its operand children.
-///
-/// Sequence-capability is derivable before any Function evaluates because a
-/// Sequence can only reach a computation from a nested child: ADR 0034 makes a
-/// spatial write literal characters that the receiving operand decodes by its
-/// declared literal type, and ADR 0007 gives a Sequence no literal spelling to
-/// decode. So a literal operand is always one Atom however it was written over,
-/// and the two declared columns decide the rest — a Function that answers a
-/// Sequence outright, or one that widens over an operand that is itself one.
+/// Whether a computation's answer can be wider than one Atom had its Function
+/// been `function`, given the reservations already settled for its operand
+/// children: [`may_answer_a_sequence`], the rule the Language Map's derivation
+/// applies to every entry, asked of one computation.
 ///
 /// The nodes are read rather than the [`Lookup`] because this also runs while
 /// that `Lookup` is being built.
 fn reserved_for(nodes: &[Computation], index: usize, function: Function) -> Reserved {
-    let node = &nodes[index];
-    let widened = function.widens_over_a_sequence_operand()
-        && node.operands.iter().any(|operand| {
-            operand
-                .child
-                .is_some_and(|child| nodes[child].reserved.may_be_a_sequence())
-        });
-    if function.answers_sequence() || widened {
+    let an_operand_may = nodes[index].operands.iter().any(|operand| {
+        operand
+            .child
+            .is_some_and(|child| nodes[child].reserved.may_be_a_sequence())
+    });
+    if may_answer_a_sequence(function, an_operand_may) {
         Reserved::Row
     } else {
         Reserved::Pair
@@ -994,11 +958,11 @@ fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> 
 /// diagnostics its layout owes before any of them is ordered.
 ///
 /// This is everything a schedule knows before a [`Lookup`] indexes it: which
-/// Cells each computation claims, how each interacts with Portals, and
-/// which Expressions the row edge cut short. Every computation here reserves
-/// the Cell pair ADR 0036 gives a result nothing widens; which of them a
-/// declaration does widen, and therefore what is ordered after what, is the
-/// [`Lookup`]'s to settle.
+/// Cells each computation claims, how wide a result each reserves, how each
+/// interacts with Portals, and which Expressions the row edge cut short. The
+/// widths are the Language Map's `ExpressionEntry::sequence_capability`, one
+/// per positioned entry, so scheduling and the Output Portal Reservations
+/// read one derivation.
 ///
 fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnostic>) {
     let mut nodes: Vec<Computation> = Vec::new();
@@ -1008,6 +972,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             continue;
         }
         let mut functions = BTreeMap::new();
+        let capable = expression.sequence_capability();
         for (entry_index, entry) in expression.positioned().enumerate() {
             let parent = entry
                 .parent
@@ -1034,13 +999,11 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                     operands: vec![],
                     syntax_valid: true,
                     portal_access,
-                    // ADR 0036 reserves a Cell pair for every result no
-                    // declaration widens, so this is the reservation itself
-                    // and not a placeholder. Which computations a declaration
-                    // does widen is the pass in `Lookup::new` to settle,
-                    // because it reads reservations this loop has not built
-                    // yet.
-                    reserved: Reserved::Pair,
+                    reserved: if capable[entry_index] {
+                        Reserved::Row
+                    } else {
+                        Reserved::Pair
+                    },
                 });
                 functions.insert(entry_index, index);
                 Some(index)
@@ -3343,10 +3306,10 @@ mod test {
     #[should_panic(expected = "a stated reservation is a width production would not derive")]
     fn a_stated_pair_reservation_is_a_fixture_error() {
         // The one fixture mistake the seam could answer silently. Stating a
-        // reservation is how a fixture says what production cannot derive yet,
-        // and `Reserved::Pair` is the width production derives for everything:
-        // `derive_reservations` re-derives every node still holding one, so a
-        // stated Pair is overwritten by the very pass that reads it. Here the
+        // reservation is how a fixture says what production cannot derive, and
+        // `derive_reservations` re-derives every node still holding a
+        // `Reserved::Pair`, so a stated Pair is overwritten by the very pass
+        // that reads it. Here the
         // pervasive `.+` at Cell 16 would widen over the row-reserving `.-` at
         // Cell 18 and answer Row again, leaving a test that states the parent
         // does not widen asserting the opposite of what it says and passing.
@@ -5902,63 +5865,39 @@ mod test {
 }
 
 ///
-/// `.scratch/syntax-highlighting/issues/10`: `LanguageMap::output_portal_cells`
-/// proved to agree with this scheduler's own reservations for the same
-/// revision, apart from the exclusions `05` names.
+/// The Output Portal Reservation's one exclusion from what the scheduler
+/// reserves: a Source-writing Function's writes, including an Advance's
+/// cleared anchor, are its Source effect rather than an answer through an
+/// Output Portal, so the scheduler reserves their Cells and
+/// `LanguageMap::output_portal_cells` does not cover them.
 ///
-/// The Language Map's derivation never reaches `Computation`, `Lookup`, or
-/// `Reserved` — it reads only `lang::Function`'s declared facts and the
-/// Expression's own nesting. This module is the one place that can reach
-/// those private types to build the oracle it is checked against: reading
-/// every node's `portal_access` and settled `reserved` width is asking the
-/// scheduler what it actually reserved, not re-deriving the same answer a
-/// second way.
+/// Every other root reserves the same Cells in both: the same
+/// Sequence-capability derivation, the same `Portal::named` resolution and
+/// the same `Portal::reservation`. The gates in front of them differ —
+/// `PortalAccess::resolve` routes terminal output and a Source effect away
+/// before it reads `output_portal()`, the Language Map reads
+/// `output_portal()` alone — and agree only while no Function declares an
+/// Output Portal beside either, which `language_map.rs`'s
+/// `no_function_declares_an_output_portal_it_does_not_answer_through` holds.
+/// So only the exclusion is checked here, the one place that can reach the
+/// scheduler's private `Lookup`.
+///
+/// Each Source is isolated on purpose. A Reservation counts whatever else
+/// claims its Cells, so a Source-writing Function's write site can coincide
+/// with an unrelated root's genuine Reservation (`.|>>` on a two-column Grid:
+/// `.|`'s scalar Reservation lands on `>>`'s anchor), and the exclusion is a
+/// claim about this one Function's own writes only.
 ///
 #[cfg(test)]
-mod output_portal_agreement {
+mod output_portal_exclusion {
     use super::{Lookup, computations};
     use crate::grid::Grid;
     use crate::source::language_map::LanguageMap;
 
     ///
-    /// The Cells the scheduler reserves from every root's Output Portal for
-    /// this revision: every write reservation `Lookup::new` settled, except a
-    /// Source-writing Function's — `05`'s named, deliberate exclusion from
-    /// the highlight, because such a Function's writes are its Source effect
-    /// rather than an answer through an Output Portal. A nested Function, a
-    /// Terminal Output Function, and Halt need no exclusion of their own
-    /// here: `PortalAccess::write_sites` already answers empty for each of
-    /// them, exactly as it does for `output_portal_cells`.
-    ///
-    fn scheduled_output_portal_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
-        let (nodes, _diagnostics) = computations(grid, map);
-        let lookup = Lookup::new(grid, nodes, map);
-        let mut cells = vec![false; grid.count()];
-        for (index, node) in lookup.nodes().iter().enumerate() {
-            if node.function.source_effect().is_some() {
-                continue;
-            }
-            for output in node
-                .portal_access
-                .write_sites()
-                .iter()
-                .filter_map(|output| output.as_ref().ok())
-            {
-                if let Some(range) = lookup.reserved(index).cells_from(grid, *output) {
-                    for idx in range {
-                        cells[idx] = true;
-                    }
-                }
-            }
-        }
-        cells
-    }
-
-    ///
     /// Every Cell a Source-writing Function's write reservation covers,
-    /// including an Advance's cleared anchor: the named exclusion above,
-    /// answered independently so the assertion can name it rather than let
-    /// it disappear into a silently passing comparison.
+    /// including an Advance's cleared anchor, read from the scheduler's own
+    /// `Lookup`.
     ///
     fn source_writing_reservation_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
         let (nodes, _diagnostics) = computations(grid, map);
@@ -5984,274 +5923,31 @@ mod output_portal_agreement {
         cells
     }
 
-    /// Cells for `grid` built from `rows`, each padded to its width with
-    /// blank Cells; fewer rows than the Grid holds is not an error, since the
-    /// remaining rows are left entirely blank, exactly as an unwritten row
-    /// already reads.
-    fn rows_bytes(grid: Grid, rows: &[&str]) -> Vec<u8> {
-        let columns = grid.columns();
-        assert!(rows.len() <= grid.rows(), "more rows than the Grid holds");
-        let mut bytes = vec![b' '; grid.count()];
-        for (y, row) in rows.iter().enumerate() {
-            assert!(
-                row.len() <= columns,
-                "{row:?} does not fit {columns} columns"
-            );
-            bytes[y * columns..y * columns + row.len()].copy_from_slice(row.as_bytes());
-        }
-        bytes
-    }
-
-    ///
-    /// The general agreement: `output_portal_cells` names exactly the Cells
-    /// `scheduled_output_portal_cells` reads back from the scheduler's own
-    /// `Lookup`, for the same revision.
-    ///
-    /// This alone does not separately name the Source-writing exclusion,
-    /// because the two oracles apply it identically — both skip a
-    /// Source-writing Function's contribution outright — so it holds even
-    /// where such a Function's write site coincides with an unrelated root's
-    /// genuine Reservation. `05`'s "Overlap" rule is that a Reservation
-    /// counts "whatever else claims it", so that coincidence is not itself a
-    /// defect: a blanket "no Source-writing write site is ever a highlight"
-    /// check would be false in general (a scalar root whose Output Portal
-    /// lands on a Self-Banging Function's own anchor, on a Grid barely wide
-    /// enough for both, is exactly such a case). The dedicated Advance and
-    /// Emit tests below name the exclusion on isolated Sources where no
-    /// other root can produce that coincidence.
-    ///
-    fn assert_output_portal_agreement(grid: Grid, bytes: &[u8]) {
-        let map = LanguageMap::build(grid, bytes);
-        let derived = map.output_portal_cells();
-        let scheduled = scheduled_output_portal_cells(grid, &map);
-
-        assert_eq!(
-            derived,
-            scheduled,
-            "the Output Portal highlight disagreed with the scheduler's own \
-             reservation for {:?}",
-            String::from_utf8_lossy(bytes)
-        );
-    }
-
-    #[test]
-    fn agrees_on_a_scalar_root() {
-        let grid = Grid::with_shape(6, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+0102"]));
-    }
-
-    #[test]
-    fn agrees_on_an_incomplete_root() {
-        let grid = Grid::with_shape(4, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+01"]));
-    }
-
-    #[test]
-    fn agrees_on_a_nested_function() {
-        let grid = Grid::with_shape(10, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+.x010203"]));
-    }
-
-    #[test]
-    fn agrees_on_a_sequence_capable_root() {
-        let grid = Grid::with_shape(8, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &[":-0102"]));
-    }
-
-    #[test]
-    fn agrees_on_a_root_widened_by_a_nested_sequence_operand() {
-        let grid = Grid::with_shape(10, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+:-010203"]));
-    }
-
-    #[test]
-    fn agrees_on_a_terminal_output_function() {
-        let grid = Grid::with_shape(8, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["!>007F"]));
-    }
-
-    #[test]
-    fn agrees_on_halt() {
-        let grid = Grid::with_shape(4, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["*!"]));
-    }
-
-    ///
-    /// Named exclusion: on a Source with nothing else on it, the Advance's
-    /// own write sites — the cleared anchor and the displaced destination —
-    /// are Cells the scheduler reserves and `output_portal_cells` never
-    /// covers. Isolated on purpose: `assert_output_portal_agreement`'s own
-    /// doc explains why the general comparison cannot make this claim about
-    /// every Cell a Source-writing Function's write touches, only about this
-    /// one Function's own.
-    ///
-    #[test]
-    fn agrees_on_a_self_banging_functions_advance() {
-        let grid = Grid::with_shape(6, 1);
-        let bytes = rows_bytes(grid, &[">>    "]);
-        assert_output_portal_agreement(grid, &bytes);
-
-        let map = LanguageMap::build(grid, &bytes);
+    fn assert_excluded(grid: Grid, row: &str) {
+        let map = LanguageMap::build(grid, row.as_bytes());
         let derived = map.output_portal_cells();
         let source_writes = source_writing_reservation_cells(grid, &map);
         assert!(
             source_writes.iter().any(|&writes| writes),
-            "the scheduler reserves the Advance's own write sites"
+            "the scheduler reserves {row:?}'s own write sites"
         );
         for (index, &writes) in source_writes.iter().enumerate() {
             assert!(
                 !writes || !derived[index],
-                "Cell {index} is the Advance's own reservation and must not \
-                 be an Output Portal highlight"
-            );
-        }
-    }
-
-    ///
-    /// The Emit half of the same named exclusion, isolated the same way.
-    ///
-    #[test]
-    fn agrees_on_a_directional_bangs_emit() {
-        let grid = Grid::with_shape(6, 1);
-        let bytes = rows_bytes(grid, &["*>    "]);
-        assert_output_portal_agreement(grid, &bytes);
-
-        let map = LanguageMap::build(grid, &bytes);
-        let derived = map.output_portal_cells();
-        let source_writes = source_writing_reservation_cells(grid, &map);
-        assert!(
-            source_writes.iter().any(|&writes| writes),
-            "the scheduler reserves the Emit's own write site"
-        );
-        for (index, &writes) in source_writes.iter().enumerate() {
-            assert!(
-                !writes || !derived[index],
-                "Cell {index} is the Emit's own reservation and must not be \
-                 an Output Portal highlight"
+                "Cell {index} is {row:?}'s own write reservation and must not \
+                 be an Output Portal Reservation"
             );
         }
     }
 
     #[test]
-    fn agrees_on_every_jump_direction() {
-        let grid = Grid::with_shape(8, 3);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&>      "]));
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["    &<  "]));
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&v      "]));
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["        ", "&^      "]));
+    fn a_self_banging_functions_advance_is_excluded() {
+        assert_excluded(Grid::with_shape(6, 1), ">>    ");
     }
 
     #[test]
-    fn agrees_on_a_jump_off_the_grid() {
-        let grid = Grid::with_shape(6, 2);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&^    "]));
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&<    "]));
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["    &>"]));
-    }
-
-    #[test]
-    fn agrees_on_a_scalar_the_row_edge_leaves_no_room_for() {
-        let grid = Grid::with_shape(6, 1);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &["   &> "]));
-    }
-
-    #[test]
-    fn agrees_on_a_scalar_root_in_the_bottom_row() {
-        let grid = Grid::with_shape(6, 1);
-        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+0102"]));
-    }
-
-    #[test]
-    fn agrees_on_the_function_reference() {
-        // `console/assets/function_reference.orcvs`: one worked example of
-        // every Function, embedded rather than reached through a dependency
-        // on `console`, which depends on `orcvs` and not the other way
-        // around.
-        const FUNCTION_REFERENCE: &str =
-            include_str!("../../../console/assets/function_reference.orcvs");
-        let lines: Vec<&str> = FUNCTION_REFERENCE.lines().collect();
-        let columns = lines.iter().map(|line| line.len()).max().unwrap_or(0);
-        let rows = lines.len();
-        let grid = Grid::with_shape(columns, rows);
-        let mut bytes = vec![b' '; grid.count()];
-        for (y, line) in lines.iter().enumerate() {
-            let start = y * columns;
-            bytes[start..start + line.len()].copy_from_slice(line.as_bytes());
-        }
-        assert_output_portal_agreement(grid, &bytes);
-    }
-
-    ///
-    /// Generated Sources, over the same agreement `assert_output_portal_agreement`
-    /// checks by hand above.
-    ///
-    /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
-    /// table that declares proptest, so a WASM build never sees the dependency.
-    ///
-    #[cfg(not(target_arch = "wasm32"))]
-    mod property {
-        use super::assert_output_portal_agreement;
-        use crate::grid::Grid;
-        use lang::Function;
-        use proptest::prelude::*;
-        use proptest::sample::select;
-
-        /// One Cell's worth of generated content, weighted toward plain
-        /// noise so incomplete and invalid Source stays the majority case,
-        /// with every Function spelling and a hexadecimal pair (an Operand
-        /// Literal) reachable too.
-        ///
-        /// Deliberately separate from `language_map::property`'s own
-        /// fragment generator: `orcvs`'s two property modules already keep
-        /// duplicate generators apart for the same reason `language_map.rs`
-        /// gives for its own duplication against `lang::parser`'s — a new
-        /// Function or run boundary has to be taught to whichever ones care,
-        /// and merging them would mean one generator serving concerns this
-        /// module and `language_map`'s do not share.
-        fn fragment() -> BoxedStrategy<String> {
-            prop_oneof![
-                6 => proptest::char::range(' ', '~').prop_map(String::from),
-                2 => Just(" ".to_owned()),
-                2 => Just("|".to_owned()),
-                2 => Just("||".to_owned()),
-                3 => select(Function::ALL).prop_map(|function| function.to_string()),
-                2 => any::<u8>().prop_map(|number| format!("{number:02X}")),
-            ]
-            .boxed()
-        }
-
-        fn source_text(cells: usize) -> BoxedStrategy<String> {
-            prop::collection::vec(fragment(), 1..=cells)
-                .prop_map(move |fragments| {
-                    let mut text = fragments.concat();
-                    text.truncate(cells);
-                    while text.len() < cells {
-                        text.push(' ');
-                    }
-                    text
-                })
-                .boxed()
-        }
-
-        /// A Grid's shape, and exactly one printable ASCII Cell per Position
-        /// in it. Small enough that the row edge and the bottom row — the
-        /// geometry `output_portal_cells` and the scheduler have to agree
-        /// about — are reached often rather than rarely.
-        fn revision() -> BoxedStrategy<(usize, usize, String)> {
-            (1usize..=12, 1usize..=3)
-                .prop_flat_map(|(cols, rows)| (Just(cols), Just(rows), source_text(cols * rows)))
-                .boxed()
-        }
-
-        proptest! {
-            #[test]
-            fn output_portal_cells_agree_with_the_scheduler_for_generated_sources(
-                (cols, rows, source) in revision(),
-            ) {
-                let grid = Grid::with_shape(cols, rows);
-                assert_output_portal_agreement(grid, source.as_bytes());
-            }
-        }
+    fn a_directional_bangs_emit_is_excluded() {
+        assert_excluded(Grid::with_shape(6, 1), "*>    ");
     }
 }
 

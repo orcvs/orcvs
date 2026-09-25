@@ -523,8 +523,7 @@ mod tests {
     /// Every case is written straight into Source with no Tick, because the
     /// highlight reads the current revision alone (`05`'s Answer). The
     /// Reservation these are fitted inside stays whole, and
-    /// `LanguageMap::output_portal_cells`'s own tests and `tick.rs`'s
-    /// agreement test still pin it.
+    /// `LanguageMap::output_portal_cells`'s own tests pin it.
     ///
     mod output_portal_highlight {
         use super::{Grid, SourceCommander};

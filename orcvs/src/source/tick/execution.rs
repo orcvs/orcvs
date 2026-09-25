@@ -904,11 +904,10 @@ fn render_message(reason: RenderError) -> String {
 ///   `test-only-seams/09` owns the underlying modelling problem: the stored
 ///   width and the re-derived one are two homes for one fact.
 /// - A width the fixture states is the input to every width production derives
-///   around it, so the pass `Lookup::new` ran is run again over the stated
-///   ones. Nothing about that pass is proven by these tests: no Function
-///   declares a Sequence answer, so every `Reserved::Row` in the crate is a
-///   stated one, and `sequence-values/05` owes the derivation against a
-///   declared Range row.
+///   around it, so `derive_reservations` widens each ancestor over the stated
+///   ones by the rule the Language Map's derivation applies. Nothing about
+///   that derivation is proven by these tests: the Language Map's own tests
+///   and the declared Range rows are.
 ///
 /// Only the Turn loop is reimplemented, because substituting one Turn is the
 /// one thing this does differently. It records each Turn's ordinal exactly as
@@ -977,9 +976,9 @@ pub(super) mod stated {
             assert!(
                 *reserved == Reserved::Row,
                 "a stated reservation is a width production would not derive: \
-                 `Reserved::Pair` is what `derive_reservations` answers for every \
-                 computation that states nothing, so stating one says nothing and \
-                 is overwritten by the pass that reads it"
+                 `derive_reservations` re-derives every computation still holding \
+                 `Reserved::Pair`, so stating one says nothing and is overwritten \
+                 by the pass that reads it"
             );
         }
         // A replacement's width is derived from what it declares and compared
@@ -1010,8 +1009,8 @@ pub(super) mod stated {
         }
         // What a stated reservation leaves for production to derive: an
         // ancestor that widens over a row-reserving operand widens over a
-        // stated one exactly as it will over a declared Range, because this is
-        // the pass `Lookup::new` ran, run again over the widths now settled.
+        // stated one exactly as it does over a declared Range, because this
+        // applies the Language Map's rule over the widths now settled.
         // Without it a stated child would leave its pervasive ancestor holding
         // the `Reserved::Pair` derived before the fixture spoke, and the
         // ancestor's own wide answer would be refused for a width the schedule
