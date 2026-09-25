@@ -19,7 +19,7 @@
 
 **2026-09-25 — acceptance-criteria review against `199c3331`.** Sharing row payloads does not by itself remove height-dependent table work. The target now distinguishes deep-clone removal from the remaining traversal cost.
 
-**2026-09-25 — implementation (epic PR 6).** Implemented on branch `perf/share-language-map-rows`.
+**2026-09-25 — implementation (epic PR 6).** Implemented in orcvs/orcvs#151 on branch `perf/share-language-map-rows`.
 
 - *Sharing.* `LanguageMap` holds `Vec<Arc<DerivedRow>>`. `LanguageMap::rebuild` re-derives the dirty rows and `Arc::clone`s every other row from the previous revision; `DerivedRow::for_revision` and its deep clone are gone. Rows that derive nothing share one empty derivation per build or rebuild, so `LanguageMap::build` pays one allocation for all blank rows rather than one each.
 - *Map identity.* A shared row cannot carry the identity of every revision that holds it, so the identity moved from the stored Expression to the view: `ExpressionEntry<'a>` is now a `Copy` handle of the Map's `LanguageMapId` and a reference to the private, shared `DerivedExpression`, minted by `LanguageMap::expressions`. `expression_units` still asserts the handle's identity against the Map's, so an Expression handed out by an earlier revision is refused even from a row the two revisions share (`an_edit_refuses_old_expression_entries_even_from_an_unchanged_row` passes unchanged). The accessors take `self` and return `'a` borrows; callers that passed `&ExpressionEntry` now pass the handle by value, and tests read fields through the accessors. This is a public-API shape change inside the unpublished `orcvs` crate; `console` compiles unchanged.
