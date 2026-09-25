@@ -11,12 +11,12 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
+use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
 use super::{
-    ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN,
-    Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP, GlyphTable, MAX_ZOOM,
-    MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView, TOP_PANEL_HEIGHT, ZoomCommand,
-    clamp_pan, frames_per_second, glyph_scale, is_presentable, show_source_scene, source_bounds,
-    source_panel_frame, stepped_zoom, translate_event, zoom_command,
+    BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE,
+    DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView,
+    TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, is_presentable, show_source_scene,
+    source_bounds, source_panel_frame, stepped_zoom, translate_event, zoom_command,
 };
 
 /// The Source View's margin at Zoom 1.0 and a device scale of one.
