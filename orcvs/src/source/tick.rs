@@ -5,12 +5,15 @@
 //! nested results are typed values. Only the final effects are published.
 
 pub(super) mod execution;
+#[cfg(test)]
+mod schedule_reuse;
 
 use lang::{
     Anchor, Atom, Function, ReplacementChange, SourceBundle, SourceEffect, Tick, TickInputs,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
+use std::sync::{Arc, OnceLock};
 
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
@@ -688,15 +691,92 @@ impl PortalRelationships<'_> {
     }
 }
 
+///
+/// Plans one Tick against `map`, through the schedule every revision holding
+/// the same scheduling inputs shares.
+///
 pub(super) fn plan(
     grid: Grid,
     bytes: &[u8],
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match schedule(grid, map) {
+    match map.schedule_cache().schedule(grid, map) {
         Ok(schedule) => execution::execute(grid, bytes, map, tick, schedule),
+        Err(diagnostics) => unscheduled(diagnostics.clone()),
+    }
+}
+
+///
+/// [`plan`] against a schedule ordered afresh from `map`, which is what the
+/// shared schedule has to agree with.
+///
+#[cfg(test)]
+fn plan_unshared(
+    grid: Grid,
+    bytes: &[u8],
+    map: &LanguageMap,
+    tick: Tick,
+) -> (TickPlan, Vec<execution::ComputationState>) {
+    match schedule(grid, map) {
+        Ok(schedule) => execution::execute(grid, bytes, map, tick, &schedule),
         Err(diagnostics) => unscheduled(diagnostics),
+    }
+}
+
+///
+/// The schedule one set of scheduling inputs admits, ordered the first time a
+/// Tick is planned against them and shared by every Language Map revision
+/// that holds the same inputs.
+///
+/// A schedule reads the Grid and these inputs of its Map, and nothing else:
+///
+/// - each Expression with a leading Function: its Span, and for every
+///   positioned entry its Cells, its parent, and whether it parsed and as
+///   which Function. The Function identities decide Portal access, activation,
+///   reservations and so every Portal relationship; the Cells decide claims
+///   and the row edge diagnostic; whether an operand parsed decides syntax
+///   blocking;
+/// - every Language Unit, whose anchors and Spans decide the occupancy a Halt
+///   target is classified by. A unit records its kind and no value.
+///
+/// Portal destinations are read from the Function's declaration, never from
+/// an operand. An Operand Literal's value, working Source and the Tick are
+/// execution's alone, so a Tick that writes new values into Cells whose units
+/// keep their Spans changes no scheduling input. Anything [`computations`] or
+/// [`Lookup::new`] reads from the Map is a scheduling input and must be
+/// compared by `DerivedRow::schedules_as` too. [`LanguageMap::rebuild`] compares these
+/// inputs row by row and carries this cache to the new revision when every
+/// row it re-derived holds the inputs it held before, which is what lets the
+/// cache survive a commit that rewrites identical bytes as well as one that
+/// writes nothing.
+///
+/// Ordering waits for the first Tick planned against the inputs, so a
+/// revision no Tick is planned against costs no ordering. The cache is shared
+/// by pointer and filled once under [`OnceLock`], so any holder of the Map
+/// can plan against it, from any thread.
+///
+#[derive(Clone, Default)]
+pub(super) struct ScheduleCache(Arc<OnceLock<Result<Schedule, Vec<Diagnostic>>>>);
+
+impl ScheduleCache {
+    /// The schedule `map` admits, ordered now if no Tick has asked for it.
+    /// `map` is the Map this cache belongs to, or one holding the same
+    /// scheduling inputs.
+    fn schedule(&self, grid: Grid, map: &LanguageMap) -> &Result<Schedule, Vec<Diagnostic>> {
+        self.0.get_or_init(|| schedule(grid, map))
+    }
+
+    /// Whether `other` is this cache, rather than one ordered separately.
+    #[cfg(test)]
+    fn is_shared_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Whether a Tick has already ordered this schedule.
+    #[cfg(test)]
+    fn is_filled(&self) -> bool {
+        self.0.get().is_some()
     }
 }
 
@@ -752,7 +832,7 @@ pub(super) fn plan_carrying(
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
     match schedule_carrying(grid, map, destinations) {
-        Ok(schedule) => execution::execute(grid, bytes, map, tick, schedule),
+        Ok(schedule) => execution::execute(grid, bytes, map, tick, &schedule),
         Err(diagnostics) => unscheduled(diagnostics),
     }
 }
@@ -896,6 +976,14 @@ fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
         && locked_subtree(lookup, locker).is_some_and(|target| target.contains(&producer))
 }
 
+///
+/// The order one revision's Turns are taken in, or the diagnostics that admit
+/// none.
+///
+/// Reads only the scheduling inputs [`ScheduleCache`] names, because every
+/// revision holding those inputs shares what this answers. Reading anything
+/// else from `map` here makes it one more input that comparison must cover.
+///
 fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
     let (nodes, diagnostics) = computations(grid, map);
     order_turns(Lookup::new(grid, nodes, map), diagnostics)
@@ -4662,7 +4750,7 @@ mod test {
                 })
                 .collect();
             let (rejected, states) =
-                super::execution::execute(grid, bytes.as_bytes(), &map, Tick::ZERO, schedule);
+                super::execution::execute(grid, bytes.as_bytes(), &map, Tick::ZERO, &schedule);
             assert!(rejected.writes.is_empty());
             assert!(rejected.play_commands.is_empty());
             // The broken order was walked as given, and stopped where it was

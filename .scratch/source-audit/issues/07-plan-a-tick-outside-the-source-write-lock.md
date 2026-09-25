@@ -22,3 +22,5 @@ Related: 06 shortens the commit's hold on the write lock (the Map rebuild) but i
 **2026-09-25 — acceptance-criteria review against `199c3331`.** Added stale-plan side-effect and retry contracts. A long-held read lock would still block editing; planning now explicitly uses an unlocked snapshot.
 
 **2026-09-25 — snapshot identity required.** `SourceRevision` (`orcvs/src/source/mod.rs`) holds the Grid, bytes and Language Map but no `RevisionId`; the criterion now requires the planning snapshot to capture its identity consistently with its contents.
+
+**2026-09-25 — schedule cache ownership (from 19, epic PR 8).** The Tick schedule cache lives on the `LanguageMap` (`ScheduleCache`, an `Arc<OnceLock<…>>` shared by every revision holding the same scheduling inputs). A planning snapshot that holds the revision's `Arc<LanguageMap>` already reads and fills it without any Source lock, so this ticket does not need to move it.
