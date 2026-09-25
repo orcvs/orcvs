@@ -126,9 +126,9 @@ impl MidiOutputAdapter {
     /// The safety action on the outgoing connection runs here, inside the
     /// engine's task, before the new connection is installed.
     ///
-    /// Infallible, because the port is already open: the only refusal left is
-    /// the safety action's on the outgoing connection, which the selection
-    /// carries without undoing the install.
+    /// Infallible, because the port is already open. A refusal of the safety
+    /// action on the outgoing connection is carried in the selection and does
+    /// not undo the install.
     ///
     pub(crate) fn install_connection(
         &mut self,

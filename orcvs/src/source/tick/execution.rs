@@ -103,8 +103,8 @@ pub(in crate::source) struct ComputationState {
     interpretations: usize,
 }
 
-/// What a Turn did, read only by this module's tests: a Tick Plan carries what
-/// to apply, and no shipped caller asks how it was reached.
+/// What a Turn did, read only by `source::tick`'s tests: a Tick Plan carries
+/// what to apply, and no shipped caller asks how it was reached.
 #[cfg(test)]
 impl ComputationState {
     ///

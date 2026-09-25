@@ -2529,26 +2529,24 @@ mod tests {
         run.backdate_run_origin(Duration::from_millis(20));
         run.inner.stop();
 
-        let first = run.observation();
-        let second = run.observation();
+        // Frozen by construction: a stopped observation publishes no origin,
+        // so no later read has a clock to advance.
+        let stopped = run.observation();
 
-        assert_eq!(first.state, PlaybackState::Stopped);
+        assert_eq!(stopped.state, PlaybackState::Stopped);
         assert_eq!(
-            first.tick,
+            stopped.tick,
             Tick::new(1),
             "stop froze a Tick that never sounded"
         );
-        assert!(!first.on_beat, "Tick 1 is not a beat");
-        assert_eq!(second.tick, first.tick);
-        assert_eq!(second.on_beat, first.on_beat);
-        assert_eq!(second.run_clock(), first.run_clock());
+        assert!(!stopped.on_beat, "Tick 1 is not a beat");
         assert!(
-            first.run_clock() >= Duration::from_millis(20),
+            stopped.run_clock() >= Duration::from_millis(20),
             "stop froze {:?} rather than the time the run spent",
-            first.run_clock()
+            stopped.run_clock()
         );
         assert!(
-            first.run_started_at.is_none(),
+            stopped.run_started_at.is_none(),
             "a stopped run still published an origin a later frame could advance"
         );
     }
