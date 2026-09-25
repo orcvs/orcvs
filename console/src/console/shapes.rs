@@ -331,9 +331,9 @@ pub(super) fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Re
 /// same background share one rectangle.
 ///
 /// The click is answered rather than acted on. Selecting a Cell is the Source's
-/// business and `Console::ui` owns the running Orcvs it is asked of; handing the
-/// [`PointerSelection`] back is what leaves this function with nothing but a
-/// Render Frame and a place to draw it.
+/// business and `Console::show_source_panel` owns the running Orcvs it is asked
+/// of; handing the [`PointerSelection`] back is what leaves this function with
+/// nothing but a Render Frame and a place to draw it.
 ///
 pub(super) fn show_source(
     ui: &mut egui::Ui,

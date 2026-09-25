@@ -62,7 +62,7 @@
 //! background tints against each other, only the glyphs painted on them.
 //!
 //! It does not account for the Cursor Effect's animated `area` field
-//! (`theme.cursor_area`), which `console.rs`'s `SourceShapes::into_shapes`
+//! (`theme.cursor_area`), which `console::shapes`'s `SourceShapes::into_shapes`
 //! draws beneath every Cell's own background. Where a Cell's own background
 //! is fully transparent, the real console can show a translucent tint of
 //! `cursor_area` at that Cell, up to `cursor_area`'s own configured alpha —
@@ -387,10 +387,10 @@ impl fmt::Display for State {
 /// Frame.
 ///
 /// The background is resolved all the way down to the opaque window
-/// backdrop: `console.rs`'s own paint order draws `window.background` as the
+/// backdrop: the console's own paint order draws `window.background` as the
 /// `eframe` clear colour first, `grid.background` as the Source panel's fill
 /// over it, then each Cell's own composited fill on top
-/// (`console.rs::source_panel_frame`, `Console::clear_color`). A translucent
+/// (`console::source_view::source_panel_frame`, `Console::clear_color`). A translucent
 /// background therefore resolves against its underlying surface rather than
 /// against itself.
 ///

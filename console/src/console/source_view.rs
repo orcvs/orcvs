@@ -327,8 +327,8 @@ pub(super) struct PresentedSource {
 /// from this same Render Frame — `Console::ui` reads it after
 /// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
 /// A click's or a drag's Cursor move reaches the Source only after this call
-/// returns (`Console::ui` applies the [`PointerSelection`] next), so it is
-/// followed on the frame after, not this one.
+/// returns (`Console::show_source_panel` applies the [`PointerSelection`]
+/// next), so it is followed on the frame after, not this one.
 ///
 pub(super) fn show_source_scene(
     ui: &mut egui::Ui,

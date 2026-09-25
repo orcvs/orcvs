@@ -623,7 +623,7 @@ assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_tab
 # pins that the feature exists and forwards to upstream's own integration rather
 # than to a control server written here.
 assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*inspection[[:space:]]*=[[:space:]]*[[]"eframe/inspection"[]]$'
-# The egui stack is pinned exactly, not by caret. `console.rs` cites
+# The egui stack is pinned exactly, not by caret. The `console` module cites
 # `egui-0.36.2`, `epaint-0.36.2` and `emath-0.36.2` by file and line as the
 # evidence for the atlas budget, the owned transform, and the drag-pan branch it
 # replaces, and a caret requirement lets a patch release move all of that with

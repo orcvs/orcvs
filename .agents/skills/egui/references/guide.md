@@ -28,7 +28,7 @@ The second command is the duplicate check: one version of each egui crate.
 Multiple `accesskit_consumer` entries inside `accesskit_winit` are expected
 (dev and inspection only); a *second egui version* is a fault. The three
 direct requirements are exact (`=0.36.2`). Pins are exact; moving the stack
-is its own ticket — it re-reads the citations `console.rs` takes from this
+is its own ticket — it re-reads the citations the `console` module takes from this
 release (`epaint-0.36.2/src/text/font.rs:567`,
 `epaint-0.36.2/src/text/mod.rs:62`, `epaint-0.36.2/src/text/fonts.rs:728-742`,
 `egui-0.36.2/src/containers/scene.rs`, `egui-0.36.2/src/context.rs:437-447`,

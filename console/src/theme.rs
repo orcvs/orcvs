@@ -97,7 +97,7 @@ impl GridWidth {
         Ok(Self(points))
     }
 
-    /// Consumed by `console.rs`'s Grid line/Sector Seam strokes and
+    /// Consumed by `console::shapes`'s Grid line/Sector Seam strokes and
     /// `cursor_effects.rs`'s Cursor/Region frame width
     /// (`.scratch/theming/issues/06` slice C's fixed display-point strokes).
     pub(crate) fn points(self) -> f32 {

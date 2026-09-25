@@ -74,7 +74,7 @@ orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 #
 # `=0.36.2` rather than `0.36.2`. A caret requirement reads "0.36.2 or any later
 # 0.36", and the console's own reasoning is written against one of those
-# releases and cites it by line: `console.rs` quotes
+# releases and cites it by line: the `console` module and its tests quote
 # `epaint-0.36.2/src/text/font.rs:567`, `epaint-0.36.2/src/text/mod.rs:62`,
 # `epaint-0.36.2/src/text/fonts.rs:728-742`, `egui-0.36.2/src/containers/scene.rs`,
 # `egui-0.36.2/src/context.rs:437-447`, `emath-0.36.2/src/ts_transform.rs:55-57`
