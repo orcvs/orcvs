@@ -284,8 +284,11 @@ impl TickTiming {
 /// consults its `MissedTickBehavior` only once lateness exceeds five
 /// milliseconds and replays the backlog below that, so `Skip` cannot express
 /// this rule at the short end of the supported range: `Bpm` admits 1 to 15000,
-/// which `Bpm::delay_ms` turns into periods from 15 seconds down to 1
-/// millisecond.
+/// which `Bpm::tick_period` turns into nanosecond periods from 15 seconds down
+/// to 1 millisecond. Every deadline is the run's first deadline plus a whole
+/// number of periods, so the rule adds no error of its own: a run's only
+/// departure from its tempo is the period's rounding, however late the clock
+/// wakes.
 ///
 /// A zero period cannot be divided into, and reaches here only if a caller
 /// admitted one: `start` and `retune` both refuse `ZeroTickPeriod` before any
@@ -2167,6 +2170,53 @@ mod tests {
             super::first_retuned_tick_at(None, now, Duration::from_secs(1)),
             now,
             "a run with no executed Tick behind it has no grid to keep"
+        );
+    }
+
+    ///
+    /// Lateness and period rounding are separate errors. A 130 BPM period is
+    /// not a whole number of milliseconds, and a clock that wakes late by an
+    /// irregular amount every Tick, sometimes by whole periods, still lands
+    /// every deadline exactly on the first deadline plus a whole number of
+    /// that period. Rescheduling from the wake instant would instead carry
+    /// each Tick's lateness into every deadline after it.
+    ///
+    #[test]
+    fn a_late_clock_keeps_every_deadline_on_the_grid_of_a_fractional_period() {
+        let period = Bpm::new(130).expect("130 is in range").tick_period();
+        assert_ne!(period.subsec_nanos() % 1_000_000, 0);
+
+        let mut scheduled_at = Duration::ZERO;
+        let mut ticks_elapsed: u32 = 0;
+        for tick in 0..10_000u32 {
+            let lateness = period * (tick % 3) + Duration::from_nanos(u64::from(tick % 997) * 97);
+            let observed_at = scheduled_at + lateness;
+            let next = super::next_scheduled_at(scheduled_at, observed_at, period);
+            ticks_elapsed += 1 + tick % 3;
+            assert_eq!(
+                next,
+                period * ticks_elapsed,
+                "Tick {tick}, observed {lateness:?} late, left the grid"
+            );
+            assert!(next > observed_at, "Tick {tick} resumed behind the clock");
+            scheduled_at = next;
+        }
+    }
+
+    ///
+    /// A retune at a fractional period anchors on the last executed Tick's
+    /// deadline, so a retune arriving late lands on that grid rather than a
+    /// whole period from the moment it arrived.
+    ///
+    #[test]
+    fn a_retune_to_a_fractional_period_lands_on_its_grid() {
+        let period = Bpm::new(9_000).expect("9000 is in range").tick_period();
+        let last_tick_at = ClockInstant::now();
+        let now = last_tick_at + period * 7 + period / 3;
+
+        assert_eq!(
+            super::first_retuned_tick_at(Some(last_tick_at), now, period),
+            last_tick_at + period * 8
         );
     }
 

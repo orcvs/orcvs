@@ -1,4 +1,3 @@
-use std::time::Duration;
 use tracing::error;
 
 use crate::midi::{MidiOutputAdapter, MidiSelectionHandle};
@@ -370,7 +369,7 @@ impl<S> Orcvs<S> {
 
     pub fn set_bpm(&mut self, bpm: Bpm) {
         if self.playback_requested
-            && let Err(error) = self.playback.retune(Duration::from_millis(bpm.delay_ms()))
+            && let Err(error) = self.playback.retune(bpm.tick_period())
         {
             self.playback.report_retune_error(error);
             return;
@@ -696,14 +695,13 @@ impl<S> Orcvs<S> {
     }
 
     fn play(&mut self) {
-        let ms = self.opts.bpm.delay_ms();
         // A start failure is already recorded as a Playback diagnostic, which
         // `drain_playback_diagnostics` hands to the console; reporting it again
         // here would put one failure on two channels. What is left to do with
         // the answer is to not raise a request the engine refused: Space
         // toggles against what has been asked for, so a refused start must
         // leave nothing standing for the next press to cancel.
-        if self.playback.start(Duration::from_millis(ms)).is_ok() {
+        if self.playback.start(self.opts.bpm.tick_period()).is_ok() {
             self.playback_requested = true;
         }
     }

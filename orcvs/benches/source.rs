@@ -421,7 +421,7 @@ fn edit_rebuild_invalid(c: &mut Criterion) {
 /// them, committing the writes, and rebuilding the Language Map.
 ///
 /// This is the operation with a deadline. The Playback Engine drives it once
-/// per Tick period, which `Bpm::delay_ms` puts at 125ms at 120 BPM and under
+/// per Tick period, which `Bpm::tick_period` puts at 125ms at 120 BPM and under
 /// 20ms at the tempos a fast pattern reaches, and everything a Tick does
 /// happens inside that window. Growth across the series is the measurement
 /// that matters: ordering work between roots grows with the square of their
