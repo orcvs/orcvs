@@ -232,6 +232,10 @@ _Avoid_: Schedule, timeline, beat clock
 One Tick declined because it was observed a whole Tick period or more past the deadline it was due at. Per ADR 0037 it names that deadline, consumes no absolute Tick, and reports once per stall rather than once per deadline the stall covered: the deadlines a stopped clock never reached are skipped rather than delivered late so they can be declined in turn. An Overrun is a Playback diagnostic and carries no user-facing message.
 _Avoid_: Dropped frame, xrun, missed tick
 
+**Omitted Diagnostics**:
+The per-class count of Playback diagnostics recorded since the last drain and not retained. Per ADR 0055 a Playback Engine retains a bounded number of diagnostics between drains, evicting Overruns first and clock failures last, and a drain that omitted anything ends with one summary of these counts. A count saturates rather than wrapping and is then a lower bound.
+_Avoid_: Dropped diagnostics, lost events
+
 **Live Editing**:
 Changing the Source while Playback continues. An edit affects the next Tick whose Source snapshot has not yet been taken.
 _Avoid_: Hot reload, live coding

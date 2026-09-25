@@ -4,6 +4,9 @@ use orcvs::playback::PlaybackDiagnostic;
 /// The message the console shows for a Playback diagnostic, or `None` when the
 /// diagnostic reports no failure. An Overrun is a late Tick the Playback Engine
 /// deliberately skips, so it is not a failure and the user is not told about it.
+/// An omission summary counts diagnostics the engine did not retain between
+/// drains and carries no message: the engine retains its most serious
+/// diagnostics ahead of the rest, and those carry the failure to show.
 ///
 /// Every platform reports through this one decision, so a diagnostic cannot
 /// count as a failure in the browser and as routine on the desktop.
@@ -14,7 +17,7 @@ pub(crate) fn failure_message(diagnostic: &PlaybackDiagnostic) -> Option<String>
         PlaybackDiagnostic::ClockFailure { message }
         | PlaybackDiagnostic::StartFailure { message }
         | PlaybackDiagnostic::RetuneFailure { message } => Some(message.clone()),
-        PlaybackDiagnostic::Overrun { .. } => None,
+        PlaybackDiagnostic::Overrun { .. } | PlaybackDiagnostic::Omitted(_) => None,
     }
 }
 
@@ -39,9 +42,17 @@ pub fn report_playback_failures(diagnostics: &[PlaybackDiagnostic]) {
 mod tests {
     use std::time::Duration;
 
-    use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic};
+    use orcvs::playback::{OmittedDiagnostics, OutputAdapterError, PlaybackDiagnostic};
 
     use super::failure_message;
+
+    #[test]
+    fn an_omission_summary_is_not_a_failure() {
+        assert_eq!(
+            failure_message(&PlaybackDiagnostic::Omitted(OmittedDiagnostics::default())),
+            None
+        );
+    }
 
     #[test]
     fn an_overrun_is_not_a_failure() {

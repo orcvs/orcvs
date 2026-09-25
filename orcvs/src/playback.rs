@@ -9,6 +9,7 @@ use tokio::time::{self, Instant as ClockInstant};
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant as ClockInstant;
 
+mod diagnostics;
 mod gate;
 mod schedule;
 
@@ -17,6 +18,10 @@ use crate::opts::Bpm;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
     Velocity,
+};
+use diagnostics::{DiagnosticLog, Report};
+pub use diagnostics::{
+    MAX_DIAGNOSTIC_MESSAGE_BYTES, MAX_RETAINED_DIAGNOSTICS, OmissionCount, OmittedDiagnostics,
 };
 use gate::TickGate;
 use schedule::OwnedNotes;
@@ -118,6 +123,15 @@ pub enum PlaybackDiagnostic {
     RetuneFailure {
         message: String,
     },
+    ///
+    /// What the engine recorded since the last drain and did not retain.
+    ///
+    /// Retention is bounded, so an embedder that does not drain loses
+    /// individual diagnostics but not the fact of them: the last entry of a
+    /// drain that omitted anything is this summary, counting the omissions per
+    /// class. [`PlaybackEngine::drain_diagnostics`] states the policy.
+    ///
+    Omitted(OmittedDiagnostics),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -450,16 +464,14 @@ struct PlaybackInner<A: OutputAdapter> {
     observation: watch::Sender<PlaybackObservation>,
     connected: bool,
     ///
-    /// The writing end of the diagnostics stream.
+    /// The log this engine reports into, shared with every handle.
     ///
-    /// ADR 0002 asks that diagnostics be drained in order and exactly once
-    /// while lifecycle state is observed; ADR 0041 moves that guarantee from
-    /// the lock to this channel, which is ordered, and from which a receive
-    /// takes each diagnostic away. It is unbounded because the queue it
-    /// replaces — a `Vec` drained by the console each frame — was, and because
-    /// a dropped diagnostic is a device failure the user is never told about.
+    /// Diagnostics are drained in order and each at most once while lifecycle
+    /// state is observed. The log's retention is bounded, so
+    /// an engine nobody drains holds a fixed amount of memory however long
+    /// its run declines Ticks or its device refuses them.
     ///
-    diagnostics: mpsc::UnboundedSender<PlaybackDiagnostic>,
+    diagnostics: DiagnosticLog,
     last_output_failure: Option<OutputAdapterError>,
     last_tick_at: Option<ClockInstant>,
     ///
@@ -568,19 +580,14 @@ pub struct PlaybackEngine {
     /// draw the Panel from it.
     observation: watch::Receiver<PlaybackObservation>,
     ///
-    /// The reading end of the diagnostics stream.
+    /// The one diagnostic log for however many handles there are, which is
+    /// what an ordered stream drained at most once means: two handles draining
+    /// split the diagnostics between them rather than each seeing every one.
+    /// A handle reports its own refusals into the same log, so a caller
+    /// draining on the next line finds them, in order after whatever the task
+    /// recorded first.
     ///
-    /// One receiver for however many handles there are, which is what an
-    /// ordered stream drained exactly once means: two handles draining split
-    /// the diagnostics between them rather than each seeing every one, exactly
-    /// as two callers of the drained `Vec` this replaces did. The lock is over
-    /// the receiver alone and is never taken by the engine, so a drain waits
-    /// on no Tick and a Tick waits on no drain.
-    ///
-    diagnostics: Arc<Mutex<mpsc::UnboundedReceiver<PlaybackDiagnostic>>>,
-    /// The writing end this handle reports its own failures on, so that a
-    /// caller draining on the next line finds them.
-    reports: mpsc::UnboundedSender<PlaybackDiagnostic>,
+    diagnostics: DiagnosticLog,
 }
 
 impl Clone for PlaybackEngine {
@@ -590,7 +597,6 @@ impl Clone for PlaybackEngine {
             tick_gate: Arc::clone(&self.tick_gate),
             observation: self.observation.clone(),
             diagnostics: self.diagnostics.clone(),
-            reports: self.reports.clone(),
         }
     }
 }
@@ -600,17 +606,16 @@ impl Clone for PlaybackEngine {
 ///
 struct PlaybackChannels {
     observation: watch::Receiver<PlaybackObservation>,
-    diagnostics: mpsc::UnboundedReceiver<PlaybackDiagnostic>,
     ///
-    /// A second writing end of the diagnostics stream, for the handle's own
-    /// reports.
+    /// The log the state reports into, for the handle to drain and to report
+    /// its own refusals into.
     ///
     /// A handle that could not report would have to queue its failures for the
-    /// task, which is a message behind the caller draining the stream on the
-    /// next line. One queue with two writers keeps the order the reports were
-    /// made in, which is the order ADR 0002 asks for.
+    /// task, which is a message behind the caller draining on the next line.
+    /// One log with two writers keeps the order the reports were made in,
+    /// which is the order ADR 0002 asks for.
     ///
-    reports: mpsc::UnboundedSender<PlaybackDiagnostic>,
+    diagnostics: DiagnosticLog,
 }
 
 impl<A: OutputAdapter> PlaybackInner<A> {
@@ -624,8 +629,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     fn new(source: SourceCommander, adapter: A) -> (Self, PlaybackChannels) {
         let observation = watch::Sender::new(PlaybackObservation::default());
         let observed = observation.subscribe();
-        let (diagnostics, drained) = mpsc::unbounded_channel();
-        let reports = diagnostics.clone();
+        let diagnostics = DiagnosticLog::new();
+        let drained = diagnostics.clone();
         (
             Self {
                 source,
@@ -641,7 +646,6 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             PlaybackChannels {
                 observation: observed,
                 diagnostics: drained,
-                reports,
             },
         )
     }
@@ -658,14 +662,9 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         self.observation.borrow().state == PlaybackState::Playing
     }
 
-    ///
-    /// Queues one diagnostic for whoever drains the stream.
-    ///
-    /// The send fails only once the receiving end is gone, which happens when
-    /// the last handle is dropping and there is no console left to tell.
-    ///
-    fn report(&self, diagnostic: PlaybackDiagnostic) {
-        let _ = self.diagnostics.send(diagnostic);
+    /// Records one diagnostic for whoever drains the log.
+    fn report(&self, report: Report) {
+        self.diagnostics.report(report);
     }
 
     fn stop(&mut self) {
@@ -727,7 +726,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // that action leaves claims that must not survive into the next
             // run the task is about to keep serving.
             self.owned.clear();
-            self.report(PlaybackDiagnostic::ClockFailure {
+            self.report(Report::ClockFailure {
                 message: "Playback output could not be silenced".to_string(),
             });
         }
@@ -735,7 +734,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
 
     fn record_output_failure(&mut self, error: OutputAdapterError) {
         if self.last_output_failure.as_ref() != Some(&error) {
-            self.report(PlaybackDiagnostic::OutputFailure(error.clone()));
+            self.report(Report::OutputFailure(error.clone()));
             self.last_output_failure = Some(error);
         }
     }
@@ -802,7 +801,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     ///
     fn execute_tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
         if timing.is_overrun() {
-            self.report(PlaybackDiagnostic::Overrun {
+            self.report(Report::Overrun {
                 scheduled_at: timing.scheduled_at,
                 observed_at: timing.observed_at,
             });
@@ -871,7 +870,7 @@ impl<A: OutputAdapter> Drop for PlaybackInner<A> {
         if !self.is_playing() {
             return;
         }
-        self.report(PlaybackDiagnostic::ClockFailure {
+        self.report(Report::ClockFailure {
             message: "Playback clock terminated unexpectedly".to_string(),
         });
         // The unwind that reached this destructor is the one an adapter
@@ -901,7 +900,7 @@ impl<A: OutputAdapter> Drop for PlaybackInner<A> {
             // console is the only place a user learns that a device may still
             // be sounding. Recorded after the attempt, so the ordered stream
             // reads in the order things happened.
-            self.report(PlaybackDiagnostic::ClockFailure {
+            self.report(Report::ClockFailure {
                 message: "Playback output could not be silenced".to_string(),
             });
         }
@@ -945,21 +944,29 @@ impl PlaybackEngine {
     }
 
     ///
-    /// Takes every diagnostic recorded since the last drain, in the order the
+    /// Takes every diagnostic retained since the last drain, in the order the
     /// engine recorded them.
     ///
-    /// A non-blocking receive repeated to exhaustion: a caller drawing a frame
-    /// gets what is queued and never waits for what is not. Each diagnostic is
-    /// delivered to exactly one drain, so the engine reports a device failure
-    /// once and a console shows it once.
+    /// A caller drawing a frame gets what is retained and never waits for what
+    /// is not. Each diagnostic is delivered to at most one drain, so the
+    /// engine reports a device failure once and a console shows it once.
+    ///
+    /// Retention between drains is bounded. At most
+    /// [`MAX_RETAINED_DIAGNOSTICS`] are retained, each message cut to at most
+    /// [`MAX_DIAGNOSTIC_MESSAGE_BYTES`]. A diagnostic recorded into a full
+    /// log evicts the oldest retained one of the least serious class present
+    /// — Overruns first, then start and retune failures, then output failures,
+    /// then clock failures — unless every retained diagnostic is more serious
+    /// than it, in which case it is the one omitted. So a clock failure since
+    /// the last drain is always among what is answered, and a flood of one
+    /// class never displaces a more serious one. When anything was evicted or
+    /// omitted the answer ends with one [`PlaybackDiagnostic::Omitted`]
+    /// counting them per class, with saturating counts: the Overruns since
+    /// the last drain are the Overruns answered plus `overruns` in that
+    /// summary.
     ///
     pub fn drain_diagnostics(&self) -> Vec<PlaybackDiagnostic> {
-        let mut drained = lock_recover(&self.diagnostics);
-        let mut diagnostics = Vec::new();
-        while let Ok(diagnostic) = drained.try_recv() {
-            diagnostics.push(diagnostic);
-        }
-        diagnostics
+        self.diagnostics.drain()
     }
 
     ///
@@ -1124,8 +1131,7 @@ impl PlaybackEngine {
                 commands: Arc::new(commands),
                 tick_gate,
                 observation: channels.observation,
-                diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
-                reports: channels.reports,
+                diagnostics: channels.diagnostics,
             },
             output_requests,
         ))
@@ -1142,20 +1148,20 @@ impl PlaybackEngine {
     /// the stream: a report made a message behind would not be there yet.
     ///
     fn report_start_error(&self, error: PlaybackStartError) -> PlaybackStartError {
-        self.report(PlaybackDiagnostic::StartFailure {
+        self.report(Report::StartFailure {
             message: error.to_string(),
         });
         error
     }
 
     pub(crate) fn report_retune_error(&self, error: PlaybackStartError) {
-        self.report(PlaybackDiagnostic::RetuneFailure {
+        self.report(Report::RetuneFailure {
             message: error.to_string(),
         });
     }
 
-    fn report(&self, diagnostic: PlaybackDiagnostic) {
-        let _ = self.reports.send(diagnostic);
+    fn report(&self, report: Report) {
+        self.diagnostics.report(report);
     }
 
     ///
@@ -1506,7 +1512,7 @@ async fn run_engine<A: OutputAdapter, C>(
                 // failure it cannot continue through; the alternative here is
                 // a deadline of now, which this loop would reach, execute, and
                 // arrive back at immediately.
-                inner.report(PlaybackDiagnostic::ClockFailure {
+                inner.report(Report::ClockFailure {
                     message: "Playback clock ran past the last instant it can schedule".to_string(),
                 });
                 inner.stop_contained();
@@ -1669,7 +1675,7 @@ mod tests {
     struct HandDrivenRun<A: OutputAdapter> {
         inner: PlaybackInner<A>,
         observation: watch::Receiver<PlaybackObservation>,
-        diagnostics: mpsc::UnboundedReceiver<PlaybackDiagnostic>,
+        diagnostics: DiagnosticLog,
     }
 
     impl<A: OutputAdapter> HandDrivenRun<A> {
@@ -1753,11 +1759,7 @@ mod tests {
         }
 
         fn drain_diagnostics(&mut self) -> Vec<PlaybackDiagnostic> {
-            let mut diagnostics = Vec::new();
-            while let Ok(diagnostic) = self.diagnostics.try_recv() {
-                diagnostics.push(diagnostic);
-            }
-            diagnostics
+            self.diagnostics.drain()
         }
     }
 
@@ -3607,6 +3609,294 @@ mod tests {
         engine.stop();
     }
 
+    ///
+    /// An adapter that refuses every submission, alternating between two
+    /// errors so the identical-failure latch never suppresses one. The second
+    /// error's message is far past what a diagnostic retains, so a flood of
+    /// them tests the byte bound and not only the entry bound.
+    ///
+    /// Its first safety action panics when `panics_once_silencing` is set, which
+    /// is how a live engine reports a clock failure and keeps running.
+    ///
+    #[derive(Default)]
+    struct AlternatingRefusals {
+        submissions: u64,
+        panics_once_silencing: bool,
+    }
+
+    impl AlternatingRefusals {
+        const SHORT: &'static str = "device lost";
+
+        fn long() -> String {
+            "device refused: ".repeat(4_096)
+        }
+    }
+
+    impl OutputAdapter for AlternatingRefusals {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+            self.submissions += 1;
+            if self.submissions.is_multiple_of(2) {
+                Err(OutputAdapterError::new(Self::long()))
+            } else {
+                Err(OutputAdapterError::new(Self::SHORT))
+            }
+        }
+
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            if std::mem::take(&mut self.panics_once_silencing) {
+                panic!("test safety panic");
+            }
+            Ok(())
+        }
+    }
+
+    ///
+    /// How many diagnostics of one class a drain accounts for: the ones it
+    /// retained plus the count its omission summary carries.
+    ///
+    fn accounted(
+        drained: &[PlaybackDiagnostic],
+        is_class: impl Fn(&PlaybackDiagnostic) -> bool,
+        omitted: impl Fn(&OmittedDiagnostics) -> OmissionCount,
+    ) -> u64 {
+        let retained = drained
+            .iter()
+            .filter(|diagnostic| is_class(diagnostic))
+            .count();
+        let summarised = drained
+            .iter()
+            .find_map(|diagnostic| match diagnostic {
+                PlaybackDiagnostic::Omitted(summary) => Some(omitted(summary).get()),
+                _ => None,
+            })
+            .unwrap_or(0);
+        u64::try_from(retained).expect("a retained count fits") + u64::from(summarised)
+    }
+
+    ///
+    /// What every bounded-retention drain owes: no more entries than the log
+    /// retains plus its summary, a summary only as the last entry, and every
+    /// retained message within the byte bound.
+    ///
+    fn assert_bounded_drain(drained: &[PlaybackDiagnostic]) {
+        assert!(
+            drained.len() <= MAX_RETAINED_DIAGNOSTICS + 1,
+            "a drain answered {} diagnostics",
+            drained.len()
+        );
+        let summaries = drained
+            .iter()
+            .filter(|diagnostic| matches!(diagnostic, PlaybackDiagnostic::Omitted(_)))
+            .count();
+        assert!(summaries <= 1, "one omission summary at most");
+        if summaries == 1 {
+            assert!(
+                matches!(drained.last(), Some(PlaybackDiagnostic::Omitted(_))),
+                "the omission summary ends the drain"
+            );
+        }
+        for diagnostic in drained {
+            let message = match diagnostic {
+                PlaybackDiagnostic::OutputFailure(error) => &error.message,
+                PlaybackDiagnostic::ClockFailure { message }
+                | PlaybackDiagnostic::StartFailure { message }
+                | PlaybackDiagnostic::RetuneFailure { message } => message,
+                PlaybackDiagnostic::Overrun { .. } | PlaybackDiagnostic::Omitted(_) => continue,
+            };
+            assert!(message.len() <= MAX_DIAGNOSTIC_MESSAGE_BYTES);
+        }
+    }
+
+    fn is_overrun(diagnostic: &PlaybackDiagnostic) -> bool {
+        matches!(diagnostic, PlaybackDiagnostic::Overrun { .. })
+    }
+
+    fn is_output_failure(diagnostic: &PlaybackDiagnostic) -> bool {
+        matches!(diagnostic, PlaybackDiagnostic::OutputFailure(_))
+    }
+
+    fn is_start_failure(diagnostic: &PlaybackDiagnostic) -> bool {
+        matches!(diagnostic, PlaybackDiagnostic::StartFailure { .. })
+    }
+
+    ///
+    /// A run nobody drains, declining Tick after Tick, holds a fixed amount of
+    /// diagnostic memory, and the drain that finally comes still says how many
+    /// Ticks were declined and names the latest of them.
+    ///
+    #[test]
+    fn undrained_overruns_hold_bounded_memory_and_keep_their_count() {
+        const OVERRUNS: u64 = 10_000;
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+
+        for index in 0..OVERRUNS {
+            let declined = run.tick(scheduled(
+                Duration::from_secs(index),
+                Duration::from_secs(index + 2),
+            ));
+            assert!(declined.is_none(), "a Tick two periods late is declined");
+            assert!(run.diagnostics.retained_bytes() <= DiagnosticLog::retention_bound());
+        }
+
+        let drained = run.drain_diagnostics();
+        assert_bounded_drain(&drained);
+        assert_eq!(
+            accounted(&drained, is_overrun, |omitted| omitted.overruns),
+            OVERRUNS
+        );
+        assert_eq!(
+            drained[drained.len() - 2],
+            PlaybackDiagnostic::Overrun {
+                scheduled_at: Duration::from_secs(OVERRUNS - 1),
+                observed_at: Duration::from_secs(OVERRUNS + 1),
+            },
+            "the latest Overrun is retained"
+        );
+        assert!(run.drain_diagnostics().is_empty());
+    }
+
+    ///
+    /// A device that keeps refusing with a changing error is reported on every
+    /// Tick, because the latch only suppresses a repeat of the same failure.
+    /// Nobody draining that holds a fixed amount of memory, long messages
+    /// included, and the drain still counts every refusal.
+    ///
+    #[test]
+    fn undrained_alternating_output_failures_hold_bounded_memory() {
+        const TICKS: u64 = 2_000;
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            AlternatingRefusals::default(),
+        );
+        run.begin_run();
+
+        for tick in 0..TICKS {
+            run.run_tick(tick);
+            assert!(run.diagnostics.retained_bytes() <= DiagnosticLog::retention_bound());
+        }
+
+        let drained = run.drain_diagnostics();
+        assert_bounded_drain(&drained);
+        assert_eq!(
+            accounted(&drained, is_output_failure, |omitted| omitted
+                .output_failures),
+            TICKS
+        );
+    }
+
+    ///
+    /// A caller that keeps asking for a run the engine refuses is told so each
+    /// time, and an engine nobody drains holds a fixed amount of memory for it.
+    ///
+    #[tokio::test]
+    async fn undrained_invalid_starts_hold_bounded_memory() {
+        const STARTS: u64 = 1_000;
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        for _ in 0..STARTS {
+            assert_eq!(
+                engine.start(Duration::ZERO),
+                Err(PlaybackStartError::ZeroTickPeriod)
+            );
+            assert!(engine.diagnostics.retained_bytes() <= DiagnosticLog::retention_bound());
+        }
+
+        let drained = engine.drain_diagnostics();
+        assert_bounded_drain(&drained);
+        assert_eq!(
+            accounted(&drained, is_start_failure, |omitted| omitted.start_failures),
+            STARTS
+        );
+    }
+
+    ///
+    /// Every class at once, through the engine's own paths: a clock failure
+    /// early in the run, then Overruns, refused starts, refused retunes and
+    /// alternating device refusals interleaved, with nobody draining. Memory
+    /// stays bounded throughout, the clock failure survives the flood that
+    /// followed it, and the drain accounts for every event of every class.
+    ///
+    /// Native only, because the clock failure comes from a safety action that
+    /// panics, and the browser target aborts on a panic.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(start_paused = true)]
+    async fn a_mixed_undrained_flood_holds_bounded_memory_and_keeps_the_clock_failure() {
+        const ROUNDS: u64 = 200;
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            AlternatingRefusals {
+                panics_once_silencing: true,
+                ..AlternatingRefusals::default()
+            },
+        );
+        let bounded = |engine: &TestEngine| {
+            assert!(engine.diagnostics.retained_bytes() <= DiagnosticLog::retention_bound());
+        };
+
+        // A run whose first Tick the device refuses, stopped by a safety
+        // action that panics: one output failure and one clock failure.
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+        engine.stop();
+        settle(&engine).await;
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+
+        for _ in 0..ROUNDS {
+            // One Tick on time, which the device refuses.
+            time::advance(Duration::from_secs(1)).await;
+            settle(&engine).await;
+            bounded(&engine);
+            // One stall, which declines one Tick.
+            time::advance(Duration::from_secs(3)).await;
+            settle(&engine).await;
+            bounded(&engine);
+            assert!(engine.start(Duration::ZERO).is_err());
+            engine.report_retune_error(PlaybackStartError::ZeroTickPeriod);
+            bounded(&engine);
+        }
+
+        let drained = engine.drain_diagnostics();
+        assert_bounded_drain(&drained);
+        assert!(
+            drained.contains(&PlaybackDiagnostic::ClockFailure {
+                message: "Playback output could not be silenced".to_string(),
+            }),
+            "the clock failure outlasts every less serious diagnostic: {drained:?}"
+        );
+        assert_eq!(
+            accounted(&drained, is_overrun, |omitted| omitted.overruns),
+            ROUNDS
+        );
+        assert_eq!(
+            accounted(&drained, is_start_failure, |omitted| omitted.start_failures),
+            ROUNDS
+        );
+        assert_eq!(
+            accounted(
+                &drained,
+                |diagnostic| matches!(diagnostic, PlaybackDiagnostic::RetuneFailure { .. }),
+                |omitted| omitted.retune_failures
+            ),
+            ROUNDS
+        );
+        assert_eq!(
+            accounted(&drained, is_output_failure, |omitted| omitted
+                .output_failures),
+            ROUNDS + 2,
+            "one refusal for each run's first Tick and one per round"
+        );
+        engine.stop();
+    }
+
     #[tokio::test(start_paused = true)]
     async fn start_is_idempotent_and_draining_takes_the_diagnostics() {
         let source = SourceCommander::new(Grid::with_shape(10, 6));
@@ -3708,8 +3998,7 @@ mod tests {
             commands: Arc::new(undelivered),
             tick_gate: Arc::clone(&tick_gate),
             observation: channels.observation,
-            diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
-            reports: channels.reports,
+            diagnostics: channels.diagnostics,
         };
 
         commands
@@ -3767,7 +4056,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_orderly_shutdown_silences_the_output_without_reporting_a_failure() {
         let adapter = InMemoryOutputAdapter::default();
-        let (inner, mut channels) = PlaybackInner::new(
+        let (inner, channels) = PlaybackInner::new(
             SourceCommander::new(Grid::with_shape(1, 1)),
             adapter.clone(),
         );
@@ -3791,7 +4080,7 @@ mod tests {
 
         assert_eq!(adapter.safety_reset_count(), 1);
         assert!(
-            channels.diagnostics.try_recv().is_err(),
+            channels.diagnostics.drain().is_empty(),
             "an orderly shutdown reported a failure"
         );
         assert_eq!(channels.observation.borrow().state, PlaybackState::Stopped);
