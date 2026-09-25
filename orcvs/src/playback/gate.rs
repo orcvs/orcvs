@@ -1,12 +1,10 @@
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// No stop is standing and no Tick is executing.
-const OPEN: u8 = 0;
-/// A Tick has been admitted and has not finished yet.
-const EXECUTING: u8 = 1;
-/// Someone has asked the engine to stop, and no Tick may be admitted until the
-/// message behind that request has been applied.
-const STOPPING: u8 = 2;
+/// Set while an admitted Tick has not finished.
+const EXECUTING: usize = 1;
+/// One outstanding stop request. The count occupies every bit above
+/// [`EXECUTING`], so a word of zero is the one state that admits a Tick.
+const STOP: usize = 2;
 
 ///
 /// The one piece of state a synchronous `stop` and the Tick loop share.
@@ -17,12 +15,11 @@ const STOPPING: u8 = 2;
 /// deliberately. It carries one fact — someone has asked me to stop — and
 /// nothing reads it to decide which state the engine is in.
 ///
-/// What it adds over the flag it replaces is a moment. A flag can be read and
-/// then acted on, and those are two steps: the read says "no stop standing",
-/// the request arrives, and the Tick the read admitted executes anyway with
-/// nothing recording that it had begun. Admission here is one atomic step, so
-/// there is an instant before which a Tick is this run's business and after
-/// which it is refused, and `stop` lands on one side of it or the other.
+/// Admission is one atomic step, so there is an instant before which a Tick
+/// is this run's business and after which it is refused, and `stop` lands on
+/// one side of it or the other. A flag read and then acted on would be two
+/// steps, and a request landing between them would be overtaken by the Tick
+/// the read admitted.
 ///
 /// A Tick already admitted still runs to completion. `stop` does not wait for
 /// it — the browser main thread has nothing to wait with — so the guarantee is
@@ -32,19 +29,24 @@ const STOPPING: u8 = 2;
 /// Outstanding requests are counted, not collapsed into a single bit: two
 /// cloned handles may each raise a stop before either message is applied, and
 /// answering the first must not reopen admission for a Tick that overtakes the
-/// second.
+/// second. The count and whether a Tick is executing share one word, and the
+/// gate is open exactly when that word is zero. Keep them in one word: held
+/// apart, answering a request becomes a decrement and a separate reopen, and a
+/// request landing between the two is left standing behind an open gate.
+///
+/// The count does not overflow while anything reads it. A request the task
+/// can still answer has a queued `Stop` message behind it, and no target has
+/// the memory for `usize::MAX / STOP` of them.
 ///
 #[derive(Debug)]
 pub(super) struct TickGate {
-    state: AtomicU8,
-    outstanding_stops: AtomicUsize,
+    word: AtomicUsize,
 }
 
 impl TickGate {
     pub(super) fn new() -> Self {
         Self {
-            state: AtomicU8::new(OPEN),
-            outstanding_stops: AtomicUsize::new(0),
+            word: AtomicUsize::new(0),
         }
     }
 
@@ -57,8 +59,7 @@ impl TickGate {
     /// is refused whichever of the two got here first.
     ///
     pub(super) fn request_stop(&self) {
-        self.outstanding_stops.fetch_add(1, Ordering::AcqRel);
-        self.state.store(STOPPING, Ordering::Release);
+        self.word.fetch_add(STOP, Ordering::AcqRel);
     }
 
     ///
@@ -67,23 +68,19 @@ impl TickGate {
     /// The caller must pair a `true` with [`finish_tick`](Self::finish_tick).
     ///
     pub(super) fn begin_tick(&self) -> bool {
-        self.state
-            .compare_exchange(OPEN, EXECUTING, Ordering::AcqRel, Ordering::Acquire)
+        self.word
+            .compare_exchange(0, EXECUTING, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
     }
 
     ///
     /// Records that the admitted Tick has finished.
     ///
-    /// Reopening is conditional on the gate still being the one this Tick shut,
-    /// so a stop that arrived while the Tick was executing survives it. An
-    /// unconditional reopen here would discard exactly the request the caller
-    /// raised to prevent the *next* Tick.
+    /// Clears the executing bit and nothing else, so a stop that arrived while
+    /// the Tick was executing survives it and refuses the *next* Tick.
     ///
     pub(super) fn finish_tick(&self) {
-        let _ = self
-            .state
-            .compare_exchange(EXECUTING, OPEN, Ordering::AcqRel, Ordering::Acquire);
+        self.word.fetch_and(!EXECUTING, Ordering::AcqRel);
     }
 
     ///
@@ -92,44 +89,32 @@ impl TickGate {
     ///
     /// The task calls this as it applies the `Stop` message, which is the only
     /// thing that can answer a request. Conditional on a request actually
-    /// standing: a `Stop` applied against an open gate has nothing to clear,
-    /// and storing `OPEN` regardless would let a message answer a request
-    /// raised after it was sent.
+    /// standing: a `Stop` applied when none stands has nothing to clear, and
+    /// answering regardless would let a message answer a request raised after
+    /// it was sent.
+    ///
+    /// Taking one request off the count is the reopening when it was the last
+    /// one; there is no second step for another request to land before.
     ///
     pub(super) fn clear_stop(&self) {
-        loop {
-            let outstanding = self.outstanding_stops.load(Ordering::Acquire);
-            if outstanding == 0 {
-                return;
-            }
-            if self
-                .outstanding_stops
-                .compare_exchange(
-                    outstanding,
-                    outstanding - 1,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
-                .is_err()
-            {
-                continue;
-            }
-            if outstanding == 1 {
-                let _ = self.state.compare_exchange(
-                    STOPPING,
-                    OPEN,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                );
-            }
-            return;
-        }
+        let _ = self
+            .word
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, answered);
     }
+}
+
+///
+/// The word after one standing request is answered, or `None` when none
+/// stands.
+///
+fn answered(word: usize) -> Option<usize> {
+    word.checked_sub(STOP)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TickGate;
+    use super::{TickGate, answered};
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn an_untouched_gate_admits_a_tick() {
@@ -224,5 +209,77 @@ mod tests {
 
         gate.clear_stop();
         assert!(gate.begin_tick());
+    }
+
+    ///
+    /// The answer to the last standing request reads the word, and a second
+    /// handle's request lands before the answer commits. The answer was
+    /// computed from a word the request has since moved, so it cannot commit
+    /// an open gate over the new request: it retries against the word the
+    /// request left, and one request stays standing.
+    ///
+    /// The steps are the ones `clear_stop` takes, driven one at a time so the
+    /// request lands in the window between the answer's read and its write.
+    ///
+    #[test]
+    fn a_stop_requested_while_the_last_one_is_answered_keeps_the_gate_shut() {
+        let gate = TickGate::new();
+        gate.request_stop();
+
+        let seen = gate.word.load(Ordering::Acquire);
+        let reopened = answered(seen).expect("one request stands");
+        assert_eq!(reopened, 0, "answering the only request reopens the gate");
+
+        gate.request_stop();
+
+        assert!(
+            gate.word
+                .compare_exchange(seen, reopened, Ordering::AcqRel, Ordering::Acquire)
+                .is_err(),
+            "the answer committed a word the second request had moved"
+        );
+        gate.clear_stop();
+
+        assert!(
+            !gate.begin_tick(),
+            "the gate opened with the second handle's request still standing"
+        );
+
+        gate.clear_stop();
+        assert!(gate.begin_tick());
+    }
+
+    ///
+    /// Two stops requested while a Tick executes both outlast it, and the gate
+    /// reopens only once both are answered and the Tick has finished.
+    ///
+    #[test]
+    fn stops_raised_during_a_tick_outlast_it_until_each_is_answered() {
+        let gate = TickGate::new();
+
+        assert!(gate.begin_tick());
+        gate.request_stop();
+        gate.clear_stop();
+        gate.request_stop();
+
+        assert!(!gate.begin_tick(), "the Tick is still executing");
+        gate.finish_tick();
+        assert!(!gate.begin_tick(), "a request still stands");
+
+        gate.clear_stop();
+        assert!(gate.begin_tick());
+    }
+
+    #[test]
+    fn answering_with_no_request_standing_changes_nothing() {
+        let gate = TickGate::new();
+
+        gate.clear_stop();
+        gate.request_stop();
+
+        assert!(
+            !gate.begin_tick(),
+            "a stray answer was banked against a later request"
+        );
     }
 }
