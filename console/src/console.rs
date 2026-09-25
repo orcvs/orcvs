@@ -22,7 +22,9 @@ use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_pla
 use self::shapes::effect_outline;
 use self::source_view::{SourceView, show_source_scene, source_panel_frame};
 use crate::config::Config;
-use crate::cursor_effects::{CursorEffectAnimation, CursorEffectSettings, effect_bounds};
+use crate::cursor_effects::{
+    CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, effect_bounds,
+};
 use crate::grid_viewport::CELL_SIZE;
 use crate::midi::MidiDeviceSelection;
 use crate::native_midi::NativeMidiBackend;
@@ -402,12 +404,13 @@ impl eframe::App for Console {
         let observation = self.orcvs.playback_observation();
         let sampled_run_clock = observation.run_clock();
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
-        let cursor_effect_settings = self
+        let settings = self
             .cursor_effects
             .respecting_reduced_motion(self.reduced_motion);
-        let cursor_effect_sample = self
-            .cursor_effect_animation
-            .advance(effect_now, cursor_effect_settings);
+        let cursor_effect = CursorEffectMotion {
+            sample: self.cursor_effect_animation.advance(effect_now, settings),
+            settings,
+        };
         let theme = self.themes.presented(appearance).clone();
         #[cfg(any(target_arch = "wasm32", test))]
         {
@@ -452,15 +455,8 @@ impl eframe::App for Console {
                         closing: _,
                     ctx: _,
                 } = self;
-                let presented = show_source_scene(
-                    ui,
-                    &frame,
-                    font_family,
-                    source_view,
-                    cursor_effect_sample,
-                    cursor_effect_settings,
-                    &theme,
-                );
+                let presented =
+                    show_source_scene(ui, &frame, font_family, source_view, cursor_effect, &theme);
                 cell_size = presented.viewport.cell_size;
                 // The Source Grid answers which Cells the pointer asked for;
                 // moving the Cursor and the anchor there is the Source's own
@@ -478,7 +474,7 @@ impl eframe::App for Console {
                     .intersects(console_area)
                 {
                     self.cursor_effect_animation
-                        .repaint_after(effect_now, cursor_effect_settings)
+                        .repaint_after(effect_now, cursor_effect.settings)
                 } else {
                     None
                 }

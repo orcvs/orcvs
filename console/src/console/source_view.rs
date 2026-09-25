@@ -12,7 +12,7 @@ use orcvs::{
 use super::glyphs::GLYPH_SCALE_STEP;
 use super::input::{ZoomCommand, zoom_command};
 use super::shapes::show_source;
-use crate::cursor_effects::{CursorEffectSample, CursorEffectSettings};
+use crate::cursor_effects::CursorEffectMotion;
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::theme::Theme;
 
@@ -334,8 +334,7 @@ pub(super) fn show_source_scene(
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
     view: &mut SourceView,
-    cursor_effect_sample: CursorEffectSample,
-    cursor_effect_settings: CursorEffectSettings,
+    cursor_effect: CursorEffectMotion,
     theme: &Theme,
 ) -> PresentedSource {
     let source_grid = frame.grid();
@@ -461,16 +460,7 @@ pub(super) fn show_source_scene(
         source_grid,
         ui.ctx().pixels_per_point(),
     );
-    let clicked = show_source(
-        ui,
-        frame,
-        font_family,
-        grid,
-        console,
-        cursor_effect_sample,
-        cursor_effect_settings,
-        theme,
-    );
+    let clicked = show_source(ui, frame, font_family, grid, console, cursor_effect, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
     // press landed on, and a press off the Grid selects nothing. The drag is

@@ -165,6 +165,19 @@ impl CursorEffectAnimation {
     }
 }
 
+///
+/// The Cursor Effect's motion for one Render Frame: the `sample`
+/// [`CursorEffectAnimation::advance`] reached under `settings`, and those
+/// settings, which also decide how much of the sample is painted. The frame
+/// advances the animation and paints the sample under the same settings, so
+/// the two are one value from the animation to [`cursor_effect_shapes`].
+///
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CursorEffectMotion {
+    pub sample: CursorEffectSample,
+    pub settings: CursorEffectSettings,
+}
+
 #[derive(Debug, Default)]
 pub struct CursorEffectShapes {
     pub(crate) area: Vec<Shape>,
@@ -202,22 +215,19 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// scaled by `cell_size`/Grid zoom (`.scratch/theming/issues/06` slice C).
 /// Zero hides every frame stroke outright — see this module's private
 /// `frame_shapes` — without touching the living-area fill `area_colour` and
-/// `amount` still control. One over clippy's default: every parameter is an
-/// independent, already-tested value with nowhere smaller to group into, the
-/// same reasoning `console.rs::show_source`'s own
-/// `#[allow(clippy::too_many_arguments)]` states.
+/// `amount` still control. `motion` is this frame's sample and the settings
+/// it was advanced under.
 ///
-#[allow(clippy::too_many_arguments)]
 pub fn cursor_effect_shapes(
     cursor: Rect,
     outline: Rect,
     clip: Rect,
     cell_size: f32,
-    sample: CursorEffectSample,
-    settings: CursorEffectSettings,
+    motion: CursorEffectMotion,
     area_colour: Color32,
     frame: Stroke,
 ) -> CursorEffectShapes {
+    let CursorEffectMotion { sample, settings } = motion;
     let mut shapes = CursorEffectShapes::default();
     if !effect_bounds(cursor, cell_size)
         .union(outline.expand(cell_size))
@@ -649,8 +659,10 @@ mod tests {
             cursor,
             cursor.expand(200.0),
             CELL_SIZE,
-            frozen,
-            settings,
+            CursorEffectMotion {
+                sample: frozen,
+                settings,
+            },
             AREA_COLOUR,
             FRAME,
         );
@@ -676,8 +688,10 @@ mod tests {
             cursor,
             clip,
             CELL_SIZE,
-            sample(1, 2, 3),
-            settings,
+            CursorEffectMotion {
+                sample: sample(1, 2, 3),
+                settings,
+            },
             AREA_COLOUR,
             FRAME,
         );
@@ -686,8 +700,10 @@ mod tests {
             cursor,
             clip,
             CELL_SIZE,
-            sample(4, 2, 3),
-            settings,
+            CursorEffectMotion {
+                sample: sample(4, 2, 3),
+                settings,
+            },
             AREA_COLOUR,
             FRAME,
         );
@@ -755,8 +771,10 @@ mod tests {
                 outline,
                 clip,
                 CELL_SIZE,
-                sample(frame, 2, 3),
-                settings,
+                CursorEffectMotion {
+                    sample: sample(frame, 2, 3),
+                    settings,
+                },
                 AREA_COLOUR,
                 FRAME,
             );
@@ -765,8 +783,10 @@ mod tests {
                 cursor,
                 clip,
                 CELL_SIZE,
-                sample(frame, 2, 3),
-                settings,
+                CursorEffectMotion {
+                    sample: sample(frame, 2, 3),
+                    settings,
+                },
                 AREA_COLOUR,
                 FRAME,
             );
@@ -821,8 +841,10 @@ mod tests {
             cursor,
             cursor.expand(200.0),
             CELL_SIZE,
-            sample(9, 2, 3),
-            settings,
+            CursorEffectMotion {
+                sample: sample(9, 2, 3),
+                settings,
+            },
             AREA_COLOUR,
             FRAME,
         );
@@ -850,8 +872,10 @@ mod tests {
             cursor,
             clip,
             CELL_SIZE,
-            sample(1, 0x1234, 0x5678),
-            CursorEffectSettings::default(),
+            CursorEffectMotion {
+                sample: sample(1, 0x1234, 0x5678),
+                settings: CursorEffectSettings::default(),
+            },
             AREA_COLOUR,
             FRAME,
         );
@@ -880,8 +904,10 @@ mod tests {
                 cursor,
                 bounds.expand(100.0),
                 CELL_SIZE,
-                sample(1, field, field.rotate_left(7)),
-                CursorEffectSettings::default(),
+                CursorEffectMotion {
+                    sample: sample(1, field, field.rotate_left(7)),
+                    settings: CursorEffectSettings::default(),
+                },
                 AREA_COLOUR,
                 FRAME,
             );
@@ -901,8 +927,10 @@ mod tests {
             cursor,
             clip,
             CELL_SIZE,
-            sample(1, 2, 3),
-            CursorEffectSettings::default(),
+            CursorEffectMotion {
+                sample: sample(1, 2, 3),
+                settings: CursorEffectSettings::default(),
+            },
             AREA_COLOUR,
             FRAME,
         );
@@ -949,8 +977,10 @@ mod tests {
                     cursor,
                     clip,
                     cell_size,
-                    sample(3, 5, 7),
-                    settings,
+                    CursorEffectMotion {
+                        sample: sample(3, 5, 7),
+                        settings,
+                    },
                     AREA_COLOUR,
                     Stroke {
                         width: 0.0,
@@ -970,8 +1000,10 @@ mod tests {
                 cursor,
                 clip,
                 cell_size,
-                sample(3, 5, 7),
-                CursorEffectSettings::default(),
+                CursorEffectMotion {
+                    sample: sample(3, 5, 7),
+                    settings: CursorEffectSettings::default(),
+                },
                 AREA_COLOUR,
                 Stroke {
                     width: 0.0,
@@ -1008,8 +1040,10 @@ mod tests {
                 cursor,
                 clip,
                 cell_size,
-                sample(3, 5, 7),
-                settings,
+                CursorEffectMotion {
+                    sample: sample(3, 5, 7),
+                    settings,
+                },
                 AREA_COLOUR,
                 FRAME,
             );

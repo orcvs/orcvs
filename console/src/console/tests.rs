@@ -456,8 +456,7 @@ fn console_pass_at(
                     &frame,
                     &egui::FontFamily::Monospace,
                     view,
-                    crate::cursor_effects::CursorEffectSample::default(),
-                    crate::cursor_effects::CursorEffectSettings::default(),
+                    crate::cursor_effects::CursorEffectMotion::default(),
                     &crate::theme::okabe_ito(),
                 ));
             });
@@ -3836,8 +3835,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
         cursor_rect,
         screen,
         viewport.cell_size,
-        crate::cursor_effects::CursorEffectSample::default(),
-        crate::cursor_effects::CursorEffectSettings::default(),
+        crate::cursor_effects::CursorEffectMotion::default(),
         theme.cursor_area,
         egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
     );
@@ -5421,8 +5419,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
                         &frame,
                         &egui::FontFamily::Monospace,
                         &mut view,
-                        crate::cursor_effects::CursorEffectSample::default(),
-                        crate::cursor_effects::CursorEffectSettings::default(),
+                        crate::cursor_effects::CursorEffectMotion::default(),
                         &crate::theme::okabe_ito(),
                     );
                 });

@@ -9,7 +9,7 @@ use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 
 use super::glyphs::{GlyphTable, glyph_scale};
 use super::source_view::PointerSelection;
-use crate::cursor_effects::{CursorEffectSample, CursorEffectSettings, cursor_effect_shapes};
+use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
 use crate::grid_viewport::GridViewport;
 use crate::paint::{FramePaint, Paint};
 use crate::theme::Theme;
@@ -335,24 +335,13 @@ pub(super) fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Re
 /// [`PointerSelection`] back is what leaves this function with nothing but a
 /// Render Frame and a place to draw it.
 ///
-/// Eight parameters, one over clippy's default: `theme` is the eighth,
-/// added by `syntax-highlighting/01` as `source_paint` and repurposed by
-/// `.scratch/theming/issues/06`. Each of the eight is an independent,
-/// already-tested value threaded straight through from `show_source_scene`'s
-/// own parameters of the same names — geometry, a Render Frame, and the two
-/// presentation values `Console::ui` owns — so grouping any of them into a
-/// struct would add an indirection this function's one caller does not need,
-/// for a threshold rather than a real complexity this function has grown.
-///
-#[allow(clippy::too_many_arguments)]
 pub(super) fn show_source(
     ui: &mut egui::Ui,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
     viewport: GridViewport,
     clip: Rect,
-    cursor_effect_sample: CursorEffectSample,
-    cursor_effect_settings: CursorEffectSettings,
+    cursor_effect: CursorEffectMotion,
     theme: &Theme,
 ) -> Option<PointerSelection> {
     // The shape the Render Frame was derived from, named apart from the
@@ -445,8 +434,7 @@ pub(super) fn show_source(
         effect_outline(frame, &viewport),
         clip,
         viewport.cell_size,
-        cursor_effect_sample,
-        cursor_effect_settings,
+        cursor_effect,
         theme.cursor_area,
         frame_stroke,
     );
