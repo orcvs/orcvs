@@ -14,15 +14,13 @@ use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
 use super::input::{ZoomCommand, translate_event, zoom_command};
 use super::menu_bar::TOP_PANEL_HEIGHT;
+use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
     MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
     show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
 };
-use super::{
-    BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE,
-    DEFAULT_VIEW_SIZE, frames_per_second,
-};
+use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, frames_per_second};
 
 /// The Source View's margin at Zoom 1.0 and a device scale of one.
 const MARGIN: f32 = SOURCE_MARGIN_CELLS * CELL_SIZE;
@@ -1232,7 +1230,7 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         "Readout order is not C then O then None in {text:?}"
     );
     assert!(
-        !text.contains(super::OUTPUT_SCAN),
+        !text.contains(super::panel::OUTPUT_SCAN),
         "Scan belongs in the Output menu, not on the closed Panel in {text:?}"
     );
 
@@ -2276,17 +2274,17 @@ fn a_second_tick_digit_does_not_move_run_clock() {
                     .show(root, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("T");
-                            super::reserved_monospace(
+                            super::panel::reserved_monospace(
                                 ui,
                                 tick,
-                                super::monospace_width(ui, "00000"),
+                                super::panel::monospace_width(ui, "00000"),
                             );
                             ui.label("C");
                             clock_x.set(
-                                super::reserved_monospace(
+                                super::panel::reserved_monospace(
                                     ui,
                                     "00:00",
-                                    super::monospace_width(ui, "00:00"),
+                                    super::panel::monospace_width(ui, "00:00"),
                                 )
                                 .rect
                                 .left(),
@@ -2324,17 +2322,17 @@ fn an_off_beat_does_not_move_tick() {
                     .min_size(BOTTOM_PANEL_HEIGHT)
                     .show(root, |ui| {
                         ui.horizontal(|ui| {
-                            super::reserved_monospace(
+                            super::panel::reserved_monospace(
                                 ui,
                                 marker,
-                                super::monospace_width(ui, super::BEAT_MARKER),
+                                super::panel::monospace_width(ui, super::panel::BEAT_MARKER),
                             );
                             ui.label("T");
                             tick_x.set(
-                                super::reserved_monospace(
+                                super::panel::reserved_monospace(
                                     ui,
                                     "00000",
-                                    super::monospace_width(ui, "00000"),
+                                    super::panel::monospace_width(ui, "00000"),
                                 )
                                 .rect
                                 .left(),
@@ -2378,7 +2376,7 @@ fn panel_readouts_use_the_monospace_style_size_not_line_height() {
                     .get(&egui::TextStyle::Monospace)
                     .map(|font| font.size)
                     .unwrap_or(0.0);
-                sizes.set((style_size, super::panel_monospace_id(ui).size));
+                sizes.set((style_size, super::panel::panel_monospace_id(ui).size));
             });
         },
     );

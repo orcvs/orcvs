@@ -1,4 +1,4 @@
-use super::{format_beat_marker, format_run_clock, format_tick};
+use super::panel::{format_beat_marker, format_run_clock, format_tick};
 use std::time::Duration;
 
 #[test]
