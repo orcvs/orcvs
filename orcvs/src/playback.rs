@@ -1545,7 +1545,7 @@ mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
     #[cfg(not(target_arch = "wasm32"))]
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     ///
     /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
@@ -1904,10 +1904,6 @@ mod tests {
             changed.notify_all();
         }
 
-        fn deliveries(&self) -> usize {
-            self.state.0.lock().unwrap().deliveries
-        }
-
         fn safety_reset_count(&self) -> usize {
             self.state.0.lock().unwrap().safety_reset_count
         }
@@ -2024,6 +2020,62 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputOnlyAdapter for BlockingOutputAdapter {}
+
+    ///
+    /// Asks its own engine to stop from inside a delivery, on another thread,
+    /// and waits for that `stop` to return before the delivery does.
+    ///
+    /// The Tick that called `submit` cannot finish until `submit` returns, so
+    /// a `stop` that waited for the Tick in flight would never return here.
+    /// Nothing about it needs a second worker: `stop` is answered without the
+    /// runtime, so the engine's own thread may block on it.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct StoppingOutputAdapter {
+        stopping: Arc<Mutex<Option<PlaybackEngine>>>,
+        deliveries: Arc<AtomicUsize>,
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl StoppingOutputAdapter {
+        ///
+        /// The engine the next delivery stops. Taken on use, so the adapter
+        /// the engine's task owns does not keep that engine's queue open.
+        ///
+        fn stop_next_delivery_of(&self, engine: PlaybackEngine) {
+            *self.stopping.lock().unwrap() = Some(engine);
+        }
+
+        fn deliveries(&self) -> usize {
+            self.deliveries.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputAdapter for StoppingOutputAdapter {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+            self.deliveries.fetch_add(1, Ordering::SeqCst);
+            if let Some(engine) = self.stopping.lock().unwrap().take() {
+                let (stopped_tx, stopped_rx) = std_mpsc::channel();
+                std::thread::spawn(move || {
+                    engine.stop();
+                    let _ = stopped_tx.send(());
+                });
+                stopped_rx
+                    .recv_timeout(HARNESS_TIMEOUT)
+                    .expect("stop does not wait for the Tick in flight");
+            }
+            Ok(())
+        }
+
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            Ok(())
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for StoppingOutputAdapter {}
 
     fn write(source: &SourceCommander, start: usize, content: &str) {
         let grid = source.grid();
@@ -3774,42 +3826,33 @@ mod tests {
     /// after it.
     ///
     /// The handle's half of ADR 0002's guarantee, stated through the public
-    /// surface: the engine is held inside a submission, `stop` is called from
-    /// the test's thread while it is there, and the deadlines that pass while
-    /// the submission is held deliver nothing once it is released.
+    /// surface: `stop` is called while the engine is inside a submission and
+    /// returns before that submission does, and the deadlines that pass once
+    /// it is released deliver nothing. Paused time passes those deadlines
+    /// one period at a time, so each is one the running engine would have
+    /// Ticked at.
     ///
     #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn stop_returns_without_waiting_for_a_tick_and_no_tick_follows_it() {
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 20, "!>007FC4");
         write(&source, 0, ".=0101");
-        let control = BlockingOutputControl::default();
-        let engine = engine(
-            source,
-            BlockingOutputAdapter {
-                control: control.clone(),
-            },
-        );
-        engine.start(Duration::from_millis(1)).unwrap();
-        control.wait_for_delivery();
+        let adapter = StoppingOutputAdapter::default();
+        let engine = engine(source, adapter.clone());
+        adapter.stop_next_delivery_of(engine.engine.clone());
+        let period = Duration::from_millis(1);
 
-        let stopping = engine.clone();
-        let (stopped_tx, stopped_rx) = std_mpsc::channel();
-        let stop_thread = std::thread::spawn(move || {
-            stopping.stop();
-            stopped_tx.send(()).unwrap();
-        });
-        stopped_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("stop does not wait for the Tick in flight");
-        control.release_delivery();
-        stop_thread.join().unwrap();
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(adapter.deliveries(), 1, "the first Tick is immediate");
 
-        // Hundreds of periods, and nothing is delivered in any of them.
-        time::sleep(Duration::from_millis(200)).await;
+        for _ in 0..200 {
+            time::advance(period).await;
+            settle(&engine).await;
+        }
 
-        assert_eq!(control.deliveries(), 1);
+        assert_eq!(adapter.deliveries(), 1);
         assert_eq!(engine.state(), PlaybackState::Stopped);
     }
 
