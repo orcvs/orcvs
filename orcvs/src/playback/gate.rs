@@ -10,10 +10,11 @@ const STOP: usize = 2;
 /// The one piece of state a synchronous `stop` and the Tick loop share.
 ///
 /// ADR 0002 requires that further Ticks are prevented before `stop` returns,
-/// and a message cannot do that: `send` returns once the message is queued and
-/// the task may be about to execute a Tick. ADR 0041 admits this state
-/// deliberately. It carries one fact — someone has asked me to stop — and
-/// nothing reads it to decide which state the engine is in.
+/// and a request left in the engine's mailbox cannot do that: `stop` returns
+/// once the request is left, and the task may be about to execute a Tick. ADR
+/// 0041 admits this state deliberately. It carries one fact — someone has
+/// asked me to stop — and nothing reads it to decide which state the engine
+/// is in.
 ///
 /// Admission is one atomic step, so there is an instant before which a Tick
 /// is this run's business and after which it is refused, and `stop` lands on
@@ -26,17 +27,19 @@ const STOP: usize = 2;
 /// that no *further* Tick is admitted, not that the engine is silent by the
 /// time `stop` returns.
 ///
-/// Outstanding requests are counted, not collapsed into a single bit: two
-/// cloned handles may each raise a stop before either message is applied, and
-/// answering the first must not reopen admission for a Tick that overtakes the
-/// second. The count and whether a Tick is executing share one word, and the
-/// gate is open exactly when that word is zero. Keep them in one word: held
-/// apart, answering a request becomes a decrement and a separate reopen, and a
-/// request landing between the two is left standing behind an open gate.
+/// Outstanding requests are counted, not collapsed into a single bit: a stop
+/// may be raised after the task has taken the previous one's flag and before
+/// it has answered it, and answering the first must not reopen admission for
+/// a Tick that overtakes the second. The count and whether a Tick is
+/// executing share one word, and the gate is open exactly when that word is
+/// zero. Keep them in one word: held apart, answering a request becomes a
+/// decrement and a separate reopen, and a request landing between the two is
+/// left standing behind an open gate.
 ///
-/// The count does not overflow while anything reads it. A request the task
-/// can still answer has a queued `Stop` message behind it, and no target has
-/// the memory for `usize::MAX / STOP` of them.
+/// The count stays at two or below. A request is raised only when no `Stop`
+/// is already pending in the engine's mailbox, so one request stands for the
+/// pending flag and at most one more for a flag the task has taken and not yet
+/// answered.
 ///
 #[derive(Debug)]
 pub(super) struct TickGate {
@@ -87,11 +90,11 @@ impl TickGate {
     /// Answers one standing stop request, reopening the gate only when none
     /// remain.
     ///
-    /// The task calls this as it applies the `Stop` message, which is the only
-    /// thing that can answer a request. Conditional on a request actually
-    /// standing: a `Stop` applied when none stands has nothing to clear, and
-    /// answering regardless would let a message answer a request raised after
-    /// it was sent.
+    /// The task calls this as it applies a stop flag taken from the mailbox,
+    /// which is the only thing that can answer a request. Conditional on a
+    /// request actually standing: a flag applied when none stands has nothing
+    /// to clear, and answering regardless would let that flag answer a request
+    /// raised after it was taken.
     ///
     /// Taking one request off the count is the reopening when it was the last
     /// one; there is no second step for another request to land before.
@@ -181,17 +184,17 @@ mod tests {
         assert!(gate.begin_tick());
         gate.request_stop();
         gate.finish_tick();
-        // Only the `Stop` message answers it.
+        // Only applying the stop flag answers it.
         gate.clear_stop();
 
         assert!(gate.begin_tick());
     }
 
     ///
-    /// Two handles can each raise a stop before either message is applied.
-    /// Answering the first must not reopen admission for a Tick that overtakes
-    /// the second — that Tick would run after the second `stop` had already
-    /// returned, which ADR 0002 / 0040 forbid.
+    /// A second stop can be raised after the task has taken the first one's
+    /// flag and before it has answered it. Answering the first must not reopen
+    /// admission for a Tick that overtakes the second — that Tick would run
+    /// after the second `stop` had already returned, which ADR 0002 forbids.
     ///
     #[test]
     fn two_outstanding_stops_keep_the_gate_shut_until_both_are_answered() {

@@ -1,9 +1,9 @@
 use std::convert::Infallible;
 use std::fmt;
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::{self, Instant as ClockInstant};
 #[cfg(target_arch = "wasm32")]
@@ -11,6 +11,7 @@ use web_time::Instant as ClockInstant;
 
 mod diagnostics;
 mod gate;
+mod mailbox;
 mod schedule;
 
 use crate::midi::MidiSelectionHandle;
@@ -24,6 +25,10 @@ pub use diagnostics::{
     MAX_DIAGNOSTIC_MESSAGE_BYTES, MAX_RETAINED_DIAGNOSTICS, OmissionCount, OmittedDiagnostics,
 };
 use gate::TickGate;
+#[cfg(test)]
+pub(crate) use mailbox::open as open_requests;
+use mailbox::{Backlog, RequestReceiver, Unavailable};
+pub(crate) use mailbox::{Destination, RequestSender};
 use schedule::OwnedNotes;
 
 ///
@@ -498,42 +503,54 @@ struct PlaybackInner<A: OutputAdapter> {
 }
 
 ///
-/// One message the engine's task applies to the state it owns.
+/// Erases the destination-request type from lifecycle handles.
 ///
-/// A handle validates and then sends; the task is the only thing that touches
-/// the state, so every transition arrives here in the order it was asked for.
+/// Every engine offers the same lifecycle requests whatever its output is;
+/// only MIDI selection names the type, and it holds its own weak reference to
+/// the same sender.
 ///
-pub(crate) enum PlaybackCommand<C = Infallible> {
-    Start {
-        tick_period: Duration,
-    },
-    Retune {
-        tick_period: Duration,
-    },
-    Stop,
-    Disconnect,
-    /// Output-specific requests share the lifecycle queue and its ordering.
-    Output(C),
-}
-
-/// Erases only the queue's output-request type from lifecycle handles.
-/// Both implementations enqueue the same lifecycle operations; MIDI selection
-/// retains its typed weak sender to that exact queue.
 trait LifecycleRequests: Send + Sync {
-    fn send(&self, command: PlaybackCommand) -> Result<(), PlaybackStartError>;
+    fn start(&self, tick_period: Duration) -> Result<(), Unavailable>;
+    fn retune(&self, tick_period: Duration) -> Result<(), Unavailable>;
+    fn stop(&self, gate: &TickGate);
+    fn disconnect(&self);
 }
 
-impl<C: Send> LifecycleRequests for mpsc::UnboundedSender<PlaybackCommand<C>> {
-    fn send(&self, command: PlaybackCommand) -> Result<(), PlaybackStartError> {
-        let command = match command {
-            PlaybackCommand::Start { tick_period } => PlaybackCommand::Start { tick_period },
-            PlaybackCommand::Retune { tick_period } => PlaybackCommand::Retune { tick_period },
-            PlaybackCommand::Stop => PlaybackCommand::Stop,
-            PlaybackCommand::Disconnect => PlaybackCommand::Disconnect,
-            PlaybackCommand::Output(never) => match never {},
-        };
-        mpsc::UnboundedSender::send(self, command)
-            .map_err(|_| PlaybackStartError::EngineUnavailable)
+impl<D: Send> LifecycleRequests for RequestSender<D> {
+    fn start(&self, tick_period: Duration) -> Result<(), Unavailable> {
+        RequestSender::start(self, tick_period)
+    }
+
+    fn retune(&self, tick_period: Duration) -> Result<(), Unavailable> {
+        RequestSender::retune(self, tick_period)
+    }
+
+    fn stop(&self, gate: &TickGate) {
+        RequestSender::stop(self, gate);
+    }
+
+    fn disconnect(&self) {
+        // An engine whose task has ended is disconnected from everything it
+        // was delivering to, so there is nothing to report and nothing left
+        // to ask.
+        let _ = self.change_destination(Destination::Disconnect);
+    }
+}
+
+///
+/// A request refused because the task that owns the state is gone.
+///
+/// That happens either because the last handle was dropped — not the one being
+/// called on — or because the task ended without being asked to. A panic
+/// unwinding out of an adapter is the way that happens, and `ClockSpawner`
+/// keeps no `JoinHandle` to notice it by, so this refusal is the only evidence
+/// a handle ever gets. ADR 0041 puts the state in the task, so a task that
+/// ended took the state with it and there is nothing left to respawn a clock
+/// over: what is owed the caller is the truth, not a recovery.
+///
+impl From<Unavailable> for PlaybackStartError {
+    fn from(Unavailable: Unavailable) -> Self {
+        Self::EngineUnavailable
     }
 }
 
@@ -543,30 +560,36 @@ impl<C: Send> LifecycleRequests for mpsc::UnboundedSender<PlaybackCommand<C>> {
 /// ADR 0041 puts the state in a task and leaves this holding the ends of the
 /// channels that reach it: a sender for the transitions, readers for what the
 /// engine publishes, and the one bit of shared state a synchronous `stop`
-/// needs. There is no lock here, no task handle, and nothing to be stale
-/// relative to.
+/// needs. There is no task handle and nothing to be stale relative to.
+///
+/// No request made through it waits on the task or on a Tick. Each is a
+/// constant-time write to a slot of the engine's mailbox under a lock the task
+/// holds only for the same kind of write, so a browser frame can make one. A
+/// `disconnect` that replaces a pending MIDI connection drops that connection
+/// on the caller's thread, which may wait on the device to close its port. No
+/// request is refused for lack of room: `start` and `retune` answer an error
+/// only once the task is gone, and `stop` and `disconnect` answer nothing.
 ///
 pub struct PlaybackEngine {
     ///
-    /// The writing end of the transition queue.
+    /// The handle side of the engine's mailbox.
     ///
-    /// Every handle holds a clone, so the queue closes exactly when the last
-    /// one is dropped. That close is what shuts the engine down: the task sees
-    /// it, sends the safety action, and exits. The count that used to say the
-    /// same thing arithmetically is gone with it.
+    /// Every handle holds the same one, so it is dropped exactly when the last
+    /// handle is. That drop is what shuts the engine down: the task applies
+    /// what was left pending, sends the safety action, and exits.
     ///
-    commands: Arc<dyn LifecycleRequests>,
+    requests: Arc<dyn LifecycleRequests>,
     ///
     /// Whether someone has asked this engine to stop.
     ///
     /// ADR 0002 requires that further Ticks are prevented before `stop`
-    /// returns, and sending a message does not do that: `send` returns once the
-    /// message is queued and the task may be mid-Tick. This is set by the
-    /// handle before the message goes and read by the task immediately before
-    /// it executes each Tick, so a Tick whose read begins after `stop` returned
-    /// finds the request and declines.
+    /// returns, and leaving a request does not do that: it returns once the
+    /// request is in the mailbox and the task may be mid-Tick. This is set by
+    /// the handle before the request is left and read by the task immediately
+    /// before it executes each Tick, so a Tick whose read begins after `stop`
+    /// returned finds the request and declines.
     ///
-    /// ADR 0041 admits this one piece of shared state deliberately. It carries
+    /// ADR 0041 admits this piece of shared state deliberately. It carries
     /// one fact in one direction — someone has asked me to stop — and nothing
     /// reads it to decide which state the engine is in. "A stop has been
     /// requested" and "this engine is playing" are different facts: the second
@@ -593,7 +616,7 @@ pub struct PlaybackEngine {
 impl Clone for PlaybackEngine {
     fn clone(&self) -> Self {
         Self {
-            commands: self.commands.clone(),
+            requests: self.requests.clone(),
             tick_gate: Arc::clone(&self.tick_gate),
             observation: self.observation.clone(),
             diagnostics: self.diagnostics.clone(),
@@ -970,55 +993,41 @@ impl PlaybackEngine {
     }
 
     ///
-    /// Queues `command` for the task that owns the state, or answers that
-    /// there is no longer a task to queue it for.
-    ///
-    /// A send fails once the receiving end is gone, which happens either
-    /// because the last handle was dropped — not this one, which is being
-    /// called on — or because the task ended without being asked to. A panic
-    /// unwinding out of an adapter is the way that happens, and `ClockSpawner`
-    /// keeps no `JoinHandle` to notice it by, so this failure is the only
-    /// evidence a handle ever gets. ADR 0041 puts the state in the task, so a
-    /// task that ended took the state with it and there is nothing left to
-    /// respawn a clock over: what is owed the caller is the truth, not a
-    /// recovery.
-    ///
-    fn send(&self, command: PlaybackCommand) -> Result<(), PlaybackStartError> {
-        self.commands.send(command)
-    }
-
-    ///
     /// Ends the Playback run, if there is one, and silences the output.
     ///
     /// ADR 0002 requires that further Ticks are prevented before this returns,
-    /// which the request outruns the message to do: the gate is shut here, and
-    /// the task must be admitted through it to execute a Tick. Admission is one
+    /// which the gate does ahead of the task: it is shut here, and the task
+    /// must be admitted through it to execute a Tick. Admission is one
     /// atomic step, so every Tick is on one side of this call or the other —
     /// either it was admitted before the gate shut, and runs to completion, or
     /// it is refused. There is no third case of a Tick that read the gate as
     /// open and executes afterwards, which is the whole of what the guarantee
-    /// asks for. The message behind the request carries the transition — the
-    /// published state, the safety action and the cleared schedule — which is
-    /// the task's alone to make.
+    /// asks for. The stop flag left in the engine's mailbox carries the
+    /// transition — the published state, the safety action and the cleared
+    /// schedule — which is the task's alone to make.
     ///
     /// A Tick already admitted is not waited for. The browser main thread has
     /// no blocking receive to wait with, so this returns while that Tick is
-    /// still delivering, and the safety action the message carries silences
+    /// still delivering, and the safety action the flag carries silences
     /// whatever it started.
     ///
+    /// The flag is always free to set, so no other request can crowd it out,
+    /// and every `stop` made before the task takes it is answered by it. The gate
+    /// is shut before the flag is set, under the same lock. A stop asked of an
+    /// engine whose task has ended has nothing to tell a caller: that engine
+    /// has already made the transition, and the state it would have silenced
+    /// went with the task.
+    ///
     pub fn stop(&self) {
-        self.tick_gate.request_stop();
-        // Nothing to tell a caller: a stop asked of an engine whose task has
-        // ended is a transition that engine has already made, and the state it
-        // would have silenced went with the task.
-        let _ = self.send(PlaybackCommand::Stop);
+        self.requests.stop(&self.tick_gate);
     }
 
+    ///
+    /// Gives up the engine's output, replacing any destination change still
+    /// pending.
+    ///
     pub fn disconnect(&self) {
-        // An engine whose task has ended is disconnected from everything it
-        // was delivering to, so there is nothing to report and nothing left to
-        // ask.
-        let _ = self.send(PlaybackCommand::Disconnect);
+        self.requests.disconnect();
     }
 }
 
@@ -1027,7 +1036,7 @@ impl PlaybackInner<crate::midi::MidiOutputAdapter> {
     /// Installs an already-open connection the console opened on its own
     /// thread.
     ///
-    /// The explicit selection request arrives here in the same queue as
+    /// The explicit selection request arrives here in the same backlog as
     /// lifecycle requests, so connection and note ownership change together.
     /// A safety-action refusal on the outgoing connection is reported on the
     /// one ordered stream every other output failure travels on.
@@ -1065,7 +1074,7 @@ impl PlaybackEngine {
     ///
     /// Fallible and eager, because an engine without its task is not one: the
     /// state has no owner, `stop` has nothing to silence the output, and every
-    /// message queued against it is queued against nothing. A runtime is what
+    /// request left for it is left for nothing. A runtime is what
     /// the task needs and this is where it is needed, so
     /// [`PlaybackStartError::RuntimeUnavailable`] is answered here rather than
     /// at the first `start`.
@@ -1101,34 +1110,43 @@ impl PlaybackEngine {
         adapter: crate::midi::MidiOutputAdapter,
     ) -> Result<(Self, MidiSelectionHandle), PlaybackStartError> {
         let destinations = adapter.published_destinations();
-        let (engine, commands) = Self::spawn(source, adapter, |inner, request| match request {
+        let (engine, requests) = Self::spawn(source, adapter, |inner, request| match request {
             crate::midi::MidiRequest::Install {
                 destination_id,
                 connection,
             } => inner.install_connection(destination_id, connection),
         })?;
-        Ok((engine, MidiSelectionHandle::new(commands, destinations)))
+        Ok((engine, MidiSelectionHandle::new(requests, destinations)))
     }
 
-    fn spawn<A: OutputAdapter + Send + 'static, C: Send + 'static>(
+    ///
+    /// The engine's task, and the handle over it.
+    ///
+    /// `D` is what a destination change carries to an adapter that can be
+    /// given one, applied by `handle_output`. The second value is a weak
+    /// reference to the handle side of the mailbox, for whoever makes those
+    /// requests without being able to keep the engine alive.
+    ///
+    fn spawn<A: OutputAdapter + Send + 'static, D: Send + 'static>(
         source: SourceCommander,
         adapter: A,
-        handle_output: fn(&mut PlaybackInner<A>, C),
-    ) -> Result<(Self, mpsc::WeakUnboundedSender<PlaybackCommand<C>>), PlaybackStartError> {
+        handle_output: fn(&mut PlaybackInner<A>, D),
+    ) -> Result<(Self, Weak<RequestSender<D>>), PlaybackStartError> {
         let spawner = ClockSpawner::acquire()?;
         let (inner, channels) = PlaybackInner::new(source, adapter);
-        let (commands, queued) = mpsc::unbounded_channel();
-        let output_requests = commands.downgrade();
+        let (requests, received) = mailbox::open();
+        let requests = Arc::new(requests);
+        let output_requests = Arc::downgrade(&requests);
         let tick_gate = Arc::new(TickGate::new());
         spawner.spawn(run_engine(
             inner,
-            queued,
+            received,
             Arc::clone(&tick_gate),
             handle_output,
         ));
         Ok((
             Self {
-                commands: Arc::new(commands),
+                requests,
                 tick_gate,
                 observation: channels.observation,
                 diagnostics: channels.diagnostics,
@@ -1174,6 +1192,10 @@ impl PlaybackEngine {
     /// anchors the new grid on the deadline the last executed Tick was due at,
     /// which is ADR 0037's rule and is read from the state that task owns.
     ///
+    /// Retunes the task has not yet applied collapse into the newest, so a
+    /// caller changing tempo faster than the task runs is never refused for
+    /// it: the engine only ever holds one pending period.
+    ///
     pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
             return Err(PlaybackStartError::ZeroTickPeriod);
@@ -1181,7 +1203,7 @@ impl PlaybackEngine {
         if !is_schedulable(tick_period) {
             return Err(PlaybackStartError::UnschedulableTickPeriod);
         }
-        self.send(PlaybackCommand::Retune { tick_period })
+        Ok(self.requests.retune(tick_period)?)
     }
 
     ///
@@ -1189,10 +1211,10 @@ impl PlaybackEngine {
     /// already in one.
     ///
     /// Idempotence belongs to the task, which is the only thing that knows
-    /// whether a run is live at the moment the message is applied: two starts
-    /// queued before either is applied are one run, and a check made here
-    /// against a published value either message could outrun is not what makes
-    /// that true.
+    /// whether a run is live at the moment the request is applied: two starts
+    /// made before either is applied are one run, at the newer period, and a
+    /// check made here against a published value either request could outrun
+    /// is not what makes that true.
     ///
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
@@ -1201,8 +1223,9 @@ impl PlaybackEngine {
         if !is_schedulable(tick_period) {
             return Err(self.report_start_error(PlaybackStartError::UnschedulableTickPeriod));
         }
-        self.send(PlaybackCommand::Start { tick_period })
-            .map_err(|error| self.report_start_error(error))
+        self.requests
+            .start(tick_period)
+            .map_err(|error| self.report_start_error(error.into()))
     }
 }
 
@@ -1340,95 +1363,108 @@ impl TickClock {
 ///
 /// What the engine's task wakes for.
 ///
-enum PlaybackEvent<C> {
-    Command(PlaybackCommand<C>),
+enum PlaybackEvent<D> {
+    /// Everything asked since the task last looked, taken at once.
+    Requests(Backlog<D>),
     Deadline,
     /// The next deadline is not an instant this clock can express, so there is
     /// nothing to wait until and the run cannot go on.
     Unschedulable,
-    /// Every handle has been dropped, so nothing can ask this engine for
-    /// anything ever again.
+    /// Every handle has been dropped and nothing they asked is left, so
+    /// nothing can ask this engine for anything ever again.
     Closed,
 }
 
 ///
-/// How many messages a live run answers before its deadline is looked at
+/// How many backlogs a live run applies before its deadline is looked at
 /// first.
 ///
-/// The bias exists for a tie, and a queue that is never empty is not a tie: it
-/// is a caller holding the deadline arm off for as long as it keeps sending.
-/// Nothing in the API makes that hard to do by accident — an idempotent
-/// `start` the task discards costs a caller almost nothing to send — and the
-/// run does not fail when it happens, it just stops delivering while still
-/// publishing `Playing`. Sixty-four is well above any burst the console
-/// produces in a frame and far below the number it takes to lose a Tick.
+/// Each backlog the task takes holds every request pending at that moment.
 ///
-const MESSAGES_BEFORE_A_DEADLINE: usize = 64;
+/// The bias exists for a tie, and a mailbox that is never empty is not a tie:
+/// it is a caller holding the deadline arm off for as long as it keeps asking.
+/// Nothing in the API makes that hard to do by accident — an idempotent
+/// `start` the task discards costs a caller almost nothing — and the run does
+/// not fail when it happens, it just stops delivering while still publishing
+/// `Playing`.
+///
+/// What it guarantees is progress: a sleeping deadline that has been reached
+/// is taken within this many backlogs. It says nothing about wall-clock rate,
+/// because how long those backlogs take to arrive is the callers' pace and
+/// not the engine's. Sixty-four is well above any burst the console produces
+/// in a frame and far below the number it takes to lose a Tick.
+///
+const BACKLOGS_BEFORE_A_DEADLINE: usize = 64;
 
 ///
-/// Waits for whichever comes first: a message, or the deadline of the run in
-/// progress.
+/// Waits for whichever comes first: a backlog of requests, or the deadline of
+/// the run in progress.
 ///
-/// A message wins a tie, which is the arm that matters for `stop`: a request
+/// A backlog wins a tie, which is the arm that matters for `stop`: a request
 /// arriving in the same moment as a deadline must not leave the Tick to be
 /// executed by a task that already has the stop in hand.
 ///
-/// Past `MESSAGES_BEFORE_A_DEADLINE` the bias inverts for a *sleeping*
-/// deadline and the deadline is taken first, because a queue that never
-/// empties is not a tie. Inverting it costs `stop` nothing: the request is
-/// raised before its message is sent, so a Tick that overtakes a queued `Stop`
+/// Past `BACKLOGS_BEFORE_A_DEADLINE` the bias inverts for a *sleeping*
+/// deadline and the deadline is taken first, because a mailbox that never
+/// empties is not a tie. Inverting it costs `stop` nothing: the gate is shut
+/// before the request is left, so a Tick that overtakes a pending `Stop`
 /// still meets a shut gate and is refused admission.
 ///
-/// The first Tick of a run is due on arrival and answered without awaiting.
-/// That path never inverts: a message already queued when the run began —
-/// `Disconnect`, a destination change — must still be applied before that
-/// Tick, and the fairness budget may already have been spent while the engine
-/// was stopped.
+/// The first Tick of a run is due on arrival and answered without taking
+/// another backlog. The backlog that began the run is the boundary: it was
+/// taken and applied whole, so every request pending when the run began —
+/// `Disconnect`, a destination change — has already been applied, and
+/// anything asked since waits for the Tick after this one. A caller that
+/// keeps asking cannot defer that Tick, because nothing it asks is looked at
+/// before it. Only an engine with no handle left skips it, to apply what they
+/// left and shut down.
 ///
-async fn next_playback_event<C>(
-    commands: &mut mpsc::UnboundedReceiver<PlaybackCommand<C>>,
+async fn next_playback_event<D>(
+    requests: &RequestReceiver<D>,
     clock: Option<&TickClock>,
-    messages_since_tick: usize,
-) -> PlaybackEvent<C> {
+    backlogs_since_tick: usize,
+) -> PlaybackEvent<D> {
     let Some(clock) = clock else {
-        return match commands.recv().await {
-            Some(command) => PlaybackEvent::Command(command),
+        return match requests.recv().await {
+            Some(backlog) => PlaybackEvent::Requests(backlog),
             None => PlaybackEvent::Closed,
         };
     };
     if clock.due_on_arrival {
         // Answered without awaiting, so that the first Tick of a run is
         // executed in the turn the run began in rather than one browser timer
-        // later. A message already queued is always taken first: the fairness
-        // invert belongs to the sleeping select below, not to this shortcut.
-        return match commands.try_recv() {
-            Ok(command) => PlaybackEvent::Command(command),
-            Err(mpsc::error::TryRecvError::Empty) => PlaybackEvent::Deadline,
-            Err(mpsc::error::TryRecvError::Disconnected) => PlaybackEvent::Closed,
-        };
+        // later. An engine whose handles are all gone executes no Tick: it
+        // applies what they left and shuts down, and with no sender left
+        // `recv` answers at once.
+        if requests.is_closed() {
+            return match requests.recv().await {
+                Some(backlog) => PlaybackEvent::Requests(backlog),
+                None => PlaybackEvent::Closed,
+            };
+        }
+        return PlaybackEvent::Deadline;
     }
     let Some(deadline) = clock.deadline() else {
         return PlaybackEvent::Unschedulable;
     };
-    if messages_since_tick >= MESSAGES_BEFORE_A_DEADLINE {
+    if backlogs_since_tick >= BACKLOGS_BEFORE_A_DEADLINE {
         // The bias is given up for one turn, so a deadline already reached is
-        // taken ahead of a queue that has had its share. A `stop` waiting
-        // behind this Tick is not lost by it: the request is raised before its
-        // message is sent, and the gate this Tick has to be admitted through
-        // is already shut.
+        // taken ahead of a mailbox that has had its share. A `stop` waiting
+        // behind this Tick is not lost by it: the gate this Tick has to be
+        // admitted through was shut before the request was left.
         tokio::select! {
             biased;
             () = sleep_until(deadline) => PlaybackEvent::Deadline,
-            command = commands.recv() => match command {
-                Some(command) => PlaybackEvent::Command(command),
+            backlog = requests.recv() => match backlog {
+                Some(backlog) => PlaybackEvent::Requests(backlog),
                 None => PlaybackEvent::Closed,
             },
         }
     } else {
         tokio::select! {
             biased;
-            command = commands.recv() => match command {
-                Some(command) => PlaybackEvent::Command(command),
+            backlog = requests.recv() => match backlog {
+                Some(backlog) => PlaybackEvent::Requests(backlog),
                 None => PlaybackEvent::Closed,
             },
             () = sleep_until(deadline) => PlaybackEvent::Deadline,
@@ -1440,69 +1476,67 @@ async fn next_playback_event<C>(
 /// The Playback Engine: one task, owning the state and the clock that drives
 /// it.
 ///
-/// A Tick is one arm of this loop and the messages are the other, so there is
+/// A Tick is one arm of this loop and the requests are the other, so there is
 /// no second party to be stale relative to, nothing asleep that has to be
 /// woken, and no other task whose death has to be noticed. A retune recomputes
 /// the deadline the loop waits on, and that is the whole of it.
 ///
-async fn run_engine<A: OutputAdapter, C>(
+async fn run_engine<A: OutputAdapter, D>(
     mut inner: PlaybackInner<A>,
-    mut commands: mpsc::UnboundedReceiver<PlaybackCommand<C>>,
+    requests: RequestReceiver<D>,
     tick_gate: Arc<TickGate>,
-    handle_output: fn(&mut PlaybackInner<A>, C),
+    handle_output: fn(&mut PlaybackInner<A>, D),
 ) {
     let mut clock: Option<TickClock> = None;
-    let mut messages_since_tick = 0usize;
+    let mut backlogs_since_tick = 0usize;
     loop {
-        let event = next_playback_event(&mut commands, clock.as_ref(), messages_since_tick).await;
-        if matches!(event, PlaybackEvent::Deadline) {
-            messages_since_tick = 0;
-        } else {
-            messages_since_tick = messages_since_tick.saturating_add(1);
-        }
+        let event = next_playback_event(&requests, clock.as_ref(), backlogs_since_tick).await;
         match event {
             PlaybackEvent::Closed => break,
-            PlaybackEvent::Command(PlaybackCommand::Start { tick_period }) => {
-                // A start that finds a run already live is that run, not a
-                // second one. This is where idempotence is decided, because
-                // this is the only place that knows whether a run is live at
-                // the moment the start is applied.
-                if !inner.is_playing() {
+            PlaybackEvent::Requests(backlog) => {
+                backlogs_since_tick = backlogs_since_tick.saturating_add(1);
+                // The order `Backlog` states: stop, then tempo, then
+                // destination.
+                if backlog.stop {
+                    // The request is answered here and nowhere else: it was
+                    // raised to hold the line until this backlog was taken,
+                    // and a run begun after it must not find it standing.
+                    tick_gate.clear_stop();
+                    inner.stop_contained();
+                    clock = None;
+                    backlogs_since_tick = 0;
+                }
+                if inner.is_playing() {
+                    // Retuning changes the Tick period of the run in progress
+                    // and does not begin one, so the absolute Tick and the
+                    // last executed deadline both stay: ADR 0037 runs the new
+                    // grid from that deadline rather than from the moment the
+                    // retune arrived. A start that finds a run already live is
+                    // that run, not a second one.
+                    if let Some(tick_period) = backlog.retune {
+                        let first_tick_at = first_retuned_tick_at(
+                            inner.last_tick_at,
+                            ClockInstant::now(),
+                            tick_period,
+                        );
+                        clock = Some(TickClock::retuned(first_tick_at, tick_period));
+                    }
+                } else if let Some(tick_period) = backlog.start {
+                    // Idempotence is decided here, because this is the only
+                    // place that knows whether a run is live at the moment
+                    // the start is applied.
                     inner.begin_run();
                     clock = Some(TickClock::beginning(tick_period));
-                    // A new run's first Tick must not inherit fairness spent
-                    // while the engine was stopped: that budget is for a
-                    // sleeping deadline under a live clock, not for jumping
-                    // messages already queued behind this start.
-                    messages_since_tick = 0;
+                    // A new run must not inherit fairness spent while the
+                    // engine was stopped: that budget is for a sleeping
+                    // deadline under a live clock.
+                    backlogs_since_tick = 0;
                 }
-            }
-            PlaybackEvent::Command(PlaybackCommand::Retune { tick_period }) => {
-                // Retuning changes the Tick period of the run in progress and
-                // does not begin one, so the absolute Tick and the last
-                // executed deadline both stay: ADR 0037 runs the new grid from
-                // that deadline rather than from the moment the retune arrived.
-                if inner.is_playing() {
-                    let first_tick_at =
-                        first_retuned_tick_at(inner.last_tick_at, ClockInstant::now(), tick_period);
-                    clock = Some(TickClock::retuned(first_tick_at, tick_period));
+                match backlog.destination {
+                    Some(Destination::Disconnect) => inner.disconnect(),
+                    Some(Destination::Output(request)) => handle_output(&mut inner, request),
+                    None => {}
                 }
-            }
-            PlaybackEvent::Command(PlaybackCommand::Stop) => {
-                // The request is answered here and nowhere else: it was raised
-                // to hold the line until this message arrived, and a run begun
-                // after it must not find it standing.
-                tick_gate.clear_stop();
-                inner.stop_contained();
-                clock = None;
-                messages_since_tick = 0;
-            }
-            PlaybackEvent::Command(PlaybackCommand::Disconnect) => {
-                inner.disconnect();
-                messages_since_tick = 0;
-            }
-            PlaybackEvent::Command(PlaybackCommand::Output(request)) => {
-                handle_output(&mut inner, request)
             }
             PlaybackEvent::Unschedulable => {
                 // `start` and `retune` refuse a period whose deadlines cannot
@@ -1517,9 +1551,10 @@ async fn run_engine<A: OutputAdapter, C>(
                 });
                 inner.stop_contained();
                 clock = None;
-                messages_since_tick = 0;
+                backlogs_since_tick = 0;
             }
             PlaybackEvent::Deadline => {
+                backlogs_since_tick = 0;
                 let running = clock
                     .as_mut()
                     .expect("a deadline is answered only while there is a clock");
@@ -1528,8 +1563,8 @@ async fn run_engine<A: OutputAdapter, C>(
                     // moment before the Tick would be executed: a handle that
                     // raised the request before returning from `stop` has
                     // prevented this Tick. The grid goes with it, so nothing
-                    // here spins declining deadlines while the message behind
-                    // the request makes its way to the arm above.
+                    // here spins declining deadlines while the request's flag
+                    // waits in the mailbox for the arm above.
                     clock = None;
                     continue;
                 }
@@ -1593,8 +1628,14 @@ mod tests {
     ///
     struct TestEngine {
         engine: PlaybackEngine,
-        probes: mpsc::WeakUnboundedSender<PlaybackCommand<tokio::sync::oneshot::Sender<()>>>,
+        probes: Weak<RequestSender<Probe>>,
     }
+
+    ///
+    /// A destination request that changes nothing about the destination and
+    /// answers once the task has applied it.
+    ///
+    type Probe = tokio::sync::oneshot::Sender<()>;
 
     impl std::ops::Deref for TestEngine {
         type Target = PlaybackEngine;
@@ -1604,10 +1645,7 @@ mod tests {
         }
     }
 
-    fn answer_probe<A: OutputAdapter>(
-        _: &mut PlaybackInner<A>,
-        probe: tokio::sync::oneshot::Sender<()>,
-    ) {
+    fn answer_probe<A: OutputAdapter>(_: &mut PlaybackInner<A>, probe: Probe) {
         let _ = probe.send(());
     }
 
@@ -1623,9 +1661,10 @@ mod tests {
     ///
     /// Runs the engine's task to the end of what the present instant owes it.
     ///
-    /// A probe is queued behind whatever the engine has already been sent and
-    /// answered from inside its task, so awaiting the answer says the task has
-    /// been polled. The turn that answers does not end there: the loop
+    /// A probe is left in the destination slot beside whatever the engine has
+    /// already been asked, and answered from inside its task as the last part
+    /// of that backlog, so awaiting the answer says the task has taken and
+    /// applied all of it. The turn that answers does not end there: the loop
     /// re-enters its wait, and a deadline already reached completes that wait
     /// without parking, so a Tick due at the present instant is executed
     /// before the task hands the runtime back and this future is polled at
@@ -1641,24 +1680,48 @@ mod tests {
     /// suite passed, and the negative assertions it stands under — nothing ran
     /// yet — are the ones it cannot support at any count.
     ///
-    /// The test fixture instantiates the output-request type with a reply
-    /// channel below the shipped constructors. No queued closure can mutate
-    /// Playback, and production has no test-only request or branch.
+    /// The test fixture instantiates the destination-request type with a
+    /// reply channel below the shipped constructors. No queued closure can
+    /// mutate Playback, and production has no test-only request or branch.
     ///
     async fn settle(engine: &TestEngine) {
-        settle_queue(&engine.probes.upgrade().expect("a live engine")).await;
+        settle_mailbox(&engine.probes.upgrade().expect("a live engine")).await;
     }
 
-    /// [`settle`], against the queue rather than a handle holding one, for the
-    /// test that owns the two ends separately.
-    async fn settle_queue(
-        commands: &mpsc::UnboundedSender<PlaybackCommand<tokio::sync::oneshot::Sender<()>>>,
-    ) {
-        let (probe, answered) = tokio::sync::oneshot::channel();
-        commands
-            .send(PlaybackCommand::Output(probe))
-            .unwrap_or_else(|_| panic!("the engine's task holds the queue open"));
+    /// [`settle`], against the mailbox rather than a handle holding it, for
+    /// the test that owns the two ends separately.
+    ///
+    /// The probe goes in the destination slot, so it refuses to replace a
+    /// destination change still pending: that change would then never reach
+    /// the shipped path that applies it. A test with a `disconnect` pending
+    /// waits with [`idle`] instead.
+    ///
+    async fn settle_mailbox(requests: &RequestSender<Probe>) {
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        requests
+            .fold_destination(|pending| {
+                assert!(
+                    pending.is_none(),
+                    "a probe would replace a pending destination change; wait with `idle`"
+                );
+                Destination::Output(answer)
+            })
+            .unwrap_or_else(|_| panic!("the engine's task holds the mailbox open"));
         answered.await.expect("the engine's task answers its probe");
+    }
+
+    ///
+    /// Lets the runtime run everything runnable at the present instant, for a
+    /// test that has a destination change pending and so cannot [`settle`].
+    ///
+    /// Under the paused clock the runtime advances to a timer only once
+    /// nothing is runnable, so a millisecond's sleep returns after the task
+    /// has applied every pending request and executed every deadline at or
+    /// before it. Tests using it run on a paused clock with Tick periods far
+    /// longer than that millisecond.
+    ///
+    async fn idle() {
+        time::sleep(Duration::from_millis(1)).await;
     }
 
     ///
@@ -1669,7 +1732,7 @@ mod tests {
     /// counting, delivery, what each lifecycle action clears — and not about
     /// when one is due, so they hold that state directly and spend Ticks on it.
     /// Nothing is staged here that a run cannot reach: the run begins through
-    /// the same `begin_run` a `start` message begins one with, and each Tick is
+    /// the same `begin_run` an applied `start` begins one with, and each Tick is
     /// the one the loop would have executed at that deadline.
     ///
     struct HandDrivenRun<A: OutputAdapter> {
@@ -1689,7 +1752,7 @@ mod tests {
         }
 
         ///
-        /// Begins a Playback run, exactly as a `start` message does. A test
+        /// Begins a Playback run, exactly as an applied `start` does. A test
         /// that began one differently would pin a state no run ever reaches.
         ///
         fn begin_run(&mut self) {
@@ -3030,10 +3093,9 @@ mod tests {
     ///
     /// A stopped run does not keep Ticking, and the run started after it does.
     ///
-    /// The stop and the start are queued together, so the engine applies them
-    /// in the order they were asked for: what would once have been a retired
-    /// clock reaching into a restarted run is now a message the one task has
-    /// already handled.
+    /// The stop and the start are made together, so the task takes them in
+    /// one backlog and applies the stop first: the run is begun again after
+    /// the one before it has ended, by the one task that owns both.
     ///
     #[tokio::test(start_paused = true)]
     async fn a_stopped_run_does_not_tick_and_a_restarted_one_does() {
@@ -3062,25 +3124,25 @@ mod tests {
     }
 
     ///
-    /// A message already queued when a run begins is applied before that run's
-    /// first Tick, not after it.
+    /// A request pending when a run begins is applied before that run's first
+    /// Tick, not after it.
     ///
     /// The first Tick of a run is due at the instant the run began, and
     /// `next_playback_event` answers it without awaiting so that the browser
     /// gets it in the turn the run started in rather than a timer hop later.
-    /// What that shortcut must not do is jump the queue: a `Disconnect` or a
+    /// What that shortcut must not do is overtake a pending request: a `Disconnect` or a
     /// destination change that arrived before the run and is applied after its
     /// first Tick delivers that Tick to an output the user has already left,
     /// and nothing reports it — no diagnostic, no state change, a note on the
     /// wrong device.
     ///
-    /// This pins the deterministic half. Both messages are queued before the
-    /// task is polled at all, so the shortcut's `try_recv` is what has to take
-    /// the disconnect, and no tie is involved. The `biased;` in the select
-    /// below it governs the other half — a message and a deadline becoming
-    /// ready together — and this test says nothing about that one: without
-    /// `biased;` the poll order is randomised, so a green run there would be
-    /// evidence and not proof.
+    /// This pins the deterministic half. Both requests are made before the
+    /// task is polled at all, so they are in the backlog that begins the run
+    /// and are applied whole before its first Tick, and no tie is involved.
+    /// The `biased;` in the select governs the other half — a backlog and a
+    /// deadline becoming ready together — and this test says nothing about
+    /// that one: without `biased;` the poll order is randomised, so a green
+    /// run there would be evidence and not proof.
     ///
     #[tokio::test(start_paused = true)]
     async fn a_message_queued_before_a_run_begins_is_applied_to_its_first_tick() {
@@ -3092,19 +3154,348 @@ mod tests {
 
         engine.start(Duration::from_secs(1)).unwrap();
         engine.disconnect();
-        settle(&engine).await;
+        idle().await;
 
+        assert_eq!(
+            adapter.safety_reset_count(),
+            1,
+            "the disconnect was applied"
+        );
         assert!(
             adapter.command_lists().is_empty(),
-            "the first Tick was delivered to an output the queue had already \
+            "the first Tick was delivered to an output the backlog had already \
              closed behind it"
+        );
+    }
+
+    ///
+    /// An adapter that logs what the engine asked of it, and that makes
+    /// further requests from inside the engine's task the first time it is
+    /// asked to silence.
+    ///
+    /// The silence is the one call the task makes while it is applying a
+    /// backlog, so requests made there arrive after the backlog that began a
+    /// run was taken and before that run's first Tick: the one moment the
+    /// first-Tick boundary is about.
+    ///
+    struct ArrivingDuringSilence {
+        log: Arc<Mutex<Vec<&'static str>>>,
+        arrivals: Arc<Mutex<Option<PlaybackEngine>>>,
+    }
+
+    impl OutputAdapter for ArrivingDuringSilence {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+            self.log.lock().unwrap().push("tick");
+            Ok(())
+        }
+
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            self.log.lock().unwrap().push("silence");
+            // Taken, so the handle does not keep the engine alive from inside
+            // its own task.
+            if let Some(engine) = self.arrivals.lock().unwrap().take() {
+                for _ in 0..=BACKLOGS_BEFORE_A_DEADLINE {
+                    engine.disconnect();
+                }
+            }
+            Ok(())
+        }
+    }
+
+    ///
+    /// A run's immediate first Tick applies the backlog pending when the run
+    /// began and nothing that arrives after it.
+    ///
+    /// The initial backlog is a `stop` and a `start`, made before the task is
+    /// polled; the repeated `start` calls collapse into its one slot. The later
+    /// arrival is a `disconnect`, made from inside the task while it silences
+    /// the stopped run, so it exists only after the backlog that begins the
+    /// next run was taken. The log reads in the order the engine acted: the
+    /// stop's silence, then the new run's first Tick, and only then the
+    /// silence the later `disconnect` sends. A first Tick that took another
+    /// backlog before executing would log the second silence before any Tick,
+    /// and would not deliver that Tick at all.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_run_s_first_tick_follows_exactly_the_backlog_pending_when_it_began() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let arrivals = Arc::new(Mutex::new(None));
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            ArrivingDuringSilence {
+                log: log.clone(),
+                arrivals: arrivals.clone(),
+            },
+        );
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+        assert_eq!(*log.lock().unwrap(), ["tick"]);
+
+        *arrivals.lock().unwrap() = Some(engine.engine.clone());
+        engine.stop();
+        for _ in 0..=BACKLOGS_BEFORE_A_DEADLINE {
+            engine.start(Duration::from_secs(1)).unwrap();
+        }
+        settle(&engine).await;
+
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["tick", "silence", "tick", "silence"],
+            "the first Tick of the second run did not land between the backlog \
+             that began it and the requests that arrived after"
+        );
+        assert!(
+            arrivals.lock().unwrap().is_none(),
+            "the later arrivals were made"
+        );
+    }
+
+    ///
+    /// Starts made while the task is stalled collapse into one, at the newest
+    /// period, however many there are.
+    ///
+    /// The test runs on a current-thread runtime and makes every request
+    /// without awaiting, so the task has not been polled when the last one is
+    /// made: nothing has been consumed, and nothing was refused.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn starts_made_while_the_task_is_stalled_begin_one_run_at_the_newest_period() {
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            adapter.clone(),
+        );
+
+        for millis in 1..=10_000 {
+            engine.start(Duration::from_millis(millis)).unwrap();
+        }
+        engine.start(Duration::from_secs(20)).unwrap();
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists().len(), 1, "one run, one first Tick");
+
+        time::advance(Duration::from_secs(19)).await;
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists().len(), 1, "a run at an older period");
+
+        time::advance(Duration::from_secs(1)).await;
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists().len(), 2);
+        engine.stop();
+    }
+
+    ///
+    /// Retunes made while the task is stalled collapse into the newest, and
+    /// the live run takes that period from the deadline it last ticked on.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn retunes_made_while_the_task_is_stalled_keep_the_newest_period() {
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            adapter.clone(),
+        );
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+
+        for millis in 1..=10_000 {
+            engine.retune(Duration::from_millis(millis)).unwrap();
+        }
+        engine.retune(Duration::from_secs(3)).unwrap();
+        settle(&engine).await;
+
+        time::advance(Duration::from_millis(2_999)).await;
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists().len(), 1, "a run at an older period");
+
+        time::advance(Duration::from_millis(1)).await;
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists().len(), 2);
+        engine.stop();
+    }
+
+    ///
+    /// `stop` shuts Tick admission while every slot of the mailbox is taken,
+    /// and the one flag it leaves answers every stop made.
+    ///
+    /// The task is stalled while the requests are made, so the gate is the
+    /// only part of `stop` to have taken effect when the assertion reads it.
+    /// Once the task takes the backlog the run ends, the gate reopens, and a
+    /// later run begins and ticks: no outstanding request was left standing
+    /// behind the coalesced ones.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_made_behind_a_full_backlog_shuts_admission_and_is_answered() {
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            adapter.clone(),
+        );
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists().len(), 1);
+
+        for _ in 0..=BACKLOGS_BEFORE_A_DEADLINE {
+            engine.start(Duration::from_secs(1)).unwrap();
+            engine.retune(Duration::from_secs(2)).unwrap();
+            engine.disconnect();
+            engine.stop();
+        }
+        assert!(
+            !engine.tick_gate.begin_tick(),
+            "stop returned with Tick admission open"
+        );
+
+        idle().await;
+        assert_eq!(engine.state(), PlaybackState::Stopped);
+        assert_eq!(
+            adapter.safety_reset_count(),
+            2,
+            "one silence for the stop, one for the disconnect"
+        );
+        assert!(
+            engine.tick_gate.begin_tick(),
+            "a coalesced stop was left unanswered"
+        );
+        engine.tick_gate.finish_tick();
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+        assert_eq!(engine.state(), PlaybackState::Playing);
+        engine.stop();
+    }
+
+    ///
+    /// A sleeping deadline already reached, on a clock that is not due on
+    /// arrival.
+    ///
+    fn reached_clock() -> TickClock {
+        TickClock {
+            epoch: ClockInstant::now() - Duration::from_secs(2),
+            scheduled_at: Duration::from_secs(1),
+            period: Duration::from_secs(1),
+            due_on_arrival: false,
+        }
+    }
+
+    ///
+    /// With both a pending `Stop` and a reached deadline ready, the wait takes
+    /// the `Stop` while the run's fairness budget lasts and the deadline once
+    /// it is spent — and the deadline taken then meets the gate `stop` shut.
+    ///
+    /// Driven one wait at a time rather than through a running task, so both
+    /// arms are ready when the wait is polled: the deadline was reached before
+    /// the wait began and the flag was left before it too. A running task
+    /// cannot stage that under a paused clock, because the runtime fires a
+    /// timer only when it parks, which is after the task has already taken
+    /// anything pending.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_deadline_that_overtakes_a_pending_stop_meets_a_shut_gate() {
+        let gate = TickGate::new();
+        let clock = reached_clock();
+
+        let (requests, received) = mailbox::open::<Infallible>();
+        requests.stop(&gate);
+        let within_budget =
+            next_playback_event(&received, Some(&clock), BACKLOGS_BEFORE_A_DEADLINE - 1).await;
+        assert!(
+            matches!(within_budget, PlaybackEvent::Requests(ref backlog) if backlog.stop),
+            "the pending stop lost a tie inside the fairness budget"
+        );
+        gate.clear_stop();
+
+        let (requests, received) = mailbox::open::<Infallible>();
+        requests.stop(&gate);
+        let spent = next_playback_event(&received, Some(&clock), BACKLOGS_BEFORE_A_DEADLINE).await;
+        assert!(
+            matches!(spent, PlaybackEvent::Deadline),
+            "a reached deadline waited behind a mailbox that had had its share"
+        );
+        assert!(
+            !gate.begin_tick(),
+            "the deadline that overtook the stop was admitted"
+        );
+    }
+
+    ///
+    /// The first Tick of a run is answered without looking at the mailbox, so
+    /// a request pending then waits for the Tick after it.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_first_tick_due_on_arrival_does_not_wait_for_pending_requests() {
+        let clock = TickClock::beginning(Duration::from_secs(1));
+        let (requests, received) = mailbox::open::<Infallible>();
+        for _ in 0..=BACKLOGS_BEFORE_A_DEADLINE {
+            requests.retune(Duration::from_secs(2)).unwrap();
+            let _ = requests.change_destination(Destination::Disconnect);
+        }
+
+        let event = next_playback_event(&received, Some(&clock), 0).await;
+
+        assert!(matches!(event, PlaybackEvent::Deadline));
+        assert!(
+            matches!(received.recv().await, Some(ref backlog) if backlog.retune.is_some()),
+            "the requests were consumed by the first Tick's turn"
+        );
+    }
+
+    ///
+    /// Dropping the last handle with requests still pending applies them and
+    /// then shuts the engine down.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn dropping_the_last_handle_applies_what_was_pending_and_shuts_down() {
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            adapter.clone(),
+        );
+        let mut observation = engine.observation.clone();
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        engine.disconnect();
+        drop(engine);
+        // The task holds the only sender of the observation, so the stream
+        // ends exactly when the task does.
+        while observation.changed().await.is_ok() {}
+
+        assert_eq!(observation.borrow().state, PlaybackState::Stopped);
+        assert!(
+            adapter.command_lists().is_empty(),
+            "the pending disconnect was applied after the first Tick"
+        );
+        assert_eq!(adapter.safety_reset_count(), 1, "the disconnect's silence");
+    }
+
+    ///
+    /// A `start` left by a handle that is then dropped as the last one begins
+    /// no delivery: an engine nobody holds executes no Tick, even the first
+    /// one of a run its last backlog began.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn dropping_the_last_handle_with_a_start_pending_executes_no_tick() {
+        let source = SourceCommander::new(Grid::with_shape(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(source, adapter.clone());
+        let mut observation = engine.observation.clone();
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        drop(engine);
+        while observation.changed().await.is_ok() {}
+
+        assert_eq!(observation.borrow().state, PlaybackState::Stopped);
+        assert!(
+            adapter.command_lists().is_empty(),
+            "a Tick was delivered after the last handle was dropped"
         );
     }
 
     ///
     /// The fairness invert is for a sleeping deadline, not for the first Tick
     /// answered on arrival. Spending the budget while stopped must not let that
-    /// Tick jump a `Disconnect` already queued behind `Start`.
+    /// Tick jump a `Disconnect` already pending beside `Start`.
     ///
     #[tokio::test(start_paused = true)]
     async fn fairness_spent_while_stopped_does_not_invert_a_run_s_first_tick() {
@@ -3114,18 +3505,23 @@ mod tests {
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
 
-        for _ in 0..MESSAGES_BEFORE_A_DEADLINE {
+        for _ in 0..BACKLOGS_BEFORE_A_DEADLINE {
             settle(&engine).await;
         }
 
         engine.start(Duration::from_secs(1)).unwrap();
         engine.disconnect();
-        settle(&engine).await;
+        idle().await;
 
+        assert_eq!(
+            adapter.safety_reset_count(),
+            1,
+            "the disconnect was applied"
+        );
         assert!(
             adapter.command_lists().is_empty(),
             "fairness spent while stopped let the first Tick overtake a \
-             Disconnect already queued behind Start"
+             Disconnect already pending beside Start"
         );
     }
 
@@ -3406,7 +3802,7 @@ mod tests {
         run.inner.stop();
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn stopping_and_disconnecting_each_send_the_safety_action() {
         let stopped_adapter = InMemoryOutputAdapter::default();
         let stopped = engine(
@@ -3414,6 +3810,10 @@ mod tests {
             stopped_adapter.clone(),
         );
         stopped.start(Duration::from_secs(1)).unwrap();
+        // Settled first: a `start` and a `stop` both pending when the task
+        // looks are no run at all, and a run that never began has nothing to
+        // silence.
+        settle(&stopped).await;
         stopped.stop();
 
         let disconnected_adapter = InMemoryOutputAdapter::default();
@@ -3425,7 +3825,7 @@ mod tests {
         disconnected.disconnect();
 
         settle(&stopped).await;
-        settle(&disconnected).await;
+        idle().await;
 
         assert_eq!(stopped_adapter.safety_reset_count(), 1);
         assert_eq!(disconnected_adapter.safety_reset_count(), 1);
@@ -3949,22 +4349,22 @@ mod tests {
 
     ///
     /// ADR 0002 requires that further Ticks are prevented before `stop`
-    /// returns, and a handle that only queued a message would not do that: the
+    /// returns, and a handle that only left a request would not do that: the
     /// task may be anywhere, including at a deadline it is about to execute.
     /// The request is what closes that window, so this raises the request
-    /// alone — with no message behind it — and holds the engine to it across
+    /// alone — with no flag behind it — and holds the engine to it across
     /// several deadlines it would otherwise have executed.
     ///
     /// The request is raised by the shipped `stop`, on a handle built from the
-    /// engine's own parts so that this test holds the queue between the handle
-    /// and the loop. That is what makes the window reachable: over the queue
-    /// `PlaybackEngine::new` wires, the two halves of `stop` are inseparable
-    /// and the message is already waiting by the time any deadline comes due,
-    /// so every deadline is superseded by the message and the request declines
-    /// none of them — which proves the queue rather than the guarantee, and is
-    /// why deleting the request from `stop` left this module's tests passing.
+    /// engine's own parts so that this test holds the mailbox between the
+    /// handle and the loop. That is what makes the window reachable: over the
+    /// mailbox `PlaybackEngine::new` wires, the two halves of `stop` are
+    /// inseparable and the flag is already waiting by the time any deadline
+    /// comes due, so every deadline is superseded by the flag and the request
+    /// declines none of them — which proves the mailbox rather than the
+    /// guarantee.
     /// Nothing is staged here that the shipped path does not do: the handle is
-    /// the handle, `stop` is `stop`, and only the moment the message lands is
+    /// the handle, `stop` is `stop`, and only the moment the flag is taken is
     /// the test's.
     ///
     /// Native only, because spawning the loop as a task of its own asks for a
@@ -3980,32 +4380,28 @@ mod tests {
             SourceCommander::new(Grid::with_shape(1, 1)),
             adapter.clone(),
         );
-        let (commands, queued) = mpsc::unbounded_channel();
+        let (requests, received) = mailbox::open();
         let tick_gate = Arc::new(TickGate::new());
         let task = tokio::spawn(run_engine(
             inner,
-            queued,
+            received,
             Arc::clone(&tick_gate),
             |_, never: Infallible| match never {},
         ));
 
-        // The handle the stop is asked of: the loop's own request flag, the
-        // loop's own published state and diagnostics, and a queue that ends
-        // here. `in_flight` is where the message waits, so the request reaches
-        // the loop and the message it travels ahead of does not.
-        let (undelivered, _in_flight) = mpsc::unbounded_channel::<PlaybackCommand>();
+        // The handle the stop is asked of: the loop's own gate, the loop's
+        // own published state and diagnostics, and a mailbox that ends here.
+        // `in_flight` is where the request's flag waits, so the gate reaches
+        // the loop and the flag it travels ahead of does not.
+        let (undelivered, _in_flight) = mailbox::open::<Infallible>();
         let engine = PlaybackEngine {
-            commands: Arc::new(undelivered),
+            requests: Arc::new(undelivered),
             tick_gate: Arc::clone(&tick_gate),
             observation: channels.observation,
             diagnostics: channels.diagnostics,
         };
 
-        commands
-            .send(PlaybackCommand::Start {
-                tick_period: Duration::from_secs(1),
-            })
-            .unwrap();
+        requests.start(Duration::from_secs(1)).unwrap();
         tokio::task::yield_now().await;
         assert_eq!(
             adapter.command_lists().len(),
@@ -4034,14 +4430,14 @@ mod tests {
             "a Tick the request declined is not a Tick the grid missed"
         );
 
-        drop(commands);
+        drop(requests);
         task.await.unwrap();
         assert_eq!(adapter.safety_reset_count(), 1);
     }
 
     ///
-    /// Closing the queue is an ordinary shutdown, and an ordinary shutdown is
-    /// not a failure.
+    /// Closing the mailbox is an ordinary shutdown, and an ordinary shutdown
+    /// is not a failure.
     ///
     /// The run is ended on the way out, so the state that is then dropped is
     /// already stopped and has nothing to report. A shutdown that left the run
@@ -4060,22 +4456,18 @@ mod tests {
             SourceCommander::new(Grid::with_shape(1, 1)),
             adapter.clone(),
         );
-        let (commands, queued) = mpsc::unbounded_channel();
+        let (requests, received) = mailbox::open();
         let task = tokio::spawn(run_engine(
             inner,
-            queued,
+            received,
             Arc::new(TickGate::new()),
             answer_probe,
         ));
 
-        commands
-            .send(PlaybackCommand::Start {
-                tick_period: Duration::from_secs(1),
-            })
-            .unwrap();
-        settle_queue(&commands).await;
+        requests.start(Duration::from_secs(1)).unwrap();
+        settle_mailbox(&requests).await;
 
-        drop(commands);
+        drop(requests);
         task.await.unwrap();
 
         assert_eq!(adapter.safety_reset_count(), 1);
@@ -4119,11 +4511,10 @@ mod tests {
     /// A handle dropped while the engine is mid-Tick still gets the safety
     /// action, and gets it exactly once.
     ///
-    /// The drop no longer waits for the Tick — there is no lock left for it to
-    /// wait on, and a `stop` that blocked a console frame behind a device
-    /// submission is the cost ADR 0041 removes. What survives is the guarantee
-    /// itself: the queue closes, the task sees the close when it next looks,
-    /// and the last thing it does is silence the device.
+    /// The drop does not wait for the Tick: a console frame must not block
+    /// behind a device submission. The guarantee holds without waiting: the
+    /// mailbox closes, the task sees the close when it next looks, and the last
+    /// thing it does is silence the device.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4223,15 +4614,19 @@ mod tests {
     }
 
     ///
-    /// A run keeps ticking while messages keep arriving.
+    /// A run keeps ticking while requests keep arriving.
     ///
-    /// The loop takes messages ahead of the deadline so that a `stop` wins a
+    /// The loop takes requests ahead of the deadline so that a `stop` wins a
     /// tie against the Tick it means to prevent. Unconditionally, that same
-    /// bias lets a caller that keeps the queue non-empty hold the deadline arm
-    /// off forever: the run stops delivering, keeps publishing `Playing`, and
-    /// reports nothing, because from the engine's side nothing has gone wrong.
-    /// An idempotent `start` is the cheapest such caller — the task looks at
-    /// it, sees a run already live, and does nothing at all.
+    /// bias lets a caller that keeps the mailbox non-empty hold a sleeping
+    /// deadline off forever: the run stops delivering, keeps publishing
+    /// `Playing`, and reports nothing, because from the engine's side nothing
+    /// has gone wrong. An idempotent `start` is the cheapest such caller — the
+    /// task looks at it, sees a run already live, and does nothing at all.
+    ///
+    /// The flood begins once the first Tick has been delivered, so the Tick
+    /// waited for is a sleeping deadline: the first Tick does not look at the
+    /// mailbox and has its own test.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -4242,6 +4637,10 @@ mod tests {
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
         engine.start(Duration::from_millis(1)).unwrap();
+        wait_until("the run's first Tick was never delivered", || {
+            !adapter.command_lists().is_empty()
+        })
+        .await;
 
         let stop_flooding = Arc::new(AtomicBool::new(false));
         let floods: Vec<_> = (0..6)
@@ -4251,8 +4650,8 @@ mod tests {
                 std::thread::spawn(move || {
                     while !flood_until.load(Ordering::Relaxed) {
                         // Applied by the task as a no-op, so what this measures
-                        // is the queue never being empty rather than the work
-                        // of draining it.
+                        // is the mailbox never being empty rather than the
+                        // work of draining it.
                         let _ = flooding.start(Duration::from_millis(1));
                     }
                 })
@@ -4260,7 +4659,7 @@ mod tests {
             .collect();
 
         // Waited for rather than sampled after a fixed window. The bound says
-        // a deadline gets its turn once the queue has had its share; it does
+        // a deadline gets its turn once the mailbox has had its share; it does
         // not say how long that takes, and it cannot, because the engine's
         // task is competing with six OS threads for a worker. A window would
         // be asserting a rate nothing promises — which is what made this fail
@@ -4403,7 +4802,8 @@ mod tests {
         })
         .await;
         // The task drops its receiver on the way out, before the state it owns
-        // publishes the stop, so a published `Stopped` means the queue is shut.
+        // publishes the stop, so a published `Stopped` means the mailbox is
+        // shut.
         let _ = diagnostics_once_stopped(&engine).await;
 
         assert_eq!(

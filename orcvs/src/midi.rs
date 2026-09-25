@@ -398,6 +398,9 @@ mod tests {
         /// wants the next send to fail asks for.
         failing_sends: Vec<usize>,
         send_count: usize,
+        /// How many connections this backend opened have since been dropped,
+        /// which is when a real port is closed and its device released.
+        released: usize,
     }
 
     struct FakeBackend {
@@ -428,6 +431,14 @@ mod tests {
 
     struct FakeConnection {
         state: Arc<Mutex<FakeState>>,
+    }
+
+    impl Drop for FakeConnection {
+        fn drop(&mut self) {
+            if let Ok(mut state) = self.state.lock() {
+                state.released += 1;
+            }
+        }
     }
 
     impl MidiConnection for FakeConnection {
@@ -852,13 +863,96 @@ mod tests {
             MidiOutputAdapter::new(),
         );
         select(&playback, &mut backend, &MidiDestinationId::new("one"));
-        settle_until!(state.lock().unwrap().connection_count == 1);
+        // Waited for as published, not as opened: a `disconnect` made while
+        // the connection is still pending replaces it rather than following it.
+        let one = Some(MidiDestinationId::new("one"));
+        settle_until!(playback.selection.selected_destination_id().unwrap() == one);
         assert!(state.lock().unwrap().messages.is_empty());
 
         playback.disconnect();
         settle_until!(!state.lock().unwrap().messages.is_empty());
 
         assert_eq!(state.lock().unwrap().messages, safety_action_messages());
+    }
+
+    ///
+    /// A destination request that a newer one replaces before the engine's
+    /// task applies it is released at once, on the caller's thread.
+    ///
+    /// The test runs on a current-thread runtime and does not await between
+    /// the two selections, so the task is stalled for the whole of it: the
+    /// first connection is superseded while nothing has consumed it. It is
+    /// never installed, so it is never sent the safety action a change away
+    /// from it would owe.
+    ///
+    #[tokio::test]
+    async fn a_superseded_destination_releases_its_connection_before_the_task_runs() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut backend = FakeBackend {
+            state: state.clone(),
+        };
+        let playback = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            MidiOutputAdapter::new(),
+        );
+
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+        select(&playback, &mut backend, &MidiDestinationId::new("two"));
+
+        assert_eq!(
+            state.lock().unwrap().released,
+            1,
+            "the superseded connection is still held while the engine is stalled"
+        );
+
+        let two = Some(MidiDestinationId::new("two"));
+        settle_until!(playback.selection.selected_destination_id().unwrap() == two);
+        let state = state.lock().unwrap();
+        assert_eq!(state.connection_count, 2);
+        assert_eq!(state.released, 1, "the installed connection is still held");
+        assert!(
+            state.messages.is_empty(),
+            "a connection that was never installed was sent a safety action"
+        );
+    }
+
+    ///
+    /// A destination still pending when the last handle is dropped does not
+    /// outlive the engine: shutting down releases it with everything else.
+    ///
+    #[tokio::test]
+    async fn dropping_the_last_handle_releases_a_pending_destination() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut backend = FakeBackend {
+            state: state.clone(),
+        };
+        let playback = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            MidiOutputAdapter::new(),
+        );
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+
+        let MidiPlayback {
+            playback,
+            selection,
+        } = playback;
+        drop(playback);
+
+        settle_until!(state.lock().unwrap().released == 1);
+        assert!(
+            selection
+                .install(
+                    MidiDestinationId::new("one"),
+                    backend.connect(&MidiDestinationId::new("one")).unwrap(),
+                )
+                .is_err(),
+            "a selection outlived the engine it selects for"
+        );
+        assert_eq!(
+            state.lock().unwrap().released,
+            2,
+            "a refused connection was kept rather than released"
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -877,14 +971,29 @@ mod tests {
         let playback = engine(source, MidiOutputAdapter::new());
         select(&playback, &mut backend, &MidiDestinationId::new("one"));
         playback.start(Duration::from_secs(1)).unwrap();
-        playback.disconnect();
-
-        select(&playback, &mut backend, &MidiDestinationId::new("one"));
         // Waited out rather than yielded for: under the paused clock the
         // runtime advances to the next timer only once it has nothing runnable
-        // left, so a millisecond of it is every message answered and every
+        // left, so a millisecond of it is every request applied and every
         // deadline at or before it kept.
         tokio::time::sleep(Duration::from_millis(1)).await;
+
+        // Applied before the second selection is made. A selection made while
+        // the `disconnect` is still pending replaces it, and the engine would
+        // never have disconnected at all.
+        playback.disconnect();
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .messages
+                .ends_with(&safety_action_messages()),
+            "the disconnect was not applied"
+        );
+
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+        // Past the run's next deadline, so a Tick is due after the selection.
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         assert_eq!(
             state.lock().unwrap().messages.last(),
