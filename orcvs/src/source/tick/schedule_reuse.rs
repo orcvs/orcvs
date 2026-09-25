@@ -347,12 +347,12 @@ mod property {
                 let count = revisions.len();
                 (
                     Just(revisions),
-                    prop::collection::vec(prop::collection::vec(any::<bool>(), ROWS), count),
+                    prop::collection::vec(prop::collection::vec(any::<bool>(), ROWS), count - 1),
                 )
             })
             .prop_map(|(mut revisions, keeps)| {
                 for index in 1..revisions.len() {
-                    for (row, keep) in keeps[index].iter().enumerate() {
+                    for (row, keep) in keeps[index - 1].iter().enumerate() {
                         if *keep {
                             revisions[index][row] = revisions[index - 1][row].clone();
                         }

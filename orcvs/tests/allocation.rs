@@ -531,7 +531,7 @@ fn a_commit_that_writes_no_cell_allocates_nothing() {
 }
 
 #[test]
-fn a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster() {
+fn a_language_map_rebuild_costs_no_more_per_carried_expression_as_the_source_grows() {
     // A rebuild re-parses the rows it was given and shares every other row's
     // derivation, so no carried Expression is cloned: its `Atoms`, its
     // `Expression` and its `Diagnostic` stay where the revision that derived
