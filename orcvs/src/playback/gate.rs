@@ -17,9 +17,9 @@ const STOP: usize = 2;
 ///
 /// Admission is one atomic step, so there is an instant before which a Tick
 /// is this run's business and after which it is refused, and `stop` lands on
-/// one side of it or the other. A flag read and then acted on would be two
-/// steps, and a request landing between them would be overtaken by the Tick
-/// the read admitted.
+/// one side of it or the other. Do not split admission into a read and an act
+/// on it: a request landing between them is overtaken by the Tick the read
+/// admitted.
 ///
 /// A Tick already admitted still runs to completion. `stop` does not wait for
 /// it — the browser main thread has nothing to wait with — so the guarantee is
@@ -213,13 +213,15 @@ mod tests {
 
     ///
     /// The answer to the last standing request reads the word, and a second
-    /// handle's request lands before the answer commits. The answer was
-    /// computed from a word the request has since moved, so it cannot commit
-    /// an open gate over the new request: it retries against the word the
-    /// request left, and one request stays standing.
+    /// handle's request lands before the answer commits. An answer computed
+    /// from a word the request has since moved cannot commit an open gate over
+    /// the new request, and `clear_stop` commits only through that
+    /// compare-and-swap, so it retries against the word the request left and
+    /// one request stays standing.
     ///
-    /// The steps are the ones `clear_stop` takes, driven one at a time so the
-    /// request lands in the window between the answer's read and its write.
+    /// The read and the commit are driven by hand, one at a time, so the
+    /// request lands between them; `clear_stop` itself then answers against
+    /// the moved word.
     ///
     #[test]
     fn a_stop_requested_while_the_last_one_is_answered_keeps_the_gate_shut() {
@@ -259,12 +261,12 @@ mod tests {
 
         assert!(gate.begin_tick());
         gate.request_stop();
-        gate.clear_stop();
         gate.request_stop();
-
-        assert!(!gate.begin_tick(), "the Tick is still executing");
         gate.finish_tick();
-        assert!(!gate.begin_tick(), "a request still stands");
+
+        assert!(!gate.begin_tick(), "both requests still stand");
+        gate.clear_stop();
+        assert!(!gate.begin_tick(), "the second request still stands");
 
         gate.clear_stop();
         assert!(gate.begin_tick());
