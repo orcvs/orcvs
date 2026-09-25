@@ -1517,17 +1517,9 @@ fn frames_per_second(frame_time: f32) -> Option<f32> {
 ///
 fn wake_panel_when_playback_publishes(
     ctx: egui::Context,
-    mut observation: orcvs::playback::PlaybackObservationWatch,
+    observation: orcvs::playback::PlaybackObservationWatch,
 ) {
-    let _ = observation.borrow_and_update();
-    let wake = async move {
-        loop {
-            if observation.changed().await.is_err() {
-                break;
-            }
-            ctx.request_repaint();
-        }
-    };
+    let wake = panel_wake(ctx, observation);
     #[cfg(not(target_arch = "wasm32"))]
     {
         tokio::spawn(wake);
@@ -1535,6 +1527,27 @@ fn wake_panel_when_playback_publishes(
     #[cfg(target_arch = "wasm32")]
     {
         wasm_bindgen_futures::spawn_local(wake);
+    }
+}
+
+///
+/// Requests a repaint of `ctx` each time `observation` publishes, and ends
+/// once the Playback Engine that owns the observation's sender is gone. An
+/// Open replaces the Orcvs, so each wake-up has to end with the Orcvs it
+/// watches rather than outlive it.
+///
+/// The observation is marked seen before this returns, so only a publish
+/// after the wake-up exists requests a repaint.
+///
+fn panel_wake(
+    ctx: egui::Context,
+    mut observation: orcvs::playback::PlaybackObservationWatch,
+) -> impl std::future::Future<Output = ()> {
+    let _ = observation.borrow_and_update();
+    async move {
+        while observation.changed().await.is_ok() {
+            ctx.request_repaint();
+        }
     }
 }
 
@@ -3099,10 +3112,10 @@ mod tests {
     use super::{
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
-        GlyphTable, MAX_ZOOM, MENU_BAR_GAP, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes,
-        SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale,
-        is_presentable, show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
-        translate_event, zoom_command,
+        GlyphTable, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView,
+        TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale, is_presentable,
+        show_source_scene, source_bounds, source_panel_frame, stepped_zoom, translate_event,
+        zoom_command,
     };
 
     /// The Source View's margin at Zoom 1.0 and a device scale of one.
@@ -3886,6 +3899,27 @@ mod tests {
         delay
     }
 
+    ///
+    /// Runs passes until one asks for no immediate repaint, so a zero delay a
+    /// later pass answers is the Playback wake-up's and not the settling of
+    /// an Open or a key press.
+    ///
+    fn settle_repaint(
+        ctx: &egui::Context,
+        screen: Rect,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+    ) {
+        for _ in 0..16 {
+            if app_pass_repaint_delay(ctx, screen, Vec::new(), console, host)
+                > std::time::Duration::ZERO
+            {
+                return;
+            }
+        }
+        panic!("the console still asked for an immediate repaint after 16 quiet passes");
+    }
+
     fn collect_shape_text(shape: &Shape, out: &mut String) {
         match shape {
             Shape::Text(text) => {
@@ -4280,7 +4314,7 @@ mod tests {
             orcvs::playback::PlaybackState::Playing
         );
 
-        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        settle_repaint(&ctx, screen, &mut console, &mut host);
         let tick = console.orcvs.playback_observation().tick;
         for _ in 0..2_000 {
             if console.orcvs.playback_observation().tick != tick {
@@ -4300,6 +4334,99 @@ mod tests {
             std::time::Duration::ZERO,
             "the console waited {delay:?} after Tick {tick:?} became {advanced:?}"
         );
+    }
+
+    ///
+    /// An Open installs a new Orcvs, and the Panel repaints the moment that
+    /// Orcvs's Playback publishes a Tick: the wake-up follows the Orcvs the
+    /// console runs, not the one it started with.
+    ///
+    #[tokio::test]
+    async fn an_opened_console_repaints_as_soon_as_its_new_playback_publishes() {
+        let ctx = egui::Context::default();
+        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+            crate::config::Config::default(),
+        )
+        .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+        console.load_function_reference();
+        // Reduced motion keeps the Cursor Effect's own wakes out of the delay.
+        console.reduced_motion = true;
+        console
+            .orcvs
+            .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        settle_repaint(&ctx, screen, &mut console, &mut host);
+        let tick = console.orcvs.playback_observation().tick;
+        for _ in 0..2_000 {
+            if console.orcvs.playback_observation().tick != tick {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        let advanced = console.orcvs.playback_observation().tick;
+        assert_ne!(
+            advanced, tick,
+            "the opened Source's Playback never published another Tick from {tick:?}"
+        );
+
+        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        assert_eq!(
+            delay,
+            std::time::Duration::ZERO,
+            "after an Open the console waited {delay:?} after Tick {tick:?} became {advanced:?}"
+        );
+    }
+
+    ///
+    /// The wake-up over an Orcvs an Open replaced ends once that Orcvs's
+    /// Playback closes its observation, so each Open leaves no task behind.
+    /// Awaiting the task is the observation: it ends, or the test fails.
+    ///
+    #[tokio::test]
+    async fn the_wake_up_over_a_replaced_orcvs_ends_once_its_playback_is_gone() {
+        let ctx = egui::Context::default();
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+            crate::config::Config::default(),
+        )
+        .expect("the test runtime");
+        let wake = tokio::spawn(super::panel_wake(
+            ctx,
+            console.orcvs.playback_observation_watch(),
+        ));
+
+        console.load_function_reference();
+
+        tokio::time::timeout(std::time::Duration::from_secs(10), wake)
+            .await
+            .expect("the wake-up outlived the Orcvs an Open replaced")
+            .expect("the wake-up ran to completion");
     }
 
     ///
@@ -5333,106 +5460,70 @@ mod tests {
 
     ///
     /// The default window size holds back exactly the height the top bar and
-    /// the bottom Panel take, so the rest reaches the console. The menu bar is
-    /// rebuilt here rather than shared, so this also asserts that no menu
-    /// makes the top bar taller than its minimum, and that the Panel's
-    /// Readouts do not make it taller than its minimum.
+    /// the bottom Panel take, so the rest reaches the Source. A whole console
+    /// pass lays the panels out, so a menu, a control or a Readout that makes
+    /// either bar taller than its minimum, or a frame that eats into the
+    /// Source's area, fails here.
     ///
-    #[test]
-    fn the_top_panel_takes_the_height_the_default_window_holds_back() {
+    #[tokio::test]
+    async fn the_top_panel_takes_the_height_the_default_window_holds_back() {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Vec2::ZERO;
+        let mut console = Console::new(
+            &eframe::CreationContext::_new_kittest(ctx.clone()),
+            ThemeRegistry::built_in(),
+            crate::config::Config::default(),
+        )
+        .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
 
-        let output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(screen),
-                ..Default::default()
-            },
-            |root| {
-                egui::Panel::top("top_panel")
-                    .resizable(true)
-                    .min_size(TOP_PANEL_HEIGHT)
-                    .show(root, |ui| {
-                        egui::MenuBar::new().ui(ui, |ui| {
-                            ui.menu_button("File", |_ui| {});
-                            ui.add_space(MENU_BAR_GAP);
-                            ui.menu_button("View", |_ui| {});
-                        });
-                    });
-                egui::Panel::bottom("bottom_panel")
-                    .resizable(false)
-                    .min_size(BOTTOM_PANEL_HEIGHT)
-                    .show(root, |ui| {
-                        ui.allocate_ui_with_layout(
-                            ui.available_size(),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                let (label_value_gap, entry_gap) = super::panel_readout_gaps(ui);
-                                ui.spacing_mut().item_spacing.x = 0.0;
-                                super::panel_label(ui, "B");
-                                ui.add_space(label_value_gap);
-                                let mut bpm = 120usize;
-                                super::add_bpm_field(ui, &mut bpm);
-                                ui.add_space(label_value_gap);
-                                super::reserved_monospace(
-                                    ui,
-                                    super::BEAT_MARKER,
-                                    super::monospace_width(ui, super::BEAT_MARKER),
-                                );
-                                ui.add_space(entry_gap);
-                                super::panel_label(ui, "T");
-                                ui.add_space(label_value_gap);
-                                super::reserved_monospace(
-                                    ui,
-                                    "00000",
-                                    super::monospace_width(ui, "00000"),
-                                );
-                                ui.add_space(entry_gap);
-                                super::panel_label(ui, "C");
-                                ui.add_space(label_value_gap);
-                                super::reserved_monospace(
-                                    ui,
-                                    "00:00",
-                                    super::monospace_width(ui, "00:00"),
-                                );
-                                ui.add_space(entry_gap);
-                                super::panel_label(ui, "O");
-                                ui.add_space(label_value_gap);
-                                super::apply_panel_field_spacing(ui);
-                                egui::ComboBox::from_id_salt(super::DESTINATION_COMBO_ID)
-                                    .selected_text(
-                                        egui::RichText::new(crate::midi::OUTPUT_NONE)
-                                            .text_style(egui::TextStyle::Monospace),
-                                    )
-                                    .width(super::OUTPUT_READOUT_WIDTH)
-                                    .icon(|_ui, _rect, _visuals, _is_open| {})
-                                    .show_ui(ui, |ui| {
-                                        let _ = ui.button(super::OUTPUT_SCAN);
-                                        ui.separator();
-                                        let _ = ui.selectable_label(
-                                            true,
-                                            egui::RichText::new(crate::midi::OUTPUT_NONE)
-                                                .text_style(egui::TextStyle::Monospace),
-                                        );
-                                    });
-                            },
-                        );
-                    });
-                egui::CentralPanel::default()
-                    .frame(source_panel_frame(
-                        crate::theme::okabe_ito().grid_background,
-                    ))
-                    .show(root, |ui| {
-                        console = ui.available_size_before_wrap();
-                    });
-            },
-        );
-        output.drop_without_applying_deltas();
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
+        let panel = |id: &str| {
+            egui::containers::panel::PanelState::load(&ctx, egui::Id::new(id))
+                .unwrap_or_else(|| panic!("the console showed no {id}"))
+                .outer_rect
+        };
+        let top = panel("top_panel");
+        let bottom = panel("bottom_panel");
         assert_eq!(
-            console,
+            top,
+            Rect::from_min_size(screen.min, Vec2::new(screen.width(), TOP_PANEL_HEIGHT)),
+            "the top bar is not {TOP_PANEL_HEIGHT} tall across the top of the window"
+        );
+        assert_eq!(
+            bottom,
+            Rect::from_min_max(
+                Pos2::new(screen.min.x, screen.max.y - BOTTOM_PANEL_HEIGHT),
+                screen.max
+            ),
+            "the Panel is not {BOTTOM_PANEL_HEIGHT} tall across the bottom of the window"
+        );
+
+        // The Source's area is the one widget that senses a click and a drag
+        // without taking focus; it is allocated over all the room the central
+        // panel has.
+        let source_areas: Vec<Rect> = ctx.viewport(|viewport| {
+            viewport
+                .prev_pass
+                .widgets
+                .layers()
+                .flat_map(|(_, widgets)| widgets)
+                .filter(|widget| widget.sense == (egui::Sense::CLICK | egui::Sense::DRAG))
+                .map(|widget| widget.rect)
+                .collect()
+        });
+        assert_eq!(
+            source_areas,
+            vec![Rect::from_min_max(
+                Pos2::new(screen.min.x, top.max.y),
+                Pos2::new(screen.max.x, bottom.min.y)
+            )],
+            "the Source is not given the whole window between the bars"
+        );
+        assert_eq!(
+            source_areas[0].size(),
             Vec2::new(
                 DEFAULT_VIEW_SIZE[0],
                 DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT - BOTTOM_PANEL_HEIGHT
