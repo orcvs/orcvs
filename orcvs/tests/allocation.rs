@@ -508,23 +508,26 @@ fn a_rebuild_costs_the_same_however_many_expressions_the_rows_it_carries_hold() 
 
 #[test]
 fn a_commit_that_writes_no_cell_allocates_nothing() {
-    // A Tick that writes nothing still commits, and commits every Tick. No row
-    // was written, so the Language Map it would derive is the one the Source
-    // already holds, and the commit keeps it rather than building a copy.
+    // Every Tick commits, including a Tick that writes no Cell. No row was
+    // written, so the Language Map that commit would derive is the one the
+    // Source already holds, and the commit keeps it rather than building a
+    // copy. Nothing is allocated at any Grid size, so the cost does not follow
+    // the Grid's height or width.
     //
     // Measured on the calling thread.
-    let (cols, rows) = (32, 32);
-    let mut source = populated_source(cols, rows);
+    for &(cols, rows) in SIZES {
+        let mut source = populated_source(cols, rows);
 
-    // Warm up, for the reason `measure_one_write` does.
-    source.write_cells(&[]);
-    let (commit, ()) = measure(|| black_box(&mut source).write_cells(black_box(&[])));
+        // Warm up, for the reason `measure_one_write` does.
+        source.write_cells(&[]);
+        let (commit, ()) = measure(|| black_box(&mut source).write_cells(black_box(&[])));
 
-    assert_eq!(
-        commit,
-        Allocations::default(),
-        "a commit with no writes allocated {commit:?}"
-    );
+        assert_eq!(
+            commit,
+            Allocations::default(),
+            "a commit with no writes allocated {commit:?} at {cols}x{rows}"
+        );
+    }
 }
 
 #[test]
@@ -537,8 +540,7 @@ fn a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster() 
     // with the Expressions the other rows hold.
     //
     // This test asserts the weaker bound over the populated series: the cost
-    // per carried Expression never rises as the Source grows, which a carry
-    // that copied Expressions would also pass if it were linear.
+    // per carried Expression never rises as the Source grows.
     // `a_rebuild_costs_the_same_however_many_expressions_the_rows_it_carries_hold`
     // asserts that the carried rows add nothing at all. The series is
     // what `.github/workflows/bench.yml` publishes, and the Expressions

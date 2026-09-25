@@ -506,7 +506,7 @@ impl LanguageMap {
         self.expressions()
             .filter_map(|expression| {
                 let (anchor, function) = expression.function_candidate()?;
-                self.output_portal_reservation(&expression, anchor, function)
+                self.output_portal_reservation(expression, anchor, function)
             })
             .collect()
     }
@@ -545,7 +545,7 @@ impl LanguageMap {
     ///
     fn output_portal_reservation(
         &self,
-        expression: &ExpressionEntry,
+        expression: ExpressionEntry<'_>,
         anchor: Position,
         function: Function,
     ) -> Option<OutputPortalReservation> {
@@ -575,7 +575,7 @@ impl LanguageMap {
     /// [`ExpressionEntry::positioned`] entries rather than over tick
     /// planning's `Computation` nodes.
     ///
-    fn root_may_answer_a_sequence(&self, expression: &ExpressionEntry) -> bool {
+    fn root_may_answer_a_sequence(&self, expression: ExpressionEntry<'_>) -> bool {
         let entries: Vec<&lang::PositionedEntry> = expression.positioned().collect();
         sequence_capable(&entries).first().copied().unwrap_or(false)
     }
