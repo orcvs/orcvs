@@ -404,6 +404,14 @@ mod test {
     }
 
     #[test]
+    fn the_atom_is_the_size_the_execute_benchmark_was_measured_against() {
+        // Notice rather than a defect, as for the answer seam above: the
+        // `execute` figure and its floor in `benches/floors.toml` were measured
+        // with an eight-byte Atom, and a narrower one measured slower.
+        assert_eq!(size_of::<Atom>(), 8);
+    }
+
+    #[test]
     fn test_str_to_num_rejects_a_leading_sign() {
         // `u8::from_str_radix` accepts a leading `+`, which would let a stray
         // `+` prepended to an Expression parse as a valid operand instead of

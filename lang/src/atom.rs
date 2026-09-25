@@ -190,7 +190,17 @@ impl From<u8> for Length {
     }
 }
 
+/// One parsed value or operation: what an Expression is made of and what a
+/// Sequence holds.
+///
+/// Aligned to eight bytes, which is what makes it eight bytes wide: its
+/// variants fit in four, and at four the `execute` benchmark reads 69 ns
+/// against 63 ns at eight on the same machine, with every aggregate that holds
+/// an Atom (`Value`, `Interpretation`, their `Result`s) the same size either
+/// way. `the_atom_is_the_size_the_execute_benchmark_was_measured_against`
+/// pins it.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(align(8))]
 pub enum Atom {
     Bang,
     Empty,
