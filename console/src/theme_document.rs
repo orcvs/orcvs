@@ -2,39 +2,35 @@
 //! Decodes one Orcvs Theme document's bytes into a [`ThemeDocument`]:
 //! `schema.md`'s "Decoding and limits", with no file I/O and no inheritance.
 //!
-//! The file name's extension selects exactly one decoder — `toml` for
-//! `.toml`, `serde_json` for `.json`, `serde-saphyr` for `.yaml`/`.yml` —
-//! and each decodes straight into the one strict document type below. That
-//! type, not the decoder, decides what is strict, so the three formats
-//! behave alike:
+//! A Theme document is TOML and nothing else, decoded by `toml` straight into
+//! a derived Serde structure. TOML is typed, its root is always a table, and
+//! its parser refuses a repeated key, so what is left to Orcvs is the
+//! structure's shape and its values:
 //!
-//! - the root denies unknown fields, and a repeated root field is an error;
-//! - every scalar is read through `deserialize_any` by a visitor that
-//!   accepts only its own kind, because `serde-saphyr` 1.3.0's typed numeric
-//!   paths parse a quoted scalar as a number and `deserialize_any` respects
-//!   the quoting;
-//! - `style` is read by a map visitor whose literal, case-sensitive dotted
-//!   keys select each value's kind from the catalogue, and which refuses an
-//!   unknown or repeated property itself, because `serde_json` otherwise
-//!   keeps the last duplicate.
+//! - the root and `style` deny unknown fields, and field names are
+//!   case-sensitive;
+//! - `style` holds one optional field per property, derived from
+//!   [`crate::theme::style_catalogue`], the declaration the property keys'
+//!   spellings come from;
+//! - `style` must be a table: a derived struct also takes an array of its
+//!   fields in declaration order, so the parsed value is checked first;
+//! - each value deserializes into a newtype that validates it — the format
+//!   marker, the version, labels, the appearance, colours, widths and the
+//!   optional Cursor fills — so `toml` attaches its line and column, and the
+//!   key it was reading, to every refusal.
 //!
-//! Semantic checks that need only the value — the format marker, the
-//! version, label limits, colour syntax, `none`'s two properties, finite
-//! widths — run inside those visitors, so every decoder attaches its own line
-//! and column to the error. Width bounds and parent/appearance agreement are
-//! [`crate::theme::resolve`]'s, which the caller runs with the identity it
-//! took from the file name.
+//! Width bounds are checked here as read and again by
+//! [`crate::theme::resolve`], which also checks parent/appearance agreement
+//! with the identity the caller took from the file name.
 //!
 
 use std::fmt;
-use std::path::Path;
 
 use serde::Deserialize;
-use serde::de::{self, DeserializeSeed, Deserializer, Error as _, MapAccess, Visitor};
 
 use crate::theme::{
     Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
-    ThemeDocument,
+    ThemeDocument, style_catalogue,
 };
 
 /// `schema.md`'s per-document byte limit, checked before any decoding.
@@ -47,9 +43,7 @@ const MAX_MESSAGE_BYTES: usize = 1024;
 const MAX_LABEL_BYTES: usize = 256;
 
 const FORMAT_MARKER: &str = "orcvs-theme";
-const VERSION: u64 = 1;
-const CURSOR_BACKGROUND: &str = "cursor.background";
-const REGION_CURSOR_BACKGROUND: &str = "region.cursor.background";
+const VERSION: i64 = 1;
 
 // === Errors ===
 
@@ -64,32 +58,21 @@ pub(crate) struct DocumentError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum DocumentErrorReason {
-    /// The extension is not `.toml`, `.json`, `.yaml` or `.yml`, in any case.
-    UnsupportedExtension,
     /// The document is larger than [`MAX_DOCUMENT_BYTES`].
     TooLarge { bytes: usize },
     /// The bytes are not UTF-8; `valid_up_to` is the first bad byte's offset.
     NotUtf8 { valid_up_to: usize },
-    /// The format's decoder refused the document, or a check inside the
-    /// document type did. `message` is the decoder's own, with its line and
-    /// column — for TOML, restated without the echoed source line — and
-    /// names the offending property where one is known. It is capped at
-    /// [`MAX_MESSAGE_BYTES`].
-    Invalid {
-        format: &'static str,
-        message: String,
-    },
+    /// `toml` refused the document, or a newtype inside the document type
+    /// did. `message` is the decoder's own, restated with its line and
+    /// column and the key it was reading, and without the echoed source
+    /// line. It is capped at [`MAX_MESSAGE_BYTES`].
+    Invalid { message: String },
 }
 
 impl fmt::Display for DocumentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let file_name = &self.file_name;
         match &self.reason {
-            DocumentErrorReason::UnsupportedExtension => write!(
-                f,
-                "{file_name}: unsupported Theme file extension; expected .toml, .json, .yaml or \
-                 .yml"
-            ),
             DocumentErrorReason::TooLarge { bytes } => write!(
                 f,
                 "{file_name}: Theme document is {bytes} bytes, over the {MAX_DOCUMENT_BYTES}-byte \
@@ -99,8 +82,8 @@ impl fmt::Display for DocumentError {
                 f,
                 "{file_name}: Theme document is not UTF-8 (invalid byte at offset {valid_up_to})"
             ),
-            DocumentErrorReason::Invalid { format, message } => {
-                write!(f, "{file_name}: invalid {format} Theme document: {message}")
+            DocumentErrorReason::Invalid { message } => {
+                write!(f, "{file_name}: invalid TOML Theme document: {message}")
             }
         }
     }
@@ -108,45 +91,14 @@ impl fmt::Display for DocumentError {
 
 // === Entry point ===
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Format {
-    Toml,
-    Json,
-    Yaml,
-}
-
-impl Format {
-    fn of(file_name: &str) -> Option<Self> {
-        let extension = Path::new(file_name).extension()?.to_str()?;
-        [
-            ("toml", Self::Toml),
-            ("json", Self::Json),
-            ("yaml", Self::Yaml),
-            ("yml", Self::Yaml),
-        ]
-        .into_iter()
-        .find(|(spelling, _)| extension.eq_ignore_ascii_case(spelling))
-        .map(|(_, format)| format)
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Toml => "TOML",
-            Self::Json => "JSON",
-            Self::Yaml => "YAML",
-        }
-    }
-}
-
 ///
-/// Decodes one Theme document. `file_name` is used only for its extension,
-/// which selects the decoder case-insensitively, and to label the error; the
-/// caller derives the identity from it separately and passes the result to
+/// Decodes one Theme document. `file_name` only labels the error: whether a
+/// name is a Theme file's is `theme_registry`'s decision, made once, where it
+/// takes the identity the caller passes with the result to
 /// [`crate::theme::resolve`]. Performs no I/O.
 ///
-/// Refuses, in order: an unsupported extension, more than
-/// [`MAX_DOCUMENT_BYTES`], and non-UTF-8 bytes. One leading U+FEFF is then
-/// stripped, since `serde_json` would reject it, and the text is decoded
+/// Refuses, in order: more than [`MAX_DOCUMENT_BYTES`], and non-UTF-8
+/// bytes. One leading U+FEFF is then stripped, and the text is decoded
 /// whole — a document is accepted entirely or not at all.
 ///
 pub(crate) fn decode(file_name: &str, bytes: &[u8]) -> Result<ThemeDocument, DocumentError> {
@@ -155,8 +107,6 @@ pub(crate) fn decode(file_name: &str, bytes: &[u8]) -> Result<ThemeDocument, Doc
         reason,
     };
 
-    let format =
-        Format::of(file_name).ok_or_else(|| error(DocumentErrorReason::UnsupportedExtension))?;
     if bytes.len() > MAX_DOCUMENT_BYTES {
         return Err(error(DocumentErrorReason::TooLarge { bytes: bytes.len() }));
     }
@@ -169,34 +119,56 @@ pub(crate) fn decode(file_name: &str, bytes: &[u8]) -> Result<ThemeDocument, Doc
 
     let invalid = |message: String| {
         error(DocumentErrorReason::Invalid {
-            format: format.label(),
             message: bounded(message),
         })
     };
-    let Root(raw) = match format {
-        Format::Toml => toml::from_str(text).map_err(|e| invalid(toml_message(&e, text)))?,
-        Format::Json => serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?,
-        Format::Yaml => serde_saphyr::from_str_with_options(text, yaml_options())
-            .map_err(|e| invalid(e.to_string()))?,
-    };
+    let root = toml::de::DeTable::parse(text).map_err(|e| invalid(toml_message(e, text)))?;
+    // A derived struct also takes an array of its fields in declaration
+    // order, and TOML can spell one for `style`, so `style` is checked to
+    // be a table before the document type sees it. The root always is one.
+    if let Some(style) = root.get_ref().get("style")
+        && !matches!(style.get_ref(), toml::de::DeValue::Table(_))
+    {
+        return Err(invalid(format!(
+            "{}, in `style`: `style` is a table of properties",
+            position(text, style.span().start)
+        )));
+    }
+    let raw = RawDocument::deserialize(toml::de::Deserializer::from(root))
+        .map_err(|e| invalid(toml_message(e, text)))?;
     Ok(raw.into_document())
 }
 
 ///
 /// `toml`'s `Display` renders a snippet that echoes the whole offending
 /// source line, which in a one-line document is the document. This keeps
-/// the decoder's message and states its position the way the other two
-/// decoders do: 1-based line, and column counted in characters.
+/// the decoder's message, states its position — 1-based line, and column
+/// counted in characters — and names the key it was reading. `toml` keeps
+/// that key path private and shows it only in its `Display` without a
+/// snippet, as a last `in `…`` line, so it is read from there.
 ///
-fn toml_message(error: &toml::de::Error, text: &str) -> String {
-    let message = error.message();
-    let Some(before) = error.span().and_then(|span| text.get(..span.start)) else {
-        return message.to_owned();
-    };
+fn toml_message(mut error: toml::de::Error, text: &str) -> String {
+    let message = error.message().to_owned();
+    error.set_input(None);
+    let shown = error.to_string();
+    let key = shown
+        .strip_prefix(message.as_str())
+        .map(str::trim)
+        .and_then(|rest| rest.strip_prefix("in `")?.strip_suffix('`'))
+        .map_or_else(String::new, |key| format!(", in `{key}`"));
+    match error.span() {
+        Some(span) => format!("{}{key}: {message}", position(text, span.start)),
+        None => format!("{message}{key}"),
+    }
+}
+
+/// `offset`'s 1-based line, and column counted in characters.
+fn position(text: &str, offset: usize) -> String {
+    let before = text.get(..offset).unwrap_or(text);
     let line = before.matches('\n').count() + 1;
     let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
     let column = before[line_start..].chars().count() + 1;
-    format!("line {line}, column {column}: {message}")
+    format!("line {line}, column {column}")
 }
 
 ///
@@ -216,59 +188,11 @@ fn bounded(mut message: String) -> String {
     message
 }
 
-///
-/// `schema.md`'s YAML options: duplicate keys, merge keys and unsupported
-/// tags are errors, and YAML 1.1's `yes`/`no`/`on`/`off` are not booleans.
-/// Everything else —
-/// the parse budget, the alias limits, rejecting non-finite typeless floats
-/// — is the crate's default, kept deliberately.
-///
-fn yaml_options() -> serde_saphyr::Options {
-    let mut options = serde_saphyr::Options::default();
-    options.duplicate_keys = serde_saphyr::DuplicateKeyPolicy::Error;
-    options.merge_keys = serde_saphyr::MergeKeyPolicy::Error;
-    options.strict_booleans = true;
-    options.reject_unsupported_tags = true;
-    // A plain `line L column C: message`, without the rendered source
-    // snippet, which quotes the document back.
-    options.with_snippet = false;
-    options
-}
-
 // === Document type ===
 
 ///
-/// The document's root, which must be a mapping. A derived struct also
-/// takes a sequence of its fields in declaration order, and `serde_json`
-/// offers one, so the root asks for a map and hands [`RawDocument`] only
-/// that map's entries.
-///
-struct Root(RawDocument);
-
-impl<'de> Deserialize<'de> for Root {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(RootVisitor).map(Self)
-    }
-}
-
-struct RootVisitor;
-
-impl<'de> Visitor<'de> for RootVisitor {
-    type Value = RawDocument;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a table of Theme document fields")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<RawDocument, A::Error> {
-        RawDocument::deserialize(de::value::MapAccessDeserializer::new(map))
-    }
-}
-
-///
-/// The one strict document type every format decodes into. Field names are
-/// `schema.md`'s, case-sensitive; `format` and `version` hold nothing once
-/// checked.
+/// The document's root table. Field names are `schema.md`'s, case-sensitive;
+/// `format` and `version` hold nothing once checked.
 ///
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -277,190 +201,139 @@ struct RawDocument {
     _format: FormatMarker,
     #[serde(rename = "version")]
     _version: Version,
-    #[serde(deserialize_with = "name")]
-    name: String,
-    #[serde(deserialize_with = "inherits")]
-    inherits: String,
-    #[serde(default, deserialize_with = "appearance")]
-    appearance: Option<Appearance>,
+    name: Label,
+    inherits: Label,
+    appearance: Option<AppearanceValue>,
     #[serde(default)]
     style: Style,
 }
 
 impl RawDocument {
-    ///
-    /// Moves the checked fields into a [`ThemeDocument`], with each property
-    /// list in catalogue order. `toml` yields a table's keys sorted, while
-    /// `serde_json` and `serde-saphyr` yield them in document order, and a
-    /// document is the same document whichever format spelled it.
-    ///
     fn into_document(self) -> ThemeDocument {
-        let Style {
-            mut colors,
-            mut grid_widths,
-            mut chrome_widths,
-            cursor_background,
-            region_cursor_background,
-        } = self.style;
-        colors.sort_unstable_by_key(|&(key, _)| key);
-        grid_widths.sort_unstable_by_key(|&(key, _)| key);
-        chrome_widths.sort_unstable_by_key(|&(key, _)| key);
-        ThemeDocument {
-            parent: self.inherits,
-            name: self.name,
-            appearance: self.appearance,
-            colors,
-            grid_widths,
-            chrome_widths,
-            cursor_background,
-            region_cursor_background,
-        }
+        let mut document = self.style.into_document();
+        document.parent = self.inherits.0;
+        document.name = self.name.0;
+        document.appearance = self
+            .appearance
+            .map(|AppearanceValue(appearance)| appearance);
+        document
     }
 }
 
-// === Scalars ===
+// === Validating values ===
 
-///
-/// Reads one string through `deserialize_any`, refusing every other kind,
-/// then hands it to `check` — which names the property in its error.
-///
-struct StrictString<F> {
-    expecting: &'static str,
-    check: F,
-}
-
-impl<'de, T, F: FnOnce(&str) -> Result<T, String>> Visitor<'de> for StrictString<F> {
-    type Value = T;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.expecting)
-    }
-
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<T, E> {
-        (self.check)(value).map_err(E::custom)
-    }
-}
-
-fn strict_string<'de, D, T>(
-    deserializer: D,
-    expecting: &'static str,
-    check: impl FnOnce(&str) -> Result<T, String>,
-) -> Result<T, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    deserializer.deserialize_any(StrictString { expecting, check })
-}
-
+/// `format`: the string `orcvs-theme`.
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
 struct FormatMarker;
 
-impl<'de> Deserialize<'de> for FormatMarker {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        strict_string(
-            deserializer,
-            "the string \"orcvs-theme\" for `format`",
-            |value| {
-                if value == FORMAT_MARKER {
-                    Ok(Self)
-                } else {
-                    Err(format!(
-                        "`format` is {value:?}; an Orcvs Theme document declares \
-                     format = \"{FORMAT_MARKER}\""
-                    ))
-                }
-            },
-        )
+impl TryFrom<String> for FormatMarker {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        if value == FORMAT_MARKER {
+            Ok(Self)
+        } else {
+            Err(format!(
+                "{value:?} is not an Orcvs Theme; a Theme document declares \
+                 format = \"{FORMAT_MARKER}\""
+            ))
+        }
     }
 }
 
+/// `version`: the integer 1.
+#[derive(Deserialize)]
+#[serde(try_from = "i64")]
 struct Version;
 
-fn unsupported_version<E: de::Error>(value: impl fmt::Display) -> E {
-    E::custom(format!(
-        "`version` is {value}; this build reads Theme format version {VERSION} only"
-    ))
-}
+impl TryFrom<i64> for Version {
+    type Error = String;
 
-impl<'de> Deserialize<'de> for Version {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct VersionVisitor;
-
-        impl Visitor<'_> for VersionVisitor {
-            type Value = Version;
-
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "the integer {VERSION} for `version`")
-            }
-
-            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Version, E> {
-                match u64::try_from(value) {
-                    Ok(value) => self.visit_u64(value),
-                    Err(_) => Err(unsupported_version(value)),
-                }
-            }
-
-            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Version, E> {
-                if value == VERSION {
-                    Ok(Version)
-                } else {
-                    Err(unsupported_version(value))
-                }
-            }
+    fn try_from(value: i64) -> Result<Self, String> {
+        if value == VERSION {
+            Ok(Self)
+        } else {
+            Err(format!(
+                "version {value} is unsupported; this build reads Theme format version \
+                 {VERSION} only"
+            ))
         }
-
-        deserializer.deserialize_any(VersionVisitor)
     }
 }
 
 /// `name` and `inherits`: nonempty, no control characters, at most
 /// [`MAX_LABEL_BYTES`] UTF-8 bytes. Too long is an error, never a truncation.
-fn label(property: &'static str, value: &str) -> Result<String, String> {
-    if value.is_empty() {
-        return Err(format!("`{property}` is empty"));
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+struct Label(String);
+
+impl TryFrom<String> for Label {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        if value.is_empty() {
+            return Err("the label is empty".to_owned());
+        }
+        if value.chars().any(char::is_control) {
+            return Err("the label contains a control character".to_owned());
+        }
+        if value.len() > MAX_LABEL_BYTES {
+            return Err(format!(
+                "the label is {} UTF-8 bytes, over the {MAX_LABEL_BYTES}-byte limit",
+                value.len()
+            ));
+        }
+        Ok(Self(value))
     }
-    if value.chars().any(char::is_control) {
-        return Err(format!("`{property}` contains a control character"));
-    }
-    if value.len() > MAX_LABEL_BYTES {
-        return Err(format!(
-            "`{property}` is {} UTF-8 bytes, over the {MAX_LABEL_BYTES}-byte limit",
-            value.len()
-        ));
-    }
-    Ok(value.to_owned())
 }
 
-fn name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    strict_string(deserializer, "a string for `name`", |value| {
-        label("name", value)
-    })
-}
+///
+/// `appearance`: the string `dark` or `light`. A string validated like the
+/// others rather than a derived enum, because `toml` also hands an enum a
+/// table as its variant, and `{ dark = {} }` is not an appearance.
+///
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+struct AppearanceValue(Appearance);
 
-fn inherits<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    strict_string(deserializer, "a string for `inherits`", |value| {
-        label("inherits", value)
-    })
-}
+impl TryFrom<String> for AppearanceValue {
+    type Error = String;
 
-fn appearance<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Appearance>, D::Error> {
-    strict_string(
-        deserializer,
-        "the string \"dark\" or \"light\" for `appearance`",
-        |value| match value {
-            "dark" => Ok(Some(Appearance::Dark)),
-            "light" => Ok(Some(Appearance::Light)),
-            other => Err(format!(
-                "`appearance` is {other:?}; expected \"dark\" or \"light\""
+    fn try_from(value: String) -> Result<Self, String> {
+        match value.as_str() {
+            "dark" => Ok(Self(Appearance::Dark)),
+            "light" => Ok(Self(Appearance::Light)),
+            _ => Err(format!(
+                "{value:?} is not an appearance; expected `dark` or `light`"
             )),
-        },
-    )
+        }
+    }
 }
 
-/// `#` and exactly 6 or 8 hexadecimal digits, straight RGB(A); six mean
-/// opaque.
-fn colour(property: &str, value: &str) -> Result<egui::Color32, String> {
+/// A colour property: `#` and exactly 6 or 8 hexadecimal digits, straight
+/// RGB(A); six mean opaque.
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+struct ColorValue(egui::Color32);
+
+impl TryFrom<String> for ColorValue {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        if value == "none" {
+            let fills = OPTIONAL_FILLS.map(|fill| format!("`{fill}`")).join(" and ");
+            return Err(format!(
+                "\"none\" is not a colour; only {fills} can be \"none\""
+            ));
+        }
+        colour(&value).map(Self)
+    }
+}
+
+fn colour(value: &str) -> Result<egui::Color32, String> {
     let malformed =
-        || format!("`{property}` is {value:?}; a colour is \"#\" and 6 or 8 hexadecimal digits");
+        || format!("{value:?} is not a colour; a colour is \"#\" and 6 or 8 hexadecimal digits");
     // `from_hex` also takes CSS's 3- and 4-digit forms, which the schema
     // does not, and `from_str_radix` beneath it would take a leading `+`.
     let digits = value.strip_prefix('#').ok_or_else(malformed)?;
@@ -472,290 +345,124 @@ fn colour(property: &str, value: &str) -> Result<egui::Color32, String> {
     egui::Color32::from_hex(value).map_err(|_| malformed())
 }
 
-///
-/// A width, read through `deserialize_any` as an integer or a float and
-/// nothing else, and refused unless finite and within `max`: the inclusive
-/// bound [`crate::theme::resolve`] applies too.
-///
-struct Width {
-    property: &'static str,
-    max: f32,
-}
+/// One of the two optional Cursor fills: a colour, or the string `none`.
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+struct Fill(OptionalFill);
 
-impl Width {
-    fn check<E: de::Error>(&self, points: f64) -> Result<f32, E> {
-        if !points.is_finite() {
-            return Err(E::custom(format!(
-                "`{}` is {points}; a width must be a finite number of points",
-                self.property
-            )));
+impl TryFrom<String> for Fill {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        match value.as_str() {
+            "none" => Ok(Self(OptionalFill::None)),
+            value => colour(value).map(|colour| Self(OptionalFill::Color(colour))),
         }
-        // Checked as read, before narrowing to the `f32` `ThemeDocument`
-        // stores: narrowing rounds a value just past a bound onto it, and
-        // one beyond `f32`'s range to infinity, and neither may be clamped.
-        if !(0.0..=f64::from(self.max)).contains(&points) {
-            return Err(E::custom(format!(
-                "`{}` is {points:?}; a width must be 0 to {} points",
-                self.property, self.max
-            )));
-        }
-        Ok(points as f32)
     }
 }
 
-impl<'de> DeserializeSeed<'de> for Width {
-    type Value = f32;
+///
+/// A width in points, refused unless finite and within `0..=max`: the
+/// inclusive bound [`crate::theme::resolve`] applies too. Checked as read,
+/// before narrowing to the `f32` `ThemeDocument` stores: narrowing rounds a
+/// value just past a bound onto it, and one beyond `f32`'s range to
+/// infinity, and neither may be clamped. `toml` hands an integer to an
+/// `f64` too, so both spellings are widths, and nothing else is.
+///
+fn points(points: f64, max: f32) -> Result<f32, String> {
+    if !points.is_finite() {
+        return Err(format!(
+            "{points} is not a width; a width is a finite number of points"
+        ));
+    }
+    if !(0.0..=f64::from(max)).contains(&points) {
+        return Err(format!(
+            "{points:?} is not a width; a width is 0 to {max} points"
+        ));
+    }
+    Ok(points as f32)
+}
 
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<f32, D::Error> {
-        deserializer.deserialize_any(self)
+/// A Grid width: 0 to [`GridWidth::MAX_POINTS`].
+#[derive(Deserialize)]
+#[serde(try_from = "f64")]
+struct GridPoints(f32);
+
+impl TryFrom<f64> for GridPoints {
+    type Error = String;
+
+    fn try_from(value: f64) -> Result<Self, String> {
+        points(value, GridWidth::MAX_POINTS).map(Self)
     }
 }
 
-impl Visitor<'_> for Width {
-    type Value = f32;
+/// A chrome width: 0 to [`ChromeWidth::MAX_POINTS`].
+#[derive(Deserialize)]
+#[serde(try_from = "f64")]
+struct ChromePoints(f32);
 
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "a number of points for `{}`", self.property)
-    }
+impl TryFrom<f64> for ChromePoints {
+    type Error = String;
 
-    // A width is a few points: an integer large enough to lose precision is
-    // refused by the bound whatever it rounds to.
-    fn visit_i64<E: de::Error>(self, value: i64) -> Result<f32, E> {
-        self.check(value as f64)
-    }
-
-    fn visit_u64<E: de::Error>(self, value: u64) -> Result<f32, E> {
-        self.check(value as f64)
-    }
-
-    fn visit_f64<E: de::Error>(self, value: f64) -> Result<f32, E> {
-        self.check(value)
+    fn try_from(value: f64) -> Result<Self, String> {
+        points(value, ChromeWidth::MAX_POINTS).map(Self)
     }
 }
 
 // === Style ===
 
 ///
-/// One `style` property: the key's spelling selects its value kind.
+/// Derives the `style` table from [`style_catalogue`]: one optional field per
+/// property, renamed to its literal dotted spelling, the two optional Cursor
+/// fills among them, and [`OPTIONAL_FILLS`], the fills' spellings. Its
+/// `into_document` lists the supplied properties in catalogue order.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Property {
-    Color(ColorKey),
-    GridWidth(GridWidthKey),
-    ChromeWidth(ChromeWidthKey),
-    CursorBackground,
-    RegionCursorBackground,
-}
+macro_rules! document_style {
+    (
+        OptionalFill { $($fill:ident($fill_field:ident) => $fill_name:literal),* $(,)? }
+        ColorKey { $($color:ident($color_field:ident) => $color_name:literal),* $(,)? }
+        GridWidthKey { $($grid:ident($grid_field:ident) => $grid_name:literal),* $(,)? }
+        ChromeWidthKey { $($chrome:ident($chrome_field:ident) => $chrome_name:literal),* $(,)? }
+    ) => {
+        /// The only properties that take `"none"`.
+        const OPTIONAL_FILLS: [&str; 2] = [$($fill_name),*];
 
-impl Property {
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            CURSOR_BACKGROUND => Some(Self::CursorBackground),
-            REGION_CURSOR_BACKGROUND => Some(Self::RegionCursorBackground),
-            _ => ColorKey::from_name(name)
-                .map(Self::Color)
-                .or_else(|| GridWidthKey::from_name(name).map(Self::GridWidth))
-                .or_else(|| ChromeWidthKey::from_name(name).map(Self::ChromeWidth)),
+        /// The decoded `style` table: `None` for every omitted property.
+        #[derive(Default, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Style {
+            $(#[serde(rename = $color_name)] $color_field: Option<ColorValue>,)*
+            $(#[serde(rename = $grid_name)] $grid_field: Option<GridPoints>,)*
+            $(#[serde(rename = $chrome_name)] $chrome_field: Option<ChromePoints>,)*
+            $(#[serde(rename = $fill_name)] $fill_field: Option<Fill>,)*
         }
-    }
 
-    ///
-    /// The most separators — `.` or `_` — any property name holds:
-    /// `output_portal.border.width` has three.
-    ///
-    const MOST_SEPARATORS: usize = 3;
-
-    ///
-    /// The property `name` spells in another case, or with any of `.`, `_`
-    /// or `-` for each of its separators: the suggestion an unknown name's
-    /// error makes. Each way of reading the separators as `.` or `_` is
-    /// looked up, so `output-portal.border` finds `output_portal.border`; a
-    /// name with more separators than any property holds suggests nothing,
-    /// which bounds the lookups at eight.
-    ///
-    fn spelled(name: &str) -> Option<Self> {
-        let lower = name.to_lowercase();
-        let separators = lower.matches(['.', '_', '-']).count();
-        if separators > Self::MOST_SEPARATORS {
-            return None;
-        }
-        (0..1_u32 << separators).find_map(|underscores| {
-            let mut separator = 0;
-            let candidate = lower
-                .chars()
-                .map(|c| match c {
-                    '.' | '_' | '-' => {
-                        let underscore = (underscores >> separator) & 1 == 1;
-                        separator += 1;
-                        if underscore { '_' } else { '.' }
-                    }
-                    c => c,
-                })
-                .collect::<String>();
-            Self::from_name(&candidate)
-        })
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Color(key) => key.name(),
-            Self::GridWidth(key) => key.name(),
-            Self::ChromeWidth(key) => key.name(),
-            Self::CursorBackground => CURSOR_BACKGROUND,
-            Self::RegionCursorBackground => REGION_CURSOR_BACKGROUND,
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Property {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        strict_string(deserializer, "a style property name", |name| {
-            Self::from_name(name).ok_or_else(|| {
-                let form = "a property name is one lower-case, dot-separated key, such as \
-                            \"grid.background\", and is case-sensitive";
-                match Self::spelled(name) {
-                    Some(property) => format!(
-                        "unknown style property {name:?}; did you mean {:?}? {form}",
-                        property.name()
-                    ),
-                    None => format!("unknown style property {name:?}; {form}"),
-                }
-            })
-        })
-    }
-}
-
-/// A colour property's value.
-struct ColourValue {
-    property: &'static str,
-}
-
-impl<'de> DeserializeSeed<'de> for ColourValue {
-    type Value = egui::Color32;
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        let property = self.property;
-        strict_string(
-            deserializer,
-            "a \"#RRGGBB\" or \"#RRGGBBAA\" colour string",
-            |value| match value {
-                "none" => Err(format!(
-                    "`{property}` is \"none\"; only `{CURSOR_BACKGROUND}` and \
-                     `{REGION_CURSOR_BACKGROUND}` can be \"none\""
-                )),
-                value => colour(property, value),
-            },
-        )
-    }
-}
-
-/// One of the two optional Cursor fills: a colour, or the string `none`.
-struct OptionalFillValue {
-    property: &'static str,
-}
-
-impl<'de> DeserializeSeed<'de> for OptionalFillValue {
-    type Value = OptionalFill;
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        let property = self.property;
-        strict_string(
-            deserializer,
-            "a \"#RRGGBB\" or \"#RRGGBBAA\" colour string, or \"none\"",
-            |value| match value {
-                "none" => Ok(OptionalFill::None),
-                value => colour(property, value).map(OptionalFill::Color),
-            },
-        )
-    }
-}
-
-/// The decoded `style` table, in the shape [`ThemeDocument`] stores it.
-#[derive(Default)]
-struct Style {
-    colors: Vec<(ColorKey, egui::Color32)>,
-    grid_widths: Vec<(GridWidthKey, f32)>,
-    chrome_widths: Vec<(ChromeWidthKey, f32)>,
-    cursor_background: Option<OptionalFill>,
-    region_cursor_background: Option<OptionalFill>,
-}
-
-impl Style {
-    fn contains(&self, property: Property) -> bool {
-        match property {
-            Property::Color(key) => self.colors.iter().any(|&(held, _)| held == key),
-            Property::GridWidth(key) => self.grid_widths.iter().any(|&(held, _)| held == key),
-            Property::ChromeWidth(key) => self.chrome_widths.iter().any(|&(held, _)| held == key),
-            Property::CursorBackground => self.cursor_background.is_some(),
-            Property::RegionCursorBackground => self.region_cursor_background.is_some(),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Style {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(StyleVisitor)
-    }
-}
-
-struct StyleVisitor;
-
-impl<'de> Visitor<'de> for StyleVisitor {
-    type Value = Style;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a table of style properties for `style`")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Style, A::Error> {
-        let mut style = Style::default();
-        while let Some(property) = map.next_key::<Property>()? {
-            let name = property.name();
-            if style.contains(property) {
-                return Err(A::Error::custom(format!(
-                    "style property `{name}` is repeated"
-                )));
-            }
-            match property {
-                Property::Color(key) => {
-                    let colour = map.next_value_seed(ColourValue { property: name })?;
-                    style.colors.push((key, colour));
-                }
-                Property::GridWidth(key) => {
-                    let points = map.next_value_seed(Width {
-                        property: name,
-                        max: GridWidth::MAX_POINTS,
-                    })?;
-                    style.grid_widths.push((key, points));
-                }
-                Property::ChromeWidth(key) => {
-                    let points = map.next_value_seed(Width {
-                        property: name,
-                        max: ChromeWidth::MAX_POINTS,
-                    })?;
-                    style.chrome_widths.push((key, points));
-                }
-                Property::CursorBackground => {
-                    style.cursor_background =
-                        Some(map.next_value_seed(OptionalFillValue { property: name })?);
-                }
-                Property::RegionCursorBackground => {
-                    style.region_cursor_background =
-                        Some(map.next_value_seed(OptionalFillValue { property: name })?);
-                }
+        impl Style {
+            fn into_document(self) -> ThemeDocument {
+                let mut document = ThemeDocument::default();
+                $(if let Some(ColorValue(colour)) = self.$color_field {
+                    document.colors.push((ColorKey::$color, colour));
+                })*
+                $(if let Some(GridPoints(points)) = self.$grid_field {
+                    document.grid_widths.push((GridWidthKey::$grid, points));
+                })*
+                $(if let Some(ChromePoints(points)) = self.$chrome_field {
+                    document.chrome_widths.push((ChromeWidthKey::$chrome, points));
+                })*
+                $(document.$fill_field = self.$fill_field.map(|Fill(fill)| fill);)*
+                document
             }
         }
-        Ok(style)
-    }
+    };
 }
+
+style_catalogue!(document_style);
 
 #[cfg(test)]
 mod tests {
     use egui::Color32;
 
-    use super::{
-        DocumentError, DocumentErrorReason, MAX_DOCUMENT_BYTES, MAX_MESSAGE_BYTES, Property, decode,
-    };
+    use super::{DocumentErrorReason, MAX_DOCUMENT_BYTES, MAX_MESSAGE_BYTES, decode};
     use crate::theme::{
         Appearance, ChromeWidthKey, ColorKey, GridWidthKey, OptionalFill, ThemeDocument,
         ThemeIdentity, okabe_ito, resolve, straight_rgba,
@@ -769,38 +476,6 @@ mod tests {
     const MY_DARK_TOML: &str = include_str!("../../.scratch/theming/examples/my-dark.toml");
     const OKABE_ITO_COPY_TOML: &str =
         include_str!("../../.scratch/theming/examples/okabe-ito-copy.toml");
-
-    /// `my-dark.toml` restated as JSON, in the same order.
-    const MY_DARK_JSON: &str = r##"{
-  "format": "orcvs-theme",
-  "version": 1,
-  "name": "My Dark",
-  "inherits": "okabe-ito",
-  "style": {
-    "text": "#E0E0E0",
-    "grid.background": "#101820",
-    "grid.border": "#35506080",
-    "grid.border.width": 0.5,
-    "cursor.background": "none",
-    "source.function.background": "#001912FF"
-  }
-}
-"##;
-
-    /// `my-dark.toml` restated as YAML. Colours are quoted: an unquoted `#`
-    /// starts a YAML comment.
-    const MY_DARK_YAML: &str = r##"format: orcvs-theme
-version: 1
-name: My Dark
-inherits: okabe-ito
-style:
-  text: "#E0E0E0"
-  grid.background: "#101820"
-  grid.border: "#35506080"
-  grid.border.width: 0.5
-  cursor.background: none
-  source.function.background: "#001912FF"
-"##;
 
     fn my_dark() -> ThemeDocument {
         ThemeDocument {
@@ -823,96 +498,57 @@ style:
         }
     }
 
-    // --- Documents, one builder per format ---
+    // --- Documents ---
 
-    const FORMATS: [&str; 3] = ["theme.toml", "theme.json", "theme.yaml"];
+    const FILE: &str = "theme.toml";
 
     ///
-    /// A document with the four required root fields, `extra_root` spliced
-    /// in after them, and `style` holding `entries` — each a property name
-    /// and a value already written in that format's own syntax.
+    /// A document with the four required root fields, `extra_root` after
+    /// them, and a `[style]` table holding `entries` — each a property name,
+    /// written as a quoted key, and a value already in TOML syntax.
     ///
-    fn document(file: &str, extra_root: &[(&str, &str)], entries: &[(&str, &str)]) -> String {
-        let root = [
-            ("format", quoted(file, "orcvs-theme")),
-            ("version", "1".to_owned()),
-            ("name", quoted(file, "T")),
-            ("inherits", quoted(file, "okabe-ito")),
-        ];
-        let root = root
-            .iter()
-            .map(|(key, value)| (*key, value.as_str()))
-            .chain(extra_root.iter().copied());
-        if file.ends_with(".toml") {
-            let mut text: String = root
-                .map(|(key, value)| format!("{key} = {value}\n"))
-                .collect();
-            text.push_str("\n[style]\n");
-            for (key, value) in entries {
-                text.push_str(&format!("\"{key}\" = {value}\n"));
-            }
-            text
-        } else if file.ends_with(".json") {
-            let root: Vec<String> = root
-                .map(|(key, value)| format!("\"{key}\": {value}"))
-                .collect();
-            let style: Vec<String> = entries
-                .iter()
-                .map(|(key, value)| format!("\"{key}\": {value}"))
-                .collect();
-            format!(
-                "{{{}, \"style\": {{{}}}}}",
-                root.join(", "),
-                style.join(", ")
-            )
-        } else {
-            let mut text: String = root
-                .map(|(key, value)| format!("{key}: {value}\n"))
-                .collect();
-            if entries.is_empty() {
-                text.push_str("style: {}\n");
-            } else {
-                text.push_str("style:\n");
-                for (key, value) in entries {
-                    text.push_str(&format!("  {key}: {value}\n"));
-                }
-            }
-            text
+    fn document(extra_root: &[(&str, &str)], entries: &[(&str, &str)]) -> String {
+        let mut text = String::from(
+            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n",
+        );
+        for (key, value) in extra_root {
+            text.push_str(&format!("{key} = {value}\n"));
         }
-    }
-
-    /// `value` as a quoted string in `file`'s format.
-    fn quoted(file: &str, value: &str) -> String {
-        if file.ends_with(".toml") || file.ends_with(".json") {
-            format!("{value:?}")
-        } else {
-            format!("\"{value}\"")
+        text.push_str("\n[style]\n");
+        for (key, value) in entries {
+            text.push_str(&format!("\"{key}\" = {value}\n"));
         }
+        text
     }
 
-    fn style(file: &str, entries: &[(&str, &str)]) -> String {
-        document(file, &[], entries)
+    fn style(entries: &[(&str, &str)]) -> String {
+        document(&[], entries)
     }
 
-    fn decodes(file: &str, text: &str) -> ThemeDocument {
-        decode(file, text.as_bytes())
-            .unwrap_or_else(|error| panic!("{file} should decode:\n{text}\n{error}"))
+    /// `value` as a TOML basic string.
+    fn quoted(value: &str) -> String {
+        format!("{value:?}")
+    }
+
+    fn decodes(text: &str) -> ThemeDocument {
+        decode(FILE, text.as_bytes())
+            .unwrap_or_else(|error| panic!("should decode:\n{text}\n{error}"))
     }
 
     ///
-    /// Asserts `text` is refused by `file`'s decoder or the document type,
-    /// with every one of `needles` in the message, and returns the message.
+    /// Asserts `text` is refused by `toml` or the document type, with every
+    /// one of `needles` in the message, and returns the message.
     ///
-    fn refuses(file: &str, text: &str, needles: &[&str]) -> String {
+    fn refuses(text: &str, needles: &[&str]) -> String {
         let error =
-            decode(file, text.as_bytes()).expect_err(&format!("{file} should be refused:\n{text}"));
-        let DocumentErrorReason::Invalid { message, .. } = &error.reason else {
-            panic!("{file}: expected a decode error, got {error:?}");
+            decode(FILE, text.as_bytes()).expect_err(&format!("should be refused:\n{text}"));
+        let DocumentErrorReason::Invalid { message } = &error.reason else {
+            panic!("expected a decode error, got {error:?}");
         };
         for needle in needles {
             assert!(
                 message.contains(needle),
-                "{file}: {needle:?} missing from the error:\n{message}\nfor:\n{text}"
+                "{needle:?} missing from the error:\n{message}\nfor:\n{text}"
             );
         }
         message.clone()
@@ -928,25 +564,17 @@ style:
 
     #[test]
     fn the_my_dark_example_decodes_to_its_properties() {
-        assert_eq!(decodes("my-dark.toml", MY_DARK_TOML), my_dark());
-    }
-
-    #[test]
-    fn my_dark_decodes_identically_from_json_and_yaml() {
-        assert_eq!(decodes("my-dark.json", MY_DARK_JSON), my_dark());
-        assert_eq!(decodes("my-dark.yaml", MY_DARK_YAML), my_dark());
-        assert_eq!(decodes("my-dark.yml", MY_DARK_YAML), my_dark());
+        assert_eq!(decodes(MY_DARK_TOML), my_dark());
     }
 
     ///
     /// `okabe-ito-copy.toml` spells out every catalogue property at the
     /// built-in's value, so resolving it must give back the built-in under
-    /// the copy's identity and display label — which also pins every
-    /// property name the decoder maps to the field `resolve` writes.
+    /// the copy's identity and display label.
     ///
     #[test]
     fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
-        let document = decodes("okabe-ito-copy.toml", OKABE_ITO_COPY_TOML);
+        let document = decodes(OKABE_ITO_COPY_TOML);
         assert_eq!(document.colors.len(), 45);
         assert_eq!(document.grid_widths.len(), 7);
         assert_eq!(document.chrome_widths.len(), 5);
@@ -963,25 +591,38 @@ style:
         assert_eq!(resolved, expected);
     }
 
+    ///
+    /// Each of the example's 59 property names, alone in a document, sets
+    /// exactly one property, whose key spells that name — and the 59 reach
+    /// 59 different properties, so every catalogue entry is reachable by
+    /// its own spelling and by no other.
+    ///
     #[test]
     fn every_catalogue_property_name_selects_its_own_property() {
-        let names = OKABE_ITO_COPY_TOML
+        let entries = OKABE_ITO_COPY_TOML
             .lines()
-            .filter_map(|line| line.strip_prefix('"')?.split_once('"'))
-            .map(|(name, _)| name)
+            .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
             .collect::<Vec<_>>();
-        assert_eq!(names.len(), 59, "45 colours, 2 optional fills, 12 widths");
-        let mut seen = Vec::new();
-        for name in names {
-            let property = Property::from_name(name).unwrap_or_else(|| panic!("{name}"));
-            assert_eq!(property.name(), name);
-            assert_eq!(Property::spelled(name), Some(property), "{name}");
-            assert!(
-                name.matches(['.', '_']).count() <= Property::MOST_SEPARATORS,
-                "{name} has more separators than a suggestion searches"
-            );
-            assert!(!seen.contains(&property), "{name} maps to a property twice");
-            seen.push(property);
+        assert_eq!(entries.len(), 59, "45 colours, 2 optional fills, 12 widths");
+        let mut reached = Vec::new();
+        for (name, value) in entries {
+            let document = decodes(&style(&[(name, value)]));
+            let mut set = document
+                .colors
+                .iter()
+                .map(|&(key, _)| key.name())
+                .chain(document.grid_widths.iter().map(|&(key, _)| key.name()))
+                .chain(document.chrome_widths.iter().map(|&(key, _)| key.name()))
+                .chain(document.cursor_background.map(|_| "cursor.background"))
+                .chain(
+                    document
+                        .region_cursor_background
+                        .map(|_| "region.cursor.background"),
+                );
+            assert_eq!(set.next(), Some(name), "{name}");
+            assert_eq!(set.next(), None, "{name} set a second property");
+            assert!(!reached.contains(&name), "{name} reached twice");
+            reached.push(name);
         }
     }
 
@@ -994,271 +635,178 @@ style:
             name: "T".to_owned(),
             ..ThemeDocument::default()
         };
-        for file in FORMATS {
-            assert_eq!(
-                decodes(file, &style(file, &[])),
-                bare,
-                "{file}: empty style"
-            );
-        }
-        let omitted = [
-            (
-                "theme.toml",
-                "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n",
+        assert_eq!(decodes(&style(&[])), bare, "empty style");
+        assert_eq!(
+            decodes(
+                "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n"
             ),
-            (
-                "theme.json",
-                r#"{"format": "orcvs-theme", "version": 1, "name": "T", "inherits": "okabe-ito"}"#,
-            ),
-            (
-                "theme.yaml",
-                "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\n",
-            ),
-        ];
-        for (file, text) in omitted {
-            assert_eq!(decodes(file, text), bare, "{file}: omitted style");
-        }
+            bare,
+            "omitted style"
+        );
     }
 
     ///
-    /// YAML's `style:` with nothing after it is null, not an empty mapping,
-    /// and null is never a valid value; `style: {}` is the empty spelling.
+    /// `style` is a table. A derived struct would also take an array of its
+    /// fields in declaration order, so a complete array is refused too.
     ///
     #[test]
-    fn a_null_style_is_refused() {
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n",
-            &["style", "line 5"],
-        );
-        refuses(
-            "theme.json",
-            r#"{"format": "orcvs-theme", "version": 1, "name": "T", "inherits": "okabe-ito", "style": null}"#,
-            &["style"],
-        );
+    fn a_style_that_is_not_a_table_is_refused() {
+        let in_order = [
+            ["\"#FFFFFF\""; 45].as_slice(),
+            &["0.5"; 7],
+            &["1"; 5],
+            &["\"none\""; 2],
+        ]
+        .concat()
+        .join(", ");
+        let in_order = format!("[{in_order}]");
+        for value in ["\"x\"", "1", "[]", in_order.as_str()] {
+            refuses(
+                &format!(
+                    "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\n\
+                     inherits = \"okabe-ito\"\nstyle = {value}\n"
+                ),
+                &["line 5, column 9, in `style`: `style` is a table of properties"],
+            );
+        }
     }
 
     // --- Optional fills ---
 
     #[test]
     fn optional_fills_are_omitted_cleared_or_a_supplied_transparent_colour() {
-        for file in FORMATS {
-            let omitted = decodes(file, &style(file, &[]));
-            assert_eq!(omitted.cursor_background, None, "{file}");
-            assert_eq!(omitted.region_cursor_background, None, "{file}");
+        let omitted = decodes(&style(&[]));
+        assert_eq!(omitted.cursor_background, None);
+        assert_eq!(omitted.region_cursor_background, None);
 
-            let none = quoted(file, "none");
-            let cleared = decodes(
-                file,
-                &style(
-                    file,
-                    &[
-                        ("cursor.background", &none),
-                        ("region.cursor.background", &none),
-                    ],
-                ),
-            );
-            assert_eq!(
-                cleared.cursor_background,
-                Some(OptionalFill::None),
-                "{file}"
-            );
-            assert_eq!(
-                cleared.region_cursor_background,
-                Some(OptionalFill::None),
-                "{file}"
-            );
+        let none = quoted("none");
+        let cleared = decodes(&style(&[
+            ("cursor.background", &none),
+            ("region.cursor.background", &none),
+        ]));
+        assert_eq!(cleared.cursor_background, Some(OptionalFill::None));
+        assert_eq!(cleared.region_cursor_background, Some(OptionalFill::None));
 
-            let transparent = quoted(file, "#12345600");
-            let supplied = decodes(
-                file,
-                &style(
-                    file,
-                    &[
-                        ("cursor.background", &transparent),
-                        ("region.cursor.background", &transparent),
-                    ],
-                ),
-            );
-            let colour = OptionalFill::Color(straight_rgba(0x12_34_56_00));
-            assert_eq!(supplied.cursor_background, Some(colour), "{file}");
-            assert_eq!(supplied.region_cursor_background, Some(colour), "{file}");
-            assert!(supplied.colors.is_empty(), "{file}");
-        }
+        let transparent = quoted("#12345600");
+        let supplied = decodes(&style(&[
+            ("cursor.background", &transparent),
+            ("region.cursor.background", &transparent),
+        ]));
+        let colour = OptionalFill::Color(straight_rgba(0x12_34_56_00));
+        assert_eq!(supplied.cursor_background, Some(colour));
+        assert_eq!(supplied.region_cursor_background, Some(colour));
+        assert!(supplied.colors.is_empty());
+    }
+
+    #[test]
+    fn an_optional_fill_refuses_a_malformed_colour() {
+        refuses(
+            &style(&[("cursor.background", &quoted("None"))]),
+            &["in `style.cursor.background`", "6 or 8 hexadecimal digits"],
+        );
     }
 
     #[test]
     fn none_is_refused_for_every_other_colour() {
-        for file in FORMATS {
-            refuses(
-                file,
-                &style(file, &[("text", &quoted(file, "none"))]),
-                &["`text` is \"none\"", "cursor.background"],
-            );
-        }
+        refuses(
+            &style(&[("text", &quoted("none"))]),
+            &[
+                "in `style.text`",
+                "\"none\" is not a colour",
+                "`cursor.background`",
+            ],
+        );
     }
 
     // --- Colours ---
 
     #[test]
     fn six_digit_colours_are_opaque_and_eight_digit_colours_carry_alpha() {
-        for file in FORMATS {
-            let document = decodes(
-                file,
-                &style(
-                    file,
-                    &[
-                        ("text", &quoted(file, "#a1B2c3")),
-                        ("link", &quoted(file, "#A1B2C340")),
-                    ],
-                ),
-            );
-            assert_eq!(
-                document.colors,
-                vec![
-                    (ColorKey::Text, Color32::from_rgb(0xA1, 0xB2, 0xC3)),
-                    (ColorKey::Link, straight_rgba(0xA1_B2_C3_40)),
-                ],
-                "{file}"
-            );
-        }
+        let document = decodes(&style(&[
+            ("text", &quoted("#a1B2c3")),
+            ("link", &quoted("#A1B2C340")),
+        ]));
+        assert_eq!(
+            document.colors,
+            vec![
+                (ColorKey::Text, Color32::from_rgb(0xA1, 0xB2, 0xC3)),
+                (ColorKey::Link, straight_rgba(0xA1_B2_C3_40)),
+            ]
+        );
     }
 
     #[test]
     fn a_colour_is_a_hash_and_six_or_eight_hex_digits() {
-        for file in FORMATS {
-            for bad in [
-                "#FFF",
-                "#FFFFF",
-                "#FFFFFFF",
-                "#FFFFFFFFF",
-                "FFFFFF",
-                "#GGGGGG",
-                "#+FFFFF",
-                " #FFFFFF",
-                "",
-            ] {
-                refuses(
-                    file,
-                    &style(file, &[("grid.border", &quoted(file, bad))]),
-                    &["`grid.border`", "6 or 8 hexadecimal digits"],
-                );
-            }
+        for bad in [
+            "#FFF",
+            "#FFFFF",
+            "#FFFFFFF",
+            "#FFFFFFFFF",
+            "FFFFFF",
+            "#GGGGGG",
+            "#+FFFFF",
+            " #FFFFFF",
+            "",
+        ] {
+            refuses(
+                &style(&[("grid.border", &quoted(bad))]),
+                &["in `style.grid.border`", "6 or 8 hexadecimal digits"],
+            );
         }
     }
 
-    ///
-    /// `schema.md`: null, booleans, sequences and nested mappings are never
-    /// a valid value, and neither is a number where a string belongs.
-    ///
+    /// `schema.md`: booleans, arrays and tables are never a valid value, and
+    /// neither is a number where a string belongs.
     #[test]
     fn a_colour_refuses_every_other_kind_of_value() {
-        let per_format: [(&str, &[&str]); 3] = [
-            (
-                "theme.toml",
-                &["5", "0.5", "true", "[\"#FFFFFF\"]", "{ a = \"#FFFFFF\" }"],
-            ),
-            (
-                "theme.json",
-                &[
-                    "5",
-                    "0.5",
-                    "true",
-                    "null",
-                    "[\"#FFFFFF\"]",
-                    "{\"a\": \"#FFFFFF\"}",
-                ],
-            ),
-            (
-                "theme.yaml",
-                &[
-                    "5",
-                    "0.5",
-                    "true",
-                    "null",
-                    "~",
-                    "[\"#FFFFFF\"]",
-                    "{a: \"#FFFFFF\"}",
-                ],
-            ),
-        ];
-        for (file, values) in per_format {
-            for value in values {
-                refuses(
-                    file,
-                    &style(file, &[("text", value)]),
-                    &["invalid type", "colour string"],
-                );
-            }
+        for value in [
+            "5",
+            "0.5",
+            "true",
+            "[\"#FFFFFF\"]",
+            "{ a = \"#FFFFFF\" }",
+            "1979-05-27",
+        ] {
+            refuses(
+                &style(&[("text", value)]),
+                &["invalid type", "in `style.text`"],
+            );
         }
-    }
-
-    #[test]
-    fn an_unquoted_yaml_colour_is_a_comment_and_so_refused() {
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n  text: #E0E0E0\n",
-            &["line 6", "unit value", "colour string"],
-        );
     }
 
     // --- Widths ---
 
     #[test]
     fn widths_accept_integers_and_floats_within_their_bounds() {
-        for file in FORMATS {
-            let document = decodes(
-                file,
-                &style(
-                    file,
-                    &[
-                        ("grid.border.width", "0"),
-                        ("sector.seam.width", "0.75"),
-                        ("panel.border.width", "2"),
-                        ("input.cursor.width", "1.5"),
-                    ],
-                ),
-            );
-            assert_eq!(
-                document.grid_widths,
-                vec![
-                    (GridWidthKey::GridBorder, 0.0),
-                    (GridWidthKey::SectorSeam, 0.75)
-                ],
-                "{file}"
-            );
-            assert_eq!(
-                document.chrome_widths,
-                vec![
-                    (ChromeWidthKey::PanelBorder, 2.0),
-                    (ChromeWidthKey::InputCursor, 1.5)
-                ],
-                "{file}"
-            );
-        }
+        let document = decodes(&style(&[
+            ("grid.border.width", "0"),
+            ("sector.seam.width", "0.75"),
+            ("panel.border.width", "2"),
+            ("input.cursor.width", "1.5"),
+        ]));
+        assert_eq!(
+            document.grid_widths,
+            vec![
+                (GridWidthKey::GridBorder, 0.0),
+                (GridWidthKey::SectorSeam, 0.75)
+            ]
+        );
+        assert_eq!(
+            document.chrome_widths,
+            vec![
+                (ChromeWidthKey::PanelBorder, 2.0),
+                (ChromeWidthKey::InputCursor, 1.5)
+            ]
+        );
     }
 
     #[test]
     fn a_width_refuses_a_string_or_any_other_kind() {
-        let per_format: [(&str, &[&str]); 3] = [
-            ("theme.toml", &["\"0.5\"", "true", "[0.5]", "{ a = 0.5 }"]),
-            (
-                "theme.json",
-                &["\"0.5\"", "true", "null", "[0.5]", "{\"a\": 0.5}"],
-            ),
-            (
-                "theme.yaml",
-                &["\"0.5\"", "'0.5'", "true", "null", "[0.5]", "{a: 0.5}"],
-            ),
-        ];
-        for (file, values) in per_format {
-            for value in values {
-                refuses(
-                    file,
-                    &style(file, &[("grid.border.width", value)]),
-                    &["invalid type", "number of points for `grid.border.width`"],
-                );
-            }
+        for value in ["\"0.5\"", "true", "[0.5]", "{ a = 0.5 }"] {
+            refuses(
+                &style(&[("grid.border.width", value)]),
+                &["invalid type", "in `style.grid.border.width`"],
+            );
         }
     }
 
@@ -1266,23 +814,10 @@ style:
     fn a_width_must_be_finite() {
         for value in ["nan", "inf", "-inf", "+inf"] {
             refuses(
-                "theme.toml",
-                &style("theme.toml", &[("grid.border.width", value)]),
-                &["`grid.border.width`", "finite"],
+                &style(&[("grid.border.width", value)]),
+                &["in `style.grid.border.width`", "finite number of points"],
             );
         }
-        for value in [".nan", ".inf", "-.inf", "1e999"] {
-            refuses(
-                "theme.yaml",
-                &style("theme.yaml", &[("grid.border.width", value)]),
-                &["line 6"],
-            );
-        }
-        refuses(
-            "theme.json",
-            &style("theme.json", &[("grid.border.width", "1e999")]),
-            &["line 1"],
-        );
     }
 
     ///
@@ -1299,16 +834,11 @@ style:
             ("input.cursor.width", "7.5", "0 to 2 points"),
             ("panel.border.width", "1e300", "0 to 2 points"),
         ];
-        // Only the property and bound are asserted: serde_json's default
-        // float parser does not round-trip every value it echoes.
-        for file in FORMATS {
-            for (property, value, range) in cases {
-                refuses(
-                    file,
-                    &style(file, &[(property, value)]),
-                    &[&format!("`{property}` is "), range],
-                );
-            }
+        for (property, value, range) in cases {
+            refuses(
+                &style(&[(property, value)]),
+                &[&format!("in `style.{property}`"), range],
+            );
         }
     }
 
@@ -1316,15 +846,11 @@ style:
 
     #[test]
     fn an_unknown_or_wrong_case_root_field_is_refused() {
-        for file in FORMATS {
-            let value = quoted(file, "x");
-            for field in ["colour", "Name", "FORMAT", "Style"] {
-                refuses(
-                    file,
-                    &document(file, &[(field, &value)], &[]),
-                    &["unknown field", field],
-                );
-            }
+        for field in ["colour", "Name", "FORMAT", "Style"] {
+            refuses(
+                &document(&[(field, "\"x\"")], &[]),
+                &[&format!("unknown field `{field}`")],
+            );
         }
     }
 
@@ -1342,151 +868,149 @@ style:
                 .map(|(key, value)| format!("{key} = {value:?}\n"))
                 .chain((missing != "version").then(|| "version = 1\n".to_owned()))
                 .collect();
-            refuses("theme.toml", &toml, &["missing field", missing]);
+            refuses(&toml, &["missing field", missing]);
         }
-    }
-
-    ///
-    /// The root is a mapping of named fields. A derived struct would also
-    /// take a sequence of its fields in declaration order, which `serde_json`
-    /// offers; TOML's root is always a table.
-    ///
-    #[test]
-    fn a_root_sequence_is_refused() {
-        refuses(
-            "theme.json",
-            r#"["orcvs-theme", 1, "Mine", "okabe-ito", "dark", {}]"#,
-            &["invalid type: sequence", "line 1"],
-        );
-        refuses(
-            "theme.yaml",
-            "- orcvs-theme\n- 1\n- Mine\n- okabe-ito\n- dark\n- {}\n",
-            &["expected mapping", "line 1"],
-        );
     }
 
     #[test]
     fn a_repeated_root_field_is_refused() {
         refuses(
-            "theme.toml",
             "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\nname = \"U\"\ninherits = \"okabe-ito\"\n",
-            &["line 4"],
-        );
-        refuses(
-            "theme.json",
-            r#"{"format": "orcvs-theme", "version": 1, "name": "T", "name": "U", "inherits": "okabe-ito"}"#,
-            &["duplicate field `name`", "line 1"],
-        );
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\nname: U\ninherits: okabe-ito\n",
-            &["duplicate", "line 4"],
+            &["line 4", "duplicate key"],
         );
     }
 
     #[test]
     fn the_format_marker_must_be_orcvs_theme() {
-        for file in FORMATS {
-            let text = style(file, &[]).replacen("orcvs-theme", "orcvs-palette", 1);
-            refuses(
-                file,
-                &text,
-                &["`format` is \"orcvs-palette\"", "orcvs-theme"],
-            );
-        }
         refuses(
-            "theme.json",
-            r#"{"format": 1, "version": 1, "name": "T", "inherits": "okabe-ito"}"#,
-            &["invalid type", "`format`"],
+            &style(&[]).replacen("orcvs-theme", "orcvs-palette", 1),
+            &[
+                "in `format`",
+                "\"orcvs-palette\" is not an Orcvs Theme",
+                "orcvs-theme",
+            ],
+        );
+        refuses(
+            &style(&[]).replacen("\"orcvs-theme\"", "1", 1),
+            &["invalid type", "in `format`"],
         );
     }
 
     #[test]
     fn the_version_must_be_the_integer_one() {
-        for file in FORMATS {
-            let with_version = |version: &str| style(file, &[]).replacen("1", version, 1);
-            refuses(
-                file,
-                &with_version("2"),
-                &["`version` is 2", "version 1 only"],
-            );
-            refuses(file, &with_version("0"), &["`version` is 0"]);
-            refuses(file, &with_version("-1"), &["`version` is -1"]);
-            refuses(
-                file,
-                &with_version("1.0"),
-                &["floating point", "the integer 1"],
-            );
-            refuses(
-                file,
-                &with_version(&quoted(file, "1")),
-                &["invalid type: string", "the integer 1"],
-            );
-        }
+        let with_version = |version: &str| style(&[]).replacen("1", version, 1);
         refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: '1'\nname: T\ninherits: okabe-ito\n",
-            &["invalid type: string", "line 2"],
+            &with_version("2"),
+            &["in `version`", "version 2 is unsupported", "version 1 only"],
+        );
+        refuses(&with_version("0"), &["version 0 is unsupported"]);
+        refuses(&with_version("-1"), &["version -1 is unsupported"]);
+        refuses(
+            &with_version("1.0"),
+            &["invalid type: floating point", "in `version`"],
+        );
+        refuses(
+            &with_version("\"1\""),
+            &["invalid type: string", "in `version`"],
         );
     }
 
     #[test]
     fn appearance_is_dark_or_light() {
-        for file in FORMATS {
-            for (value, appearance) in [("dark", Appearance::Dark), ("light", Appearance::Light)] {
-                let document = decodes(
-                    file,
-                    &document(file, &[("appearance", &quoted(file, value))], &[]),
-                );
-                assert_eq!(document.appearance, Some(appearance), "{file}");
-            }
-            for value in ["Dark", "dim", ""] {
-                refuses(
-                    file,
-                    &document(file, &[("appearance", &quoted(file, value))], &[]),
-                    &["`appearance`", "\"dark\" or \"light\""],
-                );
-            }
+        for (value, appearance) in [("dark", Appearance::Dark), ("light", Appearance::Light)] {
+            let document = decodes(&document(&[("appearance", &quoted(value))], &[]));
+            assert_eq!(document.appearance, Some(appearance));
+        }
+        for value in ["Dark", "dim", ""] {
             refuses(
-                file,
-                &document(file, &[("appearance", "true")], &[]),
-                &["invalid type"],
+                &document(&[("appearance", &quoted(value))], &[]),
+                &["in `appearance`", "`dark` or `light`"],
+            );
+        }
+        refuses(
+            &document(&[("appearance", "true")], &[]),
+            &["invalid type: boolean `true`", "in `appearance`"],
+        );
+    }
+
+    ///
+    /// `toml` hands a table to an enum as its variant, so `appearance` is a
+    /// string it validates, never a derived enum: a table naming a valid
+    /// appearance is a wrong type like any other.
+    ///
+    #[test]
+    fn an_appearance_table_is_refused() {
+        for value in ["{ dark = {} }", "{ light = [] }", "{ dark = 1 }"] {
+            refuses(
+                &document(&[("appearance", value)], &[]),
+                &["invalid type: map", "in `appearance`"],
+            );
+        }
+    }
+
+    ///
+    /// No other field is an enum, and none takes a table in place of its
+    /// scalar either.
+    ///
+    #[test]
+    fn a_table_is_refused_for_every_scalar_field() {
+        let root =
+            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n";
+        for field in ["format", "version", "name", "inherits"] {
+            let text = root
+                .lines()
+                .map(|line| match line.split_once(" = ") {
+                    Some((key, _)) if key == field => format!("{key} = {{ dark = {{}} }}\n"),
+                    _ => format!("{line}\n"),
+                })
+                .collect::<String>();
+            refuses(&text, &["invalid type: map", &format!("in `{field}`")]);
+        }
+        for property in [
+            "text",
+            "cursor.background",
+            "grid.border.width",
+            "panel.border.width",
+        ] {
+            refuses(
+                &style(&[(property, "{ none = {} }")]),
+                &["invalid type: map", &format!("in `style.{property}`")],
             );
         }
     }
 
     // --- Labels ---
 
+    fn document_with_labels(name: &str, inherits: &str) -> String {
+        format!("format = \"orcvs-theme\"\nversion = 1\nname = {name}\ninherits = {inherits}\n")
+    }
+
     #[test]
     fn name_and_inherits_must_be_nonempty_and_free_of_control_characters() {
-        for file in FORMATS {
-            let (empty, parent) = (quoted(file, ""), quoted(file, "okabe-ito"));
-            refuses(
-                file,
-                &document_with_labels(file, &empty, &parent),
-                &["`name` is empty"],
-            );
-            let name = quoted(file, "T");
-            refuses(
-                file,
-                &document_with_labels(file, &name, &empty),
-                &["`inherits` is empty"],
-            );
-        }
+        let (empty, parent, name) = (quoted(""), quoted("okabe-ito"), quoted("T"));
         refuses(
-            "theme.json",
-            r#"{"format": "orcvs-theme", "version": 1, "name": "A\tB", "inherits": "okabe-ito"}"#,
-            &["`name` contains a control character"],
+            &document_with_labels(&empty, &parent),
+            &["in `name`", "the label is empty"],
         );
         refuses(
-            "theme.toml",
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe\\u0007ito\"\n",
-            &["`inherits` contains a control character"],
+            &document_with_labels(&name, &empty),
+            &["in `inherits`", "the label is empty"],
         );
         refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: \"A\\nB\"\ninherits: okabe-ito\n",
-            &["`name` contains a control character"],
+            &document_with_labels("\"A\\tB\"", &parent),
+            &["in `name`", "the label contains a control character"],
+        );
+        refuses(
+            &document_with_labels(&name, "\"okabe\\u0007ito\""),
+            &["in `inherits`", "the label contains a control character"],
+        );
+        refuses(
+            &document_with_labels("\"\"\"A\nB\"\"\"", &parent),
+            &["in `name`", "the label contains a control character"],
+        );
+        refuses(
+            &document_with_labels("1", &parent),
+            &["invalid type: integer", "in `name`"],
         );
     }
 
@@ -1496,50 +1020,29 @@ style:
     ///
     #[test]
     fn name_and_inherits_stay_within_256_utf8_bytes() {
-        for file in FORMATS {
-            for field in ["name", "inherits"] {
-                let with = |value: &str| {
-                    let quoted_value = quoted(file, value);
-                    match field {
-                        "name" => {
-                            document_with_labels(file, &quoted_value, &quoted(file, "okabe-ito"))
-                        }
-                        _ => document_with_labels(file, &quoted(file, "T"), &quoted_value),
-                    }
-                };
-                let at_limit = decodes(file, &with(&"a".repeat(256)));
-                let held = if field == "name" {
-                    at_limit.name
-                } else {
-                    at_limit.parent
-                };
-                assert_eq!(held.len(), 256, "{file} {field}");
-                decodes(file, &with(&"é".repeat(128)));
+        for field in ["name", "inherits"] {
+            let with = |value: &str| match field {
+                "name" => document_with_labels(&quoted(value), &quoted("okabe-ito")),
+                _ => document_with_labels(&quoted("T"), &quoted(value)),
+            };
+            let at_limit = decodes(&with(&"a".repeat(256)));
+            let held = if field == "name" {
+                at_limit.name
+            } else {
+                at_limit.parent
+            };
+            assert_eq!(held.len(), 256, "{field}");
+            decodes(&with(&"é".repeat(128)));
 
-                refuses(
-                    file,
-                    &with(&"a".repeat(257)),
-                    &[&format!("`{field}` is 257 UTF-8 bytes"), "256-byte limit"],
-                );
-                refuses(
-                    file,
-                    &with(&"é".repeat(129)),
-                    &[&format!("`{field}` is 258 UTF-8 bytes")],
-                );
-            }
-        }
-    }
-
-    fn document_with_labels(file: &str, name: &str, inherits: &str) -> String {
-        let format = quoted(file, "orcvs-theme");
-        if file.ends_with(".toml") {
-            format!("format = {format}\nversion = 1\nname = {name}\ninherits = {inherits}\n")
-        } else if file.ends_with(".json") {
-            format!(
-                r#"{{"format": {format}, "version": 1, "name": {name}, "inherits": {inherits}}}"#
-            )
-        } else {
-            format!("format: {format}\nversion: 1\nname: {name}\ninherits: {inherits}\n")
+            refuses(
+                &with(&"a".repeat(257)),
+                &[
+                    &format!("in `{field}`"),
+                    "the label is 257 UTF-8 bytes",
+                    "256-byte limit",
+                ],
+            );
+            refuses(&with(&"é".repeat(129)), &["the label is 258 UTF-8 bytes"]);
         }
     }
 
@@ -1547,324 +1050,116 @@ style:
 
     #[test]
     fn an_unknown_or_wrong_case_style_property_is_refused() {
-        for file in FORMATS {
-            let colour = quoted(file, "#FFFFFF");
-            for property in [
-                "Text",
-                "grid.Background",
-                "source.char",
-                "grid_background",
-                "text.",
-                "style",
-            ] {
-                refuses(
-                    file,
-                    &style(file, &[(property, &colour)]),
-                    &[&format!("unknown style property {property:?}")],
-                );
-            }
-        }
-    }
-
-    ///
-    /// Issue 07: the error explains the valid key. A near-miss in case or
-    /// separator names the property it spells; any unknown name shows the
-    /// form a property name takes.
-    ///
-    #[test]
-    fn an_unknown_style_property_explains_the_valid_key() {
-        for file in FORMATS {
-            let colour = &quoted(file, "#FFFFFF");
-            for (property, suggestion) in [
-                ("grid_background", "did you mean \"grid.background\""),
-                ("Grid.Background", "did you mean \"grid.background\""),
-                ("panel-border-width", "did you mean \"panel.border.width\""),
-                ("Text", "did you mean \"text\""),
-            ] {
-                refuses(file, &style(file, &[(property, colour)]), &[suggestion]);
-            }
-            let message = refuses(
-                file,
-                &style(file, &[("style", colour)]),
-                &["\"grid.background\""],
+        let colour = quoted("#FFFFFF");
+        for property in [
+            "Text",
+            "grid.Background",
+            "source.char",
+            "grid_background",
+            "text.",
+            "style",
+        ] {
+            refuses(
+                &style(&[(property, &colour)]),
+                &[&format!("unknown field `{property}`"), "in `style`"],
             );
-            assert!(!message.contains("did you mean"), "{file}: {message}");
         }
     }
 
     ///
-    /// The Output Portal properties spell `output_portal` with an underscore,
-    /// so a misspelling of them is suggested too, whichever separator or case
-    /// it uses in place of that underscore.
+    /// Issue 07: the error explains the valid key. `serde`'s refusal lists
+    /// the valid property names, colours first, as far as the message cap
+    /// allows; a near miss is not singled out.
     ///
     #[test]
-    fn a_misspelled_output_portal_property_is_suggested() {
-        for file in FORMATS {
-            let colour = quoted(file, "#FFFFFF");
-            let colour = colour.as_str();
-            let width = "2";
-            for (property, value, suggestion) in [
-                ("Output_Portal.Border", colour, "\"output_portal.border\""),
-                ("output-portal.border", colour, "\"output_portal.border\""),
-                (
-                    "output.portal.foreground",
-                    colour,
-                    "\"output_portal.foreground\"",
-                ),
-                (
-                    "OUTPUT_PORTAL_BACKGROUND",
-                    colour,
-                    "\"output_portal.background\"",
-                ),
-                (
-                    "output-portal-border-width",
-                    width,
-                    "\"output_portal.border.width\"",
-                ),
-            ] {
-                refuses(
-                    file,
-                    &style(file, &[(property, value)]),
-                    &[&format!("did you mean {suggestion}")],
-                );
-            }
+    fn an_unknown_style_property_lists_the_valid_names() {
+        let message = refuses(
+            &style(&[("grid_background", &quoted("#FFFFFF"))]),
+            &[
+                "unknown field `grid_background`, expected one of",
+                "`window.background`",
+                "`grid.background`",
+            ],
+        );
+        assert!(
+            message.len() <= MAX_MESSAGE_BYTES,
+            "{} bytes",
+            message.len()
+        );
+    }
+
+    ///
+    /// The list of 59 names, colours first, is longer than the message cap,
+    /// which cuts it and marks the cut: a mistyped property is refused with
+    /// a message that names it but may not list the width or fill it meant.
+    ///
+    #[test]
+    fn an_unknown_width_property_is_refused_with_a_capped_list() {
+        let message = refuses(
+            &style(&[("grid.border.widht", "0.5")]),
+            &["unknown field `grid.border.widht`, expected one of"],
+        );
+        assert!(
+            message.len() <= MAX_MESSAGE_BYTES,
+            "{} bytes",
+            message.len()
+        );
+        assert!(message.ends_with('…'), "{message}");
+        for cut in ["`panel.border.width`", "`cursor.background`"] {
+            assert!(!message.contains(cut), "{cut} listed: {message}");
         }
     }
 
     ///
     /// A dotted property name is one literal key, never a nested path: the
-    /// TOML dotted key `grid.background = ...` and a nested `grid` mapping
+    /// TOML dotted key `grid.background = ...` and a nested `grid` table
     /// are both refused.
     ///
     #[test]
     fn a_style_property_is_never_a_nested_path() {
+        let root =
+            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n";
         refuses(
-            "theme.toml",
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n[style]\ngrid.background = \"#FFFFFF\"\n",
-            &["unknown style property \"grid\""],
+            &format!("{root}[style]\ngrid.background = \"#FFFFFF\"\n"),
+            &["unknown field `grid`"],
         );
         refuses(
-            "theme.json",
-            r##"{"format": "orcvs-theme", "version": 1, "name": "T", "inherits": "okabe-ito", "style": {"grid": {"background": "#FFFFFF"}}}"##,
-            &["unknown style property \"grid\""],
-        );
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n  grid:\n    background: \"#FFFFFF\"\n",
-            &["unknown style property \"grid\""],
+            &format!("{root}[style.grid]\nbackground = \"#FFFFFF\"\n"),
+            &["unknown field `grid`"],
         );
     }
 
     #[test]
     fn a_repeated_style_property_is_refused() {
         refuses(
-            "theme.json",
-            &style(
-                "theme.json",
-                &[("text", "\"#FFFFFF\""), ("text", "\"#000000\"")],
-            ),
-            &["style property `text` is repeated", "line 1"],
-        );
-        refuses(
-            "theme.json",
-            &style(
-                "theme.json",
-                &[
-                    ("cursor.background", "\"none\""),
-                    ("cursor.background", "\"none\""),
-                ],
-            ),
-            &["style property `cursor.background` is repeated"],
-        );
-        refuses(
-            "theme.json",
-            &style(
-                "theme.json",
-                &[("grid.border.width", "0.5"), ("grid.border.width", "0.5")],
-            ),
-            &["style property `grid.border.width` is repeated"],
-        );
-        refuses(
-            "theme.toml",
-            &style(
-                "theme.toml",
-                &[("text", "\"#FFFFFF\""), ("text", "\"#000000\"")],
-            ),
+            &style(&[("text", "\"#FFFFFF\""), ("text", "\"#000000\"")]),
             &["duplicate key", "line 8"],
         );
         refuses(
-            "theme.yaml",
-            &style(
-                "theme.yaml",
-                &[("text", "\"#FFFFFF\""), ("text", "\"#000000\"")],
-            ),
-            &["duplicate", "line 7"],
+            &style(&[
+                ("cursor.background", "\"none\""),
+                ("cursor.background", "\"none\""),
+            ]),
+            &["duplicate key", "line 8"],
         );
-    }
-
-    // --- YAML-only syntax ---
-
-    #[test]
-    fn yaml_merge_keys_are_refused() {
         refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n  <<: {text: \"#FFFFFF\"}\n",
-            &["merge keys", "line 6"],
+            &style(&[("grid.border.width", "0.5"), ("grid.border.width", "0.5")]),
+            &["duplicate key", "line 8"],
         );
     }
 
-    #[test]
-    fn yaml_unknown_tags_are_refused() {
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n  text: !colour \"#FFFFFF\"\n",
-            &["unsupported tag", "line 6"],
-        );
-    }
-
-    #[test]
-    fn yaml_multiple_documents_are_refused() {
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\n---\nformat: orcvs-theme\nversion: 1\nname: U\ninherits: okabe-ito\n",
-            &["multiple YAML documents"],
-        );
-    }
-
-    #[test]
-    fn yaml_tab_indentation_is_refused() {
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n\ttext: \"#FFFFFF\"\n",
-            &["tabs", "line 6"],
-        );
-    }
-
-    #[test]
-    fn yaml_only_true_and_false_are_booleans() {
-        let document = decodes(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: yes\ninherits: okabe-ito\n",
-        );
-        assert_eq!(document.name, "yes");
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: true\ninherits: okabe-ito\n",
-            &["invalid type: boolean", "`name`"],
-        );
-    }
-
-    #[test]
-    fn yaml_scalar_aliases_are_accepted() {
-        let document = decodes(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n  text: &ink \"#FFFFFF\"\n  link: *ink\n",
-        );
-        assert_eq!(
-            document.colors,
-            vec![
-                (ColorKey::Text, Color32::WHITE),
-                (ColorKey::Link, Color32::WHITE)
-            ]
-        );
-    }
-
-    ///
-    /// A billion-laughs document: ten levels of ten-fold aliases. Nothing in
-    /// the document type accepts a sequence, so it is refused at its first
-    /// node, before any alias is replayed, and the alias limits stay as
-    /// a second line.
-    ///
-    #[test]
-    fn a_yaml_alias_bomb_is_refused() {
-        let mut text = String::from(
-            "format: orcvs-theme\nversion: 1\nname: T\ninherits: okabe-ito\nstyle:\n  text: &l0 [x, x, x, x, x, x, x, x, x, x]\n",
-        );
-        let levels = [
-            "link",
-            "error",
-            "warning",
-            "code.background",
-            "input.cursor",
-            "input.background",
-            "text.muted",
-            "text.active",
-            "cell.background",
-        ];
-        for (level, property) in levels.iter().enumerate() {
-            let previous = format!("*l{level}");
-            let items = [previous.as_str(); 10].join(", ");
-            text.push_str(&format!("  {property}: &l{} [{items}]\n", level + 1));
-        }
-        refuses("theme.yaml", &text, &["invalid type: sequence", "line 6"]);
-    }
-
-    ///
-    /// `strict_booleans` stops YAML 1.1's `yes`/`no`/`on`/`off` being
-    /// booleans, but the YAML 1.2 core schema still types `True`, `TRUE`,
-    /// `Null`, `NULL` and `~`, so a string field holding one must quote it.
-    ///
-    #[test]
-    fn yaml_core_booleans_and_nulls_are_not_strings() {
-        for word in ["True", "TRUE", "False", "Null", "NULL", "~"] {
-            refuses(
-                "theme.yaml",
-                &format!("format: orcvs-theme\nversion: 1\nname: {word}\ninherits: okabe-ito\n"),
-                &["invalid type", "`name`", "line 3"],
-            );
-        }
-        for word in ["True", "NULL"] {
-            let document = decodes(
-                "theme.yaml",
-                &format!(
-                    "format: orcvs-theme\nversion: 1\nname: \"{word}\"\ninherits: okabe-ito\n"
-                ),
-            );
-            assert_eq!(document.name, word);
-        }
-    }
-
-    ///
-    /// An explicit YAML core tag decides its node's type, as YAML intends:
-    /// `!!int "1"` is the integer 1, and `!!binary` is decoded to its text.
-    /// The quoted-version refusal applies to untagged scalars.
-    ///
-    #[test]
-    fn yaml_core_tags_decide_the_node_type() {
-        let document = decodes(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: !!int \"1\"\nname: T\ninherits: okabe-ito\n",
-        );
-        assert_eq!(document.name, "T");
-        let document = decodes(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: 1\nname: !!binary TXkgRGFyaw==\ninherits: okabe-ito\n",
-        );
-        assert_eq!(document.name, "My Dark");
-        refuses(
-            "theme.yaml",
-            "format: orcvs-theme\nversion: !!str 1\nname: T\ninherits: okabe-ito\n",
-            &["invalid type: string", "line 2"],
-        );
-    }
-
-    #[test]
-    fn yaml_errors_carry_line_and_column_without_a_snippet() {
-        let message = refuses(
-            "theme.yaml",
-            &style("theme.yaml", &[("grid.border", "\"#12\"")]),
-            &["at line 6, column 16", "`grid.border` is \"#12\""],
-        );
-        assert!(!message.contains("<input>"), "{message}");
-        assert!(!message.contains('\n'), "{message}");
-    }
+    // --- Error text ---
 
     #[test]
     fn toml_errors_carry_line_and_column_without_echoing_the_line() {
         let message = refuses(
-            "theme.toml",
-            &style("theme.toml", &[("text", "5")]),
-            &["line 7, column 10: invalid type: integer `5`"],
+            &style(&[("text", "5")]),
+            &["line 7, column 10, in `style.text`: invalid type: integer `5`"],
+        );
+        assert!(!message.contains('\n'), "{message}");
+        let message = refuses(
+            "format = \"orcvs-theme\"\nversion = \n",
+            &["line 2, column"],
         );
         assert!(!message.contains('\n'), "{message}");
     }
@@ -1878,8 +1173,7 @@ style:
     fn a_long_single_line_document_yields_a_bounded_message() {
         let comment = "x".repeat(MAX_DOCUMENT_BYTES / 2);
         let message = refuses(
-            "theme.toml",
-            &style("theme.toml", &[("text", &format!("5 # {comment}"))]),
+            &style(&[("text", &format!("5 # {comment}"))]),
             &["line 7, column 10"],
         );
         assert!(
@@ -1888,42 +1182,41 @@ style:
             message.len()
         );
 
-        // A decoder message that quotes a huge value is cut on a character
-        // boundary and marked as cut.
-        for file in FORMATS {
-            let value = quoted(file, &format!("#{}", "é".repeat(MAX_DOCUMENT_BYTES / 4)));
-            let message = refuses(file, &style(file, &[("text", &value)]), &["`text` is"]);
-            assert!(
-                message.len() <= MAX_MESSAGE_BYTES,
-                "{file}: {} bytes",
-                message.len()
-            );
-            assert!(message.ends_with('…'), "{file}");
-        }
+        // A message that quotes a huge value is cut on a character boundary
+        // and marked as cut.
+        let value = quoted(&format!("#{}", "é".repeat(MAX_DOCUMENT_BYTES / 4)));
+        let message = refuses(&style(&[("text", &value)]), &["in `style.text`"]);
+        assert!(
+            message.len() <= MAX_MESSAGE_BYTES,
+            "{} bytes",
+            message.len()
+        );
+        assert!(message.ends_with('…'));
+    }
+
+    #[test]
+    fn the_error_names_the_file_the_property_and_the_position() {
+        let shown = decode("bad.toml", style(&[("grid.border", "\"#12\"")]).as_bytes())
+            .expect_err("a malformed colour")
+            .to_string();
+        assert_eq!(
+            shown,
+            "bad.toml: invalid TOML Theme document: line 7, column 17, in \
+             `style.grid.border`: \"#12\" is not a colour; a colour is \"#\" and 6 or 8 \
+             hexadecimal digits"
+        );
     }
 
     // --- Bytes before decoding ---
 
     #[test]
-    fn a_leading_byte_order_mark_is_stripped_in_every_format() {
-        for (file, text) in [
-            ("my-dark.toml", MY_DARK_TOML),
-            ("my-dark.json", MY_DARK_JSON),
-            ("my-dark.yaml", MY_DARK_YAML),
-        ] {
-            let document = decode(file, &with_bom(text)).unwrap_or_else(|error| panic!("{error}"));
-            assert_eq!(document, my_dark(), "{file}");
-        }
-    }
-
-    #[test]
-    fn only_one_byte_order_mark_is_stripped() {
-        let twice = with_bom(&String::from_utf8(with_bom(MY_DARK_JSON)).expect("UTF-8"));
-        let error = decode("my-dark.json", &twice).expect_err("second mark is content");
-        assert!(matches!(
-            error.reason,
-            DocumentErrorReason::Invalid { format: "JSON", .. }
-        ));
+    fn a_leading_byte_order_mark_is_stripped() {
+        let document = decode("my-dark.toml", &with_bom(MY_DARK_TOML))
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(document, my_dark());
+        // The mark is not counted in a reported column.
+        let error = decode(FILE, &with_bom("format = 1\n")).expect_err("a wrong type");
+        assert!(error.to_string().contains("line 1, column 10"), "{error}");
     }
 
     ///
@@ -1943,10 +1236,7 @@ style:
             text
         };
 
-        assert_eq!(
-            decodes("my-dark.toml", &padded(MAX_DOCUMENT_BYTES)),
-            my_dark()
-        );
+        assert_eq!(decodes(&padded(MAX_DOCUMENT_BYTES)), my_dark());
 
         let error = decode("my-dark.toml", padded(MAX_DOCUMENT_BYTES + 1).as_bytes())
             .expect_err("over the limit");
@@ -1961,7 +1251,7 @@ style:
 
     #[test]
     fn the_byte_limit_applies_before_the_utf8_check() {
-        let error = decode("big.yaml", &vec![0xFF; MAX_DOCUMENT_BYTES + 1]).expect_err("too large");
+        let error = decode("big.toml", &vec![0xFF; MAX_DOCUMENT_BYTES + 1]).expect_err("too large");
         assert!(matches!(error.reason, DocumentErrorReason::TooLarge { .. }));
     }
 
@@ -1974,91 +1264,5 @@ style:
             error.reason,
             DocumentErrorReason::NotUtf8 { valid_up_to: 10 }
         );
-    }
-
-    // --- Extensions ---
-
-    #[test]
-    fn the_extension_selects_the_decoder_case_insensitively() {
-        for file in [
-            "my-dark.toml",
-            "my-dark.TOML",
-            "My-Dark.Toml",
-            "dir.d/my-dark.tOmL",
-        ] {
-            assert_eq!(decodes(file, MY_DARK_TOML), my_dark(), "{file}");
-        }
-        for file in ["my-dark.json", "my-dark.JSON", "my-dark.Json"] {
-            assert_eq!(decodes(file, MY_DARK_JSON), my_dark(), "{file}");
-        }
-        for file in ["my-dark.yaml", "my-dark.YAML", "my-dark.yml", "my-dark.YmL"] {
-            assert_eq!(decodes(file, MY_DARK_YAML), my_dark(), "{file}");
-        }
-    }
-
-    ///
-    /// Exactly one decoder per extension: JSON bytes in a `.toml` file are
-    /// read as TOML, and refused, rather than sniffed.
-    ///
-    #[test]
-    fn the_extension_not_the_content_chooses_the_decoder() {
-        let error = decode("my-dark.toml", MY_DARK_JSON.as_bytes()).expect_err("JSON is not TOML");
-        assert!(matches!(
-            error.reason,
-            DocumentErrorReason::Invalid { format: "TOML", .. }
-        ));
-    }
-
-    #[test]
-    fn an_unsupported_extension_is_refused() {
-        for file in [
-            "my-dark.txt",
-            "my-dark",
-            "my-dark.toml.bak",
-            "my-dark.jsonc",
-            "my-dark.",
-            ".toml",
-        ] {
-            let error = decode(file, MY_DARK_TOML.as_bytes()).expect_err(file);
-            assert_eq!(
-                error,
-                DocumentError {
-                    file_name: file.to_owned(),
-                    reason: DocumentErrorReason::UnsupportedExtension,
-                }
-            );
-            assert!(
-                error.to_string().contains(".toml, .json, .yaml or .yml"),
-                "{error}"
-            );
-        }
-    }
-
-    // --- Error text ---
-
-    #[test]
-    fn the_error_names_the_file_the_property_and_the_decoders_position() {
-        for (file, text, position) in [
-            (
-                "bad.toml",
-                style("bad.toml", &[("grid.border", "\"#12\"")]),
-                "line 7",
-            ),
-            (
-                "bad.json",
-                style("bad.json", &[("grid.border", "\"#12\"")]),
-                "line 1 column",
-            ),
-            (
-                "bad.yaml",
-                style("bad.yaml", &[("grid.border", "\"#12\"")]),
-                "at line 6, column 16",
-            ),
-        ] {
-            let shown = decode(file, text.as_bytes()).expect_err(file).to_string();
-            assert!(shown.starts_with(&format!("{file}: invalid ")), "{shown}");
-            assert!(shown.contains("`grid.border` is \"#12\""), "{shown}");
-            assert!(shown.contains(position), "{file}: {shown}");
-        }
     }
 }

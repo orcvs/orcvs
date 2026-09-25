@@ -39,7 +39,7 @@ pub mod style;
 // `okabe_ito` to build a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
-// Decodes a TOML, JSON or YAML Theme document's bytes into the unresolved
+// Decodes a TOML Theme document's bytes into the unresolved
 // document `theme::resolve` takes (`.scratch/theming/issues/07`). Pure:
 // `theme_registry`'s native discovery owns the I/O.
 #[cfg_attr(

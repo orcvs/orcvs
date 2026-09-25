@@ -28,10 +28,9 @@ stem is the identity; `name` is a nonempty display label. `okabe-ito` is the res
 dark built-in identity, `orcvs-light` the reserved light identity. The latter's
 palette must pass the separate review gate before switching is exposed.
 
-This is one versioned Orcvs Theme data model, represented in TOML by default.
-Files may instead use JSON or YAML; their extension selects the decoder. All
-three representations deserialize into the same typed document and receive the
-same semantic validation. No palette slots, Base16 import, tint
+This is one versioned Orcvs Theme data model, represented in TOML and nothing
+else: a Theme document is a `.toml` file. JSON and YAML representations were
+accepted until 2026-09-24 and are dropped; ADR 0053 records why. No palette slots, Base16 import, tint
 scalar, general expressions, font assets or in-app authoring are required.
 Unsupported format/version and unknown root/style keys reject the whole document.
 
@@ -212,45 +211,41 @@ at zero; do not reinterpret premultiplied bytes as straight RGB.
 
 ## Decoding and limits
 
-Decode each document directly with its format's own Serde deserializer, into one
-strict Serde document type: `toml` for `.toml`, `serde_json` for `.json`, and
-`serde-saphyr` for `.yaml` and `.yml`. The extension, matched case-insensitively,
-selects exactly one decoder. No configuration framework, layering, environment
-overlay, format-specific intermediate model or Orcvs-written parser sits between
-the bytes and the document type. TOML is the documented default. Unknown
-extensions are ignored during native discovery and rejected for an explicit web
-import. Strip one leading UTF-8 byte-order mark before any decoder; `serde_json`
-would otherwise reject it.
+Decode each document directly with `toml`'s own Serde deserializer into one
+strict, derived Serde document type. A file is a Theme document when its
+extension is `.toml`, matched case-insensitively; every other extension,
+`.json`, `.yaml` and `.yml` included, is not a Theme file. No configuration
+framework, layering, environment overlay, intermediate model or Orcvs-written
+parser sits between the bytes and the document type. Other extensions are
+ignored during native discovery and rejected for an explicit web import, with a
+message naming `.toml` alone. Strip one leading UTF-8 byte-order mark before
+decoding, so a reported column counts from the first character a viewer sees.
 
-The document type, not the decoder, decides what is strict, so the three formats
-behave alike:
+TOML is typed, its root is always a table, and its parser refuses a repeated
+key, so the document type needs no format-specific guard. It is derived, not
+hand-written:
 
-- The root denies unknown fields; field names are case-sensitive, and a repeated
-  root field is an error.
-- Every scalar is read through `deserialize_any` with a visitor that accepts only
-  its own kind. Strings accept only strings; `version` accepts only an integer;
-  widths accept only numbers. Type-hinted entry points such as
-  `deserialize_u32` or `deserialize_f64` are not used, because `serde-saphyr`
-  1.3.0's typed numeric paths parse a quoted scalar (`version: "1"`) as a number;
-  through `deserialize_any` an untagged quoted scalar is a string and is refused.
-  Null, booleans, sequences and nested mappings are never a valid value.
-- `style` is a custom map visitor. Its keys are literal, case-sensitive dotted
-  property names, never nested paths. The key selects the value's kind from the
-  catalogue above; an unknown property or a repeated key is an error in the
-  visitor itself, because `serde_json` otherwise keeps the last duplicate.
+- The root denies unknown fields; field names are case-sensitive.
+- `style` holds one optional field per catalogue property, generated from the
+  same declaration as the property keys' spellings (`theme.rs`'s
+  `style_catalogue`) and renamed to its literal dotted name, and denies unknown
+  fields. Its keys are literal, case-sensitive dotted property names, never
+  nested paths: a TOML dotted key `grid.background = …` is a nested table and
+  is refused as the unknown property `grid`.
+- `style` must be a table. A derived struct would also accept an array of its
+  fields in declaration order, which TOML can spell, so the decoder checks the
+  parsed `style` value is a table before deserializing.
+- Each value deserializes into a newtype that validates it: the format marker,
+  the version, `name` and `inherits` labels, `appearance`, colours, the two optional Cursor
+  fills and the two width bounds. Strings accept only strings, `version` only
+  an integer, and widths only numbers; booleans, datetimes, arrays and tables
+  are never a valid value.
 
-YAML is decoded with these `serde-saphyr` options: duplicate keys error, merge
-keys error, unsupported tags are rejected, YAML 1.1 booleans are off (strict
-booleans), non-finite typeless floats are rejected, and the default parse budget
-and alias limits stay on. Aliases of scalars are therefore accepted; a single
-document is required. Strict booleans make the YAML 1.1 forms (`yes`, `no`,
-`on`, `off`) plain strings, but the YAML 1.2 core schema's boolean and null
-spellings (`true`, `True`, `TRUE`, `false`, …, `null`, `Null`, `NULL`, `~`)
-are still typed as booleans and null, not strings; a string field holding such
-a word must quote it (`name: "True"`). An explicit YAML core tag decides its
-node's type, as YAML intends: `version: !!int "1"` is the integer `1`, and
-`!!binary` decodes to its text. Unknown tags are rejected. The format crates
-own each representation's syntax, strings and comments; Orcvs owns the common schema and semantic checks.
+A refusal carries `toml`'s line and column and the key path it was reading
+(``in `style.grid.border` ``). An unknown property's error names the key and
+starts listing the valid names, colours first; the 1024-byte message cap cuts
+the list, so it may omit the width and optional-fill names. There is no
+did-you-mean suggestion for a near miss (ADR 0053).
 
 Version is the integer `1`. Widths must be finite, then receive their inclusive
 property bounds; TOML can spell `nan` and `inf`, so finiteness is a semantic
@@ -258,18 +253,14 @@ check, not a decoder guarantee. Colours are strings of exactly `#` plus 6 or 8
 hexadecimal digits. Names and parent identities must be nonempty, contain no
 control characters and stay within 256 UTF-8 bytes. Decode and validate the whole
 document before registry mutation. Errors identify the filename and carry the
-decoder's line and column, which all three decoders supply for syntax and type
-errors.
+decoder's line and column.
 
-The model above was demonstrated against `toml` 1.1.6, `serde_json` 1.0.151 and
-`serde-saphyr` 1.3.0 in a throwaway probe: valid documents in each format,
-unknown and wrong-case root fields, unknown style properties, duplicate root and
-style keys, string and float versions, string widths, numeric, boolean, null,
-sequence and table values, an unquoted YAML `#` colour, non-finite widths, YAML
-merge keys, unknown tags, multiple documents, tab indentation, an alias bomb and
-a leading byte-order mark all behaved as specified. The implementation's tests
-must carry these cases through the shipped loader, one per format where the
-format can express them.
+The implementation's tests carry every refusal through the shipped decoder:
+unknown and wrong-case root fields, unknown style properties, repeated root and
+style keys, string and float versions, string widths, numeric, boolean,
+datetime, array and table values where a string belongs, a non-table `style`,
+malformed colours, out-of-range and non-finite widths, invalid labels and a
+leading byte-order mark.
 
 Set a 1 MiB per-document byte limit before allocation/read completion. Check both
 native files and web blobs, and recheck actual bytes. Limit decoded display names
@@ -281,15 +272,20 @@ implementation resource limits, not a second format or extensibility mechanism.
 
 ## Discovery, persistence and failures
 
-Scan direct `.toml`, `.json`, `.yaml` and `.yml` children of `~/.orcvs/themes/`,
-using case-insensitive suffix matching and without recursion. Missing directory
+Scan direct `.toml` children of `~/.orcvs/themes/`, using case-insensitive suffix
+matching and without recursion. Missing directory
 means no custom Themes.
 Report unreadable files/directory without preventing startup. File symlinks may
 be followed subject to the same byte limit; do not traverse directory symlinks.
 Use the discovered filename stem as identity, case-sensitive; reserve built-in
-identities. Detect duplicate stems before loading, reject all conflicting files,
-and report their paths. Directory enumeration order cannot choose a winner.
-Ignore unrelated suffixes. An empty stem is invalid.
+identities. `Dark.toml` and `dark.toml` are two identities; `dark.toml` and
+`dark.TOML` are one. With one extension, only a case-sensitive file system can
+hold two files of one stem, whose extensions differ in case. Detect such
+duplicate stems before loading, reject all conflicting files, and report their
+paths. Directory enumeration order cannot choose a winner. Files in one web drop
+that share a stem — the same name dropped from two folders, or an extension
+differing in case — are all refused and reported the same way. Ignore unrelated
+suffixes. An empty stem is invalid.
 
 Read/parse native files during initialization outside UI render callbacks. File
 changes take effect next launch only; native application storage never supplies
