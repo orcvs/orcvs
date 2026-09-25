@@ -441,13 +441,21 @@ impl Source {
     /// that ground would be reporting on how little a fixture changes rather
     /// than on how much work a revision costs.
     ///
+    /// A commit that writes no row keeps the Map it already holds, identity
+    /// included: every row's derivation would be carried, so the Map it would
+    /// build answers every question the held one does, and an Expression that
+    /// Map handed out still resolves. It is still a write, so it mints a new
+    /// [`RevisionId`].
+    ///
     fn rebuild_rows(&mut self, written: &BTreeSet<usize>) {
-        self.language_map = Arc::new(LanguageMap::rebuild(
-            &self.language_map,
-            self.grid,
-            self.inner.as_bytes(),
-            written,
-        ));
+        if !written.is_empty() {
+            self.language_map = Arc::new(LanguageMap::rebuild(
+                &self.language_map,
+                self.grid,
+                self.inner.as_bytes(),
+                written,
+            ));
+        }
         self.revision = RevisionId::mint();
     }
 
@@ -485,6 +493,7 @@ mod test {
 
     use lang::{Atom, Function, Interpretation, Sequence, Value};
     use std::ops::{Deref, DerefMut};
+    use std::sync::Arc;
 
     use crate::{
         grid::{CellIndex, Grid, Position},
@@ -555,6 +564,33 @@ mod test {
         let failed = source.revision();
         assert!(source.set(cell, "\t").is_err());
         assert_eq!(source.revision(), failed, "a refused set minted a revision");
+    }
+
+    ///
+    /// A commit that writes nothing keeps the Map it holds, so an Expression
+    /// that Map handed out still resolves, while the revision still says a
+    /// write happened.
+    ///
+    #[test]
+    fn a_commit_that_writes_no_cell_keeps_its_language_map() {
+        let grid = grid();
+        let mut source = Source::new(grid);
+        source.set(grid.cell_index(0).unwrap(), "*").unwrap();
+        source.set(grid.cell_index(1).unwrap(), "*").unwrap();
+        let held = source.shared_language_map();
+        let revision = source.revision();
+
+        source.write_cells(&[]);
+
+        assert!(Arc::ptr_eq(&held, &source.shared_language_map()));
+        assert_ne!(source.revision(), revision);
+        let expression = held.expressions().next().expect("the `**` Expression");
+        assert!(
+            !source
+                .language_map()
+                .expression_units(expression)
+                .is_empty()
+        );
     }
 
     #[test]

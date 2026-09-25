@@ -513,9 +513,13 @@ fn whole_grid_source() -> Source {
 /// accepted Cell edit. The stored value is measured in
 /// `console/benches/stored_source.rs`.
 ///
+/// Beside them, a commit that writes no Cell, which every Tick that writes
+/// nothing pays: it keeps the Language Map it holds, so its cost must not
+/// follow the Grid's size.
+///
 fn whole_grid(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_whole_grid");
-    let source = whole_grid_source();
+    let mut source = whole_grid_source();
     let grid = source.grid();
     let text = source.snapshot();
 
@@ -525,6 +529,11 @@ fn whole_grid(c: &mut Criterion) {
 
     group.bench_function("snapshot", |b| {
         b.iter(|| black_box(black_box(&source).snapshot()))
+    });
+
+    let no_writes: &[CellWrite] = &[];
+    group.bench_function("commit_no_write", |b| {
+        b.iter(|| black_box(&mut source).write_cells(black_box(no_writes)))
     });
 
     let commander = SourceCommander::with_source(source);

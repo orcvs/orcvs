@@ -20,3 +20,5 @@ Related: 07 moves planning outside the write lock; the cache must be readable wh
 **2026-09-25 — audited against `origin/main` `199c3331`.** The earlier premise, that a steady-state run does not change the Language Map, was false: every commit mints a new Map revision. The ticket now asks for a key that survives a commit and defines "steady state". The 06 blocker is now justified by that.
 
 **2026-09-25 — acceptance-criteria review against `199c3331`.** Closed the gap between the no-write cache-key proposal and the steady-state benchmark. Added explicit input coverage and cached-versus-fresh invalidation tests.
+
+**2026-09-25 — note from 06 (epic PR 6).** A commit that writes no row now keeps the held Language Map and its `LanguageMapId`; it still mints a new `RevisionId`. A commit that writes any row, identical bytes included, still mints a new Map identity. The key this ticket chooses must still cover the identical-byte case on its own.

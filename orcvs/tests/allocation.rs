@@ -344,8 +344,8 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
     // workspace's one `unsafe` block writing the byte in place, and then
     // `rebuild_rows`, which builds a fresh `Arc<LanguageMap>`. `set_source` is
     // private, so no public call reaches the byte write without also paying
-    // for the rebuild, and one write of a populated 32x32 Source costs 247
-    // blocks and 173,913 bytes — all of it the rebuild. See
+    // for the rebuild, and everything one write allocates is the rebuild's.
+    // See
     // `.scratch/memory-verification/issues/02-count-allocations-on-the-source-write-and-language-map-rebuild.md`.
     //
     // So this test asserts the two things that *are* observable through the
@@ -409,11 +409,11 @@ fn a_language_map_rebuild_is_bounded_independently_of_grid_size() {
     // the Grid itself rather than anything per-Cell that could be removed.
     //
     // `LanguageMap::rebuild` allocates a fixed set of collections whatever the
-    // Grid: the per-row `DerivedRow` and the `Arc`. That set does not grow in
-    // number with the Grid, so the block count below is equal at every size.
-    // A row the walk read no Source in allocates nothing at all. The per-Cell
-    // Glyph row is gone; classification is a reading of the claiming
-    // Expression.
+    // Grid: the re-derived row's collections and its `Arc`, the row table and
+    // the Map's `Arc`. That set does not grow in number with the Grid, so the
+    // block count below is equal at every size. The row table does grow in
+    // bytes, one pointer per row, because every row the rebuild did not
+    // re-derive is carried by sharing its derivation.
     //
     // Measured on the calling thread.
     let mut measured = Vec::new();
@@ -480,32 +480,69 @@ fn a_language_map_rebuild_is_bounded_independently_of_grid_size() {
 }
 
 #[test]
+fn a_rebuild_costs_the_same_however_many_expressions_the_rows_it_carries_hold() {
+    // A rebuild shares every row it did not re-parse, so what one Cell write
+    // allocates is the row it re-parsed and one table with an entry per row of
+    // the Grid. Neither depends on what the other rows hold: the same edit in
+    // the same Grid costs the same blocks and bytes whether the rows below
+    // are empty or full of Expressions.
+    //
+    // Measured on the calling thread.
+    let (cols, rows) = (32, 32);
+    let mut sparse = source_written_to(cols, rows, 2);
+    let mut dense = source_written_to(cols, rows, rows);
+    assert!(
+        carried_expressions(&dense) > carried_expressions(&sparse),
+        "the dense fixture must carry more Expressions"
+    );
+
+    let edited = cell(sparse.grid(), cols + EDIT_COLUMN);
+    let sparse = measure_one_write(&mut sparse, edited, EDITED_VALID);
+    let edited = cell(dense.grid(), cols + EDIT_COLUMN);
+    let dense = measure_one_write(&mut dense, edited, EDITED_VALID);
+
+    assert_eq!(
+        dense, sparse,
+        "the same edit allocated {dense:?} beside populated rows against {sparse:?} beside empty ones"
+    );
+}
+
+#[test]
+fn a_commit_that_writes_no_cell_allocates_nothing() {
+    // A Tick that writes nothing still commits, and commits every Tick. No row
+    // was written, so the Language Map it would derive is the one the Source
+    // already holds, and the commit keeps it rather than building a copy.
+    //
+    // Measured on the calling thread.
+    let (cols, rows) = (32, 32);
+    let mut source = populated_source(cols, rows);
+
+    // Warm up, for the reason `measure_one_write` does.
+    source.write_cells(&[]);
+    let (commit, ()) = measure(|| black_box(&mut source).write_cells(black_box(&[])));
+
+    assert_eq!(
+        commit,
+        Allocations::default(),
+        "a commit with no writes allocated {commit:?}"
+    );
+}
+
+#[test]
 fn a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster() {
-    // FINDING (2026-09-09): a rebuild re-parses one row and deep-clones every
-    // Expression in every other row. `LanguageMap::rebuild` carries an
-    // unchanged row forward with `..entry.clone()`, and an `ExpressionEntry`
-    // owns an `Atoms` — a `Vec<Atom>` — an `Expression`, and an optional
-    // `Diagnostic` holding a `String`. So the row-level incrementality that
-    // avoids re-parsing does not avoid re-allocating: one Cell edited in a
-    // populated 32x32 Source costs 247 blocks and 173,913 bytes, about 1.4
-    // blocks and a kilobyte for each of the 160 Expressions the Map carries,
-    // and editing a Cell in an empty margin row costs nearly as much as
-    // editing one inside an Expression.
+    // A rebuild re-parses the rows it was given and shares every other row's
+    // derivation, so no carried Expression is cloned: its `Atoms`, its
+    // `Expression` and its `Diagnostic` stay where the revision that derived
+    // them put them. What one write allocates is the edited row's derivation
+    // and a row table with one pointer per row of the Grid, and neither grows
+    // with the Expressions the other rows hold.
     //
-    // What is asserted is therefore the bound that holds — the cost per
-    // carried Expression never rises as the Source grows, so the rebuild is at
-    // worst linear in what it carries and never quadratic — rather than a
-    // ceiling that would rot, or an independence from the Grid that this path
-    // does not have. Making the carry cheap, by sharing the parsed Expressions
-    // an unchanged row contributes instead of cloning them, would drive both
-    // numbers down and must still pass.
-    //
-    // 2026-09-10: the carry is now `DerivedRow::for_revision`, which clones
-    // the row and re-stamps each Expression with the new Map identity, so
-    // `..entry.clone()` names a mechanism that is gone. The finding itself is
-    // unchanged and if anything sharper: a carried row clones its Glyphs and
-    // its diagnostics as well as its Expressions. The bound below is what was
-    // re-measured, and it still holds.
+    // This test asserts the weaker bound over the populated series: the cost
+    // per carried Expression never rises as the Source grows, which a carry
+    // that copied Expressions would also pass if it were linear. The test
+    // above asserts that the carried rows add nothing at all. The series is
+    // what `.github/workflows/bench.yml` publishes, and the Expressions
+    // carried are published beside it as its divisor.
     //
     // Measured on the calling thread.
     let mut measured = Vec::new();
