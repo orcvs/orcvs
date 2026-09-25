@@ -13,6 +13,7 @@ use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
 use super::input::{ZoomCommand, translate_event, zoom_command};
+use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::shapes::SourceShapes;
 use super::source_view::{
     MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
@@ -20,7 +21,7 @@ use super::source_view::{
 };
 use super::{
     BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE,
-    DEFAULT_VIEW_SIZE, TOP_PANEL_HEIGHT, frames_per_second,
+    DEFAULT_VIEW_SIZE, frames_per_second,
 };
 
 /// The Source View's margin at Zoom 1.0 and a device scale of one.

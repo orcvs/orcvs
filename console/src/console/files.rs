@@ -7,8 +7,9 @@ use crate::persistence::default_source;
 use orcvs::source::Source;
 
 use super::input::FileCommand;
+use super::menu_bar::MENU_BAR_GAP;
 use super::source_view::SourceView;
-use super::{Console, MENU_BAR_GAP, environment};
+use super::{Console, environment};
 
 impl Console {
     ///

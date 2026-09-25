@@ -649,7 +649,7 @@ async fn the_mode_glyphs_are_in_the_console_font() {
         replacement,
         "the probe no longer tells a missing glyph from a present one"
     );
-    for glyph in super::MODE_GLYPHS {
+    for glyph in super::menu_bar::MODE_GLYPHS {
         assert_ne!(
             uv(glyph),
             replacement,
