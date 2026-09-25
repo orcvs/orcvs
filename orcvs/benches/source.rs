@@ -428,9 +428,10 @@ fn edit_rebuild_invalid(c: &mut Criterion) {
 /// number if each root asks about every other, and a series is what tells that
 /// apart from a Language Map rebuild growing with the Cell count.
 ///
-/// The fixture has settled, so each measured Tick re-plans the same graph and
-/// writes the same Cells. That is also the ordinary case: a pattern holds its
-/// shape while it plays.
+/// The fixture has settled, so each measured Tick writes the same Cells and
+/// plans against the schedule its Language Map shares with the revision
+/// before it, rather than ordering the Turns again. That is also the ordinary
+/// case: a pattern holds its shape while it plays.
 fn execute_tick(c: &mut Criterion) {
     tick_series(c, "source_execute_tick", playing_source_text);
 }
@@ -451,6 +452,12 @@ fn execute_tick_with_edges(c: &mut Criterion) {
 
 /// Feedback binding borrows Portal Cells at Turn. Keep its full Source path
 /// measurable alongside the non-feedback Tick series; CI owns comparisons.
+///
+/// Every Tick here writes each root's answer under it and changes no
+/// Expression, and each Increment's answer differs from the Tick before. So
+/// this is the steady state a shared schedule serves when the written bytes
+/// differ: each commit re-derives the written rows, and the scheduling inputs
+/// they hold are unchanged.
 fn execute_tick_with_portal_inputs(c: &mut Criterion) {
     tick_series(c, "source_execute_tick_portal_inputs", |cols, rows| {
         let mut text = String::with_capacity(cols * rows);
@@ -513,9 +520,13 @@ fn whole_grid_source() -> Source {
 /// accepted Cell edit. The stored value is measured in
 /// `console/benches/stored_source.rs`.
 ///
+/// Beside them, a commit that writes no Cell, which every Tick that writes
+/// nothing pays: it keeps the Language Map it holds, so its cost must not
+/// follow the Grid's size.
+///
 fn whole_grid(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_whole_grid");
-    let source = whole_grid_source();
+    let mut source = whole_grid_source();
     let grid = source.grid();
     let text = source.snapshot();
 
@@ -525,6 +536,11 @@ fn whole_grid(c: &mut Criterion) {
 
     group.bench_function("snapshot", |b| {
         b.iter(|| black_box(black_box(&source).snapshot()))
+    });
+
+    let no_writes: &[CellWrite] = &[];
+    group.bench_function("commit_no_write", |b| {
+        b.iter(|| black_box(&mut source).write_cells(black_box(no_writes)))
     });
 
     let commander = SourceCommander::with_source(source);

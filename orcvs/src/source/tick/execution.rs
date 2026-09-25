@@ -26,24 +26,27 @@ use super::{
 /// a Tick Plan says what to apply, and a rejected Tick applies nothing however
 /// much of it ran.
 ///
+/// The schedule is borrowed and left as it was: every Tick planned against the
+/// same scheduling inputs executes the one schedule they share.
+///
 pub(super) fn execute(
     grid: Grid,
     bytes: &[u8],
     map: &LanguageMap,
     tick: Tick,
-    schedule: Schedule,
+    schedule: &Schedule,
 ) -> (TickPlan, Vec<ComputationState>) {
     let Schedule {
         lookup,
         order,
         diagnostics,
     } = schedule;
-    let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
+    let mut execution = Execution::new(grid, bytes, map, tick, lookup, diagnostics.clone());
     #[cfg_attr(
         not(test),
         expect(unused_variables, reason = "only a test build records the Turn")
     )]
-    for (turn, index) in order.into_iter().enumerate() {
+    for (turn, &index) in order.iter().enumerate() {
         // Recorded here rather than where the order was built: the ordinal is
         // the Turn a computation took, and a Tick that stops partway through
         // leaves every computation after it without one.

@@ -7,6 +7,7 @@ use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::portal::Portal;
+use super::tick::ScheduleCache;
 use super::{CellContent, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
@@ -70,11 +71,20 @@ impl LanguageMapId {
 /// This is the single owner of Expression Spans, parsed expressions, and
 /// diagnostics. It deliberately exposes only the semantics the current
 /// parser and row-local partition can establish.
+///
+/// Each row's derivation is shared rather than owned: a rebuild hands every
+/// row it did not re-parse to the new revision by pointer, so no carried
+/// Expression, Language Unit or Diagnostic is copied. The revision's identity
+/// is therefore not stored on what it holds. It is stamped on each
+/// [`ExpressionEntry`] as [`Self::expressions`] hands it out.
 #[derive(Clone)]
 pub struct LanguageMap {
     id: LanguageMapId,
     grid: Grid,
-    rows: Vec<DerivedRow>,
+    rows: Vec<Arc<DerivedRow>>,
+    /// Shared with every revision holding the same scheduling inputs, which
+    /// [`Self::rebuild`] decides.
+    schedule: ScheduleCache,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -199,9 +209,21 @@ impl Span {
     }
 }
 
-#[derive(Clone)]
-pub struct ExpressionEntry {
+///
+/// One Expression of a [`LanguageMap`], as that Map hands it out: what the row
+/// derived, and the identity of the revision it was read from.
+///
+/// The identity travels with the view rather than with the derivation because
+/// consecutive revisions share an unchanged row's derivation, so one
+/// derivation belongs to several revisions at once.
+#[derive(Clone, Copy)]
+pub struct ExpressionEntry<'a> {
     map_id: LanguageMapId,
+    derived: &'a DerivedExpression,
+}
+
+/// One Expression as its row derived it. Revisions share it.
+struct DerivedExpression {
     expression: Expression,
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
@@ -217,33 +239,73 @@ pub struct ExpressionEntry {
     units: std::ops::Range<usize>,
 }
 
-impl ExpressionEntry {
+impl DerivedExpression {
+    /// Whether this Expression reads as `other` to a schedule: the same Span
+    /// and leading Function, and every positioned entry in the same Cells,
+    /// under the same parent, parsed or not alike and as the same Function.
+    /// An Operand Literal's value is not compared.
+    fn schedules_as(&self, other: &Self) -> bool {
+        let scheduled_atom = |atom: Option<&Atom>| {
+            atom.map(|atom| match atom {
+                Atom::Function(function) => Some(*function),
+                _ => None,
+            })
+        };
+        self.span == other.span
+            && self.function_candidate == other.function_candidate
+            && pairwise(
+                self.expression.positioned(),
+                other.expression.positioned(),
+                |ours, theirs| {
+                    ours.cells == theirs.cells
+                        && ours.parent == theirs.parent
+                        && scheduled_atom(ours.atom.as_ref())
+                            == scheduled_atom(theirs.atom.as_ref())
+                },
+            )
+    }
+}
+
+/// Whether `ours` and `theirs` are the same length and `same` holds of each
+/// pair they hold at one position.
+fn pairwise<T>(
+    ours: impl IntoIterator<Item = T>,
+    theirs: impl IntoIterator<Item = T>,
+    same: impl Fn(T, T) -> bool,
+) -> bool {
+    let mut theirs = theirs.into_iter();
+    ours.into_iter()
+        .all(|ours| theirs.next().is_some_and(|theirs| same(ours, theirs)))
+        && theirs.next().is_none()
+}
+
+impl<'a> ExpressionEntry<'a> {
     /// The first Function anchor when this is a complete executable Expression.
-    pub fn root(&self) -> Option<Position> {
-        self.root
+    pub fn root(self) -> Option<Position> {
+        self.derived.root
     }
 
     /// The parsed leading Function, even when its operands are not yet valid.
     /// A Tick reserves its turn so earlier writes can complete those operands.
-    pub(super) fn function_candidate(&self) -> Option<(Position, Function)> {
-        self.function_candidate
+    pub(super) fn function_candidate(self) -> Option<(Position, Function)> {
+        self.derived.function_candidate
     }
 
-    pub(super) fn positioned(&self) -> impl Iterator<Item = &lang::PositionedEntry> {
-        self.expression.positioned()
+    pub(super) fn positioned(self) -> impl Iterator<Item = &'a lang::PositionedEntry> {
+        self.derived.expression.positioned()
     }
 
-    pub fn span(&self) -> Span {
-        self.span
+    pub fn span(self) -> Span {
+        self.derived.span
     }
 
     /// The parse diagnostic this Expression reported, when the analysis did.
-    pub fn diagnostic(&self) -> Option<&Diagnostic> {
-        self.diagnostic.as_ref()
+    pub fn diagnostic(self) -> Option<&'a Diagnostic> {
+        self.derived.diagnostic.as_ref()
     }
 
-    pub(super) fn atoms(&self) -> Option<&Atoms> {
-        self.atoms.as_ref()
+    pub(super) fn atoms(self) -> Option<&'a Atoms> {
+        self.derived.atoms.as_ref()
     }
 }
 
@@ -258,11 +320,18 @@ impl LanguageMap {
         .then(|| Self::build(grid, source.as_bytes()))
     }
 
-    /// Rebuilds written rows and carries every other row's complete derivation.
+    /// Rebuilds written rows and shares every other row's complete derivation.
     ///
     /// Unit ranges are local to each row, so a changed row cannot relocate
-    /// another row's Expressions. Carried Expressions receive this revision's
-    /// identity even when their Source did not change.
+    /// another row's Expressions. A carried row costs one pointer copy: no
+    /// Expression, Language Unit or Diagnostic it holds is cloned. The row
+    /// table is built whole, one pointer per row of the Grid. The rebuilt Map
+    /// is a new revision, and refuses an Expression handed out by `previous`
+    /// even from a row the two share.
+    ///
+    /// It shares `previous`'s schedule when every re-derived row holds the
+    /// scheduling inputs it held in `previous`, whether or not its bytes
+    /// changed; carried rows hold theirs by construction.
     pub(super) fn rebuild(
         previous: &Self,
         grid: Grid,
@@ -278,19 +347,31 @@ impl LanguageMap {
             previous.grid, grid,
             "a LanguageMap is rebuilt on the Grid that built it"
         );
-        let id = LanguageMapId::new();
-        let rows = bytes
+        let mut empty = None;
+        let rows: Vec<_> = bytes
             .chunks_exact(grid.columns())
             .enumerate()
             .map(|(row, bytes)| {
                 if dirty.contains(&row) {
-                    DerivedRow::derive(id, grid, row * grid.columns(), bytes)
+                    DerivedRow::derive(grid, row * grid.columns(), bytes).shared(&mut empty)
                 } else {
-                    previous.rows[row].for_revision(id)
+                    Arc::clone(&previous.rows[row])
                 }
             })
             .collect();
-        Self { id, grid, rows }
+        let schedules_alike = dirty
+            .iter()
+            .all(|&row| rows[row].schedules_as(&previous.rows[row]));
+        Self {
+            id: LanguageMapId::new(),
+            grid,
+            rows,
+            schedule: if schedules_alike {
+                previous.schedule.clone()
+            } else {
+                ScheduleCache::default()
+            },
+        }
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
@@ -299,17 +380,34 @@ impl LanguageMap {
             grid.count(),
             "LanguageMap Source length must match its Grid"
         );
-        let id = LanguageMapId::new();
+        let mut empty = None;
         let rows = bytes
             .chunks_exact(grid.columns())
             .enumerate()
-            .map(|(row, bytes)| DerivedRow::derive(id, grid, row * grid.columns(), bytes))
+            .map(|(row, bytes)| {
+                DerivedRow::derive(grid, row * grid.columns(), bytes).shared(&mut empty)
+            })
             .collect();
-        Self { id, grid, rows }
+        Self {
+            id: LanguageMapId::new(),
+            grid,
+            rows,
+            schedule: ScheduleCache::default(),
+        }
     }
 
-    pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
-        self.rows.iter().flat_map(|row| row.expressions.iter())
+    /// The schedule a Tick planned against this revision orders its Turns by.
+    pub(super) fn schedule_cache(&self) -> &ScheduleCache {
+        &self.schedule
+    }
+
+    pub fn expressions(&self) -> impl Iterator<Item = ExpressionEntry<'_>> {
+        let map_id = self.id;
+        self.rows.iter().flat_map(move |row| {
+            row.expressions
+                .iter()
+                .map(move |derived| ExpressionEntry { map_id, derived })
+        })
     }
 
     pub fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
@@ -384,7 +482,7 @@ impl LanguageMap {
             if index < span.start().get() || index > span.end().get() {
                 continue;
             }
-            for entry in expression.positioned() {
+            for entry in expression.expression.positioned() {
                 if entry.cells.contains(&index) {
                     return Some(entry);
                 }
@@ -509,7 +607,7 @@ impl LanguageMap {
     ///
     fn output_portal_reservation(
         &self,
-        expression: &ExpressionEntry,
+        expression: ExpressionEntry<'_>,
         anchor: Position,
         function: Function,
     ) -> Option<OutputPortalReservation> {
@@ -539,7 +637,7 @@ impl LanguageMap {
     /// [`ExpressionEntry::positioned`] entries rather than over tick
     /// planning's `Computation` nodes.
     ///
-    fn root_may_answer_a_sequence(&self, expression: &ExpressionEntry) -> bool {
+    fn root_may_answer_a_sequence(&self, expression: ExpressionEntry<'_>) -> bool {
         let entries: Vec<&lang::PositionedEntry> = expression.positioned().collect();
         sequence_capable(&entries).first().copied().unwrap_or(false)
     }
@@ -554,13 +652,14 @@ impl LanguageMap {
     /// what distinguishes them, the same way a Position's Grid identity names
     /// the Grid that can place it.
     ///
-    pub fn expression_units(&self, expression: &ExpressionEntry) -> &[LanguageUnit] {
+    pub fn expression_units(&self, expression: ExpressionEntry<'_>) -> &[LanguageUnit] {
         assert!(
             self.id == expression.map_id,
             "ExpressionEntry belongs to another LanguageMap"
         );
-        let row = expression.span.start().get() / self.grid.columns();
-        &self.rows[row].units[expression.units.clone()]
+        let derived = expression.derived;
+        let row = derived.span.start().get() / self.grid.columns();
+        &self.rows[row].units[derived.units.clone()]
     }
 }
 
@@ -599,26 +698,53 @@ fn sequence_capable(entries: &[&lang::PositionedEntry]) -> Vec<bool> {
 }
 
 /// A row's complete semantic derivation. Unit ranges never leave this row.
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct DerivedRow {
     units: Vec<LanguageUnit>,
-    expressions: Vec<ExpressionEntry>,
+    expressions: Vec<DerivedExpression>,
     lexical_diagnostics: Vec<Diagnostic>,
 }
 
 impl DerivedRow {
-    fn for_revision(&self, id: LanguageMapId) -> Self {
-        let mut row = self.clone();
-        for expression in &mut row.expressions {
-            expression.map_id = id;
+    /// This row, ready to be shared between revisions. Every row that derived
+    /// nothing shares `empty`, so a Grid of blank rows costs one allocation
+    /// rather than one per row.
+    fn shared(self, empty: &mut Option<Arc<Self>>) -> Arc<Self> {
+        let Self {
+            units,
+            expressions,
+            lexical_diagnostics,
+        } = &self;
+        if units.is_empty() && expressions.is_empty() && lexical_diagnostics.is_empty() {
+            Arc::clone(empty.get_or_insert_with(|| Arc::new(self)))
+        } else {
+            Arc::new(self)
         }
-        row
+    }
+
+    /// Whether this row holds the scheduling inputs [`ScheduleCache`] names
+    /// that `other` holds: the same Language Units, and the same Expressions
+    /// with a leading Function, compared without their Operand Literal values.
+    fn schedules_as(&self, other: &Self) -> bool {
+        self.units == other.units
+            && pairwise(
+                self.scheduled(),
+                other.scheduled(),
+                DerivedExpression::schedules_as,
+            )
+    }
+
+    /// The Expressions a schedule computes: those with a leading Function.
+    fn scheduled(&self) -> impl Iterator<Item = &DerivedExpression> {
+        self.expressions
+            .iter()
+            .filter(|expression| expression.function_candidate.is_some())
     }
 
     /// Parser claims and diagnostics are finalized here for both full
     /// construction and incremental replacement. Source positions remain Grid
     /// indices; only unit ranges are local to the row.
-    fn derive(id: LanguageMapId, grid: Grid, row_start: usize, bytes: &[u8]) -> Self {
+    fn derive(grid: Grid, row_start: usize, bytes: &[u8]) -> Self {
         let mut walk = RowWalk::default();
         walk_row(grid, row_start, bytes, &mut walk);
         debug_assert!(
@@ -666,8 +792,7 @@ impl DerivedRow {
                 .flatten()
                 .map(|(anchor, _)| anchor);
             let atoms = executable.then(|| expression.atoms()).flatten();
-            row.expressions.push(ExpressionEntry {
-                map_id: id,
+            row.expressions.push(DerivedExpression {
                 expression,
                 atoms,
                 diagnostic,
@@ -854,6 +979,9 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
     use crate::grid::Grid;
 
     use lang::{Atom, Function, Token};
@@ -1234,6 +1362,35 @@ mod tests {
     #[test]
     fn build_leaves_empty_rows_without_expressions() {
         assert!(expression_spans(Grid::with_shape(5, 1), b"     ").is_empty());
+    }
+
+    #[test]
+    fn a_rebuild_shares_every_row_it_does_not_rederive() {
+        let grid = Grid::with_shape(8, 4);
+        let before = b".+0102  .x0201            **    ";
+        let mut after = *before;
+        after[8..16].copy_from_slice(b".-0A05  ");
+        let previous = LanguageMap::build(grid, before);
+
+        let rebuilt = LanguageMap::rebuild(&previous, grid, &after, &BTreeSet::from([1]));
+
+        let shared: Vec<bool> = previous
+            .rows
+            .iter()
+            .zip(&rebuilt.rows)
+            .map(|(previous, rebuilt)| Arc::ptr_eq(previous, rebuilt))
+            .collect();
+        assert_eq!(shared, [true, false, true, true]);
+        assert_ne!(rebuilt.id, previous.id, "a rebuild is a new revision");
+    }
+
+    #[test]
+    fn rows_that_derive_nothing_share_one_derivation() {
+        let grid = Grid::with_shape(4, 3);
+        let map = LanguageMap::build(grid, b"    **      ");
+
+        assert!(Arc::ptr_eq(&map.rows[0], &map.rows[2]));
+        assert!(!Arc::ptr_eq(&map.rows[0], &map.rows[1]));
     }
 
     #[test]
@@ -2005,7 +2162,7 @@ mod property {
                     .any(|entry| entry.token == Token::Comment);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic.is_none() && !comment,
+                    expression.diagnostic().is_none() && !comment,
                     "{:?}",
                     source,
                 );
@@ -2027,7 +2184,7 @@ mod property {
                     prop_assert!(expression.atoms().is_some(), "{:?}", source);
                     prop_assert!(span.positions().any(|position| position == root));
                 }
-                if let Some(diagnostic) = &expression.diagnostic {
+                if let Some(diagnostic) = expression.diagnostic() {
                     prop_assert_eq!(diagnostic.span(), span, "{:?}", source);
                 }
             }
@@ -2332,11 +2489,10 @@ mod rebuild_property {
             map.expressions()
                 .map(|entry| {
                     (
-                        entry.span.start().get(),
-                        entry.span.end().get(),
+                        entry.span().start().get(),
+                        entry.span().end().get(),
                         entry
-                            .diagnostic
-                            .as_ref()
+                            .diagnostic()
                             .map(|diagnostic| diagnostic.message.clone()),
                         // Resolved through the Map that owns them, so a range
                         // carried across a rebuild is checked by what it
