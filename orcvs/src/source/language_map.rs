@@ -6,17 +6,11 @@ use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
-use super::portal::Portal;
+use super::portal::{Portal, SCALAR_WIDTH};
 use super::tick::ScheduleCache;
 use super::{CellContent, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
-
-/// The Cell width a scalar-only Output Portal Reservation covers, per ADR
-/// 0036. `tick.rs`'s `SCALAR_WIDTH` and `portal.rs`'s `PAIR_WIDTH` state the
-/// same fact privately in their own modules; `11` is where the three become
-/// one.
-pub(super) const OUTPUT_PORTAL_SCALAR_WIDTH: usize = 2;
 
 ///
 /// The fewest Cells a Sequence-capable root's Output Portal highlight covers,
@@ -28,7 +22,7 @@ pub(super) const OUTPUT_PORTAL_SCALAR_WIDTH: usize = 2;
 /// root from a scalar one before any Tick. It bounds the highlight only, never
 /// the Reservation.
 ///
-pub(super) const OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH: usize = 2 * OUTPUT_PORTAL_SCALAR_WIDTH;
+pub(super) const OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH: usize = 2 * SCALAR_WIDTH;
 
 ///
 /// One root Function's Output Portal Reservation: the Cells ADR 0036 reserves
@@ -291,23 +285,8 @@ impl<'a> ExpressionEntry<'a> {
         self.derived.function_candidate
     }
 
-    pub(super) fn positioned(self) -> impl Iterator<Item = &'a lang::PositionedEntry> {
+    pub(super) fn positioned(self) -> impl DoubleEndedIterator<Item = &'a lang::PositionedEntry> {
         self.derived.expression.positioned()
-    }
-
-    ///
-    /// Per entry of [`Self::positioned`], in the same order, whether it may
-    /// answer a Sequence, per ADR 0036.
-    ///
-    /// This is the one derivation of Sequence-capability: the Output Portal
-    /// Reservations read the root's answer from it, and Tick scheduling reads
-    /// every computation's reservation width from it. An entry whose Atom is
-    /// not a Function, including a missing or invalid operand, never answers a
-    /// Sequence.
-    ///
-    pub(super) fn sequence_capability(self) -> Vec<bool> {
-        let entries: Vec<&lang::PositionedEntry> = self.positioned().collect();
-        sequence_capable(&entries)
     }
 
     pub fn span(self) -> Span {
@@ -560,28 +539,43 @@ impl LanguageMap {
     /// nested Function is never eligible: its answer goes to its parent's
     /// operand, not to a Cell of its own.
     ///
-    /// Coverage is the Reservation ADR 0036 states, read from
-    /// [`lang::Function`]'s declared facts and
-    /// [`ExpressionEntry::sequence_capability`]: [`Portal::reservation`] from
-    /// the Output Portal. A Terminal Output Function, Halt, and a
+    /// Coverage is the Reservation ADR 0036 states: [`Portal::reservation`]
+    /// from the Output Portal [`lang::Function`] declares, as wide as
+    /// [`SequenceCapability`] says the root's answer may be. A Terminal
+    /// Output Function, Halt, and a
     /// Source-writing Function (including an Advance's cleared anchor) cover
     /// no Cell, because none of them writes an answer through its Output
     /// Portal; neither does a scalar destination the row edge leaves no room
     /// for a Cell pair.
     ///
     /// Tick scheduling reserves the same Cells for the same root: it reads
-    /// its widths from the same `sequence_capability`, resolves the same
+    /// its widths from the same [`SequenceCapability`], resolves the same
     /// Output Portal through [`Portal::named`], and measures it with the same
     /// [`Portal::reservation`]. `SourceRevision::output_portal_highlight`
     /// narrows each Sequence-capable Reservation to the answer it holds.
     ///
+    /// Allocates the returned list and one [`SequenceCapability`], each sized
+    /// before the walk, and nothing per Expression or per entry.
+    ///
     pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
-        self.expressions()
-            .filter_map(|expression| {
-                let (anchor, function) = expression.function_candidate()?;
-                self.output_portal_reservation(expression, anchor, function)
-            })
-            .collect()
+        let candidates = self
+            .expressions()
+            .filter(|expression| expression.function_candidate().is_some())
+            .count();
+        let mut reservations = Vec::with_capacity(candidates);
+        let mut capability = SequenceCapability::for_map(self);
+        for expression in self.expressions() {
+            let Some((anchor, function)) = expression.function_candidate() else {
+                continue;
+            };
+            reservations.extend(self.output_portal_reservation(
+                expression,
+                anchor,
+                function,
+                &mut capability,
+            ));
+        }
+        reservations
     }
 
     ///
@@ -620,6 +614,7 @@ impl LanguageMap {
         expression: ExpressionEntry<'_>,
         anchor: Position,
         function: Function,
+        capability: &mut SequenceCapability,
     ) -> Option<OutputPortalReservation> {
         if function.locks_root() {
             return None;
@@ -627,8 +622,8 @@ impl LanguageMap {
         let coords = function.output_portal()?;
         let portal = Portal::named(self.grid, anchor, coords).ok()?;
         // The root is the first entry in preorder.
-        let sequence_capable = expression
-            .sequence_capability()
+        let sequence_capable = capability
+            .derive(expression)
             .first()
             .copied()
             .unwrap_or(false);
@@ -677,28 +672,67 @@ pub(super) fn may_answer_a_sequence(function: Function, an_operand_may: bool) ->
 }
 
 ///
-/// Per entry of one Expression's [`ExpressionEntry::positioned`], in the same
-/// order, whether it may answer a Sequence: [`may_answer_a_sequence`] applied
-/// to each Function entry, where a direct operand is an entry whose `parent`
-/// names it.
+/// Which entries of an Expression may answer a Sequence, per ADR 0036: the one
+/// derivation of Sequence-capability. The Output Portal Reservations read the
+/// root's answer from it, and Tick scheduling reads every computation's
+/// reservation width from it.
 ///
-/// Preorder puts every operand child at a higher index than the Function
-/// that owns it, so one reverse pass settles every entry: a child is answered
-/// before the parent that reads it.
+/// It owns its scratch storage, one flag per entry, so a caller deriving many
+/// Expressions reuses one buffer: sized by [`Self::for_map`] for the widest
+/// Function candidate, deriving any candidate of that revision allocates
+/// nothing.
 ///
-fn sequence_capable(entries: &[&lang::PositionedEntry]) -> Vec<bool> {
-    let mut capable = vec![false; entries.len()];
-    for index in (0..entries.len()).rev() {
-        let Some(Atom::Function(function)) = entries[index].atom else {
-            continue;
-        };
-        let an_operand_may = entries
-            .iter()
-            .enumerate()
-            .any(|(child, entry)| entry.parent == Some(index) && capable[child]);
-        capable[index] = may_answer_a_sequence(function, an_operand_may);
+pub(super) struct SequenceCapability {
+    capable: Vec<bool>,
+}
+
+impl SequenceCapability {
+    /// Scratch sized for the widest Function candidate in `map`.
+    pub(super) fn for_map(map: &LanguageMap) -> Self {
+        let widest = map
+            .expressions()
+            .filter(|expression| expression.function_candidate().is_some())
+            .map(|expression| expression.derived.expression.len())
+            .max()
+            .unwrap_or(0);
+        Self {
+            capable: Vec::with_capacity(widest),
+        }
     }
-    capable
+
+    ///
+    /// Per entry of `expression`'s [`ExpressionEntry::positioned`], in the
+    /// same order, whether it may answer a Sequence: [`may_answer_a_sequence`]
+    /// applied to each Function entry, where a direct operand is an entry
+    /// whose `parent` names it. An entry whose Atom is not a Function,
+    /// including a missing or invalid operand, never answers one.
+    ///
+    /// One reverse pass visits each entry once. Preorder puts every operand
+    /// child at a higher index than the Function that owns it, so a child is
+    /// settled before its parent, and a child that may answer a Sequence marks
+    /// its parent's slot before the parent is reached. Each slot therefore
+    /// holds "some operand may" until its own entry overwrites it with the
+    /// entry's answer.
+    ///
+    pub(super) fn derive(&mut self, expression: ExpressionEntry<'_>) -> &[bool] {
+        let entries = expression.derived.expression.len();
+        self.capable.clear();
+        self.capable.resize(entries, false);
+        for (index, entry) in (0..entries).rev().zip(expression.positioned().rev()) {
+            let capable = match entry.atom {
+                Some(Atom::Function(function)) => {
+                    may_answer_a_sequence(function, self.capable[index])
+                }
+                _ => false,
+            };
+            self.capable[index] = capable;
+            if let (true, Some(parent)) = (capable, entry.parent) {
+                debug_assert!(parent < index, "preorder puts a parent first");
+                self.capable[parent] = true;
+            }
+        }
+        &self.capable
+    }
 }
 
 /// A row's complete semantic derivation. Unit ranges never leave this row.
@@ -1580,6 +1614,7 @@ mod tests {
     ///
     mod output_portal {
         use super::{Function, Grid, LanguageMap};
+        use crate::source::language_map::SequenceCapability;
 
         /// One `LanguageMap` built from `rows`, each padded to `grid`'s width
         /// with blank Cells, matching how every other row-based fixture in
@@ -1692,8 +1727,92 @@ mod tests {
             let expression = map.expressions().next().expect("one Expression");
 
             assert_eq!(
-                expression.sequence_capability(),
+                SequenceCapability::for_map(&map).derive(expression),
                 [true, true, false, false, false]
+            );
+        }
+
+        /// `depth` Adds, each nested in its parent's first operand, around a
+        /// NumberRange: every Function in it may answer a Sequence.
+        fn nested(depth: usize) -> String {
+            format!("{}:-0102{}", ".+".repeat(depth), "01".repeat(depth))
+        }
+
+        #[test]
+        fn sequence_capability_widens_every_ancestor_of_a_deep_sequence() {
+            let depth = 30;
+            let row = nested(depth);
+            let grid = Grid::with_shape(row.len(), 1);
+            let map = build(grid, &[&row]);
+            let expression = map.expressions().next().expect("one Expression");
+            let capable = SequenceCapability::for_map(&map)
+                .derive(expression)
+                .to_vec();
+
+            // Preorder: the Adds outermost first, NumberRange and its two
+            // operands, then each Add's second operand.
+            let mut expected = vec![true; depth + 1];
+            expected.extend([false; 2]);
+            expected.extend(vec![false; depth]);
+            assert_eq!(capable, expected);
+        }
+
+        #[test]
+        fn one_scratch_buffer_serves_every_expression_it_derives() {
+            // A shallow scalar root after a deep Sequence-capable one: the
+            // buffer the deep one filled is reset, not carried over.
+            let deep = nested(4);
+            let grid = Grid::with_shape(deep.len(), 2);
+            let map = build(grid, &[&deep, ".x0203"]);
+            let mut capability = SequenceCapability::for_map(&map);
+            let answers: Vec<Vec<bool>> = map
+                .expressions()
+                .map(|expression| capability.derive(expression).to_vec())
+                .collect();
+
+            assert_eq!(answers.len(), 2);
+            assert!(answers[0].iter().take(5).all(|&capable| capable));
+            assert_eq!(answers[1], [false, false, false]);
+        }
+
+        ///
+        /// Pins what one call allocates, in the harness's shapes: the same
+        /// count whatever the number of Expressions or the depth of their
+        /// nesting, since a block per Expression or per entry would move it
+        /// with the shape; and a ceiling of the list it answers plus one
+        /// scratch buffer, so a cheaper call still passes.
+        ///
+        #[cfg(not(target_arch = "wasm32"))]
+        #[test]
+        fn output_portal_reservations_allocate_the_same_blocks_for_every_shape() {
+            let deep = nested(60);
+            let columns = deep.len();
+            let blank = String::new();
+            let shapes: [Vec<&str>; 4] = [
+                vec![".+0102"],
+                vec![&deep],
+                vec![".+0102", "", ".x0203", "", ":-0102"],
+                vec![&deep, &blank, &deep, &blank, &deep, &blank, &deep],
+            ];
+            let counts: Vec<usize> = shapes
+                .iter()
+                .map(|rows| {
+                    let grid = Grid::with_shape(columns, rows.len() + 1);
+                    let map = build(grid, rows);
+                    let (blocks, reservations) =
+                        crate::allocation::blocks(|| map.output_portal_reservations());
+                    assert!(!reservations.is_empty(), "{rows:?} reserves Cells");
+                    assert!(
+                        blocks <= 2,
+                        "{rows:?}: at most the list and one scratch buffer, got {blocks}"
+                    );
+                    blocks
+                })
+                .collect();
+
+            assert!(
+                counts.iter().all(|&blocks| blocks == counts[0]),
+                "the count moved with the shape: {counts:?}"
             );
         }
 

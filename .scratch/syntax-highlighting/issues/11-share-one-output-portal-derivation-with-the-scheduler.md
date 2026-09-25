@@ -29,7 +29,7 @@ Raised 2026-09-19 while resolving `05`. `derive_reservations` (`orcvs/src/source
 - `derive_reservations` survives as `#[cfg(test)]` only, for `stated::plan_with_answers` and its direct test: a fixture that states a `Reserved::Row` no declaration derives needs its ancestors widened over it, and the Language Map cannot know a stated width.
 - The agreement module is reduced to the Source-writing exclusion `05` names (`mod output_portal_exclusion`, Advance and Emit). Every other root reserves the same Cells by construction: the same capability, the same `Portal::named` resolution of `output_portal()`, the same `Portal::reservation`. The general comparison and its property test are gone; `language_map.rs`'s `mod output_portal` keeps the per-case coverage tests.
 
-No Tick test changed. `orcvs` has 634 passing tests with `PROPTEST_CASES=32`.
+No Tick test changed. `orcvs` has 634 passing tests with `PROPTEST_CASES=32`. `source-audit/20`, delivered in the next commit on the same branch, turns `ExpressionEntry::sequence_capability` into `SequenceCapability::derive`, a linear pass over reusable scratch storage; the sharing described here is unchanged.
 
 ## Agent Brief
 

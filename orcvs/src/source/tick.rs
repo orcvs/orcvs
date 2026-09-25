@@ -16,9 +16,9 @@ use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use super::encoding::{Encoding, RenderError, Rendered};
-use super::language_map::{LanguageMap, Span, may_answer_a_sequence};
+use super::language_map::{LanguageMap, SequenceCapability, Span, may_answer_a_sequence};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit, occupancy_of};
-use super::portal::{Portal, PortalAccess, SpanWrite};
+use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -47,9 +47,9 @@ struct Computation {
     portal_access: PortalAccess,
     /// How wide this computation's result may be, per ADR 0036, and the one
     /// home that fact has in a schedule. [`computations`] reads it from the
-    /// Language Map's `ExpressionEntry::sequence_capability`, the derivation
-    /// the Output Portal Reservations read, so a root reserves exactly the
-    /// Cells its Output Portal Reservation names.
+    /// Language Map's [`SequenceCapability`], the derivation the Output Portal
+    /// Reservations read, so a root reserves exactly the Cells its Output
+    /// Portal Reservation names.
     reserved: Reserved,
 }
 
@@ -172,9 +172,10 @@ enum LockTarget {
 /// suppressed, or activated.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Reserved {
-    /// The `SCALAR_WIDTH` Cells one Atom occupies. This stays the case for
-    /// every computation whose answer cannot be a Sequence, which today is
-    /// every computation there is.
+    /// The `SCALAR_WIDTH` Cells one Atom occupies, for every computation whose
+    /// answer cannot be a Sequence. Execution refuses any other width from
+    /// such a computation before it admits a write, which is the only reason
+    /// a scalar destination a Portal admits is always one this covers.
     Pair,
     /// Every Cell from the destination through the end of its row. A Sequence's
     /// width is not known when the schedule is built, and no Span reaches past
@@ -260,12 +261,6 @@ struct FunctionContact {
     /// Includes the contacted Function itself, in Parser preorder.
     subtree: Range<usize>,
 }
-
-/// The Cell width scheduling reserves for one scalar result. Execution
-/// refuses any other width from a [`Reserved::Pair`] computation before it
-/// admits a write, which is the only reason a scalar destination admitted by a
-/// Portal is always one the reservation covers.
-const SCALAR_WIDTH: usize = 2;
 
 impl Lookup {
     fn new(grid: Grid, nodes: Vec<Computation>, map: &LanguageMap) -> Self {
@@ -366,6 +361,10 @@ impl Lookup {
         // linked to the parent that owns it — which is what a replacement's
         // width check relies on. It is cheap to hold in debug builds and silent
         // everywhere else.
+        //
+        // It also pins an ordering `stated::plan_with_answers` depends on: the
+        // `Reserved::Row` that fixture states is a width no declaration
+        // derives, so it can only be written after this has run.
         debug_assert!(
             (0..lookup.nodes.len()).all(|index| {
                 lookup.would_reserve(index, lookup.nodes[index].function)
@@ -409,8 +408,8 @@ impl Lookup {
     ///
     /// Asked with the computation's own Function it answers what that
     /// computation already reserves — for every computation production
-    /// builds, which is what `Lookup::new` asserts. A width a test states rather than
-    /// derives is the exception, and the only one: `stated::plan_with_answers`
+    /// builds, which is what `Lookup::new` asserts. A width a test states
+    /// rather than derives is the exception, and the only one: `stated::plan_with_answers`
     /// writes a `Reserved::Row` no declaration produces, and this answers
     /// `Reserved::Pair` for that computation ever after. That fixture refuses
     /// to combine a stated width with a stated Function replacement for
@@ -960,19 +959,20 @@ fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> 
 /// This is everything a schedule knows before a [`Lookup`] indexes it: which
 /// Cells each computation claims, how wide a result each reserves, how each
 /// interacts with Portals, and which Expressions the row edge cut short. The
-/// widths are the Language Map's `ExpressionEntry::sequence_capability`, one
-/// per positioned entry, so scheduling and the Output Portal Reservations
-/// read one derivation.
+/// widths are the Language Map's [`SequenceCapability`], one per positioned
+/// entry, so scheduling and the Output Portal Reservations read one
+/// derivation.
 ///
 fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnostic>) {
     let mut nodes: Vec<Computation> = Vec::new();
+    let mut capability = SequenceCapability::for_map(map);
     let mut diagnostics = Vec::new();
     for expression in map.expressions() {
         if expression.function_candidate().is_none() {
             continue;
         }
         let mut functions = BTreeMap::new();
-        let capable = expression.sequence_capability();
+        let capable = capability.derive(expression);
         for (entry_index, entry) in expression.positioned().enumerate() {
             let parent = entry
                 .parent

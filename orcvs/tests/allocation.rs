@@ -22,7 +22,10 @@
 //!
 //! Forty duplicated lines against an API entry is the trade `01` left open and
 //! this file settles: duplicate. The two files are meant to read as one
-//! harness, so a change to the allocator or to `measure` belongs in both.
+//! harness, so a change to the allocator or to `measure` belongs in both, and
+//! in `orcvs/src/lib.rs`'s `allocation` module, which installs this
+//! allocator's block counting, without the byte count, in this crate's
+//! unit-test binary to measure derivations no public API reaches in isolation.
 //!
 //! # What the assertions say
 //!

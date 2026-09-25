@@ -32,9 +32,10 @@ use super::CellContent;
 use super::encoding::Encoding;
 use super::language_map::{LanguageMap, LanguageUnitKind, Span};
 
-/// The Cell pair an Atom occupies. Jump reads that pair at the opposite
-/// Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
-const PAIR_WIDTH: usize = 2;
+/// The Cell pair one Atom occupies, and the one declaration of it: what a
+/// scalar answer reserves (ADR 0036), what a Jump reads at its opposite
+/// Portal, and the step an Output Portal highlight extends by.
+pub(super) const SCALAR_WIDTH: usize = 2;
 
 ///
 /// One Cell destination resolved while interpreting a Source Snapshot.
@@ -248,7 +249,7 @@ impl Portal {
         if may_be_a_sequence {
             Some(self.remaining_span())
         } else {
-            self.span(PAIR_WIDTH).ok()
+            self.span(SCALAR_WIDTH).ok()
         }
     }
 
@@ -534,7 +535,7 @@ impl PortalAccess {
     fn portal_reads(grid: Grid, anchor: Position, coords: PortalCoords) -> Vec<Range<usize>> {
         Portal::named(grid, anchor, coords)
             .ok()
-            .and_then(|portal| portal.span(PAIR_WIDTH).ok())
+            .and_then(|portal| portal.span(SCALAR_WIDTH).ok())
             .map(|span| vec![span.range()])
             .unwrap_or_default()
     }

@@ -10,9 +10,8 @@ pub use lang::Token;
 // `Atom` without adding a direct dependency on `lang`.
 pub use lang::Atom;
 pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
-use language_map::{
-    OUTPUT_PORTAL_SCALAR_WIDTH, OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation,
-};
+use language_map::{OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation};
+use portal::SCALAR_WIDTH;
 mod model;
 mod portal;
 mod tick;
@@ -178,7 +177,7 @@ impl SourceRevision {
         }
         let mut fitted = end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH);
         while fitted < end && self.written(fitted) {
-            fitted = end.min(fitted + OUTPUT_PORTAL_SCALAR_WIDTH);
+            fitted = end.min(fitted + SCALAR_WIDTH);
         }
         start..fitted
     }
