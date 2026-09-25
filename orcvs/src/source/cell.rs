@@ -26,10 +26,6 @@ impl CellContent {
     pub fn as_char(self) -> char {
         char::from(self.0)
     }
-
-    pub(super) fn byte(self) -> u8 {
-        self.0
-    }
 }
 
 #[cfg(test)]
@@ -42,7 +38,6 @@ mod tests {
             let content = CellContent::new(byte);
             assert_eq!(content.is_some(), byte == b' ' || byte.is_ascii_graphic());
             if let Some(content) = content {
-                assert_eq!(content.byte(), byte);
                 assert_eq!(content.as_char(), char::from(byte));
             }
         }

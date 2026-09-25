@@ -142,6 +142,9 @@ pub struct TickPlan {
 ///
 pub struct Source {
     grid: Grid,
+    /// Exactly one printable ASCII byte per Cell, in Grid index order.
+    /// `Source::new`, deserialization and [`CellContent`] writes are the only
+    /// ways in, and each admits nothing else.
     inner: String,
     language_map: Arc<LanguageMap>,
     revision: RevisionId,
@@ -471,14 +474,13 @@ impl Source {
         // shape is still a different Grid, which is why identity is what is
         // asked rather than a number compared.
         self.grid.assert_owns_index(cell);
-        // SAFETY: Source construction and deserialization establish one
-        // printable ASCII byte per Cell. Every subsequent write takes a
-        // CellContent, whose private byte is printable ASCII by construction.
-        // Replacing one such byte preserves UTF-8 validity and String length.
-        unsafe {
-            let bytes = self.inner.as_bytes_mut();
-            bytes[cell.get()] = content.byte();
-        }
+        // One printable ASCII byte replaces one: the length, and so every
+        // other Cell's index, is unchanged. `replace_range` checks both ends
+        // of the range are character boundaries, which every Cell's are.
+        let at = cell.get();
+        let mut encoded = [0; 4];
+        self.inner
+            .replace_range(at..=at, content.as_char().encode_utf8(&mut encoded));
     }
 }
 
@@ -1046,6 +1048,31 @@ mod test {
             serde_json::from_str::<Source>(&short).is_err(),
             "Cells that do not fill the Grid must be refused whole"
         );
+    }
+
+    ///
+    /// Persisted text is untrusted: every byte must be a Cell, including when
+    /// the byte count alone matches the Grid. A two-byte UTF-8 character in
+    /// place of two spaces keeps the count and is still refused.
+    ///
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_source_deserialization_refuses_every_byte_that_is_not_a_cell() {
+        let count = Grid::new().count();
+        for intruder in ["\t", "\n", "\r", "\u{0}", "\u{7f}", "é", "\u{2603}"] {
+            let inner = format!("{intruder}{}", " ".repeat(count - intruder.len()));
+            assert_eq!(inner.len(), count, "the byte count matches the Grid");
+            let encoded = serde_json::to_string(&serde_json::json!({
+                "grid": {"cols": 256, "rows": 256},
+                "inner": inner,
+            }))
+            .unwrap();
+
+            assert!(
+                serde_json::from_str::<Source>(&encoded).is_err(),
+                "{intruder:?} is not a Cell and must be refused"
+            );
+        }
     }
 
     ///

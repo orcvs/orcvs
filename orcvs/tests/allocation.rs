@@ -340,10 +340,10 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
     // own from outside the crate, and the write path is not allocation-free.
     //
     // `Source::set` in `orcvs/src/source/model.rs` validates the content and
-    // calls `edit`, and `edit` does two things: `set_source`, which is the
-    // workspace's one `unsafe` block writing the byte in place, and then
-    // `rebuild_rows`, which builds a fresh `Arc<LanguageMap>` for the row the
-    // write touched. `set_source` is private, so no public call reaches the
+    // calls `edit`, and `edit` does two things: `set_source`, which replaces
+    // the Cell's byte in place with a checked `String::replace_range`, and
+    // then `rebuild_rows`, which builds a fresh `Arc<LanguageMap>` for the row
+    // the write touched. `set_source` is private, so no public call reaches the
     // byte write without also paying for the rebuild, and everything one write
     // allocates is the rebuild's.
     //
