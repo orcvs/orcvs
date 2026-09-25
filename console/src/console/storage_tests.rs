@@ -10,7 +10,7 @@ use eframe::App as _;
 use orcvs::source::SourceCommander;
 
 use super::Console;
-use super::tests::assert_chrome;
+use super::tests::{assert_chrome, start_console};
 use crate::persistence::{
     InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source, store,
 };
@@ -48,12 +48,11 @@ fn storage_holding_a_refused_value() -> (InMemoryStorage, String) {
 fn console_over(storage: &dyn eframe::Storage) -> Console {
     let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
     cc.storage = Some(storage);
-    Console::new(
+    start_console(
         &cc,
         ThemeRegistry::built_in(),
         crate::config::Config::default(),
     )
-    .expect("the test runtime")
 }
 
 ///
@@ -153,7 +152,7 @@ async fn configured_theme_references_are_presented_or_fall_back() {
 
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    let console = Console::new(&cc, ThemeRegistry::built_in(), config()).expect("the test runtime");
+    let console = start_console(&cc, ThemeRegistry::built_in(), config());
     assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
     assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
     assert_chrome(
@@ -171,7 +170,7 @@ async fn configured_theme_references_are_presented_or_fall_back() {
 
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    let console = Console::new(&cc, with_my_themes(), config()).expect("the test runtime");
+    let console = start_console(&cc, with_my_themes(), config());
     assert_eq!(
         *console.themes.presented(Appearance::Dark),
         my_dark(),
@@ -211,8 +210,7 @@ async fn the_retired_settings_keys_are_neither_read_nor_written() {
 
     let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
     cc.storage = Some(&storage);
-    let mut console = Console::new(&cc, with_my_themes(), crate::config::Config::default())
-        .expect("the test runtime");
+    let mut console = start_console(&cc, with_my_themes(), crate::config::Config::default());
 
     assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
     assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());

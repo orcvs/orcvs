@@ -84,6 +84,7 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
+use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::theme::{Appearance, okabe_ito, orcvs_light};
@@ -108,11 +109,27 @@ fn running_console(size: Vec2) -> Harness<'static, Console> {
 /// [`running_console`] over the Theme registry a test built.
 ///
 fn running_console_with(size: Vec2, themes: ThemeRegistry) -> Harness<'static, Console> {
+    console_harness(size, None, themes, crate::config::Config::default())
+}
+
+///
+/// A running console at `size` over `themes` and the settings `config` holds,
+/// started from `storage` when a test gives one and from none otherwise.
+///
+fn console_harness<'a>(
+    size: Vec2,
+    storage: Option<&'a dyn eframe::Storage>,
+    themes: ThemeRegistry,
+    config: crate::config::Config,
+) -> Harness<'a, Console> {
     Harness::builder()
         .with_size(size)
         .with_pixels_per_point(1.0)
         .build_eframe(move |cc| {
-            Console::new(cc, themes, crate::config::Config::default()).expect("the test runtime")
+            if storage.is_some() {
+                cc.storage = storage;
+            }
+            start_console(cc, themes, config)
         })
 }
 
@@ -311,15 +328,8 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
         "[theme]\ndark = \"my-dark\"\nlight = \"my-light\"\n\
          [cursor_effects]\nglitch_amount = 12\nglitch_frequency = 34\nspeed = 1\n",
     ));
-    let mut harness = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(move |cc| {
-            Console::new(cc, with_my_themes(), config).expect("the test runtime")
-        });
-    harness.ctx.set_theme(egui::ThemePreference::System);
-    harness.input_mut().system_theme = Some(egui::Theme::Dark);
-    harness.run_steps(2);
+    let mut harness =
+        configured_console_under_os_appearance(egui::Theme::Dark, with_my_themes(), config);
 
     assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "a dark OS");
     harness.input_mut().system_theme = Some(egui::Theme::Light);
@@ -447,7 +457,18 @@ fn console_under_os_appearance(
     system: egui::Theme,
     themes: ThemeRegistry,
 ) -> Harness<'static, Console> {
-    let mut harness = running_console_with(Vec2::from(DEFAULT_VIEW_SIZE), themes);
+    configured_console_under_os_appearance(system, themes, crate::config::Config::default())
+}
+
+///
+/// [`console_under_os_appearance`] under the settings `config` holds.
+///
+fn configured_console_under_os_appearance(
+    system: egui::Theme,
+    themes: ThemeRegistry,
+    config: crate::config::Config,
+) -> Harness<'static, Console> {
+    let mut harness = console_harness(Vec2::from(DEFAULT_VIEW_SIZE), None, themes, config);
     harness.ctx.set_theme(egui::ThemePreference::System);
     harness.input_mut().system_theme = Some(system);
     harness.run_steps(2);
@@ -466,16 +487,7 @@ fn console_with_settings_moved(amount: u8, frequency: u8) -> Harness<'static, Co
     };
     *config.cursor_effects.amount_mut() = amount;
     *config.cursor_effects.frequency_mut() = frequency;
-    let mut harness = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(move |cc| {
-            Console::new(cc, with_my_themes(), config).expect("the test runtime")
-        });
-    harness.ctx.set_theme(egui::ThemePreference::System);
-    harness.input_mut().system_theme = Some(egui::Theme::Dark);
-    harness.run_steps(2);
-    harness
+    configured_console_under_os_appearance(egui::Theme::Dark, with_my_themes(), config)
 }
 
 ///
@@ -865,18 +877,12 @@ async fn a_long_notice_in_a_narrow_window_stays_right_of_the_menus() {
         "not a Source".to_owned(),
     );
     let width = 420.0;
-    let mut harness = Harness::builder()
-        .with_size(Vec2::new(width, DEFAULT_VIEW_SIZE[1]))
-        .with_pixels_per_point(1.0)
-        .build_eframe(|cc| {
-            cc.storage = Some(&stored);
-            Console::new(
-                cc,
-                ThemeRegistry::built_in(),
-                crate::config::Config::default(),
-            )
-            .expect("the test runtime")
-        });
+    let mut harness = console_harness(
+        Vec2::new(width, DEFAULT_VIEW_SIZE[1]),
+        Some(&stored),
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+    );
     harness.run_steps(2);
 
     let help = harness.get_by_label("Help").rect();
@@ -2143,24 +2149,6 @@ async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
 }
 
 ///
-/// Waits, bounded by [`ENGINE_WAIT`], until `watch` answers `ready`. Playback
-/// runs on its own task (ADR 0041), so this waits on a fact only that task can
-/// make true, never on a clock.
-///
-async fn engine_reaches(
-    watch: &mut orcvs::playback::PlaybackObservationWatch,
-    ready: impl FnMut(&orcvs::playback::PlaybackObservation) -> bool,
-) -> bool {
-    tokio::time::timeout(ENGINE_WAIT, watch.wait_for(ready))
-        .await
-        .is_ok_and(|reached| reached.is_ok())
-}
-
-/// How long [`engine_reaches`] and a closing engine are given: far longer than
-/// a current-thread task needs, so running out is a failure.
-const ENGINE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
-///
 /// `File → New` replaces the environment with an empty Source on the one
 /// Grid, resetting the Cells, Cursor, Zoom, Bpm and Playback and leaving the
 /// settings standing.
@@ -2263,18 +2251,12 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
     store(&mut stored, &edited_source());
     let stored_revision = eframe::Storage::get_string(&stored, SOURCE_KEY);
 
-    let mut harness = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(|cc| {
-            cc.storage = Some(&stored);
-            Console::new(
-                cc,
-                ThemeRegistry::built_in(),
-                crate::config::Config::default(),
-            )
-            .expect("the test runtime")
-        });
+    let mut harness = console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        Some(&stored),
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+    );
     harness.run_steps(2);
     assert!(
         cells(harness.state()).iter().any(Option::is_some),
@@ -2292,18 +2274,12 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
     eframe::App::save(harness.state_mut(), &mut saved);
     drop(harness);
 
-    let restarted = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(|cc| {
-            cc.storage = Some(&saved);
-            Console::new(
-                cc,
-                ThemeRegistry::built_in(),
-                crate::config::Config::default(),
-            )
-            .expect("the test runtime")
-        });
+    let restarted = console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        Some(&saved),
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+    );
     let grid = restarted.state().orcvs.render_frame().grid();
     assert_eq!(
         (grid.columns(), grid.rows()),
@@ -2893,18 +2869,12 @@ async fn a_restored_source_is_untitled_and_unsaved() {
 
     let mut stored = InMemoryStorage::default();
     store(&mut stored, &edited_source());
-    let mut harness = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(|cc| {
-            cc.storage = Some(&stored);
-            Console::new(
-                cc,
-                ThemeRegistry::built_in(),
-                crate::config::Config::default(),
-            )
-            .expect("the test runtime")
-        });
+    let mut harness = console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        Some(&stored),
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+    );
     harness.run_steps(2);
     assert_eq!(
         harness.state().shown_title.as_deref(),

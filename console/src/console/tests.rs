@@ -740,6 +740,61 @@ async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_th
 }
 
 ///
+/// Starts a Console from `cc` over `themes` and the settings `config` holds,
+/// the way eframe starts one. Every console test builds its Console here,
+/// whether it drives it over its own `Context`, through a kittest `Harness`
+/// or from a stored revision.
+///
+pub(super) fn start_console(
+    cc: &eframe::CreationContext<'_>,
+    themes: ThemeRegistry,
+    config: crate::config::Config,
+) -> Console {
+    Console::new(cc, themes, config).expect("the test runtime")
+}
+
+///
+/// A fresh-install Console over `ctx`: the built-in Themes, the default
+/// settings and no storage. `CreationContext::_new_kittest` is eframe's own
+/// headless constructor, which is how an `App` starts outside a window.
+///
+fn console_on(ctx: &egui::Context) -> Console {
+    start_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+    )
+}
+
+///
+/// A fresh-install Console over a new `Context`, with eframe's headless host
+/// to drive it through [`app_pass`].
+///
+fn fresh_console() -> (egui::Context, Console, eframe::Frame) {
+    let ctx = egui::Context::default();
+    let console = console_on(&ctx);
+    (ctx, console, eframe::Frame::_new_kittest())
+}
+
+///
+/// Waits, bounded by [`ENGINE_WAIT`], until `watch` answers `ready`. Playback
+/// runs on its own task (ADR 0041), so this waits on a fact only that task can
+/// make true, never on a clock.
+///
+pub(super) async fn engine_reaches(
+    watch: &mut orcvs::playback::PlaybackObservationWatch,
+    ready: impl FnMut(&orcvs::playback::PlaybackObservation) -> bool,
+) -> bool {
+    tokio::time::timeout(ENGINE_WAIT, watch.wait_for(ready))
+        .await
+        .is_ok_and(|reached| reached.is_ok())
+}
+
+/// How long [`engine_reaches`] and a closing engine are given: far longer than
+/// a current-thread task needs, so running out is a failure.
+pub(super) const ENGINE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+///
 /// One pass of the whole running Console, the way eframe drives it.
 ///
 /// `eframe::Frame::_new_kittest` and `CreationContext::_new_kittest` are
@@ -813,6 +868,52 @@ fn settle_repaint(
         }
     }
     panic!("the console still asked for an immediate repaint after 16 quiet passes");
+}
+
+///
+/// Plays at 200 BPM, settles the passes the key press asks for, and waits
+/// for Playback to publish another Tick. Answers the Tick before, the Tick
+/// after, and how soon the next pass asked to be painted again.
+///
+async fn play_and_await_the_next_tick(
+    ctx: &egui::Context,
+    screen: Rect,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> (
+    orcvs::source::Tick,
+    orcvs::source::Tick,
+    std::time::Duration,
+) {
+    console
+        .orcvs
+        .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
+    app_pass(
+        ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        console,
+        host,
+    );
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "Playback never began playing"
+    );
+
+    settle_repaint(ctx, screen, console, host);
+    let tick = console.orcvs.playback_observation().tick;
+    assert!(
+        engine_reaches(&mut playback, |observation| observation.tick != tick).await,
+        "Playback never published another Tick from {tick:?}"
+    );
+    let advanced = console.orcvs.playback_observation().tick;
+
+    let delay = app_pass_repaint_delay(ctx, screen, Vec::new(), console, host);
+    (tick, advanced, delay)
 }
 
 fn collect_shape_text(shape: &Shape, out: &mut String) {
@@ -948,15 +1049,8 @@ fn console_viewport(ctx: &egui::Context, console: &Console) -> GridViewport {
 ///
 #[tokio::test]
 async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
-    let ctx = egui::Context::default();
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     // One quiet pass, so the top panel has claimed its height and the view
     // holds the fit the Grid was presented under.
@@ -1003,12 +1097,7 @@ async fn console_new_keeps_a_theme_preference_already_on_the_context() {
     let ctx = egui::Context::default();
     ctx.set_theme(egui::ThemePreference::Light);
 
-    let _console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
+    let _console = console_on(&ctx);
 
     assert_eq!(
         ctx.options(|options| options.theme_preference),
@@ -1033,14 +1122,7 @@ async fn console_new_keeps_a_theme_preference_already_on_the_context() {
 ///
 #[tokio::test]
 async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
-    let ctx = egui::Context::default();
-
-    let _console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
+    let (ctx, _console, _host) = fresh_console();
 
     assert_eq!(
         ctx.options(|options| options.theme_preference),
@@ -1056,16 +1138,8 @@ async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
 ///
 #[tokio::test]
 async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     let painted = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let sink = painted.clone();
@@ -1177,52 +1251,11 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
 ///
 #[tokio::test]
 async fn a_playing_console_repaints_as_soon_as_the_published_tick_advances() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
-    let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
-    console.orcvs.set_bpm(bpm);
-    app_pass(
-        &ctx,
-        screen,
-        vec![key_event(Key::Space, true)],
-        &mut console,
-        &mut host,
-    );
-    for _ in 0..1_000 {
-        if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert_eq!(
-        console.orcvs.playback_observation().state,
-        orcvs::playback::PlaybackState::Playing
-    );
-
-    settle_repaint(&ctx, screen, &mut console, &mut host);
-    let tick = console.orcvs.playback_observation().tick;
-    for _ in 0..2_000 {
-        if console.orcvs.playback_observation().tick != tick {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    let advanced = console.orcvs.playback_observation().tick;
-    assert_ne!(
-        advanced, tick,
-        "Playback never published another Tick from {tick:?}"
-    );
-
-    let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let (tick, advanced, delay) =
+        play_and_await_the_next_tick(&ctx, screen, &mut console, &mut host).await;
     assert_eq!(
         delay,
         std::time::Duration::ZERO,
@@ -1237,57 +1270,15 @@ async fn a_playing_console_repaints_as_soon_as_the_published_tick_advances() {
 ///
 #[tokio::test]
 async fn an_opened_console_repaints_as_soon_as_its_new_playback_publishes() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     console.load_function_reference();
     // Reduced motion keeps the Cursor Effect's own wakes out of the delay.
     console.reduced_motion = true;
-    console
-        .orcvs
-        .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
-    app_pass(
-        &ctx,
-        screen,
-        vec![key_event(Key::Space, true)],
-        &mut console,
-        &mut host,
-    );
-    for _ in 0..1_000 {
-        if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert_eq!(
-        console.orcvs.playback_observation().state,
-        orcvs::playback::PlaybackState::Playing
-    );
-
-    settle_repaint(&ctx, screen, &mut console, &mut host);
-    let tick = console.orcvs.playback_observation().tick;
-    for _ in 0..2_000 {
-        if console.orcvs.playback_observation().tick != tick {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    let advanced = console.orcvs.playback_observation().tick;
-    assert_ne!(
-        advanced, tick,
-        "the opened Source's Playback never published another Tick from {tick:?}"
-    );
-
-    let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let (tick, advanced, delay) =
+        play_and_await_the_next_tick(&ctx, screen, &mut console, &mut host).await;
     assert_eq!(
         delay,
         std::time::Duration::ZERO,
@@ -1302,13 +1293,7 @@ async fn an_opened_console_repaints_as_soon_as_its_new_playback_publishes() {
 ///
 #[tokio::test]
 async fn the_wake_up_over_a_replaced_orcvs_ends_once_its_playback_is_gone() {
-    let ctx = egui::Context::default();
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
+    let (ctx, mut console, _host) = fresh_console();
     let wake = tokio::spawn(super::panel_wake(
         ctx,
         console.orcvs.playback_observation_watch(),
@@ -1329,16 +1314,8 @@ async fn the_wake_up_over_a_replaced_orcvs_ends_once_its_playback_is_gone() {
 ///
 #[tokio::test]
 async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
     console.orcvs.set_bpm(bpm);
@@ -1349,15 +1326,13 @@ async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
         &mut console,
         &mut host,
     );
-    for _ in 0..1_000 {
-        if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert_eq!(
-        console.orcvs.playback_observation().state,
-        orcvs::playback::PlaybackState::Playing
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "Playback never began playing"
     );
 
     let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -1376,16 +1351,8 @@ async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
 ///
 #[tokio::test]
 async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     console.reduced_motion = true;
     let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
@@ -1397,15 +1364,13 @@ async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
         &mut console,
         &mut host,
     );
-    for _ in 0..1_000 {
-        if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert_eq!(
-        console.orcvs.playback_observation().state,
-        orcvs::playback::PlaybackState::Playing
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "Playback never began playing"
     );
 
     let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -1426,16 +1391,8 @@ async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
 ///
 #[tokio::test]
 async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     *console.cursor_effects.amount_mut() = 0;
     let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
@@ -1447,15 +1404,13 @@ async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline
         &mut console,
         &mut host,
     );
-    for _ in 0..1_000 {
-        if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert_eq!(
-        console.orcvs.playback_observation().state,
-        orcvs::playback::PlaybackState::Playing
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "Playback never began playing"
     );
 
     let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -1477,16 +1432,8 @@ async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline
 ///
 #[tokio::test]
 async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     console.reduced_motion = true;
     *console.cursor_effects.amount_mut() = 42;
@@ -1530,16 +1477,8 @@ async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones(
 async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_time() {
     use eframe::App as _;
 
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     console.reduced_motion = true;
     console
@@ -1552,15 +1491,13 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
         &mut console,
         &mut host,
     );
-    for _ in 0..1_000 {
-        if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert_eq!(
-        console.orcvs.playback_observation().state,
-        orcvs::playback::PlaybackState::Playing
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "Playback never began playing"
     );
 
     // A publish or focus wake can still ask for an immediate pass while
@@ -1599,16 +1536,8 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
 ///
 #[tokio::test]
 async fn a_stopped_console_with_cursor_effect_off_requests_no_timed_wake() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     console.reduced_motion = true;
     let mut delay = std::time::Duration::ZERO;
@@ -1665,16 +1594,8 @@ fn bpm_selected_chars(ctx: &egui::Context, console: &Console) -> usize {
 
 #[tokio::test]
 async fn clicking_the_bpm_field_selects_its_text() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let shown = console.orcvs.bpm().beats_per_minute().to_string();
@@ -1714,16 +1635,8 @@ async fn clicking_the_bpm_field_selects_its_text() {
 ///
 #[tokio::test]
 async fn tab_with_the_bpm_field_focused_leaves_the_cursor_and_moves_focus_on() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     focus_bpm_field(&ctx, screen, &mut console, &mut host);
@@ -1750,16 +1663,8 @@ async fn tab_with_the_bpm_field_focused_leaves_the_cursor_and_moves_focus_on() {
 
 #[tokio::test]
 async fn the_bpm_field_accepts_digits_only() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     focus_bpm_field(&ctx, screen, &mut console, &mut host);
@@ -1807,16 +1712,8 @@ async fn the_bpm_field_accepts_digits_only() {
 
 #[tokio::test]
 async fn escape_reverts_a_valid_uncommitted_bpm() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let start = console.orcvs.bpm().beats_per_minute();
     let grid = console.orcvs.grid();
     console
@@ -1860,16 +1757,8 @@ async fn escape_reverts_a_valid_uncommitted_bpm() {
 ///
 #[tokio::test]
 async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the Grid");
     console.orcvs.extend(at(2, 1));
@@ -1925,15 +1814,8 @@ async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
 async fn copy_reaches_the_platform_clipboard_and_paste_writes_the_source() {
     use eframe::App as _;
 
-    let ctx = egui::Context::default();
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the Grid");
 
@@ -1968,16 +1850,8 @@ async fn copy_reaches_the_platform_clipboard_and_paste_writes_the_source() {
 
 #[tokio::test]
 async fn dragging_the_bpm_field_does_not_change_the_tempo() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let start = console.orcvs.bpm().beats_per_minute();
@@ -2009,16 +1883,8 @@ async fn dragging_the_bpm_field_does_not_change_the_tempo() {
 }
 #[tokio::test]
 async fn the_bpm_field_pads_three_digits() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let field = ctx
@@ -2053,16 +1919,8 @@ async fn the_bpm_field_pads_three_digits() {
 ///
 #[tokio::test]
 async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     focus_bpm_field(&ctx, screen, &mut console, &mut host);
@@ -2149,16 +2007,8 @@ async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click(
 ///
 #[tokio::test]
 async fn out_of_range_bpm_input_does_not_change_the_tempo() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let start = console.orcvs.bpm().beats_per_minute();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -2194,16 +2044,8 @@ async fn out_of_range_bpm_input_does_not_change_the_tempo() {
 ///
 #[tokio::test]
 async fn committing_bpm_while_playback_is_requested_sets_it_on_orcvs() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     app_pass(
@@ -2355,16 +2197,8 @@ async fn the_default_window_presents_the_grid_at_its_own_scale() {
 ///
 #[tokio::test]
 async fn the_bars_take_the_height_the_default_window_holds_back_and_the_source_the_rest() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
@@ -2553,16 +2387,8 @@ fn panel_readouts_use_the_monospace_style_size_not_line_height() {
 
 #[tokio::test]
 async fn panel_label_gaps_match_and_entry_gaps_match() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let sink = painted.clone();
     ctx.on_end_pass(
@@ -2637,16 +2463,8 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
 
 #[tokio::test]
 async fn the_bottom_panel_separator_is_the_grid_line() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let sink = painted.clone();
     ctx.on_end_pass(
@@ -2674,16 +2492,8 @@ async fn the_bottom_panel_separator_is_the_grid_line() {
 
 #[tokio::test]
 async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
-    let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("the test runtime");
-    let mut host = eframe::Frame::_new_kittest();
     let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let sink = painted.clone();
     ctx.on_end_pass(
@@ -4112,13 +3922,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
 ///
 #[tokio::test]
 async fn clear_color_is_the_resolved_themes_opaque_window_background() {
-    let ctx = egui::Context::default();
-    let console = Console::new(
-        &eframe::CreationContext::_new_kittest(ctx.clone()),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    )
-    .expect("Console::new");
+    let (ctx, console, _host) = fresh_console();
 
     for (slot, theme) in [
         (egui::Theme::Dark, okabe_ito()),
