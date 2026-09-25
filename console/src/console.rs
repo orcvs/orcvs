@@ -1,3 +1,15 @@
+//! The console: the running Orcvs presented through egui.
+//!
+//! `Console::ui` composes each Render Frame from the modules that own its
+//! parts, in this order: `input` keeps Tab for the Source and routes the
+//! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
+//! native, guards the close; `panel` shows the bottom Panel; `source_view`
+//! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays out;
+//! `repaint` schedules the next timed Render Frame; `diagnostics_window` shows
+//! the Diagnostics window; `files` asks its discard question and titles the
+//! window; `input` latches the keyboard owner; and a View menu appearance
+//! change applies last, once every widget of the frame has been styled.
+
 use std::time::Duration;
 
 use egui::FontId;
