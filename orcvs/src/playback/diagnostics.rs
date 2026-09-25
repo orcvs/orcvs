@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-
 use std::time::Duration;
 
 use super::{OutputAdapterError, PlaybackDiagnostic, lock_recover};
@@ -95,8 +94,8 @@ impl OmittedDiagnostics {
 /// the last.
 ///
 /// An Overrun carries no user-facing message and only says a Tick was late.
-/// A start or retune failure is also handed back to the caller that asked, as
-/// an `Err`, so the diagnostic is the second copy of it. An output failure is
+/// A refused start or retune leaves the engine as it was, so the play state
+/// and BPM a user is shown already say it did not happen. An output failure is
 /// the only word a user gets that their device refused a Tick. A clock failure
 /// says the run has ended by itself, and `Orcvs` withdraws its request to play
 /// only on finding one, so it is the last to go.
@@ -112,8 +111,8 @@ enum Class {
 
 impl Class {
     ///
-    /// Start and retune failures are one tier: both are refusals the caller
-    /// already received, and neither is worth more than the other.
+    /// Start and retune failures are one tier: both are refusals that left the
+    /// engine unchanged, and neither is worth more than the other.
     ///
     fn tier(self) -> u8 {
         match self {
@@ -206,15 +205,15 @@ struct Retained {
 /// — and every drain share one log, so a drain answers in the order things
 /// were recorded whichever part of the engine recorded them, and takes each
 /// entry away so no two drains see it. The lock is held only to append one
-/// entry or to take them all, never across a Tick or a delivery, so a drain
-/// waits on at most one append and a Tick on at most one drain.
+/// entry or to take them all, never across a Tick or a delivery, so neither a
+/// drain nor a Tick waits on more than those short sections.
 ///
 /// Retention is bounded in entries and in bytes:
 ///
 /// - At most [`MAX_RETAINED_DIAGNOSTICS`] entries, each with a message of at
 ///   most [`MAX_DIAGNOSTIC_MESSAGE_BYTES`], in an allocation made once. What
-///   the log holds between drains is therefore at most that many entries of
-///   `PlaybackDiagnostic` plus that many bounded messages, whatever the
+///   the log holds between drains is therefore at most that many
+///   [`Report`]s plus that many bounded messages, whatever the
 ///   engine is asked to record.
 /// - A diagnostic recorded into a full log evicts the oldest entry of the
 ///   lowest class present, provided that class is no higher than its own; a
@@ -310,17 +309,11 @@ impl DiagnosticLog {
     /// message's allocation.
     ///
     pub(super) fn retained_bytes(&self) -> usize {
-        let retained = lock_recover(&self.0);
+        let mut retained = lock_recover(&self.0);
         let messages: usize = retained
             .entries
-            .iter()
-            .map(|report| match report {
-                Report::Overrun { .. } => 0,
-                Report::OutputFailure(error) => error.message.capacity(),
-                Report::ClockFailure { message }
-                | Report::StartFailure { message }
-                | Report::RetuneFailure { message } => message.capacity(),
-            })
+            .iter_mut()
+            .map(|report| report.message_mut().map_or(0, |message| message.capacity()))
             .sum();
         retained.entries.capacity() * std::mem::size_of::<Report>() + messages
     }
@@ -395,6 +388,27 @@ mod tests {
             log.drain().is_empty(),
             "the counts are taken with the entries"
         );
+    }
+
+    #[test]
+    fn overruns_behind_a_log_of_higher_classes_are_counted_but_none_is_named() {
+        let log = DiagnosticLog::new();
+        for index in 0..MAX_RETAINED_DIAGNOSTICS {
+            log.report(clock_failure(&format!("ended {index}")));
+        }
+        for index in 0..100 {
+            log.report(overrun(index));
+        }
+
+        let drained = log.drain();
+        assert_eq!(drained.len(), MAX_RETAINED_DIAGNOSTICS + 1);
+        assert!(
+            !drained
+                .iter()
+                .any(|diagnostic| matches!(diagnostic, PlaybackDiagnostic::Overrun { .. })),
+            "no Overrun outranks a retained clock failure"
+        );
+        assert_eq!(omitted(&drained).overruns.get(), 100);
     }
 
     #[test]

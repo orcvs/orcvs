@@ -466,8 +466,8 @@ struct PlaybackInner<A: OutputAdapter> {
     ///
     /// The log this engine reports into, shared with every handle.
     ///
-    /// ADR 0002 asks that diagnostics be drained in order and exactly once
-    /// while lifecycle state is observed. The log's retention is bounded, so
+    /// Diagnostics are drained in order and each at most once while lifecycle
+    /// state is observed. The log's retention is bounded, so
     /// an engine nobody drains holds a fixed amount of memory however long
     /// its run declines Ticks or its device refuses them.
     ///
@@ -581,7 +581,7 @@ pub struct PlaybackEngine {
     observation: watch::Receiver<PlaybackObservation>,
     ///
     /// The one diagnostic log for however many handles there are, which is
-    /// what an ordered stream drained exactly once means: two handles draining
+    /// what an ordered stream drained at most once means: two handles draining
     /// split the diagnostics between them rather than each seeing every one.
     /// A handle reports its own refusals into the same log, so a caller
     /// draining on the next line finds them, in order after whatever the task

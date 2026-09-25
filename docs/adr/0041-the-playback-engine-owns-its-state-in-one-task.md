@@ -1,6 +1,6 @@
 # The Playback Engine owns its state in one task
 
-Status: accepted. Refines how [ADR 0002](0002-playback-engine-owns-lifecycle-concurrency.md) is implemented; that decision stands and every guarantee it states is kept.
+Status: accepted. Refines how [ADR 0002](0002-playback-engine-owns-lifecycle-concurrency.md) is implemented; that decision stands and every guarantee it states is kept. [ADR 0055](0055-playback-diagnostics-are-retained-within-a-bound.md) amends it: the ordered diagnostics are a bounded log shared by the task and its handles, not an unbounded channel.
 
 This decision was accepted as ADR 0040 and renumbered to 0041, so history written before the renumbering — commits, pull requests, and issue files that cannot be rewritten — cites it as "ADR 0040" and means this file rather than [ADR 0040](0040-the-console-paints-from-a-value.md), which held the number first and kept it.
 
