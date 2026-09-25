@@ -1,31 +1,22 @@
-# 11 — Record what keeps the biased select from starving the clock
+# 11 — Settle Playback fairness, including the first Tick
 
-**What to decide:** The `biased;` in `next_playback_event` (`orcvs/src/playback.rs:1218-1225`) makes
-the message arm win every tie. Under sustained message load the deadline arm never gets polled:
-Ticks stop, and because the deadline is never *reached*, `is_overrun` never runs — so playback halts
-with no diagnostic at all. Decide whether that is a hazard to remove or a constraint to record.
+**What to decide:** Record the fairness policy for both branches of `next_playback_event` in `orcvs/src/playback.rs`. Sleeping deadlines already receive priority after `MESSAGES_BEFORE_A_DEADLINE = 64` messages. The immediate first Tick takes the separate `due_on_arrival` branch, which always tries another queued message and never applies that budget. Sustained arrivals can therefore postpone the first Tick indefinitely while observation says Playing, without reaching the Overrun check.
 
-It is latent, not live. The only producer is the console, which sends on button clicks and slider
-commits; a human cannot generate messages faster than a Tick period. But nothing in the tree records
-that as the reason the path is unreachable, so the constraint is invisible to the next author who
-adds a producer — a MIDI clock input, a script driving the engine, an automation lane — and the
-failure mode it opens is the worst kind: silent, with the state still published as `Playing`.
+This is a sustained-producer risk, not a demonstrated failure under ordinary console interaction. The existing fairness test establishes eventual delivery in its tested run; it does not establish a bounded number of messages before the first Tick under a continuously nonempty queue. The resolved playback-actor/07 test establishes a separate requirement: a destination change or Disconnect already queued when the run begins must precede its first Tick.
 
-The two candidate answers are different in cost. Recording the constraint is a comment at `:1218`
-saying what `biased;` buys, what it costs, and which property of the producers keeps the cost
-unreachable. Removing the hazard means a fairness budget or a periodic unbiased poll, which trades
-away the tie-break that `07` is about to pin.
+**Blocked by:** None — policy decided below; implemented with source-audit/27 in one PR.
 
-**Status:** needs-triage
+**Status:** resolved
 
-**Sources of truth:** `orcvs/src/playback.rs:1218-1225` (the select), `orcvs/src/playback.rs:1212`
-(`due_on_arrival`, the other half of the message-first rule), ticket 04's Comments (why `biased` was
-chosen).
+Related: source-audit/27 bounds command admission and defines overload behavior. A memory bound alone does not prevent a producer from replenishing the queue forever. source-audit/02 preserves the stop-admission guarantee when deadline fairness overtakes a queued Stop.
 
-- [ ] The decision is recorded, either as a comment at the select or as this ticket's answer.
-- [ ] If `biased;` stays, what makes the starvation unreachable is written down as a constraint on
-      producers rather than left as a property of today's only producer.
-- [ ] If it goes, `07`'s guarantee about a queued message and the first Tick is preserved.
+**Sources of truth:** `next_playback_event`, `TickClock::due_on_arrival`, `BACKLOGS_BEFORE_A_DEADLINE` and `run_engine` in `orcvs/src/playback.rs`; playback-actor/07's first-Tick ordering regression.
+
+- [x] Record the policy separately for the immediate first Tick and sleeping deadlines. State whether continuous arrivals may defer the first Tick indefinitely; if so, specify the supported producer constraint and how overload is observable.
+- [x] If progress is required under sustained arrivals, define which queued messages must precede the first Tick and how later arrivals stop extending that set forever. Preserve playback-actor/07's destination-change and Disconnect ordering guarantee.
+- [x] A deterministic test keeps the queue nonempty across more than the fairness budget before the first Tick and checks the chosen policy. It distinguishes initial backlog from subsequent arrivals and does not depend on a wall-clock delivery count.
+- [x] Sleeping deadlines retain their tested progress guarantee, and a deadline taking priority over a queued Stop still encounters closed Tick admission.
+- [x] State what the chosen message budget guarantees about progress and what it does not guarantee about wall-clock rate. Any claim that a different budget improves rate has a reproducible measurement.
 
 ## Verification
 
@@ -68,3 +59,16 @@ property it states is the one the code guarantees; the rate is this ticket's.
 already queued is applied before the run's first Tick — is now observed rather
 than assumed.
 
+**2026-09-25 — acceptance-criteria review against `199c3331`.** Reframed the active scope around the fairness budget already shipped and the immediate-first-Tick exception it excludes. The historical measurements above are not evidence of bounded first-Tick progress. Linked command-queue capacity to source-audit/27 while keeping scheduling policy here.
+
+**2026-09-25 — triage: first-Tick policy decided.** Implement with source-audit/27 in one PR (epic PR 4).
+
+- The immediate first Tick applies only the backlog that existed when the run began, then takes its turn. Messages arriving after that point cannot defer it. The run's start marks the boundary, for example with a count of queued messages or a generation mark; the implementation records which it uses.
+- The boundary preserves playback-actor/07: a destination change or Disconnect already pending when the run begins precedes the first Tick. With source-audit/27's slots, a pending destination is always applied first.
+- After the first Tick, sleeping deadlines keep `MESSAGES_BEFORE_A_DEADLINE = 64`, which guarantees a deadline gets its turn within 64 messages. It guarantees nothing about wall-clock rate, and no other budget value is claimed without a reproducible measurement.
+- A deadline that takes priority over a queued Stop still meets closed admission, because Stop closes the gate before it enqueues.
+- The test keeps the queue nonempty for more than 64 messages before the first Tick, separates the initial backlog from later arrivals, and asserts the first Tick lands after exactly the initial backlog, without counting deliveries over a wall-clock window.
+
+**2026-09-25 — implementation.** Implemented with source-audit/27 in orcvs/orcvs#148: the first Tick follows exactly the backlog taken with its Start; policy in ADR 0056. Resolve on merge.
+
+**2026-09-25 — resolved.** Merged in orcvs/orcvs#148 (`67d28248`). The fairness budget is now `BACKLOGS_BEFORE_A_DEADLINE` (formerly `MESSAGES_BEFORE_A_DEADLINE`) and counts coalesced backlogs rather than messages, so the beyond-budget first-Tick test is bounded by slots, as its doc comment states.
