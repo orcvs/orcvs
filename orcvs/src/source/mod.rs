@@ -14,6 +14,7 @@ use language_map::{
     OUTPUT_PORTAL_SCALAR_WIDTH, OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation,
 };
 mod model;
+mod planning;
 mod portal;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
@@ -23,7 +24,20 @@ pub use model::{
     BendLsb, BendMsb, CellWrite, ControlValue, Controller, Diagnostic, Length, MidiChannel, Note,
     Performance, PlayCommand, RevisionId, Source, TickPlan, Velocity,
 };
+use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+///
+/// How many times [`SourceCommander::execute`] plans a Tick with no Source lock
+/// before it plans one under the write lock.
+///
+/// Each refused attempt means an edit landed inside one planning window, which
+/// lasts a fraction of the Tick period, so a second refusal in a row is already
+/// an editor writing faster than a Tick plans. The bound is what ends that: the
+/// locked attempt cannot be refused, so a Tick always commits, and an editor it
+/// holds off waits for one planning and commit.
+///
+const OPTIMISTIC_TICK_ATTEMPTS: usize = 3;
 
 /// The language fact the console paints for one Source Cell.
 ///
@@ -336,7 +350,39 @@ impl SourceCommander {
     /// musical time, and a counter living beside the Source would be language
     /// state outside the Source Snapshot.
     ///
+    /// Planning holds no Source lock, so an edit and a revision read are
+    /// never kept waiting on it. Only the commit takes the write lock, and it
+    /// commits only when the Source is still at the revision the plan was made
+    /// from: an edit made while planning is never overwritten by Cells derived
+    /// without it. A refused plan is dropped unpublished, and the same Tick is
+    /// planned again from the revision holding the edit, so a refusal neither
+    /// consumes a musical Tick nor repeats an effect.
+    ///
+    /// After [`OPTIMISTIC_TICK_ATTEMPTS`] refusals the Tick is planned and
+    /// committed under one write guard, which nothing can refuse. That is what
+    /// makes a Tick end under continuous editing: the editor yields for one
+    /// planning, rather than the Tick yielding indefinitely.
+    ///
     pub(crate) fn execute(&self, tick: Tick) -> TickPlan {
+        TickCommit::new(self, tick).run()
+    }
+
+    ///
+    /// The current revision's planning inputs. The read guard is released
+    /// when this returns, before anything is planned from them.
+    ///
+    fn planning_snapshot(&self) -> PlanningSnapshot {
+        PlanningSnapshot::capture(&read_recover(&self.inner))
+    }
+
+    /// Validates `planned` against the current revision and commits it, under
+    /// one write guard.
+    fn commit_planned(&self, planned: PlannedTick) -> Result<TickPlan, StalePlan> {
+        planned.commit(&mut write_recover(&self.inner))
+    }
+
+    /// Plans and commits the Tick under one write guard.
+    fn execute_locked(&self, tick: Tick) -> TickPlan {
         write_recover(&self.inner).execute(tick)
     }
 }

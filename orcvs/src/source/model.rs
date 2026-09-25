@@ -387,10 +387,10 @@ impl Source {
         tick::plan(self.grid, self.inner.as_bytes(), &self.language_map, tick)
     }
 
-    /// Visible to the Tick module so a test that plans a Tick without going
-    /// through [`Source::execute`] still commits it the one way a Tick is
-    /// committed: every planned Cell first, then one rebuild of the rows they
-    /// touched.
+    /// Visible across the Source module so a Tick planned without going
+    /// through [`Source::execute`] — from a planning snapshot, or by a test in
+    /// the Tick module — is still committed the one way a Tick is committed:
+    /// every planned Cell first, then one rebuild of the rows they touched.
     pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan) {
         self.write_cells(&plan.writes);
     }

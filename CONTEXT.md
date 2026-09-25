@@ -237,7 +237,7 @@ The per-class count of Playback diagnostics recorded since the last drain and no
 _Avoid_: Dropped diagnostics, lost events
 
 **Live Editing**:
-Changing the Source while Playback continues. An edit affects the next Tick whose Source snapshot has not yet been taken.
+Changing the Source while Playback continues. An edit affects the next Tick whose Source snapshot has not yet been taken. Per ADR 0057 a Tick commits only against the revision it planned from, so an edit made while a Tick plans is never overwritten: that Tick takes its snapshot again, at the same absolute Tick, and publishes nothing from the plan it abandoned.
 _Avoid_: Hot reload, live coding
 
 **Play Command**:
