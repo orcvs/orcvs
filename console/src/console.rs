@@ -8,6 +8,7 @@ mod glyphs;
 mod input;
 mod menu_bar;
 mod panel;
+mod repaint;
 mod shapes;
 mod source_view;
 
@@ -17,6 +18,7 @@ use self::menu_bar::TOP_PANEL_HEIGHT;
 use self::panel::BOTTOM_PANEL_HEIGHT;
 #[cfg(test)]
 use self::panel::BPM_FIELD_ID;
+use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_playback_publishes};
 use self::shapes::effect_outline;
 use self::source_view::{SourceView, show_source_scene, source_panel_frame};
 use crate::config::Config;
@@ -25,16 +27,10 @@ use crate::grid_viewport::CELL_SIZE;
 use crate::midi::MidiDeviceSelection;
 use crate::native_midi::NativeMidiBackend;
 use crate::persistence::starting_source;
-use crate::readout_deadline::until_next;
 use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
-use orcvs::{
-    app::Orcvs,
-    opts::DEFAULT_FONT_SIZE,
-    playback::{PlaybackStartError, PlaybackState},
-    source::Source,
-};
+use orcvs::{app::Orcvs, opts::DEFAULT_FONT_SIZE, playback::PlaybackStartError, source::Source};
 
 #[cfg(target_arch = "wasm32")]
 fn prefers_reduced_motion() -> bool {
@@ -311,46 +307,6 @@ fn environment(
     Ok((orcvs, midi))
 }
 
-///
-/// Paints the Panel from a published Tick. A wait started from this Render
-/// Frame is a second clock; this asks for a paint when the engine publishes.
-///
-fn wake_panel_when_playback_publishes(
-    ctx: egui::Context,
-    observation: orcvs::playback::PlaybackObservationWatch,
-) {
-    let wake = panel_wake(ctx, observation);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        tokio::spawn(wake);
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        wasm_bindgen_futures::spawn_local(wake);
-    }
-}
-
-///
-/// Requests a repaint of `ctx` each time `observation` publishes, and ends
-/// once the Playback Engine that owns the observation's sender is gone. An
-/// Open replaces the Orcvs, so each wake-up has to end with the Orcvs it
-/// watches rather than outlive it.
-///
-/// The observation is marked seen before this returns, so only a publish
-/// after the wake-up exists requests a repaint.
-///
-fn panel_wake(
-    ctx: egui::Context,
-    mut observation: orcvs::playback::PlaybackObservationWatch,
-) -> impl std::future::Future<Output = ()> {
-    let _ = observation.borrow_and_update();
-    async move {
-        while observation.changed().await.is_ok() {
-            ctx.request_repaint();
-        }
-    }
-}
-
 impl Console {
     ///
     /// The web runner's clear colour: the backdrop of the Theme the frame it
@@ -445,9 +401,6 @@ impl eframe::App for Console {
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
         let sampled_run_clock = observation.run_clock();
-        let moving_run_clock = (observation.state == PlaybackState::Playing
-            && observation.run_started_at.is_some())
-        .then_some(sampled_run_clock);
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
         let cursor_effect_settings = self
             .cursor_effects
@@ -532,13 +485,11 @@ impl eframe::App for Console {
             })
             .inner;
 
-        if let Some(delay) = until_next(
-            moving_run_clock,
+        request_timed_repaint(
+            &ctx,
+            moving_run_clock(&observation, sampled_run_clock),
             cursor_delay,
-            Duration::from_secs_f32(ctx.input(|input| input.predicted_dt).max(0.0)),
-        ) {
-            ctx.request_repaint_after(delay);
-        }
+        );
 
         if self.diagnostics_open {
             show_diagnostics(

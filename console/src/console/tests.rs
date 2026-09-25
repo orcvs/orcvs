@@ -1298,7 +1298,7 @@ async fn an_opened_console_repaints_as_soon_as_its_new_playback_publishes() {
 #[tokio::test]
 async fn the_wake_up_over_a_replaced_orcvs_ends_once_its_playback_is_gone() {
     let (ctx, mut console, _host) = fresh_console();
-    let wake = tokio::spawn(super::panel_wake(
+    let wake = tokio::spawn(super::repaint::panel_wake(
         ctx,
         console.orcvs.playback_observation_watch(),
     ));
