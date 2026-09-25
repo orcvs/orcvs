@@ -8,13 +8,15 @@ The third drop this ticket once named — a Sequence or Atom-or-Sequence operand
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Interpreting Atoms that leave more than one value is a diagnosed error, with a test, or `execute` is no longer public shipped API.
-- [ ] Jump diagnoses a Portal whose width is not the two-Cell unit, including an empty one, with a test.
-- [ ] The `Answer::Sequence` documentation matches the Function table.
-- [ ] Parser and interpreter property tests still pass.
+- [x] Interpreting Atoms that leave more than one value is a diagnosed error, with a test, or `execute` is no longer public shipped API.
+- [x] Jump diagnoses a Portal whose width is not the two-Cell unit, including an empty one, with a test.
+- [x] The `Answer::Sequence` documentation matches the Function table.
+- [x] Parser and interpreter property tests still pass.
 
 ## Comments
 
 **2026-09-25 — audited against `origin/main` `199c3331`.** `lang/` is unchanged since the audit baseline, so the findings hold. Reframed as contract hardening after tracing the shipped path; criterion (c) moved to 25.
+
+**2026-09-25 — resolved on `lang/narrow-api`.** (a) took the narrowing alternative: `Interpreter::execute` is compiled only under `cfg(test)` and the test-only `test-execute` feature, which `lang`'s own dev-dependency enables for `lang/benches/lang.rs` and `lang/tests/allocation.rs`; no shipped build carries it (shared with 09). (b) Jump diagnoses `JumpInput` for any Portal that is not exactly two Cells, including an empty one (`a_portal_that_is_not_one_two_cell_unit_diagnoses`). The `Answer::Sequence` doc names Concatenate, Note Range, Number Range, Replace and Reverse. Parser and interpreter property tests pass at `PROPTEST_CASES=32`.
