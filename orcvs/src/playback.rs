@@ -376,6 +376,7 @@ impl fmt::Display for PlaybackStartError {
     }
 }
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 #[derive(Default)]
 struct InMemoryOutputState {
     command_lists: Vec<Vec<OutputCommand>>,
@@ -383,11 +384,20 @@ struct InMemoryOutputState {
     next_failure: Option<OutputAdapterError>,
 }
 
+///
+/// An output adapter that records what it is handed instead of delivering it,
+/// and refuses one submission on request.
+///
+/// Test-only: compiled for this crate's tests and the `test-output-adapter`
+/// feature, which only dev-dependencies enable.
+///
+#[cfg(any(test, feature = "test-output-adapter"))]
 #[derive(Clone, Default)]
 pub struct InMemoryOutputAdapter {
     state: Arc<Mutex<InMemoryOutputState>>,
 }
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 impl InMemoryOutputAdapter {
     pub fn command_lists(&self) -> Vec<Vec<OutputCommand>> {
         self.state.lock().unwrap().command_lists.clone()
@@ -402,8 +412,10 @@ impl InMemoryOutputAdapter {
     }
 }
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 impl OutputOnlyAdapter for InMemoryOutputAdapter {}
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 impl OutputAdapter for InMemoryOutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
         let mut state = self.state.lock().unwrap();
@@ -1018,28 +1030,17 @@ impl PlaybackInner<crate::midi::MidiOutputAdapter> {
         // The notes this engine owned are sounding on the destination it is
         // leaving, which is sent the safety action before the new connection is
         // reached. Their scheduled stops would arrive at a device that never
-        // started them, so the schedule goes with the attempt rather than with
-        // its success: a change that cannot connect has silenced the old
-        // device just the same, and a claim kept across it would stop a note
-        // the Source starts on that voice afterwards. Nothing is owned while
-        // disconnected, so clearing before a failure that leaves this engine
-        // connected to the destination it already had discards nothing else.
+        // started them, and a claim kept across the change would stop a note
+        // the Source starts on that voice afterwards.
         self.owned.clear();
         // The latch stops a run reporting the same broken device once per
         // Tick, and a selection is not a Tick: it is a thing the user just
         // asked for, and it is owed its own answer even when the answer is the
-        // one the last attempt got. Clearing before the attempt rather than
-        // after it is what makes a second refusal of the same device visible;
-        // clearing only on success leaves the console showing nothing while
-        // the device is still unplugged.
+        // one the last selection got. Clearing before the install is what
+        // makes a safety-action refusal that repeats the latched failure
+        // visible.
         self.last_output_failure = None;
-        let selection = match self.adapter.install_connection(destination_id, connection) {
-            Ok(selection) => selection,
-            Err(error) => {
-                self.record_output_failure(OutputAdapterError::new(error.message));
-                return;
-            }
-        };
+        let selection = self.adapter.install_connection(destination_id, connection);
         if let Some(error) = selection.safety_failure() {
             self.record_output_failure(OutputAdapterError::new(error.message));
         }
@@ -1714,6 +1715,27 @@ mod tests {
         ///
         fn current_tick(&self) -> Tick {
             self.inner.tick
+        }
+
+        ///
+        /// Moves the published Run Clock origin `elapsed` into the past, as if
+        /// the run had been playing that long.
+        ///
+        /// The Run Clock reads `web_time::Instant`, which paused Tokio time
+        /// does not drive, so a test states the time a run spent by moving
+        /// the origin the engine published rather than by waiting it out.
+        ///
+        fn backdate_run_origin(&mut self, elapsed: Duration) {
+            self.inner.observation.send_modify(|observation| {
+                let origin = observation
+                    .run_started_at
+                    .expect("only a playing run has an origin to backdate");
+                observation.run_started_at = Some(
+                    origin
+                        .checked_sub(elapsed)
+                        .expect("the clock reaches back that far"),
+                );
+            });
         }
 
         fn observation(&self) -> PlaybackObservation {
@@ -2452,11 +2474,10 @@ mod tests {
         run.begin_run();
         run.run_tick(0);
         run.run_tick(1);
-        std::thread::sleep(Duration::from_millis(20));
+        run.backdate_run_origin(Duration::from_millis(20));
         run.inner.stop();
 
         let first = run.observation();
-        std::thread::sleep(Duration::from_millis(20));
         let second = run.observation();
 
         assert_eq!(first.state, PlaybackState::Stopped);
@@ -2489,7 +2510,7 @@ mod tests {
         run.begin_run();
         run.run_tick(0);
         run.run_tick(1);
-        std::thread::sleep(Duration::from_millis(20));
+        run.backdate_run_origin(Duration::from_millis(20));
         run.inner.stop();
         assert_eq!(run.observation().tick, Tick::new(1));
         assert!(run.observation().run_clock() >= Duration::from_millis(20));
