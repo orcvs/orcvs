@@ -4343,7 +4343,7 @@ mod tests {
 
         let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
         let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-        let tick = std::time::Duration::from_millis(bpm.delay_ms());
+        let tick = bpm.tick_period();
         assert_ne!(
             delay, tick,
             "the console still scheduled a Tick period from this frame: {delay:?}"
