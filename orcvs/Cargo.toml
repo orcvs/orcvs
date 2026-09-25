@@ -30,6 +30,14 @@ persistence = ["dep:serde"]
 # dimension only a test supplies. It adds no dependency and no code to a build
 # that does not name it.
 test-grid-shapes = []
+# Test-only. `playback::InMemoryOutputAdapter` records the Output Commands it is
+# handed and refuses one submission on request, which is what a test asserts
+# against in place of a MIDI device. The console's WASM tests and paint bench
+# drive a Playback Engine over it, so crate-private `cfg(test)` cannot serve
+# them; like `test-grid-shapes`, only the workspace's dev-dependencies enable
+# it, so no shipped build carries a fake output or its failure hook. It adds no
+# dependency.
+test-output-adapter = []
 
 [dependencies]
 lang = { path = "../lang", version = "0.1.0" }
@@ -55,11 +63,11 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
-# This crate itself, with `test-grid-shapes`: the only way a Cargo package turns
-# a feature on for its own integration tests, benchmarks and doctests without
-# every test invocation having to name it. A dev-dependency never reaches a
-# normal build, so the shipped library is compiled without it.
-orcvs = { path = ".", features = ["test-grid-shapes"] }
+# This crate itself, with the test-only features: the only way a Cargo package
+# turns a feature on for its own integration tests, benchmarks and doctests
+# without every test invocation having to name it. A dev-dependency never
+# reaches a normal build, so the shipped library is compiled without it.
+orcvs = { path = ".", features = ["test-grid-shapes", "test-output-adapter"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 serde_json = "1"
 tokio = { workspace = true, features = ["test-util"] }

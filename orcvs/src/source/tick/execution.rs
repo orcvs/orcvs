@@ -8,7 +8,7 @@ use std::ops::ControlFlow::{self, Break, Continue};
 
 use lang::{
     Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalCoords, PortalInput,
-    PortalSource, SourceBundle, SourceEffect, Tick, TickInputs, Value,
+    PortalSource, SourceBundle, SourceEffect, Tick, Value,
 };
 
 use super::{
@@ -39,11 +39,18 @@ pub(super) fn execute(
         diagnostics,
     } = schedule;
     let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
+    #[cfg_attr(
+        not(test),
+        expect(unused_variables, reason = "only a test build records the Turn")
+    )]
     for (turn, index) in order.into_iter().enumerate() {
         // Recorded here rather than where the order was built: the ordinal is
         // the Turn a computation took, and a Tick that stops partway through
         // leaves every computation after it without one.
-        execution.states[index].turn = Some(turn);
+        #[cfg(test)]
+        {
+            execution.states[index].turn = Some(turn);
+        }
         if let Break(diagnostic) = execution.take_turn(index) {
             return execution.reject(diagnostic);
         }
@@ -70,6 +77,10 @@ pub(in crate::source) struct ComputationState {
     /// different facts: an ordering defect rejects the Tick where it is found
     /// and the states survive it, so a computation ordered third and reached is
     /// told apart from one ordered third and never reached.
+    ///
+    /// Compiled only under test, like the two records below it: no shipped
+    /// caller reads what a Turn did, so a shipped Tick does not record it.
+    #[cfg(test)]
     turn: Option<usize>,
     /// The explicit inputs the Interpreter was handed for this computation, or
     /// `None` where it was never called for it. A Turn that was suppressed,
@@ -78,7 +89,8 @@ pub(in crate::source) struct ComputationState {
     ///
     /// One slot records the Tick and anchor of this computation. Portal Cells
     /// are borrowed separately from working Source when its Turn binds.
-    interpreted: Option<TickInputs>,
+    #[cfg(test)]
+    interpreted: Option<lang::TickInputs>,
     /// How many times the Interpreter ran for this computation.
     ///
     /// A Turn is taken once, so a Tick that behaves leaves this `0` or `1` and
@@ -87,25 +99,23 @@ pub(in crate::source) struct ComputationState {
     /// overwrites the slot with equal inputs, and a computation that ran twice
     /// writes the same value twice, so the Source cannot tell either. Without
     /// this field a double projection has no witness anywhere.
+    #[cfg(test)]
     interpretations: usize,
 }
 
+/// What a Turn did, read only by `source::tick`'s tests: a Tick Plan carries
+/// what to apply, and no shipped caller asks how it was reached.
+#[cfg(test)]
 impl ComputationState {
     ///
     /// Which Turn this computation took, or `None` where the Tick ended before
     /// reaching it.
     ///
     /// The order a schedule establishes is consumed by the loop that walks it
-    /// and survives nowhere else, so this is the only record of it a caller
-    /// can read. Nothing publishes it yet: it is what a console or a diagnostic
-    /// view will ask for, and what the ordering tests of this module ask for
-    /// today — a claim about which computation took the earlier Turn is
-    /// asserted here rather than inferred from the Cells the later write won.
+    /// and survives nowhere else, so a claim about which computation took the
+    /// earlier Turn is asserted here rather than inferred from the Cells the
+    /// later write won.
     ///
-    /// Allowed rather than expected: the method is dead in the library build
-    /// and live in the test build, so an expectation would go unfulfilled in
-    /// the second and fail the gate that compiles both.
-    #[allow(dead_code, reason = "an output the shipped callers discard")]
     pub(in crate::source) fn turn(&self) -> Option<usize> {
         self.turn
     }
@@ -114,16 +124,7 @@ impl ComputationState {
     /// The inputs the Interpreter received for this computation, or `None`
     /// where it never ran for it.
     ///
-    /// One of the facts a caller outside this module reads off a state. Nothing
-    /// publishes it yet: a Tick Plan carries what to apply, and this carries
-    /// what happened, which is what a console or a diagnostic view will ask
-    /// for and what the tests of this module ask for today.
-    ///
-    /// Allowed rather than expected: the method is dead in the library build
-    /// and live in the test build, so an expectation would go unfulfilled in
-    /// the second and fail the gate that compiles both.
-    #[allow(dead_code, reason = "an output the shipped callers discard")]
-    pub(in crate::source) fn interpreted(&self) -> Option<TickInputs> {
+    pub(in crate::source) fn interpreted(&self) -> Option<lang::TickInputs> {
         self.interpreted
     }
 
@@ -135,8 +136,6 @@ impl ComputationState {
     /// counting Interpreter calls needs and what `interpreted` alone cannot
     /// give it.
     ///
-    /// Allowed for the reason [`ComputationState::interpreted`] is.
-    #[allow(dead_code, reason = "an output the shipped callers discard")]
     pub(in crate::source) fn interpretations(&self) -> usize {
         self.interpretations
     }
@@ -194,8 +193,11 @@ impl<'a> Execution<'a> {
                     activated: false,
                     suppressed: false,
                     attempted: false,
+                    #[cfg(test)]
                     turn: None,
+                    #[cfg(test)]
                     interpreted: None,
+                    #[cfg(test)]
                     interpretations: 0,
                 })
                 .collect(),
@@ -287,8 +289,11 @@ impl<'a> Execution<'a> {
             // Recorded beside the call rather than before it: a Turn whose
             // operands would not resolve is one the Interpreter never ran for,
             // and the record says which of the two happened.
-            self.states[index].interpreted = Some(tick);
-            self.states[index].interpretations += 1;
+            #[cfg(test)]
+            {
+                self.states[index].interpreted = Some(tick);
+                self.states[index].interpretations += 1;
+            }
             let inputs =
                 FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
             Interpreter::execute_function(function, &operands, inputs)

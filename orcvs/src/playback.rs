@@ -379,6 +379,7 @@ impl fmt::Display for PlaybackStartError {
     }
 }
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 #[derive(Default)]
 struct InMemoryOutputState {
     command_lists: Vec<Vec<OutputCommand>>,
@@ -386,11 +387,20 @@ struct InMemoryOutputState {
     next_failure: Option<OutputAdapterError>,
 }
 
+///
+/// An output adapter that records what it is handed instead of delivering it,
+/// and refuses one submission on request.
+///
+/// Test-only: compiled for this crate's tests and the `test-output-adapter`
+/// feature, which only dev-dependencies enable.
+///
+#[cfg(any(test, feature = "test-output-adapter"))]
 #[derive(Clone, Default)]
 pub struct InMemoryOutputAdapter {
     state: Arc<Mutex<InMemoryOutputState>>,
 }
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 impl InMemoryOutputAdapter {
     pub fn command_lists(&self) -> Vec<Vec<OutputCommand>> {
         self.state.lock().unwrap().command_lists.clone()
@@ -405,8 +415,10 @@ impl InMemoryOutputAdapter {
     }
 }
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 impl OutputOnlyAdapter for InMemoryOutputAdapter {}
 
+#[cfg(any(test, feature = "test-output-adapter"))]
 impl OutputAdapter for InMemoryOutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
         let mut state = self.state.lock().unwrap();
@@ -1021,28 +1033,17 @@ impl PlaybackInner<crate::midi::MidiOutputAdapter> {
         // The notes this engine owned are sounding on the destination it is
         // leaving, which is sent the safety action before the new connection is
         // reached. Their scheduled stops would arrive at a device that never
-        // started them, so the schedule goes with the attempt rather than with
-        // its success: a change that cannot connect has silenced the old
-        // device just the same, and a claim kept across it would stop a note
-        // the Source starts on that voice afterwards. Nothing is owned while
-        // disconnected, so clearing before a failure that leaves this engine
-        // connected to the destination it already had discards nothing else.
+        // started them, and a claim kept across the change would stop a note
+        // the Source starts on that voice afterwards.
         self.owned.clear();
         // The latch stops a run reporting the same broken device once per
         // Tick, and a selection is not a Tick: it is a thing the user just
         // asked for, and it is owed its own answer even when the answer is the
-        // one the last attempt got. Clearing before the attempt rather than
-        // after it is what makes a second refusal of the same device visible;
-        // clearing only on success leaves the console showing nothing while
-        // the device is still unplugged.
+        // one the last selection got. Clearing before the install is what
+        // makes a safety-action refusal that repeats the latched failure
+        // visible.
         self.last_output_failure = None;
-        let selection = match self.adapter.install_connection(destination_id, connection) {
-            Ok(selection) => selection,
-            Err(error) => {
-                self.record_output_failure(OutputAdapterError::new(error.message));
-                return;
-            }
-        };
+        let selection = self.adapter.install_connection(destination_id, connection);
         if let Some(error) = selection.safety_failure() {
             self.record_output_failure(OutputAdapterError::new(error.message));
         }
@@ -1547,7 +1548,7 @@ mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
     #[cfg(not(target_arch = "wasm32"))]
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     ///
     /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
@@ -1719,6 +1720,27 @@ mod tests {
             self.inner.tick
         }
 
+        ///
+        /// Moves the published Run Clock origin `elapsed` into the past, as if
+        /// the run had been playing that long.
+        ///
+        /// The Run Clock reads `web_time::Instant`, which paused Tokio time
+        /// does not drive, so a test states the time a run spent by moving
+        /// the origin the engine published rather than by waiting it out.
+        ///
+        fn backdate_run_origin(&mut self, elapsed: Duration) {
+            self.inner.observation.send_modify(|observation| {
+                let origin = observation
+                    .run_started_at
+                    .expect("only a playing run has an origin to backdate");
+                observation.run_started_at = Some(
+                    origin
+                        .checked_sub(elapsed)
+                        .expect("the clock reaches back that far"),
+                );
+            });
+        }
+
         fn observation(&self) -> PlaybackObservation {
             *self.observation.borrow()
         }
@@ -1885,10 +1907,6 @@ mod tests {
             changed.notify_all();
         }
 
-        fn deliveries(&self) -> usize {
-            self.state.0.lock().unwrap().deliveries
-        }
-
         fn safety_reset_count(&self) -> usize {
             self.state.0.lock().unwrap().safety_reset_count
         }
@@ -2005,6 +2023,62 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputOnlyAdapter for BlockingOutputAdapter {}
+
+    ///
+    /// Asks its own engine to stop from inside a delivery, on another thread,
+    /// and waits for that `stop` to return before the delivery does.
+    ///
+    /// The Tick that called `submit` cannot finish until `submit` returns, so
+    /// a `stop` that waited for the Tick in flight would never return here.
+    /// Nothing about it needs a second worker: `stop` is answered without the
+    /// runtime, so the engine's own thread may block on it.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct StoppingOutputAdapter {
+        stopping: Arc<Mutex<Option<PlaybackEngine>>>,
+        deliveries: Arc<AtomicUsize>,
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl StoppingOutputAdapter {
+        ///
+        /// The engine the next delivery stops. Taken on use, so the adapter
+        /// the engine's task owns does not keep that engine's queue open.
+        ///
+        fn stop_next_delivery_of(&self, engine: PlaybackEngine) {
+            *self.stopping.lock().unwrap() = Some(engine);
+        }
+
+        fn deliveries(&self) -> usize {
+            self.deliveries.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputAdapter for StoppingOutputAdapter {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+            self.deliveries.fetch_add(1, Ordering::SeqCst);
+            if let Some(engine) = self.stopping.lock().unwrap().take() {
+                let (stopped_tx, stopped_rx) = std_mpsc::channel();
+                std::thread::spawn(move || {
+                    engine.stop();
+                    let _ = stopped_tx.send(());
+                });
+                stopped_rx
+                    .recv_timeout(HARNESS_TIMEOUT)
+                    .expect("stop does not wait for the Tick in flight");
+            }
+            Ok(())
+        }
+
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            Ok(())
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for StoppingOutputAdapter {}
 
     fn write(source: &SourceCommander, start: usize, content: &str) {
         let grid = source.grid();
@@ -2502,30 +2576,27 @@ mod tests {
         run.begin_run();
         run.run_tick(0);
         run.run_tick(1);
-        std::thread::sleep(Duration::from_millis(20));
+        run.backdate_run_origin(Duration::from_millis(20));
         run.inner.stop();
 
-        let first = run.observation();
-        std::thread::sleep(Duration::from_millis(20));
-        let second = run.observation();
+        // Frozen by construction: a stopped observation publishes no origin,
+        // so no later read has a clock to advance.
+        let stopped = run.observation();
 
-        assert_eq!(first.state, PlaybackState::Stopped);
+        assert_eq!(stopped.state, PlaybackState::Stopped);
         assert_eq!(
-            first.tick,
+            stopped.tick,
             Tick::new(1),
             "stop froze a Tick that never sounded"
         );
-        assert!(!first.on_beat, "Tick 1 is not a beat");
-        assert_eq!(second.tick, first.tick);
-        assert_eq!(second.on_beat, first.on_beat);
-        assert_eq!(second.run_clock(), first.run_clock());
+        assert!(!stopped.on_beat, "Tick 1 is not a beat");
         assert!(
-            first.run_clock() >= Duration::from_millis(20),
+            stopped.run_clock() >= Duration::from_millis(20),
             "stop froze {:?} rather than the time the run spent",
-            first.run_clock()
+            stopped.run_clock()
         );
         assert!(
-            first.run_started_at.is_none(),
+            stopped.run_started_at.is_none(),
             "a stopped run still published an origin a later frame could advance"
         );
     }
@@ -2539,7 +2610,7 @@ mod tests {
         run.begin_run();
         run.run_tick(0);
         run.run_tick(1);
-        std::thread::sleep(Duration::from_millis(20));
+        run.backdate_run_origin(Duration::from_millis(20));
         run.inner.stop();
         assert_eq!(run.observation().tick, Tick::new(1));
         assert!(run.observation().run_clock() >= Duration::from_millis(20));
@@ -3803,42 +3874,33 @@ mod tests {
     /// after it.
     ///
     /// The handle's half of ADR 0002's guarantee, stated through the public
-    /// surface: the engine is held inside a submission, `stop` is called from
-    /// the test's thread while it is there, and the deadlines that pass while
-    /// the submission is held deliver nothing once it is released.
+    /// surface: `stop` is called while the engine is inside a submission and
+    /// returns before that submission does, and the deadlines that pass once
+    /// it is released deliver nothing. Paused time passes those deadlines
+    /// one period at a time, so each is one the running engine would have
+    /// Ticked at.
     ///
     #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn stop_returns_without_waiting_for_a_tick_and_no_tick_follows_it() {
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 20, "!>007FC4");
         write(&source, 0, ".=0101");
-        let control = BlockingOutputControl::default();
-        let engine = engine(
-            source,
-            BlockingOutputAdapter {
-                control: control.clone(),
-            },
-        );
-        engine.start(Duration::from_millis(1)).unwrap();
-        control.wait_for_delivery();
+        let adapter = StoppingOutputAdapter::default();
+        let engine = engine(source, adapter.clone());
+        adapter.stop_next_delivery_of(engine.engine.clone());
+        let period = Duration::from_millis(1);
 
-        let stopping = engine.clone();
-        let (stopped_tx, stopped_rx) = std_mpsc::channel();
-        let stop_thread = std::thread::spawn(move || {
-            stopping.stop();
-            stopped_tx.send(()).unwrap();
-        });
-        stopped_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("stop does not wait for the Tick in flight");
-        control.release_delivery();
-        stop_thread.join().unwrap();
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(adapter.deliveries(), 1, "the first Tick is immediate");
 
-        // Hundreds of periods, and nothing is delivered in any of them.
-        time::sleep(Duration::from_millis(200)).await;
+        for _ in 0..200 {
+            time::advance(period).await;
+            settle(&engine).await;
+        }
 
-        assert_eq!(control.deliveries(), 1);
+        assert_eq!(adapter.deliveries(), 1);
         assert_eq!(engine.state(), PlaybackState::Stopped);
     }
 

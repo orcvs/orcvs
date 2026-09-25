@@ -223,9 +223,25 @@ impl Orcvs<()> {
     /// is rejected here because its destination publication has no publisher on
     /// this path. Use [`Orcvs::with_midi_output_adapter`] for selectable MIDI.
     ///
-    /// ```compile_fail
-    /// use orcvs::{app::Orcvs, playback::InMemoryOutputAdapter};
-    /// let app = Orcvs::with_output_adapter(InMemoryOutputAdapter::default()).unwrap();
+    /// ```compile_fail,E0599
+    /// use orcvs::app::Orcvs;
+    /// use orcvs::playback::{OutputAdapter, OutputAdapterError, OutputCommand, OutputOnlyAdapter};
+    ///
+    /// struct Silent;
+    ///
+    /// impl OutputAdapter for Silent {
+    ///     fn submit(&mut self, _: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+    ///         Ok(())
+    ///     }
+    ///
+    ///     fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// impl OutputOnlyAdapter for Silent {}
+    ///
+    /// let app = Orcvs::with_output_adapter(Silent).unwrap();
     /// app.midi_selection_handle();
     /// ```
     ///

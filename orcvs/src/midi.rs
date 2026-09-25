@@ -126,11 +126,15 @@ impl MidiOutputAdapter {
     /// The safety action on the outgoing connection runs here, inside the
     /// engine's task, before the new connection is installed.
     ///
+    /// Infallible, because the port is already open. A refusal of the safety
+    /// action on the outgoing connection is carried in the selection and does
+    /// not undo the install.
+    ///
     pub(crate) fn install_connection(
         &mut self,
         destination_id: MidiDestinationId,
         connection: Box<dyn MidiConnection>,
-    ) -> Result<MidiSelection, MidiError> {
+    ) -> MidiSelection {
         let safety_failure = self
             .connection
             .is_some()
@@ -140,7 +144,7 @@ impl MidiOutputAdapter {
         self.delivery_failure = None;
         self.destinations
             .send_modify(|destinations| destinations.selected = Some(destination_id));
-        Ok(MidiSelection { safety_failure })
+        MidiSelection { safety_failure }
     }
 
     pub fn selected_destination_id(&self) -> Option<MidiDestinationId> {
@@ -445,9 +449,7 @@ mod tests {
         destination_id: &MidiDestinationId,
     ) {
         let connection = backend.connect(destination_id).unwrap();
-        adapter
-            .install_connection(destination_id.clone(), connection)
-            .unwrap();
+        adapter.install_connection(destination_id.clone(), connection);
     }
 
     #[test]

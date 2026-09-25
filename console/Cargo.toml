@@ -221,10 +221,15 @@ web-sys = { version = "0.3", features = ["Storage"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 lang = { path = "../lang", version = "0.1.0" }
 # `test-grid-shapes` lets the console's tests build a Grid smaller than the one
-# 256 by 256 shape (`orcvs/Cargo.toml` states why the feature exists). Declared
-# here only, so a `cargo build` of the console never enables it; `persistence`
-# still reaches `orcvs` through this crate's own feature, not through this line.
-orcvs = { path = "../orcvs", version = "0.1.0", default-features = false, features = ["test-grid-shapes"] }
+# 256 by 256 shape, and `test-output-adapter` gives the WASM tests and the paint
+# bench an output to drive Playback over (`orcvs/Cargo.toml` states why each
+# feature exists). Declared here only, so a `cargo build` of the console never
+# enables them; `persistence` still reaches `orcvs` through this crate's own
+# feature, not through this line.
+orcvs = { path = "../orcvs", version = "0.1.0", default-features = false, features = [
+    "test-grid-shapes",
+    "test-output-adapter",
+] }
 # ADR 0041 makes the Playback Engine a task, so building a running Orcvs needs a
 # runtime to spawn it on and every test that builds one needs `#[tokio::test]`.
 # Declared for every target rather than beside the non-WASM dependency table:
