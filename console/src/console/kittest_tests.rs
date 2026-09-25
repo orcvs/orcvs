@@ -84,8 +84,9 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
+use super::source_view::{MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
-use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
+use super::{Console, DEFAULT_VIEW_SIZE};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::theme::{Appearance, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
@@ -1689,7 +1690,7 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     // A Grid with nowhere to Pan: at `MIN_ZOOM` this one and its margins are
     // smaller than the default window's console on both axes.
     harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
-    harness.state_mut().source_view = super::SourceView::default();
+    harness.state_mut().source_view = super::source_view::SourceView::default();
     harness.step();
     for _ in 0..8 {
         harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);

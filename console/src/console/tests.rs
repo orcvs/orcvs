@@ -13,11 +13,14 @@ use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
 use super::shapes::SourceShapes;
+use super::source_view::{
+    MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
+    show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
+};
 use super::{
     BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE,
-    DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, TOP_PANEL_HEIGHT,
-    ZoomCommand, clamp_pan, frames_per_second, is_presentable, show_source_scene, source_bounds,
-    source_panel_frame, stepped_zoom, translate_event, zoom_command,
+    DEFAULT_VIEW_SIZE, TOP_PANEL_HEIGHT, ZoomCommand, frames_per_second, translate_event,
+    zoom_command,
 };
 
 /// The Source View's margin at Zoom 1.0 and a device scale of one.

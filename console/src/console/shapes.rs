@@ -7,8 +7,8 @@ use egui::{
 };
 use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 
-use super::PointerSelection;
 use super::glyphs::{GlyphTable, glyph_scale};
+use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectSample, CursorEffectSettings, cursor_effect_shapes};
 use crate::grid_viewport::GridViewport;
 use crate::paint::{FramePaint, Paint};

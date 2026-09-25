@@ -34,7 +34,7 @@ use egui::{FontId, text::Galley};
 /// beside it.
 ///
 /// Fifteen is the whole range, not a floor a large window can widen: Zoom is
-/// a stated step between [`MIN_ZOOM`](super::MIN_ZOOM) and [`MAX_ZOOM`](super::MAX_ZOOM), and no window size
+/// a stated step between [`MIN_ZOOM`](super::source_view::MIN_ZOOM) and [`MAX_ZOOM`](super::source_view::MAX_ZOOM), and no window size
 /// changes the Cell size. The atlas budget ADR 0038 and ADR 0040 state covers
 /// the whole range rather than its floor.
 ///
@@ -90,7 +90,7 @@ pub(super) const ALPHABET_LAST: u8 = b'~';
 /// One laid-out Glyph per character of the alphabet, for the font and size the
 /// Source is painted at.
 ///
-/// The table has one owner and one construction site — [`show_source`](super::show_source) — so
+/// The table has one owner and one construction site — [`show_source`](super::shapes::show_source) — so
 /// nothing lays the alphabet out at a second size and thrashes it.
 ///
 /// # Scratch for exactly one Render Frame
