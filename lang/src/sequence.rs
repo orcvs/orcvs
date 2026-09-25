@@ -102,9 +102,7 @@ impl Sequence {
             Atom::Function(function) if !function.answers_value() => {
                 Err(SequenceError::Member(atom.into()).into())
             }
-            Atom::Bang | Atom::Char(_) | Atom::Function(_) | Atom::Note(_) | Atom::Number(_) => {
-                Ok(())
-            }
+            Atom::Bang | Atom::Function(_) | Atom::Note(_) | Atom::Number(_) => Ok(()),
         }
     }
 }
@@ -200,7 +198,6 @@ mod test {
             Atom::Number(0x0A),
             note(60),
             Atom::Bang,
-            Atom::Char('z'),
             Atom::Function(Function::Add),
             Atom::Number(0x0A),
         ];
@@ -209,7 +206,7 @@ mod test {
 
         // Order, not a set: the repeated Number keeps both positions.
         assert_eq!(sequence.atoms(), members);
-        assert_eq!(sequence.len(), 6);
+        assert_eq!(sequence.len(), 5);
 
         // A Note member stays a Note rather than collapsing to its Number.
         assert_eq!(sequence.atoms()[1], note(60));
@@ -223,7 +220,6 @@ mod test {
             Atom::Number(0xFF),
             note(0x7F),
             Atom::Bang,
-            Atom::Char('z'),
             Atom::Function(Function::Add),
         ] {
             let sequence = Sequence::promote(atom).unwrap();
@@ -243,19 +239,13 @@ mod test {
         // construction.
         for atom in [
             Atom::Bang,
-            Atom::Char('z'),
             Atom::Empty,
             Atom::Function(Function::Add),
             note(60),
             Atom::Number(0),
         ] {
             match atom {
-                Atom::Bang
-                | Atom::Char(_)
-                | Atom::Empty
-                | Atom::Function(_)
-                | Atom::Note(_)
-                | Atom::Number(_) => {}
+                Atom::Bang | Atom::Empty | Atom::Function(_) | Atom::Note(_) | Atom::Number(_) => {}
             }
         }
     }

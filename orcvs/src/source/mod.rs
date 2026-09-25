@@ -142,15 +142,9 @@ impl SourceRevision {
     /// outside the highlight that covers the answer it belongs to.
     ///
     /// A run can end mid-pair because the Cell, not the Atom, is the unit
-    /// here: `lang`'s `Atom::Char` spells one Cell where every other Atom
-    /// spells two, and a Sequence admits a Char as a member. Nothing answers
-    /// one today — no Function signature declares a Char operand, no
-    /// Sequence-producing Function can introduce one, and the Parser refuses
-    /// to read one out of Source — so every answer the language can currently
-    /// deliver is pair-aligned from the Portal and holds no blank Cell. A
-    /// Function that answered a Char would break that alignment, and a Char
-    /// holding a space would put a blank Cell inside an answer, which this
-    /// rule reads as its end.
+    /// here. Every Atom spells exactly two Cells, so an answer is pair-aligned
+    /// from the Portal, but the Cells past it are whatever the Source holds,
+    /// and a single written Cell there ends the run inside a pair.
     ///
     /// A **blank Cell**, not a wholly blank pair, is what ends the run. A
     /// pair counted by either of its Cells stepped over a gutter narrower

@@ -1,6 +1,6 @@
 use crate::{
     Atom, Error, Function, FunctionInputs, InterpretationError, Performance, Sequence,
-    SourceEffect, Stack, TickInputs, Value,
+    SourceEffect, Stack, Value,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -53,8 +53,8 @@ pub enum Interpretation {
 ///
 /// A Function reaching for the Tick, its anchor, or a declared Portal input
 /// takes `&mut Context` exactly as an arithmetic Function does today, so a
-/// Tick-reading Function is a new arm in `execute` rather than a new evaluation
-/// path.
+/// Tick-reading Function is a new arm in the Interpreter's Function match
+/// rather than a new evaluation path.
 ///
 pub struct Context<'a> {
     pub stack: Stack,
@@ -79,8 +79,15 @@ impl Interpreter {
     /// themselves: nothing here reads a clock, a static, or a thread-local, so
     /// the same Atoms and the same inputs answer the same way every time.
     ///
+    /// Test-only: compiled for this crate's tests and the `test-execute`
+    /// feature, which only this crate's own dev-dependency enables. A Turn
+    /// evaluates one Function at a time through [`Interpreter::execute_function`],
+    /// so no shipped build evaluates a whole Atom list. A list that leaves more
+    /// than one value answers the first and drops the rest.
+    ///
+    #[cfg(any(test, feature = "test-execute"))]
     #[inline(always)]
-    pub fn execute(atoms: &[Atom], inputs: TickInputs) -> Result<Interpretation, Error> {
+    pub fn execute(atoms: &[Atom], inputs: crate::TickInputs) -> Result<Interpretation, Error> {
         // No Atom raises the stack depth by more than one: literals push one
         // value, and Functions pop their operands before producing one value.
         // The actual Atom count therefore bounds this Expression's peak depth.
@@ -91,8 +98,8 @@ impl Interpreter {
     }
 
     /// Evaluates one Function with already resolved, typed inputs. Literal
-    /// decoding and nested ownership belong to the caller; evaluation retains
-    /// the same type, domain, absence and Sequence rules as `execute`.
+    /// decoding and nested ownership belong to the caller; evaluation applies
+    /// the Function's declared type, domain, absence and Sequence rules.
     /// [`FunctionInputs::portal_source`] borrows working Source when the
     /// Function declares a Portal input. Functions without one ignore it.
     ///
@@ -128,8 +135,6 @@ impl Interpreter {
 
     fn execute_context(atoms: &[Atom], mut ctx: Context) -> Result<Interpretation, Error> {
         for (index, atom) in atoms.iter().enumerate().rev() {
-            // info!("atoms: {:?}", atoms);
-            // info!("stack: {:?}", stack);
             // Every Function answers a language Value, so a Function that returns
             // a Sequence needs an arm here and nothing else: the push below already
             // carries whichever shape the Value holds.
@@ -399,14 +404,7 @@ mod test {
     fn test_with_invalid_argument() {
         trace();
 
-        let stack = vec![
-            Atom::Function(Function::Add),
-            Atom::Number(1),
-            Atom::Char('v'),
-            Atom::Char('t'),
-            Atom::Char('h'),
-            Atom::Char('a'),
-        ];
+        let stack = vec![Atom::Function(Function::Add), Atom::Number(1), Atom::Bang];
 
         let result = interpret_stack(stack);
 
@@ -448,8 +446,8 @@ mod test {
 
     #[test]
     fn the_numeric_family_rejects_every_non_number_operand() {
-        // Char and Bang reach the stack from Source text and from an Equality
-        // answer respectively, so neither may coerce into a Number either.
+        // Bang reaches the stack from Source text and Empty from an unequal
+        // Equality answer, so neither may coerce into a Number either.
         for function in [
             Function::AbsoluteDifference,
             Function::Equality,
@@ -457,7 +455,7 @@ mod test {
             Function::Minimum,
             Function::Modulo,
         ] {
-            for operand in [Atom::Char('z'), Atom::Bang, Atom::Empty] {
+            for operand in [Atom::Bang, Atom::Empty] {
                 // Both slots, because a nested Function answers into either
                 // one: an unequal `.=` puts Empty wherever it is written.
                 for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
@@ -533,7 +531,7 @@ mod test {
                 Function::RawPlay.into(),
                 Atom::Number(0),
                 Atom::Number(0x7F),
-                Atom::Char('C'),
+                Atom::Bang,
             ],
         ] {
             assert!(matches!(

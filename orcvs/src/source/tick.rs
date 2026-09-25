@@ -3440,18 +3440,24 @@ mod test {
     }
 
     #[test]
-    fn live_non_pair_scalar_projection_is_rejected_at_the_row_edge() {
+    fn live_non_pair_scalar_projection_is_rejected_where_the_portal_admits_it() {
         let grid = Grid::with_shape(16, 2);
         let rows = [".+0203", ""];
-        // A single Cell at the last Cell of a row: the Portal admits it and the
-        // schedule never reserved it, which is the pair of facts this rejection
-        // is about. No Function answers a bare Char, so the answer is stated.
+        // Four Cells inside one row: the Portal admits them and the schedule
+        // reserved only a pair, which is the pair of facts this rejection is
+        // about. Addition answers no Sequence from Atom operands, so the
+        // answer is stated.
         let (plan, source) = stated_source(
             grid,
             &rows,
-            &[(0, 31)],
+            &[(0, 16)],
             &[],
-            &[(0, Value::Atom(lang::Atom::Char('7')))],
+            &[(
+                0,
+                Value::Sequence(
+                    lang::Sequence::new([lang::Atom::Number(7), lang::Atom::Number(8)]).unwrap(),
+                ),
+            )],
         );
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
         assert!(plan.writes.is_empty());
@@ -5177,7 +5183,7 @@ mod test {
     #[test]
     fn the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor() {
         // ADR 0012's inputs are only as good as something watching the thread
-        // from the Playback Engine to `Interpreter::execute`. Severing it —
+        // from the Playback Engine to `Interpreter::execute_function`. Severing it —
         // passing a fixed Tick or a fixed anchor at the call site instead of
         // this root's own — fails here rather than passing unnoticed until
         // Clock reads a Tick and Random reads an anchor.

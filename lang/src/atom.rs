@@ -190,11 +190,9 @@ impl From<u8> for Length {
     }
 }
 
-// #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
     Bang,
-    Char(char),
     Empty,
     Function(Function),
     Note(Note),
@@ -469,8 +467,8 @@ enum Answer {
     /// refuses a Sequence operand can never widen over one — and a test below
     /// holds the two columns to that.
     Elementwise,
-    /// A Sequence, whatever its operands carry. No row declares this today: it
-    /// is the answer ADR 0007's Range, Reverse, Concatenate, and Replace give.
+    /// A Sequence, whatever its operands carry: the answer ADR 0007's
+    /// Concatenate, Note Range, Number Range, Replace and Reverse declare.
     Sequence,
 }
 
@@ -911,7 +909,6 @@ macro_rules! portal_input {
     };
 }
 
-// #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
     ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
@@ -1582,14 +1579,6 @@ pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
     Ok(Atom::Number(n))
 }
 
-#[inline(always)]
-pub fn to_atom_char(s: &str) -> Result<Atom, Error> {
-    match s.chars().next() {
-        Some(c) => Ok(Atom::Char(c)),
-        None => Err(TypeError::Char(s.to_string()))?,
-    }
-}
-
 impl From<Atom> for String {
     /// Delegates to `Display` so the two renderings can never drift apart.
     #[inline(always)]
@@ -1622,7 +1611,6 @@ impl fmt::Display for Atom {
                 Some(note) => write!(f, "{note}"),
                 None => Err(fmt::Error),
             },
-            Atom::Char(c) => write!(f, "{c}"),
             Atom::Function(fun) => write!(f, "{fun}"),
             Atom::Empty => write!(f, "_"),
         }
@@ -2095,7 +2083,6 @@ mod test {
         }
 
         for atom in [
-            Atom::Char('v'),
             Atom::Empty,
             Atom::Function(Function::Add),
             Atom::Function(Function::RawPlay),

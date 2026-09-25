@@ -1064,8 +1064,8 @@ mod test {
         // Note 60 in `.v`'s Note slot and the Number `C4` in `.^`'s Number
         // slot, and the sweep covers both readings because it covers every
         // value of every declared operand domain in every slot that declares
-        // it. `Atom::Char` and `Atom::Empty` are absent because no signature
-        // declares them, so no Source spells one.
+        // it. `Atom::Empty` is absent because no signature declares it, so no
+        // Source spells one.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
             if signature
@@ -1308,7 +1308,6 @@ mod property {
                 | (Token::Number, Atom::Number(_))
                 | (Token::Note, Atom::Note(_))
                 | (Token::Bang, Atom::Bang)
-                | (Token::Char, Atom::Char(_))
         )
     }
 
@@ -1335,7 +1334,7 @@ mod property {
             match Parser::from(spelled).try_parse() {
                 Ok(atoms) => {
                     prop_assert!(
-                        !atoms.iter().any(|atom| matches!(atom, Atom::Empty | Atom::Char(_))),
+                        !atoms.iter().any(|atom| matches!(atom, Atom::Empty)),
                         "{spelled:?} parsed to a value no signature declares: {atoms:?}",
                     );
                     prop_assert_eq!(rendered(atoms), spelled);

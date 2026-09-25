@@ -325,7 +325,7 @@ mod test {
         let mut ctx = Context::new(inputs().into(), 4);
 
         // A fourth atom below the three arguments must survive untouched
-        ctx.stack.push(Atom::Char('z')).unwrap();
+        ctx.stack.push(Atom::Bang).unwrap();
         ctx.stack
             .push(Atom::Note(crate::Note::try_from(60).unwrap()))
             .unwrap(); // n
@@ -344,8 +344,8 @@ mod test {
         );
 
         // Exactly three arguments were consumed
-        assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Char('z'));
-        assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Empty);
+        assert_eq!(ctx.stack.pop_value(), Some(Value::Atom(Atom::Bang)));
+        assert_eq!(ctx.stack.pop_value(), None);
     }
 
     #[test]

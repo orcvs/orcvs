@@ -603,11 +603,14 @@ mod test {
         let grid = Grid::new();
         let mut source = Source::new(grid);
         let root = grid.position(0, 0).unwrap();
-        source.commit_tick(&plan_result(
-            grid,
-            root,
-            Interpretation::Sequence(Sequence::new(encoding.chars().map(Atom::Char)).unwrap()),
-        ));
+        // Every Atom spells two Cells from a narrower alphabet, so the whole
+        // printable range is stated as Source text and admitted through the
+        // result Portal a Tick writes through.
+        let cells = Encoding::literal(&encoding).expect("printable test content");
+        let write = Portal::below(grid, root)
+            .and_then(|portal| portal.admit(&cells))
+            .expect("the printable range fits one row");
+        source.commit_tick(&resolve(vec![Effect::Write(write)]));
         let snapshot = source.snapshot();
         let row = grid.columns();
         assert_eq!(&snapshot[row..row + encoding.len()], encoding);

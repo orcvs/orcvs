@@ -14,6 +14,16 @@ workspace = true
 # understand criterion's arguments.
 bench = false
 
+[features]
+default = []
+# Test-only. `Interpreter::execute` evaluates a whole Atom list, which no shipped
+# caller does: a Turn evaluates one Function at a time through
+# `Interpreter::execute_function`. This crate's benchmark and allocation test
+# drive it, and crate-private `cfg(test)` cannot reach an integration target, so
+# only the dev-dependency below enables it. No shipped build selects it, and it
+# adds no dependency.
+test-execute = []
+
 [dependencies]
 arrayvec.workspace = true
 # ADR 0013 names ChaCha8 for Random. No workspace crate already ships a
@@ -26,10 +36,15 @@ arrayvec.workspace = true
 # Apache-2.0, no build script).
 rand_chacha = { version = "0.10.0", default-features = false }
 thiserror.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
+# This crate itself, with the test-only feature: the only way a Cargo package
+# turns a feature on for its own integration tests, benchmarks and doctests
+# without every test invocation having to name it. A dev-dependency never
+# reaches a normal build, so the shipped library is compiled without it.
+lang = { path = ".", features = ["test-execute"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = [
     "fmt",
 ], default-features = false }
