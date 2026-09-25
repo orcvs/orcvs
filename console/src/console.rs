@@ -5501,9 +5501,10 @@ mod tests {
             "the Panel is not {BOTTOM_PANEL_HEIGHT} tall across the bottom of the window"
         );
 
-        // The Source's area is the one widget that senses a click and a drag
-        // without taking focus; it is allocated over all the room the central
-        // panel has.
+        // The Source's area is the one widget outside the bars that senses a
+        // click and a drag without taking focus; it is allocated over all the
+        // room the central panel has. Inside the bars a selectable label, such
+        // as a MIDI status on a machine with no MIDI service, senses the same.
         let source_areas: Vec<Rect> = ctx.viewport(|viewport| {
             viewport
                 .prev_pass
@@ -5512,6 +5513,7 @@ mod tests {
                 .flat_map(|(_, widgets)| widgets)
                 .filter(|widget| widget.sense == (egui::Sense::CLICK | egui::Sense::DRAG))
                 .map(|widget| widget.rect)
+                .filter(|rect| !top.contains_rect(*rect) && !bottom.contains_rect(*rect))
                 .collect()
         });
         assert_eq!(
