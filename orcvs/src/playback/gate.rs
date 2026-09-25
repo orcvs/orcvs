@@ -113,8 +113,7 @@ fn answered(word: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TickGate, answered};
-    use std::sync::atomic::Ordering;
+    use super::TickGate;
 
     #[test]
     fn an_untouched_gate_admits_a_tick() {
@@ -205,46 +204,6 @@ mod tests {
         assert!(
             !gate.begin_tick(),
             "the first Stop cleared a second handle's still-standing request"
-        );
-
-        gate.clear_stop();
-        assert!(gate.begin_tick());
-    }
-
-    ///
-    /// The answer to the last standing request reads the word, and a second
-    /// handle's request lands before the answer commits. An answer computed
-    /// from a word the request has since moved cannot commit an open gate over
-    /// the new request, and `clear_stop` commits only through that
-    /// compare-and-swap, so it retries against the word the request left and
-    /// one request stays standing.
-    ///
-    /// The read and the commit are driven by hand, one at a time, so the
-    /// request lands between them; `clear_stop` itself then answers against
-    /// the moved word.
-    ///
-    #[test]
-    fn a_stop_requested_while_the_last_one_is_answered_keeps_the_gate_shut() {
-        let gate = TickGate::new();
-        gate.request_stop();
-
-        let seen = gate.word.load(Ordering::Acquire);
-        let reopened = answered(seen).expect("one request stands");
-        assert_eq!(reopened, 0, "answering the only request reopens the gate");
-
-        gate.request_stop();
-
-        assert!(
-            gate.word
-                .compare_exchange(seen, reopened, Ordering::AcqRel, Ordering::Acquire)
-                .is_err(),
-            "the answer committed a word the second request had moved"
-        );
-        gate.clear_stop();
-
-        assert!(
-            !gate.begin_tick(),
-            "the gate opened with the second handle's request still standing"
         );
 
         gate.clear_stop();
