@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use egui::{FontId, Rect};
+use egui::FontId;
 
 mod diagnostics_window;
 mod files;
@@ -19,12 +19,9 @@ use self::panel::BOTTOM_PANEL_HEIGHT;
 #[cfg(test)]
 use self::panel::BPM_FIELD_ID;
 use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_playback_publishes};
-use self::shapes::effect_outline;
-use self::source_view::{SourceView, show_source_scene, source_panel_frame};
+use self::source_view::SourceView;
 use crate::config::Config;
-use crate::cursor_effects::{
-    CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, effect_bounds,
-};
+use crate::cursor_effects::{CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings};
 use crate::grid_viewport::CELL_SIZE;
 use crate::midi::MidiDeviceSelection;
 use crate::native_midi::NativeMidiBackend;
@@ -411,76 +408,23 @@ impl eframe::App for Console {
             sample: self.cursor_effect_animation.advance(effect_now, settings),
             settings,
         };
-        let theme = self.themes.presented(appearance).clone();
         #[cfg(any(target_arch = "wasm32", test))]
         {
-            self.painted_backdrop = theme.window_background;
+            self.painted_backdrop = self.themes.presented(appearance).window_background;
         }
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         self.show_panel(root, &observation, sampled_run_clock);
+        let source = self.show_source_panel(root, &frame, appearance, cursor_effect);
 
-        let mut console_area = Rect::ZERO;
-        let mut cell_size = 0.0;
-        let cursor_delay = egui::CentralPanel::default()
-            .frame(source_panel_frame(theme.grid_background))
-            .show(root, |ui| {
-                console_area = ui.available_rect_before_wrap();
-                let Console {
-                    orcvs,
-                    midi: _,
-                    font_family,
-                    source_view,
-                    diagnostics_open: _,
-                    #[cfg(test)]
-                        bpm_widget_id: _,
-                    keyboard_elsewhere: _,
-                    themes: _,
-                    #[cfg(any(target_arch = "wasm32", test))]
-                        painted_backdrop: _,
-                    reduced_motion: _,
-                    cursor_effects: _,
-                    cursor_effect_animation: _,
-                    #[cfg(feature = "persistence")]
-                        persistence: _,
-                    discard_confirmation: _,
-                    #[cfg(not(target_arch = "wasm32"))]
-                        source_file: _,
-                    #[cfg(not(target_arch = "wasm32"))]
-                        file_notices: _,
-                    #[cfg(not(target_arch = "wasm32"))]
-                        shown_title: _,
-                    #[cfg(not(target_arch = "wasm32"))]
-                        closing: _,
-                    ctx: _,
-                } = self;
-                let presented =
-                    show_source_scene(ui, &frame, font_family, source_view, cursor_effect, &theme);
-                cell_size = presented.viewport.cell_size;
-                // The Source Grid answers which Cells the pointer asked for;
-                // moving the Cursor and the anchor there is the Source's own
-                // business, and this is where the running Orcvs is owned.
-                if let Some(selection) = presented.selection {
-                    selection.apply(orcvs);
-                }
-
-                let cursor_rect = presented
-                    .viewport
-                    .cell_rect(frame.cursor().x(), frame.cursor().y());
-                let outline = effect_outline(&frame, &presented.viewport);
-                if effect_bounds(cursor_rect, presented.viewport.cell_size)
-                    .union(outline.expand(presented.viewport.cell_size))
-                    .intersects(console_area)
-                {
-                    self.cursor_effect_animation
-                        .repaint_after(effect_now, cursor_effect.settings)
-                } else {
-                    None
-                }
+        let cursor_delay = source
+            .shows_cursor_effect
+            .then(|| {
+                self.cursor_effect_animation
+                    .repaint_after(effect_now, cursor_effect.settings)
             })
-            .inner;
-
+            .flatten();
         request_timed_repaint(
             &ctx,
             moving_run_clock(&observation, sampled_run_clock),
@@ -493,8 +437,8 @@ impl eframe::App for Console {
                 &mut self.diagnostics_open,
                 eframe,
                 self.source_view.to_global,
-                console_area,
-                cell_size,
+                source.console,
+                source.cell_size,
             );
         }
 

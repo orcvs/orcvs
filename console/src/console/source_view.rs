@@ -9,12 +9,13 @@ use orcvs::{
     render_frame::RenderFrame,
 };
 
+use super::Console;
 use super::glyphs::GLYPH_SCALE_STEP;
 use super::input::{ZoomCommand, zoom_command};
-use super::shapes::show_source;
-use crate::cursor_effects::CursorEffectMotion;
+use super::shapes::{effect_outline, show_source};
+use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
-use crate::theme::Theme;
+use crate::theme::{Appearance, Theme};
 
 pub(super) const MIN_ZOOM: f32 = 0.25;
 pub(super) const MAX_ZOOM: f32 = 2.0;
@@ -522,4 +523,69 @@ pub(super) fn show_source_scene(
 ///
 pub(super) fn source_panel_frame(background: Color32) -> egui::Frame {
     egui::Frame::new().fill(background)
+}
+
+///
+/// What the Source panel presented in one Render Frame, for the frame's
+/// repaint schedule and the Diagnostics window.
+///
+pub(super) struct ShownSource {
+    /// The console area the Source was presented in.
+    pub(super) console: Rect,
+    /// The Cell side the Source was drawn at.
+    pub(super) cell_size: f32,
+    /// Whether any of the Cursor Effect reaches the console area, so that its
+    /// next change needs a Render Frame.
+    pub(super) shows_cursor_effect: bool,
+}
+
+impl Console {
+    ///
+    /// Shows `frame` in the central panel at the Source View's Zoom and Pan,
+    /// in the Theme `appearance` presents, and selects the Region the pointer
+    /// asked for.
+    ///
+    /// The Theme is borrowed from the selection for the panel; the panel reads
+    /// the font, the Source View and the running Orcvs as fields beside it.
+    ///
+    pub(super) fn show_source_panel(
+        &mut self,
+        root: &mut egui::Ui,
+        frame: &RenderFrame,
+        appearance: Appearance,
+        cursor_effect: CursorEffectMotion,
+    ) -> ShownSource {
+        let theme = self.themes.presented(appearance);
+        egui::CentralPanel::default()
+            .frame(source_panel_frame(theme.grid_background))
+            .show(root, |ui| {
+                let console = ui.available_rect_before_wrap();
+                let presented = show_source_scene(
+                    ui,
+                    frame,
+                    &self.font_family,
+                    &mut self.source_view,
+                    cursor_effect,
+                    theme,
+                );
+                // The Source Grid answers which Cells the pointer asked for;
+                // moving the Cursor and the anchor there is the Source's own
+                // business, and this is where the running Orcvs is owned.
+                if let Some(selection) = presented.selection {
+                    selection.apply(&mut self.orcvs);
+                }
+
+                let viewport = presented.viewport;
+                let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
+                let outline = effect_outline(frame, &viewport);
+                ShownSource {
+                    console,
+                    cell_size: viewport.cell_size,
+                    shows_cursor_effect: effect_bounds(cursor_rect, viewport.cell_size)
+                        .union(outline.expand(viewport.cell_size))
+                        .intersects(console),
+                }
+            })
+            .inner
+    }
 }

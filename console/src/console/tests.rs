@@ -2826,14 +2826,14 @@ async fn the_effect_outline_is_the_region_when_it_spans_and_the_cursor_otherwise
 
     orcvs.select(at(4, 3));
     assert!(close(
-        super::effect_outline(&orcvs.render_frame(), &viewport),
+        super::shapes::effect_outline(&orcvs.render_frame(), &viewport),
         viewport.cell_rect(4, 3)
     ));
 
     orcvs.select(at(4, 3));
     orcvs.extend(at(1, 1));
     assert!(close(
-        super::effect_outline(&orcvs.render_frame(), &viewport),
+        super::shapes::effect_outline(&orcvs.render_frame(), &viewport),
         Rect::from_min_max(viewport.cell_rect(1, 1).min, viewport.cell_rect(4, 3).max)
     ));
 }
