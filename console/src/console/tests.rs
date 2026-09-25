@@ -11,6 +11,7 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
+use super::diagnostics_window::frames_per_second;
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
 use super::input::{ZoomCommand, translate_event, zoom_command};
 use super::menu_bar::TOP_PANEL_HEIGHT;
@@ -20,7 +21,7 @@ use super::source_view::{
     MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
     show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
 };
-use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, frames_per_second};
+use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE};
 
 /// The Source View's margin at Zoom 1.0 and a device scale of one.
 const MARGIN: f32 = SOURCE_MARGIN_CELLS * CELL_SIZE;
