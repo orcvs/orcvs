@@ -1,7 +1,8 @@
 //! MIDI selection requests and nonblocking observation.
 use super::{MidiConnection, MidiDestinationId, MidiError};
-use crate::playback::PlaybackCommand;
-use tokio::sync::{mpsc, watch};
+use crate::playback::{Destination, RequestSender};
+use std::sync::Weak;
+use tokio::sync::watch;
 
 ///
 /// What an output adapter publishes about its MIDI output: the destination it
@@ -26,54 +27,64 @@ pub(crate) enum MidiRequest {
 ///
 /// The MIDI configuration capability, without Playback lifecycle control.
 ///
-/// It holds a weak sender rather than a clone of one, so that it cannot keep
-/// the engine's task alive. Every method answers "running Orcvs is no longer
-/// available" once the last `PlaybackEngine` has been dropped, or once the
-/// publication channel reports that the task has ended while its owner still
-/// lives — the weak sender and the publication channel draw that guarantee
-/// together.
+/// It holds a weak reference to the engine's request sender rather than a
+/// strong one, so that it cannot keep the engine's task alive. Every method
+/// answers "running Orcvs is no longer available" once the last
+/// `PlaybackEngine` has been dropped, or once the publication channel reports
+/// that the task has ended while its owner still lives — the weak reference
+/// and the publication channel draw that guarantee together.
 ///
 #[derive(Clone)]
 pub struct MidiSelectionHandle {
-    commands: mpsc::WeakUnboundedSender<PlaybackCommand<MidiRequest>>,
+    requests: Weak<RequestSender<MidiRequest>>,
     destinations: watch::Receiver<MidiDestinations>,
 }
 
 impl MidiSelectionHandle {
     pub(crate) fn new(
-        commands: mpsc::WeakUnboundedSender<PlaybackCommand<MidiRequest>>,
+        requests: Weak<RequestSender<MidiRequest>>,
         destinations: watch::Receiver<MidiDestinations>,
     ) -> Self {
         Self {
-            commands,
+            requests,
             destinations,
         }
     }
 
     fn ensure_available(&self) -> Result<(), MidiError> {
-        if self.commands.strong_count() == 0 || self.destinations.has_changed().is_err() {
+        if self.requests.strong_count() == 0 || self.destinations.has_changed().is_err() {
             return Err(MidiError::new("running Orcvs is no longer available"));
         }
         Ok(())
     }
 
+    ///
+    /// Leaves `request` as the engine's pending destination change.
+    ///
+    /// A request refused here is dropped before this returns, and with it the
+    /// connection it carries.
+    ///
     fn request(&self, request: MidiRequest) -> Result<(), MidiError> {
         self.ensure_available()?;
-        let commands = self
-            .commands
+        let requests = self
+            .requests
             .upgrade()
             .ok_or_else(|| MidiError::new("running Orcvs is no longer available"))?;
-        commands
-            .send(PlaybackCommand::Output(request))
+        requests
+            .change_destination(Destination::Output(request))
             .map_err(|_| MidiError::new("running Orcvs is no longer available"))
     }
 
     ///
-    /// Queues an already-open connection for the engine's task to install.
+    /// Leaves an already-open connection for the engine's task to install.
     ///
     /// The port was opened by the caller on the thread that could open it.
-    /// What this returns is whether there is still a running Orcvs to queue
-    /// the installation for.
+    /// What this returns is whether there is still a running Orcvs to install
+    /// it for; a refusal drops the connection, closing the port. It never
+    /// waits and is never refused for lack of room: the engine holds one
+    /// pending destination change, so a connection or `disconnect` still
+    /// pending is replaced by this one and dropped, and only the newest
+    /// selection is ever installed.
     ///
     pub fn install(
         &self,
@@ -110,8 +121,9 @@ mod tests {
 
     #[test]
     fn install_honours_publication_unavailability() {
-        let (commands, _receiver) = mpsc::unbounded_channel();
-        let weak = commands.downgrade();
+        let (requests, _receiver) = crate::playback::open_requests();
+        let requests = std::sync::Arc::new(requests);
+        let weak = std::sync::Arc::downgrade(&requests);
         let (destinations, destinations_rx) = watch::channel(MidiDestinations::default());
         drop(destinations);
 
