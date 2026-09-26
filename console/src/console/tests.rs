@@ -11,13 +11,17 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
-use super::{
-    ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN,
-    Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP, GlyphTable, MAX_ZOOM,
-    MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView, TOP_PANEL_HEIGHT, ZoomCommand,
-    clamp_pan, frames_per_second, glyph_scale, is_presentable, show_source_scene, source_bounds,
-    source_panel_frame, stepped_zoom, translate_event, zoom_command,
+use super::diagnostics_window::frames_per_second;
+use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
+use super::input::{ZoomCommand, translate_event, zoom_command};
+use super::menu_bar::TOP_PANEL_HEIGHT;
+use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
+use super::shapes::SourceShapes;
+use super::source_view::{
+    MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
+    show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
 };
+use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE};
 
 /// The Source View's margin at Zoom 1.0 and a device scale of one.
 const MARGIN: f32 = SOURCE_MARGIN_CELLS * CELL_SIZE;
@@ -452,8 +456,7 @@ fn console_pass_at(
                     &frame,
                     &egui::FontFamily::Monospace,
                     view,
-                    crate::cursor_effects::CursorEffectSample::default(),
-                    crate::cursor_effects::CursorEffectSettings::default(),
+                    crate::cursor_effects::CursorEffectMotion::default(),
                     &crate::theme::okabe_ito(),
                 ));
             });
@@ -1227,7 +1230,7 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         "Readout order is not C then O then None in {text:?}"
     );
     assert!(
-        !text.contains(super::OUTPUT_SCAN),
+        !text.contains(super::panel::OUTPUT_SCAN),
         "Scan belongs in the Output menu, not on the closed Panel in {text:?}"
     );
 
@@ -1294,7 +1297,7 @@ async fn an_opened_console_repaints_as_soon_as_its_new_playback_publishes() {
 #[tokio::test]
 async fn the_wake_up_over_a_replaced_orcvs_ends_once_its_playback_is_gone() {
     let (ctx, mut console, _host) = fresh_console();
-    let wake = tokio::spawn(super::panel_wake(
+    let wake = tokio::spawn(super::repaint::panel_wake(
         ctx,
         console.orcvs.playback_observation_watch(),
     ));
@@ -2271,17 +2274,17 @@ fn a_second_tick_digit_does_not_move_run_clock() {
                     .show(root, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("T");
-                            super::reserved_monospace(
+                            super::panel::reserved_monospace(
                                 ui,
                                 tick,
-                                super::monospace_width(ui, "00000"),
+                                super::panel::monospace_width(ui, "00000"),
                             );
                             ui.label("C");
                             clock_x.set(
-                                super::reserved_monospace(
+                                super::panel::reserved_monospace(
                                     ui,
                                     "00:00",
-                                    super::monospace_width(ui, "00:00"),
+                                    super::panel::monospace_width(ui, "00:00"),
                                 )
                                 .rect
                                 .left(),
@@ -2319,17 +2322,17 @@ fn an_off_beat_does_not_move_tick() {
                     .min_size(BOTTOM_PANEL_HEIGHT)
                     .show(root, |ui| {
                         ui.horizontal(|ui| {
-                            super::reserved_monospace(
+                            super::panel::reserved_monospace(
                                 ui,
                                 marker,
-                                super::monospace_width(ui, super::BEAT_MARKER),
+                                super::panel::monospace_width(ui, super::panel::BEAT_MARKER),
                             );
                             ui.label("T");
                             tick_x.set(
-                                super::reserved_monospace(
+                                super::panel::reserved_monospace(
                                     ui,
                                     "00000",
-                                    super::monospace_width(ui, "00000"),
+                                    super::panel::monospace_width(ui, "00000"),
                                 )
                                 .rect
                                 .left(),
@@ -2373,7 +2376,7 @@ fn panel_readouts_use_the_monospace_style_size_not_line_height() {
                     .get(&egui::TextStyle::Monospace)
                     .map(|font| font.size)
                     .unwrap_or(0.0);
-                sizes.set((style_size, super::panel_monospace_id(ui).size));
+                sizes.set((style_size, super::panel::panel_monospace_id(ui).size));
             });
         },
     );
@@ -2823,14 +2826,14 @@ async fn the_effect_outline_is_the_region_when_it_spans_and_the_cursor_otherwise
 
     orcvs.select(at(4, 3));
     assert!(close(
-        super::effect_outline(&orcvs.render_frame(), &viewport),
+        super::shapes::effect_outline(&orcvs.render_frame(), &viewport),
         viewport.cell_rect(4, 3)
     ));
 
     orcvs.select(at(4, 3));
     orcvs.extend(at(1, 1));
     assert!(close(
-        super::effect_outline(&orcvs.render_frame(), &viewport),
+        super::shapes::effect_outline(&orcvs.render_frame(), &viewport),
         Rect::from_min_max(viewport.cell_rect(1, 1).min, viewport.cell_rect(4, 3).max)
     ));
 }
@@ -3832,8 +3835,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
         cursor_rect,
         screen,
         viewport.cell_size,
-        crate::cursor_effects::CursorEffectSample::default(),
-        crate::cursor_effects::CursorEffectSettings::default(),
+        crate::cursor_effects::CursorEffectMotion::default(),
         theme.cursor_area,
         egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
     );
@@ -5417,8 +5419,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
                         &frame,
                         &egui::FontFamily::Monospace,
                         &mut view,
-                        crate::cursor_effects::CursorEffectSample::default(),
-                        crate::cursor_effects::CursorEffectSettings::default(),
+                        crate::cursor_effects::CursorEffectMotion::default(),
                         &crate::theme::okabe_ito(),
                     );
                 });

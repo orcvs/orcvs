@@ -57,5 +57,5 @@ a kittest, and before attaching `egui-mcp`.
 - Cells stay painted; AccessKit nodes belong to real controls. Do not mint
   per-Cell widgets solely for automation, and do not add a domain-control API
   because the canvas is painted.
-- ADR 0040 and the atlas budget in `console.rs` are the standing decisions.
+- ADR 0040 and the atlas budget in `console::glyphs` are the standing decisions.
   General performance advice is not a licence for an unrequested optimisation.

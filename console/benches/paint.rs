@@ -19,7 +19,9 @@
 
 use console::{
     FramePaint, Paint, VisiblePositions,
-    cursor_effects::{CursorEffectAnimation, CursorEffectSettings, cursor_effect_shapes},
+    cursor_effects::{
+        CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, cursor_effect_shapes,
+    },
     theme::{Theme, okabe_ito},
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -321,8 +323,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(cursor),
                 black_box(clip),
                 black_box(16.0),
-                black_box(sample),
-                black_box(settings),
+                black_box(CursorEffectMotion { sample, settings }),
                 black_box(AREA_COLOUR),
                 black_box(FRAME),
             ))
@@ -339,8 +340,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(outline),
                 black_box(clip),
                 black_box(16.0),
-                black_box(sample),
-                black_box(settings),
+                black_box(CursorEffectMotion { sample, settings }),
                 black_box(AREA_COLOUR),
                 black_box(FRAME),
             ))

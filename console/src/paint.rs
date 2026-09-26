@@ -319,7 +319,7 @@ impl Paint {
                         })
                         .flatten(),
                     // A Cell's own content when it has one; the space
-                    // otherwise, which `place_glyphs` (`console.rs`) draws no
+                    // otherwise, which `place_glyphs` (`console::shapes`) draws no
                     // Glyph for. `syntax-highlighting/03` retired the blank
                     // spelling table that used to stand a placeholder letter
                     // in here: an empty claimed operand Cell now answers the
@@ -1232,7 +1232,7 @@ mod tests {
 
     ///
     /// A Pending operand Cell of every Token a signature can declare draws no
-    /// glyph, through the real paint path — `console.rs::place_glyphs` skips
+    /// glyph, through the real paint path — `console::shapes`'s `place_glyphs` skips
     /// a Cell whose `character` is `' '`, and a Pending slot's Cells are
     /// never anything else, since a Pending slot is blank by definition.
     /// `.scratch/theming/issues/08`'s contrast validator relies on this: a
