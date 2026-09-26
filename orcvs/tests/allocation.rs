@@ -9,8 +9,8 @@
 //! `SourceCommander::execute`, against the same Tick planned under the lock: a
 //! whole-Grid copy added to or removed from a Tick shows here as a count.
 //!
-//! And two readers of every Cell that need no copy of them: writing a Source
-//! File, and comparing the Cells against the text last saved.
+//! Last, two readers of every Cell that need no copy of them: writing a
+//! Source File, and comparing the Cells against the text last saved.
 //!
 //! # Why the allocator is duplicated rather than shared with `lang`
 //!
@@ -746,8 +746,8 @@ fn reading_the_cells_to_compare_them_allocates_nothing() {
 #[test]
 fn writing_a_source_file_allocates_less_than_one_copy_of_the_cells() {
     // A mostly empty shipped Grid writes a short text. Its rows are borrowed
-    // from the Cells, so what the write allocates is the text and its row
-    // list, well under the one byte per Cell a copy of the Cells would cost.
+    // from the Cells, so the write allocates two blocks, the row list and the
+    // text, together well under the one byte per Cell a copy would cost.
     let grid = Grid::new();
     let mut source = Source::new(grid);
     source.set(cell(grid, 2), "1").expect("a digit is accepted");
@@ -755,6 +755,10 @@ fn writing_a_source_file_allocates_less_than_one_copy_of_the_cells() {
     let (write, text) = measure(|| file::write(black_box(&source)));
 
     assert_eq!(text, "  1\n");
+    assert_eq!(
+        write.blocks, 2,
+        "writing a Source File allocated {write:?}, beyond its row list and text"
+    );
     assert!(
         write.bytes < grid.count(),
         "writing a Source File allocated {write:?}, as much as a copy of the {} Cells",

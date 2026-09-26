@@ -303,8 +303,8 @@ impl Source {
     }
 
     ///
-    /// The full grid contents at the current revision, as an owned copy of
-    /// [`Source::cells`].
+    /// The full grid contents at the current revision, as owned text: the
+    /// bytes of [`Source::cells`], copied.
     ///
     pub fn snapshot(&self) -> String {
         self.inner.clone()
