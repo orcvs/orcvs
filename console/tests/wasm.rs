@@ -484,11 +484,11 @@ mod developer_console {
 /// The browser end of the Playback failure report.
 ///
 /// `Console::ui` hands the Playback diagnostics it drains to
-/// `console::diagnostics::report_playback_failures` on every non-desktop target,
-/// and in the browser that report is the whole of what a Playback failure
-/// produces: the desktop's MIDI panel is compiled out there, so nothing else
-/// shows it. This holds the browser's half of "a Playback failure is
-/// reported".
+/// `console::diagnostics::report_playback_failures` on every build without a
+/// MIDI backend, and in the browser that report is the whole of what a
+/// Playback failure produces: the Output control is disabled there
+/// (`midi_output`), so the Panel shows no status. This holds the browser's
+/// half of "a Playback failure is reported".
 ///
 /// What it drives is the reporting path itself, with a real
 /// `PlaybackDiagnostic` and the real failure decision: a diagnostic that is not
@@ -537,6 +537,108 @@ mod playback_failure {
         assert!(
             reported.is_empty(),
             "an Overrun is a skipped Tick, not a failure: {reported:?}"
+        );
+    }
+}
+
+///
+/// The browser build has no MIDI backend, and its Output control says so.
+///
+/// The running console is driven through `eframe::App::ui` with AccessKit on,
+/// which is how a viewer's assistive technology reads it: the destination
+/// ComboBox is present but disabled, and a click on it opens nothing, so no
+/// Scan item is ever offered. A Playback failure on this build therefore has
+/// no Panel status to land in and takes `playback_failure`'s path instead.
+///
+mod midi_output {
+    use console::console::{Console, DEFAULT_VIEW_SIZE};
+    use eframe::App as _;
+    use egui::accesskit::{Node, NodeId, Role};
+    use egui::{Event, Modifiers, PointerButton, Pos2, Rect, Vec2};
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    fn pass(
+        ctx: &egui::Context,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+        events: Vec<Event>,
+    ) -> Vec<(NodeId, Node)> {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::from(DEFAULT_VIEW_SIZE),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |root| console.ui(root, host));
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .take()
+            .expect("AccessKit is enabled, so every pass publishes its tree");
+        output.drop_without_applying_deltas();
+        tree.nodes
+    }
+
+    #[wasm_bindgen_test]
+    fn the_browser_output_control_is_disabled_and_offers_no_scan() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut console = Console::start(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("browser playback does not require a Tokio runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        let nodes = pass(&ctx, &mut console, &mut host, Vec::new());
+        let combo_boxes: Vec<&Node> = nodes
+            .iter()
+            .map(|(_, node)| node)
+            .filter(|node| node.role() == Role::ComboBox)
+            .collect();
+        let [output] = combo_boxes[..] else {
+            panic!("the console shows one Output control, not {combo_boxes:?}");
+        };
+        assert!(
+            output.is_disabled(),
+            "the browser build offers an Output control with nothing behind it"
+        );
+
+        let bounds = output.bounds().expect("the Output control is laid out");
+        let centre = Pos2::new(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        );
+        let click = |pressed| {
+            vec![Event::PointerButton {
+                pos: centre,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            }]
+        };
+        // A click lands on the release pass, which is where an enabled
+        // ComboBox shows its list, so that pass and the one after it are the
+        // two trees a Scan item could appear in.
+        let _ = pass(
+            &ctx,
+            &mut console,
+            &mut host,
+            vec![Event::PointerMoved(centre)],
+        );
+        let _ = pass(&ctx, &mut console, &mut host, click(true));
+        let released = pass(&ctx, &mut console, &mut host, click(false));
+        let after = pass(&ctx, &mut console, &mut host, Vec::new());
+
+        assert!(
+            !egui::Popup::is_any_open(&ctx),
+            "a click on the disabled Output control opened its list"
+        );
+        assert!(
+            !released
+                .iter()
+                .chain(&after)
+                .any(|(_, node)| node.label() == Some("Scan")),
+            "the browser build offers Scan"
         );
     }
 }

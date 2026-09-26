@@ -1,5 +1,5 @@
 //!
-//! Whether this build has a native MIDI backend reachable from the Orcvs crate.
+//! The MIDI backend a build has when no platform MIDI service is reachable.
 //!
 //! Platform discovery and port opening live in the console; the toolkit-free crate
 //! exposes only the silent fallback so a running Orcvs still composes with a MIDI
@@ -9,14 +9,6 @@
 //! [`MidiBackend`]: crate::midi::MidiBackend
 
 use crate::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
-
-///
-/// Whether a platform MIDI service is reachable through this crate.
-///
-/// Always `false` here: callers that present device selection use the console's
-/// own `native_midi` module instead.
-///
-pub const AVAILABLE: bool = false;
 
 ///
 /// The fallback backend a build with no native MIDI backend in this crate has.

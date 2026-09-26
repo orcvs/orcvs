@@ -46,7 +46,7 @@ All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 | Done | PR | Scope | Issues | Sequencing and completion focus |
 |---|---|---|---|---|
-| [ ] | 14 | Correct and test console integration behavior | [#03](issues/03-keep-the-panel-wake-up-across-a-function-reference-load.md), [#04](issues/04-make-the-browser-midi-output-agree-with-its-reporting-path.md), [#14](issues/14-drive-the-panel-layout-test-through-console-ui.md) | Open/repaint lifecycle, browser MIDI availability and real-console layout tests; establish protection before decomposition. |
+| [x] | 14 ([#157](https://github.com/orcvs/orcvs/pull/157)) | Correct and test console integration behavior | [#03](issues/03-keep-the-panel-wake-up-across-a-function-reference-load.md), [#04](issues/04-make-the-browser-midi-output-agree-with-its-reporting-path.md), [#14](issues/14-drive-the-panel-layout-test-through-console-ui.md) | Open/repaint lifecycle, browser MIDI availability and real-console layout tests; establish protection before decomposition. |
 | [ ] | 15 | Consolidate console test infrastructure | [#12](issues/12-move-console-inline-tests-into-sibling-modules.md), [#26](issues/26-share-console-test-setup-and-stop-polling-with-sleeps.md) | Move inline tests first, then share setup and replace native Playback polling. Preserve the test count at refactor start; 106 is only the audit baseline. |
 | [ ] | 16 | Split console responsibilities | [#13](issues/13-split-console-ui-into-panel-modules.md) | After PRs 14–15. Separate file workflows, input routing, presentation and repaint ownership. |
 
@@ -66,7 +66,7 @@ All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 ## Sequencing
 
-PRs 1–5 and 17 are verified complete. Start remaining correctness work with PR 19; PRs 11 and 14 can proceed independently. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
+PRs 1–5 and 17 are verified complete, and PR 14 is delivered by #157. Start remaining correctness work with PR 19; PR 11 can proceed independently. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
 
 Required ordering within this plan:
 

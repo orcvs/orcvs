@@ -6,13 +6,15 @@
 
 Related: 13 may move the frame code, but the test can already drive the real `Console::ui`.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The test renders the real console and asserts on the laid-out panels.
-- [ ] A deliberate production mutation that changes the asserted panel height or available Source area makes the test fail. A content-only change that preserves those dimensions need not fail.
+- [x] The test renders the real console and asserts on the laid-out panels.
+- [x] A deliberate production mutation that changes the asserted panel height or available Source area makes the test fail. A content-only change that preserves those dimensions need not fail.
 
 ## Comments
 
 **2026-09-25 — audited against `origin/main` `199c3331`.** Still valid, with the drift above as evidence.
 
 **2026-09-25 — acceptance-criteria review against `199c3331`.** Removed the unnecessary decomposition blocker and specified a mutation relevant to the measured layout contract.
+
+**2026-09-25 — implementation (epic PR 14).** Delivered in orcvs/orcvs#157. The test runs a whole `Console::ui` pass and asserts the top and bottom `PanelState` rectangles and the Source widget's rectangle (the one `Sense::CLICK | Sense::DRAG` widget). It failed under each production mutation tried: an inner margin on `source_panel_frame`, a taller top-bar `min_size`, and a 40-point top margin on `bottom_panel_frame`. A 20-point bottom margin fits within the Panel's minimum and leaves the dimensions unchanged, so the test does not fail on that content-only change.
