@@ -1,4 +1,4 @@
-/target
+target/
 .mise.local.toml
 **/.DS_Store
 # The markdown issue tracker under .scratch/ is tracked; renders and generated

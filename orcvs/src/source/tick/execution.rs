@@ -433,7 +433,8 @@ impl<'a> Execution<'a> {
         let node = &self.lookup.nodes()[index];
         // Every arm below plans or diagnoses a write at an Output Portal, so an
         // answer with none to write, which only its consumer reads, is not
-        // rendered at all.
+        // rendered at all. Every arm below relies on this return and does not
+        // ask `writes_cells` again.
         if !node.portal_access.writes_cells() {
             return Continue(());
         }
@@ -449,9 +450,7 @@ impl<'a> Execution<'a> {
             Ok(Rendered::Nothing) => {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
-                if self.states[index].function.copies_language_unit()
-                    && node.portal_access.writes_cells()
-                {
+                if self.states[index].function.copies_language_unit() {
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     for output in node.portal_access.write_sites() {
                         self.deliver_output(index, &Value::Atom(Atom::Empty), &cleared, *output)?;
@@ -461,10 +460,8 @@ impl<'a> Execution<'a> {
             }
             Ok(Rendered::Cells(encoding)) => encoding,
             Err(reason) => {
-                if node.portal_access.writes_cells() {
-                    self.effects
-                        .push(Effect::Diagnose(diagnose(node, render_message(reason))));
-                }
+                self.effects
+                    .push(Effect::Diagnose(diagnose(node, render_message(reason))));
                 return Continue(());
             }
         };
@@ -472,12 +469,10 @@ impl<'a> Execution<'a> {
         // answer could not be a Sequence, so any other width from one would
         // write Cells no dependency edge names.
         if !self.lookup.reserved(index).admits_width(encoding.len()) {
-            if node.portal_access.writes_cells() {
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    "result is not a scalar Cell pair",
-                )));
-            }
+            self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                "result is not a scalar Cell pair",
+            )));
             return Continue(());
         }
         for output in node.portal_access.write_sites() {

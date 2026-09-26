@@ -31,9 +31,10 @@ type Record = PositionedEntry;
 /// read.
 ///
 /// The Parser labels every entry it produces with one, so a `Token` is what the
-/// Source shows at a Position. `define_functions!` also mints one per declared
-/// operand through `operand_token!`, so a `Token` is equally what a signature
-/// requires at that position. The two readings coincide for the literal
+/// Source shows at a Position. `define_functions!` also reads one per declared
+/// operand from its token's [`crate::operand::TokenKind::TOKEN`], so a `Token` is
+/// equally what a signature requires at that position. The two readings
+/// coincide for the literal
 /// operands — a Number position holds two hexadecimal Cells and an entry
 /// holding them is labelled `Number` — and they come apart at both ends.
 /// `Bang`, `Comment`, and `Function` are labels the Parser applies to Cells no

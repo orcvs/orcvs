@@ -3,6 +3,7 @@ mod error;
 mod expression;
 mod functions;
 mod interpreter;
+pub mod operand;
 mod parser;
 mod portal;
 mod sequence;

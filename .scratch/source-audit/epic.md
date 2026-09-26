@@ -39,7 +39,7 @@ All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | Done | PR | Scope | Issues | Sequencing and completion focus |
 |---|---|---|---|---|
 | [x] | 11 ([#156](https://github.com/orcvs/orcvs/pull/156)) | Narrow language APIs and diagnose invalid inputs | [#05](issues/05-diagnose-silent-drops-in-lang.md), [#09](issues/09-move-lang-test-only-api-behind-cfg-test.md) | Decide the fate of Interpreter::execute once; remove unused APIs and validate Jump width. |
-| [ ] | 12 | Make operand declarations agree by construction | [#25](issues/25-make-an-operand-token-and-bind-agree-at-compile-time.md) | Design decision first; after PR 11. Compile-time token/bind agreement; preserve conversion input domains, idempotence, broadcasting and diagnostic precedence. |
+| [x] | 12 ([#164](https://github.com/orcvs/orcvs/pull/164)) | Make operand declarations agree by construction | [#25](issues/25-make-an-operand-token-and-bind-agree-at-compile-time.md) | Design decision first; after PR 11. Compile-time token/bind agreement; preserve conversion input domains, idempotence, broadcasting and diagnostic precedence. |
 | [x] | 13 ([#159](https://github.com/orcvs/orcvs/pull/159)) | Reduce interpreter work and allocations | [#24](issues/24-reduce-lang-per-tick-allocations.md) | After PR 11; preferably after PR 12. Measure the complete execute_function/binding path, including both Sequence clones; reconcile the criteria in [allocation-reduction/03](../allocation-reduction/issues/03-give-the-evaluation-stack-inline-storage.md). |
 
 ## Console behavior and structure
