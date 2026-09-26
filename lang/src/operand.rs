@@ -44,8 +44,30 @@
 //! }
 //! ```
 //!
-//! Every type here is uninhabited: it is a name for a declaration, never a
-//! value.
+//! The token a signature names is read off [`Operand::Token`] too, so an
+//! operand cannot name one token to the Parser while binding another's
+//! payload: an `Operand` declares no token of its own to override, `E0438`.
+//!
+//! ```compile_fail,E0438
+//! use lang::operand::{Number, Operand};
+//! use lang::{Error, MidiChannel, Token};
+//!
+//! enum Channel {}
+//!
+//! impl Operand for Channel {
+//!     type Token = Number;
+//!     type Bound = MidiChannel;
+//!     const TOKEN: Token = Token::Note;
+//!
+//!     fn bind(number: u8) -> Result<MidiChannel, Error> {
+//!         Ok(MidiChannel::try_from(number)?)
+//!     }
+//! }
+//! ```
+//!
+//! Every operand type here is uninhabited: it is a name for a declaration,
+//! never a value. [`NumericValue`] is the one value type, the payload a
+//! [`Numeric`] operand binds.
 
 use crate::{Error, SequenceError, Token, TypeError, Value};
 
@@ -90,9 +112,6 @@ pub trait Operand {
 
     /// What the Function body receives for this operand.
     type Bound;
-
-    /// The token a signature names for this operand.
-    const TOKEN: Token = <Self::Token as TokenKind>::TOKEN;
 
     /// Narrows the checked payload to the operand's declared domain.
     ///

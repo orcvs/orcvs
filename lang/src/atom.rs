@@ -521,11 +521,11 @@ macro_rules! operands {
             // operand outside its domain is the one that diagnoses.
             #[inline(always)]
             fn from_atoms(operands: crate::stack::Extracted<'_>) -> Result<Self, crate::Error> {
-                let &[$($role),+] = operands.atoms() else {
-                    return Err(crate::stack::arity(Self::FUNCTION, operands.atoms().len()));
+                let [$($role),+] = operands.operands() else {
+                    return Err(crate::stack::arity(Self::FUNCTION, operands.operands().len()));
                 };
                 Ok(Self {
-                    $($role: crate::operand::bind_atom::<$operand>($role)?,)+
+                    $($role: crate::operand::bind_atom::<$operand>(operands.atom($role))?,)+
                 })
             }
 
@@ -542,6 +542,27 @@ macro_rules! operands {
             const PORTAL: crate::PortalInput = portal_input!($portal_role, $portal_type);
         })?
     };
+}
+
+// Binds `values` through `$variant`'s operand struct by the reading its
+// extraction performs — `extract` checks then binds each Atom, `extract_values`
+// binds whole values — for the table sweep in the tests below. A row that
+// declares no operand has nothing to bind.
+#[cfg(test)]
+macro_rules! bind_declared {
+    ($variant:ident, [], $values:expr) => {
+        Ok(())
+    };
+    ($variant:ident, [$($role:ident),+], $values:expr) => {{
+        use crate::stack::Operands as _;
+        let values: &[crate::Value] = $values;
+        if crate::Function::$variant.binds_whole_values() {
+            operands::$variant::from_values(values.iter().cloned().collect()).map(drop)
+        } else {
+            operands::$variant::check(values)
+                .and_then(|()| operands::$variant::check_scalar_domains(values))
+        }
+    }};
 }
 
 macro_rules! define_functions {
@@ -735,7 +756,7 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<crate::operand::$operand $(<crate::operand::$literal>)? as crate::operand::Operand>::TOKEN,)*]
+                        &[$(<<crate::operand::$operand $(<crate::operand::$literal>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
                     },)+
                 }
             }
@@ -755,6 +776,17 @@ macro_rules! define_functions {
                 [$($role: crate::operand::$operand $(<crate::operand::$literal>)?),*]
                 $(, $portal_role: $portal_type)?
             })+
+        }
+
+        #[cfg(test)]
+        impl Function {
+            /// Checks and binds `values` as this Function's declared operands,
+            /// through the reading its operand struct names.
+            fn bind_declared(self, values: &[crate::Value]) -> Result<(), Error> {
+                match self {
+                    $(Self::$variant => bind_declared!($variant, [$($role),*], values),)+
+                }
+            }
         }
 
         impl TryFrom<&str> for Function {
@@ -1168,6 +1200,59 @@ mod test {
             .filter(|(_, differs)| differs(replacement, running))
             .map(|&(change, _)| change)
             .collect()
+    }
+
+    /// The lowest value a literal of `token` carries, as the operand the
+    /// Parser would hand a signature position declared as that token.
+    fn lowest(token: crate::Token) -> crate::Value {
+        match token {
+            crate::Token::Number | crate::Token::Atom => Atom::Number(0).into(),
+            crate::Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")).into(),
+            crate::Token::Sequence => crate::Sequence::new([Atom::Number(0)])
+                .expect("a Number is a Sequence member")
+                .into(),
+            other => panic!("no operand is declared as {other:?}"),
+        }
+    }
+
+    #[test]
+    fn whole_values_bind_for_exactly_the_structural_range_and_select_functions() {
+        // Pins which rows the declaration-derived rule selects, so a row whose
+        // pervasion, answer or operand tokens change its binding shows here.
+        for function in Function::ALL.iter().copied() {
+            let expected = matches!(
+                function,
+                Function::Concatenate
+                    | Function::NoteRange
+                    | Function::NumberRange
+                    | Function::Replace
+                    | Function::Reverse
+                    | Function::Select
+            );
+
+            assert_eq!(function.binds_whole_values(), expected, "{function:?}");
+        }
+    }
+
+    #[test]
+    fn every_declared_operand_binds_the_lowest_value_its_token_reads() {
+        // The type checker holds a token and its bind to one payload type, but
+        // not a bind to accepting the values that token reads: a domain that
+        // refused every literal in its slot would compile and diagnose at
+        // evaluation, every Tick. Every declared domain contains its
+        // token's minimum, so binding each signature from its own tokens'
+        // lowest values finds that the day the row is declared; a domain that
+        // excluded its minimum would need its own witness here.
+        for function in Function::ALL.iter().copied() {
+            let values: Vec<crate::Value> =
+                function.signature().iter().copied().map(lowest).collect();
+
+            assert!(
+                function.bind_declared(&values).is_ok(),
+                "{function:?} declares a token whose lowest value its bind refuses: {:?}",
+                function.bind_declared(&values),
+            );
+        }
     }
 
     #[test]

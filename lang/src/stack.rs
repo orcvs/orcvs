@@ -98,20 +98,37 @@ pub(crate) fn take_values<const N: usize>(values: OperandValues) -> Result<[Valu
     taken.into_inner().map_err(|_| refused())
 }
 
-/// One element's operands, checked against a Function's signature.
+/// One element of a checked operation: its operands and the element's index.
 ///
-/// The field is private to this module, so holding one is proof of having been
-/// handed it by a checked broadcast: [`Operands::from_atoms`] binds only after
-/// every operand of the operation has been checked.
+/// The fields are private to this module, so holding one is proof of having
+/// been handed it by a checked broadcast: [`Operands::from_atoms`] binds only
+/// after every operand of the operation has been checked.
 pub(crate) struct Extracted<'a> {
-    atoms: &'a [Atom],
+    operands: &'a [Value],
+    index: usize,
 }
 
 impl Extracted<'_> {
-    /// The checked operands, in signature order.
+    /// The operation's operands, in signature order.
     #[inline(always)]
-    pub(crate) fn atoms(&self) -> &[Atom] {
-        self.atoms
+    pub(crate) fn operands(&self) -> &[Value] {
+        self.operands
+    }
+
+    /// The Atom `operand` contributes to this element.
+    ///
+    /// An Atom operand answers itself at every index, which is the repetition
+    /// ADR 0007 describes; a Sequence operand answers its member at that index.
+    /// The index is in bounds by construction: [`Stack::broadcast`] admits a
+    /// Sequence operand only where its length is the width, and every caller
+    /// walks `0..width`. Each element is read in place, so no per-element
+    /// buffer is built.
+    #[inline(always)]
+    pub(crate) fn atom(&self, operand: &Value) -> Atom {
+        match operand {
+            Value::Atom(atom) => *atom,
+            Value::Sequence(sequence) => sequence.atoms()[self.index],
+        }
     }
 }
 
@@ -200,24 +217,6 @@ impl Broadcast {
         matches!(self.shape, Shape::Scalar)
     }
 
-    /// The operands for one element, in signature order.
-    ///
-    /// An Atom operand answers itself at every index, which is the repetition
-    /// ADR 0007 describes; a Sequence operand answers its member at that index.
-    /// The index is in bounds by construction: [`Stack::broadcast`] admits a
-    /// Sequence operand only where its length is the width, and every caller
-    /// walks `0..width`.
-    #[inline(always)]
-    fn element(&self, index: usize) -> ArrayVec<Atom, MAX_OPERANDS> {
-        self.operands
-            .iter()
-            .map(|operand| match operand {
-                Value::Atom(atom) => *atom,
-                Value::Sequence(sequence) => sequence.atoms()[index],
-            })
-            .collect()
-    }
-
     /// The first operand that widened the operation, in signature order.
     ///
     /// `None` is exactly the scalar shape, so a caller that binds one element
@@ -237,7 +236,8 @@ impl Broadcast {
     #[inline(always)]
     fn bind<O: Operands>(&self, index: usize) -> Result<O, Error> {
         O::from_atoms(Extracted {
-            atoms: &self.element(index),
+            operands: &self.operands,
+            index,
         })
     }
 
@@ -816,10 +816,9 @@ mod test {
     fn a_wider_operand_type_leaves_the_operand_list_inline() {
         // The other half of the shape guarantee the test above makes about
         // capacity. A `Value` carries a Sequence, and a Sequence owns a heap
-        // buffer of its own, so what has to be shown is that widening the
-        // element type did not move the list of them to the heap: the operand
-        // list and each element's Atoms are still `ArrayVec`s of exactly
-        // `MAX_OPERANDS`, sized by the widest declared signature.
+        // buffer of its own, so the list of them must not be one too: the
+        // operand list is an `ArrayVec` of exactly `MAX_OPERANDS`, sized by the
+        // widest declared signature, and each element is read from it in place.
         //
         // The annotations are the assertion, and they are the whole of it for
         // inline storage: a field or a return type that became a `Vec` fails to
@@ -837,10 +836,8 @@ mod test {
 
         let broadcast = stack.broadcast(Function::Subtract).unwrap();
         let operands: &ArrayVec<Value, MAX_OPERANDS> = &broadcast.operands;
-        let element: ArrayVec<Atom, MAX_OPERANDS> = broadcast.element(0);
 
         assert_eq!(operands.capacity(), MAX_OPERANDS);
-        assert_eq!(element.capacity(), MAX_OPERANDS);
     }
 
     #[test]
@@ -1257,7 +1254,8 @@ mod test {
         // The rule is stated over the table rather than over the four Functions
         // that reach it, so a row that changes its answer — in either
         // direction, as Delay and Euclidean did — is covered by being
-        // declared, which is the discipline `declaration_agreement` already
+        // declared, which is the discipline the Function table's
+        // `every_declared_operand_binds_the_lowest_value_its_token_reads`
         // applies to the bind.
         //
         // `broadcast` settles arity and shape and nothing else, so a Number
