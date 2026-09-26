@@ -303,10 +303,19 @@ impl Source {
     }
 
     ///
-    /// The full grid contents at the current revision.
+    /// The full grid contents at the current revision, as owned text: the
+    /// bytes of [`Source::cells`], copied.
     ///
     pub fn snapshot(&self) -> String {
         self.inner.clone()
+    }
+
+    ///
+    /// The Cells at the current revision, borrowed: one printable ASCII byte
+    /// per Cell, in Grid order.
+    ///
+    pub fn cells(&self) -> &[u8] {
+        self.inner.as_bytes()
     }
 
     /// The semantic view derived from this exact Source revision.

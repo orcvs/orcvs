@@ -53,8 +53,9 @@ pub(crate) fn read_source_file(path: &Path) -> Result<Source, String> {
 /// typing a character and deleting it again leaves nothing unsaved, and a
 /// Tick's write can make the Source unsaved.
 ///
-/// The comparison copies the Source, so it runs only when the Source's
-/// [`SourceCommander::revision`] differs from the one last answered for.
+/// The comparison reads every Cell under the Source's read lock, so it runs
+/// only when the Source's [`SourceCommander::revision`] differs from the one
+/// last answered for.
 ///
 pub(crate) struct OpenSourceFile {
     path: Option<PathBuf>,
@@ -113,7 +114,7 @@ impl OpenSourceFile {
         // the revision it was reached on.
         let mut answer = (revision, true);
         source.read_source(|source| {
-            answer = (source.revision(), source.snapshot() != self.saved);
+            answer = (source.revision(), source.cells() != self.saved.as_bytes());
         });
         self.answered = Some(answer);
         answer.1
