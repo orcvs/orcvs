@@ -6361,8 +6361,6 @@ mod nested_property {
     use proptest::prelude::*;
     use proptest::sample::select;
     use proptest::test_runner::{Config, TestRunner};
-    use std::cell::Cell;
-
     /// Generation budgets only; neither constrains accepted Source.
     const NESTING: u32 = 3;
     const CHAIN_LENGTH: usize = 24;
@@ -6470,6 +6468,68 @@ mod nested_property {
             .boxed()
     }
 
+    /// One fixed Operand Literal of the type `token` names.
+    fn literal(token: Token) -> &'static str {
+        match token {
+            Token::Number => "01",
+            Token::Note => "C4",
+            other => panic!("no literal spells {other:?}"),
+        }
+    }
+
+    /// The most operands any Function declares: one Function over literals is
+    /// one Interpreter call, so a Tick making more calls than this has
+    /// evaluated a nested Expression.
+    fn widest_signature() -> usize {
+        Function::ALL
+            .iter()
+            .map(|function| Tokens::from(function).len())
+            .max()
+            .expect("the definitions declare at least one Function")
+    }
+
+    /// Plans one Tick over `source` in the middle row of a Grid, so Portals
+    /// north and south of it fall inside the Grid, and checks what every
+    /// accepted Expression owes: no Operand Stack is exhausted, and an active
+    /// root reaches the Interpreter or the Tick says why not. Answers how many
+    /// Interpreter calls the Tick made.
+    fn settle(source: &str) -> Result<usize, TestCaseError> {
+        prop_assert!(
+            Parser::from(source).try_parse().is_ok(),
+            "{source:?} failed to parse"
+        );
+        let width = source.len().max(2);
+        let grid = Grid::with_shape(width, 3);
+        let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+
+        let (tick, states) = plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+
+        prop_assert!(
+            !tick
+                .diagnostics
+                .iter()
+                .any(|d| d.message.starts_with("the Operand Stack cannot hold")),
+            "{source:?} exhausted an Operand Stack: {:?}",
+            tick.diagnostics
+        );
+        let root = Function::try_from(&source[..2]).unwrap();
+        if root.is_intrinsically_active() {
+            prop_assert!(
+                // An unscheduled Tick holds no states and says why.
+                states
+                    .first()
+                    .is_some_and(|root| root.interpreted().is_some())
+                    || !tick.diagnostics.is_empty(),
+                "{source:?} left its active root unanswered and undiagnosed"
+            );
+        }
+        Ok(states
+            .iter()
+            .filter(|state| state.interpreted().is_some())
+            .count())
+    }
+
     ///
     /// A Tick over any nested Expression the Parser accepts returns rather
     /// than panicking, never exhausts an Operand Stack, and settles an active
@@ -6483,64 +6543,61 @@ mod nested_property {
             source_file: Some(file!()),
             ..Config::default()
         };
-        let most_interpreted = Cell::new(0usize);
 
         TestRunner::new(config)
-            .run(&expression_source(), |source| {
-                prop_assert!(
-                    Parser::from(&source).try_parse().is_ok(),
-                    "{source:?} failed to parse"
-                );
-                // The Expression in the middle row, so Portals north and south
-                // of it fall inside the Grid.
-                let width = source.len().max(2);
-                let grid = Grid::with_shape(width, 3);
-                let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
-                let map = LanguageMap::build(grid, bytes.as_bytes());
-
-                let (tick, states) = plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
-
-                prop_assert!(
-                    !tick
-                        .diagnostics
-                        .iter()
-                        .any(|d| d.message.starts_with("the Operand Stack cannot hold")),
-                    "{source:?} exhausted an Operand Stack: {:?}",
-                    tick.diagnostics
-                );
-                let root = Function::try_from(&source[..2]).unwrap();
-                if root.is_intrinsically_active() {
-                    prop_assert!(
-                        // An unscheduled Tick holds no states and says why.
-                        states
-                            .first()
-                            .is_some_and(|root| root.interpreted().is_some())
-                            || !tick.diagnostics.is_empty(),
-                        "{source:?} left its active root unanswered and undiagnosed"
-                    );
-                }
-                let interpreted = states
-                    .iter()
-                    .filter(|state| state.interpreted().is_some())
-                    .count();
-                most_interpreted.set(most_interpreted.get().max(interpreted));
-                Ok(())
-            })
+            .run(&expression_source(), |source| settle(&source).map(drop))
             .unwrap_or_else(|error| panic!("{error}"));
+    }
 
-        // And what reaches the Interpreter must be nested rather than flat: one
-        // Function over literals is one call, so more calls than the widest
-        // signature has operands is the shallowest evidence of nesting.
-        let widest = Function::ALL
+    ///
+    /// The property's checks hold where nesting is certain rather than drawn:
+    /// every intrinsically active root over a chain one link longer than the
+    /// widest signature makes more Interpreter calls than any flat Expression
+    /// could. A random batch at the pull-request tier's case count need not
+    /// contain such a shape, so it is stated here.
+    ///
+    #[test]
+    fn a_tick_over_a_chain_deeper_than_any_signature_interprets_every_link() {
+        let widest = widest_signature();
+        let chain = ".+".repeat(widest) + &"01".repeat(widest + 1);
+        let roots: Vec<(Function, String)> = Function::ALL
             .iter()
-            .map(|function| Tokens::from(function).len())
-            .max()
-            .expect("the definitions declare at least one Function");
-        assert!(
-            most_interpreted.get() > widest,
-            "the most calls one generated Expression reached was {}, which a flat \
-             Expression of {widest} operands could reach",
-            most_interpreted.get(),
-        );
+            .copied()
+            .filter(|root| root.is_intrinsically_active())
+            .filter_map(|root| {
+                // A Sequence or Atom operand has no literal spelling, so only
+                // roots over Numbers and Notes are stated here.
+                let signature = Tokens::from(&root);
+                if !signature
+                    .iter()
+                    .all(|token| matches!(token, Token::Number | Token::Note))
+                {
+                    return None;
+                }
+                let first = signature.iter().position(|token| *token == Token::Number)?;
+                let operands: Vec<String> = signature
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, token)| {
+                        if slot == first {
+                            chain.clone()
+                        } else {
+                            literal(*token).to_owned()
+                        }
+                    })
+                    .collect();
+                Some((root, apply(root, &operands)))
+            })
+            .collect();
+        assert!(!roots.is_empty(), "no active root takes a Number operand");
+
+        for (root, source) in roots {
+            let interpreted = settle(&source).unwrap_or_else(|error| panic!("{error}"));
+            assert!(
+                interpreted > widest,
+                "{root} over {source:?} made {interpreted} Interpreter calls, which a flat \
+                 Expression of {widest} operands could make",
+            );
+        }
     }
 }
