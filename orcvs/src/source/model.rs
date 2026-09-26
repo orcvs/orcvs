@@ -2023,6 +2023,31 @@ mod test {
     }
 
     #[test]
+    fn an_activated_play_root_plays_the_answers_of_its_nested_operands() {
+        // A Bang-activated root activates its nested computations too, and
+        // their answers are the operands the Play Command is built from: the
+        // chain sums fifteen literals into the channel, leaving the sixteenth
+        // as the velocity.
+        let expression = format!("!>{}{}C4", ".+".repeat(14), "01".repeat(16));
+        let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(expression.len() * 2), &expression);
+
+        let tick = src.execute();
+
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+        assert_eq!(
+            tick.play_commands,
+            vec![PlayCommand::Raw {
+                channel: MidiChannel::try_from(0x0F).unwrap(),
+                velocity: Velocity::try_from(0x01).unwrap(),
+                note: Note::try_from(60).unwrap(),
+            }]
+        );
+    }
+
+    #[test]
     fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
         let mut src = source();
         let at = src.cells();
