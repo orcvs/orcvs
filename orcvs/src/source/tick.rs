@@ -6341,3 +6341,206 @@ mod property {
         }
     }
 }
+
+///
+/// Generated nested Expressions through the shipped Tick. `lang` evaluates one
+/// Function over resolved operands; resolving nested operands is this
+/// module's, so the breadth of nested shapes is proved here, against the
+/// planning path a Playback Tick takes.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod nested_property {
+    use super::{Tick, plan};
+    use crate::grid::{COL_COUNT, Grid};
+    use crate::source::language_map::LanguageMap;
+    use lang::{Atom, Function, Note, Parser, Token, Tokens};
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+    use proptest::sample::select;
+    use proptest::test_runner::{Config, TestRunner};
+    use std::cell::Cell;
+
+    /// Generation budgets only; neither constrains accepted Source.
+    const NESTING: u32 = 3;
+    const CHAIN_LENGTH: usize = 24;
+
+    fn apply(function: Function, operands: &[String]) -> String {
+        let mut source = function.to_string();
+        source.extend(operands.iter().map(String::as_str));
+        source
+    }
+
+    /// One Operand Literal of the type its position declares. Reading the
+    /// Token keeps every generated Expression parseable: a literal of the
+    /// wrong type is refused as Source text rather than diagnosed.
+    fn literal_source(token: Token) -> BoxedStrategy<String> {
+        match token {
+            Token::Number => any::<u8>()
+                .prop_map(|number| format!("{number:02X}"))
+                .boxed(),
+            Token::Note => (0x00u8..=0x7F)
+                .prop_map(|note| Atom::Note(Note::try_from(note).unwrap()).to_string())
+                .boxed(),
+            other => panic!("no operand is declared as {other:?}"),
+        }
+    }
+
+    /// Every Value Function, read from the definitions so a Function added
+    /// later is generated the day it exists.
+    fn value_functions() -> Vec<Function> {
+        Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| function.answers_value())
+            .collect()
+    }
+
+    fn binary_value_functions() -> Vec<Function> {
+        value_functions()
+            .into_iter()
+            .filter(|function| {
+                let signature = Tokens::from(function);
+                signature.len() == 2 && signature.iter().all(|token| *token == Token::Number)
+            })
+            .collect()
+    }
+
+    /// A left-leaning chain of binary Value Functions: prefix order puts every
+    /// Function ahead of every operand, the deepest nesting per Cell.
+    fn chain_source() -> BoxedStrategy<String> {
+        prop_oneof![4 => 1usize..4, 1 => 1usize..=CHAIN_LENGTH]
+            .prop_flat_map(|length| {
+                (
+                    vec(select(binary_value_functions()), length),
+                    vec(literal_source(Token::Number), length + 1),
+                )
+            })
+            .prop_map(|(functions, literals)| {
+                let mut source: String = functions.iter().map(Function::to_string).collect();
+                source.extend(literals.iter().map(String::as_str));
+                source
+            })
+            .boxed()
+    }
+
+    fn operand_source(token: Token, depth: u32) -> BoxedStrategy<String> {
+        if matches!(token, Token::Atom | Token::Sequence) {
+            return nested_source(depth.max(1));
+        }
+        if depth == 0 {
+            return literal_source(token);
+        }
+        prop_oneof![
+            5 => literal_source(token),
+            2 => chain_source(),
+            3 => nested_source(depth),
+        ]
+        .boxed()
+    }
+
+    fn nested_source(depth: u32) -> BoxedStrategy<String> {
+        select(value_functions())
+            .prop_flat_map(move |function| {
+                let operands: Vec<BoxedStrategy<String>> = Tokens::from(&function)
+                    .into_iter()
+                    .map(|token| operand_source(token, depth - 1))
+                    .collect();
+                (Just(function), operands)
+            })
+            .prop_map(|(function, operands)| apply(function, &operands))
+            .boxed()
+    }
+
+    /// One whole Expression, including terminal and effect roots, that fits a
+    /// row of the widest Grid.
+    fn expression_source() -> BoxedStrategy<String> {
+        select(Function::ALL)
+            .prop_flat_map(|function| {
+                let operands: Vec<BoxedStrategy<String>> = Tokens::from(&function)
+                    .into_iter()
+                    .map(|token| operand_source(token, NESTING))
+                    .collect();
+                (Just(function), operands)
+            })
+            .prop_map(|(function, operands)| apply(function, &operands))
+            .prop_filter("fits one Grid row", |source| source.len() <= COL_COUNT)
+            .boxed()
+    }
+
+    ///
+    /// A Tick over any nested Expression the Parser accepts returns rather
+    /// than panicking, never exhausts an Operand Stack, and settles an active
+    /// root: the root reaches the Interpreter, or the Tick says why not.
+    ///
+    #[test]
+    fn a_tick_over_every_nested_expression_the_parser_accepts_settles_its_root() {
+        // Naming the source file is what `proptest!` would have done, so a
+        // regression file is written for a failing case.
+        let config = Config {
+            source_file: Some(file!()),
+            ..Config::default()
+        };
+        let most_interpreted = Cell::new(0usize);
+
+        TestRunner::new(config)
+            .run(&expression_source(), |source| {
+                prop_assert!(
+                    Parser::from(&source).try_parse().is_ok(),
+                    "{source:?} failed to parse"
+                );
+                // The Expression in the middle row, so Portals north and south
+                // of it fall inside the Grid.
+                let width = source.len().max(2);
+                let grid = Grid::with_shape(width, 3);
+                let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
+                let map = LanguageMap::build(grid, bytes.as_bytes());
+
+                let (tick, states) = plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+
+                prop_assert!(
+                    !tick
+                        .diagnostics
+                        .iter()
+                        .any(|d| d.message.starts_with("the Operand Stack cannot hold")),
+                    "{source:?} exhausted an Operand Stack: {:?}",
+                    tick.diagnostics
+                );
+                let root = Function::try_from(&source[..2]).unwrap();
+                if root.is_intrinsically_active() {
+                    prop_assert!(
+                        // An unscheduled Tick holds no states and says why.
+                        states
+                            .first()
+                            .is_some_and(|root| root.interpreted().is_some())
+                            || !tick.diagnostics.is_empty(),
+                        "{source:?} left its active root unanswered and undiagnosed"
+                    );
+                }
+                let interpreted = states
+                    .iter()
+                    .filter(|state| state.interpreted().is_some())
+                    .count();
+                most_interpreted.set(most_interpreted.get().max(interpreted));
+                Ok(())
+            })
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        // And what reaches the Interpreter must be nested rather than flat: one
+        // Function over literals is one call, so more calls than the widest
+        // signature has operands is the shallowest evidence of nesting.
+        let widest = Function::ALL
+            .iter()
+            .map(|function| Tokens::from(function).len())
+            .max()
+            .expect("the definitions declare at least one Function");
+        assert!(
+            most_interpreted.get() > widest,
+            "the most calls one generated Expression reached was {}, which a flat \
+             Expression of {widest} operands could reach",
+            most_interpreted.get(),
+        );
+    }
+}

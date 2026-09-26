@@ -78,3 +78,9 @@ The allocation test is retargeted as
 and publishing `lang call fixture`; its ceiling is still one block per call, so the zero pin
 remains this issue's work. `lang/benches/lang.rs` benchmarks `execute_function`, with its floor
 in `benches/floors.toml`.
+
+**2026-09-26 — from review of `lang/narrow-api`.** `Stack` (`lang/src/stack.rs`) still models a
+growing evaluation stack, though `execute_function` now supplies exactly one Function's operands
+and returns its answer directly. When the storage goes inline, build it as a constructor over the
+resolved operands, so the reversal, the capacity and the incremental pushes stay inside `lang`
+rather than in `execute_function`'s loop.
