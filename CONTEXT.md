@@ -41,7 +41,7 @@ The semantic view derived from the Parser's interpretation of one Source revisio
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
 **Atom**:
-One parsed value or operation an Expression is made of: a Number, a Note, a Bang, a Function, or the absence marker. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what the Evaluator walks and what a Sequence holds. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
+One parsed value or operation an Expression is made of: a Number, a Note, a Bang, a Function, or the absence marker. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what an Expression's operands resolve to and what a Sequence holds. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
 _Avoid_: Token, glyph, symbol, cell value
 
 **Operand Literal**:
@@ -65,7 +65,7 @@ A contiguous horizontal group of Cells established by parsing one Function and i
 _Avoid_: Formula, statement
 
 **Evaluator**:
-The evaluator that turns a Function and its typed operands, or a complete Expression's Atoms, into one value or terminal effect. Its Operand Stack exists only for that evaluation; activation, spatial delivery and Source remain outside the Evaluator.
+The evaluator that turns a Function and its typed operands into one value or terminal effect. Its Operand Stack exists only for that evaluation; activation, spatial delivery and Source remain outside the Evaluator.
 _Avoid_: Virtual machine, VM, interpreter loop, runtime
 
 **Operand Stack**:
