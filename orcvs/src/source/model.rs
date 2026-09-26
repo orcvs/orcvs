@@ -2204,6 +2204,27 @@ mod test {
     }
 
     #[test]
+    fn conversions_are_idempotent_through_nested_source_expressions() {
+        // A nested conversion hands its parent a typed answer, not text for
+        // the parent's declared operand type to re-read: converting a value
+        // already of the target type answers it unchanged.
+        for (expression, written) in [(".v.vC4", "3C"), (".v.^3C", "3C"), (".^.^3C", "C4")] {
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), expression);
+
+            let tick = src.execute();
+
+            assert!(
+                tick.diagnostics.is_empty(),
+                "{expression}: {:?}",
+                tick.diagnostics
+            );
+            assert_eq!(&src.row(1)[..2], written, "{expression}");
+        }
+    }
+
+    #[test]
     fn equality_composes_with_nested_arithmetic_on_both_answers() {
         // Equality over a nested sum answers as it does over literals.
         for (expression, row) in [(".=.+010203", "**        "), (".=.+010204", "          ")] {
