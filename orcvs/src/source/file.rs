@@ -200,9 +200,8 @@ pub fn read(text: &[u8]) -> Result<Source, SourceFileError> {
 ///
 pub fn write(source: &Source) -> String {
     let grid = source.grid();
-    let cells = source.snapshot();
-    let rows = cells
-        .as_bytes()
+    let rows = source
+        .cells()
         .chunks_exact(grid.columns())
         .map(|row| {
             let end = row

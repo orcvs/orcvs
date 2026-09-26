@@ -113,7 +113,7 @@ impl OpenSourceFile {
         // the revision it was reached on.
         let mut answer = (revision, true);
         source.read_source(|source| {
-            answer = (source.revision(), source.snapshot() != self.saved);
+            answer = (source.revision(), source.cells() != self.saved.as_bytes());
         });
         self.answered = Some(answer);
         answer.1
