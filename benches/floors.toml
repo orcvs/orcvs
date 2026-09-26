@@ -50,8 +50,8 @@ max_ns = 60
 # The runner both bench jobs in .github/workflows/bench.yml run on.
 runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # One scalar Add through `Interpreter::execute_function`, the call a Turn makes.
-# It inherits the guard over ADR 0026's broadcast seam, which every call passes
-# through. 60 ns is about twice the local figure, headroom for the runner noise
+# It guards ADR 0026's broadcast seam, which every call passes through. 60 ns
+# is about twice the local figure, headroom for the runner noise
 # `docs/tooling.md` describes as tens of percent between runs. This is a
 # starting figure, not a measured floor with settled runs behind it; tighten it
 # once the series has enough points on `gh-pages` to show where the call

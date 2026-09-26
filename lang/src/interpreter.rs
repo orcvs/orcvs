@@ -207,7 +207,7 @@ mod test {
     }
 
     /// `evaluate` for a Function that answers one Cell.
-    fn interpret_stack(atoms: Vec<Atom>) -> Result<Atom, Error> {
+    fn evaluate_cell(atoms: Vec<Atom>) -> Result<Atom, Error> {
         let Some((Atom::Function(function), operands)) = atoms.split_first() else {
             panic!("{atoms:?} does not start with a Function");
         };
@@ -334,7 +334,7 @@ mod test {
 
         let stack = vec![Atom::Function(Function::Add), Atom::Number(1)];
 
-        let result = interpret_stack(stack);
+        let result = evaluate_cell(stack);
 
         let error = result.unwrap_err();
 
@@ -353,7 +353,7 @@ mod test {
 
         let stack = vec![Atom::Function(Function::Add), Atom::Number(1), Atom::Bang];
 
-        let result = interpret_stack(stack);
+        let result = evaluate_cell(stack);
 
         let error = result.unwrap_err();
 
@@ -378,7 +378,7 @@ mod test {
             Function::Subtract,
         ] {
             for operands in [[note, Atom::Number(1)], [Atom::Number(1), note]] {
-                let result = interpret_stack(
+                let result = evaluate_cell(
                     std::iter::once(Atom::Function(function))
                         .chain(operands)
                         .collect(),
@@ -408,7 +408,7 @@ mod test {
                 for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
                     assert!(
                         matches!(
-                            interpret_stack(
+                            evaluate_cell(
                                 std::iter::once(Atom::Function(function))
                                     .chain(operands)
                                     .collect(),
@@ -430,7 +430,7 @@ mod test {
         let note = Atom::Note(crate::Note::try_from(60).unwrap());
         for (operand, spelled) in [(note, "C4"), (Atom::Empty, "_")] {
             assert!(matches!(
-                interpret_stack(vec![Atom::Function(Function::Add), operand, Atom::Number(1)]),
+                evaluate_cell(vec![Atom::Function(Function::Add), operand, Atom::Number(1)]),
                 Err(Error::Type(TypeError::Number(found))) if found == spelled
             ));
         }
@@ -455,7 +455,7 @@ mod test {
                 Atom::Bang,
             ],
         ] {
-            assert!(matches!(interpret_stack(atoms), Err(Error::Type(_))));
+            assert!(matches!(evaluate_cell(atoms), Err(Error::Type(_))));
         }
     }
 
@@ -507,7 +507,7 @@ mod test {
         // them would make `.v` reject values `.^` never had to accept.
         for value in 0..=u8::MAX {
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNumber),
                     Atom::Number(value),
                 ])
@@ -521,7 +521,7 @@ mod test {
         // which is every value a Note can hold.
         for value in 0..=0x7F {
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNumber),
                     Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
@@ -529,7 +529,7 @@ mod test {
                 Atom::Number(value)
             );
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Number(value),
                 ])
@@ -537,7 +537,7 @@ mod test {
                 Atom::Note(crate::Note::try_from(value).unwrap())
             );
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
@@ -551,7 +551,7 @@ mod test {
     fn conversion_to_note_rejects_numbers_outside_the_midi_range() {
         for value in 0x80..=u8::MAX {
             assert!(matches!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Number(value),
                 ]),
@@ -584,7 +584,7 @@ mod test {
 
                 for (a, b) in [(left, right), (right, left)] {
                     assert_eq!(
-                        interpret_stack(vec![
+                        evaluate_cell(vec![
                             Atom::Function(Function::AbsoluteDifference),
                             Atom::Number(a),
                             Atom::Number(b),
@@ -603,7 +603,7 @@ mod test {
         for left in 0..=u8::MAX {
             for right in 1..=u8::MAX {
                 assert_eq!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Modulo),
                         Atom::Number(left),
                         Atom::Number(right),
@@ -624,7 +624,7 @@ mod test {
         for left in 0..=u8::MAX {
             assert!(
                 matches!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Modulo),
                         Atom::Number(left),
                         Atom::Number(0),
@@ -658,7 +658,7 @@ mod test {
                     ),
                 ] {
                     assert_eq!(
-                        interpret_stack(vec![
+                        evaluate_cell(vec![
                             Atom::Function(function),
                             Atom::Number(left),
                             Atom::Number(right),
@@ -709,7 +709,7 @@ mod test {
                     Token::Note => Atom::Note(Note::try_from(value & 0x7F).expect("a MIDI note")),
                     other => panic!("no operand is declared as {other:?}"),
                 }));
-                matches!(interpret_stack(atoms), Ok(Atom::Bang))
+                matches!(evaluate_cell(atoms), Ok(Atom::Bang))
             });
 
             assert_eq!(
@@ -736,7 +736,7 @@ mod test {
                 };
 
                 assert_eq!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Equality),
                         Atom::Number(left),
                         Atom::Number(right),
@@ -777,7 +777,7 @@ mod test {
                     ),
                 ] {
                     assert_eq!(
-                        interpret_stack(vec![
+                        evaluate_cell(vec![
                             Atom::Function(function),
                             Atom::Number(left),
                             Atom::Number(right),
@@ -807,7 +807,7 @@ mod test {
         for left in 0..=u8::MAX {
             assert!(
                 matches!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Divide),
                         Atom::Number(left),
                         Atom::Number(0),
@@ -826,7 +826,7 @@ mod test {
                 }
 
                 assert_eq!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Divide),
                         Atom::Number(left),
                         Atom::Number(right),

@@ -400,23 +400,17 @@ mod test {
     // than to the reader is what keeps a 32-bit target reporting no defect
     // instead of a size it was never measured at.
     #[cfg(target_pointer_width = "64")]
-    fn the_answer_seam_is_the_size_the_execute_benchmark_was_measured_against() {
+    fn the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against() {
         // Imported here rather than beside the module's other imports so the
         // import carries exactly the gate its only use carries: at a pointer
         // width this test is compiled out at, an import up there is unused,
         // and `-D warnings` refuses the `wasm32` build over it.
         use super::Interpretation;
 
-        // A layout claim, pinned because a benchmark explanation rests on it.
-        // `Interpretation` was 24 bytes before this type existed: its widest
-        // variant held a `Sequence`, which is a `Vec`, and the non-null pointer
-        // left a niche the discriminant fitted into. `Performance` is itself a
-        // 24-byte enum that has already spent that niche on its own tag, so
-        // `Interpretation` needs one of its own and reads 32. That eight bytes
-        // and the discriminant read beside it are what moved the `execute`
-        // benchmark from 46 ns to 52 ns — a representation change rather than
-        // work added, and the only measured cost of extending the Terminal
-        // Output Functions.
+        // A layout claim, pinned because the `execute_function` benchmark
+        // floor was measured against it. `Performance` is a 24-byte enum that
+        // spends the `Vec` pointer's niche on its own tag, so `Interpretation`
+        // needs a discriminant of its own and reads 32.
         //
         // A failure here is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take again. That

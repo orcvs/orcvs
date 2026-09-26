@@ -284,7 +284,7 @@ impl Stack {
 
     /// Pushes one value, diagnosing a stack with no slot left.
     ///
-    /// The Interpreter supplies the Expression's Atom count as the limit.
+    /// The Interpreter supplies the Function's operand count as the limit.
     /// Check that logical limit, not the allocator's possibly larger capacity.
     #[inline(always)]
     pub fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {

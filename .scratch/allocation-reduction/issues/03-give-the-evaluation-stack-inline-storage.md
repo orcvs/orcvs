@@ -59,7 +59,7 @@ to neighbouring structures. `05e4490` ("Avoid heap allocation for common parser 
 shape they established is the shape to follow.
 
 Note the interaction with `lang/src/lib.rs`'s size assertions. The test
-`the_answer_seam_is_the_size_the_execute_benchmark_was_measured_against` pins
+`the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against` pins
 `size_of::<Performance>()` and `size_of::<Interpretation>()` against the `execute` benchmark's
 recorded figures, and its comment explains a 46ns-to-52ns move in terms of those sizes. Inline
 storage changes what `Context` and `Stack` cost, not what `Interpretation` answers, so that test
