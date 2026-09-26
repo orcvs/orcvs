@@ -118,7 +118,7 @@ impl From<TickInputs> for FunctionInputs<'_> {
 }
 
 /// Implemented by the declaration table only for Functions with a Portal input.
-pub(crate) trait PortalOperands: Operands {
+pub(crate) trait PortalOperands: Operands<Binding = crate::stack::ElementBinding> {
     const PORTAL: PortalInput;
 }
 

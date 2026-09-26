@@ -347,3 +347,44 @@ impl Operand for Length {
         Ok(crate::Length::from(number))
     }
 }
+
+/// Checks every Atom `operand` holds against `O`'s token, in member order.
+///
+/// A Sequence operand is walked member by member, because an element reading
+/// broadcasts across it.
+#[inline(always)]
+pub(crate) fn check<O: Operand>(operand: &Value) -> Result<(), Error> {
+    match operand {
+        Value::Atom(atom) => O::Token::from_atom(*atom).map(drop),
+        Value::Sequence(sequence) => {
+            for atom in sequence {
+                O::Token::from_atom(*atom)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Checks a scalar operand against `O`'s domain, where no element binds it.
+///
+/// A Sequence operand answers nothing here: at the width this is asked at, it
+/// is empty.
+#[inline(always)]
+pub(crate) fn check_domain<O: Operand>(operand: &Value) -> Result<(), Error> {
+    match operand {
+        Value::Atom(atom) => bind_atom::<O>(*atom).map(drop),
+        Value::Sequence(_) => Ok(()),
+    }
+}
+
+/// Binds one element Atom to `O`.
+#[inline(always)]
+pub(crate) fn bind_atom<O: Operand>(atom: crate::Atom) -> Result<O::Bound, Error> {
+    O::bind(O::Token::from_atom(atom)?)
+}
+
+/// Binds one whole value to `O`.
+#[inline(always)]
+pub(crate) fn bind_value<O: Operand>(value: Value) -> Result<O::Bound, Error> {
+    O::bind(O::Token::from_value(value)?)
+}

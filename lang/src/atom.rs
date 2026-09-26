@@ -286,9 +286,8 @@ enum EffectKind {
 ///
 /// A row names its effect rather than the word "effect", so the table says what
 /// each Function does, and this is the one place a new effect is related to the
-/// value-or-effect rule. It is a macro arm for the same reason `operand_token!`
-/// is: the column stays one identifier per row while the shape it expands to is
-/// free to grow.
+/// value-or-effect rule. It is a macro arm so the column stays one identifier
+/// per row while the shape it expands to is free to grow.
 macro_rules! function_kind {
     (Value) => {
         FunctionKind::Value
@@ -474,424 +473,6 @@ enum Answer {
     Sequence,
 }
 
-// An operand's declared type decides three things, one per macro below: the
-// `Token` its signature is checked against, the Rust value a Function body
-// receives for it, and how the checked `Atom` becomes that value. A new operand
-// type needs one arm in each of the three, so a Function definition cannot name
-// a type the extraction does not already know how to check and bind.
-//
-// The column therefore answers two questions rather than one. `Token` is what
-// the parser reads from two Cells; the bound type is the domain the interpreter
-// accepts, which may be narrower. `MidiChannel` and `Velocity` are both read as
-// a `Number` and are neither a `Number` nor each other once bound. That is one
-// refinement chain from Cells to Number to a domain, declared where the role is
-// declared, which is what lets a new MIDI terminal Function inherit its
-// validation from the table instead of from a body that remembers to ask.
-macro_rules! operand_token {
-    (Number) => {
-        crate::Token::Number
-    };
-    (Note) => {
-        crate::Token::Note
-    };
-    (MidiChannel) => {
-        crate::Token::Number
-    };
-    (Velocity) => {
-        crate::Token::Number
-    };
-    (Controller) => {
-        crate::Token::Number
-    };
-    (ControlValue) => {
-        crate::Token::Number
-    };
-    (BendLsb) => {
-        crate::Token::Number
-    };
-    (BendMsb) => {
-        crate::Token::Number
-    };
-    (Length) => {
-        crate::Token::Number
-    };
-    (Atom) => {
-        crate::Token::Atom
-    };
-    (Sequence) => {
-        crate::Token::Sequence
-    };
-    (AtomOrSequence) => {
-        crate::Token::Atom
-    };
-}
-
-// The domain half of a bind, for one Atom, with the bound value discarded.
-//
-// It is written through `operand_bind!` rather than beside it so a declared
-// domain still has exactly one definition: an arm added here could narrow
-// differently from the arm that binds, and the two are asked the same question
-// about the same Atom. The three arms above stay the whole cost of a new
-// operand type.
-macro_rules! operand_domain {
-    (Sequence, $role:ident) => {
-        (|_: crate::Atom| -> Result<(), crate::Error> { Ok(()) })
-            as fn(crate::Atom) -> Result<(), crate::Error>
-    };
-    (AtomOrSequence, $role:ident) => {
-        (|_: crate::Atom| -> Result<(), crate::Error> { Ok(()) })
-            as fn(crate::Atom) -> Result<(), crate::Error>
-    };
-    ($operand:ident, $role:ident) => {
-        (|atom: crate::Atom| -> Result<(), crate::Error> {
-            operand_bind!($operand, Some(atom), $role).map(|_| ())
-        }) as fn(crate::Atom) -> Result<(), crate::Error>
-    };
-}
-
-macro_rules! operand_type {
-    (Number) => {
-        u8
-    };
-    (Note) => {
-        crate::Note
-    };
-    (MidiChannel) => {
-        crate::MidiChannel
-    };
-    (Velocity) => {
-        crate::Velocity
-    };
-    (Controller) => {
-        crate::Controller
-    };
-    (ControlValue) => {
-        crate::ControlValue
-    };
-    (BendLsb) => {
-        crate::BendLsb
-    };
-    (BendMsb) => {
-        crate::BendMsb
-    };
-    (Length) => {
-        crate::Length
-    };
-    (Atom) => {
-        crate::Atom
-    };
-    (Sequence) => {
-        crate::Sequence
-    };
-    (AtomOrSequence) => {
-        crate::Sequence
-    };
-}
-
-// A bind answers a `Result` because a declared domain is narrower than the
-// `Token` the parser checked: `Stack::extract` proves the operand is a Number,
-// and only the conversion here proves it is a channel. The domain diagnostic is
-// therefore raised by the declaration rather than by a Function body.
-macro_rules! operand_bind {
-    (Number, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(crate::Atom::Number(value)) => Ok::<_, crate::Error>(value),
-            _ => unreachable!(concat!(
-                "typed extraction guarantees a Number for the ",
-                stringify!($role),
-                " operand"
-            )),
-        }
-    };
-    (Note, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(crate::Atom::Note(value)) => Ok::<_, crate::Error>(value),
-            _ => unreachable!(concat!(
-                "typed extraction guarantees a Note for the ",
-                stringify!($role),
-                " operand"
-            )),
-        }
-    };
-    // Every domain declared over a Number binds the same way, so the arm is
-    // written once and the declared types forward to it. That buys brevity and
-    // nothing else, and in particular it is not what keeps one role from
-    // binding another role's domain. `define_functions!` initialises each field
-    // of the generated operand struct straight from this macro, so an arm that
-    // converted to the wrong domain of the same token fails to compile at that
-    // field — `expected BendMsb, found BendLsb` — whether the body is written
-    // here once or repeated six times. Six near-identical bodies would have
-    // been exactly as safe and merely longer.
-    (@number_domain $domain:ty, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(crate::Atom::Number(value)) => {
-                <$domain>::try_from(value).map_err(crate::Error::from)
-            }
-            _ => unreachable!(concat!(
-                "typed extraction guarantees a Number for the ",
-                stringify!($role),
-                " operand"
-            )),
-        }
-    };
-    (MidiChannel, $operand:expr, $role:ident) => {
-        operand_bind!(@number_domain crate::MidiChannel, $operand, $role)
-    };
-    (Velocity, $operand:expr, $role:ident) => {
-        operand_bind!(@number_domain crate::Velocity, $operand, $role)
-    };
-    (Controller, $operand:expr, $role:ident) => {
-        operand_bind!(@number_domain crate::Controller, $operand, $role)
-    };
-    (ControlValue, $operand:expr, $role:ident) => {
-        operand_bind!(@number_domain crate::ControlValue, $operand, $role)
-    };
-    (BendLsb, $operand:expr, $role:ident) => {
-        operand_bind!(@number_domain crate::BendLsb, $operand, $role)
-    };
-    (BendMsb, $operand:expr, $role:ident) => {
-        operand_bind!(@number_domain crate::BendMsb, $operand, $role)
-    };
-    // The one declared domain that is the whole byte, so this converts where
-    // the others validate. It has an arm of its own rather than forwarding to
-    // `@number_domain` above: every byte is a length, so `Length` converts
-    // infallibly and has no `TryFrom` to share. What makes a length a length is
-    // the type it arrives as, not a check it passed.
-    (Length, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(crate::Atom::Number(value)) => Ok::<_, crate::Error>(crate::Length::from(value)),
-            _ => unreachable!(concat!(
-                "typed extraction guarantees a Number for the ",
-                stringify!($role),
-                " operand"
-            )),
-        }
-    };
-    (Atom, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(atom) => Ok::<_, crate::Error>(atom),
-            _ => unreachable!(concat!(
-                "typed extraction guarantees an Atom for the ",
-                stringify!($role),
-                " operand"
-            )),
-        }
-    };
-    (Sequence, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(_) => Ok::<_, crate::Error>(crate::Sequence::empty()),
-            None => unreachable!(
-                "Sequence operands bind through ValueOperands, not atoms: {}",
-                stringify!($role)
-            ),
-        }
-    };
-    (AtomOrSequence, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(_) => Ok::<_, crate::Error>(crate::Sequence::empty()),
-            None => unreachable!(
-                "AtomOrSequence operands bind through ValueOperands, not atoms: {}",
-                stringify!($role)
-            ),
-        }
-    };
-}
-
-macro_rules! operand_value_bind {
-    (Number, $value:expr, $role:ident) => {
-        crate::stack::bind_number($value)
-    };
-    (Note, $value:expr, $role:ident) => {
-        crate::stack::bind_note($value)
-    };
-    (Atom, $value:expr, $role:ident) => {
-        crate::stack::bind_atom($value)
-    };
-    (Sequence, $value:expr, $role:ident) => {
-        crate::stack::bind_sequence_required($value)
-    };
-    (AtomOrSequence, $value:expr, $role:ident) => {
-        crate::stack::bind_sequence_operand($value)
-    };
-}
-
-macro_rules! value_operands_from_values {
-    ($variant:ident, [$($role:ident: $operand:ident),* $(,)?]) => {
-        impl crate::stack::ValueOperands for $variant {
-            const FUNCTION: Function = Function::$variant;
-
-            fn from_values(
-                values: crate::stack::OperandValues,
-            ) -> Result<Self, crate::Error> {
-                use crate::ArgumentError;
-
-                const EXPECTED: usize = [$(stringify!($role),)*].len();
-                if values.len() != EXPECTED {
-                    return Err(
-                        ArgumentError::Arity {
-                            expected: EXPECTED,
-                            found: values.len(),
-                        }
-                        .into(),
-                    );
-                }
-
-                let mut values = values.into_iter();
-                Ok(Self {
-                    $($role: operand_value_bind!(
-                        $operand,
-                        values.next().expect("length checked"),
-                        $role
-                    )?,)*
-                })
-            }
-        }
-    };
-}
-
-// Emits a [`ValueOperands`] implementation when this row binds whole values,
-// and nothing otherwise — so the bind path is derived from the same row as
-// the role names and types rather than restated in `sequence.rs`.
-macro_rules! value_operands_impl {
-    ($variant:ident, Pervasive, $answer:ident;) => {};
-    ($variant:ident, $pervasion:ident, $answer:ident;) => {};
-    ($variant:ident, Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {};
-    ($variant:ident, Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
-        value_operands_when_scalar! {
-            $variant,
-            $answer,
-            [$($role: $operand),+]
-        }
-    };
-}
-
-macro_rules! value_operands_when_scalar {
-    (
-        $variant:ident,
-        Sequence,
-        [$($role:ident: Number),+ $(,)?]
-    ) => {
-        value_operands_from_values! { $variant, [$($role: Number),+] }
-    };
-    (
-        $variant:ident,
-        Sequence,
-        [$($role:ident: Note),+ $(,)?]
-    ) => {
-        value_operands_from_values! { $variant, [$($role: Note),+] }
-    };
-    ($variant:ident, $answer:ident, [$($role:ident: $operand:ident),+ $(,)?]) => {
-        has_whole_value_operand! {
-            @scan [ $( $operand ),+ ],
-            @emit
-            value_operands_from_values! {
-                $variant,
-                [ $( $role : $operand ),+ ]
-            }
-        }
-    };
-}
-
-macro_rules! has_whole_value_operand {
-    (@scan [Sequence $(, $tail:tt)*], @emit $( $body:tt )*) => {
-        $( $body )*
-    };
-    (@scan [AtomOrSequence $(, $tail:tt)*], @emit $( $body:tt )*) => {
-        $( $body )*
-    };
-    (@scan [Atom $(, $tail:tt)*], @emit $( $body:tt )*) => {
-        $( $body )*
-    };
-    (@scan [$head:ident $(, $tail:tt)*], @emit $( $body:tt )*) => {
-        has_whole_value_operand! {
-            @scan [ $($tail),* ],
-            @emit $( $body )*
-        }
-    };
-    (@scan [], @emit $( $body:tt )*) => {};
-    (@scan [Sequence $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
-        $yes
-    };
-    (@scan [AtomOrSequence $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
-        $yes
-    };
-    (@scan [Atom $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
-        $yes
-    };
-    (@scan [$head:ident $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
-        has_whole_value_operand! {
-            @scan [ $($tail),* ],
-            @yes $yes,
-            @no $no
-        }
-    };
-    (@scan [], @yes $yes:tt, @no $no:tt) => {
-        $no
-    };
-}
-
-// Invoked only from `declaration_agreement`, which is `cfg(test)`.
-#[allow(unused_macros)]
-macro_rules! value_operands_bind_test {
-    ($variant:ident, Pervasive, $answer:ident;) => {};
-    ($variant:ident, Scalar, $answer:ident;) => {};
-    ($variant:ident, Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {};
-    ($variant:ident, Scalar, Sequence; $($role:ident: Number),+ $(,)?) => {
-        value_operands_bind_test! { @run $variant }
-    };
-    ($variant:ident, Scalar, Sequence; $($role:ident: Note),+ $(,)?) => {
-        value_operands_bind_test! { @run $variant }
-    };
-    ($variant:ident, Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
-        has_whole_value_operand! {
-            @scan [ $( $operand ),+ ],
-            @emit value_operands_bind_test! { @run $variant }
-        }
-    };
-    (@run $variant:ident) => {
-        #[test]
-        #[allow(non_snake_case)]
-        fn $variant() {
-            let function = crate::Function::$variant;
-            let mut stack = Stack::new(16);
-
-            for token in function.signature().iter().copied().rev() {
-                stack.push(lowest_value(token)).unwrap();
-            }
-
-            assert!(
-                stack.extract_values::<super::operands::$variant>().is_ok(),
-                "{function:?} declares a token its ValueOperands bind does not read",
-            );
-        }
-    };
-}
-
-macro_rules! value_operands_enabled {
-    (Pervasive, $answer:ident;) => {
-        false
-    };
-    (Scalar, $answer:ident;) => {
-        false
-    };
-    (Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
-        false
-    };
-    (Scalar, Sequence; $($role:ident: Number),+ $(,)?) => {
-        true
-    };
-    (Scalar, Sequence; $($role:ident: Note),+ $(,)?) => {
-        true
-    };
-    (Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
-        has_whole_value_operand! {
-            @scan [ $( $operand ),+ ],
-            @yes true,
-            @no false
-        }
-    };
-}
-
 // A Function of exactly one declared role gets the `UnaryOperands` marker and
 // every other Function gets nothing, decided by which arm the role list matches
 // rather than by a second list to keep in step. The single-role arm is written
@@ -903,13 +484,12 @@ macro_rules! unary_operands {
     ($variant:ident, [$($role:ident),*]) => {};
 }
 
-// Portal inputs are optional because most Functions read only cell operands.
+// The declared type of a Portal input, mapped to the input it decodes. Number
+// is the one type a Portal input declares, so a row naming another type does
+// not match an arm and fails to compile.
 macro_rules! portal_input {
-    () => {
-        None
-    };
     ($role:literal, Number) => {
-        Some(crate::PortalInput::number($role))
+        crate::PortalInput::number($role)
     };
 }
 
@@ -1034,17 +614,6 @@ macro_rules! define_functions {
                 }
             }
 
-            /// Whether this Function binds operands from whole [`crate::Value`]s.
-            ///
-            /// ADR 0007's structural and Range Functions consume Sequence
-            /// operands intact, and ADR 0028 requires that extraction derive
-            /// from the single declaration rather than restate operand order.
-            pub const fn binds_whole_values(self) -> bool {
-                match self {
-                    $(Self::$variant => value_operands_enabled!($pervasion, $answer; $($role: $operand),*),)+
-                }
-            }
-
             /// Whether this Function extends pervasively across a Sequence
             /// operand instead of requiring one Atom per position.
             ///
@@ -1106,28 +675,17 @@ macro_rules! define_functions {
             /// The Portal input resolved at Turn, after cell operand validation.
             pub const fn portal_input(self) -> Option<crate::PortalInput> {
                 match self {
-                    $(Self::$variant => portal_input!($($portal_role, $portal_type)?),)+
+                    $($(Self::$variant => Some(portal_input!($portal_role, $portal_type)),)?)+
+                    _ => None,
                 }
             }
 
+            /// The token each declared operand is read as, in signature order.
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
-                    $(Self::$variant => &[$(operand_token!($operand),)*],)+
-                }
-            }
-
-            /// One domain check per declared operand, in signature order.
-            ///
-            /// The narrowing a declaration states — a `MidiChannel` is a
-            /// `Number` the parser read and a channel only once its domain
-            /// admits it — is ordinarily answered as an element binds, which
-            /// covers every operand at every width but one. At width zero no
-            /// element binds, so the Operand Stack asks here instead, and a
-            /// scalar operand beside an empty Sequence is checked against the
-            /// domain it declares rather than only against its `Token`.
-            pub(crate) fn domains(self) -> &'static [fn(crate::Atom) -> Result<(), crate::Error>] {
-                match self {
-                    $(Self::$variant => const { &[$(operand_domain!($operand, $role),)*] },)+
+                    $(Self::$variant => const {
+                        &[$(<crate::operand::$operand as crate::operand::Operand>::TOKEN,)*]
+                    },)+
                 }
             }
         }
@@ -1141,135 +699,64 @@ macro_rules! define_functions {
         /// two same-typed operands is therefore an edit to the declaration
         /// rather than a silent edit inside a body.
         pub(crate) mod operands {
-            use crate::{Error, Function, stack::{Extracted, Operands}};
-
             $(
                 // Every Function in the table gets a struct, including the two
                 // whose evaluation deliberately takes a numeric value rather
-                // than the single type their signature declares: ADR 0021's
-                // idempotence for nested values, which `lang-foundations/06`
-                // records as an exclusion. Those two structs are generated and
-                // unread, which is the table staying uniform rather than dead
-                // code to delete — dropping them would mean the declaration no
-                // longer covered every Function.
+                // than the single type their signature declares.
                 #[allow(dead_code)]
                 pub(crate) struct $variant {
-                    $(pub(crate) $role: operand_type!($operand),)*
+                    $(pub(crate) $role: <crate::operand::$operand as crate::operand::Operand>::Bound,)*
                 }
 
-                impl Operands for $variant {
-                    const FUNCTION: Function = Function::$variant;
+                impl crate::stack::Operands for $variant {
+                    const FUNCTION: crate::Function = crate::Function::$variant;
+                    type Binding = crate::stack::Binding<{ crate::Function::$variant.binds_whole_values() }>;
 
                     #[inline(always)]
-                    // A row declaring no operand expands to a struct with no
-                    // field, so nothing reads or advances the iterator and both
-                    // lints fire on a binding the other rows need. The narrow
-                    // suppression is on the generated body, where the arity is
-                    // a property of the row rather than of this code; a written
-                    // `from_operands` that ignored its operands would still be
-                    // caught, because no row writes one.
-                    #[allow(unused_mut, unused_variables)]
-                    fn from_operands(operands: Extracted<'_>) -> Result<Self, Error> {
-                        let mut operands = operands.atoms().iter().copied();
+                    fn check(operands: &[crate::Value]) -> Result<(), crate::Error> {
+                        let [$($role),*] = operands else {
+                            return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
+                        };
+                        $(crate::operand::check::<crate::operand::$operand>($role)?;)*
+                        Ok(())
+                    }
 
-                        // Field initialisers evaluate in signature order, so
-                        // the first operand outside its domain is the one that
-                        // diagnoses, exactly as the pop loop above it.
+                    #[inline(always)]
+                    fn check_scalar_domains(operands: &[crate::Value]) -> Result<(), crate::Error> {
+                        let [$($role),*] = operands else {
+                            return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
+                        };
+                        $(crate::operand::check_domain::<crate::operand::$operand>($role)?;)*
+                        Ok(())
+                    }
+
+                    // Field initialisers evaluate in signature order, so the
+                    // first operand outside its domain is the one that
+                    // diagnoses.
+                    #[inline(always)]
+                    fn from_atoms(operands: crate::stack::Extracted<'_>) -> Result<Self, crate::Error> {
+                        let &[$($role),*] = operands.atoms() else {
+                            return Err(crate::stack::arity(Self::FUNCTION, operands.atoms().len()));
+                        };
                         Ok(Self {
-                            $($role: operand_bind!($operand, operands.next(), $role)?,)*
+                            $($role: crate::operand::bind_atom::<crate::operand::$operand>($role)?,)*
+                        })
+                    }
+
+                    #[inline(always)]
+                    fn from_values(values: crate::stack::OperandValues) -> Result<Self, crate::Error> {
+                        let [$($role),*] = crate::stack::take_values(values)?;
+                        Ok(Self {
+                            $($role: crate::operand::bind_value::<crate::operand::$operand>($role)?,)*
                         })
                     }
                 }
 
                 $(impl crate::portal::PortalOperands for $variant {
-                    const PORTAL: crate::PortalInput = match portal_input!($portal_role, $portal_type) {
-                        Some(input) => input,
-                        None => unreachable!(),
-                    };
+                    const PORTAL: crate::PortalInput = portal_input!($portal_role, $portal_type);
                 })?
-                value_operands_impl!($variant, $pervasion, $answer; $($role: $operand),*);
                 unary_operands!($variant, [$($role),*]);
             )+
-        }
-
-        /// Every Function's declared operand token and its bind must agree.
-        ///
-        /// `operand_token!` decides what `Stack::extract` accepts and
-        /// `operand_bind!` decides what it then reads. They are separate arms
-        /// keyed on the same declared type, so a disagreement between them is
-        /// not a compile error: the bind falls through to its `unreachable!`
-        /// and panics inside Tick planning, under the Source lock, which is
-        /// exactly the third option ADR 0028 rules out. Extracting every
-        /// Function once from operands built out of its own signature turns
-        /// that into a test failure at the moment the operand type is added.
-        #[cfg(test)]
-        mod declaration_agreement {
-            use crate::{Atom, Note, Sequence, Stack, Token, Value};
-
-            /// The lowest value each token can carry. Every domain declared
-            /// over a token so far contains it; a domain that excluded its
-            /// token's minimum would fail here and need its own witness, which
-            /// is the right way to find that out.
-            fn lowest(token: Token) -> Atom {
-                match token {
-                    Token::Number => Atom::Number(0),
-                    Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
-                    Token::Atom => Atom::Number(0),
-                    Token::Sequence => Atom::Number(0),
-                    other => panic!("no operand is declared as {other:?}"),
-                }
-            }
-
-            fn lowest_value(token: Token) -> Value {
-                match token {
-                    Token::Sequence => Sequence::new([Atom::Number(0)]).unwrap().into(),
-                    _ => lowest(token).into(),
-                }
-            }
-
-            #[test]
-            fn every_declared_operand_binds_the_atom_its_token_accepts() {
-                $({
-                    let function = crate::Function::$variant;
-                    if !function.binds_whole_values() {
-                        let mut stack = Stack::new(16);
-
-                        // Pushed in reverse so extraction pops them in signature order.
-                        for token in function.signature().iter().copied().rev() {
-                            stack.push(lowest(token)).unwrap();
-                        }
-
-                        assert!(
-                            stack.extract::<super::operands::$variant>().is_ok(),
-                            "{function:?} declares a token its bind does not read",
-                        );
-                    }
-                })+
-            }
-
-            $(value_operands_bind_test! {
-                $variant,
-                $pervasion,
-                $answer;
-                $($role: $operand),*
-            })*
-
-            #[test]
-            fn value_operands_bind_in_signature_order() {
-                let mut stack = Stack::new(16);
-                let left = Sequence::new([Atom::Number(0x01), Atom::Number(0x02)]).unwrap();
-                let right = Sequence::new([Atom::Number(0x03)]).unwrap();
-
-                stack.push(Value::Sequence(right)).unwrap();
-                stack.push(Value::Sequence(left.clone())).unwrap();
-
-                let operands = stack
-                    .extract_values::<super::operands::Concatenate>()
-                    .expect("Concatenate binds through generated ValueOperands");
-
-                assert_eq!(operands.left.atoms(), left.atoms());
-                assert_eq!(operands.right.atoms(), [Atom::Number(0x03)]);
-            }
         }
 
         impl TryFrom<&str> for Function {
@@ -1492,6 +979,40 @@ impl Function {
                 || replacement.input_portal() != running.input_portal()
         }),
     ];
+
+    /// Whether this Function binds operands from whole [`crate::Value`]s rather
+    /// than one element at a time.
+    ///
+    /// A pervasive Function never does: it reads its operands element by
+    /// element. A scalar Function does when it answers a Sequence, because its
+    /// operands are consumed into that Sequence whatever tokens they declare,
+    /// or when it declares an Atom or Sequence operand, which no element
+    /// reading can carry. Every other scalar Function binds by element. A
+    /// Function that declares no operand has no operand struct, so its answer
+    /// binds nothing. It is read from the declaration, and each Function's
+    /// operand struct names the extraction it answers, so a body cannot
+    /// extract its operands through the other one.
+    pub const fn binds_whole_values(self) -> bool {
+        if self.is_pervasive() {
+            return false;
+        }
+        if self.answers_sequence() {
+            return true;
+        }
+
+        let signature = self.signature();
+        let mut index = 0;
+        while index < signature.len() {
+            if matches!(
+                signature[index],
+                crate::Token::Atom | crate::Token::Sequence
+            ) {
+                return true;
+            }
+            index += 1;
+        }
+        false
+    }
 
     /// The Output Portal this Function names, or `None` when it names none.
     ///

@@ -1,6 +1,6 @@
 use crate::{
     ArgumentError, Atom, Error, Function, InterpretationError, Note, Performance, PlayCommand,
-    Sequence, SequenceError, Token, TypeError, Value,
+    Sequence, SequenceError, TypeError, Value,
 };
 use arrayvec::ArrayVec;
 
@@ -8,6 +8,23 @@ pub(crate) enum NumericValue {
     Note(Note),
     Number(u8),
 }
+
+/// Which of the two extractions binds a Function's operands.
+///
+/// `false` is the element reading: operands are checked Atom by Atom and a
+/// Sequence operand broadcasts. `true` is the whole-value reading of the
+/// Functions that consume a Sequence intact. Every Function's operand struct
+/// names its binding from [`Function::binds_whole_values`], and each extraction
+/// below accepts only the one it performs, so a body that extracted its
+/// operands through the other reading does not compile.
+pub(crate) struct Binding<const WHOLE_VALUES: bool>;
+
+/// The element reading, which `extract`, `apply`, `perform` and `predicate`
+/// perform.
+pub(crate) type ElementBinding = Binding<false>;
+
+/// The whole-value reading, which `extract_values` performs.
+pub(crate) type WholeValueBinding = Binding<true>;
 
 /// The operands one Function declares, named by the role each position plays.
 ///
@@ -17,99 +34,84 @@ pub(crate) enum NumericValue {
 /// body destructures the struct instead of indexing the operands it was handed,
 /// which is what leaves the declaration as the only place an operand order
 /// exists.
+///
+/// Each role's type is an [`crate::operand::Operand`], and every method below
+/// reads a role through that type's token and binds exactly the payload the
+/// token yields. There is no reading a role's token can disagree with.
 pub(crate) trait Operands: Sized {
     /// The Function whose signature these operands are extracted against.
     const FUNCTION: Function;
 
-    /// Binds each declared role to its operand, in signature order.
+    /// The extraction that binds these operands: [`ElementBinding`] or
+    /// [`WholeValueBinding`].
+    type Binding;
+
+    /// Checks every Atom of every operand against its role's token, in
+    /// signature order and, within a Sequence operand, in member order.
+    fn check(operands: &[Value]) -> Result<(), Error>;
+
+    /// Checks each scalar operand against its role's domain, for the width at
+    /// which no element binds.
+    fn check_scalar_domains(operands: &[Value]) -> Result<(), Error>;
+
+    /// Binds each declared role to one element's operand, in signature order.
     ///
-    /// Only this module can produce the [`Extracted`] this takes, and it
-    /// produces one only after checking every Atom of every element against
-    /// `FUNCTION`'s signature. That is what keeps a mistyped bind unreachable
-    /// rather than merely uncalled.
-    ///
-    /// It is fallible because a declared operand type may be narrower than the
+    /// Fallible because a declared operand type may be narrower than the
     /// `Token` the signature checks: a MIDI channel is read as a Number and is
     /// a channel only once its domain conversion succeeds. Every arity, shape,
     /// and type diagnostic is already raised by the time this runs, so a domain
     /// diagnostic can never displace one.
-    fn from_operands(operands: Extracted<'_>) -> Result<Self, Error>;
-}
+    fn from_atoms(operands: Extracted<'_>) -> Result<Self, Error>;
 
-/// The operands of a Function that declares exactly one of them.
-///
-/// `define_functions!` implements this for a Function's operand struct only
-/// where its declaration lists a single role, so the arity comes from the same
-/// table row the roles and the types do. It exists because an evaluation seam
-/// that reads one operand per element — the numeric conversions, whose type
-/// layer ADR 0021 replaces rather than removes — would otherwise take the
-/// Function it is for as an argument unrelated to the closure it is handed, and
-/// a two-operand Function passed there would have to be caught at run time
-/// inside a Tick. As a bound it is caught where it is written.
-pub(crate) trait UnaryOperands: Operands {}
-
-/// Operands bound from whole [`Value`]s rather than broadcast element Atoms.
-///
-/// ADR 0007's structural Sequence Functions and Range Functions use this seam
-/// because a Sequence operand is consumed intact.
-pub(crate) trait ValueOperands: Sized {
-    /// The Function whose signature these operands are extracted against.
-    const FUNCTION: Function;
-
-    /// Binds each declared role to its operand, in signature order.
+    /// Binds each declared role to one whole popped value, in signature order.
     ///
     /// Takes the popped values by value, so a Sequence operand moves into the
     /// role that binds it and its members are never copied.
     fn from_values(values: OperandValues) -> Result<Self, Error>;
 }
 
+/// The operands of a Function that declares exactly one of them.
+///
+/// `define_functions!` implements this for a Function's operand struct only
+/// where its declaration lists a single role, so the arity comes from the same
+/// table row the roles and the types do.
+pub(crate) trait UnaryOperands: Operands {}
+
 /// One operation's popped operands, in signature order, held inline.
 pub(crate) type OperandValues = ArrayVec<Value, MAX_OPERANDS>;
 
-/// Binds a whole [`Value`] to a required [`Sequence`] operand.
-pub(crate) fn bind_sequence_required(value: Value) -> Result<Sequence, Error> {
-    Sequence::try_from(value)
+/// The arity diagnostic for `function` handed `found` operands.
+#[inline(always)]
+pub(crate) fn arity(function: Function, found: usize) -> Error {
+    ArgumentError::Arity {
+        expected: function.signature().len(),
+        found,
+    }
+    .into()
 }
 
-/// Binds a whole [`Value`] to an [`AtomOrSequence`] operand, promoting Atoms.
-pub(crate) fn bind_sequence_operand(value: Value) -> Result<Sequence, Error> {
-    match value {
-        Value::Sequence(sequence) => Ok(sequence),
-        Value::Atom(atom) => Sequence::promote(atom),
-    }
-}
+/// Moves exactly `N` popped values into an array, one per declared role.
+///
+/// The generated binds destructure the array by role, so the count is read off
+/// the declaration rather than restated beside it.
+#[inline(always)]
+pub(crate) fn take_values<const N: usize>(values: OperandValues) -> Result<[Value; N], Error> {
+    let found = values.len();
+    let refused = || -> Error { ArgumentError::Arity { expected: N, found }.into() };
+    let mut taken = ArrayVec::<Value, N>::new();
 
-/// Binds a whole [`Value`] to a [`Number`] operand.
-pub(crate) fn bind_number(value: Value) -> Result<u8, Error> {
-    match value {
-        Value::Atom(Atom::Number(number)) => Ok(number),
-        Value::Atom(atom) => Err(TypeError::Number(atom.to_string()).into()),
-        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    for value in values {
+        taken.try_push(value).map_err(|_| refused())?;
     }
-}
 
-/// Binds a whole [`Value`] to a [`Note`] operand.
-pub(crate) fn bind_note(value: Value) -> Result<Note, Error> {
-    match value {
-        Value::Atom(Atom::Note(note)) => Ok(note),
-        Value::Atom(atom) => Err(TypeError::Note(atom.to_string()).into()),
-        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
-    }
-}
-
-/// Binds a whole [`Value`] to an [`Atom`] operand.
-pub(crate) fn bind_atom(value: Value) -> Result<Atom, Error> {
-    match value {
-        Value::Atom(atom) => Ok(atom),
-        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
-    }
+    taken.into_inner().map_err(|_| refused())
 }
 
 /// One element's operands, checked against a Function's signature.
 ///
 /// The field is private to this module, so holding one is proof of having been
-/// handed it by a checked broadcast. Nothing else in the crate can present a
-/// short or mistyped slice to [`Operands::from_operands`].
+/// handed it by a checked broadcast: [`Operands::from_atoms`] binds only after
+/// every operand of the operation has been checked.
 pub(crate) struct Extracted<'a> {
     atoms: &'a [Atom],
 }
@@ -243,7 +245,7 @@ impl Broadcast {
     /// Binds one element's operands to the roles `O` declares.
     #[inline(always)]
     fn bind<O: Operands>(&self, index: usize) -> Result<O, Error> {
-        O::from_operands(Extracted {
+        O::from_atoms(Extracted {
             atoms: &self.element(index),
         })
     }
@@ -406,31 +408,17 @@ impl Stack {
     /// it, and everywhere else is the path every Expression a Source writes
     /// takes.
     #[inline(always)]
-    fn checked<O: Operands>(&mut self) -> Result<Broadcast, Error> {
+    fn checked<O: Operands<Binding = ElementBinding>>(&mut self) -> Result<Broadcast, Error> {
         let broadcast = self.broadcast(O::FUNCTION)?;
-        let signature = O::FUNCTION.signature().iter().copied();
 
-        for (expected, operand) in signature.zip(&broadcast.operands) {
-            match operand {
-                Value::Atom(atom) => check_token(expected, *atom)?,
-                Value::Sequence(sequence) => {
-                    for atom in sequence {
-                        check_token(expected, *atom)?;
-                    }
-                }
-            }
-        }
+        O::check(&broadcast.operands)?;
 
         if broadcast.width() == 0 {
             // Every Sequence operand is empty at this width, so the Atoms left
             // to answer for are exactly the scalars, and the pass above has
             // already read all of them: a domain fault raised here can never
             // displace a type fault.
-            for (domain, operand) in O::FUNCTION.domains().iter().zip(&broadcast.operands) {
-                if let Value::Atom(atom) = operand {
-                    domain(*atom)?;
-                }
-            }
+            O::check_scalar_domains(&broadcast.operands)?;
         }
 
         Ok(broadcast)
@@ -452,10 +440,9 @@ impl Stack {
     /// widened pulse has nothing to answer where an element does not Bang, and
     /// ADR 0012's Increment `~+` and Interpolation `~>`, which refuse one
     /// because their previous is one visible Atom. They arrive at this seam by
-    /// declaring their pervasion, not by adding a check of their own. It is
-    /// also what `declaration_agreement` checks every Function's bind through.
+    /// declaring their pervasion, not by adding a check of their own.
     #[inline(always)]
-    pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
+    pub(crate) fn extract<O: Operands<Binding = ElementBinding>>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;
 
         if let Some(sequence) = broadcast.first_sequence() {
@@ -481,7 +468,7 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn apply<O, F>(&mut self, element: F) -> Result<Value, Error>
     where
-        O: Operands,
+        O: Operands<Binding = ElementBinding>,
         F: Fn(O) -> Result<Atom, Error>,
     {
         self.apply_indexed(|operands, _index| element(operands))
@@ -497,7 +484,7 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn apply_indexed<O, F>(&mut self, element: F) -> Result<Value, Error>
     where
-        O: Operands,
+        O: Operands<Binding = ElementBinding>,
         F: Fn(O, usize) -> Result<Atom, Error>,
     {
         let broadcast = self.checked::<O>()?;
@@ -522,7 +509,9 @@ impl Stack {
     /// element-wise. [`ValueOperands::from_values`] binds each popped value to
     /// the roles the Function declares.
     #[inline(always)]
-    pub(crate) fn extract_values<O: ValueOperands>(&mut self) -> Result<O, Error> {
+    pub(crate) fn extract_values<O: Operands<Binding = WholeValueBinding>>(
+        &mut self,
+    ) -> Result<O, Error> {
         let expected = O::FUNCTION.signature().len();
         let mut values = OperandValues::new();
 
@@ -559,7 +548,7 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn perform<O, F>(&mut self, element: F) -> Result<Performance, Error>
     where
-        O: Operands,
+        O: Operands<Binding = ElementBinding>,
         F: Fn(O) -> Result<PlayCommand, Error>,
     {
         let broadcast = self.checked::<O>()?;
@@ -592,7 +581,7 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn predicate<O, F>(&mut self, pair: F) -> Result<Value, Error>
     where
-        O: Operands,
+        O: Operands<Binding = ElementBinding>,
         F: Fn(O) -> bool,
     {
         let broadcast = self.checked::<O>()?;
@@ -672,74 +661,6 @@ impl Stack {
     }
 }
 
-/// Checks one operand Atom against the `Token` its declaration names.
-///
-/// The one place the signature is read, so the scalar path and every element
-/// of a broadcast are held to the same rule.
-///
-/// Every `Token` is named rather than swept up by a wildcard, for the reason
-/// [`Sequence`]'s membership check gives about `Atom`: a variant added later is
-/// then classified here, by the compiler, instead of inheriting an answer by
-/// default.
-#[inline(always)]
-fn check_token(expected: Token, atom: Atom) -> Result<(), Error> {
-    match (expected, atom) {
-        (Token::Number, Atom::Number(_)) | (Token::Note, Atom::Note(_)) => Ok(()),
-        (Token::Number, atom) => Err(TypeError::Number(atom.into()).into()),
-        (Token::Note, atom) => Err(TypeError::Note(atom.into()).into()),
-        // A generic Atom operand declares no type, and this is the type check,
-        // so there is nothing here for an Atom to fail against. Accepting all
-        // of them is the decision and not an omission: every Atom with no place
-        // at an operand position is refused by a rule stated somewhere else,
-        // and restating any of those rules here is what ADR 0025 forbids.
-        //
-        // The operand this variant exists for is Replace's replacement, and ADR
-        // 0007 makes it a prospective member of the Sequence Replace returns.
-        // The Absence Marker, the Self-Banging Function, and a Function that
-        // answers an effect are therefore refused by `Sequence::new` — the one
-        // construction point ADR 0025 puts membership at — with the one
-        // diagnostic every other member gets, rather than by a second check
-        // here that could come to disagree with it. An effect Function is
-        // refused earlier still, by the Interpreter's nesting guard, which ADR
-        // 0028 states over every operand position rather than over this one.
-        (Token::Atom, _) => Ok(()),
-        // No Atom satisfies a Sequence operand, and the refusal is total by
-        // type rather than by a list of variants: ADR 0007 forbids nesting and
-        // `Atom` carries no Sequence-bearing variant, so there is no Atom this
-        // could accept. It does not promote, for the reason `TryFrom<Value> for
-        // Sequence` gives — promotion is a Function's decision, and ADR 0007
-        // has Concatenate promote where Select does not — so a seam that merely
-        // requires a Sequence diagnoses instead of quietly widening one.
-        //
-        // Both ways [`Stack::checked`] reaches here are answered by that. A
-        // `Value::Atom` at a Sequence position is an Atom where a Sequence was
-        // required, which is what the diagnostic says. A `Value::Sequence`
-        // reaches here member by member only because `checked` walks a Sequence
-        // operand as the broadcast it is for a typed operand, and that walk is
-        // the wrong question for an operand consumed whole: a Function that
-        // transforms a Sequence does not extend across it, so it cannot pop
-        // through this seam at all, and issue 03 gives it the whole-`Value` pop
-        // `TryFrom<Value> for Sequence` already exists for. Refusing rather than
-        // accepting is what makes routing such a Function through here a
-        // diagnostic instead of a silent element-wise reading of the Sequence it
-        // was supposed to receive intact.
-        (Token::Sequence, atom) => Err(SequenceError::ExpectedSequence(atom.into()).into()),
-        // The four `Token`s the Parser mints as labels and `operand_token!`
-        // never mints as a declaration. This function reads signatures and
-        // nothing else, and a signature is `&[operand_token!($operand)]`, so the
-        // set of `Token`s that can arrive here is exactly the set that macro's
-        // arms produce: `Number` and `Note` today, and `Atom` or `Sequence` the
-        // day a row declares one. Adding an arm for one of these is the
-        // only edit that reaches this, and `declaration_agreement` sweeps every
-        // declared operand of every Function through a witness table that panics
-        // on a `Token` it holds none for — so that edit fails a test before it
-        // can reach a Tick.
-        (Token::Bang | Token::Char | Token::Comment | Token::Function, _) => {
-            unreachable!("no operand type declares a Token the Parser mints only as a label")
-        }
-    }
-}
-
 impl TryFrom<Atom> for NumericValue {
     type Error = Error;
 
@@ -761,9 +682,10 @@ mod test {
     use crate::{
         ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
         InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
-        SequenceError, Stack, Token, TypeError, Value, Velocity,
+        SequenceError, Stack, TypeError, Value, Velocity,
         atom::operands,
-        stack::{MAX_OPERANDS, NumericValue, check_token},
+        operand::{self, TokenKind},
+        stack::{MAX_OPERANDS, NumericValue},
     };
     use arrayvec::ArrayVec;
 
@@ -1006,6 +928,23 @@ mod test {
     }
 
     #[test]
+    fn value_operands_bind_in_signature_order() {
+        let mut stack = empty_stack();
+        let left = Sequence::new([Atom::Number(0x01), Atom::Number(0x02)]).unwrap();
+        let right = Sequence::new([Atom::Number(0x03)]).unwrap();
+
+        stack.push(Value::Sequence(right)).unwrap();
+        stack.push(Value::Sequence(left.clone())).unwrap();
+
+        let operands = stack
+            .extract_values::<operands::Concatenate>()
+            .expect("Concatenate binds whole values");
+
+        assert_eq!(operands.left.atoms(), left.atoms());
+        assert_eq!(operands.right.atoms(), [Atom::Number(0x03)]);
+    }
+
+    #[test]
     fn a_generic_atom_operand_accepts_every_atom_and_leaves_membership_where_it_is_decided() {
         // A generic Atom operand declares no type, so the type check has nothing
         // to refuse — including the Atoms that have no place in a Sequence.
@@ -1016,7 +955,7 @@ mod test {
         // exists to prevent.
         for atom in every_atom() {
             assert!(
-                check_token(Token::Atom, atom).is_ok(),
+                <operand::Atom as TokenKind>::from_atom(atom).is_ok(),
                 "{atom:?} was refused by a declaration that names no type",
             );
         }
@@ -1049,7 +988,7 @@ mod test {
 
             assert!(
                 matches!(
-                    check_token(Token::Sequence, atom),
+                    <operand::Sequence as TokenKind>::from_atom(atom),
                     Err(Error::Sequence(SequenceError::ExpectedSequence(found)))
                         if found == rendering
                 ),
