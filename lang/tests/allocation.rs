@@ -315,7 +315,8 @@ fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
     // builds its operand stack through `Stack::new(operands.len())`, which is a
     // `Vec::with_capacity`, so every call with an operand costs exactly one
     // block sized to its operand count. That is the shape asserted below: a
-    // ceiling of one block per call, nothing per row, and no super-linear term.
+    // ceiling of one block per call with an operand, nothing per row, and no
+    // super-linear term.
     // The ceiling is `<=` rather than `==` on purpose — giving the operand
     // stack inline storage the way the Parser's pending stack already has
     // would drive this to zero, and an improvement must not read as a failure.
@@ -348,11 +349,16 @@ fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
     publish("lang call fixture", one);
     publish("lang call fixture written four times", four);
 
-    // At most one block per call, and never one per operand.
+    // At most one block per call with an operand, and never one per operand.
+    // A call over no operand builds no stack, so counting it would leave a
+    // block of slack for another call to spend unnoticed.
+    let with_operands = short
+        .iter()
+        .filter(|(_, operands)| !operands.is_empty())
+        .count();
     assert!(
-        one.blocks <= short.len(),
-        "{} calls took {} blocks",
-        short.len(),
+        one.blocks <= with_operands,
+        "{with_operands} calls with operands took {} blocks",
         one.blocks
     );
 
