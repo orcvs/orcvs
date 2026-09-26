@@ -433,7 +433,12 @@ fn edit_rebuild_invalid(c: &mut Criterion) {
 /// before it, rather than ordering the Turns again. That is also the ordinary
 /// case: a pattern holds its shape while it plays.
 fn execute_tick(c: &mut Criterion) {
-    tick_series(c, "source_execute_tick", playing_source_text);
+    tick_series(
+        c,
+        "source_execute_tick",
+        "source_commander_execute_tick",
+        playing_source_text,
+    );
 }
 
 ///
@@ -447,7 +452,12 @@ fn execute_tick(c: &mut Criterion) {
 /// makes independent roots expensive even though their outputs touch no input.
 ///
 fn execute_tick_with_edges(c: &mut Criterion) {
-    tick_series(c, "source_execute_tick_edges", edged_source_text);
+    tick_series(
+        c,
+        "source_execute_tick_edges",
+        "source_commander_execute_tick_edges",
+        edged_source_text,
+    );
 }
 
 /// Feedback binding borrows Portal Cells at Turn. Keep its full Source path
@@ -459,37 +469,80 @@ fn execute_tick_with_edges(c: &mut Criterion) {
 /// differ: each commit re-derives the written rows, and the scheduling inputs
 /// they hold are unchanged.
 fn execute_tick_with_portal_inputs(c: &mut Criterion) {
-    tick_series(c, "source_execute_tick_portal_inputs", |cols, rows| {
-        let mut text = String::with_capacity(cols * rows);
-        for row in 0..rows {
-            let mut line = String::new();
-            if row % 2 == 0 {
-                while line.len() + 8 <= cols {
-                    line.push_str(if row % 4 == 0 { "~+01FF  " } else { "~>017F  " });
+    tick_series(
+        c,
+        "source_execute_tick_portal_inputs",
+        "source_commander_execute_tick_portal_inputs",
+        |cols, rows| {
+            let mut text = String::with_capacity(cols * rows);
+            for row in 0..rows {
+                let mut line = String::new();
+                if row % 2 == 0 {
+                    while line.len() + 8 <= cols {
+                        line.push_str(if row % 4 == 0 { "~+01FF  " } else { "~>017F  " });
+                    }
                 }
+                line.extend(std::iter::repeat_n(' ', cols - line.len()));
+                text.push_str(&line);
             }
-            line.extend(std::iter::repeat_n(' ', cols - line.len()));
-            text.push_str(&line);
-        }
-        text
-    });
+            text
+        },
+    );
 }
 
-fn tick_series(c: &mut Criterion, name: &str, text: fn(usize, usize) -> String) {
-    let mut group = c.benchmark_group(name);
+///
+/// Measures one Tick series on both paths a Tick can take, over the same
+/// settled Sources: `name` plans and commits under `&mut Source`, the locked
+/// path, and `commander_name` is the path the Playback Engine takes, through
+/// [`SourceCommander::execute`].
+///
+/// The commander path copies the revision out under a read guard, plans with
+/// no lock, and commits under the write guard after checking the revision. No
+/// thread edits the Source here, so no plan is refused and every Tick is one
+/// optimistic attempt: the series measures the uncontended Tick, which is
+/// what the Playback Engine pays between keystrokes. What it costs beyond the
+/// locked series is that path's own overhead, chiefly the planning copy.
+///
+fn tick_series(
+    c: &mut Criterion,
+    name: &str,
+    commander_name: &str,
+    text: fn(usize, usize) -> String,
+) {
+    // Built once and measured on both paths, because a 128x128 fixture is
+    // written one Cell at a time and takes seconds to build.
+    let mut sources = TICK_SIZES
+        .iter()
+        .map(|&(cols, rows)| settled_source(cols, rows, text))
+        .collect::<Vec<_>>();
 
-    for &(cols, rows) in TICK_SIZES {
-        let mut source = settled_source(cols, rows, text);
+    let mut group = c.benchmark_group(name);
+    for source in &mut sources {
+        let grid = source.grid();
         let mut tick = 1u64;
 
-        group.bench_function(size(cols, rows), |b| {
+        group.bench_function(size(grid.columns(), grid.rows()), |b| {
             b.iter(|| {
                 tick += 1;
                 black_box(source.execute(black_box(Tick::new(tick))))
             })
         });
     }
+    group.finish();
 
+    let mut group = c.benchmark_group(commander_name);
+    for source in sources {
+        let grid = source.grid();
+        let commander = SourceCommander::with_source(source);
+        let mut tick = 1u64;
+
+        group.bench_function(size(grid.columns(), grid.rows()), |b| {
+            b.iter(|| {
+                tick += 1;
+                black_box(commander.execute(black_box(Tick::new(tick))))
+            })
+        });
+    }
     group.finish();
 }
 

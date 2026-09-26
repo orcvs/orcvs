@@ -358,12 +358,12 @@ impl SourceCommander {
     /// planned again from the revision holding the edit, so a refusal neither
     /// consumes a musical Tick nor repeats an effect.
     ///
-    /// After [`OPTIMISTIC_TICK_ATTEMPTS`] refusals the Tick is planned and
+    /// After `OPTIMISTIC_TICK_ATTEMPTS` refusals the Tick is planned and
     /// committed under one write guard, which nothing can refuse. That is what
     /// makes a Tick end under continuous editing: the editor yields for one
     /// planning, rather than the Tick yielding indefinitely.
     ///
-    pub(crate) fn execute(&self, tick: Tick) -> TickPlan {
+    pub fn execute(&self, tick: Tick) -> TickPlan {
         TickCommit::new(self, tick).run()
     }
 

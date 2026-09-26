@@ -5,6 +5,10 @@
 //! Map that the last keystroke left behind, so an allocation added per Cell
 //! here is a regression the criterion series would hide behind a cache hit.
 //!
+//! Beside them, the Tick the Playback Engine executes, through
+//! `SourceCommander::execute`, against the same Tick planned under the lock: a
+//! whole-Grid copy added to or removed from a Tick shows here as a count.
+//!
 //! # Why the allocator is duplicated rather than shared with `lang`
 //!
 //! `lang/tests/allocation.rs` holds the same `Counting` allocator, the same
@@ -35,8 +39,9 @@
 //! `.scratch/memory-verification/issues/` before relaxing one.
 //!
 //! Everything measured here runs on the calling thread. `Source::set` is a
-//! direct call, and `SourceCommander::set` only takes the write lock and
-//! delegates on the same thread, so the thread-local counters below need no
+//! direct call, `SourceCommander::set` only takes the write lock and delegates
+//! on the same thread, and `SourceCommander::execute` takes and releases its
+//! guards there too, so the thread-local counters below need no
 //! synchronisation and these tests stay correct under a bare `cargo test`.
 //! Nothing here crosses a multi-threaded runtime; anything that did would need
 //! `AtomicUsize` with `Ordering::Relaxed` and would then be correct only under
@@ -68,7 +73,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use orcvs::grid::{CellIndex, Grid};
-use orcvs::source::Source;
+use orcvs::source::{CellContent, CellWrite, Source, SourceCommander, Tick};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::hint::black_box;
@@ -590,4 +595,126 @@ fn a_language_map_rebuild_costs_no_more_per_carried_expression_as_the_source_gro
             small.bytes
         );
     }
+}
+
+/// A Source whose roots all deliver, one Expression row over one blank row
+/// for its results to land in. Duplicated from `playing_source_text` in
+/// `orcvs/benches/source.rs`, for the reason `SIZES` is.
+fn playing_source_text(cols: usize, rows: usize) -> String {
+    let mut text = String::with_capacity(cols * rows);
+
+    for row in 0..rows {
+        let mut line = String::with_capacity(cols + EXPRESSIONS[0].len() + 2);
+        if row % 2 == 0 {
+            let mut next = row;
+            while line.len() < cols {
+                line.push_str(EXPRESSIONS[next % EXPRESSIONS.len()]);
+                line.push_str("  ");
+                next += 1;
+            }
+        }
+        line.truncate(cols);
+        while line.len() < cols {
+            line.push(' ');
+        }
+        text.push_str(&line);
+    }
+
+    text
+}
+
+/// The shipped Grid (ADR 0054) holding that Source, written in one revision
+/// rather than one Cell at a time, which on this Grid would take minutes.
+fn playing_shipped_source() -> Source {
+    let grid = Grid::new();
+    let mut source = Source::new(grid);
+    let writes = playing_source_text(grid.columns(), grid.rows())
+        .bytes()
+        .enumerate()
+        .filter(|(_, byte)| *byte != b' ')
+        .map(|(idx, byte)| CellWrite {
+            cell: cell(grid, idx),
+            content: CellContent::new(byte).expect("fixture Source is printable ASCII"),
+        })
+        .collect::<Vec<_>>();
+    source.write_cells(&writes);
+    source
+}
+
+/// Ticks `execute` runs before one is measured. The first Ticks write results
+/// that change what the next ones write, so they rebuild rows a settled Tick
+/// does not; on the shipped Grid the fixture settles by its sixth Tick, and
+/// the margin past it is the warm-up `measure_one_write` gives a write.
+const SETTLING_TICKS: u64 = 8;
+
+/// What one settled Tick costs through `execute`, asserted equal Tick after
+/// Tick. The Ticks continue from `next`, which answers the one after them.
+fn measure_settled_tick<S>(
+    source: &mut S,
+    next: &mut u64,
+    execute: impl Fn(&mut S, Tick),
+) -> Allocations {
+    for _ in 0..SETTLING_TICKS {
+        execute(source, Tick::new(*next));
+        *next += 1;
+    }
+
+    let mut tick = |source: &mut S| {
+        let at = Tick::new(*next);
+        *next += 1;
+        measure(|| execute(source, black_box(at))).0
+    };
+
+    let first = tick(source);
+    for round in 0..4 {
+        let again = tick(source);
+        assert_eq!(
+            again, first,
+            "a settled Tick allocated {again:?} on round {round} against {first:?} first"
+        );
+    }
+
+    first
+}
+
+#[test]
+fn a_playback_tick_costs_at_most_one_copy_of_the_cells_beyond_the_locked_tick() {
+    // The Playback Engine executes each Tick through `SourceCommander::execute`,
+    // which copies the revision out under a read guard, plans from the copy
+    // with no lock, and commits under the write guard once the revision is
+    // checked. `Source::execute` plans and commits in place, under the guard
+    // `SourceCommander` holds only when an edit keeps refusing its plans.
+    //
+    // Both are measured on the same settled Source on the shipped Grid, and
+    // published side by side. What the uncontended commander Tick may add is
+    // the copy of the Cells a planning snapshot holds: one block of one byte
+    // per Cell. A second copy, or a Tick that stops reusing the schedule its
+    // Language Map shares, fails here; a cheaper snapshot still passes.
+    //
+    // Measured on the calling thread: the commander's guards are taken and
+    // released on it, and no other thread holds the Source, so no plan is
+    // refused.
+    let mut source = playing_shipped_source();
+    let grid = source.grid();
+    let mut next = 0;
+
+    let locked = measure_settled_tick(&mut source, &mut next, |source, tick| {
+        black_box(black_box(source).execute(tick));
+    });
+
+    let mut commander = SourceCommander::with_source(source);
+    let playback = measure_settled_tick(&mut commander, &mut next, |commander, tick| {
+        black_box(black_box(&*commander).execute(tick));
+    });
+
+    let name = format!("{}x{}", grid.columns(), grid.rows());
+    publish(&format!("orcvs locked tick {name} settled"), locked);
+    publish(&format!("orcvs playback tick {name} settled"), playback);
+
+    assert!(
+        playback.blocks <= locked.blocks + 1 && playback.bytes <= locked.bytes + grid.count(),
+        "a Playback Tick allocated {playback:?} against {locked:?} for the locked Tick, \
+         past one copy of the {} Cells",
+        grid.count()
+    );
 }

@@ -322,8 +322,9 @@ triggers are filtered to the paths that can move a measurement, so a change that
 `orcvs`, or `console` performance runs no benchmark. `mise run check` does not run either.
 
 Both jobs publish a second series beside the timings, and it measures allocation rather than wall
-clock. `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` count the blocks and bytes a Tick,
-a Render Frame re-read, a Cell write, and a Language Map rebuild ask the allocator for, and assert
+clock. `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` count the blocks and bytes a Tick
+(in `orcvs`, both the Playback Engine's Tick and one planned under the Source lock), a Render Frame
+re-read, a Cell write, and a Language Map rebuild ask the allocator for, and assert
 shapes over them on every `cargo nextest run --workspace`. Setting `ORCVS_MEMORY_SERIES=1` makes the
 same test functions print what they just measured, and the workflow turns those records into the
 `customSmallerIsBetter` JSON the same pinned action stores under the series name `memory`. The
