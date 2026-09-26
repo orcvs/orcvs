@@ -203,10 +203,11 @@ impl Reserved {
 
     /// Whether a result `width` Cells wide is one this reservation covers.
     ///
-    /// A narrower answer is refused alongside a wider one where the
-    /// reservation is a Cell pair: the reservation is what the row fit was
-    /// decided against, and a single Cell at the last Cell of a row is a write
-    /// the Portal admits and the schedule never reserved.
+    /// A Cell pair covers exactly the pair: the reservation is what the row
+    /// fit was decided against, so a wider answer — a Sequence the Portal
+    /// admits mid-row — is a write the schedule never reserved. Every Atom
+    /// renders as a pair, so no answer is narrower; the equality states the
+    /// reservation rather than guarding a width that occurs.
     fn admits_width(self, width: usize) -> bool {
         match self {
             Self::Pair => width == SCALAR_WIDTH,
