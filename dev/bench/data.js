@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790395585249,
+  "lastUpdate": 1790395595728,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -46210,6 +46210,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/a500d205622c87cc626d8082b3b942ef584eae58"
         },
         "date": 1790390933722,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 24,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture bytes",
+            "value": 816,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture written four times blocks",
+            "value": 44,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture written four times bytes",
+            "value": 3264,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3725,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 15,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 5002,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3853,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 29,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 13479,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 4109,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 53,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 29732,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1904570d99555bdf4e073c0e8888447f6e72e0a8",
+          "message": "Merge pull request #157 from orcvs/console/integration-behavior\n\nCorrect and test console integration behavior (epic PR 14)",
+          "timestamp": "2026-09-26T03:55:12Z",
+          "tree_id": "2945b4e0ebc9a7d43349f8fa90df3da446870cbf",
+          "url": "https://github.com/orcvs/orcvs/commit/1904570d99555bdf4e073c0e8888447f6e72e0a8"
+        },
+        "date": 1790395595679,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
