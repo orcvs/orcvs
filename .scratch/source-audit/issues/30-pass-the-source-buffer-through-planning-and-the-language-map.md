@@ -1,0 +1,19 @@
+# 30 — Pass the SourceBuffer through planning and the Language Map
+
+**What to build:** Tick planning and the Language Map receive the Cells as a type that carries their invariant — one printable ASCII byte per Cell — instead of `&[u8]`, which does not. Because `&[u8]` loses the invariant, each consumer that needs text re-establishes it: the Language Map's row walk and three sites in Tick execution call `from_utf8(...).expect("ASCII …")` before handing text to the Parser or reading an operand's spelling, and execution's working copy writes a `CellContent` back as a bare byte. After 08 the Source holds its Cells in a `SourceBuffer`; this ticket lets the buffer's borrowed view travel through `tick::plan`, `LanguageMap::build`/`rebuild`, `claims_by_cell` and execution, so the invariant is proven once where it is established.
+
+**Blocked by:** 08.
+
+**Status:** ready-for-agent
+
+- [ ] Tick planning, Language Map build and rebuild, and Claim lookup take the `SourceBuffer`'s borrowed view rather than `&[u8]`.
+- [ ] The view answers a row or span as `&str` through a single checked-conversion site — either `SourceBuffer::as_str` reused once per plan, or one view method — chosen by criterion 4's benchmarks; the `from_utf8(...).expect` sites in the Language Map and Tick execution are gone. No `unsafe` is introduced to provide the view.
+- [ ] Execution's working copy of the Cells has the same invariant-carrying type, and its writes take a `CellContent`.
+- [ ] 28's Tick series and the Language Map derive and rebuild benchmarks show no regression beyond noise, or the ticket records the measured cost.
+- [ ] If the type now appears in signatures outside the Source module's storage, reconsider whether it needs a `CONTEXT.md` entry. The Source glossary entry avoids "buffer", so any entry must not present the Source itself as a buffer.
+
+## Comments
+
+**2026-09-26 — origin.** Deferred from 08's design so the storage change's benchmarks attribute to storage alone.
+
+**2026-09-26 — review of orcvs/orcvs#161.** Criterion 2's "one checked conversion" means one site in the code, not one call: reusing `as_str` validates the whole Grid once per plan however little planning reads, while a view method checks only the text read, as the four sites do now. The benchmarks in criterion 4 choose. `file::write`'s per-row check is split to 31.
