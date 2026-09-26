@@ -190,7 +190,7 @@ web-sys = { version = "0.3", features = [
 # an image, `snapshot` has no renderer without `wgpu`
 # (`egui_kittest-0.36.2/src/renderer.rs:36-45`), and `wgpu` would put the whole
 # wgpu and naga tree into the dev graph and a GPU requirement into CI for
-# coverage the `Shape`-level assertions in `console.rs` already hold at a finer
+# coverage the `Shape`-level assertions in `console::tests` already hold at a finer
 # grain. `.agents/skills/egui/references/guide.md` records that decision and
 # when to revisit it.
 #
