@@ -593,11 +593,12 @@ impl Stack {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
+        Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
         InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
-        SequenceError, Stack, TypeError, Value, Velocity,
+        SequenceError, Stack, Tick, TickInputs, TypeError, Value, Velocity,
         atom::operands,
-        operand::NumericValue,
+        functions::{self, math, numeric_conversion},
+        interpreter::Context,
         operand::{self, TokenKind},
         stack::MAX_OPERANDS,
     };
@@ -633,112 +634,74 @@ mod test {
         Sequence::new(values.into_iter().map(Atom::Number)).unwrap()
     }
 
-    /// Subtraction, per element, as `math::subtract` states it.
+    /// Runs a Function body the Interpreter dispatches over `stack`, so each
+    /// fixture below is that body rather than a restatement of it that could
+    /// drift from it. The Tick inputs are fixed because no body used here reads
+    /// them.
+    fn on_stack<T>(
+        stack: &mut Stack,
+        body: fn(&mut Context<'_>) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut ctx = Context {
+            stack: std::mem::replace(stack, Stack::new(0)),
+            inputs: TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
+        };
+        let answer = body(&mut ctx);
+        *stack = ctx.stack;
+        answer
+    }
+
+    /// Subtraction, per element: `math::subtract`.
     ///
     /// The broadcast tests below use an operation whose operands are not
     /// interchangeable, so a repeat or a pairing that lands on the wrong side
     /// changes the answer rather than only the shape.
     fn difference(stack: &mut Stack) -> Result<Value, Error> {
-        stack.apply(|operands::Subtract { left, right }: operands::Subtract| {
-            Ok(Atom::Number(left.wrapping_sub(right)))
-        })
+        on_stack(stack, math::subtract)
     }
 
-    /// Division, per element, as `math::divide` states it: the one arithmetic
-    /// Function with an operand pair that has no answer, which is what makes
-    /// an evaluation fault at a chosen element observable.
+    /// Division, per element: `math::divide`, the one arithmetic Function with
+    /// an operand pair that has no answer, which is what makes an evaluation
+    /// fault at a chosen element observable.
     fn quotient(stack: &mut Stack) -> Result<Value, Error> {
-        stack.apply(
-            |operands::Divide { left, right }: operands::Divide| match right {
-                0 => Err(InterpretationError::DivisionByZero.into()),
-                right => Ok(Atom::Number(left / right)),
-            },
-        )
+        on_stack(stack, math::divide)
     }
 
-    /// Equality, per pair, as `math::equality` states it: the one Function that
-    /// answers once about every pair rather than once per pair.
+    /// Equality, per pair: `math::equality`, the one Function that answers
+    /// once about every pair rather than once per pair.
     fn all_equal(stack: &mut Stack) -> Result<Value, Error> {
-        stack.predicate(|operands::Equality { left, right }: operands::Equality| left == right)
+        on_stack(stack, math::equality)
     }
 
-    /// `.^`, per element, as `numeric_conversion::to_note` states it.
+    /// `.^`, per element: `numeric_conversion::to_note`.
     fn to_note(stack: &mut Stack) -> Result<Value, Error> {
-        stack.apply(
-            |operands::ConvertToNote { value }: operands::ConvertToNote| match value {
-                NumericValue::Note(value) => Ok(Atom::Note(value)),
-                NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
-            },
-        )
+        on_stack(stack, numeric_conversion::to_note)
     }
 
-    /// Raw Play, per element, as `functions::raw_play` states it.
+    /// Raw Play, per element: `functions::raw_play`.
     ///
     /// The Terminal Output half of the broadcast: ADR 0030 has `!>` extend
     /// under ADR 0007's rules like any Atomic Function, and differ only in
     /// answering a Play Command where an Atomic Function answers an Atom.
     fn play(stack: &mut Stack) -> Result<Performance, Error> {
-        stack.perform(
-            |operands::RawPlay {
-                 channel,
-                 velocity,
-                 note,
-             }: operands::RawPlay| {
-                Ok(PlayCommand::Raw {
-                    channel,
-                    velocity,
-                    note,
-                })
-            },
-        )
+        on_stack(stack, functions::raw_play)
     }
 
-    /// Timed Play, per element, as `functions::timed_play` states it: the
-    /// Terminal Output Function with a fourth operand, so a Sequence has a
-    /// position beyond Raw Play's to stand in and each element carries its own
-    /// length.
+    /// Timed Play, per element: `functions::timed_play`, the Terminal Output
+    /// Function with a fourth operand, so a Sequence has a position beyond Raw
+    /// Play's to stand in and each element carries its own length.
     fn timed_play(stack: &mut Stack) -> Result<Performance, Error> {
-        stack.perform(
-            |operands::TimedPlay {
-                 channel,
-                 velocity,
-                 note,
-                 length,
-             }: operands::TimedPlay| {
-                Ok(PlayCommand::Timed {
-                    channel,
-                    velocity,
-                    note,
-                    length,
-                })
-            },
-        )
+        on_stack(stack, functions::timed_play)
     }
 
-    /// Control Change, per element, as `functions::control_change` states it.
+    /// Control Change, per element: `functions::control_change`.
     fn control_change(stack: &mut Stack) -> Result<Performance, Error> {
-        stack.perform(
-            |operands::ControlChange {
-                 channel,
-                 controller,
-                 value,
-             }: operands::ControlChange| {
-                Ok(PlayCommand::ControlChange {
-                    channel,
-                    controller,
-                    value,
-                })
-            },
-        )
+        on_stack(stack, functions::control_change)
     }
 
-    /// Pitch Bend, per element, as `functions::pitch_bend` states it.
+    /// Pitch Bend, per element: `functions::pitch_bend`.
     fn pitch_bend(stack: &mut Stack) -> Result<Performance, Error> {
-        stack.perform(
-            |operands::PitchBend { channel, lsb, msb }: operands::PitchBend| {
-                Ok(PlayCommand::PitchBend { channel, lsb, msb })
-            },
-        )
+        on_stack(stack, functions::pitch_bend)
     }
 
     /// One Control Change Command, from the bytes a Source would have written.
