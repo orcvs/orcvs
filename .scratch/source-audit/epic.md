@@ -66,7 +66,7 @@ All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 ## Sequencing
 
-PRs 1–5 and 17 are verified complete. Start remaining correctness work with PR 19; PRs 11 and 14 can proceed independently. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
+PRs 1–5 and 17 are verified complete, and PR 14 is delivered by #157. Start remaining correctness work with PR 19; PR 11 can proceed independently. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
 
 Required ordering within this plan:
 

@@ -3920,6 +3920,61 @@ mod tests {
         panic!("the console still asked for an immediate repaint after 16 quiet passes");
     }
 
+    ///
+    /// Plays at 200 BPM, settles the passes the key press asks for, and waits
+    /// for Playback to publish another Tick. Answers the Tick before, the Tick
+    /// after, and how soon the next pass asked to be painted again.
+    ///
+    async fn play_and_await_the_next_tick(
+        ctx: &egui::Context,
+        screen: Rect,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+    ) -> (
+        orcvs::source::Tick,
+        orcvs::source::Tick,
+        std::time::Duration,
+    ) {
+        console
+            .orcvs
+            .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
+        app_pass(
+            ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            console,
+            host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        settle_repaint(ctx, screen, console, host);
+        let tick = console.orcvs.playback_observation().tick;
+        for _ in 0..2_000 {
+            if console.orcvs.playback_observation().tick != tick {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        let advanced = console.orcvs.playback_observation().tick;
+        assert_ne!(
+            advanced, tick,
+            "Playback never published another Tick from {tick:?}"
+        );
+
+        let delay = app_pass_repaint_delay(ctx, screen, Vec::new(), console, host);
+        (tick, advanced, delay)
+    }
+
     fn collect_shape_text(shape: &Shape, out: &mut String) {
         match shape {
             Shape::Text(text) => {
@@ -4293,42 +4348,8 @@ mod tests {
         .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
-        let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
-        console.orcvs.set_bpm(bpm);
-        app_pass(
-            &ctx,
-            screen,
-            vec![key_event(Key::Space, true)],
-            &mut console,
-            &mut host,
-        );
-        for _ in 0..1_000 {
-            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-        assert_eq!(
-            console.orcvs.playback_observation().state,
-            orcvs::playback::PlaybackState::Playing
-        );
-
-        settle_repaint(&ctx, screen, &mut console, &mut host);
-        let tick = console.orcvs.playback_observation().tick;
-        for _ in 0..2_000 {
-            if console.orcvs.playback_observation().tick != tick {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-        let advanced = console.orcvs.playback_observation().tick;
-        assert_ne!(
-            advanced, tick,
-            "Playback never published another Tick from {tick:?}"
-        );
-
-        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let (tick, advanced, delay) =
+            play_and_await_the_next_tick(&ctx, screen, &mut console, &mut host).await;
         assert_eq!(
             delay,
             std::time::Duration::ZERO,
@@ -4358,43 +4379,8 @@ mod tests {
         console.load_function_reference();
         // Reduced motion keeps the Cursor Effect's own wakes out of the delay.
         console.reduced_motion = true;
-        console
-            .orcvs
-            .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
-        app_pass(
-            &ctx,
-            screen,
-            vec![key_event(Key::Space, true)],
-            &mut console,
-            &mut host,
-        );
-        for _ in 0..1_000 {
-            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-        assert_eq!(
-            console.orcvs.playback_observation().state,
-            orcvs::playback::PlaybackState::Playing
-        );
-
-        settle_repaint(&ctx, screen, &mut console, &mut host);
-        let tick = console.orcvs.playback_observation().tick;
-        for _ in 0..2_000 {
-            if console.orcvs.playback_observation().tick != tick {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-        let advanced = console.orcvs.playback_observation().tick;
-        assert_ne!(
-            advanced, tick,
-            "the opened Source's Playback never published another Tick from {tick:?}"
-        );
-
-        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let (tick, advanced, delay) =
+            play_and_await_the_next_tick(&ctx, screen, &mut console, &mut host).await;
         assert_eq!(
             delay,
             std::time::Duration::ZERO,
@@ -5466,7 +5452,7 @@ mod tests {
     /// Source's area, fails here.
     ///
     #[tokio::test]
-    async fn the_top_panel_takes_the_height_the_default_window_holds_back() {
+    async fn the_bars_take_the_height_the_default_window_holds_back_and_the_source_the_rest() {
         let ctx = egui::Context::default();
         crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
@@ -5523,13 +5509,6 @@ mod tests {
                 Pos2::new(screen.max.x, bottom.min.y)
             )],
             "the Source is not given the whole window between the bars"
-        );
-        assert_eq!(
-            source_areas[0].size(),
-            Vec2::new(
-                DEFAULT_VIEW_SIZE[0],
-                DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT - BOTTOM_PANEL_HEIGHT
-            )
         );
     }
 
