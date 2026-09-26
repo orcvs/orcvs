@@ -8,11 +8,11 @@
 
 Repair the confirmed correctness defects, make overload and concurrency guarantees explicit, reduce measured source and interpreter costs, and separate console responsibilities while preserving native and WASM behavior.
 
-This epic organizes existing acceptance criteria into 20 proposed implementation PRs. PR numbers below are plan identifiers, not GitHub PR numbers. Child tickets remain authoritative for acceptance criteria and status: the epic being ready does not bypass a child's design decision, triage or blocker. The checkboxes track completed PR groups, not authorization to implement them all in one change.
+This epic organizes existing acceptance criteria into 23 proposed implementation PRs. PR numbers below are plan identifiers, not GitHub PR numbers. Child tickets remain authoritative for acceptance criteria and status: the epic being ready does not bypass a child's design decision, triage or blocker. The checkboxes track completed PR groups, not authorization to implement them all in one change.
 
 ## Scope
 
-All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-audit/23 is obsolete and excluded. The related Playback fairness ticket joins PR 4; external prerequisites retain their existing owners. No render-cache implementation is added without current performance evidence.
+All 29 non-obsolete source-audit tickets belong to exactly one PR group. Source-audit/23 is obsolete and excluded. The related Playback fairness ticket joins PR 4; external prerequisites retain their existing owners. No render-cache implementation is added without current performance evidence.
 
 ## Playback correctness and resilience
 
@@ -32,7 +32,10 @@ All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | [x] | 7 ([#152](https://github.com/orcvs/orcvs/pull/152)) | Simplify Sequence-capability derivation | [#20](issues/20-derive-sequence-capability-in-one-place.md) | Linear in positioned entries, with explicit allocation and benchmark evidence; one scalar-width declaration; after [syntax-highlighting/11](../syntax-highlighting/issues/11-share-one-output-portal-derivation-with-the-scheduler.md). |
 | [ ] | 8 ([#153](https://github.com/orcvs/orcvs/pull/153)) | Cache dependency schedules | [#19](issues/19-cache-the-tick-schedule-per-language-map-revision.md) | Prefer after PR 6; reconcile #19’s hard blocker with the selected cache-key design. Cover identical-write reuse and invalidation against fresh planning. |
 | [x] | 9 ([#154](https://github.com/orcvs/orcvs/pull/154)) | Plan outside Source locks | [#07](issues/07-plan-a-tick-outside-the-source-write-lock.md) | Prefer after PR 8. Snapshot planning with a consistently captured commit-validation identity, validated commit, stale-effect suppression and a bounded retry policy. |
-| [ ] | 10 | Evaluate safe Source storage | [#08](issues/08-remove-the-unsafe-byte-write-from-source.md) | Prefer after PR 6. Measure a safe alternative and record removal or justified retention. |
+| [x] | 21 ([#163](https://github.com/orcvs/orcvs/pull/163)) | Measure the Playback Tick path | [#28](issues/28-measure-the-playback-tick-path-in-ci.md) | After PR 9. A deterministic Tick series and per-Tick allocation record through `SourceCommander::execute`; records the baseline PR 10 is judged against. |
+| [x] | 22 ([#162](https://github.com/orcvs/orcvs/pull/162)) | Read the Cells in place for Source File write and unsaved changes | [#29](issues/29-stop-copying-the-source-to-write-a-source-file-or-check-for-unsaved-changes.md) | Independent. One borrowed byte accessor on `Source`; `snapshot()` stays the owned form. |
+| [x] | 10 ([#165](https://github.com/orcvs/orcvs/pull/165)) | Hold the Cells in a shared SourceBuffer | [#08](issues/08-remove-the-unsafe-byte-write-from-source.md) | After PR 21. Shared copy-on-write Cells remove the `unsafe` byte write and the whole-Cell copy per planning snapshot and per revision read; amend ADR 0057's cost paragraph. |
+| [ ] | 23 | Pass the SourceBuffer through planning and the Language Map | [#30](issues/30-pass-the-source-buffer-through-planning-and-the-language-map.md) | After PR 10. Replace the runtime ASCII checks before parsing and operand reads with one checked view. |
 
 ## Language implementation
 
@@ -74,13 +77,13 @@ Required ordering within this plan:
 - PR 11 precedes PRs 12 and 13; PR 12 also needs its design decision settled.
 - PRs 14 and 15 precede PR 16. Within PR 15, move tests before consolidating their setup.
 - PR 18 needs the colour-vision decision settled.
+- PR 21 precedes PR 10, and PR 10 precedes PR 23.
 - Each crate’s portion of PR 20 follows that crate’s relevant implementation changes and external comment prerequisites; unrelated crates need not wait for each other.
 
 Preferred ordering, not additional ticket blockers:
 
 - PR 6 before PR 8 coordinates map storage and cache identity. Row sharing is not intrinsically necessary for a correct cache key; reconcile #19’s existing hard blocker before choosing a different order.
 - PR 8 before PR 9 avoids changing schedule-cache ownership twice.
-- PR 6 before PR 10 makes the storage comparison easier to interpret.
 - PR 12 before PR 13 avoids optimizing an operand-binding design about to change.
 - PR 17 before PR 18 avoids conflicting Theme-validation edits.
 
@@ -106,10 +109,10 @@ These are epic-level reconciliation requirements from the `67d28248` audit. Chil
 | #25 / PR 12 | Preserve both numeric input types, conversion idempotence, broadcasting and diagnostic precedence. Compile-fail coverage must exercise the actual token/bind mismatch, rather than failing only because declarations are private. |
 | #12 and #26 / PR 15 | Preserve tests relative to extraction/refactor start, allowing earlier PRs to add coverage. Correct #26’s count to six polling loops across five tests. |
 | #16 / PR 20 | Remove the prose requirement that docs be shorter than functions; use what callers need. Include the delivered command mailbox and fairness changes in the final review without treating them as unresolved prerequisites. |
-| #08 and #09 / PRs 10–11 | Align titles with allowed outcomes: measured safe-storage evaluation and removal or isolation of unused language APIs. Integration tests and benchmarks cannot use library APIs gated only by `cfg(test)`. |
+| #08 and #09 / PRs 10–11 | #08 is reconciled: rescoped on 2026-09-26 to the shared SourceBuffer, with removal as the outcome and its cost measured against PR 21's baseline. #09: align its title with the allowed outcome, removal or isolation of unused language APIs. Integration tests and benchmarks cannot use library APIs gated only by `cfg(test)`. |
 | #22 / PR 19 | Pin the actual loss sequence: first refusal/save, another invalid primary payload, then second refusal/save. An ordinary successful save does not create the second refusal. |
 
-At this reference, #01, #02, #10, #18, #21 and #27 are resolved; playback-actor/11 is also resolved. #03 retains only its missing regression coverage. #23 remains obsolete. All other source-audit tickets remain outstanding, including explicit design decisions and measured evaluations.
+At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved; playback-actor/11 was also resolved. #03 retained only its missing regression coverage. #23 remains obsolete. All other source-audit tickets were then outstanding, including explicit design decisions and measured evaluations. This paragraph records that audit; the tables above and each child ticket's Status line carry current status.
 
 ## Audit evidence
 
@@ -122,7 +125,7 @@ At this reference, #01, #02, #10, #18, #21 and #27 are resolved; playback-actor/
 ## Definition of done
 
 - [ ] Every PR group has a recorded disposition and links to its implementation PR or measured decision.
-- [ ] Every non-obsolete child ticket's acceptance criteria are satisfied and its status updated; the audit follow-ups above are reconciled explicitly, including PR 5’s recorded polling disposition. An explicitly permitted decision to retain an implementation, such as PR 10's measured unsafe retention, is recorded with evidence.
+- [ ] Every non-obsolete child ticket's acceptance criteria are satisfied and its status updated; the audit follow-ups above are reconciled explicitly, including PR 5’s recorded polling disposition. An explicitly permitted decision to retain an implementation is recorded with evidence.
 - [ ] Required external prerequisites are resolved or their scope is explicitly reconciled with the affected child tickets.
 - [ ] Correctness changes include meaningful regressions, including the single-word stop gate's two-outstanding-stops regression and stale-plan effect suppression.
 - [ ] Performance changes include reproducible benchmarks and the comparison evidence required by the child tickets; no unmeasured speedup is claimed.
