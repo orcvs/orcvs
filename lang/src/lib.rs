@@ -321,6 +321,31 @@ fn midi_number_to_note(note: u8) -> Option<String> {
     Some(format!("{pitch}{octave}"))
 }
 
+/// Evaluates Source text spelling one Function over Operand Literals, the way
+/// a Turn calls the Interpreter once it has resolved the operands: the Parser
+/// reads the spelling and [`Interpreter::execute_function`] answers it.
+/// Nesting is resolved by `orcvs`, so a nested Function is refused here rather
+/// than evaluated by a second path.
+#[cfg(test)]
+fn interpret_source(source: &str) -> Result<Interpretation, Error> {
+    let atoms = Parser::from(source).try_parse()?;
+    let Some((Atom::Function(function), literals)) = atoms.split_first() else {
+        panic!("{source:?} does not start with a Function");
+    };
+    let operands: Vec<Value> = literals
+        .iter()
+        .map(|literal| match literal {
+            Atom::Function(nested) => panic!("{source:?} nests {nested}; a Turn resolves it first"),
+            literal => Value::Atom(*literal),
+        })
+        .collect();
+    Interpreter::execute_function(
+        *function,
+        &operands,
+        TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
+    )
+}
+
 #[cfg(test)]
 mod test {
     use super::{
@@ -394,21 +419,13 @@ mod test {
         // Output Functions.
         //
         // A failure here is notice rather than a defect: the answer seam has
-        // changed shape, and `execute` is the measurement to take again. That
+        // changed shape, and `execute_function` is the measurement to take again. That
         // is only worth being told where the figures mean something, which is
         // what the `target_pointer_width` gate above says — `wasm32` builds the
         // library and runs its regressions in the `console` crate, so today the
         // gate excludes nothing that runs.
         assert_eq!(size_of::<Performance>(), 24);
         assert_eq!(size_of::<Interpretation>(), 32);
-    }
-
-    #[test]
-    fn the_atom_is_the_size_the_execute_benchmark_was_measured_against() {
-        // Notice rather than a defect, as for the answer seam above: the
-        // `execute` floor in `benches/floors.toml` holds only with an
-        // eight-byte Atom, so a change here is a reason to take it again.
-        assert_eq!(size_of::<Atom>(), 8);
     }
 
     #[test]

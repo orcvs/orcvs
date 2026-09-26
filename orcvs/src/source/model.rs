@@ -1969,6 +1969,39 @@ mod test {
     }
 
     #[test]
+    fn every_effect_function_is_diagnosed_where_a_value_is_required() {
+        // The Turn asks the running Function's declared kind, not which effect
+        // it performs, so a Function declared with any effect is nested-invalid
+        // the day it exists.
+        for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
+            let mut expression = format!(".+{function}");
+            for token in lang::Tokens::from(function) {
+                expression.push_str(match token {
+                    lang::Token::Number => "01",
+                    lang::Token::Note => "C4",
+                    other => panic!("no effect operand is declared as {other:?}"),
+                });
+            }
+            expression.push_str("01");
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), &expression);
+
+            let tick = src.execute();
+
+            assert!(tick.play_commands.is_empty(), "{expression}");
+            assert!(
+                tick.diagnostics
+                    .iter()
+                    .any(|d| d.message
+                        == lang::InterpretationError::NestedEffectFunction.to_string()),
+                "{expression}: {:?}",
+                tick.diagnostics
+            );
+        }
+    }
+
+    #[test]
     fn test_nested_evaluation_cannot_change_play_operand_types() {
         for (expression, expected) in [
             ("!>.^007FC4", "expected a number, found \"C/\""),

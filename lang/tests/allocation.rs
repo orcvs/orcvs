@@ -1,7 +1,7 @@
 //!
-//! Allocation shapes for the two paths `lang` sits on: a Tick interprets an
-//! already-parsed Source, and a Render Frame re-reads the Source many times a
-//! second. Both run often enough that an allocation added to either is a
+//! Allocation shapes for the two paths `lang` sits on: a Turn evaluates one
+//! Function over resolved operands, and a Render Frame re-reads the Source
+//! many times a second. Both run often enough that an allocation added to either is a
 //! regression the criterion series would hide behind a cache hit.
 //!
 //! # Why there is no dependency here
@@ -78,7 +78,7 @@
 // global allocator it has no `System` for.
 #![cfg(not(target_arch = "wasm32"))]
 
-use lang::{Anchor, Atom, Interpreter, Parser, Tick, TickInputs};
+use lang::{Anchor, Atom, Function, Interpreter, Parser, Tick, TickInputs, Value};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::hint::black_box;
@@ -243,23 +243,48 @@ fn rows(source: &[&str], empty_rows: usize) -> Vec<String> {
     rows
 }
 
-/// The Expressions a Source holds, already parsed — what a Tick runs over.
+/// One call a Turn makes: a Function and the operands it resolved.
+type Call = (Function, Vec<Value>);
+
+/// The calls a Source's Expressions make once their operands are resolved.
 /// Rows that hold no Expression, and rows the Parser refuses, contribute
-/// nothing, which is the point the Tick assertions rest on.
-fn expressions(rows: &[String]) -> Vec<Vec<Atom>> {
+/// nothing, which is the point the assertions rest on. An Expression that
+/// nests a Function is resolved by `orcvs` one call at a time, so only the
+/// Expressions over Operand Literals are a call as written.
+fn calls(rows: &[String]) -> Vec<Call> {
     rows.iter()
         .filter_map(|row| Parser::at(row, 0).try_parse().ok())
+        .filter_map(|atoms| {
+            let Some((Atom::Function(function), literals)) = atoms.split_first() else {
+                return None;
+            };
+            let operands = literals
+                .iter()
+                .map(|literal| match literal {
+                    Atom::Function(_) => None,
+                    literal => Some(Value::Atom(*literal)),
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some((*function, operands))
+        })
         .collect()
 }
 
-/// One Tick: every Expression of an already-parsed Source, interpreted once.
-fn tick(expressions: &[Vec<Atom>], inputs: TickInputs) -> usize {
-    let mut interpreted = 0;
-    for atoms in expressions {
-        interpreted +=
-            usize::from(Interpreter::execute(black_box(atoms), black_box(inputs)).is_ok());
+/// Every call of an already-parsed Source, evaluated once through the
+/// Interpreter entry point a Turn uses.
+fn evaluate(calls: &[Call], inputs: TickInputs) -> usize {
+    let mut evaluated = 0;
+    for (function, operands) in calls {
+        evaluated += usize::from(
+            Interpreter::execute_function(
+                black_box(*function),
+                black_box(operands),
+                black_box(inputs).into(),
+            )
+            .is_ok(),
+        );
     }
-    interpreted
+    evaluated
 }
 
 /// One Render Frame re-read: `analyze` per row, the permissive path a Source
@@ -283,20 +308,20 @@ fn written(rows: &[String]) -> usize {
 }
 
 #[test]
-fn a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row() {
+fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
 
-    // FINDING (2026-09-09): a Tick is not allocation-free. `Interpreter::execute`
-    // builds its evaluation stack through `Stack::new(atoms.len())`, which is a
-    // `Vec::with_capacity`, so every Expression costs exactly one block sized
-    // to its Atom count. That is the shape asserted below: a ceiling of one
-    // block per Expression, nothing per row, and no super-linear term. The
-    // ceiling is `<=` rather than `==` on purpose — giving the evaluation stack
-    // inline storage the way the Parser's pending stack already has would drive
-    // this to zero, and an improvement must not read as a failure.
+    // FINDING: a call is not allocation-free. `Interpreter::execute_function`
+    // builds its operand stack through `Stack::new(operands.len())`, which is a
+    // `Vec::with_capacity`, so every call with an operand costs exactly one
+    // block sized to its operand count. That is the shape asserted below: a
+    // ceiling of one block per call, nothing per row, and no super-linear term.
+    // The ceiling is `<=` rather than `==` on purpose — giving the operand
+    // stack inline storage the way the Parser's pending stack already has
+    // would drive this to zero, and an improvement must not read as a failure.
     let short = rows(SOURCE, 0);
-    let short = expressions(&short);
-    assert!(!short.is_empty(), "the fixture must hold Expressions");
+    let short = calls(&short);
+    assert!(!short.is_empty(), "the fixture must hold calls");
 
     // The same Source written out four times over: four times the Expressions,
     // in a Grid four times as tall.
@@ -305,39 +330,39 @@ fn a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row
         repeated.extend_from_slice(SOURCE);
     }
     let long = rows(&repeated, 0);
-    let long = expressions(&long);
+    let long = calls(&long);
     assert_eq!(long.len(), short.len() * 4);
 
-    // Warm up so a one-off initialisation on the first Tick lands outside
+    // Warm up so a one-off initialisation on the first pass lands outside
     // every span below, where it would otherwise show up as an inequality.
-    black_box(tick(&short, inputs));
+    black_box(evaluate(&short, inputs));
 
-    let (one, interpreted) = measure(|| tick(black_box(&short), inputs));
-    black_box(interpreted);
-    let (four, interpreted) = measure(|| tick(black_box(&long), inputs));
-    black_box(interpreted);
+    let (one, evaluated) = measure(|| evaluate(black_box(&short), inputs));
+    black_box(evaluated);
+    let (four, evaluated) = measure(|| evaluate(black_box(&long), inputs));
+    black_box(evaluated);
 
     // The two points this test contributes to the series. `with_empty_rows`
     // below is asserted equal to `one`, so publishing it too would store the
     // same number twice under two names.
-    publish("lang tick fixture", one);
-    publish("lang tick fixture written four times", four);
+    publish("lang call fixture", one);
+    publish("lang call fixture written four times", four);
 
-    // At most one block per Expression, and never one per Atom.
+    // At most one block per call, and never one per operand.
     assert!(
         one.blocks <= short.len(),
-        "a Tick over {} Expressions took {} blocks",
+        "{} calls took {} blocks",
         short.len(),
         one.blocks
     );
 
-    // Linear with a zero intercept: four times the Expressions cost four times
-    // as much, so nothing is allocated per Tick and nothing grows with the
-    // square of the Source.
+    // Linear with a zero intercept: four times the calls cost four times as
+    // much, so nothing is allocated per pass and nothing grows with the square
+    // of the Source.
     assert_eq!(
         four.blocks,
         one.blocks * 4,
-        "a Tick over {} Expressions took {} blocks, over {} it took {}",
+        "{} calls took {} blocks, {} took {}",
         short.len(),
         one.blocks,
         long.len(),
@@ -346,24 +371,23 @@ fn a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row
     assert_eq!(four.bytes, one.bytes * 4);
 
     // Empty rows hold no Expression, so a taller Grid over the same writing
-    // leaves a Tick exactly the work it already had.
+    // leaves exactly the calls it already had.
     //
-    // Asserted over what a Tick runs on, not over a fourth measurement. An
-    // empty row is one the Parser refuses, so `expressions` drops all 512 of
-    // them and a padded Source yields a `Vec` element-wise identical to
-    // `short`. Measuring a Tick over it would compare two runs over the very
-    // same input and could not fail for any implementation of
-    // `Interpreter::execute` — it would read as a fourth assertion while
-    // asserting nothing. The independence from empty rows that *is* worth
+    // Asserted over the calls, not over a fourth measurement. An empty row is
+    // one the Parser refuses, so `calls` drops all 512 of them and a padded
+    // Source yields a `Vec` element-wise identical to `short`. Measuring over
+    // it would compare two runs over the very same input and could not fail
+    // for any implementation of `Interpreter::execute_function` — it would
+    // read as a fourth assertion while asserting nothing. The independence from empty rows that *is* worth
     // stating is this one, and it is the Source's property rather than the
     // Interpreter's. `re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty`
     // below states the Interpreter-side half, where `reread` does iterate the
     // padding and the equality has something to catch.
     let padded = rows(SOURCE, 512);
-    let padded = expressions(&padded);
+    let padded = calls(&padded);
     assert_eq!(
         padded, short,
-        "512 empty rows changed what a Tick runs over"
+        "512 empty rows changed the calls a Source makes"
     );
 }
 
@@ -387,7 +411,7 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     let few = rows(SOURCE, 4);
     let many = rows(SOURCE, 512);
 
-    // Warm up, for the same reason the Tick test does.
+    // Warm up, for the same reason the call test does.
     black_box(reread(&few));
 
     let (sparse, units) = measure(|| reread(black_box(&few)));

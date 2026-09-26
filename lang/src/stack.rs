@@ -298,12 +298,11 @@ impl Stack {
         Ok(())
     }
 
-    /// Pops one slot as the whole language value it is.
-    ///
-    /// The Interpreter answers with whatever the Expression left here, so a
-    /// Sequence leaves evaluation intact instead of being refused as a scalar.
-    #[inline(always)]
-    pub fn pop_value(&mut self) -> Option<Value> {
+    /// Pops one slot as the whole language value it is, so a test can read
+    /// what a Function left behind. Evaluation consumes operands only through
+    /// the declared pops below.
+    #[cfg(test)]
+    pub(crate) fn pop_value(&mut self) -> Option<Value> {
         self.inner.pop()
     }
 

@@ -1,11 +1,11 @@
-//! Benchmarks for the two paths `lang` sits on: a Tick interprets the Expressions in
-//! a Source Snapshot, and a Render Frame re-reads the Source many times a second.
+//! Benchmarks for the two paths `lang` sits on: a Turn evaluates one Function over
+//! resolved operands, and a Render Frame re-reads the Source many times a second.
 //!
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use lang::{Anchor, Interpreter, Parser, Tick, TickInputs};
+use lang::{Anchor, Atom, Function, Interpreter, Parser, Tick, TickInputs, Value};
 use std::hint::black_box;
 
 /// Nested arithmetic: the shape an Expression takes once a Function consumes
@@ -50,17 +50,25 @@ fn parse_invalid(c: &mut Criterion) {
     });
 }
 
-fn execute(c: &mut Criterion) {
+fn execute_function(c: &mut Criterion) {
     // The first Tick of a Playback run, at the Grid origin: no Function reads
     // either input yet, and the measurement is of evaluation rather than of
-    // any one Tick.
+    // any one Tick. One scalar Add over resolved operands is the call a Turn
+    // makes for the commonest Expression.
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let atoms = Parser::from(NESTED)
-        .try_parse()
-        .expect("NESTED is a valid Expression");
+    let operands = [
+        Value::Atom(Atom::Number(0x01)),
+        Value::Atom(Atom::Number(0x02)),
+    ];
 
-    c.bench_function("execute", |b| {
-        b.iter(|| Interpreter::execute(black_box(&atoms), black_box(inputs)))
+    c.bench_function("execute_function", |b| {
+        b.iter(|| {
+            Interpreter::execute_function(
+                black_box(Function::Add),
+                black_box(&operands),
+                black_box(inputs).into(),
+            )
+        })
     });
 }
 
@@ -97,7 +105,7 @@ criterion_group!(
     benches,
     parse,
     parse_invalid,
-    execute,
+    execute_function,
     parse_source,
     parse_record_counts
 );

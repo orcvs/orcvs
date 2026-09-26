@@ -1799,7 +1799,6 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "criterion",
- "lang",
  "proptest",
  "rand_chacha 0.10.0",
  "thiserror 2.0.20",

@@ -192,15 +192,7 @@ impl From<u8> for Length {
 
 /// One parsed value or operation: what an Expression is made of and what a
 /// Sequence holds.
-///
-/// Aligned to eight bytes, which is what makes it eight bytes wide: its
-/// variants fit in two. The alignment holds the `execute` floor in
-/// `benches/floors.toml`; the aggregates that hold an Atom (`Value`,
-/// `Interpretation`, their `Result`s) are the same size either way, so the
-/// cost falls on Atom lists, which take four times the bytes.
-/// `the_atom_is_the_size_the_execute_benchmark_was_measured_against` pins it.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(align(8))]
 pub enum Atom {
     Bang,
     Empty,
