@@ -14,4 +14,4 @@
 
 ## Comments
 
-**2026-09-26 — origin.** Split from 30 during review of orcvs/orcvs#161: `file::write` is the one shipped text consumer of the Cells outside planning and the Language Map. It is off the Tick path and moves the `source_file` series rather than 30's Tick and Language Map series, so it lands separately to keep each change's benchmarks attributable.
+**2026-09-26 — origin.** Split from 30 during review of orcvs/orcvs#161: `file::write` is the one shipped text consumer of the Cells outside planning and the Language Map. It is off the Tick path, so it lands separately from 30 to keep each change's benchmarks attributable.

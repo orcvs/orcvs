@@ -14,6 +14,6 @@
 
 ## Comments
 
-**2026-09-26 — origin.** Deferred from 08's design so the storage change's benchmarks attribute to storage alone. The type-safety gain is here: the four runtime ASCII checks in the Language Map's row walk and Tick execution's three text reads give way to the view's one checked conversion. Two other shipped checks stay outside this ticket: `SourceBuffer::as_str`, which the view's conversion may reuse, and the per-row check in `file::write`, which reads `Source::cells()` rather than planning's view.
+**2026-09-26 — origin.** Deferred from 08's design so the storage change's benchmarks attribute to storage alone.
 
 **2026-09-26 — review of orcvs/orcvs#161.** Criterion 2's "one checked conversion" means one site in the code, not one call: reusing `as_str` validates the whole Grid once per plan however little planning reads, while a view method checks only the text read, as the four sites do now. The benchmarks in criterion 4 choose. `file::write`'s per-row check is split to 31.

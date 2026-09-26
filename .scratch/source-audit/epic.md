@@ -78,7 +78,7 @@ Required ordering within this plan:
 - PR 11 precedes PRs 12 and 13; PR 12 also needs its design decision settled.
 - PRs 14 and 15 precede PR 16. Within PR 15, move tests before consolidating their setup.
 - PR 18 needs the colour-vision decision settled.
-- PR 21 precedes PR 10, and PR 10 precedes PR 23.
+- PR 9 precedes PR 21, PR 21 precedes PR 10, and PR 10 precedes PRs 23 and 24.
 - Each crate’s portion of PR 20 follows that crate’s relevant implementation changes and external comment prerequisites; unrelated crates need not wait for each other.
 
 Preferred ordering, not additional ticket blockers:
@@ -110,7 +110,7 @@ These are epic-level reconciliation requirements from the `67d28248` audit. Chil
 | #25 / PR 12 | Preserve both numeric input types, conversion idempotence, broadcasting and diagnostic precedence. Compile-fail coverage must exercise the actual token/bind mismatch, rather than failing only because declarations are private. |
 | #12 and #26 / PR 15 | Preserve tests relative to extraction/refactor start, allowing earlier PRs to add coverage. Correct #26’s count to six polling loops across five tests. |
 | #16 / PR 20 | Remove the prose requirement that docs be shorter than functions; use what callers need. Include the delivered command mailbox and fairness changes in the final review without treating them as unresolved prerequisites. |
-| #08 and #09 / PRs 10–11 | #08 is reconciled: rescoped on 2026-09-26 to the shared SourceBuffer, with removal as the outcome and its cost measured against PR 21's baseline. #09: align its title with the allowed outcome, removal or isolation of unused language APIs. Integration tests and benchmarks cannot use library APIs gated only by `cfg(test)`. |
+| #08 and #09 / PRs 10–11 | #08 is reconciled: rescoped on 2026-09-26 to the shared SourceBuffer, with removal as the outcome and its cost measured against PR 21's baseline. #09 is reconciled: #156 met its criteria by removal and isolation — the unused APIs and `Interpreter::execute` were deleted, `lang`'s benchmark and allocation test moved to `execute_function`, and only `Stack::pop_value` became `cfg(test)`. Its resolved title is not realigned: its criteria carry the allowed outcome, and no integration test or benchmark depends on an API gated only by `cfg(test)`. |
 | #22 / PR 19 | Pin the actual loss sequence: first refusal/save, another invalid primary payload, then second refusal/save. An ordinary successful save does not create the second refusal. |
 
 At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved; playback-actor/11 was also resolved. #03 retained only its missing regression coverage. #23 remains obsolete. All other source-audit tickets were then outstanding, including explicit design decisions and measured evaluations. This paragraph records that audit; the tables above and each child ticket's Status line carry current status.

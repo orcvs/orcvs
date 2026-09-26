@@ -2,7 +2,7 @@
 
 **What to build:** CI times and counts the Tick that Playback executes, not only the Tick planned under the Source write lock. Since 07, Playback's Tick goes through `SourceCommander::execute`: a planning snapshot, planning with no lock, and a commit validated against the snapshot's `RevisionId`. The `source_execute_tick*` series call `Source::execute` directly, which is now only the locked fallback, so a regression on the path Playback takes — an extra whole-Grid copy, a lost schedule-cache hit on the snapshot's Language Map — reaches `main` unmeasured. This ticket adds that measurement and records the baseline 08 is judged against.
 
-**Blocked by:** None — can start immediately. 07 (orcvs/orcvs#154) introduces the path this measures.
+**Blocked by:** 07 (orcvs/orcvs#154), which introduces the path this measures.
 
 **Status:** resolved
 
