@@ -1,3 +1,4 @@
+mod buffer;
 mod cell;
 pub use cell::CellContent;
 mod encoding;
@@ -17,6 +18,7 @@ mod planning;
 mod portal;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
+use buffer::SourceBuffer;
 pub use error::SourceError;
 pub use lang::Tick;
 pub use model::{
@@ -76,10 +78,13 @@ pub struct SourceCommander {
 
 /// Character Cells and semantic language information observed from exactly one
 /// Source revision.
+///
+/// The Cells are shared with the Source that revision was read from, not
+/// copied, and a later write to that Source leaves them as they are.
 #[derive(Clone)]
 pub struct SourceRevision {
     grid: Grid,
-    source: String,
+    cells: SourceBuffer,
     language_map: Arc<LanguageMap>,
 }
 
@@ -90,7 +95,7 @@ impl SourceRevision {
 
     pub fn content_at(&self, position: Position) -> Option<char> {
         self.grid.assert_owns(position);
-        let byte = self.source.as_bytes()[self.grid.index(position).get()];
+        let byte = self.cells.bytes()[self.grid.index(position).get()];
         (byte != b' ').then_some(char::from(byte))
     }
 
@@ -105,7 +110,7 @@ impl SourceRevision {
     /// [`Claim::written`] as it is built.
     ///
     pub(crate) fn claims_by_cell(&self) -> Vec<Option<Arc<Claim>>> {
-        self.language_map.claims_by_cell(self.source.as_bytes())
+        self.language_map.claims_by_cell(self.cells.bytes())
     }
 
     ///
@@ -282,8 +287,8 @@ impl SourceCommander {
     /// mint an index addressing one of its Cells.
     ///
     /// A caller editing the Source needs it: a Cell is named by an index, and
-    /// only this Grid mints one. `read_revision` also answers, but copies a
-    /// whole revision to do it.
+    /// only this Grid mints one. `read_revision` also answers, but holds on to
+    /// a whole revision to do it.
     ///
     pub fn grid(&self) -> Grid {
         read_recover(&self.inner).grid()
@@ -330,7 +335,7 @@ impl SourceCommander {
         let source = read_recover(&self.inner);
         SourceRevision {
             grid: source.grid(),
-            source: source.snapshot(),
+            cells: source.shared_cells(),
             language_map: source.shared_language_map(),
         }
     }
@@ -533,6 +538,24 @@ mod tests {
         let second = source.read_revision();
 
         assert!(std::ptr::eq(first.language_map(), second.language_map()));
+    }
+
+    #[test]
+    fn a_revision_read_shares_the_cells_and_keeps_them_through_a_later_write() {
+        let grid = Grid::with_shape(4, 2);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        source.set(cell(0), ".").unwrap();
+
+        let read = source.read_revision();
+        let held = source.inner.read().unwrap().shared_cells();
+        assert_eq!(read.cells.bytes().as_ptr(), held.bytes().as_ptr());
+        drop(held);
+
+        source.set(cell(0), "x").unwrap();
+
+        assert_eq!(read.content_at(grid.position(0, 0).unwrap()), Some('.'));
+        assert_eq!(source.get(cell(0)).as_deref(), Some("x"));
     }
 
     #[test]
