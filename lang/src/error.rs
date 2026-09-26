@@ -112,11 +112,8 @@ pub enum InterpretationError {
     /// under. A fallback Number is worse still: `00` is the first step
     /// of every cycle, so a formula that stopped being total would write a
     /// legal-looking step and leave no trace of having done it. Diagnosing is
-    /// the remaining option, and it is the trade `Stack::convert` already
-    /// makes — its fallback is the absence marker *because* the absence marker
-    /// is not numeric, so an impossible state costs a type diagnostic rather
-    /// than Playback. Here it costs the Expression its Cell write and names
-    /// the step that could not be answered.
+    /// the remaining option: it costs the Expression its Cell write rather
+    /// than Playback, and names the step that could not be answered.
     #[error("{} cannot answer the step {step} as a Number", crate::Function::Clock)]
     ClockStepOutOfRange { step: u64 },
 

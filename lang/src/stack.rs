@@ -1,13 +1,8 @@
 use crate::{
-    ArgumentError, Atom, Error, Function, InterpretationError, Note, Performance, PlayCommand,
-    Sequence, SequenceError, TypeError, Value,
+    ArgumentError, Atom, Error, Function, InterpretationError, Performance, PlayCommand, Sequence,
+    SequenceError, Value,
 };
 use arrayvec::ArrayVec;
-
-pub(crate) enum NumericValue {
-    Note(Note),
-    Number(u8),
-}
 
 /// Which of the two extractions binds a Function's operands.
 ///
@@ -70,18 +65,14 @@ pub(crate) trait Operands: Sized {
     fn from_values(values: OperandValues) -> Result<Self, Error>;
 }
 
-/// The operands of a Function that declares exactly one of them.
-///
-/// `define_functions!` implements this for a Function's operand struct only
-/// where its declaration lists a single role, so the arity comes from the same
-/// table row the roles and the types do.
-pub(crate) trait UnaryOperands: Operands {}
-
 /// One operation's popped operands, in signature order, held inline.
 pub(crate) type OperandValues = ArrayVec<Value, MAX_OPERANDS>;
 
 /// The arity diagnostic for `function` handed `found` operands.
-#[inline(always)]
+///
+/// Cold: every extraction pops exactly the declared count before a bind reads
+/// it, so the generated binds reach this only if that ever stops holding.
+#[cold]
 pub(crate) fn arity(function: Function, found: usize) -> Error {
     ArgumentError::Arity {
         expected: function.signature().len(),
@@ -135,7 +126,7 @@ impl Extracted<'_> {
 #[derive(Clone, Copy)]
 enum Shape {
     /// Every operand was one Atom, so the Function evaluates once and answers
-    /// the ordinary Atom it answered before broadcasting existed.
+    /// one ordinary Atom rather than a Sequence of one.
     Scalar,
     /// At least one operand was a Sequence, and every Sequence operand has
     /// exactly this length. Zero is a width like any other: an empty Sequence
@@ -170,10 +161,10 @@ const MAX_OPERANDS: usize = {
 
 /// One operation's popped operands and the single shape they decided.
 ///
-/// This is deliberately not two mechanisms. The table-driven Functions and the
-/// numeric conversions differ only in the type layer above this — a signature
-/// check for the first, ADR 0021's `NumericValue` for the second — and share
-/// the pop, the shape, the per-element operands, and the assembly.
+/// This is one mechanism for every pervasive Function, the numeric conversions
+/// included. What differs between them is the operand types their rows
+/// declare; the pop, the shape, the per-element operands, and the assembly are
+/// shared.
 ///
 /// It is not generic in the Operand Stack's capacity. What bounds an operand
 /// list is the signature its Function declares, not how many values the stack
@@ -506,7 +497,7 @@ impl Stack {
     ///
     /// ADR 0007's structural Sequence Functions and Range Functions refuse
     /// pervasive extension, so a Sequence operand is consumed whole rather than
-    /// element-wise. [`ValueOperands::from_values`] binds each popped value to
+    /// element-wise. [`Operands::from_values`] binds each popped value to
     /// the roles the Function declares.
     #[inline(always)]
     pub(crate) fn extract_values<O: Operands<Binding = WholeValueBinding>>(
@@ -597,84 +588,6 @@ impl Stack {
 
         Ok(if all { Atom::Bang } else { Atom::Empty }.into())
     }
-
-    /// Evaluates one numeric conversion across the shape its operand decides.
-    ///
-    /// ADR 0021 excludes `.v` and `.^` from the signature check rather than
-    /// from broadcasting. Their evaluation accepts an already-typed value of
-    /// their own result type as an identity, so composition and broadcasting
-    /// compose, and their operand is therefore read as a [`NumericValue`]
-    /// instead of against the single `Token` their literal signature declares.
-    /// That is one type layer replaced; the pop, the shape, the ordering, and
-    /// the all-or-nothing assembly are the same ones every other pervasive
-    /// Function runs on — including the scalar shape, which is answered as the
-    /// one Atom it is rather than through the widened path's two buffers.
-    #[inline(always)]
-    pub(crate) fn convert<O, F>(&mut self, element: F) -> Result<Value, Error>
-    where
-        O: UnaryOperands,
-        F: Fn(NumericValue) -> Result<Atom, Error>,
-    {
-        let broadcast = self.broadcast(O::FUNCTION)?;
-
-        if broadcast.is_scalar() {
-            // One declared operand at the scalar shape is one Atom, so reading
-            // its type and converting it is the complete operation: the "every
-            // element before any element" ordering below is satisfied here by
-            // there being no second element to order against. The default is
-            // unreachable — `UnaryOperands` declares the operand and
-            // `broadcast` refuses to answer without it — and it is a default
-            // rather than a panic because this runs inside a Tick under the
-            // Source write guard, where ADR 0028 rules the panic out. The
-            // absence marker is not numeric, so an impossible state costs a
-            // type diagnostic rather than Playback.
-            let atom = broadcast
-                .element(0)
-                .into_iter()
-                .next()
-                .unwrap_or(Atom::Empty);
-
-            return Ok(element(NumericValue::try_from(atom)?)?.into());
-        }
-
-        // Every element's type before any element converts, for the reason
-        // `checked` gives: a Sequence whose last member is not numeric must
-        // diagnose as that rather than as whatever its first member fails to
-        // convert to. There is no scalar operand to miss at width zero the way
-        // a two-operand Function has one, because the single operand is what
-        // the width was read from.
-        let mut values = Vec::with_capacity(broadcast.width());
-        for index in 0..broadcast.width() {
-            // One Atom per element, because `UnaryOperands` is what the bound
-            // above asks for, so this yields exactly `width` values.
-            for atom in broadcast.element(index) {
-                values.push(NumericValue::try_from(atom)?);
-            }
-        }
-
-        let mut results = Vec::with_capacity(values.len());
-        for value in values {
-            results.push(element(value)?);
-        }
-
-        Broadcast::assemble(results)
-    }
-}
-
-impl TryFrom<Atom> for NumericValue {
-    type Error = Error;
-
-    /// ADR 0021's evaluation-time reading of a conversion's operand: either
-    /// numeric Atom is accepted, and the Function decides which of the two is
-    /// its identity case.
-    #[inline(always)]
-    fn try_from(atom: Atom) -> Result<Self, Self::Error> {
-        match atom {
-            Atom::Note(value) => Ok(Self::Note(value)),
-            Atom::Number(value) => Ok(Self::Number(value)),
-            atom => Err(TypeError::Numeric(atom.into()).into()),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -684,8 +597,9 @@ mod test {
         InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
         SequenceError, Stack, TypeError, Value, Velocity,
         atom::operands,
+        operand::NumericValue,
         operand::{self, TokenKind},
-        stack::{MAX_OPERANDS, NumericValue},
+        stack::MAX_OPERANDS,
     };
     use arrayvec::ArrayVec;
 
@@ -750,10 +664,12 @@ mod test {
 
     /// `.^`, per element, as `numeric_conversion::to_note` states it.
     fn to_note(stack: &mut Stack) -> Result<Value, Error> {
-        stack.convert::<operands::ConvertToNote, _>(|value| match value {
-            NumericValue::Note(value) => Ok(Atom::Note(value)),
-            NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
-        })
+        stack.apply(
+            |operands::ConvertToNote { value }: operands::ConvertToNote| match value {
+                NumericValue::Note(value) => Ok(Atom::Note(value)),
+                NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
+            },
+        )
     }
 
     /// Raw Play, per element, as `functions::raw_play` states it.
@@ -1978,15 +1894,14 @@ mod test {
 
     #[test]
     fn a_numeric_conversion_shares_the_shape_decision_with_every_other_broadcast() {
-        // ADR 0021 excludes `.v` and `.^` from the signature check, not from
-        // broadcasting: they read a `NumericValue` where the table-driven
-        // Functions read a declared `Token`, and everything below that — the
-        // arity diagnostic, the shape, and the all-or-nothing assembly — is
-        // the one seam the arithmetic Functions use. A width of zero also
-        // leaves nothing unchecked here the way it would for a Function of two
-        // operands: with one declared operand, the only way the width can be
-        // zero is for that operand to be the empty Sequence itself, so there is
-        // no scalar beside it for an unwalked element to hide.
+        // `.v` and `.^` declare a `Numeric` operand, which accepts either
+        // numeric type, and everything below that — the arity diagnostic, the
+        // shape, and the all-or-nothing assembly — is the one seam the
+        // arithmetic Functions use. A width of zero also leaves nothing
+        // unchecked here the way it would for a Function of two operands: with
+        // one declared operand, the only way the width can be zero is for that
+        // operand to be the empty Sequence itself, so there is no scalar beside
+        // it for an unwalked element to hide.
         let mut stack = empty_stack();
 
         assert!(matches!(
@@ -2009,9 +1924,9 @@ mod test {
     #[test]
     fn a_conversion_over_one_atom_evaluates_once_and_answers_an_ordinary_atom() {
         // The scalar shape of a conversion, at the seam rather than at the
-        // Function: `.^ 3C` answered a Note before broadcasting existed and
-        // must answer one still. A singleton Sequence would encode identically
-        // and reach tick planning through the other arm.
+        // Function: `.^ 3C` answers a Note, not a Sequence of one. A singleton
+        // Sequence would encode identically and reach tick planning through the
+        // other arm.
         let mut stack = empty_stack();
         stack.push(Atom::Number(0x3C)).unwrap();
 
@@ -2041,7 +1956,7 @@ mod test {
     #[test]
     fn a_numeric_conversion_type_checks_every_element_before_converting_any() {
         // Element 0 is outside the Note range and element 1 is not numeric at
-        // all. The conversion's own type layer runs over every element first,
+        // all. The `Numeric` operand's check runs over every element first,
         // so the evaluation fault cannot displace the type fault.
         let mut stack = empty_stack();
         stack

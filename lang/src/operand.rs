@@ -370,7 +370,7 @@ pub(crate) fn check<O: Operand>(operand: &Value) -> Result<(), Error> {
 /// A Sequence operand answers nothing here: at the width this is asked at, it
 /// is empty.
 #[inline(always)]
-pub(crate) fn check_domain<O: Operand>(operand: &Value) -> Result<(), Error> {
+pub(crate) fn check_scalar_domain<O: Operand>(operand: &Value) -> Result<(), Error> {
     match operand {
         Value::Atom(atom) => bind_atom::<O>(*atom).map(drop),
         Value::Sequence(_) => Ok(()),

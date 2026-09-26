@@ -119,10 +119,7 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
         // the worst of the three rather than the cautious one — `00` is the
         // first step of every cycle, so a broken proof would write a step no
         // reader could tell from a counted one. So the impossible state
-        // diagnoses, which is the trade `Stack::convert` makes when it falls
-        // back to the absence marker: that fallback is chosen *because* it is
-        // not numeric, so what an impossible state costs is a diagnostic
-        // rather than Playback.
+        // diagnoses, and what it costs is a diagnostic rather than Playback.
         let step =
             u8::try_from(step).map_err(|_| InterpretationError::ClockStepOutOfRange { step })?;
 

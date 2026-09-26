@@ -2,12 +2,12 @@ use crate::{
     Atom, Error, Note, Value,
     atom::operands::{ConvertToNote, ConvertToNumber},
     interpreter::Context,
-    stack::NumericValue,
+    operand::NumericValue,
 };
 
 /// Convert to Number: `.v value`.
 ///
-/// One expression per element, and `Stack::convert` decides whether that
+/// One expression per element, and `Stack::apply` decides whether that
 /// element is the whole operation or one member of a Sequence. ADR 0021's
 /// idempotence is what makes the Number arm not a coercion: a value that is
 /// already a Number arrives from nested evaluation or from broadcasting, never
@@ -15,29 +15,31 @@ use crate::{
 /// Note.
 #[inline]
 pub fn to_number(ctx: &mut Context) -> Result<Value, Error> {
-    ctx.stack.convert::<ConvertToNumber, _>(|value| {
-        Ok(Atom::Number(match value {
-            NumericValue::Note(value) => value.value(),
-            NumericValue::Number(value) => value,
-        }))
-    })
+    ctx.stack
+        .apply(|ConvertToNumber { value }: ConvertToNumber| {
+            Ok(Atom::Number(match value {
+                NumericValue::Note(value) => value.value(),
+                NumericValue::Number(value) => value,
+            }))
+        })
 }
 
 /// Convert to Note: `.^ value`.
 ///
 /// `80` through `FF` name no MIDI Note, so they diagnose rather than being
 /// folded into the range. Over a Sequence that is a diagnostic about the
-/// complete operation: `convert` assembles nothing until every element has
+/// complete operation: `apply` assembles nothing until every element has
 /// answered, so one unconvertible member leaves no partial Sequence of the
 /// members that did convert.
 #[inline]
 pub fn to_note(ctx: &mut Context) -> Result<Value, Error> {
-    ctx.stack.convert::<ConvertToNote, _>(|value| match value {
-        NumericValue::Note(value) => Ok(Atom::Note(value)),
-        // `Note`'s own conversion is the one range check, and its refusal is
-        // the diagnostic.
-        NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
-    })
+    ctx.stack
+        .apply(|ConvertToNote { value }: ConvertToNote| match value {
+            NumericValue::Note(value) => Ok(Atom::Note(value)),
+            // `Note`'s own conversion is the one range check, and its refusal
+            // is the diagnostic.
+            NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
+        })
 }
 
 #[cfg(test)]

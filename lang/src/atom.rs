@@ -473,17 +473,6 @@ enum Answer {
     Sequence,
 }
 
-// A Function of exactly one declared role gets the `UnaryOperands` marker and
-// every other Function gets nothing, decided by which arm the role list matches
-// rather than by a second list to keep in step. The single-role arm is written
-// first because a one-element list matches both.
-macro_rules! unary_operands {
-    ($variant:ident, [$role:ident]) => {
-        impl crate::stack::UnaryOperands for $variant {}
-    };
-    ($variant:ident, [$($role:ident),*]) => {};
-}
-
 // The declared type of a Portal input, mapped to the input it decodes. Number
 // is the one type a Portal input declares, so a row naming another type does
 // not match an arm and fails to compile.
@@ -493,8 +482,70 @@ macro_rules! portal_input {
     };
 }
 
+// One Function's operand struct and its binds, from the row's roles and their
+// operand types.
+//
+// A row that declares no operand gets nothing: there is nothing to extract, so
+// no body reads such a struct. A Portal input on such a row matches no arm and
+// fails to compile, because its Portal is bound beside the operands.
+macro_rules! operands {
+    ($variant:ident, []) => {};
+    ($variant:ident, [$($role:ident: $operand:ty),+] $(, $portal_role:literal: $portal_type:ident)?) => {
+        pub(crate) struct $variant {
+            $(pub(crate) $role: <$operand as crate::operand::Operand>::Bound,)+
+        }
+
+        impl crate::stack::Operands for $variant {
+            const FUNCTION: crate::Function = crate::Function::$variant;
+            type Binding = crate::stack::Binding<{ crate::Function::$variant.binds_whole_values() }>;
+
+            #[inline(always)]
+            fn check(operands: &[crate::Value]) -> Result<(), crate::Error> {
+                let [$($role),+] = operands else {
+                    return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
+                };
+                $(crate::operand::check::<$operand>($role)?;)+
+                Ok(())
+            }
+
+            #[inline(always)]
+            fn check_scalar_domains(operands: &[crate::Value]) -> Result<(), crate::Error> {
+                let [$($role),+] = operands else {
+                    return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
+                };
+                $(crate::operand::check_scalar_domain::<$operand>($role)?;)+
+                Ok(())
+            }
+
+            // Field initialisers evaluate in signature order, so the first
+            // operand outside its domain is the one that diagnoses.
+            #[inline(always)]
+            fn from_atoms(operands: crate::stack::Extracted<'_>) -> Result<Self, crate::Error> {
+                let &[$($role),+] = operands.atoms() else {
+                    return Err(crate::stack::arity(Self::FUNCTION, operands.atoms().len()));
+                };
+                Ok(Self {
+                    $($role: crate::operand::bind_atom::<$operand>($role)?,)+
+                })
+            }
+
+            #[inline(always)]
+            fn from_values(values: crate::stack::OperandValues) -> Result<Self, crate::Error> {
+                let [$($role),+] = crate::stack::take_values(values)?;
+                Ok(Self {
+                    $($role: crate::operand::bind_value::<$operand>($role)?,)+
+                })
+            }
+        }
+
+        $(impl crate::portal::PortalOperands for $variant {
+            const PORTAL: crate::PortalInput = portal_input!($portal_role, $portal_type);
+        })?
+    };
+}
+
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident $(<$literal:ident>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -684,14 +735,14 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<crate::operand::$operand as crate::operand::Operand>::TOKEN,)*]
+                        &[$(<crate::operand::$operand $(<crate::operand::$literal>)? as crate::operand::Operand>::TOKEN,)*]
                     },)+
                 }
             }
         }
 
-        /// The operands each Function declares, one struct per Function, with a
-        /// field named for the role that position plays.
+        /// The operands each Function declares, one struct per Function that
+        /// declares any, with a field named for the role that position plays.
         ///
         /// A Function body destructures the struct its Function declares, so an
         /// operand's position is written once — here, beside the role name and
@@ -699,64 +750,11 @@ macro_rules! define_functions {
         /// two same-typed operands is therefore an edit to the declaration
         /// rather than a silent edit inside a body.
         pub(crate) mod operands {
-            $(
-                // Every Function in the table gets a struct, including the two
-                // whose evaluation deliberately takes a numeric value rather
-                // than the single type their signature declares.
-                #[allow(dead_code)]
-                pub(crate) struct $variant {
-                    $(pub(crate) $role: <crate::operand::$operand as crate::operand::Operand>::Bound,)*
-                }
-
-                impl crate::stack::Operands for $variant {
-                    const FUNCTION: crate::Function = crate::Function::$variant;
-                    type Binding = crate::stack::Binding<{ crate::Function::$variant.binds_whole_values() }>;
-
-                    #[inline(always)]
-                    fn check(operands: &[crate::Value]) -> Result<(), crate::Error> {
-                        let [$($role),*] = operands else {
-                            return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
-                        };
-                        $(crate::operand::check::<crate::operand::$operand>($role)?;)*
-                        Ok(())
-                    }
-
-                    #[inline(always)]
-                    fn check_scalar_domains(operands: &[crate::Value]) -> Result<(), crate::Error> {
-                        let [$($role),*] = operands else {
-                            return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
-                        };
-                        $(crate::operand::check_domain::<crate::operand::$operand>($role)?;)*
-                        Ok(())
-                    }
-
-                    // Field initialisers evaluate in signature order, so the
-                    // first operand outside its domain is the one that
-                    // diagnoses.
-                    #[inline(always)]
-                    fn from_atoms(operands: crate::stack::Extracted<'_>) -> Result<Self, crate::Error> {
-                        let &[$($role),*] = operands.atoms() else {
-                            return Err(crate::stack::arity(Self::FUNCTION, operands.atoms().len()));
-                        };
-                        Ok(Self {
-                            $($role: crate::operand::bind_atom::<crate::operand::$operand>($role)?,)*
-                        })
-                    }
-
-                    #[inline(always)]
-                    fn from_values(values: crate::stack::OperandValues) -> Result<Self, crate::Error> {
-                        let [$($role),*] = crate::stack::take_values(values)?;
-                        Ok(Self {
-                            $($role: crate::operand::bind_value::<crate::operand::$operand>($role)?,)*
-                        })
-                    }
-                }
-
-                $(impl crate::portal::PortalOperands for $variant {
-                    const PORTAL: crate::PortalInput = portal_input!($portal_role, $portal_type);
-                })?
-                unary_operands!($variant, [$($role),*]);
-            )+
+            $(operands! {
+                $variant,
+                [$($role: crate::operand::$operand $(<crate::operand::$literal>)?),*]
+                $(, $portal_role: $portal_type)?
+            })+
         }
 
         impl TryFrom<&str> for Function {
@@ -783,8 +781,8 @@ define_functions! {
     Clock => ("~.", Value, Intrinsic, Pervasive, Elementwise, false, [rate: Number, modulus: Number]),
     Concatenate => (":&", Value, Intrinsic, Scalar, Sequence, false, [left: AtomOrSequence, right: AtomOrSequence]),
     ControlChange => ("!c", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Intrinsic, Pervasive, Elementwise, false, [value: Number]),
-    ConvertToNumber => (".v", Value, Intrinsic, Pervasive, Elementwise, false, [value: Note]),
+    ConvertToNote => (".^", Value, Intrinsic, Pervasive, Elementwise, false, [value: Numeric<Number>]),
+    ConvertToNumber => (".v", Value, Intrinsic, Pervasive, Elementwise, false, [value: Numeric<Note>]),
     Delay => ("~*", Value, Intrinsic, Scalar, Atom, true, [rate: Number, modulus: Number]),
     DirectionalBangEast => ("*>", BangEast, Bang, Scalar, Atom, false, []),
     DirectionalBangNorth => ("*^", BangNorth, Bang, Scalar, Atom, false, []),
@@ -1332,7 +1330,7 @@ mod test {
         // would fall silent with no diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
         // other half for Atom-only Functions; Select is exercised on its own
-        // path because its operands bind through ValueOperands.
+        // path because its operands bind as whole values.
         assert_eq!(
             Function::ALL
                 .iter()
