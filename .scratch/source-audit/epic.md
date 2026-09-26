@@ -29,7 +29,7 @@ All 26 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | Done | PR | Scope | Issues | Sequencing and completion focus |
 |---|---|---|---|---|
 | [x] | 6 ([#151](https://github.com/orcvs/orcvs/pull/151)) | Share unchanged Language Map rows | [#06](issues/06-reuse-unchanged-language-map-rows-across-revisions.md) | Remove deep clones, define revision behavior and update allocation evidence. |
-| [ ] | 7 | Simplify Sequence-capability derivation | [#20](issues/20-derive-sequence-capability-in-one-place.md) | Linear in positioned entries, with explicit allocation and benchmark evidence; one scalar-width declaration; after [syntax-highlighting/11](../syntax-highlighting/issues/11-share-one-output-portal-derivation-with-the-scheduler.md). |
+| [x] | 7 ([#152](https://github.com/orcvs/orcvs/pull/152)) | Simplify Sequence-capability derivation | [#20](issues/20-derive-sequence-capability-in-one-place.md) | Linear in positioned entries, with explicit allocation and benchmark evidence; one scalar-width declaration; after [syntax-highlighting/11](../syntax-highlighting/issues/11-share-one-output-portal-derivation-with-the-scheduler.md). |
 | [ ] | 8 ([#153](https://github.com/orcvs/orcvs/pull/153)) | Cache dependency schedules | [#19](issues/19-cache-the-tick-schedule-per-language-map-revision.md) | Prefer after PR 6; reconcile #19’s hard blocker with the selected cache-key design. Cover identical-write reuse and invalidation against fresh planning. |
 | [ ] | 9 | Plan outside Source locks | [#07](issues/07-plan-a-tick-outside-the-source-write-lock.md) | Prefer after PR 8. Snapshot planning with a consistently captured commit-validation identity, validated commit, stale-effect suppression and a bounded retry policy. |
 | [ ] | 10 | Evaluate safe Source storage | [#08](issues/08-remove-the-unsafe-byte-write-from-source.md) | Prefer after PR 6. Measure a safe alternative and record removal or justified retention. |
@@ -86,7 +86,7 @@ Preferred ordering, not additional ticket blockers:
 
 ## External dependencies and existing work
 
-- PR 7 follows [syntax-highlighting/11](../syntax-highlighting/issues/11-share-one-output-portal-derivation-with-the-scheduler.md).
+- PR 7 followed [syntax-highlighting/11](../syntax-highlighting/issues/11-share-one-output-portal-derivation-with-the-scheduler.md), which was still open, so PR 7 delivered it first as a separate commit on the same branch. Both are resolved.
 - PR 13 coordinates with [allocation-reduction/03](../allocation-reduction/issues/03-give-the-evaluation-stack-inline-storage.md), which owns operand-stack storage. Before implementation, rewrite its primary criteria around `execute_function` and stack allocations; its appended correction does not repair the old `execute` path and whole-Tick zero-allocation claims.
 - PR 20 follows [source-comments/02](../source-comments/issues/02-apply-the-comment-rule-to-lang.md), [source-comments/03](../source-comments/issues/03-apply-the-comment-rule-to-orcvs.md), [source-comments/04](../source-comments/issues/04-apply-the-comment-rule-to-console.md). Manifest comment cleanup remains with [source-comments/05](../source-comments/issues/05-apply-the-comment-rule-to-scripts-and-configuration.md).
 - PR 17 was delivered by PR #136, recorded in [#18](issues/18-make-toml-the-only-theme-representation.md).
