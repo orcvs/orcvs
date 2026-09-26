@@ -19,7 +19,7 @@ pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
 pub use sequence::{Sequence, Value};
-pub use stack::Stack;
+pub(crate) use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};
 
 #[cfg(test)]
@@ -406,8 +406,8 @@ mod test {
     #[test]
     fn the_atom_is_the_size_the_execute_benchmark_was_measured_against() {
         // Notice rather than a defect, as for the answer seam above: the
-        // `execute` figure and its floor in `benches/floors.toml` were measured
-        // with an eight-byte Atom, and a narrower one measured slower.
+        // `execute` floor in `benches/floors.toml` holds only with an
+        // eight-byte Atom, so a change here is a reason to take it again.
         assert_eq!(size_of::<Atom>(), 8);
     }
 
