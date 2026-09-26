@@ -45,25 +45,18 @@
 # fields would be a dependency this file cannot give a rationale for.
 
 [[floor]]
-name = "execute"
-max_ns = 100
+name = "execute_function"
+max_ns = 60
 # The runner both bench jobs in .github/workflows/bench.yml run on.
 runner = "ubuntu-latest (GitHub Actions hosted runner)"
-# `sequence-values/02` moved `execute` from a CI baseline of 19 ns to 106 ns —
-# a regression of 5.58x — while adding the broadcast seam ADR 0026 needs. Two
-# follow-up fixes brought it to 70 ns (3.68x), which the ratio gate still
-# failed, and the branch was merged anyway with that cost recorded rather than
-# closed: see .scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md
-# and .scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md.
-# 100 ns sits above the accepted 70 ns with headroom for the runner noise
-# `docs/tooling.md` describes as tens of percent between runs, while staying
-# below the 106 ns first regression, so a repeat of that specific broadcast
-# cost still fails here even though it would pass the ratio gate's 150% alert
-# threshold measured against a 70 ns baseline. This is a starting figure, not
-# a measured floor with several settled runs behind it; tighten or loosen it
-# once the series has enough points on `gh-pages` to show where 70 ns
-# actually settles on this runner.
-source = "CI-measured before/after figures recorded in .scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md and .scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md; 100 ns chosen with headroom above the accepted 70 ns figure, not independently re-measured for this file."
+# One scalar Add through `Interpreter::execute_function`, the call a Turn makes.
+# It guards ADR 0026's broadcast seam, which every call passes through. 60 ns
+# is about twice the local figure, headroom for the runner noise
+# `docs/tooling.md` describes as tens of percent between runs. This is a
+# starting figure, not a measured floor with settled runs behind it; tighten it
+# once the series has enough points on `gh-pages` to show where the call
+# settles on this runner.
+source = "Local criterion runs of execute_function at 30-31 ns on an Apple Silicon laptop; 60 ns chosen with headroom for the hosted runner, not yet CI-measured."
 
 # The four `paint_derive` floors below guard the fix
 # `.scratch/paint-cell-cost/issues/03-remove-the-paint-claim-cache-without-caching-paint-on-the-language-map.md`
@@ -75,8 +68,7 @@ source = "CI-measured before/after figures recorded in .scratch/benchmarks/issue
 # paid an allocation and redistribution cost that grew with Grid size.
 # `culled/256x256` guards the claim `console/benches/paint.rs` itself makes —
 # that a fixed 16x16 window stays flat as the underlying Source grows — at the
-# largest Grid this file benchmarks. Reasoned the way `execute`'s floor above
-# is reasoned: each `max_ns` sits with headroom over the worse of the two
+# largest Grid this file benchmarks. Each `max_ns` sits with headroom over the worse of the two
 # accepted-fix CI attempts, wide enough to absorb the "tens of per cent"
 # hosted-runner noise `docs/tooling.md` describes, while staying well below
 # the pre-fix figures (~11,700-11,912 ns at 16x16 and culled/256x256;

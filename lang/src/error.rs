@@ -221,12 +221,6 @@ pub enum InterpretationError {
 
 #[derive(Error, Debug)]
 pub enum TypeError {
-    #[error("expected a function, found {0:?}")]
-    Function(String),
-
-    #[error("expected a bang, found {0:?}")]
-    Bang(String),
-
     #[error("expected a number or note, found {0:?}")]
     Numeric(String),
 
@@ -235,12 +229,6 @@ pub enum TypeError {
 
     #[error("expected a number, found {0:?}")]
     Number(String),
-
-    #[error("expected a char, found {0:?}")]
-    Char(String),
-
-    #[error("expected a string, found {0:?}")]
-    String(String),
 }
 
 #[derive(Error, Debug)]
@@ -268,9 +256,5 @@ pub enum SyntaxError {
 #[derive(Error, Debug)]
 pub enum ArgumentError {
     #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
-    // #[diagnostic(code(ArgumentError))]
     Arity { expected: usize, found: usize },
-
-    #[error("expected a function")]
-    ExpectedFunction,
 }

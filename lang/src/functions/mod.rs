@@ -159,9 +159,8 @@ mod test {
     use super::{control_change, monophonic_play, pitch_bend, raw_play, timed_play};
     use crate::{
         Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
-        Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, Parser,
-        Performance, PlayCommand, Sequence, Tick, TickInputs, Value, Velocity,
-        interpreter::Context,
+        Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, Performance,
+        PlayCommand, Sequence, Tick, TickInputs, Value, Velocity, interpreter::Context,
     };
 
     ///
@@ -172,10 +171,15 @@ mod test {
         TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
     }
 
-    /// Evaluates Source text as a complete parsed Expression.
+    /// Evaluates Source text for one Function over Operand Literals.
     fn interpret(source: &str) -> Result<Interpretation, Error> {
-        let atoms = Parser::from(source).try_parse().unwrap();
-        Interpreter::execute(&atoms, inputs())
+        crate::interpret_source(source)
+    }
+
+    /// A lifetime Play's operands with the Number `3C` where the Note stands:
+    /// what `.vC4` answers there.
+    fn midi_play_with_a_number_note() -> [Value; 4] {
+        [0x00, 0x7F, 0x3C, 0x01].map(|number| Value::Atom(Atom::Number(number)))
     }
 
     /// Exercises Function dispatch with resolved operands in signature order.
@@ -325,7 +329,7 @@ mod test {
         let mut ctx = Context::new(inputs().into(), 4);
 
         // A fourth atom below the three arguments must survive untouched
-        ctx.stack.push(Atom::Char('z')).unwrap();
+        ctx.stack.push(Atom::Bang).unwrap();
         ctx.stack
             .push(Atom::Note(crate::Note::try_from(60).unwrap()))
             .unwrap(); // n
@@ -344,8 +348,8 @@ mod test {
         );
 
         // Exactly three arguments were consumed
-        assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Char('z'));
-        assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Empty);
+        assert_eq!(ctx.stack.pop_value(), Some(Value::Atom(Atom::Bang)));
+        assert_eq!(ctx.stack.pop_value(), None);
     }
 
     #[test]
@@ -500,7 +504,7 @@ mod test {
             }))
         ));
         assert!(matches!(
-            interpret("!%007F.vC401"),
+            evaluate(Function::MonophonicPlay, &midi_play_with_a_number_note()),
             Err(Error::Type(crate::TypeError::Note(found))) if found == "3C"
         ));
 
@@ -569,7 +573,7 @@ mod test {
         // A Number in the note position is refused at evaluation as well as at
         // the parse: `.v` answers one from Source text, and Play infers no Note.
         assert!(matches!(
-            interpret("!~007F.vC401"),
+            evaluate(Function::TimedPlay, &midi_play_with_a_number_note()),
             Err(Error::Type(crate::TypeError::Note(found))) if found == "3C"
         ));
 
@@ -886,11 +890,10 @@ mod test {
     #[test]
     fn a_non_numeric_value_diagnoses_where_a_numeric_conversion_consumes_it() {
         // `TypeError::Numeric` is reachable from Source: `.=` answers a Bang
-        // for equal operands, and `.^` pops it expecting a Number or a Note.
-        // The stack seam is unit-tested where it lives; this is the Source
-        // spelling that proves it is reachable at all.
+        // for equal operands, and a Turn hands it to `.^`, which expects a
+        // Number or a Note.
         assert!(matches!(
-            interpret(".^.=0101"),
+            evaluate(Function::ConvertToNote, &[Value::Atom(Atom::Bang)]),
             Err(Error::Type(crate::TypeError::Numeric(found))) if found == "**"
         ));
     }

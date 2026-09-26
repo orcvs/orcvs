@@ -603,11 +603,14 @@ mod test {
         let grid = Grid::new();
         let mut source = Source::new(grid);
         let root = grid.position(0, 0).unwrap();
-        source.commit_tick(&plan_result(
-            grid,
-            root,
-            Interpretation::Sequence(Sequence::new(encoding.chars().map(Atom::Char)).unwrap()),
-        ));
+        // Every Atom spells two Cells from a narrower alphabet, so the whole
+        // printable range is stated as Source text and admitted through the
+        // result Portal a Tick writes through.
+        let cells = Encoding::literal(&encoding).expect("printable test content");
+        let write = Portal::below(grid, root)
+            .and_then(|portal| portal.admit(&cells))
+            .expect("the printable range fits one row");
+        source.commit_tick(&resolve(vec![Effect::Write(write)]));
         let snapshot = source.snapshot();
         let row = grid.columns();
         assert_eq!(&snapshot[row..row + encoding.len()], encoding);
@@ -1966,6 +1969,39 @@ mod test {
     }
 
     #[test]
+    fn every_effect_function_is_diagnosed_where_a_value_is_required() {
+        // The Turn asks the running Function's declared kind, not which effect
+        // it performs, so a Function declared with any effect is nested-invalid
+        // the day it exists.
+        for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
+            let mut expression = format!(".+{function}");
+            for token in lang::Tokens::from(function) {
+                expression.push_str(match token {
+                    lang::Token::Number => "01",
+                    lang::Token::Note => "C4",
+                    other => panic!("no effect operand is declared as {other:?}"),
+                });
+            }
+            expression.push_str("01");
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), &expression);
+
+            let tick = src.execute();
+
+            assert!(tick.play_commands.is_empty(), "{expression}");
+            assert!(
+                tick.diagnostics
+                    .iter()
+                    .any(|d| d.message
+                        == lang::InterpretationError::NestedEffectFunction.to_string()),
+                "{expression}: {:?}",
+                tick.diagnostics
+            );
+        }
+    }
+
+    #[test]
     fn test_nested_evaluation_cannot_change_play_operand_types() {
         for (expression, expected) in [
             ("!>.^007FC4", "expected a number, found \"C/\""),
@@ -1984,6 +2020,31 @@ mod test {
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, expected, "{expression}");
         }
+    }
+
+    #[test]
+    fn an_activated_play_root_plays_the_answers_of_its_nested_operands() {
+        // A Bang-activated root activates its nested computations too, and
+        // their answers are the operands the Play Command is built from: the
+        // chain sums fifteen literals into the channel, leaving the sixteenth
+        // as the velocity.
+        let expression = format!("!>{}{}C4", ".+".repeat(14), "01".repeat(16));
+        let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(expression.len() * 2), &expression);
+
+        let tick = src.execute();
+
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+        assert_eq!(
+            tick.play_commands,
+            vec![PlayCommand::Raw {
+                channel: MidiChannel::try_from(0x0F).unwrap(),
+                velocity: Velocity::try_from(0x01).unwrap(),
+                note: Note::try_from(60).unwrap(),
+            }]
+        );
     }
 
     #[test]
@@ -2140,6 +2201,71 @@ mod test {
         assert_eq!(src.row(1), "          ");
         assert!(tick.writes.is_empty());
         assert!(tick.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn conversions_are_idempotent_through_nested_source_expressions() {
+        // A nested conversion hands its parent a typed answer, not text for
+        // the parent's declared operand type to re-read: converting a value
+        // already of the target type answers it unchanged.
+        for (expression, written) in [(".v.vC4", "3C"), (".v.^3C", "3C"), (".^.^3C", "C4")] {
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), expression);
+
+            let tick = src.execute();
+
+            assert!(
+                tick.diagnostics.is_empty(),
+                "{expression}: {:?}",
+                tick.diagnostics
+            );
+            assert_eq!(&src.row(1)[..2], written, "{expression}");
+        }
+    }
+
+    #[test]
+    fn equality_composes_with_nested_arithmetic_on_both_answers() {
+        // Equality over a nested sum answers as it does over literals.
+        for (expression, row) in [(".=.+010203", "**        "), (".=.+010204", "          ")] {
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), expression);
+
+            let tick = src.execute();
+
+            assert!(
+                tick.diagnostics.is_empty(),
+                "{expression}: {:?}",
+                tick.diagnostics
+            );
+            assert_eq!(src.row(1), row, "{expression}");
+        }
+
+        // A nested unequal comparison's absent answer is still a typed Empty
+        // operand, so arithmetic over it names what it refused rather than
+        // reporting a missing result or reading the blank Cells as a Number.
+        for (expression, found) in [
+            (".+.=010203", "_"),
+            (".+03.=0102", "_"),
+            (".+.=010103", "**"),
+        ] {
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), expression);
+
+            let tick = src.execute();
+
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert_eq!(
+                tick.diagnostics
+                    .iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>(),
+                [format!("expected a number, found \"{found}\"")],
+                "{expression}"
+            );
+        }
     }
 
     #[test]

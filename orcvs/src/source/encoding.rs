@@ -60,15 +60,17 @@ pub(super) enum Rendered {
 }
 
 ///
-/// Why a value could not become Source Cells at all.
+/// Why text could not become Source Cells at all.
 ///
-/// One cause, and it is the one a Cell's definition allows: `Atom::Char`
-/// carries any `char` — `lang::to_atom_char` takes what it is given — and a
-/// Sequence admits a Char as a member, so a rendering can hold a byte no Cell
-/// can. Every other Atom spells itself in printable ASCII by construction: a
-/// Number is two hexadecimal digits, a Function spelling is asserted to be two
-/// ASCII Cells at compile time, and a Note's rendering can only fail above
-/// `0x7F`, which `Note`'s own `TryFrom<u8>` refuses.
+/// One cause, and it is the one a Cell's definition allows: a byte outside
+/// printable ASCII. [`Encoding::literal`] reaches it from any text it is
+/// handed. [`Encoding::render`] reaches it from no value, because every Atom
+/// spells itself in printable ASCII by construction: a Number is two
+/// hexadecimal digits, a Bang is `**`, a Function spelling is asserted to be
+/// two ASCII Cells at compile time, and a Note's rendering can only fail above
+/// `0x7F`, which `Note`'s own `TryFrom<u8>` refuses. `render` still answers the
+/// refusal rather than asserting it, because it runs inside Tick planning,
+/// where ADR 0028 rules out a panic.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum RenderError {
@@ -146,7 +148,7 @@ impl std::fmt::Display for Encoding {
 #[cfg(test)]
 mod test {
     use super::{Encoding, RenderError, Rendered};
-    use lang::{Atom, Sequence, Value};
+    use lang::{Atom, Function, Note, Sequence, Value};
 
     fn sequence(atoms: impl IntoIterator<Item = Atom>) -> Value {
         Value::Sequence(Sequence::new(atoms).expect("stated members"))
@@ -195,37 +197,56 @@ mod test {
     }
 
     #[test]
-    fn a_char_outside_printable_ascii_renders_no_cells_at_all() {
-        // The one value a Cell's definition refuses. `lang::to_atom_char`
-        // takes any `char`, and a Sequence admits a Char as a member, so this
-        // is reachable from a value rather than only from a hand-written
-        // string — which is why the refusal belongs on the value's side of the
-        // seam and not on the Portal's.
-        //
-        // Refused whole: a rendering that fails leaves nothing to place half
-        // of, so a producer cannot emit the Cells that did decode.
-        for refused in ['\0', '\u{1f}', '\u{7f}', 'é'] {
+    fn every_value_the_language_holds_renders_to_cells() {
+        // What leaves `render`'s refusal unreachable from a value: every Atom
+        // a Sequence admits, and so every Sequence, spells itself in printable
+        // ASCII.
+        let mut atoms: Vec<Atom> = vec![Atom::Bang];
+        atoms.extend((u8::MIN..=u8::MAX).map(Atom::Number));
+        atoms.extend((0..=0x7F).map(|note| Atom::Note(Note::try_from(note).unwrap())));
+        atoms.extend(
+            Function::ALL
+                .iter()
+                .copied()
+                .filter(|function| function.answers_value())
+                .map(Atom::Function),
+        );
+
+        for atom in &atoms {
             assert!(
                 matches!(
-                    Encoding::render(&Value::Atom(Atom::Char(refused))),
+                    Encoding::render(&Value::Atom(*atom)),
+                    Ok(Rendered::Cells(_))
+                ),
+                "{atom:?} did not become Source Cells",
+            );
+        }
+        assert!(matches!(
+            Encoding::render(&sequence(atoms)),
+            Ok(Rendered::Cells(_))
+        ));
+    }
+
+    #[test]
+    fn text_outside_printable_ascii_becomes_no_cells_at_all() {
+        // Refused whole: a literal that fails leaves nothing to place half of.
+        for refused in ["\0", "\u{1f}", "\u{7f}", "é", "0Aé"] {
+            assert!(
+                matches!(
+                    Encoding::literal(refused),
                     Err(RenderError::Unrepresentable(_))
                 ),
                 "{refused:?} became Source Cells",
             );
         }
-
-        assert!(matches!(
-            Encoding::render(&sequence([Atom::Number(0x0A), Atom::Char('é')])),
-            Err(RenderError::Unrepresentable(_))
-        ));
     }
 
     #[test]
-    fn the_error_carries_what_was_rendered() {
-        // The producer's diagnostic names the result it refused, so the
-        // rendering has to survive the refusal that rejected it.
+    fn the_error_carries_what_was_refused() {
+        // A diagnostic names the text it refused, so the text has to survive
+        // the refusal that rejected it.
         assert_eq!(
-            Encoding::render(&Value::Atom(Atom::Char('é'))),
+            Encoding::literal("é"),
             Err(RenderError::Unrepresentable("é".to_string()))
         );
     }

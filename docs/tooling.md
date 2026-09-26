@@ -286,9 +286,8 @@ that commit's point from the memory series on `main` or the allocation compariso
 request. A benchmark
 absent from the file is unguarded and the check passes it without comment; raising a guarded
 figure is a plain, reviewed edit to that file rather than something the check can do on its own.
-`execute` carries the workspace's first floor, seeded from the CI-measured regression and fix
-recorded in `.scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md` and
-`.scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md`. Both bench jobs run
+`execute_function` carries the Interpreter's floor, over the one call a Turn makes; the file
+records how its starting figure was chosen. Both bench jobs run
 `mise-action` with `install: false` to stay off mise's slower cargo tools, so each installs `node`
 by name — `mise install node` — immediately before the one step that needs it, rather than flipping
 that job-wide setting.

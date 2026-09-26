@@ -26,10 +26,10 @@ arrayvec.workspace = true
 # Apache-2.0, no build script).
 rand_chacha = { version = "0.10.0", default-features = false }
 thiserror.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = [
     "fmt",
 ], default-features = false }

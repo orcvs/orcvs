@@ -136,8 +136,7 @@ mod test {
     }
 
     fn interpret(source: &str) -> Result<Interpretation, Error> {
-        let atoms = Parser::from(source).try_parse()?;
-        Interpreter::execute(&atoms, inputs())
+        crate::interpret_source(source)
     }
 
     fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
@@ -178,7 +177,11 @@ mod test {
             )
         );
         assert_eq!(
-            interpret(":<:-0003").unwrap(),
+            evaluate(
+                Function::Reverse,
+                &[Value::Sequence(numbers([0x00, 0x01, 0x02, 0x03]))]
+            )
+            .unwrap(),
             Interpretation::Sequence(numbers([0x03, 0x02, 0x01, 0x00]))
         );
     }
@@ -567,13 +570,28 @@ mod test {
     }
 
     #[test]
-    fn select_and_replace_parse_round_trips_execute_through_nested_operands() {
+    fn select_and_replace_evaluate_over_a_resolved_sequence() {
         assert_eq!(
-            interpret(":?00:-0103").unwrap(),
+            evaluate(
+                Function::Select,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Sequence(numbers([0x01, 0x02, 0x03]))
+                ]
+            )
+            .unwrap(),
             Interpretation::Cell(Atom::Number(0x01))
         );
         assert_eq!(
-            interpret(":=01.+0102:-0103").unwrap(),
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Number(0x01)),
+                    Value::Atom(Atom::Number(0x03)),
+                    Value::Sequence(numbers([0x01, 0x02, 0x03]))
+                ]
+            )
+            .unwrap(),
             Interpretation::Sequence(numbers([0x01, 0x03, 0x03]))
         );
     }
@@ -588,10 +606,6 @@ mod test {
                 &[Value::Atom(Atom::Number(0x00)), Value::Sequence(sequence)]
             )
             .unwrap(),
-            Interpretation::Cell(Atom::Bang)
-        );
-        assert_eq!(
-            interpret(":?00:<:=00.=0101:-0101").unwrap(),
             Interpretation::Cell(Atom::Bang)
         );
     }
@@ -646,9 +660,15 @@ mod test {
     }
 
     #[test]
-    fn number_range_interpret_diagnoses_a_note_operand_bound() {
+    fn number_range_diagnoses_a_note_operand_bound() {
         assert!(matches!(
-            interpret(":-.^3C03"),
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap())),
+                    Value::Atom(Atom::Number(0x03))
+                ]
+            ),
             Err(Error::Type(TypeError::Number(found))) if found == "C4"
         ));
     }

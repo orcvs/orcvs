@@ -967,9 +967,7 @@ fn name_units(
             (Token::Comment, _) => Some(LanguageUnitKind::Comment),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
-            (_, Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_))) => {
-                Some(LanguageUnitKind::OperandLiteral)
-            }
+            (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
             _ => None,
         };
         if let Some(kind) = kind {

@@ -3,7 +3,8 @@ use crate::{Atom, Atoms, Function};
 // A provisional balance for short and nested Expressions; revisit with usage data.
 const INLINE_RECORD_CAPACITY: usize = 8;
 
-const DEFAULT_TOKEN_LEN: usize = 2;
+/// The Cells one Language Unit other than a Comment occupies.
+pub(crate) const DEFAULT_TOKEN_LEN: usize = 2;
 const DEFAULT_CHAR_TOKEN_LEN: usize = 1;
 
 pub type Tokens = Vec<Token>;
@@ -49,6 +50,9 @@ pub enum Token {
     Function,
     Note,
     Number,
+    /// One Cell of leftover content: written, and claimed by no Language
+    /// Unit. The Parser never labels an entry with it; `orcvs` answers it for
+    /// such a Cell so its presentation can tell written Cells from blank ones.
     Char,
     /// An operand a Function declares over every Atom rather than over one
     /// type: the replacement of ADR 0007's Replace, which "may have a
@@ -103,13 +107,6 @@ impl Expression {
         self.records.iter().map(Record::token)
     }
 
-    pub fn take_tokens(self) -> Vec<Token> {
-        self.records
-            .into_iter()
-            .map(|record| record.token())
-            .collect()
-    }
-
     pub fn len(&self) -> usize {
         self.records.len()
     }
@@ -148,7 +145,6 @@ impl Token {
         match self {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
-            Self::Char => crate::atom::to_atom_char(spelling),
             // A generic Atom operand has no literal reading, and the refusal is
             // the decision rather than a gap left for later. CONTEXT.md defines
             // an Operand Literal as two Cells "interpreted as an Atom according
@@ -157,11 +153,7 @@ impl Token {
             // for them to be interpreted against: `07` would have to read as a
             // Number here and as something else there with nothing in the
             // declaration to say which. Choosing one would mint exactly the
-            // intrinsic type that entry denies. No width would serve the choice
-            // in any case — `Atom::Char` spells in one Cell and every other Atom
-            // in two, so `len` below could answer for no decode ranging over all
-            // of them, and the Parser's `atom.to_string().len() == token.len()`
-            // property would be the first thing to break.
+            // intrinsic type that entry denies.
             //
             // No Function declares this operand today, so the refusal also has
             // no caller. Whether Replace's replacement earns a spelling rule of
@@ -188,6 +180,9 @@ impl Token {
             // rest of the Source, a Grid row rather than a fixed-width value,
             // and nothing asks it to decode one.
             Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
+            // Leftover content is a Cell no Language Unit claims, so it has
+            // no Atom to decode to.
+            Self::Char => Err(crate::SyntaxError::ExpectedToken.into()),
         }
     }
 
@@ -206,10 +201,10 @@ impl Token {
         match self {
             Token::Char => DEFAULT_CHAR_TOKEN_LEN,
             // Two Cells is what an operand position occupies whatever fills it.
-            // Every Atom spelling but `Atom::Char` is two Cells wide, and a
-            // nested Function — the only other thing that can stand at an
-            // operand position — is exactly two by the compile-time assertion
-            // `define_functions!` holds every spelling to. That settles both new
+            // Every Atom spelling is two Cells wide, and a nested Function —
+            // the only other thing that can stand at an operand position — is
+            // exactly two by the compile-time assertion `define_functions!`
+            // holds every spelling to. That settles both new
             // declarations. `Atom` and `Sequence` refuse their literal decode
             // above, so this width fixes only how far a refused operand advances
             // and how wide the Span its diagnostic covers is, and two Cells is

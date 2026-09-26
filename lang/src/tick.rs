@@ -10,8 +10,8 @@
 //! Clock, Delay, and Euclidean read the Tick from [`FunctionInputs`]. Random
 //! reads the anchor from the same bundle. Working Source at a Portal travels
 //! there too and binds at Turn. `functions::tick` is where the seam is consumed, so severing
-//! the threading from the Playback Engine to `Interpreter::execute` now changes
-//! what a Source answers rather than nothing at all.
+//! the threading from the Playback Engine to `Interpreter::execute_function`
+//! changes what a Source answers rather than nothing at all.
 //!
 //! Nothing here derives `Default`. There is no Tick a Playback run has not
 //! reached and no Cell an evaluation is not anchored at, so a caller that

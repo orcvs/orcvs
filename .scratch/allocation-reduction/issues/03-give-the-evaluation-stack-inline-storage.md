@@ -59,7 +59,7 @@ to neighbouring structures. `05e4490` ("Avoid heap allocation for common parser 
 shape they established is the shape to follow.
 
 Note the interaction with `lang/src/lib.rs`'s size assertions. The test
-`the_answer_seam_is_the_size_the_execute_benchmark_was_measured_against` pins
+`the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against` pins
 `size_of::<Performance>()` and `size_of::<Interpretation>()` against the `execute` benchmark's
 recorded figures, and its comment explains a 46ns-to-52ns move in terms of those sizes. Inline
 storage changes what `Context` and `Stack` cost, not what `Interpretation` answers, so that test
@@ -69,3 +69,18 @@ measurement to take again.
 **2026-09-25 — from the source-audit review (`source-audit/24`).** `orcvs` never calls `Interpreter::execute`. Each Turn goes through `Interpreter::execute_function`, which builds `Context::new(inputs, operands.len() + 1)` and pushes a clone of every operand `Value`. Inline storage must cover that path, and the allocation test and benchmark named above should measure it: `execute` is reached only by `lang`'s tests, `lang/benches/lang.rs` and `lang/tests/allocation.rs`. `source-audit/24` defers the operand-stack allocation to this ticket.
 
 **2026-09-25 — criteria rewritten around `execute_function`.** The criteria now target the shipped path instead of `execute`. "Allocates nothing at all" is narrowed to the Operand Stack: Sequence operand clones remain on the path until source-audit/24 removes them. The `MAX_OPERANDS + 1` bound replaces the per-Expression capacity question for the shipped path.
+
+**2026-09-26 — `lang/narrow-api` (source-audit PR 11).** `Interpreter::execute` is deleted, not kept
+public, so the "if `execute` stays public" criteria are moot and no overflow branch is needed.
+`execute_function` now sizes the stack at `operands.len()` and dispatches the one Function itself.
+The allocation test is retargeted as
+`evaluating_a_parsed_source_allocates_per_call_and_not_per_row`, measuring `execute_function`
+and publishing `lang call fixture`; its ceiling is still one block per call, so the zero pin
+remains this issue's work. `lang/benches/lang.rs` benchmarks `execute_function`, with its floor
+in `benches/floors.toml`.
+
+**2026-09-26 — from review of `lang/narrow-api`.** `Stack` (`lang/src/stack.rs`) still models a
+growing evaluation stack, though `execute_function` now supplies exactly one Function's operands
+and returns its answer directly. When the storage goes inline, build it as a constructor over the
+resolved operands, so the reversal, the capacity and the incremental pushes stay inside `lang`
+rather than in `execute_function`'s loop.

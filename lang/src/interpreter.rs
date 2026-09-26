@@ -1,6 +1,5 @@
 use crate::{
-    Atom, Error, Function, FunctionInputs, InterpretationError, Performance, Sequence,
-    SourceEffect, Stack, TickInputs, Value,
+    Atom, Error, Function, FunctionInputs, Performance, Sequence, SourceEffect, Stack, Value,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -53,8 +52,8 @@ pub enum Interpretation {
 ///
 /// A Function reaching for the Tick, its anchor, or a declared Portal input
 /// takes `&mut Context` exactly as an arithmetic Function does today, so a
-/// Tick-reading Function is a new arm in `execute` rather than a new evaluation
-/// path.
+/// Tick-reading Function is a new arm in the Interpreter's Function match
+/// rather than a new evaluation path.
 ///
 pub struct Context<'a> {
     pub stack: Stack,
@@ -72,29 +71,15 @@ impl<'a> Context<'a> {
 }
 
 impl Interpreter {
-    ///
-    /// Evaluates one Expression's Atoms against `inputs`.
-    ///
-    /// `inputs` is the whole of what evaluation knows beyond the Atoms
-    /// themselves: nothing here reads a clock, a static, or a thread-local, so
-    /// the same Atoms and the same inputs answer the same way every time.
-    ///
-    #[inline(always)]
-    pub fn execute(atoms: &[Atom], inputs: TickInputs) -> Result<Interpretation, Error> {
-        // No Atom raises the stack depth by more than one: literals push one
-        // value, and Functions pop their operands before producing one value.
-        // The actual Atom count therefore bounds this Expression's peak depth.
-        Self::execute_context(
-            atoms,
-            Context::new(FunctionInputs::new(inputs), atoms.len()),
-        )
-    }
-
     /// Evaluates one Function with already resolved, typed inputs. Literal
-    /// decoding and nested ownership belong to the caller; evaluation retains
-    /// the same type, domain, absence and Sequence rules as `execute`.
+    /// decoding and nested ownership belong to the caller; evaluation applies
+    /// the Function's declared type, domain, absence and Sequence rules.
     /// [`FunctionInputs::portal_source`] borrows working Source when the
     /// Function declares a Portal input. Functions without one ignore it.
+    ///
+    /// `inputs` is the whole of what evaluation knows beyond the operands: no
+    /// clock, static, or thread-local is read, so the same Function over the
+    /// same operands and inputs answers the same way every time.
     ///
     /// ```
     /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Sequence, Tick, TickInputs, Value};
@@ -119,113 +104,81 @@ impl Interpreter {
             }
             .into());
         }
-        let mut ctx = Context::new(inputs, operands.len() + 1);
+        if function.locks_root() {
+            return Ok(Interpretation::Lock);
+        }
+        if let Some(effect) = function.source_effect() {
+            // The Source-writing Functions take no operand and read no
+            // Context: the whole of the effect is declared in the table, so
+            // this reads the declaration rather than repeating eight offsets
+            // and two bundles. ADR 0029's asymmetry lives in the activation
+            // column and the bundle, and both are settled before this.
+            return Ok(Interpretation::Source(effect));
+        }
+        let mut ctx = Context::new(inputs, operands.len());
         for operand in operands.iter().rev() {
             ctx.stack.push(operand.clone())?;
         }
-        Self::execute_context(&[Atom::Function(function)], ctx)
-    }
-
-    fn execute_context(atoms: &[Atom], mut ctx: Context) -> Result<Interpretation, Error> {
-        for (index, atom) in atoms.iter().enumerate().rev() {
-            // info!("atoms: {:?}", atoms);
-            // info!("stack: {:?}", stack);
-            // Every Function answers a language Value, so a Function that returns
-            // a Sequence needs an arm here and nothing else: the push below already
-            // carries whichever shape the Value holds.
-            let value = match atom {
-                // A Function that answers an effect rather than a value can
-                // stand in only one place: the one place nothing consumes an
-                // answer, which is the Expression root the Interpreter reaches
-                // last. The guard asks the Function's declared kind and not
-                // which effect it performs, so the Source-writing Functions of
-                // ADR 0004 are nested-invalid the day they are declared.
-                // Rejecting every other index here leaves each effect arm below
-                // free to assume it is the root.
-                Atom::Function(fun) if !fun.answers_value() && index != 0 => {
-                    return Err(InterpretationError::NestedEffectFunction.into());
-                }
-                Atom::Function(fun) if fun.locks_root() => {
-                    return Ok(Interpretation::Lock);
-                }
-                Atom::Function(fun) if let Some(effect) = fun.source_effect() => {
-                    // The Source-writing Functions take no operand and read no
-                    // Context: the whole of the effect is declared in the
-                    // table, so this arm reads the declaration rather than
-                    // repeating eight offsets and two bundles. ADR 0029's
-                    // asymmetry lives in the activation column and the bundle,
-                    // and both are settled before this.
-                    return Ok(Interpretation::Source(effect));
-                }
-                Atom::Function(fun) => match fun {
-                    Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
-                    Function::Add => math::add(&mut ctx)?,
-                    Function::Clock => tick::clock(&mut ctx)?,
-                    Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
-                    Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
-                    Function::Delay => tick::delay(&mut ctx)?,
-                    Function::Divide => math::divide(&mut ctx)?,
-                    Function::Equality => math::equality(&mut ctx)?,
-                    Function::Euclidean => tick::euclidean(&mut ctx)?,
-                    Function::Increment => tick::increment(&mut ctx)?,
-                    Function::Interpolation => tick::interpolation(&mut ctx)?,
-                    Function::JumpEast
-                    | Function::JumpNorth
-                    | Function::JumpSouth
-                    | Function::JumpWest => functions::jump::jump(&mut ctx, *fun)?,
-                    Function::Random => tick::random(&mut ctx)?,
-                    Function::Concatenate => functions::sequence::concatenate(&mut ctx)?,
-                    Function::NoteRange => functions::sequence::note_range(&mut ctx)?,
-                    Function::NumberRange => functions::sequence::number_range(&mut ctx)?,
-                    Function::Replace => functions::sequence::replace(&mut ctx)?,
-                    Function::Reverse => functions::sequence::reverse(&mut ctx)?,
-                    Function::Select => functions::sequence::select(&mut ctx)?,
-                    Function::Maximum => math::maximum(&mut ctx)?,
-                    Function::Minimum => math::minimum(&mut ctx)?,
-                    Function::Modulo => math::modulo(&mut ctx)?,
-                    Function::Multiply => math::multiply(&mut ctx)?,
-                    Function::Subtract => math::subtract(&mut ctx)?,
-                    Function::ControlChange => {
-                        return Ok(Interpretation::Play(functions::control_change(&mut ctx)?));
-                    }
-                    Function::MonophonicPlay => {
-                        return Ok(Interpretation::Play(functions::monophonic_play(&mut ctx)?));
-                    }
-                    Function::PitchBend => {
-                        return Ok(Interpretation::Play(functions::pitch_bend(&mut ctx)?));
-                    }
-                    Function::RawPlay => {
-                        return Ok(Interpretation::Play(functions::raw_play(&mut ctx)?));
-                    }
-                    Function::TimedPlay => {
-                        return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
-                    }
-                    Function::Halt
-                    | Function::DirectionalBangEast
-                    | Function::DirectionalBangNorth
-                    | Function::DirectionalBangSouth
-                    | Function::DirectionalBangWest
-                    | Function::SelfBangingEast
-                    | Function::SelfBangingNorth
-                    | Function::SelfBangingSouth
-                    | Function::SelfBangingWest => {
-                        unreachable!(
-                            "{fun} returns as a lock or Source write before the value match"
-                        )
-                    }
-                },
-                atom => (*atom).into(),
-            };
-            ctx.stack.push(value)?;
-        }
-
-        // A non-terminal Expression leaves one language value on the stack.
-        // Source decides where that value belongs when it builds the Tick Plan.
-        // An empty stack is the absence marker, not a Sequence of no Atoms.
-        Ok(match ctx.stack.pop_value() {
-            None => Interpretation::Cell(Atom::Empty),
-            Some(Value::Atom(atom)) => Interpretation::Cell(atom),
-            Some(Value::Sequence(sequence)) => Interpretation::Sequence(sequence),
+        // Every Function answers a language Value, so a Function that returns
+        // a Sequence needs an arm here and nothing else: the match below
+        // already carries whichever shape the Value holds.
+        let value = match function {
+            Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
+            Function::Add => math::add(&mut ctx)?,
+            Function::Clock => tick::clock(&mut ctx)?,
+            Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
+            Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
+            Function::Delay => tick::delay(&mut ctx)?,
+            Function::Divide => math::divide(&mut ctx)?,
+            Function::Equality => math::equality(&mut ctx)?,
+            Function::Euclidean => tick::euclidean(&mut ctx)?,
+            Function::Increment => tick::increment(&mut ctx)?,
+            Function::Interpolation => tick::interpolation(&mut ctx)?,
+            Function::JumpEast | Function::JumpNorth | Function::JumpSouth | Function::JumpWest => {
+                functions::jump::jump(&mut ctx, function)?
+            }
+            Function::Random => tick::random(&mut ctx)?,
+            Function::Concatenate => functions::sequence::concatenate(&mut ctx)?,
+            Function::NoteRange => functions::sequence::note_range(&mut ctx)?,
+            Function::NumberRange => functions::sequence::number_range(&mut ctx)?,
+            Function::Replace => functions::sequence::replace(&mut ctx)?,
+            Function::Reverse => functions::sequence::reverse(&mut ctx)?,
+            Function::Select => functions::sequence::select(&mut ctx)?,
+            Function::Maximum => math::maximum(&mut ctx)?,
+            Function::Minimum => math::minimum(&mut ctx)?,
+            Function::Modulo => math::modulo(&mut ctx)?,
+            Function::Multiply => math::multiply(&mut ctx)?,
+            Function::Subtract => math::subtract(&mut ctx)?,
+            Function::ControlChange => {
+                return Ok(Interpretation::Play(functions::control_change(&mut ctx)?));
+            }
+            Function::MonophonicPlay => {
+                return Ok(Interpretation::Play(functions::monophonic_play(&mut ctx)?));
+            }
+            Function::PitchBend => {
+                return Ok(Interpretation::Play(functions::pitch_bend(&mut ctx)?));
+            }
+            Function::RawPlay => {
+                return Ok(Interpretation::Play(functions::raw_play(&mut ctx)?));
+            }
+            Function::TimedPlay => {
+                return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
+            }
+            Function::Halt
+            | Function::DirectionalBangEast
+            | Function::DirectionalBangNorth
+            | Function::DirectionalBangSouth
+            | Function::DirectionalBangWest
+            | Function::SelfBangingEast
+            | Function::SelfBangingNorth
+            | Function::SelfBangingSouth
+            | Function::SelfBangingWest => {
+                unreachable!("{function} returns as a lock or Source write before dispatch")
+            }
+        };
+        Ok(match value {
+            Value::Atom(atom) => Interpretation::Cell(atom),
+            Value::Sequence(sequence) => Interpretation::Sequence(sequence),
         })
     }
 }
@@ -234,11 +187,9 @@ impl Interpreter {
 mod test {
 
     use crate::{
-        Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError,
-        MidiChannel, Note, Parser, Performance, PlayCommand, Tick, TickInputs, Token, TypeError,
-        Velocity, interpreter::Interpreter, trace,
+        Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError, Note,
+        Tick, TickInputs, Token, TypeError, Value, interpreter::Interpreter, trace,
     };
-    use tracing::info;
 
     ///
     /// The explicit inputs for a test that is about neither time nor Position:
@@ -248,23 +199,35 @@ mod test {
         TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
     }
 
-    fn interpret(exp: &str) -> Atom {
-        let parser = Parser::from(exp);
-        let parsed = parser.try_parse().unwrap();
-
-        info!("Parsed: {:?}", parsed);
-
-        match Interpreter::execute(&parsed, inputs()).unwrap() {
-            super::Interpretation::Cell(atom) => atom,
-            other => panic!("expected a Cell result, found {other:?}"),
-        }
+    /// Evaluates one Function over literal operands, the way a Turn hands
+    /// them over once it has resolved them.
+    fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
+        let operands: Vec<Value> = operands.iter().copied().map(Value::Atom).collect();
+        Interpreter::execute_function(function, &operands, inputs().into())
     }
 
-    fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
-        Interpreter::execute(&exp, inputs()).map(|result| match result {
-            super::Interpretation::Cell(atom) => atom,
+    /// `evaluate` for a Function that answers one Cell.
+    fn evaluate_cell(atoms: Vec<Atom>) -> Result<Atom, Error> {
+        let Some((Atom::Function(function), operands)) = atoms.split_first() else {
+            panic!("{atoms:?} does not start with a Function");
+        };
+        evaluate(*function, operands).map(|result| match result {
+            Interpretation::Cell(atom) => atom,
             other => panic!("expected a Cell result, found {other:?}"),
         })
+    }
+
+    /// Source text for one Function over literal operands, read by the Parser
+    /// so a transposed spelling in the table is caught.
+    fn interpret_source(source: &str) -> Result<Atom, Error> {
+        crate::interpret_source(source).map(|result| match result {
+            Interpretation::Cell(atom) => atom,
+            other => panic!("expected a Cell result, found {other:?}"),
+        })
+    }
+
+    fn interpret(source: &str) -> Atom {
+        interpret_source(source).unwrap()
     }
 
     #[test]
@@ -359,21 +322,10 @@ mod test {
         let expected = Atom::Number(2);
         assert_eq!(result, expected);
 
-        let parsed = Parser::from("./0100").try_parse().unwrap();
         assert!(matches!(
-            Interpreter::execute(&parsed, inputs()),
+            interpret_source("./0100"),
             Err(Error::Interpretation(InterpretationError::DivisionByZero))
         ));
-    }
-
-    #[test]
-    fn test_recursive() {
-        trace();
-
-        let result = interpret(".+.+0101.-0A05");
-
-        let expected = Atom::Number(7);
-        assert_eq!(result, expected);
     }
 
     #[test]
@@ -382,7 +334,7 @@ mod test {
 
         let stack = vec![Atom::Function(Function::Add), Atom::Number(1)];
 
-        let result = interpret_stack(stack);
+        let result = evaluate_cell(stack);
 
         let error = result.unwrap_err();
 
@@ -399,16 +351,9 @@ mod test {
     fn test_with_invalid_argument() {
         trace();
 
-        let stack = vec![
-            Atom::Function(Function::Add),
-            Atom::Number(1),
-            Atom::Char('v'),
-            Atom::Char('t'),
-            Atom::Char('h'),
-            Atom::Char('a'),
-        ];
+        let stack = vec![Atom::Function(Function::Add), Atom::Number(1), Atom::Bang];
 
-        let result = interpret_stack(stack);
+        let result = evaluate_cell(stack);
 
         let error = result.unwrap_err();
 
@@ -433,7 +378,7 @@ mod test {
             Function::Subtract,
         ] {
             for operands in [[note, Atom::Number(1)], [Atom::Number(1), note]] {
-                let result = interpret_stack(
+                let result = evaluate_cell(
                     std::iter::once(Atom::Function(function))
                         .chain(operands)
                         .collect(),
@@ -448,8 +393,8 @@ mod test {
 
     #[test]
     fn the_numeric_family_rejects_every_non_number_operand() {
-        // Char and Bang reach the stack from Source text and from an Equality
-        // answer respectively, so neither may coerce into a Number either.
+        // Bang reaches the stack from Source text and Empty from an unequal
+        // Equality answer, so neither may coerce into a Number either.
         for function in [
             Function::AbsoluteDifference,
             Function::Equality,
@@ -457,13 +402,13 @@ mod test {
             Function::Minimum,
             Function::Modulo,
         ] {
-            for operand in [Atom::Char('z'), Atom::Bang, Atom::Empty] {
+            for operand in [Atom::Bang, Atom::Empty] {
                 // Both slots, because a nested Function answers into either
                 // one: an unequal `.=` puts Empty wherever it is written.
                 for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
                     assert!(
                         matches!(
-                            interpret_stack(
+                            evaluate_cell(
                                 std::iter::once(Atom::Function(function))
                                     .chain(operands)
                                     .collect(),
@@ -478,41 +423,15 @@ mod test {
     }
 
     #[test]
-    fn direct_and_nested_arithmetic_report_the_same_missing_operand_diagnostic() {
-        for atoms in [
-            vec![Atom::Function(Function::Add), Atom::Number(1)],
-            vec![
-                Atom::Function(Function::Add),
-                Atom::Function(Function::Add),
-                Atom::Number(1),
-                Atom::Number(2),
-            ],
-        ] {
-            assert!(matches!(
-                interpret_stack(atoms),
-                Err(Error::Argument(ArgumentError::Arity {
-                    expected: 2,
-                    found: 1,
-                }))
-            ));
-        }
-    }
-
-    #[test]
-    fn direct_and_nested_arithmetic_report_the_same_operand_type_diagnostic() {
+    fn an_operand_type_diagnostic_names_the_operand_it_refused() {
+        // A Note, and the Empty an unequal Equality answers into whichever
+        // operand it stands in: neither reads as a Number, and the diagnostic
+        // spells what it found.
         let note = Atom::Note(crate::Note::try_from(60).unwrap());
-        for atoms in [
-            vec![Atom::Function(Function::Add), note, Atom::Number(1)],
-            vec![
-                Atom::Function(Function::Add),
-                Atom::Function(Function::ConvertToNote),
-                Atom::Number(60),
-                Atom::Number(1),
-            ],
-        ] {
+        for (operand, spelled) in [(note, "C4"), (Atom::Empty, "_")] {
             assert!(matches!(
-                interpret_stack(atoms),
-                Err(Error::Type(TypeError::Number(found))) if found == "C4"
+                evaluate_cell(vec![Atom::Function(Function::Add), operand, Atom::Number(1)]),
+                Err(Error::Type(TypeError::Number(found))) if found == spelled
             ));
         }
     }
@@ -533,37 +452,10 @@ mod test {
                 Function::RawPlay.into(),
                 Atom::Number(0),
                 Atom::Number(0x7F),
-                Atom::Char('C'),
+                Atom::Bang,
             ],
         ] {
-            assert!(matches!(
-                Interpreter::execute(&atoms, inputs()),
-                Err(Error::Type(_))
-            ));
-        }
-    }
-
-    #[test]
-    fn every_effect_function_is_invalid_where_a_value_is_required() {
-        // The guard reads the Function's own classification and not which
-        // effect it performs, so a Function declared with any effect kind by a
-        // later issue is nested-invalid the day it exists.
-        for function in Function::ALL.iter().copied().filter(|f| !f.answers_value()) {
-            let atoms = [
-                Atom::Function(Function::Add),
-                Atom::Function(function),
-                Atom::Number(1),
-            ];
-
-            assert!(
-                matches!(
-                    Interpreter::execute(&atoms, inputs()),
-                    Err(Error::Interpretation(
-                        InterpretationError::NestedEffectFunction
-                    ))
-                ),
-                "{function:?}"
-            );
+            assert!(matches!(evaluate_cell(atoms), Err(Error::Type(_))));
         }
     }
 
@@ -577,10 +469,7 @@ mod test {
         );
         assert_eq!(Function::Halt.input_portal(), None);
         assert!(Function::Halt.locks_root());
-        assert_eq!(
-            Interpreter::execute(&[Atom::Function(Function::Halt)], inputs()).unwrap(),
-            Interpretation::Lock
-        );
+        assert_eq!(evaluate(Function::Halt, &[]).unwrap(), Interpretation::Lock);
         assert!(!Function::Halt.answers_value());
         assert!(!Function::Halt.can_emit_bang());
         assert!(!Function::Halt.is_intrinsically_active());
@@ -593,13 +482,13 @@ mod test {
         for function in Function::ALL {
             if function.locks_root() {
                 assert_eq!(
-                    Interpreter::execute(&[Atom::Function(*function)], inputs()).unwrap(),
+                    evaluate(*function, &[]).unwrap(),
                     Interpretation::Lock,
                     "{function:?}"
                 );
             } else if let Some(effect) = function.source_effect() {
                 assert_eq!(
-                    Interpreter::execute(&[Atom::Function(*function)], inputs()).unwrap(),
+                    evaluate(*function, &[]).unwrap(),
                     Interpretation::Source(effect),
                     "{function:?}"
                 );
@@ -618,7 +507,7 @@ mod test {
         // them would make `.v` reject values `.^` never had to accept.
         for value in 0..=u8::MAX {
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNumber),
                     Atom::Number(value),
                 ])
@@ -632,7 +521,7 @@ mod test {
         // which is every value a Note can hold.
         for value in 0..=0x7F {
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNumber),
                     Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
@@ -640,7 +529,7 @@ mod test {
                 Atom::Number(value)
             );
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Number(value),
                 ])
@@ -648,7 +537,7 @@ mod test {
                 Atom::Note(crate::Note::try_from(value).unwrap())
             );
             assert_eq!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
@@ -662,7 +551,7 @@ mod test {
     fn conversion_to_note_rejects_numbers_outside_the_midi_range() {
         for value in 0x80..=u8::MAX {
             assert!(matches!(
-                interpret_stack(vec![
+                evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Number(value),
                 ]),
@@ -672,27 +561,15 @@ mod test {
     }
 
     #[test]
-    fn conversions_are_idempotent_through_nested_source_expressions() {
-        assert_eq!(interpret(".v.vC4"), Atom::Number(60));
-        assert_eq!(
-            interpret(".^.^3C"),
-            Atom::Note(crate::Note::try_from(60).unwrap())
-        );
-    }
-
-    #[test]
     fn conversion_source_literals_use_the_monomorphic_operand_type() {
         assert_eq!(interpret(".vA0"), Atom::Number(21));
 
-        let atoms = Parser::from(".^C4").try_parse().unwrap();
         assert!(matches!(
-            Interpreter::execute(&atoms, inputs()),
+            interpret_source(".^C4"),
             Err(Error::Interpretation(InterpretationError::NoteConversion(
                 0xC4
             )))
         ));
-
-        assert_eq!(interpret(".v.^3C"), Atom::Number(60));
     }
 
     #[test]
@@ -707,7 +584,7 @@ mod test {
 
                 for (a, b) in [(left, right), (right, left)] {
                     assert_eq!(
-                        interpret_stack(vec![
+                        evaluate_cell(vec![
                             Atom::Function(Function::AbsoluteDifference),
                             Atom::Number(a),
                             Atom::Number(b),
@@ -726,7 +603,7 @@ mod test {
         for left in 0..=u8::MAX {
             for right in 1..=u8::MAX {
                 assert_eq!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Modulo),
                         Atom::Number(left),
                         Atom::Number(right),
@@ -747,7 +624,7 @@ mod test {
         for left in 0..=u8::MAX {
             assert!(
                 matches!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Modulo),
                         Atom::Number(left),
                         Atom::Number(0),
@@ -781,7 +658,7 @@ mod test {
                     ),
                 ] {
                     assert_eq!(
-                        interpret_stack(vec![
+                        evaluate_cell(vec![
                             Atom::Function(function),
                             Atom::Number(left),
                             Atom::Number(right),
@@ -832,7 +709,7 @@ mod test {
                     Token::Note => Atom::Note(Note::try_from(value & 0x7F).expect("a MIDI note")),
                     other => panic!("no operand is declared as {other:?}"),
                 }));
-                matches!(interpret_stack(atoms), Ok(Atom::Bang))
+                matches!(evaluate_cell(atoms), Ok(Atom::Bang))
             });
 
             assert_eq!(
@@ -859,7 +736,7 @@ mod test {
                 };
 
                 assert_eq!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Equality),
                         Atom::Number(left),
                         Atom::Number(right),
@@ -882,168 +759,6 @@ mod test {
         assert_eq!(interpret(".<0A03"), Atom::Number(3));
         assert_eq!(interpret(".>0A03"), Atom::Number(10));
         assert_eq!(interpret(".=0A0A"), Atom::Bang);
-
-        // Nested operands resolve before the outer Function sees them
-        assert_eq!(interpret(".<.+0102.%0A03"), Atom::Number(1));
-        assert_eq!(interpret(".|.>0A03.<0A03"), Atom::Number(7));
-    }
-
-    #[test]
-    fn equality_composes_with_nested_arithmetic_on_both_answers() {
-        // The Bang answer stands where a value stands, and the absent answer is
-        // absent everywhere: nesting it as an operand diagnoses rather than
-        // silently reading as a Number.
-        assert_eq!(interpret(".=.+010203"), Atom::Bang);
-        assert_eq!(interpret(".=.+010204"), Atom::Empty);
-
-        let atoms = Parser::from(".+.=010203").try_parse().unwrap();
-        assert!(matches!(
-            Interpreter::execute(&atoms, inputs()),
-            Err(Error::Type(TypeError::Number(found))) if found == "_"
-        ));
-    }
-
-    #[test]
-    fn a_long_addition_chain_evaluates_all_of_its_operands() {
-        let source = format!("{}{}", ".+".repeat(64), "01".repeat(65));
-        let atoms = Parser::from(&source).try_parse().unwrap();
-
-        assert_eq!(
-            Interpreter::execute(&atoms, inputs()).unwrap(),
-            Interpretation::Cell(Atom::Number(65)),
-        );
-    }
-
-    #[test]
-    fn a_play_expression_with_seventeen_pending_values_evaluates() {
-        // The sixteen Number literals stand above the Note before the first
-        // addition consumes any, reproducing the former sixteen-slot panic.
-        let source = "!>.+.+.+.+.+.+.+.+.+.+.+.+.+.+01010101010101010101010101010101C4";
-        let atoms = Parser::from(source).try_parse().unwrap();
-
-        // The chain sums fifteen of the sixteen Operand Literals into the
-        // channel, leaving the sixteenth as the velocity.
-        assert_eq!(
-            Interpreter::execute(&atoms, inputs()).unwrap(),
-            Interpretation::Play(Performance::One(PlayCommand::Raw {
-                channel: MidiChannel::try_from(0x0F).unwrap(),
-                velocity: Velocity::try_from(0x01).unwrap(),
-                note: Note::try_from(60).unwrap(),
-            }))
-        );
-    }
-
-    /// The Source spelling of one Operand Literal of the type `token` names.
-    fn literal(token: Token) -> &'static str {
-        match token {
-            Token::Number => "01",
-            Token::Note => "C4",
-            other => panic!("no operand is declared as {other:?}"),
-        }
-    }
-
-    /// The peak Operand Stack depth a complete walk of `atoms` reaches.
-    ///
-    /// This models the machine rather than measuring it, because the depth a
-    /// walk reaches is not something the Evaluator reports. The model is ADR
-    /// 0028's rule restated once, where a test can read it: the walk runs last
-    /// Atom to first, a literal pushes one value, and a Function pops the
-    /// operands its signature declares and pushes one. Where the Evaluator
-    /// would stop early with a diagnostic the model keeps walking, so its
-    /// answer is an upper bound on what such an Expression actually reached.
-    /// The shapes whose depth is asserted below reach their peak while the
-    /// literals are still being pushed, before any Function has run, so for
-    /// those the model and the machine agree exactly.
-    pub(super) fn peak_depth(atoms: &[Atom]) -> usize {
-        let mut depth: usize = 0;
-        let mut peak: usize = 0;
-
-        for atom in atoms.iter().rev() {
-            if let Atom::Function(function) = atom {
-                let arity = function.signature().len();
-                if depth < arity {
-                    // Too few operands: the Evaluator diagnoses here and the
-                    // walk has already peaked.
-                    break;
-                }
-                depth -= arity;
-            }
-            depth += 1;
-            peak = peak.max(depth);
-        }
-
-        peak
-    }
-
-    #[test]
-    fn nested_chains_under_every_root_do_not_exhaust_the_operand_stack() {
-        // A test budget, not a language limit. Chains put every Function ahead
-        // of its literals, making the reverse walk hold them all at once.
-        const CHAIN_LENGTH: usize = 64;
-        let binary: Vec<Function> = Function::ALL
-            .iter()
-            .copied()
-            .filter(|function| {
-                function.answers_value()
-                    && function.signature().len() == 2
-                    && function
-                        .signature()
-                        .iter()
-                        .all(|token| *token == Token::Number)
-            })
-            .collect();
-
-        let widest = Function::ALL
-            .iter()
-            .map(|function| function.signature().len())
-            .max()
-            .expect("the definitions declare at least one Function");
-        let mut deepest_walk_reached = 0;
-
-        // A root declaring no operand has no position for a chain to stand in,
-        // and appending one spells trailing content the Parser rejects rather
-        // than a deeper walk. The Self-Banging and Directional Bang Functions
-        // are the rows this skips; every other row still carries the chain.
-        for root in Function::ALL.iter().copied().filter(|root| {
-            !root.takes_no_operand()
-                && root
-                    .signature()
-                    .iter()
-                    .all(|token| !matches!(token, Token::Atom | Token::Sequence))
-        }) {
-            for link in binary.iter().copied() {
-                for chain in 1..=CHAIN_LENGTH {
-                    // The chain stands in the first operand, which the
-                    // right-to-left walk reaches last and so with the most
-                    // already on the stack.
-                    let mut source = root.spelling().to_owned();
-                    source.push_str(&link.spelling().repeat(chain));
-                    source.push_str(&literal(Token::Number).repeat(chain + 1));
-                    for token in root.signature().iter().skip(1) {
-                        source.push_str(literal(*token));
-                    }
-
-                    let atoms = Parser::from(&source).try_parse().unwrap();
-                    deepest_walk_reached = deepest_walk_reached.max(peak_depth(&atoms));
-
-                    // Any diagnostic but one is an acceptable answer: an
-                    // operand may be mistyped or out of its domain. Exhaustion
-                    // is the one the bound rules out, and a panic fails the
-                    // test outright.
-                    assert!(
-                        !matches!(
-                            Interpreter::execute(&atoms, inputs()),
-                            Err(Error::Interpretation(
-                                InterpretationError::OperandStackExhausted { .. }
-                            ))
-                        ),
-                        "{root:?} over a chain of {chain} {link:?} exhausted the Operand Stack",
-                    );
-                }
-            }
-        }
-
-        assert_eq!(deepest_walk_reached, CHAIN_LENGTH + widest);
     }
 
     #[test]
@@ -1062,7 +777,7 @@ mod test {
                     ),
                 ] {
                     assert_eq!(
-                        interpret_stack(vec![
+                        evaluate_cell(vec![
                             Atom::Function(function),
                             Atom::Number(left),
                             Atom::Number(right),
@@ -1092,7 +807,7 @@ mod test {
         for left in 0..=u8::MAX {
             assert!(
                 matches!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Divide),
                         Atom::Number(left),
                         Atom::Number(0),
@@ -1111,7 +826,7 @@ mod test {
                 }
 
                 assert_eq!(
-                    interpret_stack(vec![
+                    evaluate_cell(vec![
                         Atom::Function(Function::Divide),
                         Atom::Number(left),
                         Atom::Number(right),
@@ -1122,223 +837,5 @@ mod test {
                 );
             }
         }
-    }
-}
-
-/// Generated Expression shapes complement the deterministic deep chains:
-/// every generated source parses, and its Atom count suffices for evaluation.
-/// Type and domain errors are legitimate evaluation outcomes; stack exhaustion
-/// is not.
-///
-/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
-/// table that declares proptest, so a WASM build never sees the dependency.
-///
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod property {
-    use super::test::peak_depth;
-    use crate::{
-        Anchor, Error, Function, InterpretationError, Interpreter, Parser, Tick, TickInputs, Token,
-        midi_number_to_note,
-    };
-    use proptest::collection::vec;
-    use proptest::prelude::*;
-    use proptest::sample::select;
-    use proptest::test_runner::{Config, TestRunner};
-    use std::cell::Cell;
-
-    /// Generation budgets only; neither constrains accepted Source.
-    const NESTING: u32 = 3;
-    const CHAIN_LENGTH: usize = 64;
-
-    /// One Function applied to Source text for each of its operands.
-    fn apply(function: Function, operands: &[String]) -> String {
-        let mut source = function.spelling().to_owned();
-        source.extend(operands.iter().map(String::as_str));
-        source
-    }
-
-    /// Source text for one Operand Literal of the type its position declares.
-    ///
-    /// Reading the `Token` is what keeps a generated Expression parseable. A
-    /// Note in a Number position and a Number in a Note position are both
-    /// refused as Source text rather than diagnosed as an operand, so a
-    /// generator that ignored the declaration would spend much of its budget
-    /// on cases the Evaluator never sees.
-    fn literal_source(token: Token) -> BoxedStrategy<String> {
-        match token {
-            Token::Number => any::<u8>()
-                .prop_map(|number| format!("{number:02X}"))
-                .boxed(),
-            Token::Note => (0x00u8..=0x7F)
-                .prop_map(|note| midi_number_to_note(note).expect("a MIDI Note"))
-                .boxed(),
-            other => panic!("no operand is declared as {other:?}"),
-        }
-    }
-
-    /// Every Value Function, read from the definitions rather than listed, so a
-    /// Function added later is generated the day it exists.
-    fn value_functions() -> Vec<Function> {
-        Function::ALL
-            .iter()
-            .copied()
-            .filter(|function| function.answers_value())
-            .collect()
-    }
-
-    /// The binary Value Functions, which are the ones a chain is built from.
-    fn binary_value_functions() -> Vec<Function> {
-        value_functions()
-            .into_iter()
-            .filter(|function| {
-                function.signature().len() == 2
-                    && function
-                        .signature()
-                        .iter()
-                        .all(|token| *token == Token::Number)
-            })
-            .collect()
-    }
-
-    /// A left-leaning chain of binary Value Functions.
-    ///
-    /// This shape is generated deliberately rather than left to the nesting
-    /// below, because it is the one that grows the Operand Stack: prefix order
-    /// puts every Function ahead of every operand, so the walk pushes all of a
-    /// chain's literals before its innermost Function consumes one.
-    ///
-    /// Mix short chains and longer ones within the test's generation budget.
-    fn chain_source() -> BoxedStrategy<String> {
-        // A zero-link chain is a Number literal, which would be invalid in a
-        // Note slot. The separate literal strategy already respects slot types.
-        prop_oneof![4 => 1usize..4, 1 => 1usize..=CHAIN_LENGTH]
-            .prop_flat_map(|length| {
-                (
-                    vec(select(binary_value_functions()), length),
-                    vec(literal_source(Token::Number), length + 1),
-                )
-            })
-            .prop_map(|(functions, literals)| {
-                let mut source: String = functions.iter().map(|f| f.spelling()).collect();
-                source.extend(literals.iter().map(String::as_str));
-                source
-            })
-            .boxed()
-    }
-
-    /// Source text for one operand of the declared type: a literal, a chain, or
-    /// a Value Function over operands generated the same way.
-    fn operand_source(token: Token, depth: u32) -> BoxedStrategy<String> {
-        if matches!(token, Token::Atom | Token::Sequence) {
-            return nested_source(depth.max(1));
-        }
-
-        if depth == 0 {
-            return literal_source(token);
-        }
-
-        prop_oneof![
-            5 => literal_source(token),
-            2 => chain_source(),
-            3 => nested_source(depth),
-        ]
-        .boxed()
-    }
-
-    /// A Value Function over operands of the types its signature declares.
-    fn nested_source(depth: u32) -> BoxedStrategy<String> {
-        select(value_functions())
-            .prop_flat_map(move |function| {
-                let operands: Vec<BoxedStrategy<String>> = function
-                    .signature()
-                    .iter()
-                    .map(|token| operand_source(*token, depth - 1))
-                    .collect();
-                (Just(function), operands)
-            })
-            .prop_map(|(function, operands)| apply(function, &operands))
-            .boxed()
-    }
-
-    /// Source text for one whole Expression, including terminal roots.
-    fn expression_source() -> BoxedStrategy<String> {
-        select(Function::ALL)
-            .prop_flat_map(|function| {
-                let operands: Vec<BoxedStrategy<String>> = function
-                    .signature()
-                    .iter()
-                    .map(|token| operand_source(*token, NESTING))
-                    .collect();
-                (Just(function), operands)
-            })
-            .prop_map(|(function, operands)| apply(function, &operands))
-            .boxed()
-    }
-
-    ///
-    /// The Tick inputs for a property about Atoms rather than about time or
-    /// Position: the first Tick of a Playback run, at the Grid origin.
-    ///
-    fn inputs() -> TickInputs {
-        TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
-    }
-
-    ///
-    /// Evaluation is total over the Expressions strict parsing accepts, and
-    /// never exhausts the Operand Stack. A panic fails a case outright, which
-    /// is what a 64-Cell Expression used to produce; a mistyped or
-    /// out-of-domain operand is an acceptable answer, and exhaustion is the one
-    /// diagnostic the bound rules out.
-    ///
-    /// The direct runner also checks that the generated cases reach a depth
-    /// requiring nested Expressions.
-    ///
-    #[test]
-    fn evaluating_every_expression_the_parser_accepts_returns_rather_than_panicking() {
-        // Naming the source file is what `proptest!` would have done. The
-        // persistence layer derives a regression file's name from it, and
-        // declines to write one when it is unset, so driving the runner
-        // directly to count the cases means saying where this property lives.
-        let config = Config {
-            source_file: Some(file!()),
-            ..Config::default()
-        };
-        let deepest_walk = Cell::new(0usize);
-
-        TestRunner::new(config)
-            .run(&expression_source(), |source| {
-                let parsed = Parser::from(&source).try_parse();
-                prop_assert!(parsed.is_ok(), "{source:?} failed to parse: {parsed:?}");
-                let atoms = parsed.unwrap();
-                deepest_walk.set(deepest_walk.get().max(peak_depth(&atoms)));
-
-                let exhausted = matches!(
-                    Interpreter::execute(&atoms, inputs()),
-                    Err(Error::Interpretation(
-                        InterpretationError::OperandStackExhausted { .. }
-                    ))
-                );
-
-                prop_assert!(!exhausted, "{source:?} exhausted the Operand Stack");
-                Ok(())
-            })
-            .unwrap_or_else(|error| panic!("{error}"));
-
-        // And what reaches it must be nested rather than flat. One Function
-        // over its own operands peaks at its arity, so a depth past the widest
-        // signature is the shallowest evidence that operands are themselves
-        // Expressions here.
-        let widest = Function::ALL
-            .iter()
-            .map(|function| function.signature().len())
-            .max()
-            .expect("the definitions declare at least one Function");
-
-        assert!(
-            deepest_walk.get() > widest,
-            "the deepest generated walk reached {}, which no signature of {widest} operands \
-             had to nest to produce",
-            deepest_walk.get(),
-        );
     }
 }

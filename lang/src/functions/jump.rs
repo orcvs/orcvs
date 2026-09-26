@@ -1,6 +1,6 @@
 use crate::{
-    Atom, Error, Function, InterpretationError, Value, interpreter::Context, to_atom_note,
-    to_atom_num,
+    Atom, Error, Function, InterpretationError, Value, expression::DEFAULT_TOKEN_LEN,
+    interpreter::Context, to_atom_note, to_atom_num,
 };
 
 /// The Language Unit at a Jump's input Portal.
@@ -9,12 +9,15 @@ use crate::{
 /// complete aligned unit. Empty and Bang are values; any other admitted
 /// two-Cell unit is the Atom those Cells spell. Alignment, Sequence
 /// membership, and partial Spans never reach here. A missing or invalid
-/// spelling is diagnosed rather than delivered as a write.
+/// spelling, or Cells that are not exactly one two-Cell unit, is diagnosed
+/// rather than delivered as a write: blank Cells of another width are not an
+/// Empty unit.
 pub fn jump(ctx: &mut Context, function: Function) -> Result<Value, Error> {
     let cells = ctx
         .inputs
         .portal_source()
         .cells()
+        .filter(|cells| cells.len() == DEFAULT_TOKEN_LEN)
         .ok_or(InterpretationError::JumpInput { function })?;
     if cells.bytes().all(|cell| cell == b' ') {
         return Ok(Atom::Empty.into());
@@ -103,5 +106,25 @@ mod test {
                 }
             ))
         ));
+    }
+
+    #[test]
+    fn a_portal_that_is_not_one_two_cell_unit_diagnoses() {
+        // Blank Cells of the wrong width are not an Empty unit, and a wider
+        // run whose digits still parse is not a Number: only exactly two
+        // Cells are a Language Unit a Jump can copy.
+        for cells in ["", " ", "   ", "    ", "1", "001", "0001", "****"] {
+            assert!(
+                matches!(
+                    evaluate(Function::JumpEast, Some(cells)),
+                    Err(crate::Error::Interpretation(
+                        InterpretationError::JumpInput {
+                            function: Function::JumpEast
+                        }
+                    ))
+                ),
+                "{cells:?} was read as a Language Unit",
+            );
+        }
     }
 }

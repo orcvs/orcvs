@@ -3,9 +3,6 @@ use crate::{
     Sequence, SequenceError, Token, TypeError, Value,
 };
 use arrayvec::ArrayVec;
-use std::ops::Deref;
-
-pub struct MaybeAtom(pub Option<Atom>);
 
 pub(crate) enum NumericValue {
     Note(Note),
@@ -287,7 +284,7 @@ impl Stack {
 
     /// Pushes one value, diagnosing a stack with no slot left.
     ///
-    /// The Interpreter supplies the Expression's Atom count as the limit.
+    /// The Interpreter supplies the Function's operand count as the limit.
     /// Check that logical limit, not the allocator's possibly larger capacity.
     #[inline(always)]
     pub fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {
@@ -301,32 +298,11 @@ impl Stack {
         Ok(())
     }
 
-    /// Pops one slot as the scalar Atom a caller outside Function evaluation
-    /// asks for, answering the absence marker for an empty stack.
-    ///
-    /// Function evaluation does not come through here: it pops whole [`Value`]s
-    /// at the broadcast seam, where the popping Function's declared pervasion
-    /// decides whether a Sequence widens the operation. This raises the same
-    /// `ExpectedAtom` diagnostic a Scalar Function's operand raises there,
-    /// because the rule is the same one — a Sequence has no scalar reading —
-    /// and answering with its first Atom would silently discard the rest.
-    #[inline(always)]
-    pub fn pop(&mut self) -> Result<MaybeAtom, Error> {
-        match self.inner.pop() {
-            None => Ok(MaybeAtom(None)),
-            Some(Value::Atom(atom)) => Ok(MaybeAtom(Some(atom))),
-            Some(Value::Sequence(sequence)) => {
-                Err(SequenceError::ExpectedAtom(sequence.into()).into())
-            }
-        }
-    }
-
-    /// Pops one slot as the whole language value it is.
-    ///
-    /// The Interpreter answers with whatever the Expression left here, so a
-    /// Sequence leaves evaluation intact instead of being refused as a scalar.
-    #[inline(always)]
-    pub fn pop_value(&mut self) -> Option<Value> {
+    /// Pops one slot as the whole language value it is, so a test can read
+    /// what a Function left behind. Evaluation consumes operands only through
+    /// the declared pops below.
+    #[cfg(test)]
+    pub(crate) fn pop_value(&mut self) -> Option<Value> {
         self.inner.pop()
     }
 
@@ -758,24 +734,6 @@ fn check_token(expected: Token, atom: Atom) -> Result<(), Error> {
     }
 }
 
-impl Deref for MaybeAtom {
-    type Target = Option<Atom>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<MaybeAtom> for Atom {
-    #[inline(always)]
-    fn from(maybe_atom: MaybeAtom) -> Self {
-        match maybe_atom.0 {
-            Some(a) => a,
-            None => Atom::Empty,
-        }
-    }
-}
-
 impl TryFrom<Atom> for NumericValue {
     type Error = Error;
 
@@ -815,13 +773,7 @@ mod test {
     /// Function among them — is covered the day it exists rather than the day
     /// someone remembers this list.
     fn every_atom() -> Vec<Atom> {
-        let mut atoms = vec![
-            Atom::Bang,
-            Atom::Char('z'),
-            Atom::Empty,
-            Atom::Number(0),
-            note(60),
-        ];
+        let mut atoms = vec![Atom::Bang, Atom::Empty, Atom::Number(0), note(60)];
 
         atoms.extend(Function::ALL.iter().copied().map(Atom::Function));
         atoms
@@ -2323,15 +2275,14 @@ mod test {
         ));
 
         // The refused value displaced nothing already on the stack.
-        assert_eq!(Atom::from(stack.pop().unwrap()), Atom::Number(1));
-        assert_eq!(Atom::from(stack.pop().unwrap()), Atom::Number(0));
+        assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(1))));
+        assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(0))));
     }
 
     #[test]
-    fn an_empty_stack_still_pops_the_absence_marker() {
+    fn an_empty_stack_pops_no_value() {
         let mut stack = empty_stack();
 
-        assert_eq!(Atom::from(stack.pop().unwrap()), Atom::Empty);
         assert_eq!(stack.pop_value(), None);
     }
 }

@@ -8,13 +8,17 @@ The third drop this ticket once named — a Sequence or Atom-or-Sequence operand
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Interpreting Atoms that leave more than one value is a diagnosed error, with a test, or `execute` is no longer public shipped API.
-- [ ] Jump diagnoses a Portal whose width is not the two-Cell unit, including an empty one, with a test.
-- [ ] The `Answer::Sequence` documentation matches the Function table.
-- [ ] Parser and interpreter property tests still pass.
+- [x] Interpreting Atoms that leave more than one value is a diagnosed error, with a test, or `execute` is no longer public shipped API.
+- [x] Jump diagnoses a Portal whose width is not the two-Cell unit, including an empty one, with a test.
+- [x] The `Answer::Sequence` documentation matches the Function table.
+- [x] Parser and interpreter property tests still pass.
 
 ## Comments
 
 **2026-09-25 — audited against `origin/main` `199c3331`.** `lang/` is unchanged since the audit baseline, so the findings hold. Reframed as contract hardening after tracing the shipped path; criterion (c) moved to 25.
+
+**2026-09-25 — resolved on `lang/narrow-api`.** (a) took the narrowing alternative further: `Interpreter::execute` and the Atom-list walk behind it are deleted, so the path that dropped values no longer exists. Tests, the benchmark and the allocation test go through `execute_function`, the call a Turn makes; nested evaluation is `orcvs`'s and tested there (shared with 09). (b) Jump diagnoses `JumpInput` for any Portal that is not exactly two Cells, including an empty one (`a_portal_that_is_not_one_two_cell_unit_diagnoses`). The `Answer::Sequence` doc names Concatenate, Note Range, Number Range, Replace and Reverse. Parser property tests pass at `PROPTEST_CASES=32`.
+
+**2026-09-26 — property coverage, corrected.** The ticked property criterion holds for the Parser only. `lang`'s interpreter property module and its nested-chain examples tested `Interpreter::execute`'s Atom-list walk and were deleted with it: `execute_function` takes resolved operands and cannot nest, so no generated nested Expression reaches it. Deep chains through the shipped path are covered by `orcvs` examples (`source/tick.rs`, the 24-deep division chain; `source/model.rs`, the 33-deep addition chain) and the effect-Function sweep in `source/model.rs`. The generated breadth returns as `orcvs`'s `source::tick::nested_property`, which generates nested Source the Parser accepts and runs it through `tick::plan`: no Tick panics, exhausts an Operand Stack, or leaves an active root unanswered and undiagnosed.
