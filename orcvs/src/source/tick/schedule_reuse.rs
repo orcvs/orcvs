@@ -13,7 +13,7 @@ use lang::Tick;
 use super::execution::{self, ComputationState};
 use super::{plan, plan_unshared};
 use crate::grid::{CellIndex, Grid};
-use crate::source::{CellContent, CellWrite, LanguageMap, Source, TickPlan};
+use crate::source::{CellContent, CellWrite, Cells, LanguageMap, Source, TickPlan};
 
 fn cell(grid: Grid, idx: usize) -> CellIndex {
     grid.cell_index(idx).expect("inside the Grid")
@@ -58,8 +58,9 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
     let grid = source.grid();
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (shared, shared_states) = plan(grid, bytes.as_bytes(), &map, Tick::new(tick));
-    let (fresh, fresh_states) = plan_unshared(grid, bytes.as_bytes(), &map, Tick::new(tick));
+    let (shared, shared_states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
+    let (fresh, fresh_states) =
+        plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     assert_eq!(
         shared, fresh,
         "the shared schedule planned Tick {tick} differently"
@@ -83,7 +84,14 @@ fn stale_tick(source: &Source, earlier: &LanguageMap, tick: u64) -> TickPlan {
     let current = source.shared_language_map();
     match earlier.schedule_cache().schedule(grid, earlier) {
         Ok(schedule) => {
-            execution::execute(grid, bytes.as_bytes(), &current, Tick::new(tick), schedule).0
+            execution::execute(
+                grid,
+                Cells::of(bytes.as_bytes()),
+                &current,
+                Tick::new(tick),
+                schedule,
+            )
+            .0
         }
         Err(diagnostics) => super::unscheduled(diagnostics.clone()).0,
     }

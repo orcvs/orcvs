@@ -8,7 +8,7 @@ use crate::grid::{CellIndex, Grid, Position};
 
 use super::portal::{Portal, SCALAR_WIDTH};
 use super::tick::ScheduleCache;
-use super::{CellContent, Diagnostic};
+use super::{Cells, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
 
@@ -309,9 +309,9 @@ impl LanguageMap {
     /// Returns `None` when `source` is not exactly one printable-ASCII Cell per
     /// Position in `grid`.
     pub fn derive(grid: Grid, source: &str) -> Option<Self> {
-        (source.len() == grid.count()
-            && source.bytes().all(|byte| CellContent::new(byte).is_some()))
-        .then(|| Self::build(grid, source.as_bytes()))
+        Cells::checked(source.as_bytes())
+            .filter(|cells| cells.bytes().len() == grid.count())
+            .map(|cells| Self::build(grid, cells))
     }
 
     /// Rebuilds written rows and shares every other row's complete derivation.
@@ -329,11 +329,11 @@ impl LanguageMap {
     pub(super) fn rebuild(
         previous: &Self,
         grid: Grid,
-        bytes: &[u8],
+        cells: Cells<'_>,
         dirty: &BTreeSet<usize>,
     ) -> Self {
         assert_eq!(
-            bytes.len(),
+            cells.bytes().len(),
             grid.count(),
             "LanguageMap Source length must match its Grid"
         );
@@ -342,12 +342,12 @@ impl LanguageMap {
             "a LanguageMap is rebuilt on the Grid that built it"
         );
         let mut empty = None;
-        let rows: Vec<_> = bytes
-            .chunks_exact(grid.columns())
+        let rows: Vec<_> = cells
+            .rows(grid.columns())
             .enumerate()
-            .map(|(row, bytes)| {
+            .map(|(row, cells)| {
                 if dirty.contains(&row) {
-                    DerivedRow::derive(grid, row * grid.columns(), bytes).shared(&mut empty)
+                    DerivedRow::derive(grid, row * grid.columns(), cells).shared(&mut empty)
                 } else {
                     Arc::clone(&previous.rows[row])
                 }
@@ -368,18 +368,18 @@ impl LanguageMap {
         }
     }
 
-    pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
+    pub(super) fn build(grid: Grid, cells: Cells<'_>) -> Self {
         assert_eq!(
-            bytes.len(),
+            cells.bytes().len(),
             grid.count(),
             "LanguageMap Source length must match its Grid"
         );
         let mut empty = None;
-        let rows = bytes
-            .chunks_exact(grid.columns())
+        let rows = cells
+            .rows(grid.columns())
             .enumerate()
-            .map(|(row, bytes)| {
-                DerivedRow::derive(grid, row * grid.columns(), bytes).shared(&mut empty)
+            .map(|(row, cells)| {
+                DerivedRow::derive(grid, row * grid.columns(), cells).shared(&mut empty)
             })
             .collect();
         Self {
@@ -504,20 +504,20 @@ impl LanguageMap {
     /// not a claim. Each claim is stored once and shared by every Cell it
     /// covers.
     ///
-    /// `bytes` is the Source revision this Map was derived from, which the
+    /// `cells` are the Source revision this Map was derived from, which the
     /// Map deliberately does not retain. Each claim reads its own Cells there
     /// once, as it is built, to answer [`Claim::written`].
     ///
-    pub(crate) fn claims_by_cell(&self, bytes: &[u8]) -> Vec<Option<Arc<Claim>>> {
+    pub(super) fn claims_by_cell(&self, cells: Cells<'_>) -> Vec<Option<Arc<Claim>>> {
         assert_eq!(
-            bytes.len(),
+            cells.bytes().len(),
             self.grid.count(),
             "LanguageMap Source length must match its Grid"
         );
         let mut by_index = vec![None; self.grid.count()];
         for expression in self.expressions() {
             for entry in expression.positioned() {
-                let claim = Arc::new(Claim::from_entry(entry, bytes));
+                let claim = Arc::new(Claim::from_entry(entry, cells.bytes()));
                 for index in entry.cells.clone() {
                     by_index[index] = Some(Arc::clone(&claim));
                 }
@@ -782,9 +782,9 @@ impl DerivedRow {
     /// Parser claims and diagnostics are finalized here for both full
     /// construction and incremental replacement. Source positions remain Grid
     /// indices; only unit ranges are local to the row.
-    fn derive(grid: Grid, row_start: usize, bytes: &[u8]) -> Self {
+    fn derive(grid: Grid, row_start: usize, row: Cells<'_>) -> Self {
         let mut walk = RowWalk::default();
-        walk_row(grid, row_start, bytes, &mut walk);
+        walk_row(grid, row_start, row, &mut walk);
         debug_assert!(
             walk.units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
             "Language Units are partitioned in ascending anchor order"
@@ -904,12 +904,13 @@ struct RowWalk {
 /// Function, because an Expression may begin at any column and a two-Cell
 /// spelling holding a `#` could present one to an overlapping byte pair.
 ///
-fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
+fn walk_row(grid: Grid, row_start: usize, row: Cells<'_>, walk: &mut RowWalk) {
     let cell = |idx: usize| {
         grid.cell_index(idx)
             .expect("a row's Cells lie inside the Grid that owns the row")
     };
-    let text = std::str::from_utf8(row).expect("Source Cells contain ASCII");
+    let text = row.as_str();
+    let row = row.bytes();
 
     let mut idx = row_start;
     // The row edge, and the only boundary left. The Comment moved into the
@@ -1019,6 +1020,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::grid::Grid;
+    use crate::source::Cells;
 
     use lang::{Atom, Function, Token};
 
@@ -1032,7 +1034,7 @@ mod tests {
         // report rather than answer, so neither contributes a Bang.
         for source in ["!>00**C4", "!>**7F  "] {
             let grid = Grid::with_shape(8, 2);
-            let map = LanguageMap::build(grid, format!("{source}        ").as_bytes());
+            let map = LanguageMap::build(grid, Cells::of(format!("{source}        ").as_bytes()));
             assert_eq!(map.bangs().count(), 0, "{source}");
             assert!(
                 !map.units()
@@ -1049,7 +1051,7 @@ mod tests {
         // costs only its own Cells. `**X0**` was one refused six-Cell run
         // before the partition was decided by the parse.
         let grid = Grid::with_shape(6, 1);
-        let map = LanguageMap::build(grid, b"**X0**");
+        let map = LanguageMap::build(grid, Cells::of(b"**X0**"));
 
         assert_eq!(
             map.bangs()
@@ -1063,7 +1065,7 @@ mod tests {
     fn parsed_function_candidates_survive_missing_or_invalid_operands() {
         for source in ["!>", "!>007F", "!>00**C4"] {
             let grid = Grid::with_shape(source.len(), 1);
-            let map = LanguageMap::build(grid, source.as_bytes());
+            let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
             let expression = map.expressions().next().unwrap();
             assert_eq!(
                 expression.function_candidate(),
@@ -1081,7 +1083,7 @@ mod tests {
     fn expression_layout_retains_slots_beyond_invalid_and_missing_source() {
         for source in ["!>**7F", "!>00  "] {
             let grid = Grid::with_shape(12, 1);
-            let map = LanguageMap::build(grid, format!("{source}      ").as_bytes());
+            let map = LanguageMap::build(grid, Cells::of(format!("{source}      ").as_bytes()));
             let expression = map.expressions().next().unwrap();
             assert_eq!(
                 expression
@@ -1108,7 +1110,7 @@ mod tests {
         // Cell costs that Cell rather than the rest of the row.
         for (source, column) in [("XX!>007FC4", 2), ("**!>007FC4", 2), ("0!>007FC4", 1)] {
             let grid = Grid::with_shape(source.len(), 1);
-            let map = LanguageMap::build(grid, source.as_bytes());
+            let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
             assert_eq!(
                 map.expressions()
                     .filter_map(|expression| expression.function_candidate())
@@ -1123,7 +1125,7 @@ mod tests {
     #[test]
     fn adjacent_standalone_bangs_have_distinct_parsed_spans() {
         let grid = Grid::with_shape(6, 1);
-        let map = LanguageMap::build(grid, b"**>>**");
+        let map = LanguageMap::build(grid, Cells::of(b"**>>**"));
         assert_eq!(
             map.bangs()
                 .map(|(anchor, span)| (anchor.x(), span.start().get(), span.end().get()))
@@ -1136,7 +1138,7 @@ mod tests {
     /// The Expression Spans of a whole Source revision, in row-major order.
     ///
     fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
-        LanguageMap::build(grid, bytes)
+        LanguageMap::build(grid, Cells::of(bytes))
             .expressions()
             .map(|expression| expression.span())
             .collect()
@@ -1249,9 +1251,9 @@ mod tests {
 
     #[test]
     fn language_map_partitions_complete_units_left_to_right_without_overlap() {
-        let bangs = LanguageMap::build(Grid::with_shape(3, 1), b"***");
-        let west = LanguageMap::build(Grid::with_shape(3, 1), b"<<<");
-        let north = LanguageMap::build(Grid::with_shape(4, 1), b"^^^^");
+        let bangs = LanguageMap::build(Grid::with_shape(3, 1), Cells::of(b"***"));
+        let west = LanguageMap::build(Grid::with_shape(3, 1), Cells::of(b"<<<"));
+        let north = LanguageMap::build(Grid::with_shape(4, 1), Cells::of(b"^^^^"));
 
         assert_eq!(unit_spellings(&bangs), vec![(0, vec![0, 1])]);
         assert_eq!(unit_spellings(&west), vec![(0, vec![0, 1])]);
@@ -1274,7 +1276,10 @@ mod tests {
         // an Operand Literal is spelled in a Function's slot, because a pair
         // of hexadecimal characters standing on its own is no longer part of
         // any Expression for a unit to belong to.
-        let map = LanguageMap::build(Grid::with_shape(12, 2), b".+C4**>>    ^^vv<<.+00  ");
+        let map = LanguageMap::build(
+            Grid::with_shape(12, 2),
+            Cells::of(b".+C4**>>    ^^vv<<.+00  "),
+        );
 
         assert_eq!(
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
@@ -1307,7 +1312,7 @@ mod tests {
 
     #[test]
     fn language_map_never_forms_a_unit_across_a_row_edge() {
-        let map = LanguageMap::build(Grid::with_shape(3, 2), b"  **  ");
+        let map = LanguageMap::build(Grid::with_shape(3, 2), Cells::of(b"  **  "));
 
         assert!(map.units().next().is_none());
         assert_eq!(
@@ -1333,7 +1338,7 @@ mod tests {
     #[test]
     fn a_comment_forms_one_row_length_language_unit_that_is_not_a_value() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b"**||**00");
+        let map = LanguageMap::build(grid, Cells::of(b"**||**00"));
 
         assert_eq!(
             unit_spellings(&map),
@@ -1372,8 +1377,8 @@ mod tests {
     ///
     #[test]
     fn live_edit_fragments_do_not_form_language_units() {
-        let rule = LanguageMap::build(Grid::with_shape(8, 1), b".+| **  ");
-        let hash = LanguageMap::build(Grid::with_shape(8, 1), b".+# **  ");
+        let rule = LanguageMap::build(Grid::with_shape(8, 1), Cells::of(b".+| **  "));
+        let hash = LanguageMap::build(Grid::with_shape(8, 1), Cells::of(b".+# **  "));
 
         assert_eq!(unit_spellings(&rule), vec![(0, vec![0, 1])]);
         assert!(
@@ -1406,9 +1411,10 @@ mod tests {
         let before = b".+0102  .x0201            **    ";
         let mut after = *before;
         after[8..16].copy_from_slice(b".-0A05  ");
-        let previous = LanguageMap::build(grid, before);
+        let previous = LanguageMap::build(grid, Cells::of(before));
 
-        let rebuilt = LanguageMap::rebuild(&previous, grid, &after, &BTreeSet::from([1]));
+        let rebuilt =
+            LanguageMap::rebuild(&previous, grid, Cells::of(&after), &BTreeSet::from([1]));
 
         let shared: Vec<bool> = previous
             .rows
@@ -1423,7 +1429,7 @@ mod tests {
     #[test]
     fn rows_that_derive_nothing_share_one_derivation() {
         let grid = Grid::with_shape(4, 3);
-        let map = LanguageMap::build(grid, b"    **      ");
+        let map = LanguageMap::build(grid, Cells::of(b"    **      "));
 
         assert!(Arc::ptr_eq(&map.rows[0], &map.rows[2]));
         assert!(!Arc::ptr_eq(&map.rows[0], &map.rows[1]));
@@ -1453,7 +1459,7 @@ mod tests {
         // is half of a two-Cell spelling, so the partition names no unit for
         // either, and each is still a Span in its own right.
         let grid = Grid::with_shape(5, 1);
-        let map = LanguageMap::build(grid, b" x  x");
+        let map = LanguageMap::build(grid, Cells::of(b" x  x"));
 
         assert!(map.units().next().is_none());
         assert_eq!(
@@ -1508,7 +1514,7 @@ mod tests {
     #[test]
     fn language_map_builds_cohesive_expression_state() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102 x");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102 x"));
         let expressions = map.expressions().collect::<Vec<_>>();
         assert_eq!(expressions.len(), 2);
         assert_eq!(expressions[0].span().positions().count(), 6);
@@ -1529,7 +1535,7 @@ mod tests {
         // assembly path this replaces reported one four-Cell Expression that
         // no single parse ever produced.
         let grid = Grid::with_shape(4, 1);
-        let map = LanguageMap::build(grid, b"**^^");
+        let map = LanguageMap::build(grid, Cells::of(b"**^^"));
 
         assert_eq!(
             map.expressions()
@@ -1554,7 +1560,7 @@ mod tests {
         // stray character costs the Cell it occupies and nothing more. The
         // trailing-content verdict this replaces refused the Bang along with
         // it.
-        let map = LanguageMap::build(Grid::with_shape(3, 1), b"***");
+        let map = LanguageMap::build(Grid::with_shape(3, 1), Cells::of(b"***"));
 
         assert_eq!(
             map.expressions()
@@ -1568,8 +1574,8 @@ mod tests {
     #[test]
     fn language_map_partitions_adjacent_standalone_units() {
         let bang_grid = Grid::with_shape(4, 1);
-        let bangs = LanguageMap::build(bang_grid, b"****");
-        let activations = LanguageMap::build(Grid::with_shape(4, 1), b">>>>");
+        let bangs = LanguageMap::build(bang_grid, Cells::of(b"****"));
+        let activations = LanguageMap::build(Grid::with_shape(4, 1), Cells::of(b">>>>"));
 
         // Two Bangs, and two Expressions: a standalone Atom is one whole
         // Expression, so a run of them is a run of Expressions rather than one
@@ -1630,7 +1636,7 @@ mod tests {
                 );
                 bytes[y * columns..y * columns + row.len()].copy_from_slice(row.as_bytes());
             }
-            LanguageMap::build(grid, &bytes)
+            LanguageMap::build(grid, crate::source::Cells::of(&bytes))
         }
 
         fn covered(map: &LanguageMap, grid: Grid, x: usize, y: usize) -> bool {
@@ -2680,7 +2686,7 @@ mod rebuild_property {
 
             let grid = Grid::with_shape(cols, rows);
             let mut bytes: Vec<u8> = before[..count].iter().map(|i| ALPHABET[*i]).collect();
-            let previous = LanguageMap::build(grid, &bytes);
+            let previous = LanguageMap::build(grid, crate::source::Cells::of(&bytes));
 
             let dirty: BTreeSet<usize> = (0..rows)
                 .filter(|row| *written.get(*row).unwrap_or(&false))
@@ -2692,8 +2698,8 @@ mod rebuild_property {
                 }
             }
 
-            let rebuilt = LanguageMap::rebuild(&previous, grid, &bytes, &dirty);
-            let built = LanguageMap::build(grid, &bytes);
+            let rebuilt = LanguageMap::rebuild(&previous, grid, crate::source::Cells::of(&bytes), &dirty);
+            let built = LanguageMap::build(grid, crate::source::Cells::of(&bytes));
 
             prop_assert_eq!(contents(&rebuilt), contents(&built));
         }

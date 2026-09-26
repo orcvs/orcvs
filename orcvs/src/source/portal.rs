@@ -617,6 +617,7 @@ mod test {
         occupancy_of,
     };
     use crate::grid::{CellIndex, Grid};
+    use crate::source::Cells;
 
     #[test]
     fn every_printable_cell_reaches_its_destination() {
@@ -855,7 +856,7 @@ mod test {
     #[test]
     fn occupancy_of_empty_cells_is_empty() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Empty);
     }
@@ -863,7 +864,7 @@ mod test {
     #[test]
     fn occupancy_of_a_complete_non_root_is_non_root() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
     }
@@ -871,7 +872,7 @@ mod test {
     #[test]
     fn occupancy_of_a_complete_root_is_root() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let root = grid.position(0, 0).unwrap();
         let portal = Portal::at(grid, root);
         assert_eq!(
@@ -883,7 +884,7 @@ mod test {
     #[test]
     fn occupancy_across_two_units_is_partial() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Partial);
     }
@@ -894,7 +895,7 @@ mod test {
         // Cell is anchored two columns west, which is ADR 0006's east-anchor
         // geometry rather than a root that begins at the entered Cell.
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let root = grid.position(0, 0).unwrap();
         assert_eq!(
             occupancy_of(&map, &[1], |anchor| (anchor == root).then_some(0)),
@@ -905,7 +906,7 @@ mod test {
     #[test]
     fn last_column_occupancy_covers_the_one_cell_it_holds() {
         let grid = Grid::with_shape(4, 1);
-        let map = LanguageMap::build(grid, b"  >>");
+        let map = LanguageMap::build(grid, Cells::of(b"  >>"));
         let root = grid.position(2, 0).unwrap();
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(
@@ -928,7 +929,7 @@ mod test {
     #[test]
     fn language_unit_of_empty_working_cells_is_empty() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
         assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Empty);
     }
@@ -938,7 +939,7 @@ mod test {
         // Occupancy still names the Map unit. Jump copies working Source, so
         // a cleaned standalone Bang is Empty rather than Invalid.
         let grid = Grid::with_shape(4, 1);
-        let map = LanguageMap::build(grid, b"**  ");
+        let map = LanguageMap::build(grid, Cells::of(b"**  "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
         assert_eq!(unit(portal, b"    ", &map, false), PortalUnit::Empty);
@@ -947,7 +948,7 @@ mod test {
     #[test]
     fn language_unit_of_working_bang_is_bang() {
         let grid = Grid::with_shape(4, 1);
-        let map = LanguageMap::build(grid, b"**  ");
+        let map = LanguageMap::build(grid, Cells::of(b"**  "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"**  ", &map, false), PortalUnit::Bang);
     }
@@ -955,7 +956,7 @@ mod test {
     #[test]
     fn language_unit_of_a_complete_aligned_unit_is_unit() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
         assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Unit);
     }
@@ -963,7 +964,7 @@ mod test {
     #[test]
     fn language_unit_across_two_units_is_invalid() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b".+0102  ");
+        let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Invalid);
     }
@@ -971,7 +972,7 @@ mod test {
     #[test]
     fn language_unit_of_a_partial_pair_is_invalid() {
         let grid = Grid::with_shape(6, 1);
-        let map = LanguageMap::build(grid, b"0 &>xx");
+        let map = LanguageMap::build(grid, Cells::of(b"0 &>xx"));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"0 &>xx", &map, false), PortalUnit::Invalid);
     }
@@ -979,7 +980,7 @@ mod test {
     #[test]
     fn language_unit_inside_a_sequence_write_is_invalid() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b"        ");
+        let map = LanguageMap::build(grid, Cells::of(b"        "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"0001    ", &map, true), PortalUnit::Invalid);
     }
@@ -987,7 +988,7 @@ mod test {
     #[test]
     fn language_unit_past_a_sequence_write_is_the_working_cells() {
         let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, b"        ");
+        let map = LanguageMap::build(grid, Cells::of(b"        "));
         let empty = Portal::at(grid, grid.position(4, 0).unwrap());
         assert_eq!(unit(empty, b"0001    ", &map, false), PortalUnit::Empty);
         let number = Portal::at(grid, grid.position(4, 0).unwrap());
@@ -997,7 +998,7 @@ mod test {
     #[test]
     fn language_unit_of_a_comment_is_invalid() {
         let grid = Grid::with_shape(2, 1);
-        let map = LanguageMap::build(grid, b"||");
+        let map = LanguageMap::build(grid, Cells::of(b"||"));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"||", &map, false), PortalUnit::Invalid);
     }
@@ -1007,7 +1008,7 @@ mod test {
         // "xx" is not an Atom. The Portal still admits the aligned pair; jump()
         // is the decoder that diagnoses it.
         let grid = Grid::with_shape(4, 1);
-        let map = LanguageMap::build(grid, b"    ");
+        let map = LanguageMap::build(grid, Cells::of(b"    "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"xx  ", &map, false), PortalUnit::Unit);
     }
@@ -1015,7 +1016,7 @@ mod test {
     #[test]
     fn language_unit_that_cannot_fit_is_invalid() {
         let grid = Grid::with_shape(4, 1);
-        let map = LanguageMap::build(grid, b"   x");
+        let map = LanguageMap::build(grid, Cells::of(b"   x"));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(unit(portal, b"   x", &map, false), PortalUnit::Invalid);
     }
