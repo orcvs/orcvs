@@ -7,7 +7,7 @@
 **Status:** ready-for-agent
 
 - [ ] Tick planning, Language Map build and rebuild, and Claim lookup take the `SourceBuffer`'s borrowed view rather than `&[u8]`.
-- [ ] The view answers a row or span as `&str` through one checked conversion, and the `from_utf8(...).expect` sites in the Language Map and Tick execution are gone. No `unsafe` is introduced to provide the view.
+- [ ] The view answers a row or span as `&str` through a single checked-conversion site — either `SourceBuffer::as_str` reused once per plan, or one view method — chosen by criterion 4's benchmarks; the `from_utf8(...).expect` sites in the Language Map and Tick execution are gone. No `unsafe` is introduced to provide the view.
 - [ ] Execution's working copy of the Cells has the same invariant-carrying type, and its writes take a `CellContent`.
 - [ ] 28's Tick series and the Language Map derive and rebuild benchmarks show no regression beyond noise, or the ticket records the measured cost.
 - [ ] If the type now appears in signatures outside the Source module's storage, reconsider whether it needs a `CONTEXT.md` entry. The Source glossary entry avoids "buffer", so any entry must not present the Source itself as a buffer.
@@ -15,3 +15,5 @@
 ## Comments
 
 **2026-09-26 — origin.** Deferred from 08's design so the storage change's benchmarks attribute to storage alone. The type-safety gain is here: the four runtime ASCII checks in the Language Map's row walk and Tick execution's three text reads give way to the view's one checked conversion. Two other shipped checks stay outside this ticket: `SourceBuffer::as_str`, which the view's conversion may reuse, and the per-row check in `file::write`, which reads `Source::cells()` rather than planning's view.
+
+**2026-09-26 — review of orcvs/orcvs#161.** Criterion 2's "one checked conversion" means one site in the code, not one call: reusing `as_str` validates the whole Grid once per plan however little planning reads, while a view method checks only the text read, as the four sites do now. The benchmarks in criterion 4 choose. `file::write`'s per-row check is split to 31.

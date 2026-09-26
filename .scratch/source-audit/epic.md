@@ -8,11 +8,11 @@
 
 Repair the confirmed correctness defects, make overload and concurrency guarantees explicit, reduce measured source and interpreter costs, and separate console responsibilities while preserving native and WASM behavior.
 
-This epic organizes existing acceptance criteria into 23 proposed implementation PRs. PR numbers below are plan identifiers, not GitHub PR numbers. Child tickets remain authoritative for acceptance criteria and status: the epic being ready does not bypass a child's design decision, triage or blocker. The checkboxes track completed PR groups, not authorization to implement them all in one change.
+This epic organizes existing acceptance criteria into 24 proposed implementation PRs. PR numbers below are plan identifiers, not GitHub PR numbers. Child tickets remain authoritative for acceptance criteria and status: the epic being ready does not bypass a child's design decision, triage or blocker. The checkboxes track completed PR groups, not authorization to implement them all in one change.
 
 ## Scope
 
-All 29 non-obsolete source-audit tickets belong to exactly one PR group. Source-audit/23 is obsolete and excluded. The related Playback fairness ticket joins PR 4; external prerequisites retain their existing owners. No render-cache implementation is added without current performance evidence.
+All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-audit/23 is obsolete and excluded. The related Playback fairness ticket joins PR 4; external prerequisites retain their existing owners. No render-cache implementation is added without current performance evidence.
 
 ## Playback correctness and resilience
 
@@ -36,6 +36,7 @@ All 29 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | [x] | 22 ([#162](https://github.com/orcvs/orcvs/pull/162)) | Read the Cells in place for Source File write and unsaved changes | [#29](issues/29-stop-copying-the-source-to-write-a-source-file-or-check-for-unsaved-changes.md) | Independent. One borrowed byte accessor on `Source`; `snapshot()` stays the owned form. |
 | [x] | 10 ([#165](https://github.com/orcvs/orcvs/pull/165)) | Hold the Cells in a shared SourceBuffer | [#08](issues/08-remove-the-unsafe-byte-write-from-source.md) | After PR 21. Shared copy-on-write Cells remove the `unsafe` byte write and the whole-Cell copy per planning snapshot and per revision read; amend ADR 0057's cost paragraph. |
 | [ ] | 23 | Pass the SourceBuffer through planning and the Language Map | [#30](issues/30-pass-the-source-buffer-through-planning-and-the-language-map.md) | After PR 10. Replace the runtime ASCII checks before parsing and operand reads with one checked view. |
+| [ ] | 24 | Write a Source File through the SourceBuffer's checked text | [#31](issues/31-write-a-source-file-through-the-source-buffers-checked-text.md) | After PR 10; independent of PR 23. Remove `file::write`'s per-row ASCII check; judged on the `source_file` series. |
 
 ## Language implementation
 
