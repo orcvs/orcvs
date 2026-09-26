@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790405473895,
+  "lastUpdate": 1790405482825,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -50084,6 +50084,155 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/15334c47e9c5550f31198a5e9cc92b127f9799e7"
         },
         "date": 1790403660856,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang call fixture blocks",
+            "value": 8,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang call fixture bytes",
+            "value": 408,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang call fixture written four times blocks",
+            "value": 32,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang call fixture written four times bytes",
+            "value": 1632,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 24,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled blocks",
+            "value": 35185,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled bytes",
+            "value": 10132024,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled blocks",
+            "value": 35186,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled bytes",
+            "value": 10197560,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3405,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 15,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 4570,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3533,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 29,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 12319,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 3789,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 53,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 27108,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "500801c896fbe1c8b25b46ae0573f901915ab4f7",
+          "message": "Merge pull request #162 from orcvs/perf/borrow-source-cells\n\nBorrow the Source's Cells to write a Source File and check for unsaved changes",
+          "timestamp": "2026-09-26T06:39:44Z",
+          "tree_id": "7bd82bb8fbb60be97669c4666c4eebdb83a2d79e",
+          "url": "https://github.com/orcvs/orcvs/commit/500801c896fbe1c8b25b46ae0573f901915ab4f7"
+        },
+        "date": 1790405482778,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
