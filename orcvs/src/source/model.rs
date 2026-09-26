@@ -12,12 +12,12 @@ use crate::grid::{CellIndex, Grid, Position};
 
 use std::collections::BTreeSet;
 
+use super::buffer::SourceBuffer;
 use super::language_map::{LanguageMap, Span};
 use super::tick;
 use super::tick::execution::ComputationState;
 use super::{CellContent, SourceError};
 
-pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
 
 ///
@@ -142,7 +142,7 @@ pub struct TickPlan {
 ///
 pub struct Source {
     grid: Grid,
-    inner: String,
+    inner: SourceBuffer,
     language_map: Arc<LanguageMap>,
     revision: RevisionId,
 }
@@ -169,11 +169,13 @@ impl RevisionId {
     }
 }
 
+/// The persisted form: the Grid and the Cells as text. Saving borrows the
+/// Cells (`&str`); loading owns what it read (`String`).
 #[cfg(feature = "persistence")]
 #[derive(serde::Serialize, serde::Deserialize)]
-struct PersistedSource {
+struct PersistedSource<Cells> {
     grid: Grid,
-    inner: String,
+    inner: Cells,
 }
 
 #[cfg(feature = "persistence")]
@@ -185,7 +187,7 @@ impl serde::Serialize for Source {
         serde::Serialize::serialize(
             &PersistedSource {
                 grid: self.grid,
-                inner: self.inner.clone(),
+                inner: self.inner.as_str(),
             },
             serializer,
         )
@@ -200,27 +202,23 @@ impl<'de> serde::Deserialize<'de> for Source {
     {
         use serde::de::Error;
 
-        let persisted = <PersistedSource as serde::Deserialize>::deserialize(deserializer)?;
+        let persisted = <PersistedSource<String> as serde::Deserialize>::deserialize(deserializer)?;
         if persisted.inner.len() != persisted.grid.count() {
             return Err(D::Error::custom(
                 "persisted Source Cell count does not match its Grid",
             ));
         }
-        if !persisted
-            .inner
-            .bytes()
-            .all(|byte| CellContent::new(byte).is_some())
-        {
+        let Some(inner) = SourceBuffer::from_text(&persisted.inner) else {
             return Err(D::Error::custom(
                 "persisted Source contains a non-Cell character",
             ));
-        }
+        };
 
         let mut source = Source::new(persisted.grid);
-        source.inner = persisted.inner;
+        source.inner = inner;
         // A Source read back from persistence has no previous revision to
         // carry rows over from, so every row is parsed.
-        source.language_map = Arc::new(LanguageMap::build(source.grid, source.inner.as_bytes()));
+        source.language_map = Arc::new(LanguageMap::build(source.grid, source.inner.bytes()));
         Ok(source)
     }
 }
@@ -235,9 +233,8 @@ impl Source {
     /// least one column and one row, so a Source always has Cells.
     ///
     pub fn new(grid: Grid) -> Self {
-        let size = grid.count();
-        let inner = SPACE.to_string().repeat(size);
-        let language_map = Arc::new(LanguageMap::build(grid, inner.as_bytes()));
+        let inner = SourceBuffer::empty(grid.count());
+        let language_map = Arc::new(LanguageMap::build(grid, inner.bytes()));
 
         Self {
             grid,
@@ -307,6 +304,12 @@ impl Source {
     /// bytes of [`Source::cells`], copied.
     ///
     pub fn snapshot(&self) -> String {
+        self.inner.as_str().to_owned()
+    }
+
+    /// The Cells, shared with this revision rather than copied: a later write
+    /// to the Source leaves them as they are.
+    pub(super) fn shared_cells(&self) -> SourceBuffer {
         self.inner.clone()
     }
 
@@ -315,7 +318,7 @@ impl Source {
     /// per Cell, in Grid order.
     ///
     pub fn cells(&self) -> &[u8] {
-        self.inner.as_bytes()
+        self.inner.bytes()
     }
 
     /// The semantic view derived from this exact Source revision.
@@ -351,7 +354,7 @@ impl Source {
     pub fn get(&self, cell: CellIndex) -> Option<String> {
         self.grid.assert_owns_index(cell);
 
-        match self.inner.as_bytes()[cell.get()] {
+        match self.inner.bytes()[cell.get()] {
             SPACE_BYTE => None,
             byte => Some((byte as char).to_string()),
         }
@@ -383,7 +386,7 @@ impl Source {
     ) -> (TickPlan, Vec<ComputationState>) {
         let (plan, states) = super::tick::plan_carrying(
             self.grid,
-            self.inner.as_bytes(),
+            self.inner.bytes(),
             &self.language_map,
             tick,
             destinations,
@@ -393,7 +396,7 @@ impl Source {
     }
 
     fn plan_tick(&self, tick: Tick) -> (TickPlan, Vec<ComputationState>) {
-        tick::plan(self.grid, self.inner.as_bytes(), &self.language_map, tick)
+        tick::plan(self.grid, self.inner.bytes(), &self.language_map, tick)
     }
 
     /// Visible across the Source module so a Tick planned without going
@@ -461,7 +464,7 @@ impl Source {
             self.language_map = Arc::new(LanguageMap::rebuild(
                 &self.language_map,
                 self.grid,
-                self.inner.as_bytes(),
+                self.inner.bytes(),
                 written,
             ));
         }
@@ -469,31 +472,24 @@ impl Source {
     }
 
     ///
-    /// Writes one already-validated ASCII byte at `cell` without
-    /// recalculating Expressions.
+    /// Writes one already-validated Cell at `cell` without recalculating
+    /// Expressions. The caller mints the revision: see [`Self::rebuild_rows`].
     ///
     fn set_source(&mut self, cell: CellIndex, content: CellContent) {
-        // What makes `cell` address a byte of *this* Source. `Grid::cell_index`
+        // What makes `cell` address a Cell of *this* Source. `Grid::cell_index`
         // and `Grid::index` are the only minters and both bound their answer by
-        // the Grid's Cell count; `inner` is that many bytes from `Source::new`
-        // onward, and nothing below changes its length. A Grid of the same
-        // shape is still a different Grid, which is why identity is what is
-        // asked rather than a number compared.
+        // the Grid's Cell count; `inner` holds that many Cells from
+        // `Source::new` onward, and a write never changes how many. A Grid of
+        // the same shape is still a different Grid, which is why identity is
+        // what is asked rather than a number compared.
         self.grid.assert_owns_index(cell);
-        // SAFETY: Source construction and deserialization establish one
-        // printable ASCII byte per Cell. Every subsequent write takes a
-        // CellContent, whose private byte is printable ASCII by construction.
-        // Replacing one such byte preserves UTF-8 validity and String length.
-        unsafe {
-            let bytes = self.inner.as_bytes_mut();
-            bytes[cell.get()] = content.byte();
-        }
+        self.inner.write(cell.get(), content);
     }
 }
 
 impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.inner)
+        f.write_str(self.inner.as_str())
     }
 }
 

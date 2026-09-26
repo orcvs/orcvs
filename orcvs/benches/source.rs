@@ -308,17 +308,17 @@ fn size(cols: usize, rows: usize) -> BenchmarkId {
 }
 
 ///
-/// Measures one revision read: the clone of the whole Source string
-/// (`orcvs/src/source/model.rs:266-268`) and the `Arc` clone of the Language
-/// Map beside it.
+/// Measures one revision read: the read guard and the two shared handles it
+/// takes, one on the Source's Cells and one on the Language Map. Neither is a
+/// copy, so a size-dependent cost here is a regression.
 ///
 /// On `FRAME_SIZES` rather than `SIZES`, and the only group here that earned
 /// them. `Orcvs::render_frame` reads a revision and then derives over the
-/// result (`orcvs/src/app.rs:217-227`), so this clone is already inside every
+/// result (`orcvs/src/app.rs:217-227`), so this read is already inside every
 /// `source_render_frame` number. Measured at the same shapes it is the one part
 /// of a frame that can be subtracted back out of that number without a
 /// benchmark group that pulls `derive` apart; measured at different shapes it
-/// could not be subtracted at all, and the share a frame spends cloning at the
+/// could not be subtracted at all, and the share a frame spends reading at the
 /// upper end would be a guess.
 ///
 fn read_revision(c: &mut Criterion) {
@@ -580,12 +580,13 @@ fn execute_tick_with_portal_inputs(c: &mut Criterion) {
 /// path, and `commander_name` is the path the Playback Engine takes, through
 /// [`SourceCommander::execute`].
 ///
-/// The commander path copies the revision out under a read guard, plans with
+/// The commander path takes the revision out under a read guard, plans with
 /// no lock, and commits under the write guard after checking the revision. No
 /// thread edits the Source here, so no plan is refused and every Tick is one
 /// optimistic attempt: the series measures the uncontended Tick, which is
 /// what the Playback Engine pays between keystrokes. What it costs beyond the
-/// locked series is that path's own overhead, chiefly the planning copy.
+/// locked series is that path's own overhead: two guards and a snapshot that
+/// shares the revision rather than copying it.
 ///
 fn tick_series(
     c: &mut Criterion,
