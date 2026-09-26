@@ -2204,6 +2204,50 @@ mod test {
     }
 
     #[test]
+    fn equality_composes_with_nested_arithmetic_on_both_answers() {
+        // Equality over a nested sum answers as it does over literals.
+        for (expression, row) in [(".=.+010203", "**        "), (".=.+010204", "          ")] {
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), expression);
+
+            let tick = src.execute();
+
+            assert!(
+                tick.diagnostics.is_empty(),
+                "{expression}: {:?}",
+                tick.diagnostics
+            );
+            assert_eq!(src.row(1), row, "{expression}");
+        }
+
+        // A nested unequal comparison's absent answer is still a typed Empty
+        // operand, so arithmetic over it names what it refused rather than
+        // reporting a missing result or reading the blank Cells as a Number.
+        for (expression, found) in [
+            (".+.=010203", "_"),
+            (".+03.=0102", "_"),
+            (".+.=010103", "**"),
+        ] {
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let at = src.cells();
+            src.write(at(0), expression);
+
+            let tick = src.execute();
+
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert_eq!(
+                tick.diagnostics
+                    .iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>(),
+                [format!("expected a number, found \"{found}\"")],
+                "{expression}"
+            );
+        }
+    }
+
+    #[test]
     fn a_zero_divisor_diagnoses_and_commits_nothing() {
         // The ticket pairs "diagnoses" with "produces no result", and only the
         // Source can show the second half: an Interpreter error has to reach
