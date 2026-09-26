@@ -28,6 +28,9 @@
 //! for that and do not commit it — counting says an assertion broke, and
 //! attribution says why.
 //!
+//! `orcvs/tests/allocation.rs` and `orcvs/src/lib.rs`'s `allocation` module
+//! carry the same counting allocator, so a change to it belongs in all three.
+//!
 //! # What the assertions say
 //!
 //! Shapes, never absolute numbers. An absolute count rots on a compiler

@@ -32,9 +32,10 @@ use super::CellContent;
 use super::encoding::Encoding;
 use super::language_map::{LanguageMap, LanguageUnitKind, Span};
 
-/// The Cell pair an Atom occupies. Jump reads that pair at the opposite
-/// Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
-const PAIR_WIDTH: usize = 2;
+/// The Cell pair one Atom occupies, and the one declaration of it: what a
+/// scalar answer reserves (ADR 0036), what a Jump reads at its opposite
+/// Portal, and the step an Output Portal highlight extends by.
+pub(super) const SCALAR_WIDTH: usize = 2;
 
 ///
 /// One Cell destination resolved while interpreting a Source Snapshot.
@@ -231,6 +232,25 @@ impl Portal {
     pub(super) fn remaining_span(self) -> Span {
         self.span(self.grid.columns() - self.destination.x())
             .expect("the remaining Cells of a resolved Portal fit its row")
+    }
+
+    ///
+    /// The Cells ADR 0036 reserves from this destination for one answer: the
+    /// Cell pair one Atom occupies, or every Cell through the end of the row
+    /// for an answer that may be a Sequence. `None` where the row edge leaves
+    /// no room for the pair, because a pair whose second Cell is in the next
+    /// row is not a Span.
+    ///
+    /// A Sequence's width is not known before it is answered, and no Span
+    /// reaches past the row it begins in, so the rest of the row is the
+    /// smallest reservation that names every Cell such an answer might reach.
+    ///
+    pub(super) fn reservation(self, may_be_a_sequence: bool) -> Option<Span> {
+        if may_be_a_sequence {
+            Some(self.remaining_span())
+        } else {
+            self.span(SCALAR_WIDTH).ok()
+        }
     }
 
     ///
@@ -515,7 +535,7 @@ impl PortalAccess {
     fn portal_reads(grid: Grid, anchor: Position, coords: PortalCoords) -> Vec<Range<usize>> {
         Portal::named(grid, anchor, coords)
             .ok()
-            .and_then(|portal| portal.span(PAIR_WIDTH).ok())
+            .and_then(|portal| portal.span(SCALAR_WIDTH).ok())
             .map(|span| vec![span.range()])
             .unwrap_or_default()
     }

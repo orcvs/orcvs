@@ -82,7 +82,7 @@ impl Expression {
         });
     }
 
-    pub fn positioned(&self) -> impl Iterator<Item = &PositionedEntry> {
+    pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
         self.records.iter()
     }
 
