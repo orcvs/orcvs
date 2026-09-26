@@ -2,7 +2,7 @@
 //! the revision it was planned from.
 //!
 //! A Tick Plan is a function of one Source revision and the Tick (ADR 0003),
-//! so the inputs can be copied out under a short read and interpreted with no
+//! so the inputs can be taken out under a short read and interpreted with no
 //! lock held. What that gives up is the guarantee that the Source is still at
 //! that revision when the plan is committed, so the revision's identity is
 //! captured with its contents and checked again under the write lock the
@@ -11,24 +11,26 @@
 
 use std::sync::Arc;
 
+use super::buffer::SourceBuffer;
 use super::language_map::LanguageMap;
 use super::tick;
 use super::{OPTIMISTIC_TICK_ATTEMPTS, RevisionId, Source, SourceCommander, Tick, TickPlan};
 use crate::grid::Grid;
 
 ///
-/// What a Tick is planned from: one Source revision's Grid, Cell bytes and
+/// What a Tick is planned from: one Source revision's Grid, Cells and
 /// Language Map, and that revision's identity.
 ///
 /// All four are read from one `&Source`, so under one guard, which is what
-/// makes the identity name the revision the contents came from. The Language
-/// Map is shared rather than copied, and with it the schedule every revision
-/// holding the same scheduling inputs shares, so planning reads and fills that
-/// schedule without the Source.
+/// makes the identity name the revision the contents came from. The Cells and
+/// the Language Map are shared rather than copied — the Map with the schedule
+/// every revision holding the same scheduling inputs shares, so planning reads
+/// and fills that schedule without the Source. An edit landing while this is
+/// held copies the Cells before writing, and this keeps the revision it took.
 ///
 pub(super) struct PlanningSnapshot {
     grid: Grid,
-    bytes: String,
+    cells: SourceBuffer,
     language_map: Arc<LanguageMap>,
     revision: RevisionId,
 }
@@ -37,7 +39,7 @@ impl PlanningSnapshot {
     pub(super) fn capture(source: &Source) -> Self {
         Self {
             grid: source.grid(),
-            bytes: source.snapshot(),
+            cells: source.shared_cells(),
             language_map: source.shared_language_map(),
             revision: source.revision(),
         }
@@ -47,7 +49,7 @@ impl PlanningSnapshot {
     pub(super) fn plan(&self, tick: Tick) -> PlannedTick {
         // Each computation's Turn is discarded, as `Source::execute` discards
         // it: a Playback Engine asks nothing about how a plan was reached.
-        let (plan, _) = tick::plan(self.grid, self.bytes.as_bytes(), &self.language_map, tick);
+        let (plan, _) = tick::plan(self.grid, self.cells.bytes(), &self.language_map, tick);
         PlannedTick {
             revision: self.revision,
             plan,
@@ -251,8 +253,19 @@ mod tests {
         type_at(&source, 5, "5");
 
         assert_eq!(snapshot.revision, before);
-        assert_eq!(&snapshot.bytes[..6], ".+0102");
+        assert_eq!(&snapshot.cells.as_str()[..6], ".+0102");
         assert_ne!(source.revision(), before);
+    }
+
+    #[test]
+    fn a_snapshot_shares_the_cells_rather_than_copying_them() {
+        let source = SourceCommander::new(Grid::with_shape(8, 2));
+        type_at(&source, 0, ".+0102");
+
+        let snapshot = source.planning_snapshot();
+
+        let held = source.inner.read().unwrap().shared_cells();
+        assert_eq!(snapshot.cells.bytes().as_ptr(), held.bytes().as_ptr());
     }
 
     #[test]

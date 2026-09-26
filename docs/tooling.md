@@ -368,19 +368,22 @@ matters most. What that decision kept is Miri as the tool the unsafe gate would 
 deliberately. This is the path it points at, and it stays off both tiers so that reaching for it
 remains a decision rather than a cost every change pays.
 
-What it covers is the one `unsafe` block in the workspace's shipped code: the in-place ASCII
-byte write in `Source::set_source`, `orcvs/src/source/model.rs`. Two more live in the counting
-allocators of `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, and the filter leaves them
-out on purpose — each is an `unsafe impl GlobalAlloc` forwarding to `System`, which is the one thing
-Miri replaces with its own allocator rather than interpreting, and no shipped target links either. The `undocumented_unsafe_blocks` and
-`unsafe_op_in_unsafe_fn` denials in `[workspace.lints]` already check on every clippy run that the
-block states an invariant; they cannot check that the invariant holds. Miri can, and the moment to
-spend it is when that byte write, or the Grid indexing that mints the index it takes, changes.
+The workspace's shipped code holds no `unsafe` block. What the task covers is the Source's
+copy-on-write Cell write — `Source::set_source` in `orcvs/src/source/model.rs`, through
+`SourceBuffer::write` in `orcvs/src/source/buffer.rs` — and the standard-library `unsafe` beneath it. The workspace's own `unsafe` lives only in the counting allocators its test builds
+install, such as those of `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, and the filter
+leaves them out on purpose — each is an `unsafe impl GlobalAlloc` forwarding to `System`, which is
+the one thing Miri replaces with its own allocator rather than interpreting, and no shipped target
+links any of them. The `undocumented_unsafe_blocks` and `unsafe_op_in_unsafe_fn` denials in
+`[workspace.lints]` check on every clippy run that an `unsafe` block states its invariant; they
+cannot check that the invariant holds. Miri can, and the moment to spend it is when an `unsafe`
+block enters shipped code, or when that Cell write, or the Grid indexing that mints the index it
+takes, changes.
 
 The task installs `nightly` and the `miri` component itself rather than moving the pinned channel,
 so nothing else in the repository becomes nightly's problem for the length of a run. It is scoped by
-test filter — `-E 'test(/^source::model::test::/)'`, the 68 tests in the module that holds the block
-— and not by crate. That distinction is what makes the run possible at all: `orcvs` links ALSA
+test filter — `-E 'test(/^source::model::test::/)'`, the tests of the module whose `set_source`
+reaches the Cell write — and not by crate. That distinction is what makes the run possible at all: `orcvs` links ALSA
 through `midir` in the default-featured build the task runs, and builds a multi-threaded Tokio
 runtime, and Miri can execute neither, having no foreign functions and no real threads to hand them. But Miri interprets what actually runs rather
 than what the crate links, so a dependency no selected test calls never becomes a problem, where

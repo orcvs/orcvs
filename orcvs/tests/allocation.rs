@@ -345,8 +345,8 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
     // own from outside the crate, and the write path is not allocation-free.
     //
     // `Source::set` in `orcvs/src/source/model.rs` validates the content and
-    // calls `edit`, and `edit` does two things: `set_source`, which is the
-    // workspace's one `unsafe` block writing the byte in place, and then
+    // calls `edit`, and `edit` does two things: `set_source`, which writes
+    // the byte into the Source's Cells, and then
     // `rebuild_rows`, which builds a fresh `Arc<LanguageMap>` for the row the
     // write touched. `set_source` is private, so no public call reaches the
     // byte write without also paying for the rebuild, and everything one write
@@ -678,18 +678,20 @@ fn measure_settled_tick<S>(
 }
 
 #[test]
-fn a_playback_tick_costs_at_most_one_copy_of_the_cells_beyond_the_locked_tick() {
+fn a_playback_tick_allocates_no_more_than_the_locked_tick() {
     // The Playback Engine executes each Tick through `SourceCommander::execute`,
-    // which copies the revision out under a read guard, plans from the copy
-    // with no lock, and commits under the write guard once the revision is
-    // checked. `Source::execute` plans and commits in place, under the guard
+    // which takes the revision out under a read guard, plans from it with no
+    // lock, and commits under the write guard once the revision is checked.
+    // `Source::execute` plans and commits in place, under the guard
     // `SourceCommander` holds only when an edit keeps refusing its plans.
     //
     // Both are measured on the same settled Source on the shipped Grid, and
-    // published side by side. What the uncontended commander Tick may add is
-    // the copy of the Cells a planning snapshot holds: one block of one byte
-    // per Cell. A second copy, or a Tick that stops reusing the schedule its
-    // Language Map shares, fails here; a cheaper snapshot still passes.
+    // published side by side. The planning snapshot shares the Source's Cells
+    // and Language Map rather than copying them, and it is dropped before the
+    // commit writes, so the write finds the Cells unshared and copies nothing.
+    // An uncontended commander Tick therefore allocates what the locked Tick
+    // does and no more: a copy of the Cells, or a Tick that stops reusing the
+    // schedule its Language Map shares, fails here.
     //
     // Measured on the calling thread: the commander's guards are taken and
     // released on it, and no other thread holds the Source, so no plan is
@@ -712,9 +714,7 @@ fn a_playback_tick_costs_at_most_one_copy_of_the_cells_beyond_the_locked_tick() 
     publish(&format!("orcvs playback tick {name} settled"), playback);
 
     assert!(
-        playback.blocks <= locked.blocks + 1 && playback.bytes <= locked.bytes + grid.count(),
-        "a Playback Tick allocated {playback:?} against {locked:?} for the locked Tick, \
-         past one copy of the {} Cells",
-        grid.count()
+        playback.blocks <= locked.blocks && playback.bytes <= locked.bytes,
+        "a Playback Tick allocated {playback:?} against {locked:?} for the locked Tick"
     );
 }
