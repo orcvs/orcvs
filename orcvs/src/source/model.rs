@@ -218,7 +218,7 @@ impl<'de> serde::Deserialize<'de> for Source {
         source.inner = inner;
         // A Source read back from persistence has no previous revision to
         // carry rows over from, so every row is parsed.
-        source.language_map = Arc::new(LanguageMap::build(source.grid, source.inner.bytes()));
+        source.language_map = Arc::new(LanguageMap::build(source.grid, source.inner.cells()));
         Ok(source)
     }
 }
@@ -234,7 +234,7 @@ impl Source {
     ///
     pub fn new(grid: Grid) -> Self {
         let inner = SourceBuffer::empty(grid.count());
-        let language_map = Arc::new(LanguageMap::build(grid, inner.bytes()));
+        let language_map = Arc::new(LanguageMap::build(grid, inner.cells()));
 
         Self {
             grid,
@@ -386,7 +386,7 @@ impl Source {
     ) -> (TickPlan, Vec<ComputationState>) {
         let (plan, states) = super::tick::plan_carrying(
             self.grid,
-            self.inner.bytes(),
+            self.inner.cells(),
             &self.language_map,
             tick,
             destinations,
@@ -396,7 +396,7 @@ impl Source {
     }
 
     fn plan_tick(&self, tick: Tick) -> (TickPlan, Vec<ComputationState>) {
-        tick::plan(self.grid, self.inner.bytes(), &self.language_map, tick)
+        tick::plan(self.grid, self.inner.cells(), &self.language_map, tick)
     }
 
     /// Visible across the Source module so a Tick planned without going
@@ -464,7 +464,7 @@ impl Source {
             self.language_map = Arc::new(LanguageMap::rebuild(
                 &self.language_map,
                 self.grid,
-                self.inner.bytes(),
+                self.inner.cells(),
                 written,
             ));
         }

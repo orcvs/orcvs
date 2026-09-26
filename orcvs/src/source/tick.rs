@@ -19,7 +19,7 @@ use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, SequenceCapability, Span, may_answer_a_sequence};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit, occupancy_of};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
-use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
+use super::{CellContent, CellWrite, Cells, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -661,12 +661,12 @@ impl PortalRelationships<'_> {
 ///
 pub(super) fn plan(
     grid: Grid,
-    bytes: &[u8],
+    cells: Cells<'_>,
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
     match map.schedule_cache().schedule(grid, map) {
-        Ok(schedule) => execution::execute(grid, bytes, map, tick, schedule),
+        Ok(schedule) => execution::execute(grid, cells, map, tick, schedule),
         Err(diagnostics) => unscheduled(diagnostics.clone()),
     }
 }
@@ -678,12 +678,12 @@ pub(super) fn plan(
 #[cfg(test)]
 fn plan_unshared(
     grid: Grid,
-    bytes: &[u8],
+    cells: Cells<'_>,
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
     match schedule(grid, map) {
-        Ok(schedule) => execution::execute(grid, bytes, map, tick, &schedule),
+        Ok(schedule) => execution::execute(grid, cells, map, tick, &schedule),
         Err(diagnostics) => unscheduled(diagnostics),
     }
 }
@@ -790,13 +790,13 @@ fn schedule_carrying(
 #[cfg(test)]
 pub(super) fn plan_carrying(
     grid: Grid,
-    bytes: &[u8],
+    cells: Cells<'_>,
     map: &LanguageMap,
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
     match schedule_carrying(grid, map, destinations) {
-        Ok(schedule) => execution::execute(grid, bytes, map, tick, &schedule),
+        Ok(schedule) => execution::execute(grid, cells, map, tick, &schedule),
         Err(diagnostics) => unscheduled(diagnostics),
     }
 }
@@ -1270,6 +1270,7 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
 
 #[cfg(test)]
 mod test {
+    use crate::source::Cells;
     use lang::{Token, Value};
 
     use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
@@ -2501,8 +2502,8 @@ mod test {
 
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-        let (_, states) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let (_, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
         let order = turns(&states);
         // Parser preorder: Equality, Halt, Add.
         assert_eq!(order, vec![Some(0), Some(1), Some(2)]);
@@ -2627,8 +2628,8 @@ mod test {
         // doubled Halt's interpretation count.
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!<<  ", "  .+0304", "        "]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-        let (plan, states) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let (plan, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -3177,7 +3178,7 @@ mod test {
             .iter()
             .map(|row| format!("{row:24}"))
             .collect::<String>();
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let destinations = [(
             grid.index(grid.position(0, 1).unwrap()),
             vec![grid.position(0, 2).unwrap()],
@@ -3185,8 +3186,13 @@ mod test {
         .into_iter()
         .collect();
 
-        let (plan, _) =
-            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) = super::plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -4699,8 +4705,13 @@ mod test {
             // A valid order delivers the writer before its target. Execute it
             // once to prove that this fixture has writes and a Play Command
             // which the defensive rejection below must discard.
-            let (plan, _) =
-                super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &carried);
+            let (plan, _) = super::plan_carrying(
+                grid,
+                Cells::of(bytes.as_bytes()),
+                &map,
+                Tick::ZERO,
+                &carried,
+            );
             assert!(!plan.writes.is_empty());
             assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
 
@@ -4719,8 +4730,13 @@ mod test {
                         .unwrap()
                 })
                 .collect();
-            let (rejected, states) =
-                super::execution::execute(grid, bytes.as_bytes(), &map, Tick::ZERO, &schedule);
+            let (rejected, states) = super::execution::execute(
+                grid,
+                Cells::of(bytes.as_bytes()),
+                &map,
+                Tick::ZERO,
+                &schedule,
+            );
             assert!(rejected.writes.is_empty());
             assert!(rejected.play_commands.is_empty());
             // The broken order was walked as given, and stopped where it was
@@ -4858,7 +4874,7 @@ mod test {
             grid,
             &["", "!>007FC4", "", "!>007FC5", "!>007FC6", ".=0101"],
         );
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let destinations = [(
             grid.index(grid.position(0, 5).unwrap()),
             vec![grid.position(0, 2).unwrap()],
@@ -4866,8 +4882,13 @@ mod test {
         .into_iter()
         .collect();
 
-        let (plan, _) =
-            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) = super::plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
 
         // North of the Bang, then south. The root at row 4 is two rows from
         // the Bang and never performs.
@@ -4992,9 +5013,9 @@ mod test {
         // with the terminal root below it.
         let grid = Grid::with_shape(16, 5);
         let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![]);
         assert_eq!(planned(&plan), vec![(20, '*'), (21, '*')]);
@@ -5012,9 +5033,9 @@ mod test {
         // Cleared display may be rewritten successfully in the same Tick.
         let grid = Grid::with_shape(16, 3);
         let bytes = snapshot(grid, &[".=0101", "**", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
         assert_eq!(
@@ -5047,7 +5068,7 @@ mod test {
         // the final Cell, independently of other computations.
         let grid = Grid::with_shape(16, 4);
         let bytes = snapshot(grid, &[".+0102", "", ".+0304", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let destinations = [(
             grid.cell_index(0).unwrap(),
             vec![grid.position(15, 1).expect("inside the Grid")],
@@ -5055,8 +5076,13 @@ mod test {
         .into_iter()
         .collect();
 
-        let (plan, _) =
-            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) = super::plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
 
         assert_eq!(
             planned(&plan),
@@ -5096,9 +5122,9 @@ mod test {
         // this test is about is that the Addition takes a turn at all.
         let grid = Grid::with_shape(16, 5);
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         // The Bang the Equality writes, and the Addition's own `03` below it.
@@ -5118,9 +5144,9 @@ mod test {
         // A row-edge fragment is local syntax failure, not a graph error.
         let grid = Grid::with_shape(16, 4);
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", "            .+01"]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -5166,10 +5192,10 @@ mod test {
         // and stops reading states at all.
         let grid = Grid::with_shape(20, 3);
         let bytes = snapshot(grid, &[".+0102 .+0304", "          .-0504", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let tick = Tick::new(11);
 
-        let (_, states) = super::plan(grid, bytes.as_bytes(), &map, tick);
+        let (_, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, tick);
         let interpreted = interpreted(&states);
 
         assert_eq!(interpreted.len(), 3, "each of the three roots is evaluated");
@@ -5201,14 +5227,14 @@ mod test {
         // under test could satisfy by agreeing with itself.
         let grid = Grid::with_shape(24, 2);
         let bytes = snapshot(grid, &["~.0304 ~*0202 ~%0304", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
         // Tick 1. The Clock is still in its first step of three, so it writes
         // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
         // it; the Euclidean's `X.XX` over four steps has no onset at step 1. A
         // Function that answered the Absence Marker plans no Cell write, so
         // only the Clock's pair is planned.
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::new(1));
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(planned(&plan), vec![(24, '0'), (25, '0')]);
@@ -5218,7 +5244,7 @@ mod test {
         // hardcoded first Tick would write `00` here and a hardcoded Tick of
         // its own would move all three at once, so the pair of assertions is
         // what makes this about the Tick rather than about the formulas.
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::new(4));
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(4));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -5242,9 +5268,9 @@ mod test {
         // the console can say which of the two Cell pairs to edit.
         let grid = Grid::with_shape(16, 2);
         let bytes = snapshot(grid, &["~*0300 ~%0400", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::new(3));
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(3));
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(
@@ -5275,7 +5301,7 @@ mod test {
         for (spelling, banging, silent) in [("~*0202", 4, 1), ("~%0304", 4, 1)] {
             let grid = Grid::with_shape(16, 6);
             let bytes = snapshot(grid, &["", "!>007FC4", "", "", "", spelling]);
-            let map = LanguageMap::build(grid, bytes.as_bytes());
+            let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
             let destinations = [(
                 grid.index(grid.position(0, 5).unwrap()),
                 vec![grid.position(0, 2).unwrap()],
@@ -5285,7 +5311,7 @@ mod test {
 
             let (plan, _) = super::plan_carrying(
                 grid,
-                bytes.as_bytes(),
+                Cells::of(bytes.as_bytes()),
                 &map,
                 Tick::new(banging),
                 &destinations,
@@ -5300,7 +5326,7 @@ mod test {
 
             let (plan, _) = super::plan_carrying(
                 grid,
-                bytes.as_bytes(),
+                Cells::of(bytes.as_bytes()),
                 &map,
                 Tick::new(silent),
                 &destinations,
@@ -5504,9 +5530,9 @@ mod test {
 
         let grid = Grid::with_shape(10, 2);
         let bytes = snapshot(grid, &["~?010010", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-        let first = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
-        let second = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let first = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let second = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
         assert_eq!(first.0.writes, second.0.writes);
     }
 
@@ -5518,7 +5544,7 @@ mod test {
             .iter()
             .map(|row| format!("{row:16}"))
             .collect::<String>();
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let destinations = [
             (
                 grid.index(grid.position(6, 3).unwrap()),
@@ -5532,8 +5558,13 @@ mod test {
         .into_iter()
         .collect();
 
-        let (plan, _) =
-            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) = super::plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
@@ -5551,7 +5582,7 @@ mod test {
             .iter()
             .map(|row| format!("{row:16}"))
             .collect::<String>();
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let destinations = [
             (
                 grid.index(grid.position(0, 1).unwrap()),
@@ -5565,8 +5596,13 @@ mod test {
         .into_iter()
         .collect();
 
-        let (plan, _) =
-            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) = super::plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
@@ -5580,7 +5616,7 @@ mod test {
             .iter()
             .map(|row| format!("{row:16}"))
             .collect::<String>();
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let destinations = [
             (
                 grid.index(grid.position(0, 0).unwrap()),
@@ -5594,8 +5630,13 @@ mod test {
         .into_iter()
         .collect();
 
-        let (plan, _) =
-            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) = super::plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -5623,7 +5664,7 @@ mod test {
     fn competing_writers_publish_but_dependency_cycles_abort_before_output() {
         let conflict_grid = Grid::with_shape(16, 2);
         let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
-        let conflict_map = LanguageMap::build(conflict_grid, conflict_bytes.as_bytes());
+        let conflict_map = LanguageMap::build(conflict_grid, Cells::of(conflict_bytes.as_bytes()));
         let shared = conflict_grid.position(10, 1).unwrap();
         let conflict_destinations = [
             (conflict_grid.cell_index(0).unwrap(), vec![shared]),
@@ -5633,7 +5674,7 @@ mod test {
         .collect();
         let (conflict, _) = super::plan_carrying(
             conflict_grid,
-            conflict_bytes.as_bytes(),
+            Cells::of(conflict_bytes.as_bytes()),
             &conflict_map,
             Tick::ZERO,
             &conflict_destinations,
@@ -5644,7 +5685,7 @@ mod test {
 
         let cycle_grid = Grid::with_shape(16, 2);
         let cycle_bytes = format!("{:<16}{:<16}", ".+0001", ".+0001");
-        let cycle_map = LanguageMap::build(cycle_grid, cycle_bytes.as_bytes());
+        let cycle_map = LanguageMap::build(cycle_grid, Cells::of(cycle_bytes.as_bytes()));
         let cycle_destinations = [
             (
                 cycle_grid.cell_index(0).unwrap(),
@@ -5659,7 +5700,7 @@ mod test {
         .collect();
         let (cycle, _) = super::plan_carrying(
             cycle_grid,
-            cycle_bytes.as_bytes(),
+            Cells::of(cycle_bytes.as_bytes()),
             &cycle_map,
             Tick::ZERO,
             &cycle_destinations,
@@ -5740,9 +5781,9 @@ mod test {
         // could not be placed.
         let grid = Grid::with_shape(10, 2);
         let bytes = snapshot(grid, &["", ".+0102"]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert!(plan.writes.is_empty());
         assert_eq!(
@@ -5931,7 +5972,7 @@ mod output_portal_exclusion {
     }
 
     fn assert_excluded(grid: Grid, row: &str) {
-        let map = LanguageMap::build(grid, row.as_bytes());
+        let map = LanguageMap::build(grid, crate::source::Cells::of(row.as_bytes()));
         let derived = map.output_portal_cells();
         let source_writes = source_writing_reservation_cells(grid, &map);
         assert!(
@@ -6198,9 +6239,14 @@ mod nested_property {
         let width = source.len().max(2);
         let grid = Grid::with_shape(width, 3);
         let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
-        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let map = LanguageMap::build(grid, crate::source::Cells::of(bytes.as_bytes()));
 
-        let (tick, states) = plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (tick, states) = plan(
+            grid,
+            crate::source::Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+        );
 
         prop_assert!(
             !tick
