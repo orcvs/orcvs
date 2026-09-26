@@ -16,6 +16,7 @@ use super::{
     PortalError, PortalUnit, Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan,
     diagnose, occupancy_of, resolve, tick_inputs,
 };
+use crate::source::buffer::{Cells, WorkingCells};
 
 ///
 /// Executes an established order against the original Source Snapshot.
@@ -31,7 +32,7 @@ use super::{
 ///
 pub(super) fn execute(
     grid: Grid,
-    bytes: &[u8],
+    cells: Cells<'_>,
     map: &LanguageMap,
     tick: Tick,
     schedule: &Schedule,
@@ -41,7 +42,7 @@ pub(super) fn execute(
         order,
         diagnostics,
     } = schedule;
-    let mut execution = Execution::new(grid, bytes, map, tick, lookup, diagnostics.clone());
+    let mut execution = Execution::new(grid, cells, map, tick, lookup, diagnostics.clone());
     #[cfg_attr(
         not(test),
         expect(unused_variables, reason = "only a test build records the Turn")
@@ -146,8 +147,8 @@ impl ComputationState {
 
 struct Execution<'a> {
     grid: Grid,
-    original: &'a [u8],
-    working: Vec<u8>,
+    original: Cells<'a>,
+    working: WorkingCells,
     tick: Tick,
     /// The Language Units of the Source Snapshot, retained for occupancy and
     /// Jump's Language Unit at a Portal. A `Lookup` indexes Expressions, so a
@@ -173,7 +174,7 @@ impl<'a> Execution<'a> {
     ///
     fn new(
         grid: Grid,
-        bytes: &'a [u8],
+        cells: Cells<'a>,
         map: &'a LanguageMap,
         tick: Tick,
         lookup: &'a Lookup,
@@ -181,8 +182,8 @@ impl<'a> Execution<'a> {
     ) -> Self {
         let mut execution = Self {
             grid,
-            original: bytes,
-            working: bytes.to_vec(),
+            original: cells,
+            working: WorkingCells::new(cells),
             tick,
             map,
             lookup,
@@ -324,7 +325,8 @@ impl<'a> Execution<'a> {
         let unchanged = !node.syntax_valid
             && function == node.function
             && node.operands.iter().all(|operand| {
-                self.working[operand.cells.clone()] == self.original[operand.cells.clone()]
+                self.working.cells().slice(operand.cells.clone()).bytes()
+                    == self.original.slice(operand.cells.clone()).bytes()
             });
         // A syntax-blocked child did not fail evaluation. Propagate the block
         // without inventing another Tick diagnostic. A suppressed child is
@@ -359,7 +361,7 @@ impl<'a> Execution<'a> {
     ) -> Option<&str> {
         let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
         let span = portal.span(input.token().len()).ok()?;
-        Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
+        Some(self.working.cells().slice(span.range()).as_str())
     }
 
     /// The Cells a Jump reads, when they are one complete aligned unit.
@@ -368,15 +370,18 @@ impl<'a> Execution<'a> {
     /// diagnoses rather than answering an Atom that was never a Language Unit.
     fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
         let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
-        match portal.language_unit(&self.working, self.map, super::SCALAR_WIDTH, |range| {
-            self.sequence_covers(range)
-        }) {
+        match portal.language_unit(
+            self.working.cells().bytes(),
+            self.map,
+            super::SCALAR_WIDTH,
+            |range| self.sequence_covers(range),
+        ) {
             PortalUnit::Invalid => None,
             PortalUnit::Empty | PortalUnit::Bang | PortalUnit::Unit => {
                 let span = portal
                     .span(super::SCALAR_WIDTH)
                     .expect("an admitted unit fitted its row");
-                Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
+                Some(self.working.cells().slice(span.range()).as_str())
             }
         }
     }
@@ -410,8 +415,7 @@ impl<'a> Execution<'a> {
                 }
                 // Spatial delivery leaves characters pending until consumption;
                 // a surviving nested child instead supplies an already typed value.
-                let spelling = std::str::from_utf8(&self.working[operand.cells.clone()])
-                    .expect("ASCII Source");
+                let spelling = self.working.cells().slice(operand.cells.clone()).as_str();
                 token
                     .decode(spelling)
                     .map(Value::from)
@@ -509,7 +513,9 @@ impl<'a> Execution<'a> {
                 self.states[root].activated = true;
                 return Continue(());
             }
-            if Portal::at(self.grid, destination).occupied_in(&self.working, super::SCALAR_WIDTH) {
+            if Portal::at(self.grid, destination)
+                .occupied_in(self.working.cells().bytes(), super::SCALAR_WIDTH)
+            {
                 let producer = self.states[index].function;
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
@@ -708,7 +714,9 @@ impl<'a> Execution<'a> {
                 .collect(),
             Err(_) => vec![],
         };
-        let empty = entered.iter().all(|cell| self.working[*cell] == b' ');
+        let empty = entered
+            .iter()
+            .all(|cell| self.working.cells().bytes()[*cell] == b' ');
 
         match admitted {
             Ok(write) if empty => {
@@ -853,7 +861,7 @@ impl<'a> Execution<'a> {
     /// the cleanup of prior Bang display before any Turn is attempted.
     fn write(&mut self, write: SpanWrite) {
         for (cell, content) in write.cells() {
-            self.working[cell.get()] = content.as_char() as u8;
+            self.working.write(cell.get(), content);
         }
         self.effects.push(Effect::Write(write));
     }
@@ -953,6 +961,7 @@ pub(super) mod stated {
         LanguageMap, Lookup, Position, Schedule, TickPlan, resolve,
     };
     use crate::grid::CellIndex;
+    use crate::source::Cells;
     use std::collections::BTreeMap;
 
     ///
@@ -1047,7 +1056,7 @@ pub(super) mod stated {
             Ok(schedule) => schedule,
             Err(diagnostics) => return unscheduled(diagnostics),
         };
-        let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
+        let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &lookup, diagnostics);
         let mut stated = vec![false; answers.len()];
         for (turn, index) in order.into_iter().enumerate() {
             let anchor = grid.index(lookup.nodes()[index].anchor);
