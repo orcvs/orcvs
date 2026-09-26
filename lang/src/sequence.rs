@@ -11,8 +11,8 @@ use crate::{Atom, Error, SequenceError};
 ///
 /// Nesting is impossible by type: [`Atom`] has no Sequence-carrying variant,
 /// so the flatness ADR 0007 requires needs no runtime flattening check. The
-/// only runtime check is membership, and [`Sequence::new`] is the one place it
-/// happens.
+/// only runtime check is membership, one rule applied to every Atom that
+/// enters a Sequence from outside one.
 ///
 /// [`Atoms`]: crate::Atoms
 #[derive(Clone, Debug, PartialEq)]
@@ -21,11 +21,13 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    /// The one construction point every Sequence funnels through.
+    /// The construction point for Atoms that are not yet members.
     ///
-    /// Membership is checked here and nowhere else, so [`Sequence::empty`],
-    /// [`Sequence::promote`], and every Sequence Function a later issue adds
-    /// inherit exactly one rule and one diagnostic. An `Atom::Empty` is
+    /// Membership is checked here, so [`Sequence::promote`] and every Function
+    /// that builds a Sequence from Atoms inherit exactly one rule and one
+    /// diagnostic. The structural operations below derive a Sequence from
+    /// Sequences, whose members already passed it, and check only an Atom that
+    /// was not one. An `Atom::Empty` is
     /// refused because it is the absence marker the Interpreter answers with
     /// when an Expression leaves no value, not an Atom with a Source encoding;
     /// and a Function Atom is refused when its declared kind says it answers an
@@ -73,7 +75,40 @@ impl Sequence {
         self.atoms.is_empty()
     }
 
-    /// The members in order, for the structural Functions issue 03 adds.
+    /// This Sequence's members in reverse order.
+    ///
+    /// Every member is already a member, so nothing is checked, and the
+    /// members are reordered where they stand.
+    pub(crate) fn reversed(mut self) -> Self {
+        self.atoms.reverse();
+        self
+    }
+
+    /// This Sequence's members followed by `other`'s.
+    ///
+    /// Both hold only members, so nothing is checked. An empty Sequence is the
+    /// identity on either side, and the answer reuses the left operand's
+    /// storage wherever it has one.
+    pub(crate) fn concatenated(mut self, other: Self) -> Self {
+        if self.atoms.is_empty() {
+            return other;
+        }
+        self.atoms.extend_from_slice(&other.atoms);
+        self
+    }
+
+    /// This Sequence with the member at `index` replaced by `replacement`.
+    ///
+    /// Only `replacement` is checked: every other member already is one. The
+    /// caller supplies an index below [`Sequence::len`]; indexing past it is a
+    /// defect in the caller, not a Source a Tick can reach.
+    pub(crate) fn replaced(mut self, index: usize, replacement: Atom) -> Result<Self, Error> {
+        Self::check_member(replacement)?;
+        self.atoms[index] = replacement;
+        Ok(self)
+    }
+
+    /// The members in order.
     #[inline(always)]
     pub fn atoms(&self) -> &[Atom] {
         &self.atoms

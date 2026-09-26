@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, InterpretationError, Note, Value,
+    Atom, Error, Note, Value,
     atom::operands::{ConvertToNote, ConvertToNumber},
     interpreter::Context,
     stack::NumericValue,
@@ -13,7 +13,7 @@ use crate::{
 /// already a Number arrives from nested evaluation or from broadcasting, never
 /// from this Function's own literal operand slot, which the parser reads as a
 /// Note.
-#[inline(always)]
+#[inline]
 pub fn to_number(ctx: &mut Context) -> Result<Value, Error> {
     ctx.stack.convert::<ConvertToNumber, _>(|value| {
         Ok(Atom::Number(match value {
@@ -30,12 +30,13 @@ pub fn to_number(ctx: &mut Context) -> Result<Value, Error> {
 /// complete operation: `convert` assembles nothing until every element has
 /// answered, so one unconvertible member leaves no partial Sequence of the
 /// members that did convert.
-#[inline(always)]
+#[inline]
 pub fn to_note(ctx: &mut Context) -> Result<Value, Error> {
     ctx.stack.convert::<ConvertToNote, _>(|value| match value {
         NumericValue::Note(value) => Ok(Atom::Note(value)),
-        NumericValue::Number(value @ 0x00..=0x7F) => Ok(Atom::Note(Note::try_from(value)?)),
-        NumericValue::Number(value) => Err(InterpretationError::NoteConversion(value).into()),
+        // `Note`'s own conversion is the one range check, and its refusal is
+        // the diagnostic.
+        NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
     })
 }
 
@@ -50,7 +51,7 @@ mod test {
     fn evaluate(function: Function, value: impl Into<Value>) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            &[value.into()],
+            [value.into()],
             TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }

@@ -57,44 +57,50 @@ pub(crate) trait ValueOperands: Sized {
     const FUNCTION: Function;
 
     /// Binds each declared role to its operand, in signature order.
-    fn from_values(values: &[Value]) -> Result<Self, Error>;
+    ///
+    /// Takes the popped values by value, so a Sequence operand moves into the
+    /// role that binds it and its members are never copied.
+    fn from_values(values: OperandValues) -> Result<Self, Error>;
 }
 
+/// One operation's popped operands, in signature order, held inline.
+pub(crate) type OperandValues = ArrayVec<Value, MAX_OPERANDS>;
+
 /// Binds a whole [`Value`] to a required [`Sequence`] operand.
-pub(crate) fn bind_sequence_required(value: &Value) -> Result<Sequence, Error> {
-    Sequence::try_from(value.clone())
+pub(crate) fn bind_sequence_required(value: Value) -> Result<Sequence, Error> {
+    Sequence::try_from(value)
 }
 
 /// Binds a whole [`Value`] to an [`AtomOrSequence`] operand, promoting Atoms.
-pub(crate) fn bind_sequence_operand(value: &Value) -> Result<Sequence, Error> {
+pub(crate) fn bind_sequence_operand(value: Value) -> Result<Sequence, Error> {
     match value {
-        Value::Sequence(sequence) => Ok(sequence.clone()),
-        Value::Atom(atom) => Sequence::promote(*atom),
+        Value::Sequence(sequence) => Ok(sequence),
+        Value::Atom(atom) => Sequence::promote(atom),
     }
 }
 
 /// Binds a whole [`Value`] to a [`Number`] operand.
-pub(crate) fn bind_number(value: &Value) -> Result<u8, Error> {
+pub(crate) fn bind_number(value: Value) -> Result<u8, Error> {
     match value {
-        Value::Atom(Atom::Number(number)) => Ok(*number),
+        Value::Atom(Atom::Number(number)) => Ok(number),
         Value::Atom(atom) => Err(TypeError::Number(atom.to_string()).into()),
         Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
     }
 }
 
 /// Binds a whole [`Value`] to a [`Note`] operand.
-pub(crate) fn bind_note(value: &Value) -> Result<Note, Error> {
+pub(crate) fn bind_note(value: Value) -> Result<Note, Error> {
     match value {
-        Value::Atom(Atom::Note(note)) => Ok(*note),
+        Value::Atom(Atom::Note(note)) => Ok(note),
         Value::Atom(atom) => Err(TypeError::Note(atom.to_string()).into()),
         Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
     }
 }
 
 /// Binds a whole [`Value`] to an [`Atom`] operand.
-pub(crate) fn bind_atom(value: &Value) -> Result<Atom, Error> {
+pub(crate) fn bind_atom(value: Value) -> Result<Atom, Error> {
     match value {
-        Value::Atom(atom) => Ok(*atom),
+        Value::Atom(atom) => Ok(atom),
         Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
     }
 }
@@ -518,7 +524,7 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn extract_values<O: ValueOperands>(&mut self) -> Result<O, Error> {
         let expected = O::FUNCTION.signature().len();
-        let mut values: ArrayVec<Value, MAX_OPERANDS> = ArrayVec::new();
+        let mut values = OperandValues::new();
 
         for found in 0..expected {
             values.push(
@@ -528,7 +534,7 @@ impl Stack {
             );
         }
 
-        O::from_values(&values)
+        O::from_values(values)
     }
 
     /// Performs one pervasive Terminal Output Function across the shape its

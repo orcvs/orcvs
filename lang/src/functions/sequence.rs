@@ -4,26 +4,22 @@ use crate::{
 };
 
 /// Reverse `:<`: reverse Atom order, preserving each member's type and encoding.
-#[inline(always)]
+#[inline]
 pub fn reverse(ctx: &mut Context) -> Result<Value, Error> {
     let operands::Reverse { sequence } = ctx.stack.extract_values::<operands::Reverse>()?;
-    let mut atoms: Vec<Atom> = sequence.atoms().to_vec();
-    atoms.reverse();
-    Ok(Sequence::new(atoms)?.into())
+    Ok(sequence.reversed().into())
 }
 
 /// Concatenate `:&`: promote Atoms, stay flat, treat empty Sequence as identity.
-#[inline(always)]
+#[inline]
 pub fn concatenate(ctx: &mut Context) -> Result<Value, Error> {
     let operands::Concatenate { left, right } =
         ctx.stack.extract_values::<operands::Concatenate>()?;
-    let mut atoms = left.atoms().to_vec();
-    atoms.extend_from_slice(right.atoms());
-    Ok(Sequence::new(atoms)?.into())
+    Ok(left.concatenated(right).into())
 }
 
 /// Select `:?`: zero-based index modulo length; empty Sequence diagnoses.
-#[inline(always)]
+#[inline]
 pub fn select(ctx: &mut Context) -> Result<Value, Error> {
     let operands::Select { index, sequence } = ctx.stack.extract_values::<operands::Select>()?;
     require_non_empty(&sequence)?;
@@ -31,7 +27,7 @@ pub fn select(ctx: &mut Context) -> Result<Value, Error> {
 }
 
 /// Replace `:=`: same-length Sequence with one Atom replaced; input unchanged.
-#[inline(always)]
+#[inline]
 pub fn replace(ctx: &mut Context) -> Result<Value, Error> {
     let operands::Replace {
         index,
@@ -39,14 +35,12 @@ pub fn replace(ctx: &mut Context) -> Result<Value, Error> {
         sequence,
     } = ctx.stack.extract_values::<operands::Replace>()?;
     require_non_empty(&sequence)?;
-    let mut atoms: Vec<Atom> = sequence.atoms().to_vec();
-    let selected = wrapping_index(index, atoms.len());
-    atoms[selected] = replacement;
-    Ok(Sequence::new(atoms)?.into())
+    let selected = wrapping_index(index, sequence.len());
+    Ok(sequence.replaced(selected, replacement)?.into())
 }
 
 /// Number Range `:-`: inclusive unit-step Sequence between two Numbers.
-#[inline(always)]
+#[inline]
 pub fn number_range(ctx: &mut Context) -> Result<Value, Error> {
     let operands::NumberRange { lower, upper } =
         ctx.stack.extract_values::<operands::NumberRange>()?;
@@ -54,13 +48,13 @@ pub fn number_range(ctx: &mut Context) -> Result<Value, Error> {
 }
 
 /// Note Range `:#`: inclusive chromatic Sequence between two Notes.
-#[inline(always)]
+#[inline]
 pub fn note_range(ctx: &mut Context) -> Result<Value, Error> {
     let operands::NoteRange { lower, upper } = ctx.stack.extract_values::<operands::NoteRange>()?;
     Ok(inclusive_note_range(lower, upper)?.into())
 }
 
-#[inline(always)]
+#[inline]
 fn require_non_empty(sequence: &Sequence) -> Result<(), Error> {
     if sequence.is_empty() {
         Err(SequenceError::EmptyNotAllowed.into())
@@ -69,7 +63,7 @@ fn require_non_empty(sequence: &Sequence) -> Result<(), Error> {
     }
 }
 
-#[inline(always)]
+#[inline]
 fn wrapping_index(index: u8, length: usize) -> usize {
     usize::from(index) % length
 }
@@ -140,7 +134,7 @@ mod test {
     }
 
     fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, operands, inputs().into())
+        Interpreter::execute_function(function, operands.to_vec(), inputs().into())
     }
 
     fn numbers(values: impl IntoIterator<Item = u8>) -> Sequence {

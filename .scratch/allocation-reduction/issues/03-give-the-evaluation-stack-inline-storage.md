@@ -84,3 +84,10 @@ growing evaluation stack, though `execute_function` now supplies exactly one Fun
 and returns its answer directly. When the storage goes inline, build it as a constructor over the
 resolved operands, so the reversal, the capacity and the incremental pushes stay inside `lang`
 rather than in `execute_function`'s loop.
+
+**2026-09-26 — reconciled with source-audit/24 (epic PR 13).** source-audit/24 adds `execute_function` allocation tests and a benchmark group beside the ones `lang/narrow-api` retargeted; reuse them rather than adding more.
+
+- `a_turn_over_atoms_allocates_nothing_but_its_operand_stack` measures `.+0102` at 1 block, the Operand Stack alone (`operand_stack(2)` bytes). Tighten it to zero allocations here; it is the test the fourth criterion asks for.
+- `a_sequence_operand_is_consumed_without_copying_its_members` and `a_turn_that_builds_a_sequence_allocates_only_that_answer` allow the Operand Stack's block as a ceiling (`operand_stack(arity)` bytes, one block). With inline storage they pass unchanged; tighten each by one block when this lands.
+- The `execute_function` benchmark and the `execute_function_operands` group in `lang/benches/lang.rs` cover this path.
+- `execute_function` now takes its operands by value, so no operand clone remains on the path: after this ticket a Turn whose operands and answer hold no Sequence allocates nothing in `lang`. `orcvs` still allocates two blocks per Turn outside `lang` — the `Tokens` signature in `opens_turn` and the operand `Vec` — recorded in source-audit/24.

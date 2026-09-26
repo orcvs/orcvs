@@ -184,7 +184,7 @@ mod test {
 
     /// Exercises Function dispatch with resolved operands in signature order.
     fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, operands, inputs().into())
+        Interpreter::execute_function(function, operands.to_vec(), inputs().into())
     }
 
     /// A terminal body, so the two spellings that share a claim can be stated

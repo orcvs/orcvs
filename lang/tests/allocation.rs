@@ -81,7 +81,7 @@
 // global allocator it has no `System` for.
 #![cfg(not(target_arch = "wasm32"))]
 
-use lang::{Anchor, Atom, Function, Interpreter, Parser, Tick, TickInputs, Value};
+use lang::{Anchor, Atom, Function, Interpreter, Parser, Sequence, Tick, TickInputs, Value};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::hint::black_box;
@@ -281,7 +281,7 @@ fn evaluate(calls: &[Call], inputs: TickInputs) -> usize {
         evaluated += usize::from(
             Interpreter::execute_function(
                 black_box(*function),
-                black_box(operands),
+                black_box(operands).iter().cloned(),
                 black_box(inputs).into(),
             )
             .is_ok(),
@@ -480,4 +480,122 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     let (nothing, units) = measure(|| reread(black_box(&blank)));
     black_box(units);
     assert_eq!(nothing, Allocations::default());
+}
+
+/// A Sequence of `length` Numbers, built outside every measured span.
+fn numbers(length: usize) -> Sequence {
+    Sequence::new((0..length).map(|index| Atom::Number(index as u8))).expect("Numbers are members")
+}
+
+/// The bytes of the Operand Stack one Turn over `operands` operands builds.
+/// Every ceiling below admits this block and no other beyond the answer's own,
+/// so inline Operand Stack storage lowers the measurement without failing it.
+fn operand_stack(operands: usize) -> usize {
+    operands * size_of::<Value>()
+}
+
+/// One Turn through [`Interpreter::execute_function`], and what it allocated.
+///
+/// The answer is dropped outside the span, so only what the Turn asked for is
+/// counted; the operands are built by the caller, outside it too.
+fn turn<const N: usize>(function: Function, operands: [Value; N]) -> Allocations {
+    let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
+    // Warm up, for the reason the call test gives.
+    black_box(Interpreter::execute_function(
+        function,
+        operands.clone(),
+        inputs.into(),
+    ))
+    .expect("the warm-up Turn answers");
+    let (allocations, answer) = measure(|| {
+        Interpreter::execute_function(black_box(function), black_box(operands), inputs.into())
+    });
+    answer.expect("the measured Turn answers");
+    allocations
+}
+
+#[test]
+fn a_turn_over_atoms_allocates_nothing_but_its_operand_stack() {
+    let add = turn(
+        Function::Add,
+        [Atom::Number(1).into(), Atom::Number(2).into()],
+    );
+    publish("lang turn Add", add);
+
+    assert!(add.blocks <= 1, "`.+0102` took {} blocks", add.blocks);
+    assert!(
+        add.bytes <= operand_stack(2),
+        "`.+0102` took {} bytes",
+        add.bytes
+    );
+}
+
+#[test]
+fn a_sequence_operand_is_consumed_without_copying_its_members() {
+    // Reverse, Replace and Select answer from the Sequence they are handed:
+    // the answer reuses its members' storage or is one Atom of it. A Turn over
+    // them therefore allocates the same at every length, and nothing beyond
+    // the Operand Stack — a copy of the members anywhere between the caller
+    // and the Function body would be sized by the length and fail both.
+    for length in [16, 64] {
+        let reverse = turn(Function::Reverse, [numbers(length).into()]);
+        let replace = turn(
+            Function::Replace,
+            [
+                Atom::Number(3).into(),
+                Atom::Number(7).into(),
+                numbers(length).into(),
+            ],
+        );
+        let select = turn(
+            Function::Select,
+            [Atom::Number(3).into(), numbers(length).into()],
+        );
+
+        if length == 64 {
+            publish("lang turn Reverse over 64 members", reverse);
+        }
+
+        for (name, arity, allocations) in [
+            ("Reverse", 1, reverse),
+            ("Replace", 3, replace),
+            ("Select", 2, select),
+        ] {
+            assert!(
+                allocations.blocks <= 1 && allocations.bytes <= operand_stack(arity),
+                "{name} over {length} members took {allocations:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_turn_that_builds_a_sequence_allocates_only_that_answer() {
+    // A broadcast answer and a concatenation are Sequences no operand holds,
+    // so each is one block of its own. That block is the answer; the operands
+    // are consumed where they stand rather than copied on the way to it.
+    let length = 64;
+    let atom = size_of::<Atom>();
+
+    let subtract = turn(
+        Function::Subtract,
+        [numbers(length).into(), Atom::Number(1).into()],
+    );
+    assert!(
+        subtract.blocks <= 2 && subtract.bytes <= operand_stack(2) + length * atom,
+        "Subtract over {length} members took {subtract:?}"
+    );
+
+    let concatenate = turn(
+        Function::Concatenate,
+        [numbers(length).into(), numbers(length).into()],
+    );
+    publish(
+        "lang turn Concatenate of two 64-member Sequences",
+        concatenate,
+    );
+    assert!(
+        concatenate.blocks <= 2 && concatenate.bytes <= operand_stack(2) + 2 * length * atom,
+        "Concatenate of two {length}-member Sequences took {concatenate:?}"
+    );
 }

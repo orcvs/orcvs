@@ -720,7 +720,9 @@ macro_rules! value_operands_from_values {
         impl crate::stack::ValueOperands for $variant {
             const FUNCTION: Function = Function::$variant;
 
-            fn from_values(values: &[crate::Value]) -> Result<Self, crate::Error> {
+            fn from_values(
+                values: crate::stack::OperandValues,
+            ) -> Result<Self, crate::Error> {
                 use crate::ArgumentError;
 
                 const EXPECTED: usize = [$(stringify!($role),)*].len();
@@ -734,7 +736,7 @@ macro_rules! value_operands_from_values {
                     );
                 }
 
-                let mut values = values.iter();
+                let mut values = values.into_iter();
                 Ok(Self {
                     $($role: operand_value_bind!(
                         $operand,
