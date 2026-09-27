@@ -214,8 +214,8 @@ Okabe–Ito assignment is published as safe for red–green deficiency. The
 rejected definition passed the contrast floor in all 84 states the report
 measured then while doing it; **Orcvs Light's colour-vision evidence** below
 records the whole comparison, and
-`contrast::tests::the_rejected_light_glyph_definition_fails_this_gate` keeps it
-as a regression.
+`contrast::colour_vision::tests::the_rejected_light_glyph_definition_fails_this_gate`
+keeps it as a regression.
 
 Every glyph hue is therefore re-picked from the same Okabe–Ito palette, under
 the same role-to-hue assignment the dark built-in already uses. Each hue is kept
@@ -398,17 +398,18 @@ The scope is the validator's own: text contrast against the actually-composited
 background, never pairwise Token-colour distinguishability, border or focus
 visibility, or the Cursor Effect's animated `cursor.area` field. Pairwise
 distinguishability of the Source glyph channels under a simulated dichromacy
-is `contrast::distinguish`'s separate measurement, below.
+is a separate, test-only measurement over the built-ins, below.
 
 #### Orcvs Light's colour-vision evidence
 
-`console/src/contrast.rs::distinguish` simulates dichromatic vision over the
+`distinguish` in `console/src/contrast/colour_vision.rs`, a test-only check on
+the built-in Themes, simulates dichromatic vision over the
 same composited colours `validate` measures — the glyph as it is displayed on
 its own role tint, on the Region wash, and on the doubled Portal-over-role tint
 — and reports how far apart every pair of Source glyph channels stays. The
 transform is Viénot, Brettel & Mollon (1999); the distance is CIEDE2000, checked
 against Sharma, Wu & Dalal's published test data. The floor is
-`contrast::CONFUSION_FLOOR`, 5.0.
+`contrast::colour_vision::CONFUSION_FLOOR`, 5.0.
 
 **Both shipped built-ins clear it for protanopia and deuteranopia, with no
 accepted exception.** The closest pair each way:
@@ -436,8 +437,8 @@ ground imposes no arrangement of these seven hues rescues the light one either �
 the best reachable was 5.6, and only by darkening Note to `#312D00`, which is no
 longer a yellow. Orcvs Light's 1.54 is better than the dark built-in's 0.60 and
 better than the rejected definition's 0.39, and it is not good.
-`contrast::tests::shipped_theme_colour_vision_gate` pins both figures, so this
-stays a checked boundary rather than an unexamined gap.
+`contrast::colour_vision::tests::shipped_theme_colour_vision_gate` pins both
+figures, so this stays a checked boundary rather than an unexamined gap.
 
 The rejected definition, for the comparison:
 
@@ -454,7 +455,7 @@ and `#C33445` measure 1.01:1 and 14.39. The review's observation is exact in
 both cases and its conclusion does not follow from it: every dichromacy keeps
 lightness *and* one chromatic axis, so equal luminance is a fact about two
 colours rather than a verdict on them.
-`contrast::tests::equal_luminance_alone_does_not_decide_a_colour_vision_
+`contrast::colour_vision::tests::equal_luminance_alone_does_not_decide_a_colour_vision_
 confusion` records that, because it is the reason this measurement simulates
 vision rather than comparing luminances. The corollary is what set Diagnostic's
 and Output Portal's lightness above: lightness is the dimension that survives,
@@ -658,19 +659,21 @@ only in rustdoc. `validate` measures text contrast only: never Token-colour
 distinguishability, border/focus visibility, or the Cursor Effect's animated
 `area` field.
 
-Colour vision is the same module's second measurement, `contrast::distinguish`
-(`.scratch/theming/issues/04`), added because a definition can clear every one
-of those states and still paint two Source glyph channels a dichromat reads
-as one colour — the rejected light definition did exactly that. It simulates
-protanopia, deuteranopia and tritanopia (Viénot, Brettel & Mollon 1999) over the
-same composited colours, measures CIEDE2000 between every pair of glyph
-channels, and reports the closest placement for each pair.
-`contrast::CONFUSION_FLOOR`, 5.0, gates the two red–green dichromacies;
-tritanopia is reported and not gated, for the reason `ColourVision`'s own
-documentation and **Orcvs Light's colour-vision evidence** above both state.
-`contrast::tests::shipped_theme_colour_vision_gate` runs it over both built-ins.
-It measures glyphs only: never background tints against each other, and never
-anomalous trichromacy.
+Colour vision is a second, test-only measurement over the built-in Themes,
+`contrast::colour_vision::distinguish` (`.scratch/theming/issues/04`), added
+because a definition can clear every one of those states and still paint two
+Source glyph channels a dichromat reads as one colour — the rejected light
+definition did exactly that. It simulates protanopia, deuteranopia and
+tritanopia (Viénot, Brettel & Mollon 1999) over the same composited colours,
+measures CIEDE2000 between every pair of glyph channels, and reports the closest
+placement for each pair. `contrast::colour_vision::CONFUSION_FLOOR`, 5.0, gates
+the two red–green dichromacies; tritanopia is reported and not gated, for the
+reason `ColourVision`'s own documentation and **Orcvs Light's colour-vision
+evidence** above both state.
+`contrast::colour_vision::tests::shipped_theme_colour_vision_gate` runs it over
+both built-ins; no shipped path runs it, so a loaded Theme document is not
+measured for colour vision. It measures glyphs only: never background tints
+against each other, and never anomalous trichromacy.
 
 A Pending operand Cell draws no glyph, so `validate` has no Pending role to
 measure — `Role` (Number, Note, Atom, Sequence) carries Valid and Invalid
