@@ -361,7 +361,7 @@ impl<'a> Execution<'a> {
     ) -> Option<&str> {
         let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
         let span = portal.span(input.token().len()).ok()?;
-        Some(self.working.cells().slice(span.range()).as_str())
+        Some(self.working.text(span.range()))
     }
 
     /// The Cells a Jump reads, when they are one complete aligned unit.
@@ -371,7 +371,7 @@ impl<'a> Execution<'a> {
     fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
         let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
         match portal.language_unit(
-            self.working.cells().bytes(),
+            self.working.cells(),
             self.map,
             super::SCALAR_WIDTH,
             |range| self.sequence_covers(range),
@@ -381,7 +381,7 @@ impl<'a> Execution<'a> {
                 let span = portal
                     .span(super::SCALAR_WIDTH)
                     .expect("an admitted unit fitted its row");
-                Some(self.working.cells().slice(span.range()).as_str())
+                Some(self.working.text(span.range()))
             }
         }
     }
@@ -415,7 +415,7 @@ impl<'a> Execution<'a> {
                 }
                 // Spatial delivery leaves characters pending until consumption;
                 // a surviving nested child instead supplies an already typed value.
-                let spelling = self.working.cells().slice(operand.cells.clone()).as_str();
+                let spelling = self.working.text(operand.cells.clone());
                 token
                     .decode(spelling)
                     .map(Value::from)
@@ -509,7 +509,7 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
             if Portal::at(self.grid, destination)
-                .occupied_in(self.working.cells().bytes(), super::SCALAR_WIDTH)
+                .occupied_in(self.working.cells(), super::SCALAR_WIDTH)
             {
                 let producer = self.states[index].function;
                 self.effects.push(Effect::Diagnose(diagnose(
@@ -709,9 +709,7 @@ impl<'a> Execution<'a> {
                 .collect(),
             Err(_) => vec![],
         };
-        let empty = entered
-            .iter()
-            .all(|cell| self.working.cells().bytes()[*cell] == b' ');
+        let empty = entered.iter().all(|&cell| self.working.is_empty_at(cell));
 
         match admitted {
             Ok(write) if empty => {
@@ -856,7 +854,7 @@ impl<'a> Execution<'a> {
     /// the cleanup of prior Bang display before any Turn is attempted.
     fn write(&mut self, write: SpanWrite) {
         for (cell, content) in write.cells() {
-            self.working.write(cell.get(), content);
+            self.working.write(cell, content);
         }
         self.effects.push(Effect::Write(write));
     }

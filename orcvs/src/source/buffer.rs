@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use super::CellContent;
+use crate::grid::CellIndex;
 
 ///
 /// The Cells of one Source: one printable ASCII byte per Cell, in Grid order.
@@ -79,6 +80,11 @@ impl<'a> Cells<'a> {
         self.0
     }
 
+    /// How many Cells the view holds.
+    pub(super) fn len(self) -> usize {
+        self.0.len()
+    }
+
     /// The Cells in `range`. Panics when `range` runs past the last Cell.
     pub(super) fn slice(self, range: Range<usize>) -> Self {
         Self(&self.0[range])
@@ -106,8 +112,8 @@ impl<'a> Cells<'a> {
 impl<'a> Cells<'a> {
     /// `bytes` as Cells, for a test whose fixture states them as text.
     /// Panics when one of them is not a Cell's.
-    pub(super) fn of(bytes: &'a (impl AsRef<[u8]> + ?Sized)) -> Self {
-        Self::checked(bytes.as_ref()).expect("a fixture's Cells are printable ASCII")
+    pub(super) fn of(bytes: &'a [u8]) -> Self {
+        Self::checked(bytes).expect("a fixture's Cells are printable ASCII")
     }
 }
 
@@ -126,10 +132,21 @@ impl WorkingCells {
         Cells(&self.0)
     }
 
-    /// Writes `content` into the Cell at `index`. Panics when `index` is past
-    /// the last Cell.
-    pub(super) fn write(&mut self, index: usize, content: CellContent) {
-        self.0[index] = content.byte();
+    /// The Cells in `range` as text, checked over `range` alone. Panics when
+    /// `range` runs past the last Cell.
+    pub(super) fn text(&self, range: Range<usize>) -> &str {
+        self.cells().slice(range).as_str()
+    }
+
+    /// Whether the Cell at `index` is empty. Panics when `index` is past the
+    /// last Cell.
+    pub(super) fn is_empty_at(&self, index: usize) -> bool {
+        self.0[index] == CellContent::SPACE.byte()
+    }
+
+    /// Writes `content` into `cell`. Panics when `cell` is past the last Cell.
+    pub(super) fn write(&mut self, cell: CellIndex, content: CellContent) {
+        self.0[cell.get()] = content.byte();
     }
 }
 
@@ -191,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn bytes_no_cell_holds_are_not_cells() {
+    fn bytes_outside_printable_ascii_are_not_cells() {
         assert!(Cells::checked(b"a\nb").is_none());
         assert!(Cells::checked("é".as_bytes()).is_none());
         assert_eq!(Cells::checked(b".+01 ").map(Cells::as_str), Some(".+01 "));

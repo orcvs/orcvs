@@ -28,9 +28,9 @@ use lang::{Function, PortalCoords, SourceBundle};
 
 use crate::grid::{CellIndex, Grid, Position};
 
-use super::CellContent;
 use super::encoding::Encoding;
 use super::language_map::{LanguageMap, LanguageUnitKind, Span};
+use super::{CellContent, Cells};
 
 /// The Cell pair one Atom occupies, and the one declaration of it: what a
 /// scalar answer reserves (ADR 0036), what a Jump reads at its opposite
@@ -281,10 +281,14 @@ impl Portal {
     /// Bang — empty in working Source, still a unit on the Map — writes
     /// rather than diagnosing.
     ///
-    pub(super) fn occupied_in(self, working: &[u8], width: usize) -> bool {
-        self.span(width)
-            .ok()
-            .is_some_and(|span| working[span.range()].iter().any(|&byte| byte != b' '))
+    pub(super) fn occupied_in(self, working: Cells<'_>, width: usize) -> bool {
+        self.span(width).ok().is_some_and(|span| {
+            working
+                .slice(span.range())
+                .bytes()
+                .iter()
+                .any(|&byte| byte != b' ')
+        })
     }
 
     ///
@@ -296,7 +300,7 @@ impl Portal {
     ///
     pub(super) fn language_unit(
         self,
-        working: &[u8],
+        working: Cells<'_>,
         map: &LanguageMap,
         width: usize,
         sequence_covers: impl Fn(std::ops::Range<usize>) -> bool,
@@ -305,7 +309,7 @@ impl Portal {
             return PortalUnit::Invalid;
         };
         let range = span.range();
-        let cells = &working[range.clone()];
+        let cells = working.slice(range.clone()).bytes();
         if cells.iter().all(|&byte| byte == b' ') {
             return PortalUnit::Empty;
         }
@@ -641,7 +645,7 @@ mod test {
     }
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap, sequence: bool) -> PortalUnit {
-        portal.language_unit(working, map, 2, |_| sequence)
+        portal.language_unit(Cells::of(working), map, 2, |_| sequence)
     }
 
     ///
@@ -919,11 +923,11 @@ mod test {
     fn occupied_in_answers_working_source_spaces() {
         let grid = Grid::with_shape(4, 1);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert!(!portal.occupied_in(b"    ", 2));
-        assert!(portal.occupied_in(b"x   ", 2));
-        assert!(portal.occupied_in(b" x  ", 2));
+        assert!(!portal.occupied_in(Cells::of(b"    "), 2));
+        assert!(portal.occupied_in(Cells::of(b"x   "), 2));
+        assert!(portal.occupied_in(Cells::of(b" x  "), 2));
         let last = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert!(!last.occupied_in(b"   x", 2));
+        assert!(!last.occupied_in(Cells::of(b"   x"), 2));
     }
 
     #[test]

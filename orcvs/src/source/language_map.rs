@@ -157,12 +157,14 @@ pub struct Claim {
 }
 
 impl Claim {
-    fn from_entry(entry: &lang::PositionedEntry, bytes: &[u8]) -> Self {
+    fn from_entry(entry: &lang::PositionedEntry, cells: Cells<'_>) -> Self {
         Self {
             cells: entry.cells.clone(),
             token: entry.token,
             atom: entry.atom,
-            written: bytes[entry.cells.clone()]
+            written: cells
+                .slice(entry.cells.clone())
+                .bytes()
                 .iter()
                 .any(|&byte| byte != SPACE_BYTE),
         }
@@ -310,7 +312,7 @@ impl LanguageMap {
     /// Position in `grid`.
     pub fn derive(grid: Grid, source: &str) -> Option<Self> {
         Cells::checked(source.as_bytes())
-            .filter(|cells| cells.bytes().len() == grid.count())
+            .filter(|cells| cells.len() == grid.count())
             .map(|cells| Self::build(grid, cells))
     }
 
@@ -333,7 +335,7 @@ impl LanguageMap {
         dirty: &BTreeSet<usize>,
     ) -> Self {
         assert_eq!(
-            cells.bytes().len(),
+            cells.len(),
             grid.count(),
             "LanguageMap Source length must match its Grid"
         );
@@ -370,7 +372,7 @@ impl LanguageMap {
 
     pub(super) fn build(grid: Grid, cells: Cells<'_>) -> Self {
         assert_eq!(
-            cells.bytes().len(),
+            cells.len(),
             grid.count(),
             "LanguageMap Source length must match its Grid"
         );
@@ -510,14 +512,14 @@ impl LanguageMap {
     ///
     pub(super) fn claims_by_cell(&self, cells: Cells<'_>) -> Vec<Option<Arc<Claim>>> {
         assert_eq!(
-            cells.bytes().len(),
+            cells.len(),
             self.grid.count(),
             "LanguageMap Source length must match its Grid"
         );
         let mut by_index = vec![None; self.grid.count()];
         for expression in self.expressions() {
             for entry in expression.positioned() {
-                let claim = Arc::new(Claim::from_entry(entry, cells.bytes()));
+                let claim = Arc::new(Claim::from_entry(entry, cells));
                 for index in entry.cells.clone() {
                     by_index[index] = Some(Arc::clone(&claim));
                 }
@@ -894,15 +896,13 @@ struct RowWalk {
 /// establishes, and resumes at the Cell after it. ADR 0033 records what that
 /// makes of an empty Cell: one between Expressions is skipped rather than
 /// named, and one inside an Expression's arity-determined claim is an operand
-/// Cell that fails to bind, because a space no longer terminates anything.
+/// Cell that fails to bind, because a space terminates nothing.
 ///
-/// The whole row goes to the Parser. ADR 0035 moved the Comment into the
-/// parse, so there is no pre-pass left that decides where a row's Source
-/// stops: the `||` introducer is a spelling the Parser recognizes where a
-/// spelling is read, and the Comment it opens claims every Cell after it. The
-/// unaligned `##` scan this replaced could cut a row in the middle of a
-/// Function, because an Expression may begin at any column and a two-Cell
-/// spelling holding a `#` could present one to an overlapping byte pair.
+/// The whole row goes to the Parser, which alone decides where a row's Source
+/// stops: the `||` introducer is a spelling read where a spelling is read, and
+/// the Comment it opens claims every Cell after it. Do not find Comments with
+/// a byte scan ahead of the parse: an Expression may begin at any column, so
+/// an overlapping byte pair can split a two-Cell spelling.
 ///
 fn walk_row(grid: Grid, row_start: usize, row: Cells<'_>, walk: &mut RowWalk) {
     let cell = |idx: usize| {
@@ -910,18 +910,16 @@ fn walk_row(grid: Grid, row_start: usize, row: Cells<'_>, walk: &mut RowWalk) {
             .expect("a row's Cells lie inside the Grid that owns the row")
     };
     let text = row.as_str();
-    let row = row.bytes();
 
     let mut idx = row_start;
-    // The row edge, and the only boundary left. The Comment moved into the
-    // parse (ADR 0035), so nothing before the walk decides where a row's
-    // Source stops.
+    // The row edge is the walk's only boundary: the Parser, not a pass before
+    // the walk, decides where a row's Source stops.
     let row_end = row_start + row.len();
     while idx < row_end {
-        if row[idx - row_start] == SPACE_BYTE {
+        if row.bytes()[idx - row_start] == SPACE_BYTE {
             // An empty Cell between Expressions is not Source, so it is not
             // diagnosed and starts nothing. This is the whole of what a space
-            // does now.
+            // does.
             idx += 1;
             continue;
         }
@@ -943,7 +941,7 @@ fn walk_row(grid: Grid, row_start: usize, row: Cells<'_>, walk: &mut RowWalk) {
 fn name_units(
     grid: Grid,
     row_start: usize,
-    source: &[u8],
+    row: Cells<'_>,
     analysis: &SourceAnalysis,
     walk: &mut RowWalk,
 ) {
@@ -979,7 +977,7 @@ fn name_units(
             });
         } else {
             for index in entry.cells.clone() {
-                let byte = source[index - row_start];
+                let byte = row.bytes()[index - row_start];
                 if byte != SPACE_BYTE {
                     walk.diagnostics.push(invalid_unit_diagnostic(
                         grid,
@@ -1617,7 +1615,7 @@ mod tests {
     /// `Lookup`.
     ///
     mod output_portal {
-        use super::{Function, Grid, LanguageMap};
+        use super::{Cells, Function, Grid, LanguageMap};
         use crate::source::language_map::SequenceCapability;
 
         /// One `LanguageMap` built from `rows`, each padded to `grid`'s width
@@ -1636,7 +1634,7 @@ mod tests {
                 );
                 bytes[y * columns..y * columns + row.len()].copy_from_slice(row.as_bytes());
             }
-            LanguageMap::build(grid, crate::source::Cells::of(&bytes))
+            LanguageMap::build(grid, Cells::of(&bytes))
         }
 
         fn covered(map: &LanguageMap, grid: Grid, x: usize, y: usize) -> bool {
@@ -2599,7 +2597,7 @@ mod property {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod rebuild_property {
-    use super::{Grid, LanguageMap, LanguageUnit};
+    use super::{Cells, Grid, LanguageMap, LanguageUnit};
     use proptest::prelude::*;
     use std::collections::BTreeSet;
 
@@ -2686,7 +2684,7 @@ mod rebuild_property {
 
             let grid = Grid::with_shape(cols, rows);
             let mut bytes: Vec<u8> = before[..count].iter().map(|i| ALPHABET[*i]).collect();
-            let previous = LanguageMap::build(grid, crate::source::Cells::of(&bytes));
+            let previous = LanguageMap::build(grid, Cells::of(&bytes));
 
             let dirty: BTreeSet<usize> = (0..rows)
                 .filter(|row| *written.get(*row).unwrap_or(&false))
@@ -2698,8 +2696,8 @@ mod rebuild_property {
                 }
             }
 
-            let rebuilt = LanguageMap::rebuild(&previous, grid, crate::source::Cells::of(&bytes), &dirty);
-            let built = LanguageMap::build(grid, crate::source::Cells::of(&bytes));
+            let rebuilt = LanguageMap::rebuild(&previous, grid, Cells::of(&bytes), &dirty);
+            let built = LanguageMap::build(grid, Cells::of(&bytes));
 
             prop_assert_eq!(contents(&rebuilt), contents(&built));
         }

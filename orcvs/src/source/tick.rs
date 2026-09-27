@@ -5938,7 +5938,7 @@ mod test {
 ///
 #[cfg(test)]
 mod output_portal_exclusion {
-    use super::{Lookup, computations};
+    use super::{Cells, Lookup, computations};
     use crate::grid::Grid;
     use crate::source::language_map::LanguageMap;
 
@@ -5972,7 +5972,7 @@ mod output_portal_exclusion {
     }
 
     fn assert_excluded(grid: Grid, row: &str) {
-        let map = LanguageMap::build(grid, crate::source::Cells::of(row.as_bytes()));
+        let map = LanguageMap::build(grid, Cells::of(row.as_bytes()));
         let derived = map.output_portal_cells();
         let source_writes = source_writing_reservation_cells(grid, &map);
         assert!(
@@ -6091,7 +6091,7 @@ mod property {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod nested_property {
-    use super::{Tick, plan};
+    use super::{Cells, Tick, plan};
     use crate::grid::{COL_COUNT, Grid};
     use crate::source::language_map::LanguageMap;
     use lang::{Atom, Function, Note, Parser, Token, Tokens};
@@ -6239,14 +6239,9 @@ mod nested_property {
         let width = source.len().max(2);
         let grid = Grid::with_shape(width, 3);
         let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
-        let map = LanguageMap::build(grid, crate::source::Cells::of(bytes.as_bytes()));
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (tick, states) = plan(
-            grid,
-            crate::source::Cells::of(bytes.as_bytes()),
-            &map,
-            Tick::ZERO,
-        );
+        let (tick, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         prop_assert!(
             !tick
