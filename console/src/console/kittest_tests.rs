@@ -864,52 +864,6 @@ async fn theme_notices_sit_at_the_right_of_the_top_bar() {
 }
 
 ///
-/// In a window too narrow for every notice, the persistence notice is cut
-/// short — its whole text on hover — rather than growing left over the
-/// menus, where it would cover them and take their clicks.
-///
-#[cfg(feature = "persistence")]
-#[tokio::test]
-async fn a_long_notice_in_a_narrow_window_stays_right_of_the_menus() {
-    let mut stored = crate::persistence::InMemoryStorage::default();
-    eframe::Storage::set_string(
-        &mut stored,
-        crate::persistence::SOURCE_KEY,
-        "not a Source".to_owned(),
-    );
-    let width = 420.0;
-    let mut harness = console_harness(
-        Vec2::new(width, DEFAULT_VIEW_SIZE[1]),
-        Some(&stored),
-        ThemeRegistry::built_in(),
-        crate::config::Config::default(),
-    );
-    harness.run_steps(2);
-
-    let help = harness.get_by_label("Help").rect();
-    let notice = harness
-        .query_all_by_label_contains("Stored Source could not be read back")
-        .next()
-        .expect("the refused start raised no persistence notice")
-        .rect();
-    assert!(
-        notice.min.x >= help.max.x,
-        "the persistence notice at {notice:?} grew over Help at {help:?}"
-    );
-    assert!(
-        notice.max.x <= width,
-        "the persistence notice at {notice:?} ran past the window"
-    );
-    harness.get_by_label("Help").click();
-    harness.step();
-    harness.run_steps(1);
-    assert!(
-        harness.query_by_label("Function Reference").is_some(),
-        "Help could not be opened beside a long notice"
-    );
-}
-
-///
 /// The Source's own input path, which is keyboard rather than widget.
 ///
 /// A key press reaches `Context::filtered_events`, survives the console's
@@ -2246,10 +2200,10 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
 #[cfg(feature = "persistence")]
 #[tokio::test]
 async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
-    use crate::persistence::{InMemoryStorage, SOURCE_KEY, edited_source, store};
+    use crate::persistence::{InMemoryStorage, SOURCE_KEY, edited_source, save};
 
     let mut stored = InMemoryStorage::default();
-    store(&mut stored, &edited_source());
+    save(&mut stored, &edited_source());
     let stored_revision = eframe::Storage::get_string(&stored, SOURCE_KEY);
 
     let mut harness = console_harness(
@@ -2866,10 +2820,10 @@ async fn the_file_chords_run_nothing_while_the_keys_are_elsewhere() {
 #[cfg(feature = "persistence")]
 #[tokio::test]
 async fn a_restored_source_is_untitled_and_unsaved() {
-    use crate::persistence::{InMemoryStorage, edited_source, store};
+    use crate::persistence::{InMemoryStorage, edited_source, save};
 
     let mut stored = InMemoryStorage::default();
-    store(&mut stored, &edited_source());
+    save(&mut stored, &edited_source());
     let mut harness = console_harness(
         Vec2::from(DEFAULT_VIEW_SIZE),
         Some(&stored),

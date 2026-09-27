@@ -1,5 +1,5 @@
-//! The top bar: the File, View and Help menus, the Notices menu, the
-//! persistence notice and the mode control.
+//! The top bar: the File, View and Help menus, the Notices menu and the
+//! mode control.
 
 use super::Console;
 #[cfg(not(target_arch = "wasm32"))]
@@ -12,7 +12,7 @@ use crate::theme_selection::SelectedThemes;
 pub(super) const TOP_PANEL_HEIGHT: f32 = 32.0;
 
 /// The horizontal gap between the top menu bar's own items — its menu
-/// buttons and the persistence notice.
+/// buttons.
 pub(super) const MENU_BAR_GAP: f32 = 16.0;
 
 ///
@@ -155,7 +155,7 @@ pub(super) struct MenuBarChoice {
 impl Console {
     ///
     /// Shows the top bar: File, View and Help, then at its right edge the
-    /// mode control, the Notices menu and the persistence notice.
+    /// mode control and the Notices menu.
     ///
     /// A View menu Zoom is handed to the Source View for this frame's
     /// `show_source_scene`, which runs after the bar, as the chord is. Help's
@@ -228,7 +228,7 @@ impl Console {
                     // Rightmost: the mode, which is a control rather than a
                     // menu, and applied once the frame is done.
                     choice.appearance_change = mode_control(ui);
-                    // Theme, settings, Source File and persistence notices sit
+                    // Theme, settings and Source File notices sit
                     // in the bar until dismissed; `report` has already sent
                     // each to the developer console.
                     #[cfg(not(target_arch = "wasm32"))]
@@ -236,27 +236,6 @@ impl Console {
                     // The web opens and saves no file.
                     #[cfg(target_arch = "wasm32")]
                     show_notices(ui, &mut self.themes, &mut Vec::new());
-                    #[cfg(feature = "persistence")]
-                    if self.persistence.notice_visible() {
-                        ui.add_space(MENU_BAR_GAP);
-                        if ui.button("Dismiss").clicked() {
-                            self.persistence.dismiss_notice();
-                        }
-                        // Truncated to the space the menus leave, with its
-                        // whole text on hover, so a narrow window never
-                        // lays it over them.
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(format!(
-                                    "Stored Source could not be read back; it was kept under \
-                                     \"{}\"",
-                                    crate::persistence::REFUSED_KEY
-                                ))
-                                .color(ui.visuals().error_fg_color),
-                            )
-                            .truncate(),
-                        );
-                    }
                 });
             });
         });

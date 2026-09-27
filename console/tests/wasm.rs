@@ -646,16 +646,16 @@ mod midi_output {
 ///
 /// The browser end of the storage seam.
 ///
-/// `console/src/persistence.rs` reports a refused revision on two channels
+/// `console/src/persistence.rs` reports a discarded revision on two channels
 /// because the two targets read different ones: the native binary installs a
 /// `tracing` subscriber, and the browser build installs `eframe::WebLogger`,
 /// which reads `log` and knows nothing of `tracing`. Every other persistence
 /// test runs on the native target, where the `tracing` line alone is enough, so
 /// only a test compiled for `wasm32` can hold the browser's half of "a
-/// malformed stored value is refused, and is reported".
+/// malformed stored value is discarded, and is reported".
 ///
 #[cfg(feature = "persistence")]
-mod refused_revision {
+mod discarded_revision {
     use console::console::Console;
     use eframe::App as _;
     use orcvs::grid::{COL_COUNT, ROW_COUNT};
@@ -710,7 +710,7 @@ mod refused_revision {
     }
 
     #[wasm_bindgen_test]
-    fn the_browser_reports_a_refused_revision_and_starts_the_default_grid() {
+    fn the_browser_reports_a_discarded_revision_and_starts_the_default_grid() {
         let storage = MalformedStorage;
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(&storage);
@@ -725,11 +725,11 @@ mod refused_revision {
             .expect("browser playback does not require a Tokio runtime");
 
         assert!(
-            reported.iter().any(|record| record.contains("refused")),
+            reported.iter().any(|record| record.contains("discarded")),
             "the browser build reported nothing a developer console would show: {reported:?}"
         );
 
-        // And the refusal is whole: the console starts the ordinary default
+        // And the discard is whole: the console starts the ordinary default
         // Grid, which is the revision its next save stores.
         let mut saved = RecordingStorage::default();
         console.save(&mut saved);
@@ -770,7 +770,6 @@ mod product_path {
     fn clear_orcvs_keys() {
         let storage = window_local_storage();
         let _ = storage.remove_item(console::persistence::SOURCE_KEY);
-        let _ = storage.remove_item(console::persistence::REFUSED_KEY);
     }
 
     impl eframe::Storage for BrowserStorage {
@@ -849,28 +848,17 @@ mod product_path {
     }
 
     #[wasm_bindgen_test]
-    fn a_malformed_local_storage_revision_is_refused_and_starts_the_default_grid() {
+    fn a_malformed_local_storage_revision_is_discarded_and_overwritten_by_the_next_save() {
         clear_orcvs_keys();
-        let refused = "not a stored Source";
         window_local_storage()
-            .set_item(console::persistence::SOURCE_KEY, refused)
-            .expect("localStorage accepts the refused value");
+            .set_item(console::persistence::SOURCE_KEY, "not a stored Source")
+            .expect("localStorage accepts the malformed value");
 
         let storage = BrowserStorage;
         let mut console = console_over(&storage);
         let started = saved_revision(&mut console);
         assert_eq!(started.grid().count(), COL_COUNT * ROW_COUNT);
         assert!(started.snapshot().bytes().all(|byte| byte == b' '));
-        // A Console that never read storage would also start empty and save
-        // an empty Grid. Moving the refused payload aside is the half that
-        // proves the start was a refusal, not an absent key.
-        assert_eq!(
-            window_local_storage()
-                .get_item(console::persistence::REFUSED_KEY)
-                .expect("localStorage is readable")
-                .as_deref(),
-            Some(refused)
-        );
 
         clear_orcvs_keys();
     }

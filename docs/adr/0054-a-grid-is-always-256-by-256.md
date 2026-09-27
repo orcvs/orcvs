@@ -20,7 +20,7 @@ Status: accepted. Amends [ADR 0049](0049-a-position-is-two-numbers.md): its limi
 
 `CONTEXT.md` states the Grid as one fixed 256 by 256 shape and adds Source File.
 
-A stored Source whose Grid is not 256 by 256 no longer loads. It is refused through the existing persistence path — set aside, noticed, and replaced by an empty Grid — rather than migrated. Orcvs is pre-release and every stored Source is a developer's autosave.
+A stored Source whose Grid is not 256 by 256 no longer loads. It is discarded through the persistence path — reported and replaced by an empty Grid, which the next save writes over it — rather than migrated. Orcvs is pre-release and every stored Source is a developer's autosave.
 
 The Grid holds 65,536 Cells, 6.4 times the 128 by 80 default. Paint covers only the Positions the viewport covers ([ADR 0038](0038-the-console-owns-the-source-grid-transform.md)) and Tick planning is proportional to Expressions, but any path that walks every Cell — Language Map derivation, Source snapshots, the stored value — has to be measured at the new size rather than assumed cheap.
 
