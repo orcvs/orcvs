@@ -196,16 +196,10 @@ impl SourceRevision {
 
     ///
     /// Whether the Cell at `index` holds content: [`Self::content_at`]'s own
-    /// question, asked of the Position that index names.
-    ///
-    /// Asked through the Grid rather than by indexing the Source bytes
-    /// directly, so the doc above naming `content_at` as the authority on
-    /// written has one definition to name and no second space test to drift
-    /// from. [`Grid::cell_index`] is also the only thing that turns a bare
-    /// number into an index this Grid can address: every index reaching here
-    /// comes from a Reservation this revision's own Language Map derived and
-    /// so is always in range, and one outside it is answered rather than
-    /// panicked on.
+    /// question, asked of the Position that index names, so there is no second
+    /// space test to drift from it. Every index reaching here comes from this
+    /// revision's own Reservations; one outside the Grid is answered `false`
+    /// rather than panicked on.
     ///
     fn written(&self, index: usize) -> bool {
         self.grid
@@ -283,11 +277,8 @@ impl SourceCommander {
 
     ///
     /// The shape this Source was built from, and so the only Grid that can
-    /// mint an index addressing one of its Cells.
-    ///
-    /// A caller editing the Source needs it: a Cell is named by an index, and
-    /// only this Grid mints one. `read_revision` also answers, but holds on to
-    /// a whole revision to do it.
+    /// mint an index addressing one of its Cells. `read_revision` also
+    /// answers, but holds on to a whole revision to do it.
     ///
     pub fn grid(&self) -> Grid {
         read_recover(&self.inner).grid()
@@ -356,9 +347,7 @@ impl SourceCommander {
     /// consumes a musical Tick nor repeats an effect.
     ///
     /// After `OPTIMISTIC_TICK_ATTEMPTS` refusals the Tick is planned and
-    /// committed under one write guard, which nothing can refuse. That is what
-    /// makes a Tick end under continuous editing: the editor yields for one
-    /// planning, rather than the Tick yielding indefinitely.
+    /// committed under one write guard, which nothing can refuse.
     ///
     pub fn execute(&self, tick: Tick) -> TickPlan {
         TickCommit::new(self, tick).run()

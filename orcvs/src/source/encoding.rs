@@ -85,10 +85,10 @@ impl Encoding {
     /// that cannot be Cells yields nothing to write half of — the same
     /// whole-destination shape [`super::portal::Portal`] has one step later.
     ///
-    /// A Sequence renders through the same arm a scalar does. Per ADR 0007 it
-    /// encodes horizontally as ordinary Atoms "without a privileged
-    /// literal-Sequence interpretation", so the only difference reaching this
-    /// module is how many Cells come back.
+    /// A Sequence renders the way a scalar does. Per ADR 0007 it encodes
+    /// horizontally as ordinary Atoms "without a privileged literal-Sequence
+    /// interpretation", so the only difference reaching this module is how
+    /// many Cells come back.
     ///
     pub(super) fn render(value: &Value) -> Result<Rendered, RenderError> {
         let rendering = match value {
@@ -153,11 +153,6 @@ mod test {
 
     #[test]
     fn the_two_values_that_plan_no_write_render_to_nothing() {
-        // CONTEXT.md keeps these apart in kind and has them agree on effect:
-        // the Absence Marker is the absence of a value, and the empty
-        // Sequence is a value holding no Atoms. Neither plans a Cell
-        // write, and answering both here is what lets an `Encoding` that
-        // exists place at least one Cell.
         assert_eq!(
             Encoding::render(&Value::Atom(Atom::Empty)),
             Ok(Rendered::Nothing)
@@ -250,9 +245,6 @@ mod test {
 
     #[test]
     fn a_literal_holds_the_same_rule_as_a_rendering() {
-        // Bang cleanup writes Source content rather than an answer, and a test
-        // states Source text for the same reason. A second constructor is not
-        // a second rule: a Cell's definition still decides.
         assert_eq!(
             Encoding::literal("  ").map(|encoding| encoding.len()),
             Ok(2)

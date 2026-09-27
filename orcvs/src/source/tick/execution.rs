@@ -72,18 +72,8 @@ pub(in crate::source) struct ComputationState {
     activated: bool,
     suppressed: bool,
     attempted: bool,
-    /// Which Turn this computation took, or `None` where the Tick ended before
-    /// reaching it.
-    ///
-    /// The ordinal of the Turn in the order the schedule established, counted
-    /// from zero by the loop that walks that order. It is written as the Turn
-    /// is taken rather than when the order is built, because those are two
-    /// different facts: an ordering defect rejects the Tick where it is found
-    /// and the states survive it, so a computation ordered third and reached is
-    /// told apart from one ordered third and never reached.
-    ///
-    /// Compiled only under test, like the two records below it: no shipped
-    /// caller reads what a Turn did, so a shipped Tick does not record it.
+    /// Which Turn this computation took, counted from zero, or `None` where
+    /// the Tick ended before reaching it.
     #[cfg(test)]
     turn: Option<usize>,
     /// The explicit inputs the Interpreter was handed for this computation, or
@@ -530,12 +520,7 @@ impl<'a> Execution<'a> {
             }
         };
         // The Cells this write actually covers, not the Cells scheduling
-        // reserved for it. The two coincide for a scalar answer and come apart
-        // for a Sequence, whose reservation runs to the end of its row: a
-        // computation inside that reservation which the encoding stopped short
-        // of was ordered after this producer and then never written over, so it
-        // is neither suppressed nor replaced. Ordering is what a reservation
-        // decides; what happened to a Cell is what the write decides.
+        // reserved for it: `Lookup::written_over` says why.
         let relationships = self.lookup.written_over(&write);
         // Both rules below read `value` rather than the Cells, and both are
         // therefore untouched by the width of the write: `Atom::Bang` and
@@ -561,16 +546,9 @@ impl<'a> Execution<'a> {
                 // about is the running one, for the same reason;
                 // `syntax_blocks` names the parsed Function, but there it is
                 // the other half of a comparison rather than the Function in
-                // force.
-                //
-                // No test pins the choice, and none can be written. Terms one
-                // and two are the two facts this guard refuses to let a
-                // replacement change, so the first admitted replacement leaves
-                // the parsed and the running Function agreeing on both, and
-                // term three reads neither one. Reverting this line to
-                // `self.lookup.nodes()[contact.index].function` passes the
-                // whole suite. The running Function is read because it is the
-                // one being replaced, not because a fixture can say so.
+                // force. No test can pin the choice: the guard keeps the
+                // parsed and the running Function agreeing on every fact it
+                // compares.
                 let running = self.states[contact.index].function;
                 self.lookup
                     .replacement_change(contact.index, *replacement, running)
@@ -732,9 +710,7 @@ impl<'a> Execution<'a> {
                 // rather than the ones it replaced.
                 if advancing {
                     // Stated rather than built, for the reason `Execution::new`
-                    // states it: `define_functions!` asserts every spelling is
-                    // two ASCII Cells at compile time, so clearing one is
-                    // always these two spaces.
+                    // states it; `own` above is the two Cells it clears.
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     let clear = Portal::at(self.grid, anchor)
                         .admit(&cleared)
@@ -806,7 +782,6 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    ///
     /// Applies a lock to the Expression root at the Function's Output Portal.
     ///
     /// The schedule already placed this Turn ahead of that root, so a lock
@@ -870,10 +845,11 @@ impl<'a> Execution<'a> {
 /// Why a destination refused the value sent to it.
 ///
 /// `OutsideGrid` is live for a Jump whose reserved output Portal left the
-/// Grid. Advance and Emit still answer an out-of-Grid displacement with `**`
-/// and no diagnostic, so they never reach this function. The other refusals
-/// come from `Portal::at(..).admit(..)`, which resolves inside the Grid by
-/// construction and so can only answer `BelowSource` or `CrossesRowEdge`.
+/// Grid. Advance and Emit settle an out-of-Grid displacement in
+/// [`Execution::deliver_source_effect`], so they never reach this function.
+/// The other refusals come from `Portal::at(..).admit(..)`, which resolves
+/// inside the Grid by construction and so can only answer `BelowSource` or
+/// `CrossesRowEdge`.
 /// The match is exhaustive over `PortalError` because ADR 0028 rules out a
 /// panic inside Tick planning.
 fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
@@ -1000,13 +976,6 @@ pub(super) mod stated {
                  by the pass that reads it"
             );
         }
-        // A replacement's width is derived from what it declares and compared
-        // against what its target reserves, and a stated reservation is a width
-        // nothing declares. `Lookup::would_reserve` would answer for the
-        // replacement and disagree with the stated width for every replacement
-        // there is, including the target's own Function, which production
-        // admits. Refusing the combination keeps that from being discovered as
-        // a wrong answer inside a test.
         assert!(
             reservations.is_empty()
                 || !answers

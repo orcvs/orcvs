@@ -36,10 +36,8 @@ const STOP: usize = 2;
 /// decrement and a separate reopen, and a request landing between the two is
 /// left standing behind an open gate.
 ///
-/// The count stays at two or below. A request is raised only when no `Stop`
-/// is already pending in the engine's mailbox, so one request stands for the
-/// pending flag and at most one more for a flag the task has taken and not yet
-/// answered.
+/// The count stays at two or below: the mailbox raises a request only when no
+/// stop is already pending in it.
 ///
 #[derive(Debug)]
 pub(super) struct TickGate {
@@ -95,9 +93,6 @@ impl TickGate {
     /// request actually standing: a flag applied when none stands has nothing
     /// to clear, and answering regardless would let that flag answer a request
     /// raised after it was taken.
-    ///
-    /// Taking one request off the count is the reopening when it was the last
-    /// one; there is no second step for another request to land before.
     ///
     pub(super) fn clear_stop(&self) {
         let _ = self

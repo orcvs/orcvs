@@ -46,10 +46,7 @@ struct Computation {
     syntax_valid: bool,
     portal_access: PortalAccess,
     /// How wide this computation's result may be, and the one home that fact
-    /// has in a schedule. [`computations`] reads it from the Language Map's
-    /// [`SequenceCapability`], the derivation the Output Portal Reservations
-    /// read, so a root reserves exactly the Cells its Output Portal Reservation
-    /// names.
+    /// has in a schedule. [`computations`] sets it.
     reserved: Reserved,
 }
 
@@ -348,11 +345,6 @@ impl Lookup {
                 })
             })
             .collect();
-        // The agreement [`Lookup::would_reserve`] is a hypothesis against:
-        // what a computation reserves is what its own declared Function
-        // re-derives, so asking about a replacement is a different question
-        // rather than a settled fact answered a second way.
-        //
         // The widths were read from the Language Map's per-entry derivation,
         // and `would_reserve` applies the same one-Function rule,
         // `may_answer_a_sequence`, to this computation's settled children. The
@@ -407,14 +399,9 @@ impl Lookup {
     /// same guard keeps stable.
     ///
     /// Asked with the computation's own Function it answers what that
-    /// computation already reserves — for every computation production
-    /// builds, which is what `Lookup::new` asserts. A width a test states
-    /// rather than derives is the exception, and the only one: `stated::plan_with_answers`
-    /// writes a `Reserved::Row` no declaration produces, and this answers
-    /// `Reserved::Pair` for that computation ever after. That fixture refuses
-    /// to combine a stated width with a stated Function replacement for
-    /// exactly that reason, so no replacement is checked against a width this
-    /// disagrees with.
+    /// computation already reserves, which `Lookup::new` asserts. The one
+    /// exception is a width `stated::plan_with_answers` states, and that
+    /// fixture refuses to check a replacement against it.
     fn would_reserve(&self, index: usize, function: Function) -> Reserved {
         reserved_for(&self.nodes, index, function)
     }
@@ -445,14 +432,9 @@ impl Lookup {
     }
 
     /// A fixed destination has relationships only if the Cells reserved for
-    /// `index` fit the row. Actual writes still go through `Portal::admit`,
-    /// which also validates their encoding and supplies the producer's
-    /// diagnostic.
-    ///
-    /// A [`Reserved::Row`] reservation runs to the end of the destination's own
-    /// row and so always fits, which is what makes the answer `None` a
-    /// statement about a scalar result specifically: a Cell pair whose second
-    /// Cell is in the next row is not a Span at all.
+    /// `index` fit the row ([`Reserved::cells_from`]). Actual writes still go
+    /// through `Portal::admit`, which also validates their encoding and
+    /// supplies the producer's diagnostic.
     fn reserved_at(&self, index: usize, output: Position) -> Option<PortalRelationships<'_>> {
         let cells = self.reserved(index).cells_from(self.grid, output)?;
         Some(PortalRelationships {
@@ -479,14 +461,7 @@ impl Lookup {
     /// they answered for the reservation, so every contact execution acts on is
     /// one a dependency edge already names. It does not carry to
     /// [`PortalRelationships::bang_roots`], which is not monotonic in its
-    /// range: a range touching any operand Cell answers nothing at all, so the
-    /// wide reservation can answer no root where these narrower Cells answer
-    /// one. Only a `Reserved::Row` producer answering Bang could tell the two
-    /// apart, and none exists — Equality is the sole Function that can emit
-    /// Bang and it declares `Answer::Atom`, so every Bang producer is reserved
-    /// a Cell pair and asks both questions over the same two Cells.
-    /// [`PortalRelationships::bang_roots`] states what the first such Function
-    /// has to settle.
+    /// range; that method states why no producer can tell the two apart.
     fn written_over(&self, write: &SpanWrite) -> PortalRelationships<'_> {
         let span = write.span();
         PortalRelationships {
@@ -940,8 +915,7 @@ fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
 /// none.
 ///
 /// Reads only the scheduling inputs [`ScheduleCache`] names, because every
-/// revision holding those inputs shares what this answers. Reading anything
-/// else from `map` here makes it one more input that comparison must cover.
+/// revision holding those inputs shares what this answers.
 ///
 fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
     let (nodes, diagnostics) = computations(grid, map);
@@ -1075,18 +1049,12 @@ fn order_turns(
             // the same fact, and `live_cycles_reject_independent_effects_and_
             // self_dependency` holds that rule.
             //
-            // The two come apart for a `Reserved::Row` producer. Its
-            // reservation runs to the end of the destination's row, so a
-            // destination in its own row at or left of its Cells covers its
-            // spelling and literals whatever the answer turns out to be, and a
-            // reservation orders Turns and decides nothing else (ADR 0036). Do
-            // not order such a producer after itself: that rejects the whole
-            // Grid's Tick for a write that may stop columns short of it, a
-            // cycle between computations that never touch. No edge can express
-            // "take your Turn after yourself" in any case, so whether the write
-            // reached the producer is left to the admitted write: execution
-            // asks `written_over` over the Cells actually covered, and the
-            // executed-computation guard is waiting for them there.
+            // Do not order a `Reserved::Row` producer after itself: its
+            // reservation can cover its own Cells whatever the answer, and a
+            // reservation orders Turns and decides nothing else (ADR 0036), so
+            // the edge would reject the whole Grid's Tick for a write that may
+            // stop short of it. Whether the write reached the producer is left
+            // to execution, which asks `written_over` over the Cells covered.
             let may_stop_short = lookup.reserved(index).admits_a_narrower_write();
             // The third way a producer's own Cells are not a defect, and the
             // only one a declaration states outright: an advancing bundle
@@ -1117,9 +1085,8 @@ fn order_turns(
                 // Without it two Functions whose Portals cover each other name
                 // each other in reservations neither can write through, and
                 // ordering each after the other makes that pair a cycle that
-                // costs the whole Grid its Tick. A reservation orders Turns and
-                // decides nothing else, and two blocked moves are not a
-                // contested Cell.
+                // costs the whole Grid its Tick, though two blocked moves are
+                // not a contested Cell.
                 if clears_its_own_span
                     && nodes[nodes[contact.index].owner]
                         .function
@@ -1147,9 +1114,7 @@ fn order_turns(
     }
     // An Input Portal reads working Source. Those Cells are often an operand
     // Span, so they cannot sit in `literals`; the edge is the same fact
-    // `literal_consumers` records for a declared operand. The producers that
-    // write them are indexed: naming an Input Portal on every Increment must
-    // not scan every other root.
+    // `literal_consumers` records for a declared operand.
     for (consumer, node) in nodes.iter().enumerate() {
         for read in node.portal_access.read_spans() {
             for producer in lookup.writes.touching(read.clone()) {
@@ -1216,9 +1181,6 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     for effect in effects {
         match effect {
             Effect::Write(write) => {
-                // A validated write fans out Cell-wise here, so conflicts resolve
-                // per Cell: a later producer wins each Cell it overlaps,
-                // independently.
                 for (cell, content) in write.cells() {
                     writes.insert(cell, content);
                 }

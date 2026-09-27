@@ -65,11 +65,9 @@ impl LanguageMapId {
 /// diagnostics. It deliberately exposes only the semantics the current
 /// parser and row-local partition can establish.
 ///
-/// Each row's derivation is shared rather than owned: a rebuild hands every
-/// row it did not re-parse to the new revision by pointer, so no carried
-/// Expression, Language Unit or Diagnostic is copied. The revision's identity
-/// is therefore not stored on what it holds. It is stamped on each
-/// [`ExpressionEntry`] as [`Self::expressions`] hands it out.
+/// A row's derivation is shared by every revision that did not re-parse it,
+/// so the revision's identity is not stored on what it holds. It is stamped
+/// on each [`ExpressionEntry`] as [`Self::expressions`] hands it out.
 #[derive(Clone)]
 pub struct LanguageMap {
     id: LanguageMapId,
@@ -207,10 +205,6 @@ impl Span {
 ///
 /// One Expression of a [`LanguageMap`], as that Map hands it out: what the row
 /// derived, and the identity of the revision it was read from.
-///
-/// The identity travels with the view rather than with the derivation because
-/// consecutive revisions share an unchanged row's derivation, so one
-/// derivation belongs to several revisions at once.
 #[derive(Clone, Copy)]
 pub struct ExpressionEntry<'a> {
     map_id: LanguageMapId,
@@ -465,10 +459,6 @@ impl LanguageMap {
     /// unmatched non-space byte is not a claim either — leftover `Char` is the
     /// Source revision's composition, not this Map's.
     ///
-    /// [`Self::token_at`] reads one entry through this lookup.
-    /// [`Self::claims_by_cell`] walks the same entries once for the Render
-    /// Frame, so a claim is stored once and shared by every Cell it covers.
-    ///
     fn entry_at(&self, position: Position) -> Option<&lang::PositionedEntry> {
         let index = self.grid.index(position).get();
         let row = &self.rows[index / self.grid.columns()];
@@ -495,19 +485,12 @@ impl LanguageMap {
     }
 
     ///
-    /// The parser's claim on each Cell, in the Grid's row-major order.
-    ///
-    /// Expression Spans are disjoint and each positioned entry lies inside its
-    /// own Expression's Span, so at most one Expression and at most one claim
-    /// answer for a Cell, matching [`Self::entry_at`]; the property
-    /// `expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for`
-    /// guards both. A Cell inside a Span that no positioned entry labelled is
-    /// not a claim. Each claim is stored once and shared by every Cell it
+    /// The parser's claim on each Cell, in the Grid's row-major order: the
+    /// claim [`Self::entry_at`] finds, stored once and shared by every Cell it
     /// covers.
     ///
     /// `cells` are the Source revision this Map was derived from, which the
-    /// Map deliberately does not retain. Each claim reads its own Cells there
-    /// once, as it is built, to answer [`Claim::written`].
+    /// Map does not retain; they answer [`Claim::written`].
     ///
     pub(super) fn claims_by_cell(&self, cells: Cells<'_>) -> Vec<Option<Arc<Claim>>> {
         assert_eq!(
@@ -547,11 +530,10 @@ impl LanguageMap {
     /// neither does a scalar destination the row edge leaves no room for a Cell
     /// pair.
     ///
-    /// Tick scheduling reserves the same Cells for the same root: it reads
-    /// its widths from the same [`SequenceCapability`], resolves the same
-    /// Output Portal through [`Portal::named`], and measures it with the same
-    /// [`Portal::reservation`]. `SourceRevision::output_portal_highlight`
-    /// narrows each Sequence-capable Reservation to the answer it holds.
+    /// Tick scheduling reserves the same Cells for the same root, through the
+    /// same [`Portal::named`] and [`Portal::reservation`].
+    /// `SourceRevision::output_portal_highlight` narrows each Sequence-capable
+    /// Reservation to the answer it holds.
     ///
     /// Allocates the returned list and one [`SequenceCapability`], each sized
     /// before the walk, and nothing per Expression or per entry.
@@ -909,8 +891,6 @@ fn walk_row(grid: Grid, row_start: usize, row: Cells<'_>, walk: &mut RowWalk) {
     let text = row.as_str();
 
     let mut idx = row_start;
-    // The row edge is the walk's only boundary: the Parser, not a pass before
-    // the walk, decides where a row's Source stops.
     let row_end = row_start + row.len();
     while idx < row_end {
         if row.bytes()[idx - row_start] == SPACE_BYTE {

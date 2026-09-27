@@ -126,11 +126,8 @@ pub struct Orcvs<S = MidiSelectionHandle> {
     opts: Opts,
     cursor: Cursor,
     ///
-    /// The Cell the Region is spanned from; the Cursor is its other end.
-    ///
-    /// A Position rather than a `Region`, because the Cursor already holds the
-    /// live end and a second copy of it would be a second truth to keep in
-    /// step. It is running state and never stored with the Source.
+    /// The Cell the Region is spanned from; `end` is its other end. It is
+    /// running state and never stored with the Source.
     ///
     anchor: Position,
     ///
@@ -333,17 +330,13 @@ impl<S> Orcvs<S> {
     /// whoever needs it reads the published value at the moment it is asked
     /// rather than the value the last frame happened to carry away.
     ///
-    /// `playback_requested` answers what this Orcvs has *asked* Playback to
-    /// be, which is the only fact Space can toggle against within one input
-    /// batch. A run the engine ended by itself — an adapter panicking out of a
-    /// delivery, a grid it can no longer schedule — leaves that request
-    /// standing for nothing, and the next Space cancels a run that is already
-    /// over: a press the user sees nothing come of, and a second one needed
-    /// before the app tries to play at all. `ClockFailure` is the engine
-    /// saying exactly that, on the one ordered stream it reports failures on,
-    /// so this is where the request is withdrawn. Every other diagnostic
-    /// leaves it alone: an Overrun or a refused device is a run continuing,
-    /// not a run ending.
+    /// A `ClockFailure` withdraws the play request: the engine ended the run
+    /// by itself — an adapter panicking out of a delivery, a grid it can no
+    /// longer schedule — and a request left standing would make the next Space
+    /// cancel a run that is already over. `ClockFailure` arrives on the one
+    /// ordered stream the engine reports failures on, so this is where the
+    /// request is withdrawn. Every other diagnostic leaves it alone: an
+    /// Overrun or a refused device is a run continuing, not a run ending.
     ///
     pub fn drain_playback_diagnostics(&mut self) -> Vec<PlaybackDiagnostic> {
         let diagnostics = self.playback.drain_diagnostics();
@@ -443,14 +436,15 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// The Region from the anchor to the Cursor.
+    /// The Region from the anchor to its live end, with the Cursor on one of
+    /// its Cells.
     ///
     pub fn region(&self) -> Region {
         Region::with_cursor(self.grid, self.anchor, self.end, self.cursor.position())
     }
 
     ///
-    /// Moves the anchor and the Cursor to the two ends of `region`.
+    /// Takes on `region`'s anchor, live end and Cursor.
     ///
     fn set_region(&mut self, region: Region) {
         self.anchor = region.anchor();
@@ -480,8 +474,9 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// writes s to the current cursor position
-    /// triggers parse of expression
+    /// Writes `s` into the Cell under the Cursor and collapses the Region onto
+    /// the next Cell right, clamped at the last column. A refused edit is
+    /// logged and moves nothing.
     ///
     pub fn write(&mut self, s: &str) {
         let cell = self.grid.index(self.cursor.position());
@@ -713,10 +708,9 @@ impl<S> Orcvs<S> {
     fn play(&mut self) {
         // A start failure is already recorded as a Playback diagnostic, which
         // `drain_playback_diagnostics` hands to the console; reporting it again
-        // here would put one failure on two channels. What is left to do with
-        // the answer is to not raise a request the engine refused: Space
-        // toggles against what has been asked for, so a refused start must
-        // leave nothing standing for the next press to cancel.
+        // here would put one failure on two channels. A refused start raises
+        // no request, so it leaves nothing standing for the next Space to
+        // cancel.
         if self.playback.start(self.opts.bpm.tick_period()).is_ok() {
             self.playback_requested = true;
         }
@@ -849,14 +843,6 @@ mod test {
     ///
     /// Space asks to play again once the engine has reported that its run
     /// ended without being asked to.
-    ///
-    /// Space toggles against what Playback has been *asked* to be, which is
-    /// the only fact an input batch can read without the engine having had a
-    /// turn. A run the engine ended by itself leaves that request standing for
-    /// nothing: the next press cancels a run that is already over, does
-    /// nothing a user can see, and a second press is needed before the app
-    /// even tries to play. The engine says so on the one channel it has, so
-    /// the request is withdrawn where that report is read.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1076,7 +1062,8 @@ mod test {
     }
 
     ///
-    /// The Cursor is the Position `derive` was given, carried rather than found.
+    /// The Cursor is the one the Region `derive` was given, carried rather
+    /// than found.
     ///
     #[tokio::test]
     async fn render_frame_answers_the_cursor_it_was_derived_for() {

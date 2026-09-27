@@ -201,11 +201,9 @@ const RESET_ALL_CONTROLLERS: u8 = 121;
 /// CC 121 may move the wheel itself, so the explicit centre has to be the last
 /// word on it rather than the first.
 ///
-/// `channel` must be one of the sixteen. A wider value would not overflow the
-/// `|`; it would set a bit of the status nibble and turn each message into a
-/// different MIDI message on a different channel, which is the same reason
-/// `submit` states for its own `0x90 | channel`. The one caller counts
-/// `0..16`, so this is asserted rather than returned.
+/// `channel` must be one of the sixteen, for the reason `submit` states for
+/// its own `0x90 | channel`. The one caller counts `0..16`, so this is
+/// asserted rather than returned.
 ///
 fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
     debug_assert!(channel < 16, "channel {channel} is not a MIDI channel");
@@ -555,10 +553,8 @@ mod tests {
         select(&playback, &mut backend, &MidiDestinationId::new("one"));
 
         playback.start(Duration::from_secs(1)).unwrap();
-        // Waited out rather than yielded for: under the paused clock the
-        // runtime advances to the next timer only once it has nothing runnable
-        // left, so a millisecond of it is every message answered and every
-        // deadline at or before it kept.
+        // Waited out under the paused clock rather than yielded for, as
+        // `settle_until` describes.
         tokio::time::sleep(Duration::from_millis(1)).await;
 
         assert_eq!(
@@ -797,10 +793,8 @@ mod tests {
         select(&playback, &mut backend, &MidiDestinationId::new("one"));
 
         playback.start(Duration::from_secs(1)).unwrap();
-        // Waited out rather than yielded for: under the paused clock the
-        // runtime advances to the next timer only once it has nothing runnable
-        // left, so a millisecond of it is every message answered and every
-        // deadline at or before it kept.
+        // Waited out under the paused clock rather than yielded for, as
+        // `settle_until` describes.
         tokio::time::sleep(Duration::from_millis(1)).await;
         assert_eq!(
             state.lock().unwrap().messages,

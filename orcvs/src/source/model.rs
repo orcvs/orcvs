@@ -58,12 +58,7 @@ impl Diagnostic {
     }
 
     /// A Diagnostic about the Expression covering `span`, anchored at the
-    /// Position that produced it.
-    ///
-    /// The anchor is supplied rather than derived because a producer's own
-    /// Position is not always its Expression's first Cell. It still has to be
-    /// one of the Cells the Diagnostic describes, which is the half of the
-    /// relationship a supplied anchor can get wrong.
+    /// Position that produced it, which must be one of `span`'s Cells.
     pub(super) fn for_expression(
         anchor: crate::grid::Position,
         span: Span,
@@ -407,8 +402,8 @@ impl Source {
 
     /// Visible across the Source module so a Tick planned without going
     /// through [`Source::execute`] — from a planning snapshot, or by a test in
-    /// the Tick module — is still committed the one way a Tick is committed:
-    /// every planned Cell first, then one rebuild of the rows they touched.
+    /// the Tick module — is still committed the one way a Tick is committed,
+    /// through [`Source::write_cells`].
     pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan) {
         self.write_cells(&plan.writes);
     }

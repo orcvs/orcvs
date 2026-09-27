@@ -218,10 +218,9 @@ struct Retained {
 /// - A diagnostic recorded into a full log evicts the oldest entry of the
 ///   lowest class present, provided that class is no higher than its own; a
 ///   diagnostic of a lower class than everything retained is itself omitted.
-///   Classes are ordered Overrun, then start and retune failures, then output
-///   failures, then clock failures, so a flood of one class never displaces a
-///   more serious one, and the newest diagnostic of the highest class
-///   recorded since the last drain is always retained.
+///   Classes are ordered by [`Class`], so a flood of one class never
+///   displaces a more serious one, and the newest diagnostic of the highest
+///   class recorded since the last drain is always retained.
 /// - Every eviction and every omission is counted against its class in an
 ///   [`OmittedDiagnostics`] whose counts saturate. A drain that omitted
 ///   anything ends with one [`PlaybackDiagnostic::Omitted`] carrying them, so
