@@ -4,7 +4,7 @@
 
 **Blocked by:** None. 06 is resolved (orcvs/orcvs#151); the key chosen below compares row derivations and would be correct without row sharing, so 06 was an ordering preference rather than a prerequisite.
 
-**Status:** ready-for-human
+**Status:** resolved
 
 Related: 07 moves planning outside the write lock; the cache must be readable wherever planning runs.
 
@@ -13,7 +13,7 @@ Related: 07 moves planning outside the write lock; the cache must be readable wh
 - [x] A schedule is computed once per key and reused by every Tick planned against it.
 - [x] Tests change Function identity, portal relationships, occupancy and syntax between Ticks and compare cached planning with fresh planning, including ordering and scheduling diagnostics. Tests separately prove reuse after no-write and identical-byte-write commits.
 - [x] Tick ordering and scheduling diagnostics are unchanged across the existing Tick tests.
-- [ ] A benchmark shows Tick planning cost falls for a run whose Ticks write Cells without changing any Expression — "steady state" means that.
+- [x] A benchmark shows Tick planning cost falls for a run whose Ticks write Cells without changing any Expression — "steady state" means that.
 
 ## Comments
 
@@ -33,3 +33,5 @@ Related: 07 moves planning outside the write lock; the cache must be readable wh
 - *Existing Tick tests* pass unchanged; two call sites pass `&schedule` to `execute`.
 - *Allocation.* `ORCVS_MEMORY_SERIES=1 cargo test -p orcvs --test allocation` block counts are unchanged from 06's (11 empty; 15/29/53 populated); bytes grow by the one pointer the Map holds (e.g. 16x16 populated 4,994 → 5,002). A rebuild that changes scheduling inputs allocates the new cache's `Arc`; one that does not allocates nothing more.
 - *Benchmark.* The steady-state series already exist: `source_execute_tick` and `source_execute_tick_edges` rewrite identical bytes every Tick, and `source_execute_tick_portal_inputs` writes a different Increment value every Tick without changing any Expression. Their doc comments now say so. No local run and no speedup is claimed; the comparison is CI's bench workflow on the PR. The last criterion stays open until that comparison is recorded here; resolve the ticket then.
+
+**2026-09-27 — benchmark evidence; resolved.** Benchmark runs [36127565557](https://github.com/orcvs/orcvs/actions/runs/36127565557) (#151 head `c3e2b071`, before) and [36134104362](https://github.com/orcvs/orcvs/actions/runs/36134104362) (#153 head `f039a34e`, after) put `source_execute_tick`, `_edges` and `_portal_inputs` at 128x128 about 35%, 32% and 25% lower (1.15→0.75, 1.33→0.90, 1.68→1.26 ms). The runs used different GitHub-hosted runners; series #153 does not touch, such as `source_read_revision/256x256` and `source_file/read/256x256`, agree within 2%. `source_edit_rebuild_valid` rose 11–41%, mostly within cross-runner noise (`source_read_revision/64x64` moved 16%); the added work is one row comparison per edit. The maintainer accepted this cross-runner comparison as meeting the last criterion.

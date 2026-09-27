@@ -1,6 +1,6 @@
 # 26 — Share console test setup and stop polling with sleeps
 
-**What to build:** Console tests build a Console through one helper and wait on Playback deterministically. Today about thirty tests in `console.rs` repeat the context, install and `Console::new(cc, ThemeRegistry::built_in(), Config::default())` sequence, alongside separate helpers (`running_console`, `running_console_with`, `console_under_os_appearance`, `console_with_settings_moved` in `kittest_tests.rs`; `storage_tests::console_over`). Six Playback-driven tests poll with real one-millisecond `tokio::time::sleep`, up to two thousand times. `console/tests/wasm.rs` waits on Playback with real `TimeoutFuture`s and is out of scope.
+**What to build:** Console tests build a Console through one helper and wait on Playback deterministically. Today about thirty tests in `console.rs` repeat the context, install and `Console::new(cc, ThemeRegistry::built_in(), Config::default())` sequence, alongside separate helpers (`running_console`, `running_console_with`, `console_under_os_appearance`, `console_with_settings_moved` in `kittest_tests.rs`; `storage_tests::console_over`). Five Playback-driven tests poll with real one-millisecond `tokio::time::sleep` in six loops, up to two thousand times. `console/tests/wasm.rs` waits on Playback with real `TimeoutFuture`s and is out of scope.
 
 **Blocked by:** 12 — Move console.rs inline tests into sibling test modules.
 
