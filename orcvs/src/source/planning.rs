@@ -49,7 +49,7 @@ impl PlanningSnapshot {
     pub(super) fn plan(&self, tick: Tick) -> PlannedTick {
         // Each computation's Turn is discarded, as `Source::execute` discards
         // it: a Playback Engine asks nothing about how a plan was reached.
-        let (plan, _) = tick::plan(self.grid, self.cells.bytes(), &self.language_map, tick);
+        let (plan, _) = tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
         PlannedTick {
             revision: self.revision,
             plan,

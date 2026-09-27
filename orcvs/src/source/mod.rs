@@ -18,7 +18,7 @@ mod planning;
 mod portal;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
-use buffer::SourceBuffer;
+use buffer::{Cells, SourceBuffer};
 pub use error::SourceError;
 pub use lang::Tick;
 pub use model::{
@@ -110,7 +110,7 @@ impl SourceRevision {
     /// [`Claim::written`] as it is built.
     ///
     pub(crate) fn claims_by_cell(&self) -> Vec<Option<Arc<Claim>>> {
-        self.language_map.claims_by_cell(self.cells.bytes())
+        self.language_map.claims_by_cell(self.cells.cells())
     }
 
     ///
