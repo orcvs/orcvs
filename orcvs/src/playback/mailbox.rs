@@ -50,7 +50,7 @@ pub(crate) enum Destination<D> {
 /// tempo, then the destination. That order leaves the engine in the state the
 /// requests would have left it in had they been applied in the order they
 /// were made, because each slot absorbs whatever an earlier request in
-/// another slot would have changed:
+/// another slot would have changed, except in two cases named after the list:
 ///
 /// - A `stop` empties both tempo slots. Nothing asked before it survives it,
 ///   and whatever is asked after it applies to the stopped engine it leaves.
@@ -61,7 +61,7 @@ pub(crate) enum Destination<D> {
 /// - The destination commutes with the other two: beginning, retuning and
 ///   stopping a run do not choose where it is delivered.
 ///
-/// Two cases keep the newest request rather than what order would have
+/// The exceptions keep the newest request rather than what order would have
 /// applied. A `start` that replaces a pending one sets the period the run
 /// begins at, where in order it would have found the run live and done
 /// nothing: stopped, `start(1s)`, `retune(2s)`, `start(3s)` begins

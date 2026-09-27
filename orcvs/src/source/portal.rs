@@ -455,7 +455,7 @@ pub(super) struct PortalAccess {
 ///
 /// [`PortalOutput::None`] is a kind, not an empty site list. Do not model it
 /// as an empty list: a test could stuff a write site into one, for `!>` among
-/// others, which none cannot take.
+/// others, which `PortalOutput::None` cannot hold.
 ///
 #[derive(Clone, Debug, PartialEq)]
 enum PortalOutput {
