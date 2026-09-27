@@ -222,8 +222,8 @@ impl Broadcast {
     /// `None` is exactly the scalar shape, so a caller that binds one element
     /// can refuse a widened one without an impossible branch to describe.
     ///
-    /// Read only by [`Stack::extract`], which every Function that does not
-    /// pervade reaches on every evaluation.
+    /// Read only by [`Stack::extract`], the seam the element-binding scalar
+    /// Functions bind through.
     #[inline(always)]
     fn first_sequence(&self) -> Option<&Sequence> {
         self.operands.iter().find_map(|operand| match operand {
@@ -426,9 +426,8 @@ impl Stack {
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
     ///
-    /// The Functions that bind here — Delay, Euclidean, Increment and
-    /// Interpolation — reach this seam by declaring that they do not pervade,
-    /// not by adding a check of their own.
+    /// The Functions that bind here are Delay, Euclidean, Increment and
+    /// Interpolation.
     #[inline(always)]
     pub(crate) fn extract<O: Operands<Binding = ElementBinding>>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;
@@ -492,10 +491,10 @@ impl Stack {
 
     /// Pops whole [`Value`]s for Functions that consume operands intact.
     ///
-    /// The structural Sequence Functions and Range Functions do not pervade, so
-    /// a Sequence operand is consumed whole rather than element-wise.
-    /// [`Operands::from_values`] binds each popped value to the roles the
-    /// Function declares.
+    /// For the structural Sequence and Range Functions, which do not pervade.
+    /// Nothing here reads the shape: [`Operands::from_values`] binds each
+    /// popped value to the role the Function declares, so a Sequence role
+    /// takes a Sequence intact and an Atom role refuses one.
     #[inline(always)]
     pub(crate) fn extract_values<O: Operands<Binding = WholeValueBinding>>(
         &mut self,

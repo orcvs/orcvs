@@ -9,10 +9,10 @@ use crate::{
 ///
 /// One expression per element, and `Stack::apply` decides whether that
 /// element is the whole operation or one member of a Sequence. Idempotence
-/// over the result type is what makes the Number arm not a coercion: a value that is
-/// already a Number arrives from nested evaluation or from broadcasting, never
-/// from this Function's own literal operand slot, which the parser reads as a
-/// Note.
+/// over the result type is what makes the Number arm not a coercion: a value
+/// that is already a Number arrives from nested evaluation or from
+/// broadcasting, never from this Function's own literal operand slot, which
+/// the parser reads as a Note.
 #[inline]
 pub fn to_number(ctx: &mut Context) -> Result<Value, Error> {
     ctx.stack

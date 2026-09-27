@@ -29,10 +29,10 @@ pub enum Error {
 /// may be a member at all, and whether two operands have compatible lengths.
 #[derive(Error, Debug)]
 pub enum SequenceError {
-    /// A Sequence at an operand position of a Function that declares it does
-    /// not pervade, such as Delay `~*` or Increment `~+`. Each is refused by
-    /// its declared pervasion rather than by a check written beside it, and
-    /// the declaration is where the reason for each is stated.
+    /// A Sequence where a Function that does not pervade requires an Atom: at
+    /// any operand of an element-binding Function such as Delay `~*` or
+    /// Increment `~+`, or at an Atom-typed operand of a whole-value Function
+    /// such as a Range bound or Select's index.
     #[error("expected an Atom, found the Sequence {0:?}")]
     ExpectedAtom(String),
 

@@ -15,11 +15,9 @@ use rand_chacha::rand_core::{Rng, SeedableRng};
 // Numbers, and the Tick is shared by the whole operation because an Expression
 // is evaluated at one Tick.
 //
-// Delay and Euclidean answer a pulse and Increment and Interpolation read a
-// previous, so all four are declared Scalar, and the declaration states why.
-// `Stack::broadcast` raises `ExpectedAtom` for a Sequence at any of their
-// operands, so none of their bodies checks for one: they bind through
-// `Stack::extract`, the scalar seam. Clock and Random each answer a Number and
+// Delay, Euclidean, Increment and Interpolation are declared Scalar and bind
+// through `Stack::extract`, the scalar seam, so none of their bodies checks
+// for a Sequence operand. Clock and Random each answer a Number and
 // broadcast like every other Atomic Function; Random uses
 // `Stack::apply_indexed` so Sequence index participates in each element's
 // stream.
@@ -74,8 +72,7 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
 /// Both pulse Functions answer the same pair, so the pair is named once: the
 /// absence marker is what the Interpreter already reads as "no result write",
 /// and answering a Number for the silent Tick would put a Cell meaning "no" in
-/// the Source for the next Tick to read as an operand. It is also the Atom
-/// `Sequence::new` refuses, which is why both are declared Scalar.
+/// the Source for the next Tick to read as an operand.
 ///
 #[inline(always)]
 fn pulse(banged: bool) -> Value {
@@ -119,9 +116,8 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
 /// makes the two operands a rate and a step count rather than two names for the
 /// same period.
 ///
-/// It answers a pulse, so it is declared scalar: a Sequence at either operand
-/// is refused by the declaration before this body runs, and the one pair
-/// `Stack::extract` binds is the whole operation.
+/// It is declared Scalar, so the one pair `Stack::extract` binds is the whole
+/// operation.
 #[inline(always)]
 pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
@@ -152,9 +148,8 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 /// modulo `steps` anyway. What the counter itself does at its end is decided
 /// by [`crate::Tick::next`], which saturates rather than wraps.
 ///
-/// It is declared scalar for the reason Delay is: a Sequence at either operand
-/// is refused by the declaration, and the one pair `Stack::extract` binds is
-/// the whole operation.
+/// It is declared Scalar, so the one pair `Stack::extract` binds is the whole
+/// operation.
 #[inline(always)]
 pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
@@ -193,9 +188,9 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
 /// `FF + 02` is 257 rather than a wrapped `01` that would then take the
 /// modulus of the wrong total.
 ///
-/// It is declared scalar: a Sequence at either operand is refused by cell
-/// operand binding before the Portal input is decoded.
-/// Both bindings must succeed before the formula runs.
+/// It is declared Scalar, so a Sequence at either operand is refused by cell
+/// operand binding before the Portal input is decoded. Both bindings must
+/// succeed before the formula runs.
 #[inline(always)]
 pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
     let (Increment { step, modulus }, previous) =
@@ -228,8 +223,7 @@ pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
 /// subtraction is taken in `u64` before the answer becomes a Number. Rate
 /// `00` holds because a step of nothing is still a step of at most `rate`.
 ///
-/// It is declared scalar for the reason Increment is: a Sequence at either
-/// operand is refused by the binding before the formula runs.
+/// It is declared Scalar and binds as Increment does.
 #[inline(always)]
 pub fn interpolation(ctx: &mut Context) -> Result<Value, Error> {
     let (Interpolation { rate, target }, previous) =

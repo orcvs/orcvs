@@ -430,9 +430,11 @@ enum Pervasion {
     /// is one visible Atom at the ordinary result Portal, and element identity
     /// across Ticks would need hidden state that Atom cannot hold (ADR 0012).
     ///
-    /// The Structural Sequence and Range Functions declare it because they
-    /// consume a Sequence operand whole, and a Function that declares no
-    /// operand has nothing to widen over.
+    /// The Structural Sequence Functions declare it because they consume a
+    /// Sequence operand whole, and the Range Functions because they take two
+    /// scalar bounds and answer a Sequence. Both bind whole values, so a
+    /// Sequence at an Atom-typed operand is refused by that operand's type. A
+    /// Function that declares no operand has nothing to widen over.
     Scalar,
 }
 
@@ -448,9 +450,9 @@ enum Pervasion {
 /// answer a Sequence it never returns, and deriving it from the family prefix
 /// would do the same to every `.`-spelled row.
 ///
-/// Tick scheduling reads this, per ADR 0036, to decide how many Cells one
-/// result can reach before any Function has evaluated. That is why the answer
-/// is declared rather than observed: a schedule is fixed before a width exists.
+/// Tick scheduling reads this to decide how many Cells one result can reach
+/// before any Function has evaluated. That is why the answer is declared
+/// rather than observed: a schedule is fixed before a width exists.
 #[derive(Clone, Copy)]
 enum Answer {
     /// One Atom, whatever its operands carry. Equality declares this because
@@ -641,10 +643,10 @@ macro_rules! define_functions {
             /// This is the narrow question, and it is asked only where the rule
             /// is about Terminal Output rather than about answering an effect.
             /// Having no Cell destination is such a rule: a Source-writing
-            /// Function has a validated write bundle that ADR 0009 lets resolve
-            /// multiple Portals, and Halt locks through its Output Portal, so a
-            /// gate that refused a Portal to every Function answering an effect
-            /// would deny them their destinations. Ask
+            /// Function writes where its [`crate::SourceEffect`] resolves, and
+            /// Halt locks through its Output Portal, so a gate that refused a
+            /// Portal to every Function answering an effect would deny them
+            /// their destinations. Ask
             /// [`Function::answers_value`] instead wherever the rule is that
             /// nothing consumes the answer.
             #[inline(always)]
@@ -685,10 +687,7 @@ macro_rules! define_functions {
             ///
             /// The Operand Stack asks this before it decides the shape of an
             /// operation, so broadcasting is something a Function declares
-            /// rather than something the shape of its operands decides for it:
-            /// a Sequence reaching a Scalar Function is refused with the same
-            /// diagnostic whether that Function is Terminal or, like Delay, an
-            /// ordinary value Function that declares itself scalar.
+            /// rather than something the shape of its operands decides for it.
             #[inline(always)]
             pub const fn is_pervasive(self) -> bool {
                 matches!(self.pervasion(), Pervasion::Pervasive)

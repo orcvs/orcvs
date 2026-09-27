@@ -22,8 +22,9 @@ Frame stops building error text that nothing reads.
       Diagnostic. This ticket removes an allocation on the path that discards the error, not the
       error.
 - [ ] `re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty` in
-      `lang/tests/allocation.rs` is strengthened to zero once it is true, and its
-      `FINDING (2026-09-09)` comment is replaced with a note saying what was corrected.
+      `lang/tests/allocation.rs` is strengthened to zero once it is true, and the `FINDING:`
+      comment above it, which cites this ticket, is replaced with a present-tense statement of the
+      invariant the test then asserts.
 - [ ] Every existing `lang` test and property passes unchanged, including the parser suites and the
       `Function` conversion tests.
 - [ ] `parse_source`, `parse` and `parse_invalid` are the benchmarks that cover this path. Note them

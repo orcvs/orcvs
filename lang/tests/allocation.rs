@@ -411,6 +411,8 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     // That is one small allocation per literal operand read, on the path a
     // Render Frame runs many times a second, and it is why this test asserts
     // independence from the empty rows rather than zero.
+    // `.scratch/allocation-reduction/issues/02-test-a-function-spelling-without-building-an-error.md`
+    // tracks relieving it.
     //
     // What is asserted is what the Grid actually varies: a Source is as tall
     // as the Grid, most of it empty most of the time, and re-reading it must
@@ -451,9 +453,8 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     // characters on its Anchor and Function, so a Source of `characters`
     // written characters holds at most `characters / 2` operands whatever is
     // written in it — the ceiling is derived from the input, never from the
-    // measurement. Relieving the discarded error, which is the whole of
-    // `.scratch/allocation-reduction/issues/02-test-a-function-spelling-without-building-an-error.md`,
-    // drives both counts to zero and must still pass.
+    // measurement. Relieving the discarded error drives both counts to zero
+    // and must still pass.
     let characters = written(&few);
     let operands = characters / 2;
     assert!(
