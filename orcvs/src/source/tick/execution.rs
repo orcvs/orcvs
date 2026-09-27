@@ -448,8 +448,8 @@ impl<'a> Execution<'a> {
         // refuses whole. A Sequence needs nothing of its own here, which is
         // the point — `Portal::admit` refuses an encoding wider than its row
         // entire and `SpanWrite::cells` fans one admitted write out Cell-wise,
-        // so ADR 0007's complete-fit rule and ADR 0020's Cell-wise conflict
-        // resolution are inherited rather than restated for a second width.
+        // so the complete-fit rule and Cell-wise conflict resolution are
+        // inherited rather than restated for a second width.
         let encoding = match Encoding::render(value) {
             Ok(Rendered::Nothing) => {
                 // A Jump answers Empty when its input is two spaces. That is a
@@ -469,9 +469,9 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        // ADR 0036: scheduling reserved one Cell pair for a computation whose
-        // answer could not be a Sequence, so any other width from one would
-        // write Cells no dependency edge names.
+        // Scheduling reserved one Cell pair for a computation whose answer
+        // could not be a Sequence, so any other width from one would write
+        // Cells no dependency edge names.
         if !self.lookup.reserved(index).admits_width(encoding.len()) {
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
@@ -541,9 +541,8 @@ impl<'a> Execution<'a> {
         // therefore untouched by the width of the write: `Atom::Bang` and
         // `Atom::Function` are single Atoms by construction, so a Sequence
         // answer never satisfies either pattern. A Sequence carrying a Function
-        // spelling writes those two Cells as ordinary Source content under
-        // ADR 0007 — the next Tick's parse reads a Function there, this one
-        // replaces nothing.
+        // spelling writes those two Cells as ordinary Source content — the
+        // next Tick's parse reads a Function there, this one replaces nothing.
         if *value == Value::Atom(Atom::Bang) {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
@@ -622,15 +621,14 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// ADR 0004's one validated effect bundle for a Source-writing Function.
+    /// The one validated effect bundle for a Source-writing Function.
     ///
-    /// The declared bundle decides which of ADR 0006's two it is. An `Advance`
-    /// is that ADR's move: "An empty destination plans one validated Portal
-    /// bundle: spaces over the current Span, followed by its own spelling at
-    /// the shifted destination. A blocked or out-of-Grid move instead replaces
-    /// its current Span with `**`." An `Emit` is that ADR's emission: "The
-    /// complete initial destination must be empty and inside the Grid or the
-    /// producer diagnoses and emits nothing."
+    /// The declared bundle decides which of the two it is. An `Advance` moves:
+    /// an empty destination plans one validated Portal bundle, spaces over the
+    /// current Span followed by its own spelling at the shifted destination,
+    /// and a blocked or out-of-Grid move instead replaces its current Span with
+    /// `**`. An `Emit` emits: the complete initial destination must be empty
+    /// and inside the Grid, or the producer diagnoses and emits nothing.
     ///
     /// The precondition is one rule and the refusal is two, which is why the
     /// groups share this path rather than each having one. What a refusal costs
@@ -655,8 +653,8 @@ impl<'a> Execution<'a> {
     /// The displacement is the Interpreter's answer and the destination
     /// `computations` reserved is the same declaration read before the Turn.
     /// Resolving it again here is what makes this the answer being delivered
-    /// rather than the schedule replaying itself, and it is the relationship
-    /// ADR 0036 already gives a reservation and the write it orders.
+    /// rather than the schedule replaying itself, which is the relationship
+    /// every reservation has with the write it orders.
     ///
     fn deliver_source_effect(
         &mut self,
@@ -688,17 +686,16 @@ impl<'a> Execution<'a> {
         let own = start..start + spelling.len();
 
         // Which Cells the precondition is asked about, and the one place the
-        // two bundles read differently. ADR 0006 has an advancing Function test
-        // "only Cells newly entered by a one-Cell move" — the whole destination
-        // for a vertical move and one Cell of it for a horizontal one — and an
-        // emitting one test "the complete initial destination". The two
-        // coincide for every offset declared today, because no emission
-        // overlaps its producer, so the distinction is stated rather than
-        // relied on.
+        // two bundles read differently. An advancing Function tests only the
+        // Cells newly entered by a one-Cell move — the whole destination for a
+        // vertical move and one Cell of it for a horizontal one — and an
+        // emitting one tests the complete initial destination. The two
+        // coincide for every offset declared, because no emission overlaps its
+        // producer, so the distinction is stated rather than relied on.
         //
-        // The asymmetry is not carved into the write either way: per ADR 0004
-        // an advancing clear covers the complete old Span and ADR 0020's
-        // later-write-wins settles the Cell the two share.
+        // The asymmetry is not carved into the write either way: an advancing
+        // clear covers the complete old Span, and later-write-wins settles the
+        // Cell the two share.
         let admitted = Portal::displaced(self.grid, anchor, effect.columns, effect.rows)
             .and_then(|portal| portal.admit(&spelling));
         let entered: Vec<usize> = match &admitted {
@@ -729,10 +726,10 @@ impl<'a> Execution<'a> {
                 // rather than an omission: a move is admitted only where the
                 // Cells it enters are empty, so no Language Unit stands in them
                 // to have been scheduled. A literal operand covering them is
-                // untouched for the reason ADR 0034 gives every spatial write —
-                // the receiving operand decodes what is in Source when it
-                // consumes it, and the edge above is what makes it read this
-                // producer's Cells rather than the ones it replaced.
+                // untouched, as it is by every spatial write: the receiving
+                // operand decodes what is in Source when it consumes it, and
+                // the edge above is what makes it read this producer's Cells
+                // rather than the ones it replaced.
                 if advancing {
                     // Stated rather than built, for the reason `Execution::new`
                     // states it: `define_functions!` asserts every spelling is
@@ -747,14 +744,14 @@ impl<'a> Execution<'a> {
                 self.write(write);
             }
             // Refused: out of the Grid, past the row edge, or blocked by Cells
-            // that are not empty. ADR 0004 admits no partial write, so the
-            // whole destination is gone in every case, and what the producer
-            // does instead is the bundle's to say.
+            // that are not empty. No partial write is admitted, so the whole
+            // destination is gone in every case, and what the producer does
+            // instead is the bundle's to say.
             _ if advancing => {
                 // Source content rather than an answer: this Bang is the
-                // display ADR 0006 gives a refused move, so it is stated here
-                // the way the Bang cleanup in `Execution::new` is, and it
-                // reaches no Portal of a value.
+                // display a refused move leaves, so it is stated here the way
+                // the Bang cleanup in `Execution::new` is, and it reaches no
+                // Portal of a value.
                 let bang =
                     Encoding::literal("**").expect("the Bang spelling is printable ASCII Cells");
                 let display = Portal::at(self.grid, anchor)
@@ -762,10 +759,10 @@ impl<'a> Execution<'a> {
                     .expect("a Function standing in the Source fits its own Span");
                 self.write(display);
                 match occupancy_of(self.map, &entered, |anchor| self.lookup.root_at(anchor)) {
-                    // ADR 0006: "Complete aligned root contact also directly
-                    // delivers Bang activation." The schedule ordered this
-                    // producer ahead of every root its Portal could reach, so
-                    // the contacted root's Turn is still ahead of it.
+                    // Complete aligned root contact also directly delivers Bang
+                    // activation. The schedule ordered this producer ahead of
+                    // every root its Portal could reach, so the contacted
+                    // root's Turn is still ahead of it.
                     Occupancy::Root(root) => self.states[root].activated = true,
                     Occupancy::Partial => self.effects.push(Effect::Diagnose(diagnose(
                         node,
@@ -775,16 +772,15 @@ impl<'a> Execution<'a> {
                 }
             }
             // An emitting Function stays where it is, so it has no Cells of its
-            // own to report in and ADR 0006 gives it a diagnostic instead. It
-            // classifies no contact either: what it would have emitted into is
-            // not a Cell it was moving to, so there is nothing there it could
-            // be aligned with.
+            // own to report in and diagnoses instead. It classifies no contact
+            // either: what it would have emitted into is not a Cell it was
+            // moving to, so there is nothing there it could be aligned with.
             //
             // Both spellings are named because this is the one group where they
             // differ: the producer is the Cell pair to go and fix, and the
-            // emission is what it was trying to put outside its own Span. ADR
-            // 0006 states the precondition as one conjunction — "empty and
-            // inside the Grid" — so the refusals share one wording.
+            // emission is what it was trying to put outside its own Span. The
+            // precondition is one conjunction — empty and inside the Grid — so
+            // the refusals share one wording.
             _ => self.effects.push(Effect::Diagnose(diagnose(
                 node,
                 format!(
@@ -908,16 +904,17 @@ fn render_message(reason: RenderError) -> String {
 /// ADR 0034 defers the Source operation that produces Function values, so no
 /// Function spelling answers one; and every Atom a Function does answer encodes
 /// as the Cell pair a scalar result reserves. The rules those two absences
-/// leave unreachable — replacement at an original anchor, and ADR 0036's
-/// refusal of a result that is not the Cell pair the schedule reserved — are
-/// therefore reached only from a value a test constructs. That value
-/// is constructed here, one call below [`execute`], so that the shipped Turn
-/// stays one thing in every build: the Interpreter's answer, delivered.
+/// leave unreachable — replacement at an original anchor, and the refusal of a
+/// result that is not the Cell pair the schedule reserved — are therefore
+/// reached only from a value a test constructs. That value is constructed here,
+/// one call below [`execute`], so that the shipped Turn stays one thing in
+/// every build: the Interpreter's answer, delivered.
 ///
-/// A reservation is stated the same way and for the same reason: ADR 0036
-/// derives one from what a Function declares its answer to be, and no built
-/// Function declares a Sequence answer, so the width a Sequence-answering row
-/// reserves is stated beside the answer rather than derived from it. Two
+/// A reservation is stated the same way and for the same reason: scheduling
+/// derives one from what a Function declares its answer to be, and a stated
+/// answer need not be what its producer's Function declares, so the width a
+/// stated Sequence answer reserves is stated beside the answer rather than
+/// derived from it. Two
 /// consequences of stating it are worth knowing, and both are refused loudly
 /// rather than discovered:
 ///
@@ -925,8 +922,6 @@ fn render_message(reason: RenderError) -> String {
 ///   re-derives a width for a hypothetical replacement Function — cannot agree
 ///   with it at the computation whose width was stated. Stating a reservation
 ///   and stating a Function replacement in one Tick is therefore refused here.
-///   `test-only-seams/09` owns the underlying modelling problem: the stored
-///   width and the re-derived one are two homes for one fact.
 /// - A width the fixture states is the input to every width production derives
 ///   around it, so `derive_reservations` widens each ancestor over the stated
 ///   ones by the rule the Language Map's derivation applies. Nothing about

@@ -27,17 +27,17 @@
 //! and a third crate to hold forty lines is a workspace member and a
 //! `cargo deny` graph entry for a test's sake.
 //!
-//! Forty duplicated lines against an API entry is the trade `01` left open and
-//! this file settles: duplicate. The two files are meant to read as one
-//! harness, so a change to the allocator or to `measure` belongs in both, and
-//! in `orcvs/src/lib.rs`'s `allocation` module, which installs this
-//! allocator's block counting, without the byte count, in this crate's
-//! unit-test binary to measure derivations no public API reaches in isolation.
+//! Forty duplicated lines against an API entry is the trade, and this file
+//! takes it: duplicate. The two files are meant to read as one harness, so a
+//! change to the allocator or to `measure` belongs in both, and in
+//! `orcvs/src/lib.rs`'s `allocation` module, which installs this allocator's
+//! block counting, without the byte count, in this crate's unit-test binary to
+//! measure derivations no public API reaches in isolation.
 //!
 //! # What the assertions say
 //!
-//! Shapes, never absolute numbers, in the order `01` fixed: zero; a ceiling
-//! derived from the input, so a cheaper implementation still passes; an
+//! Shapes, never absolute numbers, in this order of preference: zero; a
+//! ceiling derived from the input, so a cheaper implementation still passes; an
 //! equality between two measurements of the same work at different input
 //! sizes.
 //!
@@ -347,8 +347,8 @@ fn carried_expressions(source: &Source) -> usize {
 
 #[test]
 fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
-    // FINDING (2026-09-09): the in-place byte write cannot be measured on its
-    // own from outside the crate, and the write path is not allocation-free.
+    // FINDING: the in-place byte write cannot be measured on its own from
+    // outside the crate, and the write path is not allocation-free.
     //
     // `Source::set` in `orcvs/src/source/model.rs` validates the content and
     // calls `edit`, and `edit` does two things: `set_source`, which writes
@@ -415,8 +415,8 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
 
 #[test]
 fn a_language_map_rebuild_is_bounded_independently_of_grid_size() {
-    // FINDING (2026-09-09): in blocks, yes; in bytes, no, and the bytes are
-    // the Grid itself rather than anything per-Cell that could be removed.
+    // FINDING: in blocks, yes; in bytes, no, and the bytes are the Grid
+    // itself rather than anything per-Cell that could be removed.
     //
     // `LanguageMap::rebuild` allocates a fixed set of collections whatever the
     // Grid: the re-derived row's collections and its `Arc`, the row table and
@@ -629,8 +629,8 @@ fn playing_source_text(cols: usize, rows: usize) -> String {
     text
 }
 
-/// The shipped Grid (ADR 0054) holding that Source, written in one revision
-/// rather than one Cell at a time, which on this Grid would take minutes.
+/// The shipped Grid holding that Source, written in one revision rather than
+/// one Cell at a time, which on this Grid would take minutes.
 fn playing_shipped_source() -> Source {
     let grid = Grid::new();
     let mut source = Source::new(grid);

@@ -155,10 +155,9 @@ fn changing_a_function_orders_a_new_schedule() {
 #[test]
 fn changing_a_portal_relationship_orders_a_new_schedule() {
     // The Equality's Bang lands one row south of it, directly north of the
-    // Terminal Output root, which ADR 0006 activates. Moving that root two
-    // columns east leaves it no cardinal neighbour of the Bang, so no Bang
-    // delivers to it: the same Functions, related differently through the
-    // Portal.
+    // Terminal Output root it activates. Moving that root two columns east
+    // leaves it no cardinal neighbour of the Bang, so no Bang delivers to it:
+    // the same Functions, related differently through the Portal.
     let (shared, planned, stale) = edited_between_ticks(
         Grid::with_shape(12, 3),
         &[".=0101      ", "            ", "!>010AC4    "],

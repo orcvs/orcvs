@@ -74,16 +74,14 @@ impl RenderCell {
 
     ///
     /// Whether this Cell draws as a root Function's Output Portal, derived
-    /// from the current Source revision alone and known before any Tick runs
-    /// (`.scratch/syntax-highlighting/issues/05`'s Answer).
+    /// from the current Source revision alone and known before any Tick runs.
     ///
     /// `true` covers the Cell pair from the Output Portal for a Function that
     /// can only answer a scalar. A Function that can answer a Sequence covers
-    /// the fitted highlight `SourceRevision::output_portal_highlight` derives
-    /// (`.scratch/syntax-highlighting/issues/12`): at least four Cells from
-    /// the Output Portal, then each following written Cell pair, clipped to
-    /// the Reservation — not the whole Reservation, which is what the Tick
-    /// scheduler still reserves. A nested Function, a Terminal Output
+    /// the fitted highlight `SourceRevision::output_portal_highlight` derives:
+    /// at least four Cells from the Output Portal, then each following written
+    /// Cell pair, clipped to the Reservation — not the whole Reservation, which
+    /// is what the Tick scheduler reserves. A nested Function, a Terminal Output
     /// Function, Halt, and a Source-writing Function (including an Advance's
     /// cleared anchor) never set it, and neither does a scalar destination the
     /// row edge leaves no room for.
@@ -355,9 +353,7 @@ mod tests {
 
     ///
     /// The Token the claim on `position` declares, or `None` when nothing
-    /// claims it. `RenderCell::token()` answered this directly before
-    /// `syntax-highlighting/09` removed it in favour of `claim()`; every test
-    /// below that named a Token by position now reads it from the claim.
+    /// claims it. A Render Cell answers its Token only through `claim()`.
     ///
     fn token_at(frame: &RenderFrame, position: crate::grid::Position) -> Option<Token> {
         frame.at(position).claim().map(|claim| claim.token)
@@ -456,10 +452,9 @@ mod tests {
             },
         );
 
-        // `>>` painted as an ordinary character while it was its own Atom
-        // variant, which mapped to leftover Char. It is a row of the Function
-        // table now, so it is painted where every other Function is. The change
-        // is visible and it is a correction: these two Cells spell a Function.
+        // `>>` is a row of the Function table, so it is painted where every
+        // other Function is, not as leftover Char: these two Cells spell a
+        // Function.
         assert_eq!(
             token_at(&frame, grid.position(0, 0).unwrap()),
             Some(Token::Function)
@@ -675,9 +670,9 @@ mod tests {
 
     #[test]
     fn a_lone_pipe_is_one_unbound_function_claim() {
-        // A lone `|` is a refused Function spelling (ADR 0018): every unit
-        // starts as a Function slot, the two-Cell read fails
-        // `Function::try_from`, and the refusal advances one character.
+        // A lone `|` is a refused Function spelling: every unit starts as a
+        // Function slot, the two-Cell read fails `Function::try_from`, and the
+        // refusal advances one character.
         let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "|");
@@ -695,8 +690,8 @@ mod tests {
 
     #[test]
     fn a_written_07_is_two_one_cell_unbound_function_claims() {
-        // A written `07` is two refused Function spellings (ADR 0018).
-        // Nothing distinguishes `0`'s refusal from `7`'s — both are
+        // A written `07` is two refused Function spellings. Nothing
+        // distinguishes `0`'s refusal from `7`'s — both are
         // `(Token::Function, None)` over one Cell.
         let grid = Grid::with_shape(2, 1);
         let source = SourceCommander::new(grid);
@@ -720,7 +715,7 @@ mod tests {
 
     #[test]
     fn a_comment_is_one_claim_that_records_no_atom() {
-        // A Comment records `Token::Comment` and no Atom (ADR 0035), the same
+        // A Comment records `Token::Comment` and no Atom, the same
         // shape as an unbound entry, but it is a complete Language Unit. The
         // claim is one record shared across the introducer and the body.
         let grid = Grid::with_shape(5, 1);

@@ -35,8 +35,8 @@ use schedule::OwnedNotes;
 /// One MIDI message the Playback Engine hands an output adapter.
 ///
 /// A Play Command says what the Source asked for; an Output Command says what
-/// is delivered. The two differ wherever this module owns the difference: ADR
-/// 0016 gives Timed and Monophonic Play a Tick lifetime, and resolving that
+/// is delivered. The two differ wherever this module owns the difference:
+/// Timed and Monophonic Play carry a Tick lifetime, and resolving that
 /// lifetime into a start now and a stop at Tick `T + length` belongs to the
 /// engine that counts Ticks. Monophonic Play differs twice over, because
 /// replacing the voice a channel was sounding also becomes a stop here — of
@@ -593,9 +593,9 @@ pub struct PlaybackEngine {
     /// one fact in one direction — someone has asked me to stop — and nothing
     /// reads it to decide which state the engine is in. "A stop has been
     /// requested" and "this engine is playing" are different facts: the second
-    /// one is published through `state` and belongs to the task alone, and
-    /// collapsing it into this gate would re-admit the shared lifecycle state
-    /// this decision removes.
+    /// one is published through `state` and belongs to the task alone. Do not
+    /// collapse it into this gate: that makes lifecycle state shared between
+    /// the handles and the task, which ADR 0041 forbids.
     ///
     tick_gate: Arc<TickGate>,
     /// The reading end of the published observation. Read without awaiting
@@ -769,8 +769,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// input added here cannot be reset on one target and forgotten on
     /// another.
     ///
-    /// ADR 0012 makes the absolute Tick an interpretation input, so a run that
-    /// began while still carrying the previous run's counter would fire a Delay
+    /// The absolute Tick is an interpretation input, so a run that began while
+    /// still carrying the previous run's counter would fire a Delay
     /// `~*0104` on the wrong beat. Resetting the counter is therefore part of
     /// beginning a run, alongside the cleared last Tick that lets this run's
     /// first Tick execute immediately.
@@ -859,11 +859,12 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // copy and adopted once the submission is: a refused submission
             // leaves every claim and every expiry standing, and the stop this
             // Tick drained is drained again by the next executed Tick rather
-            // than discarded with no retry and no diagnostic. `OutputAdapter`
-            // is a trait, so the alternative would rest on every
-            // implementation giving up its connection the way
-            // `MidiOutputAdapter` does. The copy is two maps of the notes
-            // currently sounding, taken once per executed Tick.
+            // than discarded with no retry and no diagnostic. Do not adopt the
+            // resolved schedule before the submission answers: `OutputAdapter`
+            // is a trait, and that would rest on every implementation giving
+            // up its connection the way `MidiOutputAdapter` does. The copy is
+            // two maps of the notes currently sounding, taken once per
+            // executed Tick.
             let mut owned = self.owned.clone();
             let delivery = owned.deliver(tick, &plan.play_commands);
             match self.adapter.submit(&delivery) {
@@ -1543,9 +1544,9 @@ async fn run_engine<A: OutputAdapter, D>(
                 // be expressed, so reaching this means a run outlasted its own
                 // grid rather than that a caller asked for one. Ending the run
                 // with a diagnostic is what the engine does with every other
-                // failure it cannot continue through; the alternative here is
-                // a deadline of now, which this loop would reach, execute, and
-                // arrive back at immediately.
+                // failure it cannot continue through. Do not fall back to a
+                // deadline of now: this loop would reach it, execute, and
+                // arrive back at it immediately.
                 inner.report(Report::ClockFailure {
                     message: "Playback clock ran past the last instant it can schedule".to_string(),
                 });
@@ -1768,7 +1769,7 @@ mod tests {
         ///
         /// The engine counts executed Ticks, so a test that runs them in order
         /// names each by its absolute Tick and states the schedule under test
-        /// in the same numbers ADR 0016 does.
+        /// in the numbers a Play Command's lifetime is written in.
         ///
         fn run_tick(&mut self, tick: u64) {
             self.tick(scheduled(
@@ -1900,10 +1901,9 @@ mod tests {
     ///
     /// It is a bound on failure, not a schedule. A wait that reaches it has
     /// found a defect, and reaching it is what turns that defect into a red
-    /// test rather than a watchdog kill with no assertion attached to it. The
-    /// one-second budget these replace was the tightest timing margin in this
-    /// file, and its signature — fails once, passes on the re-run — is the
-    /// flake that gets re-run rather than read.
+    /// test rather than a watchdog kill with no assertion attached to it. Do
+    /// not tighten it toward the time the wait takes: a margin that fails once
+    /// and passes on the re-run is the flake that gets re-run rather than read.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     const HARNESS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -2208,9 +2208,7 @@ mod tests {
     /// three policies a clock could hold answers differently: replaying the
     /// backlog would name `2s`, restarting the period from where the clock woke
     /// would name `3.5s`, and ADR 0037's rule names the next Tick still on the
-    /// grid. A whole-second stall cannot tell the last two apart, which is why
-    /// the case this replaces held for a fortnight while the two targets
-    /// disagreed.
+    /// grid. A whole-second stall cannot tell the last two apart.
     ///
     #[test]
     fn a_missed_deadline_does_not_move_the_grid() {
@@ -2370,7 +2368,7 @@ mod tests {
     /// the grid onto the wake instant lands at `observed + period`, and ADR
     /// 0037's rule lands on the grid point written in the third column. The
     /// periods at and below five milliseconds are the ones Tokio's missed-tick
-    /// machinery cannot express, which is why the loop no longer uses it.
+    /// machinery cannot express, which is why the loop does not use it.
     ///
     /// Both targets run this loop. Browser waiting and the public tempo
     /// change path are also exercised by `console/tests/wasm.rs`.
@@ -2496,10 +2494,10 @@ mod tests {
 
     #[test]
     fn playback_begins_at_the_first_tick_and_advances_one_per_executed_tick() {
-        // ADR 0012's counter in full: the first Tick of a run is absolute Tick
-        // `0`, and each executed Tick increments it by exactly one. Reading the
-        // counter is the whole of what is observable today — no Function reads
-        // the Tick yet — so the count is what is pinned.
+        // The counter in full: the first Tick of a run is absolute Tick `0`,
+        // and each executed Tick increments it by exactly one. The count is
+        // read directly, so no Function's reading of the Tick stands between
+        // it and the assertion.
         let mut run = HandDrivenRun::new(
             SourceCommander::new(Grid::with_shape(10, 9)),
             InMemoryOutputAdapter::default(),
@@ -2754,7 +2752,7 @@ mod tests {
 
     #[test]
     fn each_playback_run_begins_again_at_the_first_tick() {
-        // ADR 0012's first-Tick rule is about a Playback run, not about the
+        // The first-Tick rule is about a Playback run, not about the
         // lifetime of the engine: a run that is stopped and started again is a
         // new run and counts from `0` again.
         let mut run = HandDrivenRun::new(
@@ -2779,9 +2777,9 @@ mod tests {
 
     #[test]
     fn beginning_a_run_discards_the_previous_runs_absolute_tick() {
-        // ADR 0012's first-Tick rule belongs to beginning a Playback run, not
-        // to the clock that happens to drive it, so every path that begins one
-        // opens the same way. The engine is carried far enough into a first run
+        // The first-Tick rule belongs to beginning a Playback run, not to the
+        // clock that happens to drive it, so every path that begins one opens
+        // the same way. The engine is carried far enough into a first run
         // that a counter left standing would be plainly visible, and the run
         // begun after it must still open at absolute Tick `0` with no last Tick
         // behind it for the clock to schedule against.
@@ -2815,7 +2813,7 @@ mod tests {
         source.set(cell(source.grid(), 26), "D").unwrap();
         run.run_tick(1);
 
-        // ADR 0012's other half of Live Editing: the edit lands in the next
+        // The other half of Live Editing: the edit lands in the next
         // Source Snapshot because a Snapshot is taken per Tick, and the run
         // keeps counting, because editing the Source is not starting a
         // Playback run.
@@ -3659,8 +3657,8 @@ mod tests {
     ///
     /// A retune keeps the absolute Tick of the run it retunes.
     ///
-    /// `begin_run` resets the counter because ADR 0012 makes the absolute Tick
-    /// an interpretation input and a run must open at Tick `0`; retuning
+    /// `begin_run` resets the counter because the absolute Tick is an
+    /// interpretation input and a run must open at Tick `0`; retuning
     /// changes the Tick period of the run already in progress and does not
     /// begin one, so resetting there would silently restart every Tick-reading
     /// Function's cycle each time the tempo moved.
@@ -4662,9 +4660,9 @@ mod tests {
         // a deadline gets its turn once the mailbox has had its share; it does
         // not say how long that takes, and it cannot, because the engine's
         // task is competing with six OS threads for a worker. A window would
-        // be asserting a rate nothing promises — which is what made this fail
-        // about one run in twelve — where the property actually claimed is
-        // that the deadline arm is reached at all.
+        // be asserting a rate nothing promises, and would fail intermittently
+        // for it, where the property actually claimed is that the deadline arm
+        // is reached at all.
         let delivered_before = adapter.command_lists().len();
         wait_until(
             "the clock was starved: no Tick was delivered while messages kept arriving",

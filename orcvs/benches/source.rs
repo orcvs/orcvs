@@ -25,7 +25,7 @@ const SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64)];
 ///
 /// A Render Frame is derived whole, once per frame, over every Position of the
 /// Grid, so what one costs follows the Cell count. The last shape is the
-/// shipped Grid (ADR 0054); the smaller ones, built through the test-only
+/// shipped Grid; the smaller ones, built through the test-only
 /// `Grid::with_shape`, show whether the cost is a flat O(Cells). Each step
 /// quadruples the Cell count.
 ///
@@ -114,10 +114,10 @@ fn populated_source(cols: usize, rows: usize) -> SourceCommander {
 ///
 /// The runtime a benched running Orcvs spawns its Playback Engine onto.
 ///
-/// ADR 0041 makes that engine a task, so building a running Orcvs needs a
-/// runtime to build it on. These benchmarks measure the Source paths and never
-/// start a run, so one runtime kept for the length of the process is the whole
-/// of what they need from it.
+/// The engine is a task, so building a running Orcvs needs a runtime to build
+/// it on. These benchmarks measure the Source paths and never start a run, so
+/// one runtime kept for the length of the process is the whole of what they
+/// need from it.
 ///
 fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
@@ -226,9 +226,9 @@ fn playing_source_text(cols: usize, rows: usize) -> String {
 ///
 /// The ordinary fixture has neither. Its results land in blank rows, so it
 /// plans a graph with no edges at all: nothing activates, nothing waits on a
-/// supplier, and the whole dependency half of a Tick is measured empty. That
-/// is not a shape a pattern has — an Equality Bang firing a neighbouring MIDI
-/// root is what ADR 0032 exists for.
+/// supplier, and the whole dependency half of a Tick is measured empty. A
+/// pattern does not have that shape: an Equality Bang firing a neighbouring
+/// MIDI root is the ordinary one.
 ///
 /// One block, repeating every six rows, holds both. `.=` writes a Bang into
 /// the blank row under it, which activates the Terminal Output root two rows
@@ -314,7 +314,7 @@ fn size(cols: usize, rows: usize) -> BenchmarkId {
 ///
 /// On `FRAME_SIZES` rather than `SIZES`, and the only group here that earned
 /// them. `Orcvs::render_frame` reads a revision and then derives over the
-/// result (`orcvs/src/app.rs:217-227`), so this read is already inside every
+/// result, so this read is already inside every
 /// `source_render_frame` number. Measured at the same shapes it is the one part
 /// of a frame that can be subtracted back out of that number without a
 /// benchmark group that pulls `derive` apart; measured at different shapes it
@@ -451,18 +451,17 @@ fn render_frame_nested(c: &mut Criterion) {
 /// runs every setup before the first routine, so all but the first edit would
 /// write a Cell that already holds `content` and measure a no-op.
 ///
-/// Stays on `SIZES` while the frame groups above reach further, and the reason is
-/// not that an edit is cheap. One edit dirties the single row it lands in
-/// (`orcvs/src/source/model.rs:255-261`), but the rebuild that row forces walks
-/// every row of the Language Map and re-stamps the clean ones
-/// (`orcvs/src/source/language_map.rs:201-211`), so what an edit costs follows the
-/// Cell count as much as a frame does. That is a question about the edit path,
-/// which is not what the Render Frame effort is measuring, and it is the
-/// expensive one to ask: each added shape here needs a fixture of its own, and a
-/// 256x256 one takes tens of seconds to build — once per edit group, in each of
-/// the two runs a benchmark job performs, on every run. Whoever asks
-/// what a keystroke costs on a resized Grid should extend this series and pay for
-/// it deliberately.
+/// Stays on `SIZES` while the frame groups above reach further, and the reason
+/// is not that an edit is cheap. `Source::set` re-derives only the row an edit
+/// lands in, but `LanguageMap::rebuild` walks every row of the Language Map to
+/// share the clean ones, so what an edit costs still grows with the Grid. That
+/// is a question about the edit
+/// path, which is not what the frame groups measure, and it is the expensive
+/// one to ask: each added shape here needs a fixture of its own, and a 256x256
+/// one takes tens of seconds to build — once per edit group, in each of the two
+/// runs a benchmark job performs, on every run. Whoever asks what a keystroke
+/// costs on a resized Grid should extend this series and pay for it
+/// deliberately.
 fn edit(c: &mut Criterion, name: &str, content: &'static str) {
     let mut group = c.benchmark_group(name);
 
@@ -632,7 +631,7 @@ fn tick_series(
 }
 
 ///
-/// The Source on the one shipped Grid (ADR 0054), populated with the editing
+/// The Source on the one shipped Grid, populated with the editing
 /// fixture's text in one `Source::write_cells` revision, so one Language Map
 /// rebuild.
 ///
@@ -653,10 +652,9 @@ fn whole_grid_source() -> Source {
 }
 
 ///
-/// Measures each path that walks every Cell of the shipped Grid (ADR 0054):
-/// deriving the whole Language Map, copying a Source snapshot, and one
-/// accepted Cell edit. The stored value is measured in
-/// `console/benches/stored_source.rs`.
+/// Measures each path that walks every Cell of the shipped Grid: deriving the
+/// whole Language Map, copying a Source snapshot, and one accepted Cell edit.
+/// The stored value is measured in `console/benches/stored_source.rs`.
 ///
 /// Beside them, a commit that writes no Cell, which every Tick that writes
 /// nothing pays: it keeps the Language Map it holds, so its cost must not
