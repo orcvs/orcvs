@@ -108,7 +108,7 @@ pub struct Console {
     /// this target. The console never asks what target it is on: a target with
     /// no native backend answers an empty destination list here, and
     /// `native_midi::AVAILABLE` says whether the ComboBox is enabled and
-    /// whether Refresh is shown.
+    /// whether Scan is shown.
     midi: MidiDeviceSelection,
     font_family: egui::FontFamily,
     source_view: SourceView,
@@ -120,13 +120,12 @@ pub struct Console {
     /// Whether keyboard input belonged to a control rather than the Source
     /// when the last frame's widgets were done: any widget holding egui's
     /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
-    /// `Memory::focused().is_some()`, `egui-0.36.2/src/context.rs:2985-2988`),
-    /// or any open popup — a menu, or the destination ComboBox's list — which
+    /// `Memory::focused().is_some()`), or any open popup — a menu, or the destination ComboBox's list — which
     /// a click opens without taking focus (`Popup::is_any_open`). Latched
     /// rather than asked where it is read, because
     /// `event_handler` runs before this frame's widgets are shown, and
     /// `Memory::begin_pass` has already let Escape clear the focus it was
-    /// pressed to leave (`egui-0.36.2/src/memory/mod.rs:596-601`).
+    /// pressed to leave.
     keyboard_elsewhere: bool,
     /// The dark and light Theme selections, the Themes they choose from, and
     /// the Theme each presents. The same pair is installed as egui's dark and
@@ -231,11 +230,10 @@ impl Console {
         cc.egui_ctx
             .options_mut(|options| options.zoom_with_keyboard = false);
 
-        // Start with the default fonts (we will be adding to them rather than replacing them).
+        // egui's default fonts, with the bundled Monaspace Neon put first in
+        // both the proportional and the monospace family.
         let mut fonts = egui::FontDefinitions::default();
         let key = "MonaspaceNeon";
-        // Install my own font (maybe supporting non-latin characters).
-        // .ttf and .otf files supported.
         fonts.font_data.insert(
             key.to_owned(),
             egui::FontData::from_static(include_bytes!("../assets/MonaspaceNeon-Regular.otf"))
@@ -248,7 +246,6 @@ impl Console {
             .or_default()
             .insert(0, key.to_owned());
 
-        // Put my font as last fallback for monospace:
         fonts
             .families
             .entry(egui::FontFamily::Monospace)

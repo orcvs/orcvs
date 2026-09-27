@@ -85,13 +85,12 @@ pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 /// key `crate::style::style` maps the painted foreground from.
 ///
 /// Number and Note admit Valid and Invalid. Atom and Sequence admit only
-/// Invalid: `Token::decode` refuses both outright (`lang/src/expression.rs`'s
-/// own words on `Token`: "declarations no Cells spell"), so the only thing
-/// that can satisfy either slot is a nested Function, which
-/// `take_language_unit`'s `is_function_next()` branch records under
-/// `Token::Function` instead — never under `Atom` or `Sequence`. Neither
-/// Token ever reaches a *Valid* state through any Source, only Invalid
-/// (written, unbound) or Pending (blank).
+/// Invalid: `Token::decode` refuses both outright, since neither has a
+/// literal reading, so the only thing that can satisfy either slot is a
+/// nested Function, which `take_language_unit`'s `is_function_next()`
+/// branch records under `Token::Function` instead — never under `Atom` or
+/// `Sequence`. Neither Token ever reaches a *Valid* state through any
+/// Source, only Invalid (written, unbound) or Pending (blank).
 ///
 /// Pending is not a role this validator measures at all: a Pending Cell
 /// draws no glyph (`paint::tests::every_pending_operand_token_draws_no_
@@ -375,10 +374,9 @@ const CHROME_STATES: usize = 15;
 /// [`crate::style::install`] registers for both egui appearance slots — and
 /// through the accessors egui's own widgets call when they paint it:
 /// [`egui::Style::button_style`], the function `Button::ui` itself calls
-/// for a button's fill and text colour (`egui-0.36.2/src/widgets/
-/// button.rs:331`); [`egui::Style::widget_style`], which `Checkbox` paints
-/// its label from; `Visuals::text_color`, `weak_text_color` and
-/// `text_edit_bg_color`; and `Visuals::selection`, which
+/// for a button's fill and text colour; [`egui::Style::widget_style`],
+/// which `Checkbox` paints its label from; `Visuals::text_color`,
+/// `weak_text_color` and `text_edit_bg_color`; and `Visuals::selection`, which
 /// `text_selection::paint_text_selection` recolours selected glyphs and
 /// fills their background from. A `style` mapping that changes which Theme
 /// key a `Visuals` field reads therefore changes what this measures with
@@ -390,8 +388,8 @@ const CHROME_STATES: usize = 15;
 /// window's title bar alike; a state's strong `bg_fill` carries no text
 /// (a checkbox's box, a slider's rail, a colour swatch), which is why only
 /// the weak fill is measured. An open widget is measured the way
-/// `SubMenuButton::ui` paints one (`egui-0.36.2/src/containers/menu.rs:383`):
-/// `widgets.open` standing in for `widgets.inactive`.
+/// `SubMenuButton::ui` paints one: it swaps `widgets.open` in for
+/// `widgets.inactive` while its button draws.
 ///
 /// Each fill is composited in paint order over the opaque window backdrop
 /// `Console::clear_color` clears to — the panel over the backdrop, the
@@ -670,11 +668,8 @@ impl AcceptedFailure {
 ///
 /// The accepted exceptions for a shipped Theme, keyed by identity.
 ///
-/// Okabe–Ito's list is empty: it has no reachable painted failure. A
-/// Pending role draws no glyph, so it has no foreground to measure, and
-/// Sequence's one role, `Sequence, Invalid`, passes the floor on its own
-/// (Diagnostic's foreground replaces Sequence's outright once it is
-/// Invalid).
+/// Okabe–Ito's list is empty: it has no reachable painted failure
+/// (`tests::sequence_has_no_reachable_failing_state` pins Sequence's case).
 ///
 /// Called from [`measure`], which every [`validate`] result passes through —
 /// not test-only: `theme_registry` validates every Theme file it loads.

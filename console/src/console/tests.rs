@@ -418,7 +418,7 @@ fn console_pass(
 /// The scale is given as the viewport's `native_pixels_per_point` rather
 /// than through `Context::set_pixels_per_point`, which sets the zoom factor
 /// instead and rewrites the next pass's `screen_rect` from the previous
-/// one's to avoid jitter (`egui-0.36.2/src/context.rs:437-447`) — so the
+/// one's to avoid jitter (in `Context::begin_pass`) — so the
 /// console would not be the size the caller asked for.
 ///
 fn console_pass_at(
@@ -1085,7 +1085,7 @@ async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
 /// restored Light preference presents Orcvs Light rather than egui's own
 /// default light style. The style comparison is `Visuals`, not
 /// `Style`'s own `PartialEq`: `Style::number_formatter` compares by
-/// `Arc::ptr_eq` (`egui-0.36.2/src/style.rs:57-60`), so two
+/// `Arc::ptr_eq` (`NumberFormatter`'s `PartialEq`), so two
 /// independently built `Style::default()`s never compare equal on that
 /// field alone, whatever their visible content.
 ///
@@ -1341,7 +1341,7 @@ async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
 }
 
 ///
-/// At 1 BPM a Tick lasts 15 seconds. Cursor Effect off, so its 45–190 ms
+/// At 1 BPM a Tick lasts 15 seconds. Cursor Effect off, so its sub-second
 /// wakes cannot hide a missing Run Clock remainder. A quiet Playing pass
 /// must still request a delay of at most one second.
 ///
@@ -1437,7 +1437,7 @@ async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones(
 
     // A request made during one pass still repaints the next even with
     // nothing new to answer, "to give some things time to settle"
-    // (`egui-0.36.2/src/context.rs:128-137`); several quiet passes let
+    // (a zero-delay `Context::request_repaint`); several quiet passes let
     // that one-time grace period from opening the console lapse before
     // the assertion below reads a steady state.
     for _ in 0..4 {
@@ -5239,7 +5239,7 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
 /// under the pointer.
 ///
 /// `Response::drag_delta` divides by the layer transform's scaling *only
-/// when the layer has one* (`response.rs:452-465`). With the transform
+/// when the layer has one* (`Context::layer_transform_from_global`). With the transform
 /// owned by the console there is no layer transform, so a leftover
 /// multiply by the Zoom would move the Source by the Zoom times the
 /// pointer. Zoom 2.0 is what makes that bug visible.

@@ -37,13 +37,9 @@ pub(crate) struct CellVisuals {
 /// (see [`source_paint_visuals`]).
 ///
 /// Composes the Source Paint decision with Cursor precedence, applied here
-/// rather than inside it: the Cursor's own fill beats a role's channel
-/// outright on its own Cell, and the single-Cell Cursor's own border
-/// (`selection.border`/`.rest`) draws regardless of what stands on the Cell.
-/// Every other Cell's border instead depends on what stands there:
-/// [`ordinary_border`] composites Diagnostic/Output Portal over the ordinary
-/// Grid border by the same fact priority `role_and_portal` already applies
-/// to foreground and background. `paint` is the per-Cell language fact
+/// rather than inside it: the single-Cell Cursor's own border
+/// (`selection.border`/`.rest`) draws regardless of what stands on the Cell,
+/// and every other Cell's border is [`ordinary_border`]'s. `paint` is the per-Cell language fact
 /// `RenderCell::source_paint` answers from the shared Claim, including
 /// Pending, Valid, or Invalid for an Operand. `output_portal` is an
 /// independent fact: whether this Cell
@@ -74,9 +70,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
     // `.scratch/theming/schema.md`'s Source composition step 5. Every other
     // Cell, including a multi-Cell Region's Cursor Cell (`selected` is false
     // there — see [`crate::paint::Paint::derive_with_theme`]), keeps the
-    // ordinary Grid border, which [`ordinary_border`] composites with
-    // Diagnostic/Output Portal by the same fact priority `role_and_portal`
-    // already applies to foreground and background.
+    // ordinary Grid border.
     let (border, border_width) = if cursor_visible {
         (
             theme.selection_border,
@@ -1185,8 +1179,10 @@ mod tests {
     ///
     /// `.scratch/theming/schema.md`'s width catalogue: chrome border widths
     /// are finite display points 0 to 2 inclusive, and "Zero width
-    /// suppresses that stroke, not fills or other strokes." Retuning each of
-    /// the five chrome width keys changes the matching `Stroke`'s width, and
+    /// suppresses that stroke, not fills or other strokes." Retuning four of
+    /// the five chrome width keys changes the matching `Stroke`'s width
+    /// (`text_cursor_and_ime_underlines_read_input_cursor` reads the fifth,
+    /// `input.cursor.width`, at its default), and
     /// a zeroed width still leaves the stroke's own colour (and every other
     /// field) untouched — the geometry step, not this one, is what turns a
     /// zero-width `Stroke` into nothing drawn.
@@ -1906,13 +1902,8 @@ mod tests {
     /// is why the tint stays. This is
     /// [`OperandState::Invalid`], which the slot's shared Claim decides for
     /// the whole slot: at least one Cell of it holds content that failed to
-    /// bind. `.+0`'s second operand is the same shape with only one of its
-    /// two Cells written, and its Claim answers Invalid for that
-    /// whole slot too, so its blank Cell answers Diagnostic exactly as its
-    /// written one does — `paint.rs`'s blank-glyph fallback is what keeps a
-    /// Diagnostic foreground from ever being drawn on a Cell with no
-    /// content, not a different verdict for it. A Valid Number is
-    /// unaffected either way.
+    /// bind; `operand_paint` states the partly written case. A Valid Number
+    /// is unaffected either way.
     ///
     #[test]
     fn an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint() {
@@ -1984,11 +1975,7 @@ mod tests {
     /// nothing yet fills — draws its declared Token colour rather than
     /// Diagnostic: no Cell of the slot holds content, so nothing there has
     /// failed to bind yet. The tint is unaffected either way: a Pending,
-    /// Valid, or Invalid operand is tinted alike. This has no visible effect
-    /// today — `paint.rs`'s blank-glyph
-    /// fallback draws no character on a Pending Cell regardless of
-    /// foreground — but it is the distinction [`OperandState`] exists to
-    /// answer correctly rather than by coincidence.
+    /// Valid, or Invalid operand is tinted alike.
     ///
     #[test]
     fn a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic() {
@@ -2081,11 +2068,9 @@ mod tests {
     }
 
     ///
-    /// A Bang answer keeps its own Bang glyph colour rather than blending
-    /// with the Output Portal foreground — a Bang is what a Producer emits,
-    /// not a value it writes — but its background still takes the Output
-    /// Portal's own channel in place of its usual transparent one, so it
-    /// still reads as an Output Portal Cell.
+    /// A Bang answer keeps its own Bang glyph colour inside an Output Portal
+    /// but takes the Output Portal's background; `source_paint_visuals`
+    /// states why.
     ///
     #[test]
     fn output_portal_keeps_the_bang_glyph_colour_but_takes_its_own_tint() {
@@ -2104,14 +2089,8 @@ mod tests {
 
     ///
     /// A Cell that is a bound Function's own two-Cell spelling keeps its
-    /// Function paint outright when `output_portal` is also true —
-    /// `.scratch/theming/schema.md`: "A bound Function retains all its own
-    /// paint inside a Portal." This is the smallest rule that
-    /// both lets a producer's Output Portal show through a consumer's
-    /// operand Cells while still letting a reader find the Function that
-    /// stands on a Cell; this layer cannot and need not tell a root's own
-    /// spelling from a nested one to apply it, since every Function's own
-    /// two-Cell spelling carries `Token::Function` regardless of nesting.
+    /// Function paint outright when `output_portal` is also true, root or
+    /// nested; `source_paint_visuals` states why.
     ///
     #[test]
     fn a_bound_function_spelling_wins_over_output_portal() {
@@ -2132,8 +2111,7 @@ mod tests {
     }
 
     ///
-    /// An Invalid Number
-    /// operand's border composites `theme.diagnostic_border` over
+    /// An Invalid Number operand's border composites `theme.diagnostic_border` over
     /// `theme.grid_border` — the same fact this Cell's foreground and
     /// background already use
     /// (`an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint`) —
@@ -2159,10 +2137,8 @@ mod tests {
     }
 
     ///
-    /// Portal precedence over Diagnostic — schema composition step 4,
-    /// "Portal channels take precedence over other non-Function facts,
-    /// including Diagnostic" — reaches the border channel too: an Invalid
-    /// operand inside an Output Portal takes the Output Portal's own border
+    /// Portal precedence over Diagnostic reaches the border channel too: an
+    /// Invalid operand inside an Output Portal takes the Output Portal's own border
     /// colour and width outright, the same as it already does for foreground
     /// and background
     /// (`invalid_operand_under_output_portal_takes_the_portal_colour`).
@@ -2210,9 +2186,7 @@ mod tests {
 
     ///
     /// Width zero suppresses the stroke a Diagnostic border would otherwise
-    /// draw, even with an opaque colour — `.scratch/theming/schema.md`'s
-    /// "Width 0 hides the stroke," extended to whichever channel
-    /// `ordinary_border` picks.
+    /// draw, even with an opaque colour.
     /// `console::tests::zero_width_suppresses_only_its_own_border_stroke`
     /// proves the geometry step drops the `Shape` outright once this reaches
     /// it as `0.0`.
@@ -2347,7 +2321,7 @@ mod tests {
     /// The comparison is `Visuals` and `animation_time`, the two fields
     /// [`style`] actually sets, rather than `Style`'s own `PartialEq`:
     /// `Style::number_formatter` compares by `Arc::ptr_eq`
-    /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
+    /// (`NumberFormatter`'s `PartialEq`), so two independently built
     /// `Style::default()`s — one inside each `style()` call — never compare
     /// equal on that field alone, whatever their visible content.
     ///

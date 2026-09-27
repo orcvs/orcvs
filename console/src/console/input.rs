@@ -50,8 +50,7 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
         // so this and that cancellation are two views of the one rule: Tab belongs to the
         // Source, not to focus. Only a bare Tab and a bare Shift Tab are
         // either of those — `modifiers.is_none()` and `modifiers.shift_only()`
-        // are the same tests `Memory::begin_pass` itself uses to turn a Tab
-        // into `FocusDirection::Next`/`Previous` (`egui-0.36.2/src/memory/mod.rs:596-597`),
+        // are the same tests `Memory::begin_pass` uses to move focus,
         // so Ctrl, Command, or Alt held with Tab reaches neither egui's focus
         // navigation nor the Source here.
         Event::Key {
@@ -251,9 +250,9 @@ impl Console {
     ///
     /// `Memory::begin_pass` already turned an unmodified Tab into
     /// `FocusDirection::Next` and a Shift Tab into `FocusDirection::Previous`
-    /// before the frame runs (`egui-0.36.2/src/memory/mod.rs:596-597`), and the
-    /// first focusable widget shown — a menu-bar button — would otherwise claim
-    /// it the moment it is shown. Cancelling before anything is shown is what
+    /// before the frame runs, and the first focusable widget shown — a
+    /// menu-bar button — would otherwise claim it the moment it is shown.
+    /// Cancelling before anything is shown is what
     /// keeps Tab off every widget rather than only the ones drawn after the
     /// call. `!self.keyboard_elsewhere` is last frame's answer, the same one
     /// [`Console::route_keys`] reads, so a focused control or an open menu
@@ -277,10 +276,9 @@ impl Console {
     /// before the widgets are shown and would otherwise write Source or toggle
     /// Playback in the same pass a control is already editing. egui offers no
     /// per-event answer to whether a widget used an event — `TextEdit` reads
-    /// its events without consuming them
-    /// (`egui-0.36.2/src/widgets/text_edit/builder.rs:1098`) — and names
-    /// `egui_wants_keyboard_input` as the question to ask instead
-    /// (`egui-0.36.2/src/data/input/raw_input.rs:56-60`).
+    /// its events through `InputState::filtered_events`, which leaves them in
+    /// place — and `RawInput::events` names `egui_wants_keyboard_input` as the
+    /// question to ask instead.
     ///
     pub(super) fn route_keys(&mut self, ctx: &egui::Context) -> Option<FileCommand> {
         let event_filter = EventFilter {
@@ -305,10 +303,9 @@ impl Console {
             return None;
         }
         // A command Zoom chord answers `show_source_scene`, not the
-        // Source. `egui-winit` and eframe's web backend both withhold
-        // `Event::Text` while a command modifier is held
-        // (`egui-winit-0.36.2/src/lib.rs:1059-1065`,
-        // `eframe-0.36.2/src/web/events.rs:155-162`), so a shipped build
+        // Source. `egui-winit`'s `State::on_keyboard_input` and eframe's web
+        // keydown handler both withhold `Event::Text` while a command
+        // modifier is held, so a shipped build
         // never raises the matching bare character alongside the chord
         // that already answered it.
         let events = ctx.input(|i| {

@@ -227,17 +227,16 @@ fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
 ///
 /// Whether `to_global` can be presented and inverted.
 ///
-/// `egui::Scene::show` resets a transform that has gone bad
-/// (`egui-0.36.2/src/containers/scene.rs:151-152, 168-173`), and the Source is
+/// `egui::Scene::show` resets a transform that has gone bad, and the Source is
 /// presented without that container, so nothing resets it here. `grid_viewport` answers a Cell
 /// size of zero for a console with no area, so the fit it yields has a scaling
-/// of zero, and `TSTransform::inverse` divides by the scaling — which
-/// `Scene::register_pan_and_zoom` does on every frame the pointer is over the
-/// console. An unguarded zero therefore resolves every pointer position to NaN.
+/// of zero, and `TSTransform::inverse` divides by the scaling — which the
+/// Diagnostics window does to report the visible Source region. An
+/// unguarded zero therefore answers NaN.
 ///
 /// `TSTransform::is_valid` is not enough on its own: it checks only
-/// `translation.x` (`emath-0.36.2/src/ts_transform.rs:55-57`) and admits a
-/// negative scaling, which would present the Source mirrored.
+/// `translation.x`, not `translation.y`, and admits a negative scaling, which
+/// would present the Source mirrored.
 ///
 pub(super) fn is_presentable(to_global: TSTransform) -> bool {
     to_global.scaling.is_finite() && to_global.scaling > 0.0 && to_global.translation.is_finite()
@@ -338,7 +337,7 @@ pub(super) fn show_source_scene(
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
     // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
-    // which adds `FOCUSABLE` (`egui-0.36.2/src/sense.rs:81-83`) and would let
+    // which adds `FOCUSABLE` and would let
     // Tab focus the console area, where a focused widget keeps every key from
     // the Source.
     let (console, mut pan) =

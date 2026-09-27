@@ -34,8 +34,8 @@ impl GridViewport {
     ///
     /// The presented Cell side over the Source's own Cell side.
     ///
-    /// Stroke widths multiply by this so Grid lines and sector seams stay one
-    /// Source point wide at every zoom.
+    /// Glyph layout scales by this. Stroke widths do not: they are fixed
+    /// display points at every zoom.
     ///
     pub(crate) fn cell_scale(&self) -> f32 {
         self.cell_size / CELL_SIZE

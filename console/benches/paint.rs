@@ -183,9 +183,7 @@ fn bench_theme() -> Theme {
 /// *values*: the Cursor's fill lands on the one selected Cell, the Region
 /// fill on no Cell at all (nothing here selects a Region spanning more than
 /// one), and the resolved Theme answers one channel per Token fact whatever
-/// its colours are. So what this benchmark measures — the per-Cell walk — is
-/// the same number for any Theme, which is why [`bench_theme`] is the
-/// built-in rather than a custom one built to match the console's own tests.
+/// its colours are.
 ///
 fn paint(frame: &RenderFrame, drawn: VisiblePositions, theme: &Theme) -> Paint {
     Paint::derive_with_theme(FramePaint::new(frame, drawn), theme)

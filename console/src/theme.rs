@@ -763,9 +763,7 @@ pub(crate) const OKABE_ITO_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("ok
 ///
 /// The Okabe–Ito built-in dark Theme: `schema.md`'s complete dark
 /// definition, at the reserved identity `OKABE_ITO_IDENTITY`. Every field
-/// is spelled out explicitly, so the compiler enforces "built-ins define
-/// every property" rather than a runtime completeness check — remove a field
-/// from this literal and the crate fails to build.
+/// is spelled out explicitly (see [`Theme`]).
 ///
 /// `okabe_ito_defines_every_key_at_the_schema_values` in this module's tests
 /// pins every field against `schema.md`'s own dark table, and

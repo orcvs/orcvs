@@ -610,10 +610,8 @@ mod tests {
     ///
     /// A red and a green at *different* lightness stay far apart under
     /// protanopia even so, because lightness survives every dichromacy —
-    /// which is why Orcvs Light separates its Diagnostic from its Output
-    /// Portal by lightness, and why this test measures the collapse as a
-    /// ratio rather than asserting the remainder falls under
-    /// [`CONFUSION_FLOOR`].
+    /// which is why this test measures the collapse as a ratio rather than
+    /// asserting the remainder falls under [`CONFUSION_FLOOR`].
     ///
     #[test]
     fn each_dichromacy_removes_its_own_axis_and_leaves_the_other() {

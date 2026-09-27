@@ -616,10 +616,9 @@ mod tests {
     }
 
     ///
-    /// Amount zero paints a stationary frame regardless of frequency
-    /// (`frame_shapes`'s `amount == 0.0` branch never reads it), so a
-    /// positive frequency alone must not keep `repaint_after` scheduling a
-    /// wake for a frame that never changes.
+    /// Amount zero paints a stationary frame (`frame_shapes`'s `amount == 0.0`
+    /// branch never reads the frequency), so `repaint_after` schedules no wake
+    /// for it.
     ///
     #[test]
     fn zero_amount_with_positive_frequency_requests_no_repaint() {

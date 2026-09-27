@@ -197,9 +197,8 @@ impl Paint {
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
     /// Cell: a per-Cell resolution would add its cost to every drawn Cell of
-    /// every frame. The Cursor/Region fills and the uniform
-    /// base fallback are hoisted, and `style::SourcePaintVisuals` holds
-    /// `cell_visuals_with_cursor_colour`'s answer for each unselected fact
+    /// every frame. `style::SourcePaintVisuals` holds the answer
+    /// `cell_visuals_with_cursor_colour` gives for each unselected fact
     /// and Output Portal flag the walk asks for, so an unselected Cell costs
     /// one indexed load rather than the role match, Diagnostic/Output Portal
     /// blends, `cell.background` composite and border priority match. Only
@@ -288,14 +287,11 @@ impl Paint {
                     border: visuals.border,
                     border_width: visuals.border_width,
                     foreground: visuals.foreground,
-                    // A sector seam is suppressed on the Cursor's Cell, so the
-                    // Cursor's frame is never crossed by one. While a Region
-                    // spans more than one Cell the lasso is the frame and the
-                    // Cursor's Cell is not `selected`, so it keeps its seams
-                    // as every other Cell of the Region does. It is decided here rather
-                    // than left to the step that draws it: a rule that survives
-                    // only as a branch shape is a rule the next reader has to
-                    // rediscover.
+                    // A sector seam is suppressed on the `selected` Cell, so
+                    // the Cursor's frame is never crossed by one. It is decided
+                    // here rather than left to the step that draws it: a rule
+                    // that survives only as a branch shape is a rule the next
+                    // reader has to rediscover.
                     //
                     // `sector_line` is pure, so the strength becomes a colour
                     // here, against `sector_seam` read from `theme` once
@@ -963,8 +959,7 @@ mod tests {
     /// seam was wanted would prove nothing.
     ///
     /// Everywhere else the colour is `sector_line`'s answer for the strength
-    /// Paint computed. `sector_line` is pure, so the derive resolves it here;
-    /// the stroke widths are geometry and are not in this layer.
+    /// Paint computed.
     ///
     #[tokio::test]
     async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
@@ -1338,7 +1333,7 @@ mod tests {
     /// rule stated only over the rejected pair cannot say that the operand
     /// beside it was left alone. The tint is read as one answer shared by the
     /// four Cells and distinct from `.+`'s own Function tint, rather than as
-    /// a colour restated from `style::source_paint_visuals`'s mix.
+    /// a colour restated from the Theme.
     ///
     /// The two Expressions sit two rows apart so that neither one's Output
     /// Portal Reservation — row 1 for the first, row 3 for the second, both
@@ -1560,8 +1555,8 @@ mod tests {
     /// tint.
     ///
     /// The five tints are finally required to be five colours. Four operand
-    /// arms that all answered one tint — the mix collapsing, or every Token
-    /// reaching the same colour — would satisfy every assertion above.
+    /// arms that all answered one tint — every Token reaching the same
+    /// colour — would satisfy every assertion above.
     ///
     #[tokio::test]
     async fn an_operand_cell_of_every_token_a_source_can_claim_is_tinted_with_its_own_colour() {

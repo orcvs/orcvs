@@ -18,7 +18,7 @@
 //! its own. That has no consequence — a Comment is never evaluated, and
 //! Source Paint colours the whole row as a Comment either way — provided the
 //! row holds nothing else: an Expression east of a header would fall inside
-//! that Comment and silently stop being parsed and run. All six headers
+//! that Comment and silently stop being parsed and run. All seven headers
 //! therefore sit on row 0, and every group's own examples start on row 1. A
 //! group that stacks a second header inside its own band follows the same
 //! rule: that header's row must hold no Expression east of it either.
@@ -128,12 +128,9 @@
 //! `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`
 //! reads the same `LanguageMap`, built directly from the checked-in text
 //! before any Tick runs, and asserts every Diagnostic's Span sits wholly
-//! inside a written result Cell: a value such as `03` sits at a row start
-//! with no Function before it, so the Parser's greedy two-Cell Function read
-//! refuses it a Cell at a time — a fact about the checked-in
-//! placeholder rather than about the example that computes it, and never a
-//! Tick-time Diagnostic. Every other Cell, operands and Source Function
-//! areas alike, is held to the same standard.
+//! inside a written result Cell or a named spatial literal Cell. Every other
+//! Cell, operands and Source Function areas alike, is held to the same
+//! standard.
 //!
 //! Ticking the reference once is not enough on its own to prove a result was
 //! actually written rather than merely agreeing with a checked-in
@@ -256,11 +253,7 @@ mod tests {
     /// Shared by [`ticking_the_reference_once_writes_every_result_row_exactly_as_written`],
     /// which proves these are actually written, and
     /// `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`,
-    /// which excludes them from the pre-Tick diagnostic sweep: a written
-    /// result such as `03` sits at a row start with no Function before it,
-    /// so the Parser's greedy two-Cell Function read refuses it and
-    /// diagnoses every one of its Cells, a fact about the checked-in
-    /// placeholder rather than about the example that computes it.
+    /// which excludes them from the pre-Tick diagnostic sweep.
     fn expected_results() -> Vec<ExpectedResult> {
         let result = |column, row, expected| ExpectedResult {
             column,
@@ -550,9 +543,9 @@ mod tests {
 
     /// The Tick group's own six dynamic result Cells (column 48), derived
     /// from [`expected_results`] rather than a second hand-kept coordinate
-    /// list: Clock, Delay, and Euclidean change with the absolute Tick,
-    /// Increment and Interpolation with their own previous value, so all six
-    /// change every Tick by that group's own design and are excluded from
+    /// list: Clock, Delay, Euclidean, and Random change with the absolute
+    /// Tick, Increment and Interpolation with their own previous value, so
+    /// all six can change on any Tick by that group's own design and are excluded from
     /// the "no Cell outside an area changes" sweep below for a reason that
     /// has nothing to do with Source Functions.
     fn tick_dynamic_result_areas() -> Vec<Area> {
@@ -783,11 +776,9 @@ mod tests {
 
     ///
     /// The MIDI group: five Terminal Output Functions (`!>`, `!~`, `!%`,
-    /// `!c`, `!b` — every Terminal Output Function the Function table
-    /// holds; `!$` Application Command is not among them, since ADR 0008
-    /// and ADR 0019 defer it until Orcvs has a command value encoding, so it
-    /// has no variant in `lang::Function` to give an example of), each
-    /// gated by its own Euclidean Bang source, `~%0104`.
+    /// `!c`, `!b` — every Terminal Output Function `lang::Function` has; the
+    /// module doc says why `!$` is not among them), each gated by its own
+    /// Euclidean Bang source, `~%0104`.
     ///
     /// Every Terminal Output Function "never writes a Cell result"
     /// (CONTEXT.md's Terminal Output Function entry), so no row is set aside
