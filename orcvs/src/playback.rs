@@ -2726,7 +2726,7 @@ mod tests {
         // It is the one way an executed run declines a deadline it reached —
         // the clock belongs to the task that owns this state and exists only
         // while a run does, so there is no stopped engine to hand a Tick to and
-        // no retired clock for one to arrive from.
+        // no clock outside a run for one to arrive from.
         let mut run = HandDrivenRun::new(
             SourceCommander::new(Grid::with_shape(10, 9)),
             InMemoryOutputAdapter::default(),

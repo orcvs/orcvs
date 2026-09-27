@@ -914,9 +914,8 @@ fn render_message(reason: RenderError) -> String {
 /// derives one from what a Function declares its answer to be, and a stated
 /// answer need not be what its producer's Function declares, so the width a
 /// stated Sequence answer reserves is stated beside the answer rather than
-/// derived from it. Two
-/// consequences of stating it are worth knowing, and both are refused loudly
-/// rather than discovered:
+/// derived from it. Two consequences of stating it are worth knowing, and both
+/// are refused loudly rather than discovered:
 ///
 /// - A stated width is not a declared one, so `Lookup::would_reserve` — which
 ///   re-derives a width for a hypothetical replacement Function — cannot agree

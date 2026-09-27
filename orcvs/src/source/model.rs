@@ -952,8 +952,8 @@ mod test {
         // is pinned. The first Playback Tick is absolute Tick `0`, and each
         // Tick after it is one on from the last. A helper that handed
         // interpretation the same Tick twice would describe a Playback run
-        // that cannot exist, and would silently stop a test that Ticks twice
-        // from exercising a second Tick once a Function reads the Tick.
+        // that cannot exist, and because Functions read the Tick, a test that
+        // Ticks twice would silently stop exercising its second Tick.
         let mut src = source();
 
         assert_eq!(src.tick(), Tick::ZERO, "a run begins at absolute Tick 0");
@@ -1689,10 +1689,9 @@ mod test {
         // beneath it takes no turn. The claim is arity, one derivation, so
         // every reading of this Cell agrees that it is a slot.
         //
-        // What is owed here is the diagnostic, not a different claim. ADR 0032
-        // requires a result covering an operand slot to be told apart from an
-        // activation *before* the Tick publishes, and reported either way;
-        // this Source is refused silently rather than loudly.
+        // The `**` it writes is characters in a Number operand, not a Bang, so
+        // the Source is not refused silently: the parse of the written Source
+        // reports that operand at the Play's anchor.
         let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
         let at = src.cells();
         src.write(at(6), ".=0101");
@@ -1715,6 +1714,13 @@ mod test {
             tick.play_commands.is_empty(),
             "the Bang was delivered as an activation from inside an operand slot: {:?}",
             tick.play_commands,
+        );
+        assert!(
+            src.language_map()
+                .diagnostics()
+                .any(|diagnostic| diagnostic.start() == 16
+                    && diagnostic.message.contains("expected a number")),
+            "the Bang in the operand slot was not reported",
         );
     }
 

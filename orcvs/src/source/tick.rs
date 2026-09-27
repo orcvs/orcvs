@@ -593,15 +593,13 @@ impl PortalRelationships<'_> {
     /// "The whole destination" is whichever Cells the caller stated, which for
     /// a [`Reserved::Row`] producer asked through [`Lookup::reserved_at`] is
     /// the rest of the row: such a producer touches an operand almost wherever
-    /// it points and so answers no Bang root at all. Nothing reaches that,
-    /// because Equality is the only Function that can emit Bang and it
-    /// answers one Atom whatever its operands carry, so every Bang producer is
-    /// reserved a Cell pair. The constraint becomes live the first time a
-    /// Function that answers or widens into a Sequence can also emit Bang, and
-    /// it is that Function's decision to make: alignment is a fact about a
-    /// Bang's own two Cells rather than about the Cells a wider answer might
-    /// have reached, so what the reservation should be asked here is settled
-    /// against that Function's tests rather than guessed at now.
+    /// it points and so answers no Bang root at all. Nothing reaches that:
+    /// every Function that can emit Bang declares an Atom answer, so it neither
+    /// answers nor widens into a Sequence and is reserved a Cell pair. Do not
+    /// let a Function that answers or widens into a Sequence emit Bang without
+    /// deciding what it asks here: alignment is a fact about a Bang's own two
+    /// Cells rather than about the Cells a wider answer might reach, so asking
+    /// with its whole reservation would silence every Bang it emits.
     ///
     /// The four anchors are one geometric fact and are stated as one. The west
     /// arm answers a root only for a Function that declares no operand: a root
