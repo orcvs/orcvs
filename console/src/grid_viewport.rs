@@ -129,7 +129,7 @@ impl GridViewport {
     /// the one drawn under it.
     ///
     pub(crate) fn cell_at(&self, point: Pos2, grid: Grid) -> Option<(usize, usize)> {
-        // Every Grid is 256 by 256 (ADR 0054), so an empty Grid is
+        // Every Grid is 256 by 256, so an empty Grid is
         // unrepresentable. Only a degenerate Cell size is refused here.
         if !(self.cell_size.is_finite() && self.cell_size > 0.0) {
             return None;
@@ -285,11 +285,11 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// physical pixels.
 ///
 /// **This is the one place the Source is scaled.** The console owns
-/// `to_global` — `egui::Scene` used to own it, and a Scene applies its scale to
-/// a whole layer of shapes after they are built. Here the scale reaches the
-/// Grid before a single Shape exists, so a Cell's two axes still cannot part
-/// company (one `scaling` serves both) and no galley is ever transformed after
-/// layout.
+/// `to_global`. Do not present the Source through `egui::Scene`: a Scene
+/// applies its scale to a whole layer of shapes after they are built. Here the
+/// scale reaches the Grid before a single Shape exists, so a Cell's two axes
+/// still cannot part company (one `scaling` serves both) and no galley is ever
+/// transformed after layout.
 ///
 /// # Why the Cell size is snapped
 ///
@@ -427,11 +427,11 @@ mod tests {
     /// that need an arbitrary non-degenerate viewport to drive `cell_rect`,
     /// `cell_at` and `visible_positions` through.
     ///
-    /// Test-only: no shipped code fits a viewport to an area any more — the
-    /// Source View pans and zooms instead of fitting, and `presented_grid` is
-    /// the one place a viewport comes from a transform the console owns. This
-    /// is that arithmetic rebuilt beside the tests that still need a viewport
-    /// with no transform to hand.
+    /// Test-only: no shipped code fits a viewport to an area — the Source View
+    /// pans and zooms instead of fitting, and `presented_grid` is the one place
+    /// a viewport comes from a transform the console owns. This is that
+    /// arithmetic beside the tests that need a viewport with no transform to
+    /// hand.
     ///
     fn square_cell_viewport(available: Rect, grid: Grid) -> GridViewport {
         let columns = grid.columns() as f32;
@@ -701,7 +701,7 @@ mod tests {
     ///
     /// A clip that shows no part of the Grid and a console with no area both
     /// range over nothing — which draws nothing rather than drawing a Position
-    /// that is not there. A Grid with no Cell is unrepresentable (ADR 0054).
+    /// that is not there. A Grid with no Cell is unrepresentable.
     ///
     #[test]
     fn a_console_showing_no_part_of_the_grid_ranges_over_nothing() {
@@ -906,7 +906,8 @@ mod tests {
     /// rectangle, and a negative one answers a Cell that `cell_rect` paints
     /// inverted while `cell_at` refuses every click. Every other degenerate
     /// input to this function is already refused; this is the same refusal
-    /// stated over the one input that was only checked for finiteness.
+    /// stated over the device scale, which finiteness alone does not make a
+    /// scale.
     ///
     #[test]
     fn a_device_scale_that_is_not_a_scale_presents_no_grid() {

@@ -3,12 +3,11 @@
 //! the Function table, one worked example each — the Expression, and on the
 //! row directly south the result one Tick writes there.
 //!
-//! `.scratch/function-reference/spec.md` states the intent; this module and
-//! `assets/function_reference.orcvs` are the one checked-in Source it comes
-//! from. The console opens on it whenever no stored Source is available (no
-//! `persistence` feature, no stored revision, or a stored revision this build
-//! refuses), and `Console`'s Help menu opens it, replacing the running
-//! Source.
+//! This module and `assets/function_reference.orcvs` are the one checked-in
+//! Source it comes from. The console opens on it whenever no stored Source
+//! is available (no `persistence` feature, no stored revision, or a stored
+//! revision this build refuses), and `Console`'s Help menu opens it,
+//! replacing the running Source.
 //!
 //! # Column layout
 //!
@@ -44,8 +43,8 @@
 //! result occupy.
 //!
 //! A Directional Bang Function's emission and a Self-Banging Function's own
-//! Span are not stable: ADR 0006 moves them one Cell per Tick until
-//! something stops them. Rather than an ordinary blocking Cell — which turns
+//! Span are not stable: they move one Cell per Tick until something stops
+//! them. Rather than an ordinary blocking Cell — which turns
 //! a stopped mover's Span into `**` for one Tick and then clears it to blank
 //! forever, exactly the vanishing this reference should not show while it
 //! plays — each mover that can be walled in comes to rest directly south of
@@ -82,9 +81,8 @@
 //!   operand always reaches into the same one or two Cells a second,
 //!   permanently active Bang source would need in order to keep the
 //!   mover's own Halt lit — every placement that avoids one collision runs
-//!   into the other. `*v`, `*<`, and `*>` therefore still emit into an
-//!   ordinary blocking Cell and clear the Tick after, the same as every
-//!   mover did before Halt walled the rest of them in.
+//!   into the other. `*v`, `*<`, and `*>` therefore emit into an ordinary
+//!   blocking Cell and clear the Tick after.
 //!
 //! # MIDI activation needs no area, only a Bang source
 //!
@@ -117,7 +115,7 @@
 //!
 //! `function_reference.orcvs` is a Source File (`orcvs::source::file`):
 //! trailing whitespace is trimmed, and every short line and every row past
-//! the last line reads as empty Cells of the one Grid (ADR 0054).
+//! the last line reads as empty Cells of the one Grid.
 //!
 //! # Completeness and diagnostic-cleanliness are proven, not asserted
 //!
@@ -132,17 +130,16 @@
 //! before any Tick runs, and asserts every Diagnostic's Span sits wholly
 //! inside a written result Cell: a value such as `03` sits at a row start
 //! with no Function before it, so the Parser's greedy two-Cell Function read
-//! refuses it a Cell at a time (ADR 0018) — a fact about the checked-in
+//! refuses it a Cell at a time — a fact about the checked-in
 //! placeholder rather than about the example that computes it, and never a
 //! Tick-time Diagnostic. Every other Cell, operands and Source Function
 //! areas alike, is held to the same standard.
 //!
 //! Ticking the reference once is not enough on its own to prove a result was
 //! actually written rather than merely agreeing with a checked-in
-//! placeholder that already held the right answer — a Concatenate example
-//! once survived exactly that way, its Turn silently withheld by a static
-//! parse fault the Tick Plan never diagnosed, until the diagnostic sweep
-//! above caught the fault that had been masking it.
+//! placeholder that already held the right answer: a static parse fault the
+//! Tick Plan never diagnoses can silently withhold an example's Turn while
+//! its placeholder still reads correctly.
 //! `ticking_the_reference_once_writes_every_result_row_exactly_as_written`
 //! therefore asserts a matching [`orcvs::source::CellWrite`] in the Tick
 //! Plan for every expected result, not only the settled Cell it reads back
@@ -162,7 +159,7 @@ pub(crate) fn function_reference() -> Source {
 
 ///
 /// Reads `text` as a Source File (`orcvs::source::file::read`) on the one
-/// Grid (ADR 0054).
+/// Grid.
 ///
 /// # Panics
 ///
@@ -261,8 +258,8 @@ mod tests {
     /// `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`,
     /// which excludes them from the pre-Tick diagnostic sweep: a written
     /// result such as `03` sits at a row start with no Function before it,
-    /// so the Parser's greedy two-Cell Function read refuses it (ADR 0018)
-    /// and diagnoses every one of its Cells, a fact about the checked-in
+    /// so the Parser's greedy two-Cell Function read refuses it and
+    /// diagnoses every one of its Cells, a fact about the checked-in
     /// placeholder rather than about the example that computes it.
     fn expected_results() -> Vec<ExpectedResult> {
         let result = |column, row, expected| ExpectedResult {
@@ -614,7 +611,7 @@ mod tests {
     /// Playing the reference is not a one-Tick affair for the Jump, Halt,
     /// Directional Bang, and Self-Banging examples: a Directional Bang's
     /// emission and a Self-Banging Function's own Span move every Tick until
-    /// something stops them, per ADR 0006. This ticks the reference five
+    /// something stops them. This ticks the reference five
     /// times — Ticks 0 through 4 — and asserts three things: no Cell outside
     /// an example's own area ever changes (excepting the Tick group's own
     /// dynamic result rows and the MIDI group's own Bang-display Cells,
@@ -894,12 +891,9 @@ mod tests {
     /// worked example fails this test instead of a checklist nobody
     /// remembered to update.
     ///
-    /// A Function's spelling is read through its existing
+    /// A Function's spelling is read through its public
     /// `impl std::fmt::Display for Function` (`f.write_str(self.spelling())`,
-    /// `lang/src/atom.rs`) rather than a new accessor: `Function::spelling`
-    /// is `pub(crate)` to `lang`, but `Function` and its `Display` impl are
-    /// already public, so nothing new is exposed to answer this — no
-    /// public-API risk.
+    /// `lang/src/atom.rs`): `Function::spelling` is `pub(crate)` to `lang`.
     ///
     #[test]
     fn every_function_in_the_table_has_a_worked_example() {
@@ -943,7 +937,7 @@ mod tests {
     ///
     /// A written result such as `02` sits at a row start with no Function
     /// before it, so the Parser's greedy two-Cell Function read refuses it
-    /// and advances one Cell at a time (ADR 0018), naming every one of its
+    /// and advances one Cell at a time, naming every one of its
     /// Cells "unknown function" or "invalid Language Unit character" — a
     /// fact about the checked-in placeholder, not about the example that
     /// computes it, and never a Tick-time Diagnostic:

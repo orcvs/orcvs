@@ -35,14 +35,13 @@ use egui::{FontId, text::Galley};
 ///
 /// Fifteen is the whole range, not a floor a large window can widen: Zoom is
 /// a stated step between [`MIN_ZOOM`](super::source_view::MIN_ZOOM) and [`MAX_ZOOM`](super::source_view::MAX_ZOOM), and no window size
-/// changes the Cell size. The atlas budget ADR 0038 and ADR 0040 state covers
-/// the whole range rather than its floor.
+/// changes the Cell size.
 ///
 /// The step costs a Glyph at most an eighth of the Source's Cell scale in size,
 /// taken downwards so a Glyph is never larger than its share of the Cell — see
-/// [`glyph_scale`], which states why the rounding goes that way. It is still
-/// strictly sharper than what it replaces: a Scene bilinearly resamples one
-/// rasterised size at *every* zoom.
+/// [`glyph_scale`], which states why the rounding goes that way. Do not draw
+/// one rasterised size and let a Scene bilinearly resample it instead: that
+/// blurs at *every* zoom, and the step is strictly sharper.
 ///
 pub(super) const GLYPH_SCALE_STEP: f32 = 0.125;
 

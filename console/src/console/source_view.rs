@@ -28,7 +28,7 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 
 ///
 /// The margin, in Cells, between the Grid and the console at rest and the
-/// distance a Pan can reach past each Grid edge (ADR 0047). It is counted in
+/// distance a Pan can reach past each Grid edge. It is counted in
 /// Cells so it scales with the Zoom, and it is measured in the snapped Cell
 /// side so it is always a whole number of physical pixels.
 ///
@@ -76,7 +76,7 @@ pub(super) fn source_bounds(grid: Grid) -> Rect {
 /// console Pans the least distance that brings the whole Cell back into view,
 /// still bounded by the Grid; a Pan on its own does not chase the Cursor.
 /// `previous_cursor` is what tells a Cursor move apart from a frame that
-/// merely redrew it — see `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
+/// merely redrew it.
 ///
 /// `to_global` is derived each frame from Zoom, Pan and the console's origin
 /// so `presented_grid` and the diagnostics still read one transform.
@@ -142,8 +142,7 @@ fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
 ///
 /// The Cursor's own Cell, reaching across the margin on each side where the
 /// Cursor is on the Grid's first or last Column or Row, so a follow to an edge
-/// shows the Grid's edge as an edge rather than flush against the console's
-/// (ADR 0047).
+/// shows the Grid's edge as an edge rather than flush against the console's.
 ///
 fn followed_cell(cursor: Position, grid: Grid, side: f32) -> Rect {
     let margin = SOURCE_MARGIN_CELLS * side;
@@ -301,20 +300,18 @@ pub(super) struct PresentedSource {
 /// scale is applied, so a Cell's two axes still cannot part company: one
 /// `scaling` serves both. Every Cell, and so every click that lands on one,
 /// goes through that one arithmetic. Nothing here sets a layer transform.
-/// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md` and
-/// `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
+/// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
 /// held with a primary drag, bounded by the Grid's edges plus a margin of
-/// [`SOURCE_MARGIN_CELLS`] (ADR 0047). Where the Grid and its margins leave
+/// [`SOURCE_MARGIN_CELLS`]. Where the Grid and its margins leave
 /// somewhere to Pan, the pointer shows a grab hand while Alt is held over the
 /// console outside a Region drag, and a grabbing hand during a drag Pan. A primary
 /// click selects a Cell — [`show_source`]'s own click-sensing rect answers it,
 /// with Shift extending the Region rather than collapsing it — and a primary
 /// drag without Alt selects a Region from the pressed Cell to the Cell nearest
 /// the pointer; neither Pans. A drag past the console's edge scrolls after the
-/// Cursor at the pointer's pace, at most one Cell a frame — see
-/// `docs/adr/0046-the-primary-drag-selects-a-region.md`. Pinch and command-wheel do not
+/// Cursor at the pointer's pace, at most one Cell a frame. Pinch and command-wheel do not
 /// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
 /// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
 /// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
@@ -513,8 +510,7 @@ pub(super) fn show_source_scene(
 ///
 /// `background` is the resolved Theme's live `grid_background`, not a
 /// constant: a loaded Theme has to repaint this panel on the very next frame
-/// for the Cell it stands in for to still agree with it
-/// (`.scratch/theming/issues/06`/`07`).
+/// for the Cell it stands in for to still agree with it.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so

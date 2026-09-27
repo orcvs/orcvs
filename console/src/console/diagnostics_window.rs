@@ -54,8 +54,7 @@ pub(super) fn show_diagnostics(
                     ui.monospace(format!("{cell_size:.1} pt"));
                     ui.end_row();
 
-                    // The console owns the transform, so the zoom is a field of
-                    // it rather than a ratio derived back out of a region.
+                    // The console owns the transform, so the zoom is a field of it.
                     ui.label("Source zoom");
                     ui.monospace(format!("{:.2}×", to_global.scaling));
                     ui.end_row();

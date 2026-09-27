@@ -92,9 +92,8 @@ impl SourceShapes {
     /// of, applied to the colours and characters it carries all of.
     ///
     /// Stroke widths are fixed display points that stay the same visible
-    /// thickness at every Grid zoom (`.scratch/theming/issues/06` slice C),
-    /// unlike the [`GridViewport::cell_scale`]-multiplied constants this
-    /// replaced: `sector.seam.width` from the resolved `theme`, and each
+    /// thickness at every Grid zoom, never multiplied by
+    /// [`GridViewport::cell_scale`]: `sector.seam.width` from the resolved `theme`, and each
     /// Cell's own border width already resolved onto it as `cell.
     /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
     /// either composited with Diagnostic/Output Portal, by fact priority).
@@ -132,10 +131,9 @@ impl SourceShapes {
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
     /// `theme.sector_seam_width` is read once, here, rather than once per
-    /// Cell inside the loop below — `.scratch/theming/issues/06`'s "resolve
-    /// widths once per frame" — and a width of exactly zero skips building
+    /// Cell inside the loop below, and a width of exactly zero skips building
     /// that Shape outright rather than emitting a zero-width one for the
-    /// painter to drop, per the same issue's "Width 0 hides the stroke." Each
+    /// painter to drop. Each
     /// Cell's own border width has no one frame-level constant to read here:
     /// `cell.border_width` already carries the fact-priority pick
     /// `crate::style::cell_visuals_with_cursor_colour` and
@@ -423,7 +421,7 @@ pub(super) fn show_source(
     // `Stroke` so colour and width cannot come from different answers:
     // `cursor.border.width` for the Cursor's own frame, `region.border.width`
     // for the lasso — a fixed display-point value `cursor_effect_shapes` never
-    // scales with Grid zoom (`.scratch/theming/issues/06` slice C).
+    // scales with Grid zoom.
     let frame_stroke = if paint.region_spans() {
         egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
     } else {
@@ -449,8 +447,7 @@ pub(super) fn show_source(
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
-    // per-Cell loop would take more locks than the Button field it replaces and
-    // turn this change into a regression.
+    // per-Cell loop would take one lock per Shape.
     painter.extend(shapes.into_shapes());
 
     // The click resolves by division through the viewport the Cells were

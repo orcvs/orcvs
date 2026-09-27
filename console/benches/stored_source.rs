@@ -1,7 +1,7 @@
 //! Benchmarks for the stored value: the whole Source eframe storage holds
 //! under `orcvs_source`, written by every autosave and read back at start.
 //!
-//! The stored value carries every Cell of the 256 by 256 Grid (ADR 0054).
+//! The stored value carries every Cell of the 256 by 256 Grid.
 //! These measure `eframe::set_value` and `eframe::get_value` over an
 //! in-memory storage, so the number is the encoding and the decode —
 //! including the Language Map a restore derives — rather than a disk.

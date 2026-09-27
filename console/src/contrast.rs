@@ -2,14 +2,12 @@
 //! Validates a resolved Theme's *composited* text contrast: the effective
 //! foreground and background each reachable painted text state actually
 //! displays, not raw Theme colour pairs read in isolation.
-//! `.scratch/theming/issues/08`.
 //!
 //! [`painted`] calls [`crate::style::cell_visuals_with_cursor_colour`] and
 //! [`crate::style::cell_background`] — the same functions
 //! [`crate::paint::Paint::derive_with_theme`] calls per Cell — for every
 //! Source Grid colour operation, so the two cannot independently drift.
-//! [`chrome`] does the same for the console's chrome
-//! (`.scratch/theming/issues/11`): it reads every colour out of
+//! [`chrome`] does the same for the console's chrome: it reads every colour out of
 //! [`crate::style::style`], the `Style` [`crate::style::install`] registers,
 //! through the egui accessors the widgets themselves paint from —
 //! [`egui::Style::button_style`] among them — and composites each fill over
@@ -491,13 +489,12 @@ pub(crate) struct ContrastResult {
     /// window backdrop.
     pub(crate) background: Color32,
     pub(crate) ratio: f32,
-    /// Whether `.scratch/theming/issues/08`'s comments record this exact
-    /// `(role, state, foreground, background)` as an explicitly accepted
-    /// exception. Never turns [`Self::passes`] into `true`: acceptance
-    /// annotates a failure, it does not hide or pass it. Keyed on the
-    /// measured colour pair as well as role/state, so a retune that changes
-    /// `foreground`/`background` while keeping the same role/state label
-    /// does not stay silently accepted.
+    /// Whether this exact `(role, state, foreground, background)` is recorded
+    /// as an explicitly accepted exception. Never turns [`Self::passes`] into
+    /// `true`: acceptance annotates a failure, it does not hide or pass it.
+    /// Keyed on the measured colour pair as well as role/state, so a retune
+    /// that changes `foreground`/`background` while keeping the same
+    /// role/state label does not stay silently accepted.
     pub(crate) accepted: bool,
 }
 
@@ -552,8 +549,8 @@ text instead).";
 /// reported exactly like one that passes, because the floor is a fact about
 /// the scheme worth seeing rather than a gate a Theme must clear before it
 /// loads. `crate::theme_registry` shows the states below the floor as a
-/// Theme notice when a custom Theme loads (`.scratch/theming/issues/07`); a
-/// failing one loads anyway, because the viewer chose it.
+/// Theme notice when a custom Theme loads; a failing one loads anyway,
+/// because the viewer chose it.
 ///
 pub(crate) fn validate(theme: &Theme) -> ContrastReport {
     let mut results = Vec::with_capacity(
@@ -650,9 +647,8 @@ fn contrast(foreground: Color32, background: Color32) -> f32 {
 }
 
 ///
-/// One below-floor `(role, state)` result `.scratch/theming/issues/08`'s
-/// comments record as explicitly accepted for a shipped Theme, at the exact
-/// colour pair it was accepted at.
+/// One below-floor `(role, state)` result recorded as explicitly accepted
+/// for a shipped Theme, at the exact colour pair it was accepted at.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct AcceptedFailure {
@@ -674,20 +670,11 @@ impl AcceptedFailure {
 ///
 /// The accepted exceptions for a shipped Theme, keyed by identity.
 ///
-/// Okabe–Ito's list is empty. Its only candidate was Sequence: before
-/// Pending roles were dropped, `Sequence, Pending`'s `Cursor`/`Region,
-/// Cursor's Cell` states measured `#0072B2` against the bare Grid
-/// background, `#000000`, and `.scratch/theming/issues/08`'s acceptance
-/// line named exactly that pair as an accepted exception. Dropping Pending
-/// removes that role from the report entirely — it has no foreground to
-/// measure — and Sequence's one remaining role, `Sequence, Invalid`, passes
-/// the floor on its own (Diagnostic's foreground replaces Sequence's outright
-/// once it is Invalid), so Sequence has no reachable failing state left to
-/// except. This is recorded as "no reachable painted failure," not as the
-/// exception having been withdrawn.
-///
-/// `#0072B2` and the 4.5:1 floor are unchanged; nothing here retunes a
-/// colour or lowers the floor to reach this empty list.
+/// Okabe–Ito's list is empty: it has no reachable painted failure. A
+/// Pending role draws no glyph, so it has no foreground to measure, and
+/// Sequence's one role, `Sequence, Invalid`, passes the floor on its own
+/// (Diagnostic's foreground replaces Sequence's outright once it is
+/// Invalid).
 ///
 /// Called from [`measure`], which every [`validate`] result passes through —
 /// not test-only: `theme_registry` validates every Theme file it loads.
@@ -700,10 +687,8 @@ impl AcceptedFailure {
 fn accepted_failures(identity: &ThemeIdentity) -> &'static [AcceptedFailure] {
     match identity {
         id if *id == OKABE_ITO_IDENTITY => &[],
-        // Orcvs Light's list is empty for the same reason, and for a
-        // stronger one: `.scratch/theming/issues/04` tuned the light
-        // definition against this validator until every reachable state
-        // cleared the floor, so it ships with no exception to record.
+        // Orcvs Light's list is empty too: every reachable state clears the
+        // floor, so it has no exception to record.
         // `console/src/theme.md` states the measured figures.
         id if *id == ORCVS_LIGHT_IDENTITY => &[],
         _ => &[],
@@ -734,7 +719,7 @@ mod tests {
     }
 
     /// The below-floor results of `report` that are not accepted exceptions
-    /// — `.scratch/theming/issues/08`'s shipped-Theme gate. A plain filter
+    /// — the shipped-Theme gate's comparison. A plain filter
     /// over `report.results` rather than a separately parameterized
     /// function: acceptance is already baked into each `ContrastResult` by
     /// `validate`, so there is nothing left for a test-only helper to do but
@@ -801,8 +786,8 @@ mod tests {
             "the report must carry its own scope, not only rustdoc: {:?}",
             report.scope
         );
-        // `.scratch/theming/issues/11`: every chrome case left out is named
-        // in the returned scope, not only in rustdoc.
+        // Every chrome case left out is named in the returned scope, not only
+        // in rustdoc.
         for excluded in [
             "disabled widgets",
             "code.background",
@@ -882,12 +867,12 @@ mod tests {
         );
     }
 
-    // === Chrome states beyond text/text.muted on panel and input
-    // (`.scratch/theming/issues/11`) ===
+    // === Chrome states beyond text/text.muted on panel and input ===
 
     /// Asserts `result` measures `foreground` against itself — 1:1 — and so
-    /// fails, and that every state the pre-`11` report already measured
-    /// still passes, so the failure is one only the added state can see.
+    /// fails, and that every Source Grid state and `text`/`text.muted` on
+    /// panel and input still passes, so the failure is one only the chrome
+    /// state under test can see.
     fn fails_only_in_an_added_state(report: &ContrastReport, result: &ContrastResult) {
         assert!(
             !result.passes() && (result.ratio - 1.0).abs() < 0.01,
@@ -919,7 +904,7 @@ mod tests {
     /// `text.active` set to `selection.background` is unreadable on every
     /// hovered or active button — egui paints both from
     /// `selection.background` — while `text` and `text.muted` on panel and
-    /// input, the only chrome the old report measured, stay untouched.
+    /// input stay untouched.
     ///
     #[test]
     fn text_active_matching_the_hovered_and_active_fill_fails_only_there() {
@@ -1282,13 +1267,11 @@ mod tests {
     ///
     /// Region fallback only reaches a fact whose own background is fully
     /// transparent (alpha `0`): `Number, Invalid`'s background
-    /// (`source.number.background`) is nonzero-alpha — translucent since
-    /// the user's 2026-09-22 retune, not the opaque value it was before,
-    /// but nonzero either way — so its `Region` state equals its `plain`
-    /// state exactly, while `Comment`'s fully transparent background lets
-    /// the Region tint show once `region.background` is not itself
-    /// transparent. The rule is about zero versus nonzero alpha, not
-    /// opaque versus translucent.
+    /// (`source.number.background`) is translucent but nonzero-alpha, so its
+    /// `Region` state equals its `plain` state exactly, while `Comment`'s
+    /// fully transparent background lets the Region tint show once
+    /// `region.background` is not itself transparent. The rule is about zero
+    /// versus nonzero alpha, not opaque versus translucent.
     ///
     #[test]
     fn region_fallback_only_reaches_a_fully_transparent_role_background() {
@@ -1348,10 +1331,10 @@ mod tests {
     /// — `style::cell_visuals_with_cursor_colour`'s own "The Cursor's own
     /// fill wins outright on its Cell" — regardless of whether that role
     /// background was opaque. Every one of Okabe–Ito's own role backgrounds
-    /// is translucent since the user's 2026-09-22 retune to a uniform 10%
-    /// tint opacity, so this fixture sets `source_number_background`
-    /// explicitly opaque to exercise the claim the test's name makes,
-    /// rather than relying on a shipped Theme to happen to have one.
+    /// is a translucent 10% tint, so this fixture sets
+    /// `source_number_background` explicitly opaque to exercise the claim the
+    /// test's name makes, rather than relying on a shipped Theme to happen to
+    /// have one.
     ///
     #[test]
     fn cursors_own_fill_replaces_even_an_opaque_role_background() {
@@ -1467,16 +1450,14 @@ mod tests {
         );
     }
 
-    // === Sequence has no reachable failing state left to except ===
+    // === Sequence has no reachable failing state to except ===
 
     ///
-    /// Dropping Pending removes `Sequence, Pending` from the report
-    /// entirely (`Role` has no such variant any more), and `Sequence,
-    /// Invalid` — the only Sequence role left — passes the floor on its own:
+    /// `Role` has no Pending variant, and `Sequence, Invalid` — the only
+    /// Sequence role — passes the floor on its own:
     /// `diagnostic.foreground` replaces Sequence's own colour outright once
     /// it is Invalid. Okabe–Ito's accepted-exception list is therefore
-    /// empty, which this test pins as "no reachable painted failure,"
-    /// distinct from an exception having been withdrawn.
+    /// empty, which this test pins as "no reachable painted failure".
     ///
     #[test]
     fn sequence_has_no_reachable_failing_state() {
@@ -1511,10 +1492,8 @@ mod tests {
 
     ///
     /// Orcvs Light's accepted-exception list is empty for the stronger of
-    /// the two possible reasons: nothing fails, because
-    /// `.scratch/theming/issues/04` tuned the definition against this
-    /// validator until nothing did. This pins that premise separately from
-    /// `shipped_theme_gate`, which would also pass on a list full of
+    /// the two possible reasons: nothing fails. This pins that premise
+    /// separately from `shipped_theme_gate`, which would also pass on a list full of
     /// exceptions.
     ///
     #[test]
@@ -1541,23 +1520,19 @@ mod tests {
     ///
     /// Every below-floor state of every shipped Theme must be an accepted
     /// exception, or this test fails and lists them — a real gate, not
-    /// `#[ignore]`d: the user's 2026-09-22 retune of every tinted role
-    /// background to a uniform 10% opacity (expressed as that role's own
-    /// foreground colour at alpha `0x1A`, replacing the previous
-    /// precomputed opaque tints) raised every measured ratio at or above
-    /// the 4.5:1 floor, confirmed through this real shipped composition —
-    /// `console/src/theme.md` records the exact figures. There is
-    /// therefore nothing left to except: `accepted_failures` for
-    /// `okabe-ito` is empty, and this test's own run is what proves that
+    /// `#[ignore]`d. Every tinted role background is a uniform 10% opacity
+    /// (that role's own foreground colour at alpha `0x1A`), and every
+    /// measured ratio is at or above the 4.5:1 floor through this real
+    /// shipped composition — `console/src/theme.md` records the exact
+    /// figures. There is therefore nothing to except: `accepted_failures`
+    /// for `okabe-ito` is empty, and this test's own run is what proves that
     /// emptiness is correct rather than merely convenient.
     ///
-    /// `orcvs_light()` joins it under `.scratch/theming/issues/04`, and
-    /// clears the floor in every reachable state for the same reason rather
-    /// than by exception: its colours were tuned against this validator
-    /// until they did. `shipped` is a hand-kept array rather than the
-    /// Theme registry's built-ins, which `.scratch/theming/issues/07` added
-    /// privately to `crate::theme_registry` — a known weakness recorded in
-    /// `.scratch/theming/issues/08`'s comments.
+    /// `orcvs_light()` clears the floor in every reachable state the same
+    /// way rather than by exception. `shipped` is a hand-kept array rather
+    /// than the Theme registry's built-ins, which are private to
+    /// `crate::theme_registry`: a built-in added there is not gated until it
+    /// is added here too.
     ///
     #[test]
     fn shipped_theme_gate() {

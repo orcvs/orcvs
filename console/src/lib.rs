@@ -3,9 +3,9 @@
 // The settings `~/.orcvs/config.toml` holds, read once at native startup.
 mod config;
 pub mod console;
-// Validates a resolved Theme's composited text contrast
-// (`.scratch/theming/issues/08`), reusing `style`'s own composition
-// functions so painting and validation cannot independently drift.
+// Validates a resolved Theme's composited text contrast, reusing `style`'s
+// own composition functions so painting and validation cannot independently
+// drift.
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
     expect(
@@ -31,16 +31,14 @@ mod report;
 #[cfg(not(target_arch = "wasm32"))]
 mod source_file;
 pub mod style;
-// The resolved Theme model and pure inheritance resolver
-// (`.scratch/theming/issues/06`). Slice B wires Source painting and Cursor
-// effects to read it; slice C adds the fixed display-point stroke widths.
+// The resolved Theme model and pure inheritance resolver.
 // `pub` and `doc(hidden)` for the same reason `cursor_effects` is:
 // `console/benches/paint.rs` is a separate crate and needs `Theme`/
 // `okabe_ito` to build a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
 // Decodes a TOML Theme document's bytes into the unresolved
-// document `theme::resolve` takes (`.scratch/theming/issues/07`). Pure:
+// document `theme::resolve` takes. Pure:
 // `theme_registry`'s native discovery owns the I/O.
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
@@ -51,10 +49,9 @@ pub mod theme;
 )]
 mod theme_document;
 // The Themes a console can select — built-ins, loaded Theme documents and
-// their load failures — with native discovery (`.scratch/theming/issues/07`).
+// their load failures — with native discovery.
 mod theme_registry;
-// The dark and light Theme selections and the Theme each presents
-// (`.scratch/theming/issues/04`).
+// The dark and light Theme selections and the Theme each presents.
 mod theme_selection;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;

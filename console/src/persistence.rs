@@ -18,16 +18,15 @@ use orcvs::source::Source;
 /// The Storage key one stored Source revision lives under.
 ///
 /// Deliberately not `eframe::APP_KEY`: that key names the whole App value, and
-/// `source-playback-engine/18` settled that the Console is a runtime
-/// coordinator rather than a serializable application value. This key stores
-/// only the Source payload.
+/// the Console is a runtime coordinator rather than a serializable application
+/// value. This key stores only the Source payload.
 ///
 #[cfg(feature = "persistence")]
 pub const SOURCE_KEY: &str = "orcvs_source";
 
 ///
 /// The Source a console starts from when it restores nothing, and the one
-/// `File → New` opens: the one Grid, empty (ADR 0054).
+/// `File → New` opens: the one Grid, empty.
 ///
 pub(crate) fn default_source() -> Source {
     Source::new(Grid::new())
@@ -51,7 +50,7 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source 
 /// eframe answers `None` both for an absent key and for a value that does not
 /// decode, so the key is read before it is decoded: holding nothing is an
 /// ordinary first start, and holding a value that does not decode — a Grid
-/// shape other than the one (ADR 0054), or a Cell count or character the
+/// shape other than the one, or a Cell count or character the
 /// Source refuses — is reported. Either way the console starts an empty
 /// Source rather than a partly restored one, and its next save overwrites
 /// [`SOURCE_KEY`].
@@ -383,7 +382,7 @@ mod stored_source_tests {
 
         // Three ways a stored value goes bad: bytes that are not the stored
         // encoding, Cells that do not match the Grid beside them, and a Grid
-        // of another shape (ADR 0054).
+        // of another shape.
         //
         // What refuses the second is `Source`'s own `Deserialize`, and
         // `orcvs/src/source/model.rs` already covers that validation directly.

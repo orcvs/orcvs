@@ -440,7 +440,7 @@ impl Role {
     ///
     /// A fact channel whose foreground is exactly transparent paints nothing
     /// over the glyph — `style::blend_channel` leaves the Token's colour
-    /// showing, which is ADR 0053's way to carry a fact on the background
+    /// showing, which is how a Theme carries a fact on the background
     /// alone — so the glyph is measured as the channel it reveals. An
     /// Invalid Sequence then reveals `source.sequence`, which is not a
     /// [`GlyphChannel`], and is left out. An Invalid Atom reveals
