@@ -66,7 +66,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 | Done | PR | Scope | Issues | Sequencing and completion focus |
 |---|---|---|---|---|
-| [ ] | 20 | Reconcile comments with the finished implementation | [#15](issues/15-trim-lang-comments-to-their-durable-why.md), [#16](issues/16-trim-orcvs-comments-to-their-durable-why.md), [#17](issues/17-trim-console-comments-to-their-durable-why.md) | After each affected crate’s implementations and comment prerequisites. Permit separate crate PRs; include the delivered mailbox/fairness code and use caller needs, not function length, to size comments. |
+| [ ] | 20 | Reconcile comments with the finished implementation | [#15](issues/15-trim-lang-comments-to-their-durable-why.md), [#16](issues/16-trim-orcvs-comments-to-their-durable-why.md), [#17](issues/17-trim-console-comments-to-their-durable-why.md) | After each affected crate’s implementations and comment prerequisites. Permit separate crate PRs; include the delivered mailbox/fairness code and use caller needs, not function length, to size comments. The `lang` portion ([#15](issues/15-trim-lang-comments-to-their-durable-why.md)) is delivered by [#168](https://github.com/orcvs/orcvs/pull/168); `orcvs` and `console` remain. |
 
 ## Sequencing
 
