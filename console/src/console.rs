@@ -146,8 +146,6 @@ pub struct Console {
     /// settings. The Effect's colours are on the resolved Theme instead.
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
-    #[cfg(feature = "persistence")]
-    persistence: crate::persistence::Persistence,
     /// The question asked before discarding the Source, while it is showing.
     /// It holds the keys, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
@@ -205,7 +203,7 @@ impl Console {
         config: Config,
     ) -> Result<Self, PlaybackStartError> {
         // The stored Source revision, or an empty Source when storage holds none.
-        let start = starting_source(cc.storage);
+        let source = starting_source(cc.storage);
 
         // What the settings file could not supply reaches the viewer through
         // the Theme notice channel, as a Theme file's problem does.
@@ -265,7 +263,7 @@ impl Console {
         let source_file = crate::source_file::OpenSourceFile::untitled(
             crate::persistence::default_source().snapshot(),
         );
-        let (orcvs, midi) = environment(&cc.egui_ctx, start.source)?;
+        let (orcvs, midi) = environment(&cc.egui_ctx, source)?;
         Ok(Self {
             orcvs,
             midi,
@@ -283,8 +281,6 @@ impl Console {
             reduced_motion: prefers_reduced_motion(),
             cursor_effects: config.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
-            #[cfg(feature = "persistence")]
-            persistence: start.persistence,
             discard_confirmation: None,
             #[cfg(not(target_arch = "wasm32"))]
             source_file,
@@ -340,7 +336,7 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence.save(storage, self.orcvs.source());
+        crate::persistence::save(storage, self.orcvs.source());
     }
 
     ///

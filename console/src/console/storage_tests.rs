@@ -11,9 +11,7 @@ use orcvs::source::SourceCommander;
 
 use super::Console;
 use super::tests::{assert_chrome, start_console};
-use crate::persistence::{
-    InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source, store,
-};
+use crate::persistence::{InMemoryStorage, SOURCE_KEY, edited_source, save, starting_source};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::persistence::{IsolatedRonDir, RonFileStorage};
 use crate::theme::ThemeIdentity;
@@ -21,22 +19,6 @@ use crate::theme::{Appearance, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_registry::tests_support::{id, my_dark, with_my_themes};
 use crate::theme_selection::ThemeSelection;
-
-///
-/// Storage holding a value no build can read back, and that value, so a
-/// test can assert on the thing that was refused.
-///
-fn storage_holding_a_refused_value() -> (InMemoryStorage, String) {
-    let mut written = InMemoryStorage::default();
-    store(&mut written, &edited_source());
-    let refused = eframe::Storage::get_string(&written, SOURCE_KEY)
-        .expect("the save call stored the revision")
-        .replace("rows:256", "rows:255");
-
-    let mut storage = InMemoryStorage::default();
-    eframe::Storage::set_string(&mut storage, SOURCE_KEY, refused.clone());
-    (storage, refused)
-}
 
 ///
 /// A Console started the way eframe starts it, over `storage`.
@@ -56,74 +38,41 @@ fn console_over(storage: &dyn eframe::Storage) -> Console {
 }
 
 ///
-/// A refused value is Cells a viewer may still recover by hand, and the
-/// console's own save is what would otherwise destroy them: eframe calls it
-/// every thirty seconds and it writes the key the refused value sits under.
+/// A stored value that does not decode is discarded: the running Console
+/// starts the empty Grid, and its own save writes that Grid over the value.
 ///
 #[tokio::test]
-async fn a_refused_value_is_preserved_before_the_next_save_overwrites_it() {
-    let (mut storage, refused) = storage_holding_a_refused_value();
+async fn an_undecodable_value_is_discarded_and_overwritten_by_the_next_save() {
+    let mut written = InMemoryStorage::default();
+    save(&mut written, &edited_source());
+    let undecodable = eframe::Storage::get_string(&written, SOURCE_KEY)
+        .expect("the save call stored the revision")
+        .replace("rows:256", "rows:255");
+    let mut storage = InMemoryStorage::default();
+    eframe::Storage::set_string(&mut storage, SOURCE_KEY, undecodable.clone());
 
     let mut console = console_over(&storage);
-    console.save(&mut storage);
-
     assert_eq!(
-        eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
-        Some(refused.as_str()),
-        "the refused value was not preserved"
-    );
-    // The save still happened: a console that stopped saving after a
-    // refusal would lose the session that followed it instead.
-    assert!(
-        eframe::Storage::get_string(&storage, SOURCE_KEY).is_some(),
-        "the console stopped saving after a refusal"
-    );
-}
-
-///
-/// A viewer looking at a Grid that is not theirs is told so by the running
-/// Console, and stays told after the save that moves the refused value
-/// aside. `persistence.rs` proves the obligations end independently; this
-/// proves the Console is wired to them at all, which is the one thing an
-/// interface-level test cannot see.
-///
-#[tokio::test]
-async fn a_refused_start_raises_a_console_notice_that_outlives_the_save() {
-    let (mut storage, _) = storage_holding_a_refused_value();
-
-    let mut console = console_over(&storage);
-    assert!(
-        console.persistence.notice_visible(),
-        "a refused start told the viewer nothing"
+        console.orcvs.source().snapshot(),
+        crate::persistence::default_source().snapshot(),
+        "an undecodable value did not start the empty Grid"
     );
 
     console.save(&mut storage);
 
-    assert!(
-        console.persistence.notice_visible(),
-        "the notice went with the value the save moved aside"
+    let saved = eframe::Storage::get_string(&storage, SOURCE_KEY).expect("the console saved");
+    assert_ne!(saved, undecodable, "the save left the undecodable value");
+    assert_eq!(
+        starting_source(Some(&storage)).snapshot(),
+        crate::persistence::default_source().snapshot()
     );
-}
-
-///
-/// A start with nothing wrong raises nothing. A notice a viewer sees on an
-/// ordinary start is a notice they learn to ignore.
-///
-#[tokio::test]
-async fn an_absent_or_restored_start_raises_no_console_notice() {
-    let mut restored = InMemoryStorage::default();
-    store(&mut restored, &edited_source());
-
-    for storage in [InMemoryStorage::default(), restored] {
-        assert!(!console_over(&storage).persistence.notice_visible());
-    }
 }
 
 #[tokio::test]
 async fn a_console_starts_the_revision_its_creation_storage_holds() {
     let saved = edited_source();
     let mut storage = InMemoryStorage::default();
-    store(&mut storage, &saved);
+    save(&mut storage, &saved);
 
     let console = console_over(&storage);
 
@@ -246,7 +195,7 @@ async fn the_retired_settings_keys_are_neither_read_nor_written() {
 #[tokio::test]
 async fn loading_the_function_reference_replaces_the_source_and_its_grid() {
     let mut storage = InMemoryStorage::default();
-    store(&mut storage, &edited_source());
+    save(&mut storage, &edited_source());
     let mut console = console_over(&storage);
     assert_eq!(
         console.orcvs.source().snapshot(),
@@ -276,7 +225,7 @@ async fn loading_the_function_reference_replaces_the_source_and_its_grid() {
     let mut saved = InMemoryStorage::default();
     console.save(&mut saved);
     assert_eq!(
-        starting_source(Some(&saved)).source.snapshot(),
+        starting_source(Some(&saved)).snapshot(),
         reference.snapshot(),
         "the loaded reference was not saved like any other Source"
     );
@@ -285,7 +234,7 @@ async fn loading_the_function_reference_replaces_the_source_and_its_grid() {
 #[tokio::test]
 async fn the_console_save_call_stores_the_current_revision() {
     let mut restored_from = InMemoryStorage::default();
-    store(&mut restored_from, &edited_source());
+    save(&mut restored_from, &edited_source());
     let mut console = console_over(&restored_from);
     let mut storage = InMemoryStorage::default();
 
@@ -293,7 +242,7 @@ async fn the_console_save_call_stores_the_current_revision() {
 
     // A Console that never saves leaves storage empty, and the start that
     // reads it opens an empty Grid instead of this revision.
-    let next_start = SourceCommander::with_source(starting_source(Some(&storage)).source);
+    let next_start = SourceCommander::with_source(starting_source(Some(&storage)));
     assert_eq!(
         next_start.snapshot(),
         edited_source().snapshot(),
@@ -317,7 +266,7 @@ async fn a_console_save_restarts_from_the_native_ron_file() {
         // session is primed. The write under test is `App::save` into the
         // RON file, then `flush`, which is what eframe does after save.
         let mut primed = InMemoryStorage::default();
-        store(&mut primed, &saved);
+        save(&mut primed, &saved);
         let mut console = console_over(&primed);
         let mut file = RonFileStorage::create(dir.path());
         console.save(&mut file);
@@ -325,7 +274,7 @@ async fn a_console_save_restarts_from_the_native_ron_file() {
     }
 
     let storage = RonFileStorage::from_file(dir.path());
-    let restored = starting_source(Some(&storage)).source;
+    let restored = starting_source(Some(&storage));
     assert_eq!(restored.snapshot(), saved.snapshot());
     assert_eq!(restored.grid().count(), 256 * 256);
     assert!(restored.grid().position(255, 255).is_some());
