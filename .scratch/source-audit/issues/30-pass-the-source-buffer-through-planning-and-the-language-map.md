@@ -4,16 +4,24 @@
 
 **Blocked by:** 08.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Tick planning, Language Map build and rebuild, and Claim lookup take the `SourceBuffer`'s borrowed view rather than `&[u8]`.
-- [ ] The view answers a row or span as `&str` through a single checked-conversion site — either `SourceBuffer::as_str` reused once per plan, or one view method — chosen by criterion 4's benchmarks; the `from_utf8(...).expect` sites in the Language Map and Tick execution are gone. No `unsafe` is introduced to provide the view.
-- [ ] Execution's working copy of the Cells has the same invariant-carrying type, and its writes take a `CellContent`.
-- [ ] 28's Tick series and the Language Map derive and rebuild benchmarks show no regression beyond noise, or the ticket records the measured cost.
-- [ ] If the type now appears in signatures outside the Source module's storage, reconsider whether it needs a `CONTEXT.md` entry. The Source glossary entry avoids "buffer", so any entry must not present the Source itself as a buffer.
+- [x] Tick planning, Language Map build and rebuild, and Claim lookup take the `SourceBuffer`'s borrowed view rather than `&[u8]`.
+- [x] The view answers a row or span as `&str` through a single checked-conversion site — either `SourceBuffer::as_str` reused once per plan, or one view method — chosen by criterion 4's benchmarks; the `from_utf8(...).expect` sites in the Language Map and Tick execution are gone. No `unsafe` is introduced to provide the view. Met with one view method, `Cells::as_str`, chosen over the once-per-plan alternative by a head-to-head benchmark; see the resolution comment.
+- [x] Execution's working copy of the Cells has the same invariant-carrying type, and its writes take a `CellContent`.
+- [x] 28's Tick series and the Language Map derive and rebuild benchmarks show no regression beyond noise, or the ticket records the measured cost.
+- [x] If the type now appears in signatures outside the Source module's storage, reconsider whether it needs a `CONTEXT.md` entry. The Source glossary entry avoids "buffer", so any entry must not present the Source itself as a buffer.
 
 ## Comments
 
 **2026-09-26 — origin.** Deferred from 08's design so the storage change's benchmarks attribute to storage alone.
 
 **2026-09-26 — review of orcvs/orcvs#161.** Criterion 2's "one checked conversion" means one site in the code, not one call: reusing `as_str` validates the whole Grid once per plan however little planning reads, while a view method checks only the text read, as the four sites do now. The benchmarks in criterion 4 choose. `file::write`'s per-row check is split to 31.
+
+**2026-09-27 — resolved in [#166](https://github.com/orcvs/orcvs/pull/166)** (after #165). The view is `Cells<'_>` in `orcvs/src/source/buffer.rs`, private to the source module and made only from a `SourceBuffer`, from execution's working copy, or from bytes `Cells::checked` tested. `tick::plan`, `execution::execute`, `LanguageMap::build`/`rebuild`, `claims_by_cell`, the row walk, `Portal::occupied_in`/`language_unit`, `Claim::from_entry` and `name_units` take it in place of `&[u8]`, so nothing inside the source module unwraps it to bytes to pass the Cells on. `claims_by_cell` narrows from `pub(crate)` to the source module, its only caller. The four `from_utf8(...).expect` sites are gone. `Cells::as_str` is the single checked-conversion site and checks only the row or span read, where the old checks ran. Execution's working copy is `WorkingCells`, still a `Vec<u8>`; `write` takes a `CellIndex` and a `CellContent`.
+
+Criterion 2's choice. The two options compete only in the Language Map. Tick planning has no checked-conversion site: `tick::plan` reads the Language Map, never the Cells as text. Execution's three reads are of `WorkingCells`, which the Tick writes as it runs, so a `&str` taken from the `SourceBuffer` at plan time is stale after the first write and cannot serve them without a re-check or `unsafe`. For `LanguageMap::build` and `rebuild`, a throwaway safe variant checked the whole Grid once with `as_str` and sliced each walked row from that text; the tests passed unchanged on it. Four alternating rounds per variant with `mise run bench`'s criterion flags, on an Apple M-series machine at 1-minute load 3.8–7.1, min-to-min once-checked/per-row: `source_whole_grid/language_map_derive` 1.010 and `source_file/read/256x256` 1.014, inside the 2.5–3.3% round-to-round spread; `source_whole_grid/edit_rebuild_valid` 1.196 (9,846 ns per-row, 11,778 ns once-checked), with every once-checked round slower than every per-row round; `source_edit_rebuild_valid/64x64` 1.046 and `_invalid/64x64` 1.021, shrinking into noise at 16x16 and 32x32. The whole-Grid check costs nothing measurable beside a full build's parse, and on a rebuild it re-checks every Cell where the view method checks only the dirty rows, a cost that grows with the Grid. The view method was kept.
+
+Criterion 4, min-to-min after/before over 3 alternating rounds at `mise run bench`'s budget, on an Apple M-series machine under load 9–10, which widens what "noise" can claim: `source_execute_tick*` and `source_commander_execute_tick*` 0.98–1.03 at every size; `source_edit_rebuild_valid`/`_invalid` and `source_whole_grid/edit_rebuild_valid` 1.00–1.02; `source_whole_grid/language_map_derive` 1.00; `source_render_frame*` 0.99–1.01. CI's Benchmark comparison on #166 is the authority. One settled Tick on the shipped Grid allocates 33,549 blocks / 10,118,936 bytes before and after, on both paths.
+
+Criterion 5: no `CONTEXT.md` entry. `Cells` names the existing glossary term and never leaves `crate::source`; no public or `pub(crate)` signature names it.
