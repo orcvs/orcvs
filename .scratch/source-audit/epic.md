@@ -60,7 +60,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 |---|---|---|---|---|
 | [x] | 17 ([#136](https://github.com/orcvs/orcvs/pull/136)) | Simplify Theme decoding | [#18](issues/18-make-toml-the-only-theme-representation.md) | Delivered by PR #136, which merged after the audit baseline. |
 | [x] | 18 ([#169](https://github.com/orcvs/orcvs/pull/169)) | Settle colour-vision validation | [#11](issues/11-decide-the-fate-of-the-colour-blindness-simulation.md) | Decision first; preferably after PR 17. Integrate validation or remove the simulation from production. Decided: test-only check on the built-ins; removed from production. |
-| [ ] | 19 | Preserve refused stored Sources | [#22](issues/22-keep-an-earlier-refused-source-when-a-later-start-refuses.md) | Independent correctness fix: a later refusal must not replace the earlier recovery payload. |
+| [x] | 19 ([#170](https://github.com/orcvs/orcvs/pull/170)) | Discard undecodable stored Sources | [#22](issues/22-keep-an-earlier-refused-source-when-a-later-start-refuses.md) | Maintainer decision: the refused payload is discarded, not set aside. The start reports one error and opens the empty Grid, the next save overwrites the key, and the recovery key and notice are removed; #22 is wontfix. |
 
 ## Final cleanup
 
@@ -70,7 +70,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 ## Sequencing
 
-PRs 1–5 and 17 are verified complete, and PR 14 is delivered by #157. Start remaining correctness work with PR 19; PR 11 can proceed independently. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
+PRs 1–5 and 17 are verified complete, and PR 14 is delivered by #157. PR 19 is settled by discarding the refused payload (#170); PR 11 can proceed independently. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
 
 Required ordering within this plan:
 
@@ -111,7 +111,7 @@ These are epic-level reconciliation requirements from the `67d28248` audit. Chil
 | #12 and #26 / PR 15 | Preserve tests relative to extraction/refactor start, allowing earlier PRs to add coverage. Correct #26’s count to six polling loops across five tests. |
 | #16 / PR 20 | Remove the prose requirement that docs be shorter than functions; use what callers need. Include the delivered command mailbox and fairness changes in the final review without treating them as unresolved prerequisites. |
 | #08 and #09 / PRs 10–11 | #08 is reconciled: rescoped on 2026-09-26 to the shared SourceBuffer, with removal as the outcome and its cost measured against PR 21's baseline. #09 is reconciled: #156 met its criteria by removal and isolation — the unused APIs and `Interpreter::execute` were deleted, `lang`'s benchmark and allocation test moved to `execute_function`, and only `Stack::pop_value` became `cfg(test)`. Its resolved title is not realigned: its criteria carry the allowed outcome, and no integration test or benchmark depends on an API gated only by `cfg(test)`. |
-| #22 / PR 19 | Pin the actual loss sequence: first refusal/save, another invalid primary payload, then second refusal/save. An ordinary successful save does not create the second refusal. |
+| #22 / PR 19 | Superseded: a refused payload is discarded rather than set aside, so no loss sequence remains to pin. |
 
 At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved; playback-actor/11 was also resolved. #03 retained only its missing regression coverage. #23 remains obsolete. All other source-audit tickets were then outstanding, including explicit design decisions and measured evaluations. This paragraph records that audit; the tables above and each child ticket's Status line carry current status.
 
