@@ -863,46 +863,42 @@ pub fn okabe_ito() -> Theme {
 pub(crate) const ORCVS_LIGHT_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("orcvs-light");
 
 ///
-/// The Orcvs Light built-in Theme: the complete light definition
-/// `.scratch/theming/issues/04` prepares for review, at the reserved
-/// identity `ORCVS_LIGHT_IDENTITY`. Every field is spelled out explicitly
-/// for the same reason [`okabe_ito`]'s is — including the properties whose
-/// value it shares with the dark built-in, which `04` requires be recorded
-/// rather than left to a toolkit default.
+/// The Orcvs Light built-in Theme: the complete light definition, at the
+/// reserved identity `ORCVS_LIGHT_IDENTITY`. Every field is spelled out
+/// explicitly for the same reason [`okabe_ito`]'s is, including the
+/// properties whose value it shares with the dark built-in, so that a shared
+/// value is recorded rather than left to a toolkit default.
 ///
-/// The chrome colours start from the `feat/egui-theming` branch's hand-tuned
-/// `LIGHT_PALETTE`, mapped onto the named keys as
-/// `.scratch/theming/issues/04`'s 2026-09-21 comment directs (page →
-/// `window.background`/`panel.background`, source → `grid.background`, grid
-/// line → `grid.border`, sector line → `sector.seam`, selection fill →
-/// `selection.background`, and so on).
+/// The chrome colours map a hand-tuned light palette onto the named keys:
+/// page → `window.background`/`panel.background`, source →
+/// `grid.background`, grid line → `grid.border`, sector line →
+/// `sector.seam`, selection fill → `selection.background`, and so on.
 ///
-/// The **Source glyph hues do not**. A review found that palette's Function
-/// green and Bang red at near-identical relative luminance, and a
-/// colour-vision measurement of the whole definition
-/// (`contrast::colour_vision::distinguish`) then found worse: its Diagnostic
-/// and Output Portal measured 0.70 apart under protanopia and its Note and
-/// Number 2.16 under deuteranopia, against a floor of 5.0 — pairs a
-/// red–green colour-blind reader reads as one colour, and pairs
-/// [`okabe_ito`] keeps apart by construction. The user's 2026-09-23 decision
-/// re-picks every glyph hue from the same Okabe–Ito palette and the same
-/// role-to-hue assignment the dark built-in already uses (Number sky blue,
-/// Note yellow, Function bluish green, Bang reddish purple, Sequence blue,
-/// Diagnostic vermillion, Output Portal orange), keeping each hue exactly —
-/// the OKLCh hue angle is held to within 0.7° — and moving lightness alone,
-/// as far as a near-white ground requires and, for Diagnostic and Output
-/// Portal, as far as `contrast::colour_vision::CONFUSION_FLOOR` requires on
-/// top of that. Sequence is `#0072B2` unchanged: no reachable state draws a
-/// glyph in it, so only its tint reaches the screen. `console/src/theme.md`
-/// records each value, its hue and lightness, the measured ratios and the colour-vision
-/// separations. The user accepted that definition on 2026-09-23. It is the
-/// light Theme selection's default and fallback (`crate::theme_selection`),
-/// which `crate::style::install` registers for `egui::Theme::Light`.
+/// The Source glyph hues are the Okabe–Ito palette under the role-to-hue
+/// assignment the dark built-in uses (Number sky blue, Note yellow, Function
+/// bluish green, Bang reddish purple, Sequence blue, Diagnostic vermillion,
+/// Output Portal orange). Each keeps its hue exactly — the OKLCh hue angle is
+/// held to within 0.7° — and moves lightness alone: as far as a near-white
+/// ground requires and, for Diagnostic and Output Portal, further still, so
+/// that a red–green colour-blind reader tells every pair of glyph roles
+/// apart. Do not pick a glyph hue outside that assignment: [`okabe_ito`]
+/// keeps its roles apart under protanopia and deuteranopia by construction,
+/// and a hand-picked hue can land two roles on what those readers see as one
+/// colour. Sequence is `#0072B2` unchanged: no reachable state draws a glyph
+/// in it, so only its tint reaches the screen. `console/src/theme.md` records
+/// each value, its hue and lightness, the measured ratios and the
+/// colour-vision separations.
+///
+/// This is the light Theme selection's default and fallback
+/// (`crate::theme_selection`), which `crate::style::install` registers for
+/// `egui::Theme::Light`.
 ///
 /// `orcvs_light_defines_every_key_at_the_recorded_values` in this module's
-/// tests pins every field against that record, and
+/// tests pins every field against that record,
 /// `style::tests::orcvs_light_chrome_matches_the_decided_record` cross-checks
-/// the chrome keys through [`crate::style::style`].
+/// the chrome keys through [`crate::style::style`], and the contrast module's
+/// `shipped_theme_colour_vision_gate` holds every glyph pair apart under
+/// simulated protanopia and deuteranopia.
 ///
 pub fn orcvs_light() -> Theme {
     Theme {

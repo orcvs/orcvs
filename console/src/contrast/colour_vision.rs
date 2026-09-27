@@ -610,10 +610,10 @@ mod tests {
     ///
     /// A red and a green at *different* lightness stay far apart under
     /// protanopia even so, because lightness survives every dichromacy —
-    /// which is exactly why `.scratch/theming/issues/04` had to separate the
-    /// light Theme's Diagnostic from its Output Portal by lightness, and why
-    /// this test measures the collapse as a ratio rather than asserting the
-    /// remainder falls under [`CONFUSION_FLOOR`].
+    /// which is why Orcvs Light separates its Diagnostic from its Output
+    /// Portal by lightness, and why this test measures the collapse as a
+    /// ratio rather than asserting the remainder falls under
+    /// [`CONFUSION_FLOOR`].
     ///
     #[test]
     fn each_dichromacy_removes_its_own_axis_and_leaves_the_other() {
@@ -729,13 +729,10 @@ mod tests {
     }
 
     ///
-    /// The glyph definition this gate rejected, as a regression: the light
-    /// Theme's own colours before the user's 2026-09-23 decision, which took
-    /// their hues from the `feat/egui-theming` proposal. It clears
-    /// [`crate::contrast::CONTRAST_FLOOR`] in all 84 painted states the report
-    /// measured then — `.scratch/theming/issues/04` tuned it against
-    /// [`validate`] until it did — and still fails here, which is the whole reason this second
-    /// measurement exists.
+    /// A light glyph definition that clears contrast and fails colour
+    /// vision: every painted state [`validate`] measures clears
+    /// [`crate::contrast::CONTRAST_FLOOR`], and it still fails here, which is
+    /// the whole reason this second measurement exists.
     ///
     /// Its worst gated pair is Diagnostic against Output Portal under
     /// protanopia, at 0.70: a rust `#A34A00` and a gold `#7A5200` that a
@@ -774,21 +771,19 @@ mod tests {
     }
 
     ///
-    /// Why this gate measures a simulated colour difference rather than the
-    /// relative luminance the review that prompted it reached for. The
-    /// rejected definition's Function `#077055` and Bang `#AD2A3B` are
-    /// within 1.09:1 of each other in relative luminance — on a greyscale
-    /// display they are one tone — and a dichromat still separates them
-    /// easily, because every dichromacy keeps lightness *and* one chromatic
-    /// axis. Equal luminance is therefore a fact about those two colours,
+    /// Why this gate measures a simulated colour difference rather than
+    /// relative luminance. The rejected definition's Function `#077055` and
+    /// Bang `#AD2A3B` are within 1.09:1 of each other in relative luminance
+    /// — on a greyscale display they are one tone — and a dichromat still
+    /// separates them easily, because every dichromacy keeps lightness *and*
+    /// one chromatic axis. Equal luminance is therefore a fact about those two colours,
     /// not a verdict on them: the pair measures 14.60 under deuteranopia,
     /// nearly three times [`CONFUSION_FLOOR`].
     ///
-    /// The corollary is the one `.scratch/theming/issues/04` acted on: since
-    /// lightness survives every dichromacy, lightness is what separates two
-    /// colours a dichromacy would otherwise merge — which is why Orcvs
-    /// Light's Diagnostic and Output Portal are darkened past what contrast
-    /// alone asks for.
+    /// The corollary: since lightness survives every dichromacy, lightness
+    /// is what separates two colours a dichromacy would otherwise merge —
+    /// which is why Orcvs Light's Diagnostic and Output Portal are darkened
+    /// past what contrast alone asks for.
     ///
     #[test]
     fn equal_luminance_alone_does_not_decide_a_colour_vision_confusion() {
@@ -812,12 +807,9 @@ mod tests {
     }
 
     ///
-    /// Orcvs Light's glyph channels as they stood before the user's
-    /// 2026-09-23 decision: the `feat/egui-theming` proposal's hues, with
-    /// `.scratch/theming/issues/04`'s own three darkenings applied and its
-    /// four decided-here values. Only the glyph channels differ from the
-    /// shipped light Theme — the chrome keys were kept by that decision, so
-    /// holding them fixed here is what isolates the glyphs.
+    /// A light glyph definition that clears contrast and fails colour
+    /// vision. Only the glyph channels differ from the shipped light Theme:
+    /// holding the chrome keys fixed is what isolates the glyphs.
     ///
     fn rejected_light_glyphs() -> Theme {
         let tint =
@@ -859,8 +851,7 @@ mod tests {
     /// Every gated dichromacy's every channel pair clears
     /// [`CONFUSION_FLOOR`] for both built-ins, with no exception list: the
     /// dark built-in is the published Okabe–Ito assignment and the light one
-    /// was re-picked from it under `.scratch/theming/issues/04` until it
-    /// did.
+    /// darkens that assignment's hues.
     ///
     /// Tritanopia is asserted separately and much lower, at the figures both
     /// built-ins actually reach rather than at the floor, because

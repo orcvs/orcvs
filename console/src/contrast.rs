@@ -513,18 +513,20 @@ impl ContrastResult {
 /// [`ContrastResult`] is measured against, carried in the data itself rather
 /// than only in this module's rustdoc, plus the results.
 ///
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "scope is read only by tests: theming/07's Theme notice names the floor and the \
-                  failing states, not the scope text"
-    )
-)]
 pub(crate) struct ContrastReport {
     pub(crate) floor: f32,
     /// This module's own `# Scope` section, restated as data a caller can
     /// show beside the report rather than only read in source.
+    // On wasm the whole report is unreachable, which `lib.rs`'s expectation
+    // on `mod contrast` covers, so this one is native-only.
+    #[cfg_attr(
+        all(not(test), not(target_arch = "wasm32")),
+        expect(
+            dead_code,
+            reason = "the report carries its scope for any caller to show, and the one shipped \
+                      caller, the Theme notice, names the floor and the failing states only"
+        )
+    )]
     pub(crate) scope: &'static str,
     pub(crate) results: Vec<ContrastResult>,
 }
