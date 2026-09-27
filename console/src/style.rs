@@ -357,9 +357,9 @@ pub(crate) fn cell_background(
 /// Every composited channel below uses [`compose_cell_fill`] (background) or
 /// [`blend_channel`] (foreground): a transparent Theme channel
 /// therefore reveals whatever sits beneath it, and an opaque one replaces it
-/// outright, which is what lets the Okabe–Ito built-in — every role channel
-/// opaque except Ordinary, Comment and untouched Bang, which are transparent
-/// — reproduce its recorded appearance while an arbitrary custom Theme can
+/// outright, which is what lets the Okabe–Ito built-in — every tinted role
+/// background a translucent tint, and Ordinary, Comment and untouched Bang
+/// transparent — reproduce its recorded appearance while an arbitrary custom Theme can
 /// still compose partial alpha correctly. [`role_and_portal`] answers the
 /// foreground and the *raw*, not-yet-composited background (a role's own
 /// channel, blended with Diagnostic and Output Portal as those apply); this

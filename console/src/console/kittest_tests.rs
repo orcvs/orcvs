@@ -32,8 +32,8 @@
 //! rather than instantiated as widgets, with one `Painter::extend` rather than
 //! a `Painter::add` per Cell. So there is no widget per Cell to query and there
 //! must not become one: minting a thousand AccessKit nodes to please a test
-//! tool would break ADR 0040's rule that the console paints the Grid from a
-//! value.
+//! tool would undo the painting on one untransformed layer that ADR 0038
+//! records.
 //!
 //! What the Source Grid offers instead is a geometry contract —
 //! `presented_grid` maps the owned transform onto a `GridViewport`,

@@ -56,9 +56,10 @@ pub(super) const GLYPH_SCALE_STEP: f32 = 0.125;
 /// 11.5 point Glyph out at 2.875 points inside a 3.2 point Cell, where the same Glyph
 /// at the Source's own scale takes 11.5 of 16. Flooring keeps a Glyph's share of
 /// its Cell at or under what the fit gave it at every scale, and costs at most
-/// one step of sharpness rather than a Cell's worth of proportion. Flooring
-/// leaves every exact multiple of the step where rounding did, so the step
-/// count the atlas budget is stated over is unchanged.
+/// one step of sharpness rather than a Cell's worth of proportion. Both zoom
+/// limits and the Source's own scale are exact multiples of the step, so
+/// flooring leaves them where rounding did, and the step count the atlas
+/// budget is stated over is unchanged.
 ///
 pub(super) fn glyph_scale(scaling: f32) -> f32 {
     if !scaling.is_finite() || scaling <= 0.0 {

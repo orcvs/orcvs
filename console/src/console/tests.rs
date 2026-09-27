@@ -418,7 +418,7 @@ fn console_pass(
 /// The scale is given as the viewport's `native_pixels_per_point` rather
 /// than through `Context::set_pixels_per_point`, which sets the zoom factor
 /// instead and rewrites the next pass's `screen_rect` from the previous
-/// one's to avoid jitter (in `Context::begin_pass`) — so the
+/// one's to avoid jitter (in `ContextImpl::begin_pass`) — so the
 /// console would not be the size the caller asked for.
 ///
 fn console_pass_at(
