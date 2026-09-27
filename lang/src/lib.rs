@@ -177,12 +177,12 @@ impl<'a> IntoIterator for &'a Performance {
 /// producer's own anchor.
 ///
 /// A Source-writing Function plans a validated Portal bundle, and ADR 0009
-/// keeps destination resolution in `orcvs`. This type is the seam
-/// between the two: `lang` answers what to write and how far from the producer
-/// to write it, and `orcvs` turns that into Positions, refuses a destination
-/// the Grid does not hold, and orders the writes. It is the Source-writing
-/// counterpart of [`Performance`], which crosses the same seam for the
-/// Terminal Output family.
+/// keeps destination resolution in `orcvs`, which owns the Grid. This type is
+/// the seam between the two: `lang` answers what to write and how far from the
+/// producer to write it, and `orcvs` turns that into Positions, refuses a
+/// destination the Grid does not hold, and orders the writes. It is the
+/// Source-writing counterpart of [`Performance`], which crosses the same seam
+/// for the Terminal Output family.
 ///
 /// The displacement is a whole-Cell offset and not a named direction: ADR 0006
 /// states the geometry in coordinates, and a Portal is an output

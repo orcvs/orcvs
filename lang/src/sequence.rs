@@ -27,15 +27,7 @@ impl Sequence {
     /// that builds a Sequence from Atoms inherit exactly one rule and one
     /// diagnostic. The structural operations below derive a Sequence from
     /// Sequences, whose members already passed it, and check only an Atom that
-    /// was not one. An `Atom::Empty` is
-    /// refused because it is the absence marker the Interpreter answers with
-    /// when an Expression leaves no value, not an Atom with a Source encoding;
-    /// and a Function Atom is refused when its declared kind says it answers an
-    /// effect, because per ADR 0029 a Sequence is the value that carries
-    /// results and so admits only a Function that answers one. A Self-Banging
-    /// or Directional Bang Function is refused by that second rule rather than
-    /// by one of its own: being a root-only Source effect is what its declared
-    /// kind states, so one rule keeps one mechanism.
+    /// was not one.
     pub fn new(atoms: impl IntoIterator<Item = Atom>) -> Result<Self, Error> {
         let atoms: Vec<Atom> = atoms.into_iter().collect();
 
@@ -122,6 +114,12 @@ impl Sequence {
     /// wildcard, so a new variant is classified here, by the compiler, instead
     /// of becoming a legal member by default.
     ///
+    /// An `Atom::Empty` is refused because it is the absence marker the
+    /// Interpreter answers with when an Expression leaves no value, not an
+    /// Atom with a Source encoding. A Function Atom is refused when its
+    /// declared kind says it answers an effect, because a Sequence is the value
+    /// that carries results and so admits only a Function that answers one.
+    ///
     /// The Function arm reads a declaration rather than a variant, because
     /// ADR 0029 makes membership follow from whether a Function answers a
     /// value: an enumerated check naming `*^` or `*!` would be a second place
@@ -205,9 +203,9 @@ impl TryFrom<Value> for Sequence {
     type Error = Error;
 
     /// The seam a Sequence-shaped operand position pops through. It does not
-    /// promote: promotion is a Function's decision — Concatenate promotes in
-    /// issue 03, Select does not — so the conversion that merely requires a
-    /// Sequence diagnoses instead of quietly widening one.
+    /// promote: promotion is a Function's decision — Concatenate promotes,
+    /// Select does not — so the conversion that merely requires a Sequence
+    /// diagnoses instead of quietly widening one.
     #[inline(always)]
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {

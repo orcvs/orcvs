@@ -210,8 +210,8 @@ impl Broadcast {
     /// same pop, the same check, and the same bind, with only the Sequence
     /// assembly left out, because at width one there is no Sequence to assemble
     /// and no buffer to fill on the way to an answer that is one Atom. That
-    /// path is the one every Expression a Source writes today takes, so what it
-    /// leaves out is worth leaving out.
+    /// path is the one every Expression over Atoms takes, so what it leaves out
+    /// is worth leaving out.
     #[inline(always)]
     fn is_scalar(&self) -> bool {
         matches!(self.shape, Shape::Scalar)
@@ -426,12 +426,9 @@ impl Stack {
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
     ///
-    /// Four Functions declare themselves scalar and bind here: ADR 0039's Delay
-    /// `~*` and Euclidean `~%`, which refuse a Sequence operand because a
-    /// widened pulse has nothing to answer where an element does not Bang, and
-    /// ADR 0012's Increment `~+` and Interpolation `~>`, which refuse one
-    /// because their previous is one visible Atom. They arrive at this seam by
-    /// declaring their pervasion, not by adding a check of their own.
+    /// The Functions that bind here — Delay, Euclidean, Increment and
+    /// Interpolation — reach this seam by declaring that they do not pervade,
+    /// not by adding a check of their own.
     #[inline(always)]
     pub(crate) fn extract<O: Operands<Binding = ElementBinding>>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;

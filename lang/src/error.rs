@@ -30,14 +30,9 @@ pub enum Error {
 #[derive(Error, Debug)]
 pub enum SequenceError {
     /// A Sequence at an operand position of a Function that declares it does
-    /// not pervade. Four rows declare that: ADR 0039 keeps Delay `~*` and
-    /// Euclidean `~%` scalar, because a widened pulse would have to answer
-    /// something at an element that does not Bang and the Absence Marker,
-    /// which is the only Atom meaning nothing, is refused as a Sequence member
-    /// by ADR 0025. ADR 0012 keeps Increment `~+` and Interpolation `~>`
-    /// scalar because element identity across Ticks would need hidden state
-    /// their one visible Atom cannot hold. Each of the four is refused by its
-    /// declared pervasion rather than by a check written beside it.
+    /// not pervade, such as Delay `~*` or Increment `~+`. Each is refused by
+    /// its declared pervasion rather than by a check written beside it, and
+    /// the declaration is where the reason for each is stated.
     #[error("expected an Atom, found the Sequence {0:?}")]
     ExpectedAtom(String),
 
@@ -61,7 +56,7 @@ pub enum SequenceError {
     IncompatibleLengths { left: usize, right: usize },
 
     /// An empty Sequence where indexing needs a member to reach. Select and
-    /// Replace raise this in issue 03.
+    /// Replace raise this.
     #[error("expected a non-empty Sequence")]
     EmptyNotAllowed,
 }
@@ -191,9 +186,9 @@ pub enum InterpretationError {
 
     /// ADR 0028 states that an instruction answers either a value or an
     /// effect, so a Function answering an effect can stand only where nothing
-    /// consumes an answer. Terminal Output is the one effect kind built today
-    /// and this names the rule rather than that family, so the Source-writing
-    /// Functions of ADR 0004 raise it by their declared kind alone.
+    /// consumes an answer. This names the rule rather than any one effect
+    /// family, so every effect Function raises it by its declared kind
+    /// alone.
     #[error("a Function that answers an effect is valid only at the root of an Expression")]
     NestedEffectFunction,
 

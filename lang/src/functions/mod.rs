@@ -5,7 +5,7 @@ pub(crate) mod sequence;
 pub(crate) mod tick;
 use crate::{Error, Performance, PlayCommand, atom::operands, interpreter::Context};
 
-// Both Functions here are declared Pervasive in `define_functions!`, so each
+// Every Function here is declared Pervasive in `define_functions!`, so each
 // body states one Play Command for one element and says nothing about
 // Sequences, exactly as an Atomic Function body states one Atom. They extend
 // under the Atomic Functions' broadcast rules rather than under rules of their

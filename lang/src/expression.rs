@@ -156,10 +156,9 @@ impl Token {
             // declaration to say which. Choosing one would mint exactly the
             // intrinsic type that entry denies.
             //
-            // No Function declares this operand today, so the refusal also has
-            // no caller. Whether Replace's replacement earns a spelling rule of
-            // its own is issue 03's decision, made against its own tests; until
-            // then the only thing that can stand at the position is a nested
+            // Replace's replacement declares this operand, and so does
+            // Concatenate's Atom-or-Sequence operand. Neither reads a literal,
+            // so the only thing that can stand at the position is a nested
             // Function's typed answer, exactly as for a Sequence below.
             Self::Atom => Err(crate::SyntaxError::ExpectedToken.into()),
             // A Sequence has no literal spelling at all, and this refusal is
