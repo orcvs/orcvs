@@ -199,17 +199,11 @@ pub fn read(text: &[u8]) -> Result<Source, SourceFileError> {
 /// ```
 ///
 pub fn write(source: &Source) -> String {
-    let grid = source.grid();
-    let rows = source
-        .cells()
-        .chunks_exact(grid.columns())
-        .map(|row| {
-            let end = row
-                .iter()
-                .rposition(|byte| *byte != SPACE)
-                .map_or(0, |at| at + 1);
-            &row[..end]
-        })
+    let cells = source.text();
+    let columns = source.grid().columns();
+    let rows = (0..cells.len())
+        .step_by(columns)
+        .map(|start| cells[start..start + columns].trim_end_matches(char::from(SPACE)))
         .collect::<Vec<_>>();
     let Some(last) = rows.iter().rposition(|row| !row.is_empty()) else {
         return String::new();
@@ -217,8 +211,7 @@ pub fn write(source: &Source) -> String {
 
     let mut text = String::with_capacity(rows[..=last].iter().map(|row| row.len() + 1).sum());
     for row in &rows[..=last] {
-        // A Source holds printable ASCII in every Cell, so every row is UTF-8.
-        text.push_str(std::str::from_utf8(row).expect("a Source row is printable ASCII"));
+        text.push_str(row);
         text.push('\n');
     }
     text
