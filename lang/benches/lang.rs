@@ -51,10 +51,10 @@ fn parse_invalid(c: &mut Criterion) {
 }
 
 fn execute_function(c: &mut Criterion) {
-    // The first Tick of a Playback run, at the Grid origin: no Function reads
-    // either input yet, and the measurement is of evaluation rather than of
-    // any one Tick. One scalar Add over resolved operands is the call a Turn
-    // makes for the commonest Expression.
+    // The first Tick of a Playback run, at the Grid origin: Add reads neither
+    // input, and the measurement is of evaluation rather than of any one Tick.
+    // One scalar Add over resolved operands is the call a Turn makes for the
+    // commonest Expression.
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     let operands = [
         Value::Atom(Atom::Number(0x01)),

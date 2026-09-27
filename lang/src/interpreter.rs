@@ -12,46 +12,40 @@ pub enum Interpretation {
     ///
     /// The Atomic Functions broadcast over a Sequence operand and answer one,
     /// Structural and Range Functions reach this variant from Source text.
-    /// It exists because the whole point of the Sequence value
-    /// is that it can cross Function evaluation and leave it without first
-    /// becoming Source writes; adding it later would mean the consumer had
-    /// already been written as though it could not.
+    /// It exists because the whole point of the Sequence value is that it can
+    /// cross Function evaluation and leave it without first becoming Source
+    /// writes.
     Sequence(Sequence),
     /// The ordered group of Play Commands one active Terminal Output Function
     /// root performs.
     ///
-    /// ADR 0030 extends `!>` and `!~` over a Sequence operand, so one
+    /// A Sequence operand widens every Terminal Output Function, so one
     /// Expression answers many commands, ordered by element index, while still
-    /// answering no value. It carries a group rather than one command because
-    /// this is the seam `lang` publishes to `orcvs`: a consumer written against
-    /// a single command would have to be rewritten when Control Change, Pitch
-    /// Bend, and Monophonic Play arrive, which is the cost ADR 0030 names as
-    /// its reason to decide this before the family grows. The scalar shape
-    /// [`Performance::One`] is what every Source-spelled Play answers today,
-    /// because the Range Functions that would spell a Sequence operand are
-    /// unbuilt.
+    /// answering no value. It carries a [`Performance`] rather than one command
+    /// because this is the seam `lang` publishes to `orcvs`, and a consumer
+    /// written against a single command could not deliver a widened one. A
+    /// Play over scalar operands answers the scalar shape
+    /// [`Performance::One`].
     Play(Performance),
     /// The lock one active locking Function root places on the Expression
     /// root at its Output Portal.
     ///
-    /// The Portal lives on the Function, not on this answer: ADR 0009 keeps
-    /// destination resolution in `orcvs` and this crate holds no Grid.
+    /// The Portal lives on the Function, not on this answer, for the reason
+    /// [`SourceEffect`] carries no Positions.
     Lock,
     /// The Cells one active Source-writing Function root plans to write.
     ///
-    /// It carries a displacement and a spelling rather than Positions, because
-    /// ADR 0009 keeps destination resolution in `orcvs` and this crate holds no
-    /// Grid. The consumer turns the offset into a Portal, refuses a destination
-    /// the Grid does not hold, and orders the writes of the bundle.
+    /// It carries a displacement and a spelling rather than Positions, and
+    /// `orcvs` resolves them, as [`SourceEffect`] describes.
     Source(SourceEffect),
 }
 
 ///
 /// What one evaluation has to work with: the operands it has resolved so far,
-/// and the explicit inputs ADR 0012 supplies alongside the Source Snapshot.
+/// and the explicit inputs supplied alongside the Source Snapshot.
 ///
 /// A Function reaching for the Tick, its anchor, or a declared Portal input
-/// takes `&mut Context` exactly as an arithmetic Function does today, so a
+/// takes `&mut Context` exactly as an arithmetic Function does, so a
 /// Tick-reading Function is a new arm in the Interpreter's Function match
 /// rather than a new evaluation path.
 ///
@@ -121,8 +115,9 @@ impl Interpreter {
             // The Source-writing Functions take no operand and read no
             // Context: the whole of the effect is declared in the table, so
             // this reads the declaration rather than repeating eight offsets
-            // and two bundles. ADR 0029's asymmetry lives in the activation
-            // column and the bundle, and both are settled before this.
+            // and two bundles. The two groups' asymmetry lives in the
+            // activation column and the bundle, and both are settled before
+            // this.
             return Ok(Interpretation::Source(effect));
         }
         let mut ctx = Context::new(inputs, operands.len());
@@ -735,7 +730,7 @@ mod test {
     #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
-        // `Atom::Empty`, the Interpreter's existing "no result write" signal, so
+        // `Atom::Empty`, the Interpreter's "no result write" signal, so
         // the Source never gains a Cell meaning "false".
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {
@@ -803,7 +798,7 @@ mod test {
 
     #[test]
     fn division_is_the_asymmetry_that_diagnoses_every_zero_divisor() {
-        // ADR 0011 wraps the rest of general arithmetic modulo 256, so every
+        // The rest of general arithmetic wraps modulo 256, so every
         // other Function of the family answers a Number for every pair the
         // Source can write. Division is the one that cannot: a quotient by
         // zero has no cyclic position to wrap into, so `./` produces a

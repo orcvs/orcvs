@@ -8,11 +8,11 @@ use crate::{
 /// Convert to Number: `.v value`.
 ///
 /// One expression per element, and `Stack::apply` decides whether that
-/// element is the whole operation or one member of a Sequence. ADR 0021's
-/// idempotence is what makes the Number arm not a coercion: a value that is
-/// already a Number arrives from nested evaluation or from broadcasting, never
-/// from this Function's own literal operand slot, which the parser reads as a
-/// Note.
+/// element is the whole operation or one member of a Sequence. Idempotence
+/// over the result type is what makes the Number arm not a coercion: a value
+/// that is already a Number arrives from nested evaluation or from
+/// broadcasting, never from this Function's own literal operand slot, which
+/// the parser reads as a Note.
 #[inline]
 pub fn to_number(ctx: &mut Context) -> Result<Value, Error> {
     ctx.stack
@@ -119,7 +119,7 @@ mod test {
     #[test]
     fn conversion_to_note_is_the_identity_over_every_note_and_refuses_every_number_above_the_range()
     {
-        // ADR 0021 gives `.^` a monomorphic literal signature and an
+        // `.^` has a monomorphic literal signature and an
         // evaluation-time identity, and the two together are what the whole
         // domain is enumerated for. Every Note is left exactly as it is —
         // a value arriving from nested evaluation or from broadcasting, never
@@ -177,7 +177,7 @@ mod test {
 
     #[test]
     fn evaluation_time_idempotence_survives_broadcasting() {
-        // ADR 0021 makes each conversion an identity over its own result type
+        // Each conversion is an identity over its own result type
         // for values that arrive from nested evaluation or from a Sequence.
         // Without it a broadcast conversion could not compose with another one
         // over the same Sequence.
@@ -221,7 +221,7 @@ mod test {
 
     #[test]
     fn both_conversions_accept_both_numeric_types_as_one_atom() {
-        // ADR 0021's idempotence, at the scalar shape: each conversion leaves a
+        // Idempotence, at the scalar shape: each conversion leaves a
         // value already of its result type unchanged, and converts the other.
         for value in 0x00..=0x7F {
             assert_eq!(

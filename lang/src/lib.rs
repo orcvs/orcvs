@@ -40,7 +40,7 @@ use std::sync::Once;
 /// carried by a type also cannot be transposed with a field of another domain.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PlayCommand {
-    /// ADR 0016's Raw Play. Velocity `00` is not an absent note but the
+    /// Raw Play. Velocity `00` is not an absent note but the
     /// explicit stop MIDI's zero-velocity convention gives the Source.
     Raw {
         channel: MidiChannel,
@@ -48,7 +48,7 @@ pub enum PlayCommand {
         note: Note,
     },
     ///
-    /// ADR 0016's Timed Play, carrying the whole lifetime the Source wrote.
+    /// Timed Play, carrying the whole lifetime the Source wrote.
     ///
     /// The length is in the command rather than resolved here because a Note
     /// Off due at Tick `T + length` belongs to a Playback run: interpretation
@@ -64,7 +64,7 @@ pub enum PlayCommand {
         length: Length,
     },
     ///
-    /// ADR 0016's Monophonic Play, carrying the same operands Timed Play does.
+    /// Monophonic Play, carrying the same operands Timed Play does.
     ///
     /// A variant of its own rather than a flag on `Timed`, because the two
     /// differ in what they own rather than in what they carry: Timed Play is
@@ -79,7 +79,7 @@ pub enum PlayCommand {
         note: Note,
         length: Length,
     },
-    /// ADR 0016's Control Change: a controller and the value sent to it, each
+    /// Control Change: a controller and the value sent to it, each
     /// carrying the role it plays rather than the data-byte domain the two
     /// share, so nothing downstream can put one where the other belongs.
     ControlChange {
@@ -88,7 +88,7 @@ pub enum PlayCommand {
         value: ControlValue,
     },
     ///
-    /// ADR 0016's Pitch Bend, as the two seven-bit halves the wire carries.
+    /// Pitch Bend, as the two seven-bit halves the wire carries.
     ///
     /// A bend is one fourteen-bit value, and Orcvs neither assembles the
     /// halves into it nor scales them: the Source writes the bytes MIDI sends,
@@ -107,18 +107,18 @@ pub enum PlayCommand {
 /// The ordered group of Play Commands one Terminal Output Function Expression
 /// performs.
 ///
-/// ADR 0030 extends the Terminal Output Functions pervasively over a Sequence
-/// operand, so one Expression can perform many times while still answering no
-/// value: ADR 0028 bounds the kind of answer an instruction gives, not how much
-/// of it, and a Play Command is never encoded into Cells, so the rules that
-/// make a Sequence expensive where a result becomes Source do not reach an
-/// effect. Order within the group is element index, which ADR 0030 chooses
-/// because it is the only order the Source can read — the order the Cells would
-/// have if the same notes were written left to right as separate Expressions.
+/// The Terminal Output Functions extend pervasively over a Sequence operand,
+/// so one Expression can perform many times while still answering no value:
+/// ADR 0028 bounds the kind of answer an instruction gives, not how much of
+/// it, and a Play Command is never encoded into Cells, so the rules that make
+/// a Sequence expensive where a result becomes Source do not reach an effect.
+/// Order within the group is element index, because it is the only order the
+/// Source can read — the order the Cells would have if the same notes were
+/// written left to right as separate Expressions.
 ///
 /// Two shapes rather than one, the way [`Value`] keeps `Atom` beside
-/// `Sequence`. Every Play a Source has written so far is scalar, and answering
-/// a group of one for it would put a heap allocation on the path that has none.
+/// `Sequence`. A scalar Play is the common case, and answering a group of one
+/// for it would put a heap allocation on the path that has none.
 /// [`Performance::Many`] is legitimately empty: an empty Sequence operand is a
 /// real width of no elements, and an Expression of no elements performs no MIDI
 /// output rather than diagnosing.
@@ -152,8 +152,8 @@ impl Performance {
     ///
     /// One shape reading, so a consumer delivering a Performance never learns
     /// which of the two it was handed: `Playback` dispatches a Tick Plan's
-    /// commands as one list, and the distinction ADR 0026 will revisit is about
-    /// what evaluation costs rather than about what delivery sees.
+    /// commands as one list, and the distinction is about what evaluation
+    /// costs rather than about what delivery sees.
     #[inline(always)]
     pub fn commands(&self) -> &[PlayCommand] {
         match self {
@@ -176,16 +176,16 @@ impl<'a> IntoIterator for &'a Performance {
 /// One Source-writing effect a Function performs, stated relative to the
 /// producer's own anchor.
 ///
-/// ADR 0004 gives a Source-writing Function a validated Portal bundle and
-/// ADR 0009 keeps destination resolution in `orcvs`. This type is the seam
-/// between the two: `lang` answers what to write and how far from the producer
-/// to write it, and `orcvs` turns that into Positions, refuses a destination
-/// the Grid does not hold, and orders the writes. It is the Source-writing
-/// counterpart of [`Performance`], which crosses the same seam for the
-/// Terminal Output family.
+/// A Source-writing Function plans a validated Portal bundle, and ADR 0009
+/// keeps destination resolution in `orcvs`, which owns the Grid. This type is
+/// the seam between the two: `lang` answers what to write and how far from the
+/// producer to write it, and `orcvs` turns that into Positions, refuses a
+/// destination the Grid does not hold, and orders the writes. It is the
+/// Source-writing counterpart of [`Performance`], which crosses the same seam
+/// for the Terminal Output family.
 ///
-/// The displacement is a whole-Cell offset and not a named direction. ADR 0006
-/// already states the geometry in coordinates, and a Portal is an output
+/// The displacement is a whole-Cell offset and not a named direction: ADR 0006
+/// states the geometry in coordinates, and a Portal is an output
 /// property every Function has, with the ordinary result position one row south
 /// as the default one. A Function carrying this declines that default.
 ///
@@ -199,7 +199,7 @@ pub struct SourceEffect {
     pub rows: i16,
     /// The characters written at the displaced Span.
     pub spelling: Option<&'static str>,
-    /// Which of ADR 0004's bundles this effect plans.
+    /// Which validated bundle this effect plans.
     pub bundle: SourceBundle,
 }
 
@@ -224,10 +224,9 @@ impl PortalCoords {
     };
 }
 
-/// Which of ADR 0004's validated effect bundles a Source-writing Function
-/// plans.
+/// Which validated effect bundle a Source-writing Function plans.
 ///
-/// The two Function groups of ADR 0006 differ here and in their activation
+/// The two Source-writing Function groups differ here and in their activation
 /// source, and in nothing else: `*^` and `^^` write the same spelling at the
 /// same kind of declared Portal. ADR 0029 refuses to collapse the activation
 /// asymmetry, and this is the other half of the same statement — what a
@@ -417,8 +416,8 @@ mod test {
         // changed shape, and `execute_function` is the measurement to take again. That
         // is only worth being told where the figures mean something, which is
         // what the `target_pointer_width` gate above says — `wasm32` builds the
-        // library and runs its regressions in the `console` crate, so today the
-        // gate excludes nothing that runs.
+        // library and runs its regressions in the `console` crate, so the gate
+        // excludes nothing that runs.
         assert_eq!(size_of::<Performance>(), 24);
         assert_eq!(size_of::<Interpretation>(), 32);
     }
@@ -513,7 +512,7 @@ mod test {
                 unreachable!("two ASCII Cells");
             };
 
-            // ADR 0021's spelling, stated here rather than read from the
+            // The Note spelling, stated here rather than read from the
             // table under test: twelve chromatic pitches to the octave, from
             // `C/` through `G9`.
             let pitch = "CcDdEFfGgAaB"

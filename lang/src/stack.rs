@@ -117,8 +117,8 @@ impl Extracted<'_> {
 
     /// The Atom `operand` contributes to this element.
     ///
-    /// An Atom operand answers itself at every index, which is the repetition
-    /// ADR 0007 describes; a Sequence operand answers its member at that index.
+    /// An Atom operand answers itself at every index, which is how a scalar
+    /// repeats; a Sequence operand answers its member at that index.
     /// The index is in bounds by construction: [`Stack::broadcast`] admits a
     /// Sequence operand only where its length is the width, and every caller
     /// walks `0..width`. Each element is read in place, so no per-element
@@ -135,7 +135,7 @@ impl Extracted<'_> {
 /// The one shape a whole operation runs at.
 ///
 /// Decided once for every operand together rather than once per operand,
-/// because ADR 0007's rule is a rule about the operation: a scalar repeats
+/// because the broadcast rule is a rule about the operation: a scalar repeats
 /// across every element, two Sequences pair element-wise, and lengths that
 /// cannot pair diagnose. A per-operand decision would have nowhere to notice
 /// that two Sequence operands disagree, and would answer about the second one
@@ -210,8 +210,8 @@ impl Broadcast {
     /// same pop, the same check, and the same bind, with only the Sequence
     /// assembly left out, because at width one there is no Sequence to assemble
     /// and no buffer to fill on the way to an answer that is one Atom. That
-    /// path is the one every Expression a Source writes today takes, so what it
-    /// leaves out is worth leaving out.
+    /// path is the one every Expression over Atoms takes, so what it leaves out
+    /// is worth leaving out.
     #[inline(always)]
     fn is_scalar(&self) -> bool {
         matches!(self.shape, Shape::Scalar)
@@ -222,8 +222,8 @@ impl Broadcast {
     /// `None` is exactly the scalar shape, so a caller that binds one element
     /// can refuse a widened one without an impossible branch to describe.
     ///
-    /// Read only by [`Stack::extract`], which ADR 0039's Delay and Euclidean
-    /// reach on every evaluation.
+    /// Read only by [`Stack::extract`], the seam the element-binding scalar
+    /// Functions bind through.
     #[inline(always)]
     fn first_sequence(&self) -> Option<&Sequence> {
         self.operands.iter().find_map(|operand| match operand {
@@ -252,8 +252,8 @@ impl Broadcast {
     /// Only a widened operation is assembled. A scalar operation answers the
     /// Atom its Function returned, and answering it as a singleton Sequence
     /// instead would both change what the Interpreter hands tick planning and
-    /// hold that Atom to a membership rule an ordinary scalar answer has never
-    /// been held to.
+    /// hold that Atom to a membership rule an ordinary scalar answer is not
+    /// held to.
     #[inline(always)]
     fn assemble(results: Vec<Atom>) -> Result<Value, Error> {
         Ok(Sequence::new(results)?.into())
@@ -316,12 +316,12 @@ impl Stack {
     ///
     /// A Sequence widens the operation only where the Function declares that it
     /// pervades. Every other Function refuses one wherever it stands, so the
-    /// scalar exceptions ADR 0012 names are refused by their declaration rather
-    /// than by an omission somewhere in a body.
+    /// scalar exceptions are refused by their declaration rather than by an
+    /// omission somewhere in a body.
     ///
     /// Inlined, unlike its size would suggest, because it returns a `Broadcast`
     /// of about 120 bytes inside a `Result` and every caller consumes it
-    /// immediately. Left as an ordinary call it moved that buffer through a
+    /// immediately. As an ordinary call it moves that buffer through a
     /// return slot on every operation: measured at 50.1 ns for the `execute`
     /// bench against 40.7 ns with this attribute, and no change in the compiled
     /// library size.
@@ -426,12 +426,8 @@ impl Stack {
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
     ///
-    /// Four Functions declare themselves scalar and bind here: ADR 0039's Delay
-    /// `~*` and Euclidean `~%`, which refuse a Sequence operand because a
-    /// widened pulse has nothing to answer where an element does not Bang, and
-    /// ADR 0012's Increment `~+` and Interpolation `~>`, which refuse one
-    /// because their previous is one visible Atom. They arrive at this seam by
-    /// declaring their pervasion, not by adding a check of their own.
+    /// The Functions that bind here are Delay, Euclidean, Increment and
+    /// Interpolation.
     #[inline(always)]
     pub(crate) fn extract<O: Operands<Binding = ElementBinding>>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;
@@ -452,7 +448,7 @@ impl Stack {
     ///
     /// A scalar operation is answered where it is bound. It runs the same
     /// validation, the same bind, and the same closure the widened path runs —
-    /// the ordering `checked` fixes is unchanged, because the check is over
+    /// the ordering `checked` fixes holds, because the check is over
     /// operands and happens before either path begins — and then answers the
     /// Atom the Function returned, without reserving a Sequence's worth of room
     /// for a single element on the way.
@@ -470,8 +466,8 @@ impl Stack {
     ///
     /// [`Stack::apply`] is this with the index discarded: most Atomic
     /// Functions are a statement about their operands alone. Random is the
-    /// exception ADR 0013 names — Sequence index participates in each
-    /// element's stream — and this is the same broadcast, not a second one.
+    /// exception — Sequence index participates in each element's stream — and
+    /// this is the same broadcast, not a second one.
     #[inline(always)]
     pub(crate) fn apply_indexed<O, F>(&mut self, element: F) -> Result<Value, Error>
     where
@@ -495,10 +491,10 @@ impl Stack {
 
     /// Pops whole [`Value`]s for Functions that consume operands intact.
     ///
-    /// ADR 0007's structural Sequence Functions and Range Functions refuse
-    /// pervasive extension, so a Sequence operand is consumed whole rather than
-    /// element-wise. [`Operands::from_values`] binds each popped value to
-    /// the roles the Function declares.
+    /// For the structural Sequence and Range Functions, which do not pervade.
+    /// Nothing here reads the shape: [`Operands::from_values`] binds each
+    /// popped value to the role the Function declares, so a Sequence role
+    /// takes a Sequence intact and an Atom role refuses one.
     #[inline(always)]
     pub(crate) fn extract_values<O: Operands<Binding = WholeValueBinding>>(
         &mut self,
@@ -521,21 +517,20 @@ impl Stack {
     /// operands decide.
     ///
     /// The effect twin of [`Stack::apply`], and deliberately the same shape:
-    /// ADR 0030 extends the Terminal Output Functions under ADR 0007's rules
+    /// the Terminal Output Functions extend under the Atomic Functions' rules
     /// rather than under rules of their own, so `element` states one Play
     /// Command exactly as `math::add` states one Atom, and the scalar path,
     /// the repetition, the pairing, and the diagnostic ordering are the ones
-    /// every other Function already runs on.
+    /// every other pervasive Function runs on.
     ///
     /// What it does not share is the assembly. A Play Command is not an Atom,
     /// has no membership rule and no Source encoding, so there is no
     /// `Sequence::new` for a group of them to be constructed through and no
-    /// [`Broadcast::assemble`] equivalent here. The all-or-nothing answer ADR
-    /// 0030 requires is not lost with it: nothing is returned until every
-    /// element has produced its command, so a fault at any element diagnoses
-    /// the complete operation and performs nothing at all. That is what stops a
-    /// partly sounded chord, which the Source could not tell from a chord
-    /// written that way.
+    /// [`Broadcast::assemble`] equivalent here. The all-or-nothing answer is
+    /// not lost with it: nothing is returned until every element has produced
+    /// its command, so a fault at any element diagnoses the complete operation
+    /// and performs nothing at all. That is what stops a partly sounded chord,
+    /// which the Source could not tell from a chord written that way.
     #[inline(always)]
     pub(crate) fn perform<O, F>(&mut self, element: F) -> Result<Performance, Error>
     where
@@ -560,15 +555,15 @@ impl Stack {
     /// Evaluates one pervasive whole-value predicate across the shape its
     /// operands decide.
     ///
-    /// ADR 0011 has Equality use ordinary broadcasting to find its comparison
-    /// pairs and then answer one scalar about all of them, so it shares
-    /// everything above with [`Stack::apply`] and differs only in what it does
-    /// with the answers. It cannot be written as a map: a map would have to put
-    /// something at a position where a pair was unequal, and the only Atom
-    /// meaning nothing is the absence marker, which `Sequence::new` refuses
-    /// precisely because it has no Source encoding. An operation of no pairs is
-    /// vacuously true, which is what makes an empty Sequence operand answer one
-    /// Bang rather than nothing.
+    /// Equality uses ordinary broadcasting to find its comparison pairs and
+    /// then answers one scalar about all of them, so it shares everything above
+    /// with [`Stack::apply`] and differs only in what it does with the answers.
+    /// It cannot be written as a map: a map would have to put something at a
+    /// position where a pair was unequal, and the only Atom meaning nothing is
+    /// the absence marker, which `Sequence::new` refuses precisely because it
+    /// has no Source encoding. An operation of no pairs is vacuously true,
+    /// which is what makes an empty Sequence operand answer one Bang rather
+    /// than nothing.
     #[inline(always)]
     pub(crate) fn predicate<O, F>(&mut self, pair: F) -> Result<Value, Error>
     where
@@ -611,10 +606,10 @@ mod test {
     /// One Atom of every variant, so a check that claims to answer for all of
     /// them is swept rather than sampled.
     ///
-    /// The Functions come from `Function::ALL`, the one list the crate already
-    /// keeps honest, so a newly declared Function — a fifth Self-Banging
-    /// Function among them — is covered the day it exists rather than the day
-    /// someone remembers this list.
+    /// The Functions come from `Function::ALL`, the one list the crate keeps
+    /// honest, so a newly declared Function — a fifth Self-Banging Function
+    /// among them — is covered the day it exists rather than the day someone
+    /// remembers this list.
     fn every_atom() -> Vec<Atom> {
         let mut atoms = vec![Atom::Bang, Atom::Empty, Atom::Number(0), note(60)];
 
@@ -680,9 +675,9 @@ mod test {
 
     /// Raw Play, per element: `functions::raw_play`.
     ///
-    /// The Terminal Output half of the broadcast: ADR 0030 has `!>` extend
-    /// under ADR 0007's rules like any Atomic Function, and differ only in
-    /// answering a Play Command where an Atomic Function answers an Atom.
+    /// The Terminal Output half of the broadcast: `!>` extends like any Atomic
+    /// Function, and differs only in answering a Play Command where an Atomic
+    /// Function answers an Atom.
     fn play(stack: &mut Stack) -> Result<Performance, Error> {
         on_stack(stack, functions::raw_play)
     }
@@ -853,12 +848,12 @@ mod test {
 
     #[test]
     fn a_sequence_operand_is_satisfied_by_no_atom() {
-        // ADR 0007 forbids nesting and `Atom` carries no Sequence-bearing
-        // variant, so the refusal is over the whole type rather than over a list
-        // of variants. It does not promote either: an Atom standing at a
-        // Sequence position diagnoses rather than widening into a singleton,
-        // because ADR 0007 makes promotion Concatenate's decision and not
-        // Select's, and this seam belongs to neither.
+        // `Atom` carries no Sequence-bearing variant, so the refusal is over
+        // the whole type rather than over a list of variants. It does not
+        // promote either: an Atom standing at a Sequence position diagnoses
+        // rather than widening into a singleton, because promotion is
+        // Concatenate's decision and not Select's, and this seam belongs to
+        // neither.
         for atom in every_atom() {
             let rendering = atom.to_string();
 
@@ -886,12 +881,11 @@ mod test {
 
     #[test]
     fn a_scalar_play_answers_exactly_one_command_and_not_a_group_of_one() {
-        // ADR 0030 extends the Terminal Output Functions without changing what
-        // an Expression of Atoms performs. `Performance::One` is a shape of its
-        // own rather than a `Many` of length one, for the reason `Value` keeps
-        // `Atom` beside `Sequence`: every Play a Source has written so far is
-        // this shape, and answering a group here would put an allocation on the
-        // one path that has none.
+        // Widening leaves what an Expression of Atoms performs unchanged.
+        // `Performance::One` is a shape of its own rather than a `Many` of
+        // length one, for the reason `Value` keeps `Atom` beside `Sequence`: a
+        // scalar Play is the common case, and answering a group here would put
+        // an allocation on the one path that has none.
         let mut stack = empty_stack();
         push_all(
             &mut stack,
@@ -911,7 +905,7 @@ mod test {
 
     #[test]
     fn a_sequence_at_any_operand_position_answers_one_command_per_element_in_order() {
-        // ADR 0030 grants the extension to the Function and not to one favoured
+        // The extension belongs to the Function and not to one favoured
         // operand, so a Sequence widens `!>` wherever it stands and the scalars
         // beside it repeat. Each position is widened in turn with members that
         // differ from one another, so a group assembled in reverse, or a repeat
@@ -955,8 +949,8 @@ mod test {
             ])
         );
 
-        // The note position is the chord ADR 0030 is written for: one
-        // Expression, one channel, one velocity, three notes sounding together.
+        // The note position is the chord: one Expression, one channel, one
+        // velocity, three notes sounding together.
         let mut stack = empty_stack();
         push_all(
             &mut stack,
@@ -979,7 +973,7 @@ mod test {
 
     #[test]
     fn a_control_change_and_a_bend_widen_at_every_data_byte_position() {
-        // The two spellings ADR 0030 reaches that carry no note. Each has two
+        // The two terminal spellings that carry no note. Each has two
         // data bytes of one domain, so the widened position is what a
         // transposition would move: every operand value differs from every
         // other, and the elements ascend, so a swap of the two roles or a
@@ -1053,7 +1047,7 @@ mod test {
     #[test]
     fn a_control_change_and_a_bend_of_scalar_operands_answer_no_group() {
         // The other half of the shape claim, for the two spellings that
-        // reached ADR 0030 last: a scalar Expression answers `One` and not a
+        // carry no note: a scalar Expression answers `One` and not a
         // group of one, so a Source that wrote no Sequence is not told it
         // performed a group.
         let mut stack = empty_stack();
@@ -1090,9 +1084,8 @@ mod test {
     #[test]
     fn a_scalar_operand_repeats_across_every_element_of_a_timed_chord() {
         // Three scalars and one Sequence, through the Function of four
-        // operands: the repetition ADR 0007 describes reaches the fourth
-        // position as well, so a chord sounds on one channel, at one velocity,
-        // for one length.
+        // operands: scalar repetition reaches the fourth position as well, so a
+        // chord sounds on one channel, at one velocity, for one length.
         let mut stack = empty_stack();
         push_all(
             &mut stack,
@@ -1212,12 +1205,10 @@ mod test {
 
     #[test]
     fn a_sequence_operand_is_refused_exactly_where_a_function_declares_it_does_not_pervade() {
-        // ADR 0039's Delay and Euclidean and ADR 0012's Increment and
-        // Interpolation are what reach the pervasion arm of `broadcast` today.
-        // The rule is stated over the table rather than over the four Functions
-        // that reach it, so a row that changes its answer — in either
-        // direction, as Delay and Euclidean did — is covered by being
-        // declared, which is the discipline the Function table's
+        // The rule is stated over the table rather than over the Functions that
+        // declare themselves scalar, so a row that changes its answer, in
+        // either direction, is covered by being declared, which is the
+        // discipline the Function table's
         // `every_declared_operand_binds_the_lowest_value_its_token_reads`
         // applies to the bind.
         //
@@ -1268,10 +1259,8 @@ mod test {
         // at all, and whether the Source is told its channel byte is out of
         // range would depend on the length of an unrelated operand.
         //
-        // This is the half `sequence-values/02` had no pervasive witness for:
-        // every domain narrower than its Token belonged to a Terminal Output
-        // Function, and those were the Functions ADR 0030 has just made
-        // pervasive.
+        // Every domain narrower than its Token belongs to a Terminal Output
+        // Function, so a Play is the pervasive witness.
         let mut stack = empty_stack();
         push_all(
             &mut stack,
@@ -1333,8 +1322,8 @@ mod test {
 
     #[test]
     fn a_type_fault_still_precedes_a_domain_fault_at_width_zero() {
-        // The ordering `checked` fixes is unchanged by answering domains from
-        // the operand walk: the Token pass runs over every operand before any
+        // The ordering `checked` fixes holds when domains are answered from the
+        // operand walk: the Token pass runs over every operand before any
         // domain does, so a Note standing in a Number position is what the
         // Source is told about even when an earlier operand is also out of
         // range.
@@ -1359,7 +1348,7 @@ mod test {
 
     #[test]
     fn a_domain_fault_at_one_element_performs_nothing_at_all() {
-        // The claim ADR 0030 rests on. A partly sounded chord would be worse
+        // The all-or-nothing claim. A partly sounded chord would be worse
         // than a silent one, because the Source could not tell it from a chord
         // written that way. The out-of-domain member is in the middle of an
         // otherwise valid Sequence, and a domain is checked as an element binds
@@ -1455,7 +1444,7 @@ mod test {
 
     #[test]
     fn an_operation_over_atoms_alone_evaluates_once_and_answers_an_ordinary_atom() {
-        // Broadcasting must not change what every Expression written so far
+        // Broadcasting must not change what an Expression of scalar operands
         // answers: scalar operands leave an Atom on the stack, not a singleton
         // Sequence that would encode identically and compare differently.
         let mut stack = empty_stack();
@@ -1601,9 +1590,9 @@ mod test {
     #[test]
     fn a_mistyped_scalar_operand_diagnoses_where_the_shape_makes_no_elements() {
         // Width zero evaluates nothing, and a scalar operand is still part of
-        // the operation's type: ADR 0011 has `.=` accept only Number operands,
-        // and neither it nor an arithmetic Function may answer for a Note or a
-        // Bang standing beside an empty Sequence. A check that walked elements
+        // the operation's type: `.=` accepts only Number operands, and neither
+        // it nor an arithmetic Function may answer for a Note or a Bang
+        // standing beside an empty Sequence. A check that walked elements
         // rather than operands cannot see this, because there is no element for
         // the scalar to be repeated into.
         for faulty in [note(60), Atom::Bang] {
@@ -2009,9 +1998,9 @@ mod test {
         );
 
         // Two Sequence operands that cannot pair, ahead of the out-of-domain
-        // Numbers standing in one of them. ADR 0030 makes a Sequence at a Play
-        // operand position a shape to run rather than a shape to refuse, so the
-        // shape fault that precedes a domain fault is now the one about two
+        // Numbers standing in one of them. A Sequence at a Play operand
+        // position is a shape to run rather than a shape to refuse, so the
+        // shape fault that precedes a domain fault is the one about two
         // lengths.
         let mut stack = empty_stack();
         push_all(

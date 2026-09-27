@@ -5,10 +5,11 @@ pub(crate) mod sequence;
 pub(crate) mod tick;
 use crate::{Error, Performance, PlayCommand, atom::operands, interpreter::Context};
 
-// Both Functions here are declared Pervasive in `define_functions!`, so each
+// Every Function here is declared Pervasive in `define_functions!`, so each
 // body states one Play Command for one element and says nothing about
-// Sequences, exactly as an Atomic Function body states one Atom. ADR 0030
-// extends them under ADR 0007's rules rather than under rules of their own:
+// Sequences, exactly as an Atomic Function body states one Atom. They extend
+// under the Atomic Functions' broadcast rules rather than under rules of their
+// own:
 // `Stack::perform` decides the one shape the operands make, hands out each
 // element's operands, and answers the ordered group. A body that walked a
 // Sequence itself would be a second broadcast mechanism, free to disagree with
@@ -47,10 +48,10 @@ pub fn raw_play(ctx: &mut Context) -> Result<Performance, Error> {
 /// whatever length accompanies it — so the operand is extracted here and what
 /// it means is decided by the Playback Engine that owns the Ticks it counts.
 ///
-/// One length per element follows from stating the command per element: ADR
-/// 0030 gives each element of a widened `!~` its own Note Off at its own
-/// length, and the Playback Engine already keys ownership by channel and note,
-/// so nothing here or there is added for it.
+/// One length per element follows from stating the command per element: each
+/// element of a widened `!~` gets its own Note Off at its own length, and the
+/// Playback Engine keys ownership by channel and note, so neither side needs a
+/// case for it.
 #[inline(always)]
 pub fn timed_play(ctx: &mut Context) -> Result<Performance, Error> {
     ctx.stack.perform(
@@ -78,11 +79,11 @@ pub fn timed_play(ctx: &mut Context) -> Result<Performance, Error> {
 /// that tried to say so here would be interpreting musical intent inside a
 /// Tick Plan, which is the seam ADR 0001 draws.
 ///
-/// Widening under ADR 0030 is the same seam again. This states one command per
+/// Widening is the same seam again. This states one command per
 /// element and nothing about Sequences, so a widened `!%` answers an ordered
 /// group whose elements all name the one channel-keyed voice; that the last of
 /// them is what the channel is left sounding is the Playback Engine's rule,
-/// arrived at by the ordinary replacement it already performs, and not a case
+/// arrived at by the ordinary replacement it performs, and not a case
 /// this body knows about.
 #[inline(always)]
 pub fn monophonic_play(ctx: &mut Context) -> Result<Performance, Error> {
@@ -111,8 +112,8 @@ pub fn monophonic_play(ctx: &mut Context) -> Result<Performance, Error> {
 /// data bytes share a domain and differ in type, so this body cannot hand one
 /// role's operand to the other even by writing the fields out of order.
 ///
-/// One command per element, like every other terminal spelling: ADR 0030
-/// widens `!c` under ADR 0007's rules, so a Sequence in the controller
+/// One command per element, like every other terminal spelling: `!c` widens
+/// under the ordinary broadcast rules, so a Sequence in the controller
 /// position sweeps a bank of controllers from one Expression and a Sequence in
 /// the value position sends one controller a series. Nothing about that is
 /// stated here, because `Stack::perform` owns the width and this body owns the
@@ -141,7 +142,7 @@ pub fn control_change(ctx: &mut Context) -> Result<Performance, Error> {
 /// scaling decision ADR 0016 refuses and would leave the adapter splitting
 /// apart what this had just joined.
 ///
-/// Widening changes none of that. ADR 0030 gives each element its own bend,
+/// Widening changes none of that. Each element gets its own bend,
 /// and because the halves stay two operands rather than one assembled number,
 /// a Sequence in the LSB position sweeps the fine half against a held MSB
 /// exactly as the wire would take it.
@@ -237,14 +238,14 @@ mod test {
     #[test]
     fn play_evaluation_broadcasts_a_sequence_operand() {
         // Pervasion is decided in two places, and the declaration table is only
-        // one of them: a body that went back to `Stack::extract` would refuse
+        // one of them: a body that bound through `Stack::extract` would refuse
         // the Sequence below with `ExpectedAtom` while `RawPlay` still declared
         // `Pervasive`, and every broadcast test written against a test-local
         // restatement of the body would stay green. These exercise the shipped
         // Functions through the same Evaluator interface as Tick execution.
         //
-        // One channel and one velocity against three distinct notes: the chord
-        // ADR 0030 gives the Source with no new spelling, and distinct notes so
+        // One channel and one velocity against three distinct notes: a chord
+        // the Source writes with no spelling of its own, and distinct notes so
         // a group assembled in reverse is a different answer rather than the
         // same one.
         let operands = [
@@ -483,7 +484,7 @@ mod test {
 
     #[test]
     fn monophonic_play_takes_the_same_operand_domains_as_timed_play() {
-        // ADR 0016 gives `!%` Timed Play's operand shape, so it inherits the
+        // `!%` has Timed Play's operand shape, so it inherits the
         // domains with it. Each is proven by the operand that leaves it,
         // except the length, which has nothing outside it.
         for channel in 0x10..=u8::MAX {
@@ -551,7 +552,7 @@ mod test {
 
     #[test]
     fn timed_play_takes_the_same_midi_domains_as_raw_play_and_a_whole_byte_of_length() {
-        // The domains ADR 0016 fixes for `!~`, each proven by the operand that
+        // The domains of `!~`, each proven by the operand that
         // leaves them: a length is the one operand with nothing outside it.
         for channel in 0x10..=u8::MAX {
             assert!(
@@ -712,7 +713,7 @@ mod test {
 
     #[test]
     fn control_change_and_pitch_bend_take_a_midi_channel_and_two_data_bytes() {
-        // ADR 0016's domains for both spellings, each proven by an operand
+        // The domains of both spellings, each proven by an operand
         // that leaves them. The data-byte diagnostics are what the role types
         // buy at the Source: two operands of one domain, and a diagnostic that
         // still names which of them the Source wrote out of range.
