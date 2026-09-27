@@ -93,14 +93,14 @@ async fn a_refused_start_raises_a_console_notice_that_outlives_the_save() {
 
     let mut console = console_over(&storage);
     assert!(
-        console.persistence.notice_visible(),
+        console.persistence.notice_key().is_some(),
         "a refused start told the viewer nothing"
     );
 
     console.save(&mut storage);
 
     assert!(
-        console.persistence.notice_visible(),
+        console.persistence.notice_key().is_some(),
         "the notice went with the value the save moved aside"
     );
 }
@@ -115,7 +115,7 @@ async fn an_absent_or_restored_start_raises_no_console_notice() {
     store(&mut restored, &edited_source());
 
     for storage in [InMemoryStorage::default(), restored] {
-        assert!(!console_over(&storage).persistence.notice_visible());
+        assert!(console_over(&storage).persistence.notice_key().is_none());
     }
 }
 

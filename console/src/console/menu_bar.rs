@@ -237,7 +237,7 @@ impl Console {
                     #[cfg(target_arch = "wasm32")]
                     show_notices(ui, &mut self.themes, &mut Vec::new());
                     #[cfg(feature = "persistence")]
-                    if self.persistence.notice_visible() {
+                    if let Some(key) = self.persistence.notice_key().map(str::to_owned) {
                         ui.add_space(MENU_BAR_GAP);
                         if ui.button("Dismiss").clicked() {
                             self.persistence.dismiss_notice();
@@ -249,8 +249,7 @@ impl Console {
                             egui::Label::new(
                                 egui::RichText::new(format!(
                                     "Stored Source could not be read back; it was kept under \
-                                     \"{}\"",
-                                    crate::persistence::REFUSED_KEY
+                                     \"{key}\""
                                 ))
                                 .color(ui.visuals().error_fg_color),
                             )

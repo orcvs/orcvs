@@ -33,6 +33,10 @@ pub const SOURCE_KEY: &str = "orcvs_source";
 /// it every thirty seconds and it writes [`SOURCE_KEY`]. Moving the value here
 /// first is what makes a refusal mean "not restored" rather than "deleted".
 ///
+/// When this key already holds an earlier refusal, the value goes to the
+/// first free key this one numbers from two (`orcvs_source_refused_2`, and
+/// on), so no refusal is set aside over another.
+///
 #[cfg(feature = "persistence")]
 pub const REFUSED_KEY: &str = "orcvs_source_refused";
 
@@ -66,7 +70,7 @@ enum StoredSource {
     Absent,
     /// Storage holds a value this build will not read. The value is kept, so
     /// the console's next save can move it aside rather than write over it.
-    Refused(String),
+    Refused(Refusal),
     /// The stored revision, with every derived view rebuilt from it.
     Restored(Source),
 }
@@ -90,8 +94,18 @@ pub(crate) struct Start {
 ///
 #[cfg(feature = "persistence")]
 pub(crate) struct Persistence {
-    refused: Option<String>,
-    notice: bool,
+    refused: Option<Refusal>,
+    /// The key the notice names while it is visible.
+    notice: Option<String>,
+}
+
+///
+/// A refused payload and the free key it is set aside under.
+///
+#[cfg(feature = "persistence")]
+struct Refusal {
+    key: String,
+    payload: String,
 }
 
 #[cfg(feature = "persistence")]
@@ -102,18 +116,40 @@ impl Persistence {
         storage: &mut dyn eframe::Storage,
         source: &orcvs::source::SourceCommander,
     ) {
-        if let Some(refused) = self.refused.take() {
-            storage.set_string(REFUSED_KEY, refused);
+        if let Some(Refusal { key, payload }) = self.refused.take() {
+            storage.set_string(&key, payload);
         }
         source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
     }
 
-    pub(crate) fn notice_visible(&self) -> bool {
-        self.notice
+    /// The key the refused value is kept under, while the notice is visible.
+    pub(crate) fn notice_key(&self) -> Option<&str> {
+        self.notice.as_deref()
     }
 
     pub(crate) fn dismiss_notice(&mut self) {
-        self.notice = false;
+        self.notice = None;
+    }
+}
+
+///
+/// The first key under which setting a refusal aside overwrites nothing.
+///
+/// The key is chosen at start, before the first save, so the report and the
+/// notice name the key the save writes: only this console writes these keys.
+///
+#[cfg(feature = "persistence")]
+fn free_refused_key(storage: &dyn eframe::Storage) -> String {
+    if storage.get_string(REFUSED_KEY).is_none() {
+        return REFUSED_KEY.to_owned();
+    }
+    let mut n: u64 = 2;
+    loop {
+        let key = format!("{REFUSED_KEY}_{n}");
+        if storage.get_string(&key).is_none() {
+            return key;
+        }
+        n += 1;
     }
 }
 
@@ -134,8 +170,15 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
         return StoredSource::Absent;
     };
 
-    eframe::get_value::<Source>(storage, SOURCE_KEY)
-        .map_or(StoredSource::Refused(stored), StoredSource::Restored)
+    eframe::get_value::<Source>(storage, SOURCE_KEY).map_or_else(
+        || {
+            StoredSource::Refused(Refusal {
+                key: free_refused_key(storage),
+                payload: stored,
+            })
+        },
+        StoredSource::Restored,
+    )
 }
 
 ///
@@ -154,23 +197,23 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
             source,
             persistence: Persistence {
                 refused: None,
-                notice: false,
+                notice: None,
             },
         },
         StoredSource::Absent => Start {
             source: default_source(),
             persistence: Persistence {
                 refused: None,
-                notice: false,
+                notice: None,
             },
         },
-        StoredSource::Refused(stored) => {
-            report_refusal();
+        StoredSource::Refused(refusal) => {
+            report_refusal(&refusal.key);
             Start {
                 source: default_source(),
                 persistence: Persistence {
-                    refused: Some(stored),
-                    notice: true,
+                    notice: Some(refusal.key.clone()),
+                    refused: Some(refusal),
                 },
             }
         }
@@ -186,7 +229,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
 /// the same in a browser developer console, which has no fields.
 ///
 #[cfg(feature = "persistence")]
-fn report_refusal() {
+fn report_refusal(key: &str) {
     const REFUSED: &str = "refused the stored Source: it is not a Source this build can read; \
                            starting an empty Grid";
 
@@ -194,7 +237,7 @@ fn report_refusal() {
         "{}: {}; the stored value is kept under {}",
         SOURCE_KEY,
         REFUSED,
-        REFUSED_KEY
+        key
     );
 }
 
@@ -381,7 +424,7 @@ pub(crate) fn edited_source() -> orcvs::source::SourceCommander {
 pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::SourceCommander) {
     Persistence {
         refused: None,
-        notice: false,
+        notice: None,
     }
     .save(storage, source);
 }
@@ -410,7 +453,7 @@ mod tests {
         let mut storage = InMemoryStorage::default();
         Persistence {
             refused: None,
-            notice: false,
+            notice: None,
         }
         .save(&mut storage, &current);
 
@@ -451,16 +494,16 @@ mod stored_source_tests {
             let start = starting_source(Some(&storage));
             assert_default_grid(&start.source);
             let mut persistence = start.persistence;
-            assert!(persistence.notice_visible());
+            assert!(persistence.notice_key().is_some());
 
             if dismiss_before_save {
                 persistence.dismiss_notice();
-                assert!(!persistence.notice_visible());
+                assert!(persistence.notice_key().is_none());
             }
 
             let current = edited_source();
             persistence.save(&mut storage, &current);
-            assert_eq!(persistence.notice_visible(), !dismiss_before_save);
+            assert_eq!(persistence.notice_key().is_some(), !dismiss_before_save);
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
                 Some(refused)
@@ -477,7 +520,7 @@ mod stored_source_tests {
             let cell = current.grid().cell_index(0).expect("inside the Grid");
             current.set(cell, " ").expect("a valid empty Cell");
             persistence.save(&mut storage, &current);
-            assert!(!persistence.notice_visible());
+            assert!(persistence.notice_key().is_none());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
                 Some(refused),
@@ -490,6 +533,47 @@ mod stored_source_tests {
         }
     }
 
+    ///
+    /// The loss sequence: a refusal is set aside by a save, storage then
+    /// holds another value this build will not read, and a second refusal is
+    /// saved. An ordinary save between them writes a readable revision, so it
+    /// cannot produce the second refusal on its own.
+    ///
+    #[test]
+    fn a_second_refusing_start_keeps_the_payload_the_first_set_aside() {
+        let mut storage = InMemoryStorage::default();
+        let first = "the first refused Source";
+        eframe::Storage::set_string(&mut storage, SOURCE_KEY, first.to_owned());
+        let mut persistence = starting_source(Some(&storage)).persistence;
+        persistence.save(&mut storage, &edited_source());
+
+        let second = "the second refused Source";
+        eframe::Storage::set_string(&mut storage, SOURCE_KEY, second.to_owned());
+        let mut persistence = starting_source(Some(&storage)).persistence;
+        let second_key = persistence
+            .notice_key()
+            .expect("a refused start names where its value is kept")
+            .to_owned();
+        assert_ne!(second_key, REFUSED_KEY);
+        persistence.save(&mut storage, &edited_source());
+
+        assert_eq!(
+            eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
+            Some(first),
+            "the second refusal replaced the payload the first set aside"
+        );
+        assert_eq!(
+            eframe::Storage::get_string(&storage, &second_key).as_deref(),
+            Some(second),
+            "the second refusal is not kept under the key its notice names"
+        );
+        // A third refusal takes the next free key rather than either of these.
+        eframe::Storage::set_string(&mut storage, SOURCE_KEY, "a third".to_owned());
+        let third = starting_source(Some(&storage)).persistence;
+        let third_key = third.notice_key().expect("a refused start");
+        assert!(third_key != REFUSED_KEY && third_key != second_key);
+    }
+
     #[test]
     fn an_absent_or_restored_start_has_no_notice_and_preserves_existing_recovery() {
         let mut restored = InMemoryStorage::default();
@@ -497,10 +581,10 @@ mod stored_source_tests {
         for mut storage in [InMemoryStorage::default(), restored] {
             eframe::Storage::set_string(&mut storage, REFUSED_KEY, "previous refusal".to_owned());
             let mut persistence = starting_source(Some(&storage)).persistence;
-            assert!(!persistence.notice_visible());
+            assert!(persistence.notice_key().is_none());
             persistence.dismiss_notice();
             persistence.save(&mut storage, &edited_source());
-            assert!(!persistence.notice_visible());
+            assert!(persistence.notice_key().is_none());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
                 Some("previous refusal")
@@ -559,7 +643,7 @@ mod stored_source_tests {
             let start = starting_source(Some(&storage));
             assert_default_grid(&start.source);
             let mut persistence = start.persistence;
-            assert!(persistence.notice_visible());
+            assert!(persistence.notice_key().is_some());
 
             persistence.save(&mut storage, &SourceCommander::with_source(start.source));
             assert_eq!(
