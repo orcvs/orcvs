@@ -1,8 +1,8 @@
 # 11 — Settle Playback fairness, including the first Tick
 
-**What to decide:** Record the fairness policy for both branches of `next_playback_event` in `orcvs/src/playback.rs`. Sleeping deadlines already receive priority after `MESSAGES_BEFORE_A_DEADLINE = 64` messages. The immediate first Tick takes the separate `due_on_arrival` branch, which always tries another queued message and never applies that budget. Sustained arrivals can therefore postpone the first Tick indefinitely while observation says Playing, without reaching the Overrun check.
+**What to decide:** Record the fairness policy for both branches of `next_playback_event` in `orcvs/src/playback.rs`. Sleeping deadlines receive priority after `BACKLOGS_BEFORE_A_DEADLINE = 64` backlogs, where a backlog is what the task takes from the mailbox's coalesced slots (`orcvs/src/playback/mailbox.rs`) in one turn, however many requests went into it. The immediate first Tick takes the separate `due_on_arrival` branch, which does not apply that budget. When that branch took another pending backlog before answering, sustained arrivals could postpone the first Tick indefinitely while observation said Playing, without reaching the Overrun check.
 
-This is a sustained-producer risk, not a demonstrated failure under ordinary console interaction. The existing fairness test establishes eventual delivery in its tested run; it does not establish a bounded number of messages before the first Tick under a continuously nonempty queue. The resolved playback-actor/07 test establishes a separate requirement: a destination change or Disconnect already queued when the run begins must precede its first Tick.
+This is a sustained-producer risk, not a demonstrated failure under ordinary console interaction. The existing fairness test establishes eventual delivery in its tested run; it does not establish a bounded number of backlogs before the first Tick while callers keep the mailbox holding a backlog. The resolved playback-actor/07 test establishes a separate requirement: a destination change or Disconnect already queued when the run begins must precede its first Tick.
 
 **Blocked by:** None — policy decided below; implemented with source-audit/27 in one PR.
 
@@ -14,9 +14,9 @@ Related: source-audit/27 bounds command admission and defines overload behavior.
 
 - [x] Record the policy separately for the immediate first Tick and sleeping deadlines. State whether continuous arrivals may defer the first Tick indefinitely; if so, specify the supported producer constraint and how overload is observable.
 - [x] If progress is required under sustained arrivals, define which queued messages must precede the first Tick and how later arrivals stop extending that set forever. Preserve playback-actor/07's destination-change and Disconnect ordering guarantee.
-- [x] A deterministic test keeps the queue nonempty across more than the fairness budget before the first Tick and checks the chosen policy. It distinguishes initial backlog from subsequent arrivals and does not depend on a wall-clock delivery count.
+- [x] A deterministic test makes more than `BACKLOGS_BEFORE_A_DEADLINE` requests into the backlog that begins a run, then another request after that backlog is taken, and checks the chosen policy (`a_run_s_first_tick_follows_exactly_the_backlog_pending_when_it_began`). It distinguishes the initial backlog from subsequent arrivals and does not depend on a wall-clock delivery count.
 - [x] Sleeping deadlines retain their tested progress guarantee, and a deadline taking priority over a queued Stop still encounters closed Tick admission.
-- [x] State what the chosen message budget guarantees about progress and what it does not guarantee about wall-clock rate. Any claim that a different budget improves rate has a reproducible measurement.
+- [x] State what the chosen backlog budget guarantees about progress and what it does not guarantee about wall-clock rate. Any claim that a different budget improves rate has a reproducible measurement.
 
 ## Verification
 
@@ -72,3 +72,5 @@ than assumed.
 **2026-09-25 — implementation.** Implemented with source-audit/27 in orcvs/orcvs#148: the first Tick follows exactly the backlog taken with its Start; policy in ADR 0056. Resolve on merge.
 
 **2026-09-25 — resolved.** Merged in orcvs/orcvs#148 (`67d28248`). The fairness budget is now `BACKLOGS_BEFORE_A_DEADLINE` (formerly `MESSAGES_BEFORE_A_DEADLINE`) and counts coalesced backlogs rather than messages, so the beyond-budget first-Tick test is bounded by slots, as its doc comment states.
+
+**2026-09-27 — restated in current terms.** The body and criteria now use `BACKLOGS_BEFORE_A_DEADLINE = 64` (`orcvs/src/playback.rs`) and backlogs of coalesced mailbox slots in place of messages and a nonempty queue. Read the 2026-09-25 triage bullets the same way: after the first Tick, a sleeping deadline that has been reached is taken within `BACKLOGS_BEFORE_A_DEADLINE = 64` backlogs, which says nothing about wall-clock rate; and the first-Tick test fills the backlog that begins a run with more than 64 requests, which coalesce into its slots, then asserts the first Tick lands after that backlog and before the request that arrives after it.

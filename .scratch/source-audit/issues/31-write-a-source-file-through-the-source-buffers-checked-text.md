@@ -2,7 +2,7 @@
 
 **What to build:** `file::write` reads the Cells as text through the `SourceBuffer`'s one checked conversion instead of re-establishing their invariant row by row. It reads `Source::cells() -> &[u8]`, which does not carry the invariant, so it calls `from_utf8(...).expect("a Source row is printable ASCII")` on every row it keeps. `SourceBuffer::as_str` already proves the whole buffer is text once; slicing that `&str` at row boundaries cannot fail, because every Cell is one ASCII byte.
 
-**Blocked by:** 08.
+**Blocked by:** None — 08 is resolved (orcvs/orcvs#165).
 
 **Status:** ready-for-agent
 

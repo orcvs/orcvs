@@ -6,36 +6,16 @@ Operand clones are source-audit/24's.
 
 **Blocked by:** None — can start immediately.
 
-Related: source-audit/09 decides whether `Interpreter::execute` stays public; source-audit/24 owns
-the operand clones on the same path.
+Related: source-audit/09 deleted `Interpreter::execute` (orcvs/orcvs#156), so `execute_function` is the only caller of the Operand Stack; source-audit/24 owns the operand clones on the same path.
 
 **Status:** ready-for-agent
 
-- [ ] `Stack::new` stops taking a heap block for every Turn. The path is
-      `Interpreter::execute_function` -> `Context::new(inputs, operands.len() + 1)` ->
-      `Stack::new(limit)`, which is `Vec::with_capacity(limit)` over a 24-byte `Value`.
-- [ ] The storage is inline, following `05e4490` and `a215af7` — the same treatment already
-      applied to the Parser's pending stacks and to the inline Expression records. The inline
-      capacity is the `MAX_OPERANDS + 1` bound below. Growable overflow ships only if a shipped
-      caller can exceed that bound, which after source-audit/09 means only if `execute` stays
-      public; otherwise no overflow branch ships that only a test could reach.
-- [ ] ADR 0028's requirement still holds. On `execute_function` the depth is at most
-      `MAX_OPERANDS + 1`, so an inline capacity of that size is provably sufficient; record the
-      proof. If `execute` stays public after source-audit/09, exhausting its stack still answers a
-      diagnostic. Inline storage must not turn an exhausted stack into a panic.
-- [ ] A Turn through `execute_function` takes no heap block for its Operand Stack. An allocation
-      test in `lang/tests/allocation.rs` measures `execute_function` and pins zero allocations for
-      a Function whose operands and answer hold no Sequence;
-      `a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row` measures
-      `execute` and is replaced or retargeted, and its `FINDING (2026-09-09)` comment is replaced
-      with a note saying what was corrected. If source-audit/24 lands first and adds this test,
-      reuse it.
-- [ ] If `execute` stays public, an Expression that exceeds the inline capacity still evaluates
-      correctly through it, and a test covers it.
-- [ ] Every existing `lang` test and property passes unchanged, including the `Stack` suite and the
-      Interpreter suites.
-- [ ] A benchmark over `execute_function` covers this path; add it if source-audit/24 has not.
-      Note it for the comparison the benchmark workflow runs; do not run the comparison locally.
+- [ ] `Stack::new` stops taking a heap block for every Turn. The path is `Interpreter::execute_function` -> `Context::new(inputs, operands.len())` (`lang/src/interpreter.rs`) -> `Stack::new(limit)` (`lang/src/stack.rs`), which is `Vec::with_capacity(limit)` over a 24-byte `Value`.
+- [ ] The storage is inline, following `05e4490` and `a215af7` — the same treatment already applied to the Parser's pending stacks and to the inline Expression records. The inline capacity is `MAX_OPERANDS` (`lang/src/stack.rs`), the widest operand list the Function table declares; the stack holds the operands only, with no slot for the answer. `execute_function` is the only caller, so no growable overflow branch ships.
+- [ ] ADR 0028's requirement still holds. `execute_function` refuses an operand count other than its Function's signature length before building the stack, so the depth is at most `MAX_OPERANDS` and an inline capacity of that size is provably sufficient; record the proof. A push onto an exhausted stack still answers `OperandStackExhausted` rather than panicking.
+- [ ] A Turn through `execute_function` takes no heap block for its Operand Stack. `a_turn_over_atoms_allocates_nothing_but_its_operand_stack` (`lang/tests/allocation.rs`) pins zero allocations for a Function whose operands and answer hold no Sequence. `evaluating_a_parsed_source_allocates_per_call_and_not_per_row` (same file) drops its one-block-per-call ceiling to zero, and the undated `FINDING:` comment at the head of that test, which attributes the block to `Stack::new`'s `Vec::with_capacity`, is replaced with a note saying what was corrected.
+- [ ] Every other existing `lang` test and property passes unchanged, including the `Stack` suite, the Interpreter suites and the parser property tests. The three allocation tests the 2026-09-26 reconciliation comment names are tightened by one block each: `a_turn_over_atoms_allocates_nothing_but_its_operand_stack` to zero, and `a_sequence_operand_is_consumed_without_copying_its_members` and `a_turn_that_builds_a_sequence_allocates_only_that_answer` by dropping the Operand Stack's block from their ceilings.
+- [ ] The `execute_function` benchmark and the `execute_function_operands` group in `lang/benches/lang.rs` cover this path. Note them for the comparison the benchmark workflow runs; do not run the comparison locally.
 
 ## Comments
 
@@ -91,3 +71,5 @@ rather than in `execute_function`'s loop.
 - `a_sequence_operand_is_consumed_without_copying_its_members` and `a_turn_that_builds_a_sequence_allocates_only_that_answer` allow the Operand Stack's block as a ceiling (`operand_stack(arity)` bytes, one block). With inline storage they pass unchanged; tighten each by one block when this lands.
 - The `execute_function` benchmark and the `execute_function_operands` group in `lang/benches/lang.rs` cover this path.
 - `execute_function` now takes its operands by value, so no operand clone remains on the path: after this ticket a Turn whose operands and answer hold no Sequence allocates nothing in `lang`. `orcvs` still allocates two blocks per Turn outside `lang` — the `Tokens` signature in `opens_turn` and the operand `Vec` — recorded in source-audit/24.
+
+**2026-09-27 — criteria restated for the path on `main`.** `Interpreter::execute` is deleted, so the conditions on it staying public, the overflow-branch criterion and the exceeding-capacity test are gone. `execute_function` sizes the stack at `operands.len()` with no answer slot, so the bound is `MAX_OPERANDS`, not `MAX_OPERANDS + 1`. The allocation criterion names the two tests that now measure `execute_function`, and identifies the `FINDING:` comment by its test, since `a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row` and its `FINDING (2026-09-09)` comment no longer exist. The test criterion now asks for the three allocation ceilings the reconciliation comment tightens, instead of every test passing unchanged. In the first comment, read the size test as `the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against`, pinned against the `execute_function` benchmark floor.

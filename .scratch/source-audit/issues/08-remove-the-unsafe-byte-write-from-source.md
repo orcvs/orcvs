@@ -9,7 +9,7 @@
 - [x] `Source.inner` is a private `SourceBuffer` over shared bytes. Every write takes a `CellContent` and goes through safe copy-on-write, so the shipped `unsafe` block and its `SAFETY:` comment are gone. Correct the comment in `orcvs/tests/allocation.rs` naming "the workspace's one `unsafe` block" to distinguish shipped code from the test allocators, which stay out of scope.
 - [x] Source still holds exactly one printable ASCII byte per Cell, and construction, deserialization and Source File read still enforce it.
 - [x] A planning snapshot and a Source revision share the Source's buffer rather than copying it; a test pins the sharing by pointer identity, and one pins that a write while a reader holds the buffer leaves that reader's Cells unchanged. `PlanningSnapshot` and `SourceRevision` remain separate types.
-- [x] An edit that lands while a snapshot or revision holds the buffer copies it under the write lock. That cost is accepted, and measured.
+- [x] An edit that lands while a snapshot or revision holds the buffer copies it under the write lock. That cost is accepted: it is the 64 KiB copy `source_read_revision/256x256` measured at ~1.3 µs before this ticket.
 - [x] Tick planning, the Language Map and Claim lookup keep taking `&[u8]`, borrowed from the buffer; passing the buffer's type through them is 30.
 - [x] `snapshot() -> String` remains the owned, copying form.
 - [x] The persisted format is unchanged, and the existing format test passes unmodified. Loading converts the stored text into the buffer once; saving borrows the Cells as text through a checked view instead of cloning them. The Language Map built twice on load is out of scope.

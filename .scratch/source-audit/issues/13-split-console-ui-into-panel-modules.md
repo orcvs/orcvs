@@ -4,14 +4,14 @@
 
 **Blocked by:** 03 — Prove the panel's Playback wake-up survives an Open; 04 — Make the browser build's MIDI Output agree with its reporting path; 12 — Move console.rs inline tests into sibling test modules; 14 — Drive the panel layout test through Console::ui; 26 — Share console test setup and stop polling with sleeps.
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] File workflows, input routing, Source presentation and repaint scheduling have explicit owners and interfaces. `Console::ui` composes those operations; extraction follows responsibilities rather than an arbitrary line limit.
 - [x] Review `show_source_scene`, `show_source`, `geometry` and both argument-count suppressions. Group parameters only when they share a domain concept; justify any retained narrow suppression instead of hiding unrelated arguments in a bag.
 - [x] Preserve focus routing, file confirmation behavior, menu ordering and repaint timing with the existing behavioral tests.
 - [x] The frame no longer clones the presented Theme or the MIDI destination list; it borrows them.
 - [x] kittest and paint tests pass unchanged.
-- [ ] The paint benchmark shows no regression beyond noise.
+- [x] The paint benchmark shows no regression beyond noise.
 
 ## Comments
 
@@ -20,3 +20,5 @@
 **2026-09-25 — acceptance-criteria review against `199c3331`.** Replaced line-count and suppression quotas with responsibility-based boundaries and observable behavior preservation.
 
 **2026-09-26 — implementation (epic PR 16).** Delivered in orcvs/orcvs#160, stacked on #158 and #157. `Console::ui` composes owners in `console/src/console/`: `input` (`translate_event`, the Zoom and File chords, `keep_tab_for_source`, `route_keys`, `latch_keyboard_owner`), `menu_bar` (`show_menu_bar` → `MenuBarChoice`), `files` (file workflows, discard confirmation, close guard, window title), `panel` (`show_panel`, `observe_playback_diagnostics`), `source_view` (`SourceView`, `show_source_scene`, `show_source_panel` → `ShownSource`), `shapes` (`show_source`, `SourceShapes`), `glyphs` (`glyph_scale`, `GlyphTable`), `repaint` (the Panel wake, `request_timed_repaint`) and `diagnostics_window`. `CursorEffectMotion` carries the Cursor Effect's sample and the settings it was advanced under, the one pair `show_source_scene`, `show_source` and `cursor_effect_shapes` shared, and both `too_many_arguments` suppressions are gone. The remaining parameters (geometry, Render Frame, font, Theme) stay separate because no domain concept groups them. `show_source_panel` borrows the presented Theme, and the destination ComboBox borrows the MIDI destination list, running Scan once the borrow ends. The native console test list is unchanged at 496 names. Test bodies change only in their `use` paths and in the call sites that now pass `CursorEffectMotion`; no assertion changed. The benchmark box stays open: the paint benchmark comparison runs in CI on the pull request into `main`, and a local run decides nothing.
+
+**2026-09-27 — resolved.** Merged in orcvs/orcvs#160 (`f34f1fb3`). On the pull request, the Benchmark workflow's "Compare against main" step passed (run 36222345284, against `03eb2855`): every `paint_derive` and `paint_background_runs` series moved between −39% and +11%, the rises confined to the smallest cases (`paint_derive/single` 76 → 83 ns, `paint_derive/empty` 35 → 39 ns) and the fitted grids from 64x64 up faster, so nothing regressed beyond runner noise. The run's one alert, `source_read_revision/16x16` 31 → 55 ns, is an `orcvs` bench below the fail threshold, and #160 touches no `lang` or `orcvs` source. The run's failing "Check bench floors" step was `lang`'s `execute` floor (111 ns against 100 ns), likewise unrelated to #160. The push run on the merge (36222865145, `f34f1fb3`) succeeded.

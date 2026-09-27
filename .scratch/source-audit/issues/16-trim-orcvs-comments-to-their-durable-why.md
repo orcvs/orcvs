@@ -1,8 +1,8 @@
 # 16 — Correct orcvs comments the source-audit changes leave behind
 
-**What to build:** After source-comments/03 holds `orcvs` to `docs/agents/comments.md` (lineage, provenance citations, `SAFETY:`/doctest/intra-doc/`reason =` carve-outs), what remains is the work that rule does not cover and that depends on the code the orcvs source-audit tickets change: each argument stated once, and doc comments no longer than the functions they describe. Comments are 35–47% of shipped lines in the largest modules (`playback`, `app`, `portal`, `tick`, `execution`, `model`, `language_map`).
+**What to build:** After source-comments/03 holds `orcvs` to `docs/agents/comments.md` (lineage, provenance citations, `SAFETY:`/doctest/intra-doc/`reason =` carve-outs), what remains is the work that rule does not cover and that depends on the code the orcvs source-audit tickets change: each argument stated once, and doc comments no longer than what a caller needs to use the item. Comments are 35–47% of shipped lines in the largest modules (`playback`, `app`, `portal`, `tick`, `execution`, `model`, `language_map`). The scope includes the Playback command mailbox and fairness code already delivered by 27 and playback-actor/11 in orcvs/orcvs#148: `orcvs/src/playback/mailbox.rs`, and `BACKLOGS_BEFORE_A_DEADLINE` with `next_playback_event` in `orcvs/src/playback.rs`.
 
-**Blocked by:** source-comments/03; 01 — Derive the Tick period from BPM without truncation; 02 — Close the Tick gate race; 06 — Reuse unchanged Language Map rows; 07 — Plan a Tick outside the Source write lock; 08 — Remove the unsafe byte write from Source; 10 — Move orcvs test-only state out of shipped code; 19 — Cache the Tick schedule; 20 — Derive Sequence capability in one place; 21 — Bound the Playback diagnostics queue.
+**Blocked by:** source-comments/03; 01 — Derive the Tick period from BPM without truncation; 02 — Close the Tick gate race; 06 — Reuse unchanged Language Map rows; 07 — Plan a Tick outside the Source write lock; 08 — Remove the unsafe byte write from Source; 10 — Move orcvs test-only state out of shipped code; 19 — Cache the Tick schedule; 20 — Derive Sequence capability in one place; 21 — Bound the Playback diagnostics queue; 31 — Write a Source File through the SourceBuffer's checked text.
 
 **Status:** ready-for-agent
 
@@ -14,3 +14,5 @@
 ## Comments
 
 **2026-09-25 — audited against `origin/main` `199c3331`.** The lineage and citation criteria duplicated source-comments/03 (filed by 0ce8d2c4, ready-for-agent). The old criterion banning every issue-tracker citation also contradicted rule 3 of `docs/agents/comments.md`, which keeps a citation to an open ticket. Manifest comments belong to source-comments/05. Removed 23 (obsolete) from the blockers.
+
+**2026-09-27 — reconciled with the criteria and with delivered code.** The prose now sizes doc comments by what a caller needs, as the second criterion does, rather than by the length of the function. The Playback command mailbox (`orcvs/src/playback/mailbox.rs`) and the fairness budget (`BACKLOGS_BEFORE_A_DEADLINE`, `orcvs/src/playback.rs`), delivered by 27 and playback-actor/11 in orcvs/orcvs#148, are added to the review scope; both are resolved, so they are code to review, not prerequisites.
