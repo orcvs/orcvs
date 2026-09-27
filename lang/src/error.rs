@@ -52,8 +52,8 @@ pub enum SequenceError {
     Member(String),
 
     /// Two non-scalar operands of unequal length, named in signature order.
-    /// ADR 0007 pairs equal-length Sequences element-wise and diagnoses
-    /// everything else, including an empty Sequence against a non-empty one:
+    /// Equal-length Sequences pair element-wise and everything else
+    /// diagnoses, including an empty Sequence against a non-empty one:
     /// an empty operand is a length rather than a scalar that repeats. The
     /// shape of an operation is settled before any of its elements is read, so
     /// this precedes every diagnostic about one element.
@@ -79,8 +79,8 @@ pub enum InterpretationError {
 
     /// A Tick-reading Function handed a zero where its cycle needs a length.
     ///
-    /// ADR 0012 measures Clock's and Delay's cycle as `rate * modulus` and
-    /// Euclidean's as `steps`, and none of the three has a cycle at all once a
+    /// Clock's and Delay's cycle is `rate * modulus` and Euclidean's is
+    /// `steps`, and none of the three has a cycle at all once a
     /// factor is zero: there is no step to be at, no period to be on, and no
     /// position for an onset to fall in. Each therefore diagnoses rather than
     /// inventing a cycle, exactly as [`InterpretationError::DivisionByZero`]
@@ -103,7 +103,7 @@ pub enum InterpretationError {
 
     /// Clock computed a step its Number answer cannot hold.
     ///
-    /// Unreachable while ADR 0012's formula stands: the step is
+    /// Unreachable while the step formula stands: the step is
     /// `(Tick / rate) % modulus`, a remainder of a modulus that arrived as a
     /// Number, so it is below `FF` however far the Tick has counted. The
     /// variant exists for what the alternatives to it would cost. A panic
@@ -119,7 +119,7 @@ pub enum InterpretationError {
 
     /// Euclidean asked to place more onsets than its cycle has positions.
     ///
-    /// ADR 0012 validates zero steps first and this second, so `(00, 00)` is a
+    /// Zero steps is validated first and this second, so `(00, 00)` is a
     /// cycle of no length rather than a pattern of no hits. Both operands are
     /// named because either one is the Cell pair the Source would edit. The
     /// Function is named in the message rather than carried in a field, unlike
@@ -137,7 +137,7 @@ pub enum InterpretationError {
 
     /// Increment handed a zero where its wrap needs a length.
     ///
-    /// ADR 0012's `(previous + step) % modulus` has no wrap once the modulus
+    /// Increment's `(previous + step) % modulus` has no wrap once the modulus
     /// is zero, so Increment diagnoses rather than inventing one. The variant
     /// is its own rather than [`InterpretationError::ZeroCycle`] because
     /// Increment is not counting a cycle: it is wrapping a running Number, and
@@ -154,8 +154,8 @@ pub enum InterpretationError {
 
     /// Increment or Interpolation found a previous that is not a Number.
     ///
-    /// ADR 0012 treats an empty Portal as Number `00` and diagnoses any other
-    /// present Language Unit. Portal binding raises this after cell operand
+    /// An empty Portal reads as Number `00` and any other present Language
+    /// Unit diagnoses. Portal binding raises this after cell operand
     /// validation, so the fault is named here rather than
     /// as a [`crate::TypeError`] about operand Cells the Source did not write
     /// as an operand. `function` is the declared Function and `role` names
@@ -177,7 +177,7 @@ pub enum InterpretationError {
 
     /// Increment or Interpolation computed a Number their answer cannot hold.
     ///
-    /// Unreachable while ADR 0012's formulas stand: Increment's result is a
+    /// Unreachable while the formulas stand: Increment's result is a
     /// remainder of a modulus that arrived as a Number, and Interpolation
     /// moves a Number toward a Number, so both stay below `FF`. The variant
     /// exists for the reason [`InterpretationError::ClockStepOutOfRange`]
@@ -242,8 +242,8 @@ pub enum SyntaxError {
     #[error("unexpected trailing content {0:?}")]
     UnexpectedTrailingContent(String),
 
-    /// A Comment where a value was required. ADR 0035 makes a Comment a
-    /// complete Language Unit that is not a value: it records a Token and no
+    /// A Comment where a value was required. A Comment is a complete
+    /// Language Unit that is not a value: it records a Token and no
     /// Atom, so permissive analysis completes and strict parsing, which
     /// yields Atoms, has nothing to yield.
     #[error("a Comment is a Language Unit rather than a value")]

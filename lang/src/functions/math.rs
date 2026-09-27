@@ -54,15 +54,15 @@ pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
 ///
 /// A whole-value predicate that answers a pulse rather than a truth value:
 /// equal operands produce one Bang, and unequal operands produce `Atom::Empty`,
-/// which is already the Interpreter's "no result write" signal. Answering a
+/// which is the Interpreter's "no result write" signal. Answering a
 /// Number for the unequal case would put a Cell meaning "false" into the
 /// Source, where the next Tick would read it as an ordinary operand.
 ///
-/// ADR 0011 keeps that true of a comparison over Sequences: this uses ordinary
+/// That holds for a comparison over Sequences too: this uses ordinary
 /// pervasive extension to find its pairs and still answers exactly one Atom
 /// about all of them, so it goes through `predicate` rather than `apply`. A map
 /// would have to write an absent element where a pair disagreed, and Sequence
-/// has no such member; the aggregations that do want positions are deferred to
+/// has no such member; the aggregations that do want positions belong to
 /// Functions of their own.
 #[inline(always)]
 pub fn equality(ctx: &mut Context) -> Result<Value, Error> {
@@ -157,7 +157,7 @@ mod test {
 
     #[test]
     fn equality_answers_one_bang_only_when_every_broadcast_pair_is_equal() {
-        // ADR 0011 makes `.=` a whole-value predicate: it uses ordinary
+        // `.=` is a whole-value predicate: it uses ordinary
         // broadcasting to find its pairs and then answers one Atom about all of
         // them. Each case below has a shape an element-wise Function would
         // answer a Sequence for, so a map written by accident fails here rather

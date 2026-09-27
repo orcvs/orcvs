@@ -87,9 +87,8 @@ fn midi_data_byte(role: &'static str, value: u8) -> Result<u8, crate::Interpreta
 /// private predicate.
 ///
 /// The role word becomes a property of the type rather than an argument every
-/// call site has to remember, so a role that arrives with Control Change or
-/// Pitch Bend is one line here and inherits both the domain and the diagnostic
-/// wording.
+/// call site has to remember, so each role is one line here and inherits both
+/// the domain and the diagnostic wording.
 macro_rules! define_data_byte_roles {
     ($($(#[$doc:meta])* $name:ident => $role:literal),+ $(,)?) => {$(
         $(#[$doc])*
@@ -262,11 +261,11 @@ impl FunctionKind {
 /// to be re-excluded at every caller.
 #[derive(Clone, Copy)]
 enum EffectKind {
-    /// The `!` family of ADR 0016: a Play Command delivered to the Playback
-    /// Engine, with nothing written back into the Source.
+    /// The `!` family: a Play Command delivered to the Playback Engine, with
+    /// nothing written back into the Source.
     TerminalOutput,
-    /// ADR 0004's Source-writing effect: Cells written back into the Source
-    /// through one validated Portal bundle, with no Play Command and no value.
+    /// A Source-writing effect: Cells written back into the Source through one
+    /// validated Portal bundle, with no Play Command and no value.
     ///
     /// The whole effect rides inside the variant because that is what this type
     /// is for — the effect a Function performs, not merely that it performs
@@ -304,7 +303,7 @@ macro_rules! function_kind {
     // The two groups are written as one block on purpose. Each `SelfBang` arm
     // sits beside the `Bang` arm that emits it, and the pair differs in the
     // bundle and — in the table's activation column — in where the Turn comes
-    // from. That is ADR 0029's asymmetry as two lines rather than as a
+    // from. That is the activation asymmetry as two lines rather than as a
     // paragraph, and the horizontal offsets say the rest: a Self-Banging
     // Function moves one Cell, and a Directional Bang Function emits two, which
     // is outside its own Span. A direction name would have hidden the
@@ -383,23 +382,19 @@ macro_rules! function_kind {
 
 /// Where a root Function's activation comes from.
 ///
-/// ADR 0006 states the rule and its one exception together: "An ordinary root
-/// Expression is inert until Bang activation. A Self-Banging Function is the
-/// explicit exception in activation source: at its own Source-order turn it
-/// intrinsically receives Bang activation without creating a Source-resident
-/// `**`." That asymmetry is a property of the Function and of nothing else, so
-/// it is declared beside every other property rather than derived from one of
-/// them. ADR 0029 calls it "the whole reason both forms exist": `^^` and `*^`
-/// write the same spelling to the same geometry and differ here.
+/// An ordinary root Expression is inert until Bang activation. A Self-Banging
+/// Function is the one exception: at its own Source-order turn it receives Bang
+/// activation without a Source-resident `**`. That asymmetry is a property of
+/// the Function and of nothing else, so it is declared beside every other
+/// property rather than derived from one of them: `^^` and `*^` write the same
+/// spelling to the same geometry and differ here.
 ///
-/// It was read off [`FunctionKind`] until the Self-Banging Functions were
-/// declared, because a value Function was exactly a Function that took its Turn
-/// without a Bang. `^^` answers an effect and takes its Turn anyway, so the two
-/// questions came apart and this is the one Tick scheduling means.
+/// It is not [`FunctionKind`]. `^^` answers an effect and takes its Turn
+/// without a Bang, so whether a Function answers a value does not say where
+/// its activation comes from, and this is the question Tick scheduling means.
 ///
 /// Only a root is asked. A nested Function takes its Turn from the root that
-/// owns it, per ADR 0006's "Activation recursively includes nested Functions",
-/// so what a nested Function declares here is never read.
+/// owns it, so what a nested Function declares here is never read.
 #[derive(Clone, Copy)]
 enum ActivationSource {
     /// The root takes a Turn at its own Source-order turn with nothing
@@ -445,31 +440,31 @@ enum Pervasion {
 ///
 /// [`Pervasion`] above says whether a Sequence operand is admitted at all; this
 /// says what reaches the answer when one is. The two are independent, and
-/// Equality is why. ADR 0011 makes it "a whole-value predicate": it broadcasts
-/// to find its comparison pairs, so it is `Pervasive`, and it still returns one
-/// scalar Bang or no value at all, so its answer is one Atom however wide its
-/// operands were. Deriving the width from the pervasion column would make
-/// Equality answer a Sequence it never returns, and deriving it from the family
-/// prefix would do the same to every `.`-spelled row.
+/// Equality is why. It is a whole-value predicate: it broadcasts to find its
+/// comparison pairs, so it is `Pervasive`, and it still returns one scalar Bang
+/// or no value at all, so its answer is one Atom however wide its operands
+/// were. Deriving the width from the pervasion column would make Equality
+/// answer a Sequence it never returns, and deriving it from the family prefix
+/// would do the same to every `.`-spelled row.
 ///
 /// Tick scheduling reads this, per ADR 0036, to decide how many Cells one
 /// result can reach before any Function has evaluated. That is why the answer
 /// is declared rather than observed: a schedule is fixed before a width exists.
 #[derive(Clone, Copy)]
 enum Answer {
-    /// One Atom, whatever its operands carry. Equality is the row that first
-    /// declared this; ADR 0012's Increment and Interpolation refuse a Sequence
-    /// operand outright and declare it beside `Pervasion::Scalar`.
+    /// One Atom, whatever its operands carry. Equality declares this because
+    /// it answers once about every pair; every other row that declares it does
+    /// not pervade.
     Atom,
     /// One answer per element, so as wide as the widest operand: an Atom for
     /// Atom operands and a Sequence of the same length for a Sequence one. This
-    /// is ADR 0007's pervasive extension seen from the result, so a row
+    /// is pervasive extension seen from the result, so a row
     /// declaring it must also declare `Pervasion::Pervasive` — a Function that
     /// refuses a Sequence operand can never widen over one — and a test below
     /// holds the two columns to that.
     Elementwise,
-    /// A Sequence, whatever its operands carry: the answer ADR 0007's
-    /// Concatenate, Note Range, Number Range, Replace and Reverse declare.
+    /// A Sequence, whatever its operands carry: the answer Concatenate, Note
+    /// Range, Number Range, Replace and Reverse declare.
     Sequence,
 }
 
@@ -630,28 +625,27 @@ macro_rules! define_functions {
             ///
             /// This is the question Tick scheduling's activation seed asks, and
             /// the only one that decides it. It is not
-            /// [`Function::answers_value`]: those two selected the same rows
-            /// until the Self-Banging Functions were declared, and a caller
-            /// that kept asking the value question would leave `^^` inert
-            /// forever.
+            /// [`Function::answers_value`]: `^^` answers an effect and takes
+            /// its Turn anyway, so a caller that asked the value question would
+            /// leave `^^` inert forever.
             #[inline(always)]
             pub const fn is_intrinsically_active(self) -> bool {
                 matches!(self.activation_source(), ActivationSource::Intrinsic)
             }
 
-            /// Whether this Function performs the Terminal Output effect of
-            /// ADR 0016: a Play Command delivered to the Playback Engine, with
-            /// nothing written back into the Source.
+            /// Whether this Function performs the Terminal Output effect: a
+            /// Play Command delivered to the Playback Engine, with nothing
+            /// written back into the Source.
             ///
-            /// This is the narrow question, and it is asked only where the
-            /// rule is about Terminal Output rather than about answering an
-            /// effect. Having no Cell destination is such a rule: ADR 0004
-            /// gives a Source-writing Function a validated write bundle and
-            /// ADR 0009 lets it resolve multiple Portals, so a gate that
-            /// refused a Portal to every Function answering an effect would
-            /// deny the Halt and Directional Bang Functions their
-            /// destinations. Ask [`Function::answers_value`] instead wherever
-            /// the rule is that nothing consumes the answer.
+            /// This is the narrow question, and it is asked only where the rule
+            /// is about Terminal Output rather than about answering an effect.
+            /// Having no Cell destination is such a rule: a Source-writing
+            /// Function has a validated write bundle that ADR 0009 lets resolve
+            /// multiple Portals, and Halt locks through its Output Portal, so a
+            /// gate that refused a Portal to every Function answering an effect
+            /// would deny them their destinations. Ask
+            /// [`Function::answers_value`] instead wherever the rule is that
+            /// nothing consumes the answer.
             #[inline(always)]
             pub const fn performs_terminal_output(self) -> bool {
                 self.kind().performs_terminal_output()
@@ -694,7 +688,7 @@ macro_rules! define_functions {
             /// rather than something the shape of its operands decides for it:
             /// a Sequence reaching a Scalar Function is refused with the same
             /// diagnostic whether that Function is Terminal or, like Delay, an
-            /// ordinary value Function that ADR 0039 keeps scalar.
+            /// ordinary value Function that declares itself scalar.
             #[inline(always)]
             pub const fn is_pervasive(self) -> bool {
                 matches!(self.pervasion(), Pervasion::Pervasive)
@@ -703,10 +697,9 @@ macro_rules! define_functions {
             /// Whether this Function answers a Sequence whatever its operands
             /// carry.
             ///
-            /// Per ADR 0036 this is one of the two questions Tick scheduling
-            /// asks to decide how many Cells a result can reach, and it is the
-            /// one that needs no operand: a Range answers a Sequence from two
-            /// Number bounds.
+            /// This is one of the two questions Tick scheduling asks to decide
+            /// how many Cells a result can reach, and it is the one that needs
+            /// no operand: a Range answers a Sequence from two Number bounds.
             #[inline(always)]
             pub const fn answers_sequence(self) -> bool {
                 matches!(self.answer(), Answer::Sequence)
@@ -715,7 +708,7 @@ macro_rules! define_functions {
             /// Whether a Sequence operand widens this Function's answer into a
             /// Sequence, rather than being consumed into one Atom.
             ///
-            /// The other question ADR 0036's scheduling asks, and the one that
+            /// The other question Tick scheduling asks, and the one that
             /// separates the Atomic Functions from Equality: each of them
             /// broadcasts over a Sequence operand, and Equality alone answers
             /// one Atom when it has. A Function that refuses a Sequence operand
@@ -728,17 +721,15 @@ macro_rules! define_functions {
 
             /// Whether this Function declares no operand at all.
             ///
-            /// One name for a question both crates ask and neither could
-            /// spell the same way: `signature()` is `pub(crate)`, so `orcvs`
-            /// reached it through `Tokens::from(..).is_empty()` while `lang`
-            /// asked the slice directly. It is a fact about the declaration
-            /// and not about a Function group — the Directional Bang
-            /// Functions `spatial-tick-planning/06` adds declare no operand
-            /// either — so a caller that means "is a Self-Banging Function"
-            /// should ask [`Function::source_effect`] instead, and read the
-            /// bundle it answers: both groups declare an effect, and it is the
-            /// `Advance` a Self-Banging Function declares that tells it from
-            /// the `Emit` of a Directional Bang one.
+            /// One name for a question both crates ask: `signature()` is
+            /// `pub(crate)`, so `orcvs` cannot ask the slice. It is a fact
+            /// about the declaration and not about a Function group — the
+            /// Jumps, Halt and the Directional Bang Functions declare no
+            /// operand either — so a caller that means "is a Self-Banging
+            /// Function" should ask [`Function::source_effect`] instead, and
+            /// read the bundle it answers: both groups declare an effect, and
+            /// it is the `Advance` a Self-Banging Function declares that tells
+            /// it from the `Emit` of a Directional Bang one.
             #[inline(always)]
             pub const fn takes_no_operand(self) -> bool {
                 self.signature().is_empty()
@@ -855,16 +846,12 @@ define_functions! {
 /// the enum, the complete list of its variants, and the wording a refusal
 /// states, from one row each.
 ///
-/// Each fact was stated in three places before: the variant, its membership of
-/// [`ReplacementChange::ALL`], and its [`fmt::Display`] arm. The `match` is
-/// exhaustive so the wording cannot be forgotten, but the list was written out
-/// by hand beside the enum, and a variant left out of it escaped
-/// `each_named_change_is_compared_exactly_once` — the test written to catch
-/// exactly that omission. A sixth variant with its `Display` arm and no list
-/// entry left both tests green. Generating the list from the declaration makes
-/// the omission not expressible rather than merely untested, which is what
-/// `define_functions!` already does for [`Function::ALL`] and the reason that
-/// list needs no such test.
+/// The `Display` `match` is exhaustive, so the wording cannot be forgotten, and
+/// generating [`ReplacementChange::ALL`] from the same rows makes leaving a
+/// variant out of the list not expressible rather than merely untested — no
+/// test can see a variant that has its `Display` arm and no list entry. It is
+/// what `define_functions!` does for [`Function::ALL`], and the reason neither
+/// list needs a completeness test.
 macro_rules! define_replacement_changes {
     ($($(#[$doc:meta])* $variant:ident => $wording:literal),+ $(,)?) => {
         /// Which fact an incoming Function changes about the Function a
@@ -876,13 +863,10 @@ macro_rules! define_replacement_changes {
         /// anchor, so a replacement is admitted only where the incoming
         /// Function agrees with the running one on every fact those two
         /// derivations read. This type names the five so that a refusal states
-        /// which one differed: one diagnostic string answered all of them
-        /// before, and a byte-identical duplicate of one term stood in the
-        /// guard unnoticed because no test could tell the terms apart.
+        /// which one differed, and so that a test can tell the terms apart.
         ///
-        /// Declaration order is the order the comparison applies, which is the
-        /// order the guard has always applied. A replacement differing on
-        /// several facts reports the first.
+        /// Declaration order is the order the comparison applies. A replacement
+        /// differing on several facts reports the first.
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub enum ReplacementChange {
             $($(#[$doc])* $variant,)+
@@ -912,7 +896,7 @@ define_replacement_changes! {
     /// Whether the Function answers a value the surrounding Expression can
     /// consume, rather than performing an effect.
     ///
-    /// ADR 0028's distinction, and the one Sequence membership, the
+    /// The value-or-effect distinction, and the one Sequence membership, the
     /// Interpreter's nesting guard and tick planning all read. The schedule was
     /// derived from the answer the Function found here gave, so a replacement
     /// that changed it would leave Turns ordered from edges that no longer
@@ -921,10 +905,9 @@ define_replacement_changes! {
     /// Where the Function's activation comes from: taken on its own, or
     /// delivered by a Bang.
     ///
-    /// The question scheduling's activation seed asks, and the term the
-    /// Self-Banging Functions added to this guard. It is not
-    /// [`ReplacementChange::AnswerKind`] — those two selected the same rows
-    /// until `^^` was declared — so admitting a replacement that changed it
+    /// The question scheduling's activation seed asks. It is not
+    /// [`ReplacementChange::AnswerKind`] — `^^` answers an effect and takes its
+    /// Turn without a Bang — so admitting a replacement that changed it
     /// would leave the schedule holding a root that now needs no Bang, or one
     /// waiting on a Bang no edge delivers.
     Activation => "where its activation comes from",
@@ -939,26 +922,25 @@ define_replacement_changes! {
     /// The Source write the Function declares: the displacement, the spelling
     /// and the bundle, compared whole.
     ///
-    /// ADR 0004 has a Source-writing Function state where it writes in its
-    /// declaration, and `computations` reads that declaration to reserve the
-    /// destination before any Turn. The Portal it declares is therefore read
-    /// twice: once by scheduling, which reserves the Cells it resolves to, and
-    /// once at the Turn, which writes through it. A replacement that moves the
-    /// offset separates the two, so the write lands at Cells no dependency edge
-    /// names — the same ADR 0036 defect [`ReplacementChange::Width`] refuses,
-    /// stated about direction rather than extent. `^^` and `>>` agree on every
-    /// other fact, so this is the only one that tells them apart. The whole
-    /// effect is compared rather than its fields because every field of it is
-    /// read at the Turn: the offsets resolve the Portal and the bundle decides
-    /// how many.
+    /// A Source-writing Function states where it writes in its declaration, and
+    /// `computations` reads that declaration to reserve the destination before
+    /// any Turn. The Portal it declares is therefore read twice: once by
+    /// scheduling, which reserves the Cells it resolves to, and once at the
+    /// Turn, which writes through it. A replacement that moves the offset
+    /// separates the two, so the write lands at Cells no dependency edge names
+    /// — the same defect [`ReplacementChange::Width`] refuses, stated about
+    /// direction rather than extent. `^^` and `>>` agree on every other fact,
+    /// so this is the only one that tells them apart. The whole effect is
+    /// compared rather than its fields because every field of it is read at the
+    /// Turn: the offsets resolve the Portal and the bundle decides how many.
     Write => "the Source write it declares",
     /// How wide a result the Function reserves.
     ///
-    /// ADR 0036: a schedule reserves Cells from the Function it found at each
-    /// anchor, so a replacement that would widen or narrow that reservation is
-    /// refused with the ones that change activation or answer kind. What it is
-    /// compared against stays the settled reservation, because the Turns were
-    /// ordered from that one and this same guard is what keeps every admitted
+    /// A schedule reserves Cells from the Function it found at each anchor, so
+    /// a replacement that would widen or narrow that reservation is refused
+    /// with the ones that change activation or answer kind. What it is compared
+    /// against stays the settled reservation, because the Turns were ordered
+    /// from that one and this same guard is what keeps every admitted
     /// replacement inside it.
     ///
     /// The one fact this crate cannot answer: a reservation is derived from the
@@ -987,9 +969,8 @@ impl Function {
     /// them.
     ///
     /// A table rather than a chain of `||` terms. A chain admits a
-    /// byte-identical duplicate as a dead arm Rust does not warn about — one
-    /// stood in the replacement guard, reached through a merge — while a table
-    /// is a value a test can count, which is what
+    /// byte-identical duplicate as a dead arm Rust does not warn about, while a
+    /// table is a value a test can count, which is what
     /// `each_named_change_is_compared_exactly_once` does.
     /// [`ReplacementChange::Width`] is absent because it is not a fact a
     /// declaration states; `orcvs` appends that comparison after these.
@@ -1048,9 +1029,9 @@ impl Function {
     ///
     /// Terminal Output and Source-writing Functions name none here: the former
     /// has no Cell destination, and the latter keeps its destinations on
-    /// [`Function::source_effect`] this slice. Every other Function names one
-    /// row south unless it is a Jump, which names the Portal its direction
-    /// writes through.
+    /// [`Function::source_effect`]. Every other Function names one row south
+    /// unless it is a Jump, which names the Portal its direction writes
+    /// through.
     pub const fn output_portal(self) -> Option<crate::PortalCoords> {
         if self.performs_terminal_output() || self.source_effect().is_some() {
             return None;
@@ -1257,11 +1238,9 @@ mod test {
 
     #[test]
     fn each_named_change_is_compared_exactly_once() {
-        // The test the duplicated term would have failed. `deliver_output`
-        // compared the declared Source write twice, byte for byte, and the
-        // suite could not see it: a chain of `||` terms has no value to count
-        // and a repeated term is not a pattern Rust warns about. A table has
-        // both, so each fact is compared once or the count says so.
+        // A chain of `||` terms has no value to count and a repeated term is
+        // not a pattern Rust warns about. A table has both, so each fact is
+        // compared once or the count says so.
         //
         // `Width` is expected zero times here because it is not a fact a
         // declaration states. `orcvs` appends that one comparison to this
@@ -1305,12 +1284,11 @@ mod test {
             );
         }
 
-        // The weaker set, recorded because the difference between the two is
-        // what made an existing test's comment wrong: only these two facts are
-        // ever the *sole* difference between a pair. A pair differing on the
-        // answer kind differs on activation or on the write as well, and a pair
-        // differing on activation differs on one of the others, so a fixture
-        // naming either of those cannot be a fixture that changes one thing.
+        // The weaker set: only these two facts are ever the *sole* difference
+        // between a pair. A pair differing on the answer kind differs on
+        // activation or on the write as well, and a pair differing on
+        // activation differs on one of the others, so a fixture naming either
+        // of those cannot be a fixture that changes one thing.
         let sole = ReplacementChange::ALL
             .iter()
             .copied()
@@ -1329,11 +1307,11 @@ mod test {
 
     #[test]
     fn exactly_the_sequence_answering_functions_declare_a_sequence_answer() {
-        // ADR 0036 derives a reservation from declarations, so a result is
-        // wider than a Cell pair only where a Function answers a Sequence or
-        // widens over an operand that is one. The five rows that answer a
-        // Sequence outright are declared here rather than inferred, so a sixth
-        // Function added later has to be named in this list.
+        // A reservation derives from declarations, so a result is wider than a
+        // Cell pair only where a Function answers a Sequence or widens over an
+        // operand that is one. The five rows that answer a Sequence outright
+        // are declared here rather than inferred, so a sixth Function added
+        // later has to be named in this list.
         assert_eq!(
             Function::ALL
                 .iter()
@@ -1406,13 +1384,13 @@ mod test {
 
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
-        // ADR 0011's Equality and ADR 0012's Delay and Euclidean answer a
-        // Bang or Absence as their result. Select answers one Atom and may
-        // return a Bang member unchanged. Tick scheduling trusts the declaration
-        // to decide which roots can supply activation, so the list is stated
-        // whole — a Function that began returning Bang without declaring it
-        // would build no activation edge, and the neighbouring terminal root
-        // would fall silent with no diagnostic anywhere.
+        // Equality, Delay and Euclidean answer a Bang or Absence as their
+        // result. Select answers one Atom and may return a Bang member
+        // unchanged. Tick scheduling trusts the declaration to decide which
+        // roots can supply activation, so the list is stated whole — a Function
+        // that began returning Bang without declaring it would build no
+        // activation edge, and the neighbouring terminal root would fall silent
+        // with no diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
         // other half for Atom-only Functions; Select is exercised on its own
         // path because its operands bind as whole values.
@@ -1527,8 +1505,7 @@ mod test {
 
     #[test]
     fn each_midi_domain_type_accepts_exactly_its_protocol_range() {
-        // Relocated from the two validator functions this replaced. The domain
-        // is now a property of the type, so the conversion is what has to hold
+        // The domain is a property of the type, so the conversion has to hold
         // over the whole byte, and every input is cheap enough to enumerate.
         for value in 0..=u8::MAX {
             assert_eq!(
@@ -1567,8 +1544,8 @@ mod test {
 
     #[test]
     fn the_timed_play_length_domain_is_the_whole_byte() {
-        // ADR 0016 gives length `00`–`FF`, so unlike every MIDI domain beside
-        // it there is no value to refuse — and none to alter either.
+        // A length spans `00`–`FF`, so unlike every MIDI domain beside it there
+        // is no value to refuse — and none to alter either.
         for value in 0..=u8::MAX {
             assert_eq!(Length::from(value).value(), value, "{value:02X}");
             assert_eq!(Length::from(value).ticks(), u64::from(value), "{value:02X}");
@@ -1741,35 +1718,25 @@ mod test {
 
     #[test]
     fn every_function_declares_whether_it_answers_a_value_or_an_effect() {
-        // ADR 0028 gives every Function exactly one of two answers, and ADR
-        // 0029 requires the declaration to be read rather than derived: an
-        // enumerated check naming spellings would be a second place to keep in
-        // step with the definitions, and reading the `!` family prefix would
-        // classify the Source-writing Functions of ADR 0004 as answering a
-        // value the day they are spelled `*^` or `*!`. So this match is
-        // exhaustive over `Function` with no wildcard, the way pervasion's is
-        // below: a Function added later has to be classified here as well as in
-        // the table, and a copied row that answers the wrong kind fails here
-        // rather than standing where an operand belongs.
+        // ADR 0028 gives every Function exactly one of two answers, and the
+        // declaration is read rather than derived: an enumerated check naming
+        // spellings would be a second place to keep in step with the
+        // definitions, and reading the `!` family prefix would classify the
+        // effect Functions spelled `*^` or `*!` as answering a value. So this
+        // match is exhaustive over `Function` with no wildcard, the way
+        // pervasion's is below: a Function added later has to be classified
+        // here as well as in the table, and a copied row that answers the wrong
+        // kind fails here rather than standing where an operand belongs.
         for function in Function::ALL.iter().copied() {
-            // Two questions, asked separately, because they stopped being
-            // complements. Until the Self-Banging Functions were declared,
-            // Terminal Output was the one effect kind, so "answers no value"
-            // and "performs Terminal Output" selected the same rows and this
-            // test could assert one as the negation of the other. The version
-            // that did so named the day it would fail: "the day a Source-writing
-            // effect Function of ADR 0004 is declared, this assertion fails and
-            // names the Function whose callers must each choose again which
-            // question they mean." It failed on `SelfBangingEast`. The rows
-            // below are now the witness that a caller asking the narrow
-            // question where it means the wide one is wrong today, and not
-            // merely wrong in principle.
-            //
-            // Three questions now, for the same reason: the activation source
-            // came apart from the value question on the same four rows. A root
-            // that answers a value takes its Turn with nothing delivered to it,
-            // and so does a Self-Banging Function that answers an effect, so
-            // the third column is not the first one read again.
+            // Three questions, asked separately, because none is the
+            // complement of another. Terminal Output is one effect kind among
+            // several, so "answers no value" and "performs Terminal Output"
+            // select different rows, and the rows below are the witness that a
+            // caller asking the narrow question where it means the wide one is
+            // wrong. The activation source is not the value question either: a
+            // root that answers a value takes its Turn with nothing delivered
+            // to it, and so does a Self-Banging Function that answers an
+            // effect, so the third column is not the first one read again.
             let (answers_value, terminal_output, intrinsically_active) = match function {
                 Function::AbsoluteDifference
                 | Function::Add
@@ -1811,7 +1778,7 @@ mod test {
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => (false, false, true),
                 // The same effect kind, waiting for a Bang. These four and the
-                // four above are the table's whole record of ADR 0029's
+                // four above are the table's whole record of the activation
                 // asymmetry, and reading them as one group is the mistake this
                 // column exists to make impossible.
                 Function::DirectionalBangEast
@@ -1908,25 +1875,25 @@ mod test {
 
     #[test]
     fn every_function_declares_how_wide_an_answer_it_gives() {
-        // ADR 0036 schedules a result's Cells before any Function evaluates, so
-        // the width of an answer is declared rather than observed. Equality is
-        // the row that makes this a column of its own: ADR 0011 makes it a
-        // whole-value predicate that broadcasts to find its comparison pairs
-        // and still answers one scalar, so it is `Pervasive` like the other
-        // ten `.`-spelled rows and is the only one of them whose answer stays
-        // one Atom. Neither the family prefix nor the pervasion column can tell
-        // it apart, which is why this match is exhaustive with no wildcard.
+        // Scheduling reserves a result's Cells before any Function evaluates,
+        // so the width of an answer is declared rather than observed. Equality
+        // is the row that makes this a column of its own: it is a whole-value
+        // predicate that broadcasts to find its comparison pairs and still
+        // answers one scalar, so it is `Pervasive` like the other ten
+        // `.`-spelled rows and is the only one of them whose answer stays one
+        // Atom. Neither the family prefix nor the pervasion column can tell it
+        // apart, which is why this match is exhaustive with no wildcard.
         //
         // That exhaustiveness is also what holds ADR 0036's premise that no
         // Function answers a Sequence yet. Every arm below declares `sequence`
         // false, and a row added to the table has to be given an arm here, so
         // the day ADR 0007's Range is declared this test fails and names it.
         //
-        // The `!`-spelled rows widen too, per ADR 0030: one Expression answers
-        // an ordered group of Play Commands over a Sequence operand, and that
-        // widening reaches the Playback Engine rather than a Cell. Scheduling
-        // reads their declaration all the same — `reserved_for` asks every node
-        // it derives a reservation for, Terminal Output included, without first
+        // The `!`-spelled rows widen too: one Expression answers an ordered
+        // group of Play Commands over a Sequence operand, and that widening
+        // reaches the Playback Engine rather than a Cell. Scheduling reads
+        // their declaration all the same — `reserved_for` asks every node it
+        // derives a reservation for, Terminal Output included, without first
         // asking what kind of answer its Function gives. What that reservation
         // cannot do is reach a Cell: a Terminal Output Function is given no
         // Portal, so it has no destination for a reservation to be measured
@@ -1935,13 +1902,12 @@ mod test {
         for function in Function::ALL.iter().copied() {
             let (sequence, widens) = match function {
                 Function::Equality => (false, false),
-                // ADR 0039's two pulses answer one Atom as well, and now for a
-                // different reason than Equality's. Equality broadcasts to
-                // find its comparison pairs and reduces them; these refuse a
-                // Sequence operand outright, so there is no width to reduce
-                // from. They are what the assertion below is about — an answer
-                // that does not widen, declared beside the pervasion that
-                // cannot widen.
+                // The two pulses answer one Atom as well, for a different
+                // reason than Equality's. Equality broadcasts to find its
+                // comparison pairs and reduces them; these refuse a Sequence
+                // operand outright, so there is no width to reduce from. They
+                // are what the assertion below is about — an answer that does
+                // not widen, declared beside the pervasion that cannot widen.
                 Function::Delay
                 | Function::Euclidean
                 | Function::Increment

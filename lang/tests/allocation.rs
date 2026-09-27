@@ -402,17 +402,15 @@ fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
 
 #[test]
 fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
-    // FINDING (2026-09-09): a Render Frame re-read is not allocation-free
+    // FINDING: a Render Frame re-read is not allocation-free
     // either, and the reason is a discarded error rather than any parser
     // state. `Parser::is_function_next` calls `is_function`, which asks
     // `Function::try_from(spelling).is_ok()`; the refusal path builds
     // `SyntaxError::UnknownFunction(spelling.to_string())`, heap-allocating
     // the two Cells it was handed only for `is_ok()` to throw the error away.
     // That is one small allocation per literal operand read, on the path a
-    // Render Frame runs many times a second. It is recorded in
-    // `.scratch/memory-verification/issues/01-count-allocations-on-the-tick-and-render-frame-paths.md`,
-    // and it is why this test asserts independence from the empty rows rather
-    // than zero.
+    // Render Frame runs many times a second, and it is why this test asserts
+    // independence from the empty rows rather than zero.
     //
     // What is asserted is what the Grid actually varies: a Source is as tall
     // as the Grid, most of it empty most of the time, and re-reading it must
@@ -441,9 +439,8 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
         many.len()
     );
 
-    // A ceiling as well as the independence — the shape `01` prefers over an
-    // equality, and the one this test was missing. The equality above compares
-    // two Sources against each other, so a cost that rises on both moves them
+    // A ceiling as well as the independence. The equality above compares two
+    // Sources against each other, so a cost that rises on both moves them
     // together and it sees nothing; a second discarded
     // `SyntaxError::UnknownFunction` per operand would double this path and
     // still pass it.

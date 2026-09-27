@@ -45,7 +45,7 @@ pub enum Token {
     Bang,
     /// The rest of the Source, claimed by the `||` introducer and never
     /// decoded — a Grid row, wherever one supplied the Source. A Comment
-    /// records this and no Atom (ADR 0035), which is what lets it carry text:
+    /// records this and no Atom, which is what lets it carry text:
     /// an Atom is a fixed-width value and cannot hold a row.
     Comment,
     Function,
@@ -56,12 +56,12 @@ pub enum Token {
     /// such a Cell so its presentation can tell written Cells from blank ones.
     Char,
     /// An operand a Function declares over every Atom rather than over one
-    /// type: the replacement of ADR 0007's Replace, which "may have a
-    /// different Atom type" from the member it displaces.
+    /// type: the replacement of Replace, which may differ in type from the
+    /// member it displaces.
     Atom,
     /// An operand a Function consumes as one whole Sequence rather than
-    /// extending across element by element: the Sequence operand of ADR 0007's
-    /// Reverse, Select, and Replace.
+    /// extending across element by element: the Sequence operand of Reverse,
+    /// Select, and Replace.
     Sequence,
 }
 
@@ -174,10 +174,9 @@ impl Token {
             // The Parser fills these two positions structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
             // recognises `**` or a Function spelling, and labels the entry with
-            // what it found. Nothing asks them to decode, and the refusal they
-            // have always answered with is unchanged.
+            // what it found. Nothing asks them to decode.
             Self::Bang | Self::Function => Err(crate::SyntaxError::ExpectedToken.into()),
-            // A Comment records no Atom at all (ADR 0035): its claim is the
+            // A Comment records no Atom at all: its claim is the
             // rest of the Source, a Grid row rather than a fixed-width value,
             // and nothing asks it to decode one.
             Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
@@ -205,11 +204,10 @@ impl Token {
             // Every Atom spelling is two Cells wide, and a nested Function —
             // the only other thing that can stand at an operand position — is
             // exactly two by the compile-time assertion `define_functions!`
-            // holds every spelling to. That settles both new
-            // declarations. `Atom` and `Sequence` refuse their literal decode
-            // above, so this width fixes only how far a refused operand advances
-            // and how wide the Span its diagnostic covers is, and two Cells is
-            // the operand width every existing signature already reserves.
+            // holds every spelling to. `Atom` and `Sequence` refuse their
+            // literal decode above, so this width fixes only how far a refused
+            // operand advances and how wide the Span its diagnostic covers is,
+            // and two Cells is the operand width every signature reserves.
             //
             // Zero is the tempting reading for `Sequence` — a value that is
             // never spelled occupies no Source — and it is wrong twice. The

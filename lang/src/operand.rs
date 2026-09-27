@@ -284,8 +284,8 @@ impl Operand for AtomOrSequence {
 
 /// A Number or a Note, whichever arrives, with its literal read as `L`.
 ///
-/// ADR 0021 gives each numeric conversion a monomorphic literal signature and
-/// an evaluation that is idempotent over its own result type, so a value
+/// Each numeric conversion has a monomorphic literal signature and an
+/// evaluation that is idempotent over its own result type, so a value
 /// already converted, arriving from nested evaluation or a Sequence, is
 /// accepted rather than refused. `L` is the literal reading; the payload is
 /// either numeric type.

@@ -6,7 +6,7 @@ use crate::{
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
 
-// ADR 0012's Tick-reading Functions. Each reads the absolute Tick from the
+// The Tick-reading Functions. Each reads the absolute Tick from the
 // interpretation `Context` and nothing else: no clock, no static, no counter of
 // its own. That is what makes the same Source Snapshot at the same Tick answer
 // the same way, and it is why the Tick is lifted out of `ctx` once here rather
@@ -129,8 +129,8 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
 
 /// Delay: `~* rate modulus`.
 ///
-/// One Bang every `rate * modulus` Ticks, beginning at Tick `0` — ADR 0012
-/// counts the first Tick of a Playback run as a Tick like any other, so a Delay
+/// One Bang every `rate * modulus` Ticks, beginning at Tick `0` — the first
+/// Tick of a Playback run counts as a Tick like any other, so a Delay
 /// fires as the run starts rather than one cycle into it. Modulus `01` is
 /// therefore a Bang once per `rate` Ticks and not one every Tick, which is what
 /// makes the two operands a rate and a step count rather than two names for the
@@ -149,7 +149,7 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
     // most 0xFE01, and `~* 10 20` is a cycle of 512 Ticks that a byte multiply
     // would fold to zero and then divide by.
     //
-    // ADR 0012 writes this as `Tick % (rate * modulus) == 0`, and
+    // The cycle test is `Tick % (rate * modulus) == 0`, and
     // `is_multiple_of` is that test rather than a different one: the two differ
     // only at a zero divisor, which `cycle_factors` has already refused.
     Ok(pulse(tick.is_multiple_of(rate * modulus)))
@@ -157,7 +157,7 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 
 /// Euclidean: `~% hits steps`.
 ///
-/// ADR 0012's bucket distribution: `hits` onsets spread as evenly as the whole
+/// Bucket distribution: `hits` onsets spread as evenly as the whole
 /// numbers allow across a cycle of `steps` Ticks, which is the family of
 /// rhythms `~% 03 08` names — `X..X..X.` — without a pattern being written
 /// anywhere.
@@ -166,9 +166,8 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 /// added. That is not a rearrangement for tidiness: `(hits * (t + steps - 1))`
 /// over an absolute Tick would overflow the counter the Tick was read from, and
 /// reducing first is exactly equivalent because every term after it is taken
-/// modulo `steps` anyway. ADR 0012 asks for the reduction and says only that
-/// the counter must not overflow; what the counter itself does at its end is
-/// decided by [`crate::Tick::next`], which saturates rather than wraps.
+/// modulo `steps` anyway. What the counter itself does at its end is decided
+/// by [`crate::Tick::next`], which saturates rather than wraps.
 ///
 /// It answers a pulse, so ADR 0039 keeps it scalar for the reason Delay is:
 /// a Sequence at either operand is refused by the declaration, and the one pair
@@ -206,9 +205,9 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
 /// Increment: `~+ step modulus`.
 ///
 /// The next Number of a wrap of `modulus`, advanced by `step` from the
-/// previous visible Number at the ordinary result Portal. ADR 0012 writes
-/// this as `(previous + step) % modulus`, and the addition is taken in `u64`
-/// so `FF + 02` is 257 rather than a wrapped `01` that would then take the
+/// previous visible Number at the ordinary result Portal:
+/// `(previous + step) % modulus`, with the addition taken in `u64` so
+/// `FF + 02` is 257 rather than a wrapped `01` that would then take the
 /// modulus of the wrong total.
 ///
 /// It is a scalar exception under ADR 0012: a Sequence at either operand is
@@ -240,12 +239,11 @@ pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
 /// Interpolation: `~> rate target`.
 ///
 /// The Number one Tick closer to `target`, moving by at most `rate` and
-/// never past it. ADR 0012 spells the three orderings: below, above, and
-/// equal. Each distance is taken only in the branch whose subtraction is
-/// non-negative, so a step that would underflow is never asked, and the
-/// remaining addition or subtraction is taken in `u64` before the answer
-/// becomes a Number. Rate `00` holds because a step of nothing is still a
-/// step of at most `rate`.
+/// never past it. There are three orderings: below, above, and equal. Each
+/// distance is taken only in the branch whose subtraction is non-negative, so
+/// a step that would underflow is never asked, and the remaining addition or
+/// subtraction is taken in `u64` before the answer becomes a Number. Rate
+/// `00` holds because a step of nothing is still a step of at most `rate`.
 ///
 /// It is a scalar exception under ADR 0012 for the reason Increment is: the
 /// previous is one Atom, and a Sequence at either operand is refused by the
@@ -286,8 +284,8 @@ pub fn interpolation(ctx: &mut Context) -> Result<Value, Error> {
 
 /// Random: `~? seed minimum maximum`.
 ///
-/// A Number selected inclusively between normalized bounds. ADR 0013 derives
-/// each result from the explicit seed, the absolute Tick, this Function's
+/// A Number selected inclusively between normalized bounds. Each result
+/// derives from the explicit seed, the absolute Tick, this Function's
 /// own Position, and the zero-based Sequence index, rather than from
 /// activation history: the same Source Snapshot at the same Tick answers the
 /// same Number, a skipped activation skips that sample, and two Randoms at
@@ -442,7 +440,7 @@ mod test {
         // The formula is small enough to enumerate against rather than sample:
         // every rate and modulus from `01` to `08` over four cycles of the
         // widest of them, which is enough Ticks for every pair to wrap at least
-        // twice. The reference here is ADR 0012's expression retyped, so what
+        // twice. The reference here is the formula retyped, so what
         // the sweep pins is operand order and the width the arithmetic is done
         // in — a rate read as a modulus fails at every asymmetric pair — and
         // not the shape of the expression itself, which a retyped reference
@@ -579,7 +577,7 @@ mod test {
 
     #[test]
     fn delay_bangs_once_per_cycle_beginning_at_the_first_tick() {
-        // ADR 0012 counts Tick `0` as a Tick like any other, so a Delay fires
+        // Tick `0` counts as a Tick like any other, so a Delay fires
         // as a Playback run starts rather than one cycle into it. The sweep
         // states the whole rule — Bang exactly on a multiple of the cycle — and
         // Tick `0` is the case a reference computed as "some Ticks have passed"
@@ -636,7 +634,7 @@ mod test {
 
     #[test]
     fn delay_with_modulus_one_bangs_once_per_rate_ticks_rather_than_every_tick() {
-        // Named by ADR 0012 because it is what makes the two operands a rate
+        // Pinned because it is what makes the two operands a rate
         // and a step count instead of two spellings of one period: a modulus of
         // `01` is a cycle of one step, and that step is `rate` Ticks long.
         for tick in 0..32u64 {
@@ -739,7 +737,7 @@ mod test {
 
     #[test]
     fn euclidean_answers_no_hits_and_a_full_cycle_from_the_same_formula() {
-        // ADR 0012 states both as consequences rather than as cases: with
+        // Both are consequences of the formula rather than cases: with
         // positive steps, zero hits never Bangs and equal hits and steps Bang
         // every Tick. A body that special-cased either would pass this too —
         // what the test is for is the opposite, that neither needs a case.
@@ -759,8 +757,8 @@ mod test {
 
     #[test]
     fn euclidean_reduces_a_tick_no_multiplication_could_have_survived() {
-        // Reducing before the phase offset is what ADR 0012 asks for, and the
-        // reason is arithmetic rather than style: `hits * (t + steps - 1)` over
+        // Reducing before the phase offset is required, and the reason is
+        // arithmetic rather than style: `hits * (t + steps - 1)` over
         // an absolute Tick near the end of a saturating counter overflows,
         // while the reduced form is the same pattern at the same position.
         //
@@ -782,7 +780,7 @@ mod test {
 
     #[test]
     fn euclidean_refuses_a_cycle_of_no_steps_before_it_counts_its_hits() {
-        // The ordering ADR 0012 states outright. `00 00` is the case it is
+        // The required ordering. `00 00` is the case it is
         // stated for: a cycle with no positions rather than a pattern with no
         // onsets, so it diagnoses instead of quietly answering the Absence
         // Marker forever the way `~% 00 04` does.
@@ -889,7 +887,7 @@ mod test {
 
     #[test]
     fn a_clock_diagnoses_two_non_scalar_operands_of_different_lengths() {
-        // Ordinary ADR 0007 shape rules, including an empty Sequence against a
+        // Ordinary shape rules, including an empty Sequence against a
         // non-empty one: a shape fault is settled before any element is read,
         // so it precedes every diagnostic the formula could raise. Only Clock
         // can reach this now — the other two refuse the first Sequence they see
@@ -1004,7 +1002,7 @@ mod test {
         // The formula is small enough to enumerate against rather than sample:
         // every step and modulus from `01` to `08` from every previous in the
         // byte, which is enough wraps for every pair. The reference here is
-        // ADR 0012's expression retyped, so what the sweep pins is operand
+        // the formula retyped, so what the sweep pins is operand
         // order and the width the arithmetic is done in — a step read as a
         // modulus fails at every asymmetric pair — and not the shape of the
         // expression itself.
@@ -1099,7 +1097,7 @@ mod test {
 
     #[test]
     fn interpolation_moves_toward_target_without_overshoot() {
-        // ADR 0012's three orderings, written as the Numbers they name
+        // The three orderings, written as the Numbers they name
         // rather than as the expression the body evaluates. Below steps up
         // by at most `rate` and lands on the target rather than past it;
         // above steps down the same way; equal is the target unchanged.

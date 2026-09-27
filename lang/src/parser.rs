@@ -117,10 +117,10 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        // Every record of an Expression that reported no error carries an
-        // Atom, with one exception: a Comment is a complete Language Unit
-        // that is not a value (ADR 0035), so it records a Token and nothing
-        // else. Strict parsing yields values, and has none to yield here.
+        // Every record of an Expression that reported no error carries an Atom,
+        // with one exception: a Comment is a complete Language Unit that is not
+        // a value, so it records a Token and nothing else. Strict parsing
+        // yields values, and has none to yield here.
         //
         // The Comment is asked for rather than read off the absent Atoms.
         // Absent Atoms mean only that some record carries none, and naming
@@ -208,8 +208,8 @@ impl<'a> Parser<'a> {
             let start = self.source;
             let atom = match self.next_token(2) {
                 // A Comment claims every remaining Cell and records a Token
-                // with no Atom (ADR 0035). It is answered here rather than in
-                // the `(Token, Atom)` match below because there is no Atom to
+                // with no Atom. It is answered here rather than in the
+                // `(Token, Atom)` match below because there is no Atom to
                 // answer with: an Atom is a fixed-width value and a Comment
                 // carries a row of arbitrary text that is never decoded.
                 //
@@ -261,7 +261,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Err(failure) => {
-                    // A refused Function advances one character (ADR 0018).
+                    // A refused Function advances one character.
                     // Use a character boundary for callers outside ASCII Source.
                     self.source = &start[start.chars().next().map_or(0, char::len_utf8)..];
                     error.get_or_insert(failure);
@@ -320,8 +320,8 @@ impl<'a> Parser<'a> {
         // `split_at_checked` rather than `split_at`, matching `next_token`. Every
         // Cell the Source layer admits is single-byte, so byte 2 is a character
         // boundary for any Source that reaches here through a Grid; a `&str`
-        // handed straight to `Parser::from` carries no such guarantee, and the
-        // unchecked split panicked on it rather than declining to peek.
+        // handed straight to `Parser::from` carries no such guarantee, and an
+        // unchecked split would panic on it rather than decline to peek.
         match self.source.split_at_checked(2) {
             Some((next_token, _)) => Some(next_token),
             None => None,
@@ -331,8 +331,6 @@ impl<'a> Parser<'a> {
 
 #[inline(always)]
 fn is_function(s: Option<&str>) -> bool {
-    // s.map_or(false, |t| Function::try_from(t).is_ok())
-    // s.filter(|t| Function::try_from(*t).is_ok()).is_some()
     if let Some(t) = s {
         Function::try_from(t).is_ok()
     } else {
@@ -414,7 +412,7 @@ mod test {
     }
 
     ///
-    /// ADR 0018 resumes after one invalid character. The Parser has to read two
+    /// Analysis resumes after one invalid character. The Parser has to read two
     /// to try a Function spelling, and reports the one, so the `.+` in
     /// `Z.+0304` is still there to be read on the next pass.
     ///
@@ -464,10 +462,9 @@ mod test {
     }
 
     ///
-    /// `***` is ADR 0018's worked example and the case that would hang a
-    /// caller looping on `consumed`: a Bang, then a lone `*` that starts no
-    /// Language Unit. The tail is read and reported rather than left behind,
-    /// so the loop advances.
+    /// `***` is the case that would hang a caller looping on `consumed`: a
+    /// Bang, then a lone `*` that starts no Language Unit. The tail is read and
+    /// reported rather than left behind, so the loop advances.
     ///
     #[test]
     fn a_source_too_short_for_a_language_unit_still_consumes_its_tail() {
@@ -489,9 +486,9 @@ mod test {
     }
 
     ///
-    /// Strict parsing is unchanged: it still refuses Source it did not consume
-    /// whole, which is now the difference between the two readings rather than
-    /// something both agree on.
+    /// Strict parsing refuses Source it did not consume whole, which is the
+    /// difference between the two readings rather than something both agree
+    /// on.
     ///
     #[test]
     fn strict_parsing_still_refuses_source_left_over_after_the_expression() {
@@ -507,7 +504,7 @@ mod test {
     ///
     /// A Comment is a Language Unit the Parser establishes: `||` claims every
     /// remaining Cell of the Source it was handed, records a Token and no
-    /// Atom, and completes. ADR 0035.
+    /// Atom, and completes.
     ///
     #[test]
     fn a_comment_claims_the_rest_of_the_source_and_records_no_atom() {
@@ -533,8 +530,8 @@ mod test {
     ///
     /// `||` opens a Comment only where an Expression could start. Inside a
     /// Function's arity-determined claim it is an operand Cell that fails to
-    /// bind, which is ADR 0033's partition by parse read straight: a spelling
-    /// is recognized only in the position where a spelling is read.
+    /// bind: a spelling is recognized only in the position where a spelling is
+    /// read.
     ///
     #[test]
     fn a_comment_introducer_inside_an_operand_claim_is_a_refused_operand() {
@@ -557,9 +554,9 @@ mod test {
     }
 
     ///
-    /// One `|` alone is incomplete or invalid Source, exactly as one `#` was.
-    /// It costs the Cell it occupies and leaves the rest of the row readable,
-    /// which is ADR 0018's recovery rather than a rule of its own.
+    /// One `|` alone is incomplete or invalid Source. It costs the Cell it
+    /// occupies and leaves the rest of the row readable, which is the ordinary
+    /// recovery rather than a rule of its own.
     ///
     #[test]
     fn a_lone_vertical_rule_is_not_a_comment() {
@@ -581,9 +578,9 @@ mod test {
     }
 
     ///
-    /// Strict parsing yields values, and ADR 0035 makes a Comment a complete
-    /// Language Unit that is not one. It reports that rather than unwrapping
-    /// an Expression that holds no Atoms.
+    /// Strict parsing yields values, and a Comment is a complete Language Unit
+    /// that is not one. It reports that rather than unwrapping an Expression
+    /// that holds no Atoms.
     ///
     #[test]
     fn strict_parsing_refuses_a_comment() {
@@ -745,8 +742,7 @@ mod test {
     fn test_parse_nested_arithmetic_expression() {
         trace();
 
-        // Add(Add(Multiply(02, 03), 04), 05) — three levels of prefix nesting,
-        // replacing the identity-wrapped cases retired by ADR 0015.
+        // Add(Add(Multiply(02, 03), 04), 05) — three levels of prefix nesting.
         let parsed = try_parse(".+.+.x02030405").unwrap();
 
         let v = vec![
@@ -988,27 +984,28 @@ mod test {
     /// though, and the totality the property suite states is a claim about the
     /// parser rather than about its callers, so the one input class an ASCII
     /// generator cannot draw is pinned here by hand: a multi-byte character
-    /// straddling the two-Cell peek used to split a `char` down the middle.
+    /// straddling the two-Cell peek, which an unchecked split would cut down
+    /// the middle.
     ///
     /// This is a plain test rather than a property, and it belongs here rather
     /// than in `mod property`: it draws nothing, so the `cfg` that keeps
     /// proptest out of a WASM build has no claim on it. `check_wasm`'s
-    /// `--all-targets` clippy now type-checks it, which is as far as any
+    /// `--all-targets` clippy type-checks it, which is as far as any
     /// `lang` test reaches on that target — `test_wasm` runs the `console`
     /// crate's browser suite and no unit test here — so what running it proves
     /// is proven natively.
     ///
     #[test]
     fn source_that_is_not_ascii_is_refused_rather_than_panicking() {
-        // `".+aé"` and `".+00aé"` are the cases that reach the fix: each
-        // consumes whole Language Units and leaves `"aé"`, so byte two of the
-        // remaining Source falls inside the `é` that `peek_next` is then asked
-        // about, which is what `split_at(2)` panicked on. The other four
-        // decline before any peek, so they widen the input class without
-        // covering the fix — keep them, but do not mistake them for coverage
-        // of it. The offset is what matters rather than the `.+`: `".+0aé"`
-        // leaves an odd byte count and lands the split off the character
-        // boundary, so it declines like the rest.
+        // `".+aé"` and `".+00aé"` are the cases that reach the checked split:
+        // each consumes whole Language Units and leaves `"aé"`, so byte two of
+        // the remaining Source falls inside the `é` that `peek_next` is then
+        // asked about, which an unchecked `split_at(2)` would panic on. The
+        // other four decline before any peek, so they widen the input class
+        // without covering the split — keep them, but do not mistake them for
+        // coverage of it. The offset is what matters rather than the `.+`:
+        // `".+0aé"` leaves an odd byte count and lands the split off the
+        // character boundary, so it declines like the rest.
         for spelled in [".+aé", ".+00aé", "é", "aé", "é.+", "..éé"] {
             let parsed = Parser::from(spelled).try_parse();
             assert!(parsed.is_err(), "{spelled:?} parsed as {parsed:?}");
@@ -1058,14 +1055,13 @@ mod test {
             assert_eq!(try_parse(&source).unwrap().as_slice(), &[atom]);
         }
 
-        // Every other Atom the parser yields is an Operand Literal, and ADR
-        // 0021 gives it the type of the slot that consumes it rather than a
-        // type of its own. The round trip is therefore contextual: `C4` is the
-        // Note 60 in `.v`'s Note slot and the Number `C4` in `.^`'s Number
-        // slot, and the sweep covers both readings because it covers every
-        // value of every declared operand domain in every slot that declares
-        // it. `Atom::Empty` is absent because no signature declares it, so no
-        // Source spells one.
+        // Every other Atom the parser yields is an Operand Literal, which takes
+        // the type of the slot that consumes it rather than a type of its own.
+        // The round trip is therefore contextual: `C4` is the Note 60 in `.v`'s
+        // Note slot and the Number `C4` in `.^`'s Number slot, and the sweep
+        // covers both readings because it covers every value of every declared
+        // operand domain in every slot that declares it. `Atom::Empty` is
+        // absent because no signature declares it, so no Source spells one.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
             if signature
@@ -1186,8 +1182,7 @@ mod property {
     ///
     /// The Function half is derived from `Function::ALL` and the declared
     /// signature rather than listed here, so a zero-operand Function added to
-    /// the table is drawn the day it is declared. That is the guarantee the
-    /// hand-written `Activation::ALL` used to buy by being written out once.
+    /// the table is drawn the day it is declared.
     fn standalone() -> Vec<Atom> {
         std::iter::once(Atom::Bang)
             .chain(
@@ -1202,10 +1197,9 @@ mod property {
 
     /// Source text for one Operand Literal of the type its position declares.
     ///
-    /// ADR 0021 makes an Operand Literal's type the consuming Function's rather
-    /// than the Source's, so a literal is spelled against the `Token` the slot
-    /// declares. The same two Cells spell a Number in one slot and a Note in
-    /// another.
+    /// An Operand Literal's type is the consuming Function's rather than the
+    /// Source's, so a literal is spelled against the `Token` the slot declares.
+    /// The same two Cells spell a Number in one slot and a Note in another.
     ///
     /// The domain comes from `mod test`'s `every_atom_of` rather than from a
     /// second range written here, so the enumerated round trip and this
@@ -1400,11 +1394,11 @@ mod property {
             if analysis.is_complete() {
                 prop_assert!(analysis.error().is_none());
                 // A complete analysis holds only complete entries, or is a
-                // Comment. ADR 0035 makes a Comment a complete Language Unit
-                // that is not a value: it records a Token and no Atom, so the
-                // Expression withholds its Atoms with nothing to report, and
-                // there is no Source to render back because its text is
-                // arbitrary and was never decoded.
+                // Comment. A Comment is a complete Language Unit that is not a
+                // value: it records a Token and no Atom, so the Expression
+                // withholds its Atoms with nothing to report, and there is no
+                // Source to render back because its text is arbitrary and was
+                // never decoded.
                 match expression.atoms() {
                     // A complete Expression spells exactly the Cells it
                     // consumed. Anything after them is the next Expression's
@@ -1456,11 +1450,11 @@ mod property {
         /// at six Cells, and strict parsing refuses the `Z` it did not
         /// consume.
         ///
-        /// The values clause is the Comment, and it is the only Source the
-        /// two contracts read alike and answer differently. ADR 0035 makes a
-        /// Comment a complete Language Unit that is not a value, so `||x` is
-        /// read whole and called complete by analysis and still refused by
-        /// the path whose whole output is Atoms.
+        /// The values clause is the Comment, and it is the only Source the two
+        /// contracts read alike and answer differently. A Comment is a complete
+        /// Language Unit that is not a value, so `||x` is read whole and called
+        /// complete by analysis and still refused by the path whose whole
+        /// output is Atoms.
         ///
         #[test]
         fn strict_parsing_accepts_exactly_the_source_analysis_reads_whole(
@@ -1487,7 +1481,8 @@ mod property {
             }
         }
 
-        /// Parsing retains every Atom, including expressions beyond the old storage limit.
+        /// Parsing retains every Atom, including Expressions longer than the
+        /// inline record storage.
         #[test]
         fn long_expressions_roundtrip_without_truncation(
             depth in 1usize..128,

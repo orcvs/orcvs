@@ -10,7 +10,7 @@ use crate::{Atom, Error, SequenceError};
 /// constrains it where it becomes Source, with the complete-fit Portal rule.
 ///
 /// Nesting is impossible by type: [`Atom`] has no Sequence-carrying variant,
-/// so the flatness ADR 0007 requires needs no runtime flattening check. The
+/// so a Sequence is flat without a runtime flattening check. The
 /// only runtime check is membership, one rule applied to every Atom that
 /// enters a Sequence from outside one.
 ///
@@ -47,8 +47,7 @@ impl Sequence {
     }
 
     /// The empty Sequence, which is a legitimate value rather than an absent
-    /// one: it encodes to the empty string and, per ADR 0007, plans no Cell
-    /// writes.
+    /// one: it encodes to the empty string and plans no Cell writes.
     #[inline(always)]
     pub const fn empty() -> Self {
         Self { atoms: Vec::new() }
@@ -378,8 +377,8 @@ mod test {
     fn a_source_writing_function_is_rejected_as_a_member_and_through_promotion() {
         // Read from the table rather than listed, so a later Source-writing
         // Function is covered the day it is declared. Each is refused by the
-        // declared-kind arm that refuses every other effect Function, which is
-        // ADR 0029's one rule reaching both groups through one mechanism.
+        // declared-kind arm that refuses every other effect Function: one rule
+        // reaching both groups through one mechanism.
         let mut seen = 0;
         for function in Function::ALL
             .iter()
@@ -410,7 +409,7 @@ mod test {
 
     #[test]
     fn halt_is_refused_as_a_sequence_member_by_its_declared_kind() {
-        // ADR 0029: Halt answers an effect, so Sequence::new refuses it by
+        // Halt answers an effect, so Sequence::new refuses it by
         // that kind rather than by the `*!` spelling. The sweep below covers
         // every effect Function the same way; this names Halt so a regression
         // that re-specialised membership on spelling fails here first.
@@ -438,7 +437,7 @@ mod test {
     #[test]
     fn a_function_that_answers_an_effect_is_rejected_as_a_member_and_through_promotion() {
         // Driven from `Function::ALL` rather than from a list of spellings, so
-        // ADR 0029's rule is exercised as it is written: an effect Function
+        // the membership rule is exercised as it is written: an effect Function
         // added later is refused by its declared kind, and a value Function
         // added later is admitted, without an edit here or at the construction
         // point.
@@ -525,7 +524,7 @@ mod test {
 
     #[test]
     fn each_sequence_diagnostic_is_distinguishable_by_variant() {
-        // Item 8: Atom, Sequence, member, and incompatible-shape problems are
+        // Atom, Sequence, member, and incompatible-shape problems are
         // separate variants a caller can match, not one shared message.
         let diagnostics = [
             SequenceError::ExpectedAtom("0001".to_owned()),

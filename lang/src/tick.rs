@@ -1,4 +1,4 @@
-//! ADR 0012's explicit interpretation inputs.
+//! Explicit interpretation inputs.
 //!
 //! A Function whose result depends on time or on where it sits reads it from
 //! here rather than from a clock or a static. ADR 0003 puts every piece of
@@ -17,7 +17,7 @@
 //! reached and no Cell an evaluation is not anchored at, so a caller that
 //! cannot say which Tick and which anchor it means has nothing to interpret.
 //! Withholding `Default` is what makes that a compile error rather than a
-//! silent zero, which is the whole of what ADR 0012 means by an explicit input.
+//! silent zero.
 
 ///
 /// One absolute Tick of one Playback run.
@@ -90,8 +90,8 @@ impl Tick {
 /// across the crate boundary as the column and row it names. It is
 /// deliberately not a Position: a Position can be obtained only from the Grid
 /// that contains it, and that invariant belongs to the crate that owns the
-/// Grid. What interpretation needs is the two numbers, which is what ADR 0013
-/// folds into Random's seed.
+/// Grid. What interpretation needs is the two numbers, which is what Random
+/// folds into its seed.
 ///
 /// Deliberately unordered, exactly as the Position it is minted from is. An
 /// anchor's order is its Grid's `y * cols + x` — the row-major Source order ADR
@@ -135,11 +135,10 @@ impl Anchor {
 ///
 /// Everything one evaluation is told that the Source Snapshot does not say.
 ///
-/// One struct holds the non-Source inputs ADR 0012 and ADR 0013 name. A
-/// Function reaches them through the interpretation `Context` exactly as it
-/// reaches its operands, so adding an input later is a field here rather than
-/// a new parameter at every call site between the Playback Engine and the
-/// Function.
+/// One struct holds every non-Source input. A Function reaches them through
+/// the interpretation `Context` exactly as it reaches its operands, so adding
+/// an input later is a field here rather than a new parameter at every call
+/// site between the Playback Engine and the Function.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TickInputs {
@@ -176,7 +175,7 @@ mod test {
 
     #[test]
     fn a_playback_run_counts_from_tick_zero_by_ones() {
-        // ADR 0012's first-Tick rule and its increment are one property of the
+        // The first-Tick rule and the increment are one property of the
         // counter, not two: Tick `0` is only the first Tick of a run if the
         // Tick after it is `1`.
         assert_eq!(Tick::ZERO.get(), 0);
