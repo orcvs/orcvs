@@ -486,21 +486,105 @@ pub struct Theme {
     pub(crate) input_cursor_width: ChromeWidth,
 }
 
+///
+/// Writes a named property by key: [`resolve`] applies a Theme document's
+/// explicit properties through these. Each match is exhaustive over its key
+/// enum, so a catalogue addition that forgets a field fails to compile
+/// rather than silently resolving to a stale value.
+///
 #[cfg_attr(
-    not(test),
+    all(target_arch = "wasm32", not(test)),
     expect(
         dead_code,
-        reason = "these by-key accessors are for resolve and future by-key callers; \
-                   slice B's painting reads Theme's fields directly, never through a key"
+        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
     )
 )]
+impl Theme {
+    fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
+        match key {
+            ColorKey::WindowBackground => &mut self.window_background,
+            ColorKey::PanelBackground => &mut self.panel_background,
+            ColorKey::GridBackground => &mut self.grid_background,
+            ColorKey::CellBackground => &mut self.cell_background,
+            ColorKey::SourceOrdinary => &mut self.source_ordinary,
+            ColorKey::SourceComment => &mut self.source_comment,
+            ColorKey::SourceNumber => &mut self.source_number,
+            ColorKey::SourceNote => &mut self.source_note,
+            ColorKey::SourceFunction => &mut self.source_function,
+            ColorKey::SourceBang => &mut self.source_bang,
+            ColorKey::SourceSequence => &mut self.source_sequence,
+            ColorKey::SourceOrdinaryBackground => &mut self.source_ordinary_background,
+            ColorKey::SourceCommentBackground => &mut self.source_comment_background,
+            ColorKey::SourceNumberBackground => &mut self.source_number_background,
+            ColorKey::SourceNoteBackground => &mut self.source_note_background,
+            ColorKey::SourceFunctionBackground => &mut self.source_function_background,
+            ColorKey::SourceBangBackground => &mut self.source_bang_background,
+            ColorKey::SourceAtomBackground => &mut self.source_atom_background,
+            ColorKey::SourceSequenceBackground => &mut self.source_sequence_background,
+            ColorKey::DiagnosticForeground => &mut self.diagnostic_foreground,
+            ColorKey::DiagnosticBackground => &mut self.diagnostic_background,
+            ColorKey::DiagnosticBorder => &mut self.diagnostic_border,
+            ColorKey::OutputPortalForeground => &mut self.output_portal_foreground,
+            ColorKey::OutputPortalBackground => &mut self.output_portal_background,
+            ColorKey::OutputPortalBorder => &mut self.output_portal_border,
+            ColorKey::GridBorder => &mut self.grid_border,
+            ColorKey::SectorSeam => &mut self.sector_seam,
+            ColorKey::CursorBorder => &mut self.cursor_border,
+            ColorKey::RegionBorder => &mut self.region_border,
+            ColorKey::CursorArea => &mut self.cursor_area,
+            ColorKey::RegionBackground => &mut self.region_background,
+            ColorKey::PanelBorder => &mut self.panel_border,
+            ColorKey::SelectionBackground => &mut self.selection_background,
+            ColorKey::SelectionBorder => &mut self.selection_border,
+            ColorKey::SelectionBorderRest => &mut self.selection_border_rest,
+            ColorKey::WidgetInactiveBorder => &mut self.widget_inactive_border,
+            ColorKey::Text => &mut self.text,
+            ColorKey::TextActive => &mut self.text_active,
+            ColorKey::TextMuted => &mut self.text_muted,
+            ColorKey::InputBackground => &mut self.input_background,
+            ColorKey::Link => &mut self.link,
+            ColorKey::CodeBackground => &mut self.code_background,
+            ColorKey::InputCursor => &mut self.input_cursor,
+            ColorKey::Error => &mut self.error,
+            ColorKey::Warning => &mut self.warning,
+        }
+    }
+
+    fn set_grid_width(&mut self, key: GridWidthKey, value: GridWidth) {
+        match key {
+            GridWidthKey::GridBorder => self.grid_border_width = value,
+            GridWidthKey::SectorSeam => self.sector_seam_width = value,
+            GridWidthKey::CellSelectionBorder => self.cell_selection_border_width = value,
+            GridWidthKey::CursorBorder => self.cursor_border_width = value,
+            GridWidthKey::RegionBorder => self.region_border_width = value,
+            GridWidthKey::DiagnosticBorder => self.diagnostic_border_width = value,
+            GridWidthKey::OutputPortalBorder => self.output_portal_border_width = value,
+        }
+    }
+
+    fn set_chrome_width(&mut self, key: ChromeWidthKey, value: ChromeWidth) {
+        match key {
+            ChromeWidthKey::PanelBorder => self.panel_border_width = value,
+            ChromeWidthKey::SelectionBorder => self.selection_border_width = value,
+            ChromeWidthKey::WidgetBorder => self.widget_border_width = value,
+            ChromeWidthKey::WidgetInactiveBorder => self.widget_inactive_border_width = value,
+            ChromeWidthKey::InputCursor => self.input_cursor_width = value,
+        }
+    }
+}
+
+///
+/// Reads a named property by key. Painting reads Theme's fields directly, so
+/// only tests read through a key, to check each key reaches its own field.
+///
+#[cfg(test)]
 impl Theme {
     ///
     /// Reads a named colour property by key. Exhaustive over [`ColorKey`],
     /// so a catalogue addition that forgets a field here fails to compile
     /// rather than silently resolving to a stale value.
     ///
-    pub(crate) fn color(&self, key: ColorKey) -> Color32 {
+    fn color(&self, key: ColorKey) -> Color32 {
         *self.color_ref(key)
     }
 
@@ -554,57 +638,7 @@ impl Theme {
         }
     }
 
-    fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
-        match key {
-            ColorKey::WindowBackground => &mut self.window_background,
-            ColorKey::PanelBackground => &mut self.panel_background,
-            ColorKey::GridBackground => &mut self.grid_background,
-            ColorKey::CellBackground => &mut self.cell_background,
-            ColorKey::SourceOrdinary => &mut self.source_ordinary,
-            ColorKey::SourceComment => &mut self.source_comment,
-            ColorKey::SourceNumber => &mut self.source_number,
-            ColorKey::SourceNote => &mut self.source_note,
-            ColorKey::SourceFunction => &mut self.source_function,
-            ColorKey::SourceBang => &mut self.source_bang,
-            ColorKey::SourceSequence => &mut self.source_sequence,
-            ColorKey::SourceOrdinaryBackground => &mut self.source_ordinary_background,
-            ColorKey::SourceCommentBackground => &mut self.source_comment_background,
-            ColorKey::SourceNumberBackground => &mut self.source_number_background,
-            ColorKey::SourceNoteBackground => &mut self.source_note_background,
-            ColorKey::SourceFunctionBackground => &mut self.source_function_background,
-            ColorKey::SourceBangBackground => &mut self.source_bang_background,
-            ColorKey::SourceAtomBackground => &mut self.source_atom_background,
-            ColorKey::SourceSequenceBackground => &mut self.source_sequence_background,
-            ColorKey::DiagnosticForeground => &mut self.diagnostic_foreground,
-            ColorKey::DiagnosticBackground => &mut self.diagnostic_background,
-            ColorKey::DiagnosticBorder => &mut self.diagnostic_border,
-            ColorKey::OutputPortalForeground => &mut self.output_portal_foreground,
-            ColorKey::OutputPortalBackground => &mut self.output_portal_background,
-            ColorKey::OutputPortalBorder => &mut self.output_portal_border,
-            ColorKey::GridBorder => &mut self.grid_border,
-            ColorKey::SectorSeam => &mut self.sector_seam,
-            ColorKey::CursorBorder => &mut self.cursor_border,
-            ColorKey::RegionBorder => &mut self.region_border,
-            ColorKey::CursorArea => &mut self.cursor_area,
-            ColorKey::RegionBackground => &mut self.region_background,
-            ColorKey::PanelBorder => &mut self.panel_border,
-            ColorKey::SelectionBackground => &mut self.selection_background,
-            ColorKey::SelectionBorder => &mut self.selection_border,
-            ColorKey::SelectionBorderRest => &mut self.selection_border_rest,
-            ColorKey::WidgetInactiveBorder => &mut self.widget_inactive_border,
-            ColorKey::Text => &mut self.text,
-            ColorKey::TextActive => &mut self.text_active,
-            ColorKey::TextMuted => &mut self.text_muted,
-            ColorKey::InputBackground => &mut self.input_background,
-            ColorKey::Link => &mut self.link,
-            ColorKey::CodeBackground => &mut self.code_background,
-            ColorKey::InputCursor => &mut self.input_cursor,
-            ColorKey::Error => &mut self.error,
-            ColorKey::Warning => &mut self.warning,
-        }
-    }
-
-    pub(crate) fn grid_width(&self, key: GridWidthKey) -> GridWidth {
+    fn grid_width(&self, key: GridWidthKey) -> GridWidth {
         match key {
             GridWidthKey::GridBorder => self.grid_border_width,
             GridWidthKey::SectorSeam => self.sector_seam_width,
@@ -616,35 +650,13 @@ impl Theme {
         }
     }
 
-    fn set_grid_width(&mut self, key: GridWidthKey, value: GridWidth) {
-        match key {
-            GridWidthKey::GridBorder => self.grid_border_width = value,
-            GridWidthKey::SectorSeam => self.sector_seam_width = value,
-            GridWidthKey::CellSelectionBorder => self.cell_selection_border_width = value,
-            GridWidthKey::CursorBorder => self.cursor_border_width = value,
-            GridWidthKey::RegionBorder => self.region_border_width = value,
-            GridWidthKey::DiagnosticBorder => self.diagnostic_border_width = value,
-            GridWidthKey::OutputPortalBorder => self.output_portal_border_width = value,
-        }
-    }
-
-    pub(crate) fn chrome_width(&self, key: ChromeWidthKey) -> ChromeWidth {
+    fn chrome_width(&self, key: ChromeWidthKey) -> ChromeWidth {
         match key {
             ChromeWidthKey::PanelBorder => self.panel_border_width,
             ChromeWidthKey::SelectionBorder => self.selection_border_width,
             ChromeWidthKey::WidgetBorder => self.widget_border_width,
             ChromeWidthKey::WidgetInactiveBorder => self.widget_inactive_border_width,
             ChromeWidthKey::InputCursor => self.input_cursor_width,
-        }
-    }
-
-    fn set_chrome_width(&mut self, key: ChromeWidthKey, value: ChromeWidth) {
-        match key {
-            ChromeWidthKey::PanelBorder => self.panel_border_width = value,
-            ChromeWidthKey::SelectionBorder => self.selection_border_width = value,
-            ChromeWidthKey::WidgetBorder => self.widget_border_width = value,
-            ChromeWidthKey::WidgetInactiveBorder => self.widget_inactive_border_width = value,
-            ChromeWidthKey::InputCursor => self.input_cursor_width = value,
         }
     }
 }
@@ -851,46 +863,42 @@ pub fn okabe_ito() -> Theme {
 pub(crate) const ORCVS_LIGHT_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("orcvs-light");
 
 ///
-/// The Orcvs Light built-in Theme: the complete light definition
-/// `.scratch/theming/issues/04` prepares for review, at the reserved
-/// identity `ORCVS_LIGHT_IDENTITY`. Every field is spelled out explicitly
-/// for the same reason [`okabe_ito`]'s is — including the properties whose
-/// value it shares with the dark built-in, which `04` requires be recorded
-/// rather than left to a toolkit default.
+/// The Orcvs Light built-in Theme: the complete light definition, at the
+/// reserved identity `ORCVS_LIGHT_IDENTITY`. Every field is spelled out
+/// explicitly for the same reason [`okabe_ito`]'s is, including the
+/// properties whose value it shares with the dark built-in, so that a shared
+/// value is recorded rather than left to a toolkit default.
 ///
-/// The chrome colours start from the `feat/egui-theming` branch's hand-tuned
-/// `LIGHT_PALETTE`, mapped onto the named keys as
-/// `.scratch/theming/issues/04`'s 2026-09-21 comment directs (page →
-/// `window.background`/`panel.background`, source → `grid.background`, grid
-/// line → `grid.border`, sector line → `sector.seam`, selection fill →
-/// `selection.background`, and so on).
+/// The chrome colours map a hand-tuned light palette onto the named keys:
+/// page → `window.background`/`panel.background`, source →
+/// `grid.background`, grid line → `grid.border`, sector line →
+/// `sector.seam`, selection fill → `selection.background`, and so on.
 ///
-/// The **Source glyph hues do not**. A review found that palette's Function
-/// green and Bang red at near-identical relative luminance, and a
-/// colour-vision measurement of the whole definition
-/// (`contrast::distinguish`) then found worse: its Diagnostic and
-/// Output Portal measured 0.70 apart under protanopia and its Note and
-/// Number 2.16 under deuteranopia, against a floor of 5.0 — pairs a
-/// red–green colour-blind reader reads as one colour, and pairs
-/// [`okabe_ito`] keeps apart by construction. The user's 2026-09-23 decision
-/// re-picks every glyph hue from the same Okabe–Ito palette and the same
-/// role-to-hue assignment the dark built-in already uses (Number sky blue,
-/// Note yellow, Function bluish green, Bang reddish purple, Sequence blue,
-/// Diagnostic vermillion, Output Portal orange), keeping each hue exactly —
-/// the OKLCh hue angle is held to within 0.7° — and moving lightness alone,
-/// as far as a near-white ground requires and, for Diagnostic and Output
-/// Portal, as far as `contrast::CONFUSION_FLOOR` requires on top of that.
-/// Sequence is `#0072B2` unchanged: no reachable state draws a glyph in it,
-/// so only its tint reaches the screen. `console/src/theme.md` records each
-/// value, its hue and lightness, the measured ratios and the colour-vision
-/// separations. The user accepted that definition on 2026-09-23. It is the
-/// light Theme selection's default and fallback (`crate::theme_selection`),
-/// which `crate::style::install` registers for `egui::Theme::Light`.
+/// The Source glyph hues are the Okabe–Ito palette under the role-to-hue
+/// assignment the dark built-in uses (Number sky blue, Note yellow, Function
+/// bluish green, Bang reddish purple, Sequence blue, Diagnostic vermillion,
+/// Output Portal orange). Each keeps its hue exactly — the OKLCh hue angle is
+/// held to within 0.7° — and moves lightness alone: as far as a near-white
+/// ground requires and, for Diagnostic and Output Portal, further still, so
+/// that a red–green colour-blind reader tells every pair of glyph roles
+/// apart. Do not pick a glyph hue outside that assignment: [`okabe_ito`]
+/// keeps its roles apart under protanopia and deuteranopia by construction,
+/// and a hand-picked hue can land two roles on what those readers see as one
+/// colour. Sequence is `#0072B2` unchanged: no reachable state draws a glyph
+/// in it, so only its tint reaches the screen. `console/src/theme.md` records
+/// each value, its hue and lightness, the measured ratios and the
+/// colour-vision separations.
+///
+/// This is the light Theme selection's default and fallback
+/// (`crate::theme_selection`), which `crate::style::install` registers for
+/// `egui::Theme::Light`.
 ///
 /// `orcvs_light_defines_every_key_at_the_recorded_values` in this module's
-/// tests pins every field against that record, and
+/// tests pins every field against that record,
 /// `style::tests::orcvs_light_chrome_matches_the_decided_record` cross-checks
-/// the chrome keys through [`crate::style::style`].
+/// the chrome keys through [`crate::style::style`], and the contrast module's
+/// `shipped_theme_colour_vision_gate` holds every glyph pair apart under
+/// simulated protanopia and deuteranopia.
 ///
 pub fn orcvs_light() -> Theme {
     Theme {

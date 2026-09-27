@@ -59,7 +59,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | Done | PR | Scope | Issues | Sequencing and completion focus |
 |---|---|---|---|---|
 | [x] | 17 ([#136](https://github.com/orcvs/orcvs/pull/136)) | Simplify Theme decoding | [#18](issues/18-make-toml-the-only-theme-representation.md) | Delivered by PR #136, which merged after the audit baseline. |
-| [ ] | 18 | Settle colour-vision validation | [#11](issues/11-decide-the-fate-of-the-colour-blindness-simulation.md) | Decision first; preferably after PR 17. Integrate validation or remove the simulation from production. |
+| [x] | 18 ([#169](https://github.com/orcvs/orcvs/pull/169)) | Settle colour-vision validation | [#11](issues/11-decide-the-fate-of-the-colour-blindness-simulation.md) | Decision first; preferably after PR 17. Integrate validation or remove the simulation from production. Decided: test-only check on the built-ins; removed from production. |
 | [ ] | 19 | Preserve refused stored Sources | [#22](issues/22-keep-an-earlier-refused-source-when-a-later-start-refuses.md) | Independent correctness fix: a later refusal must not replace the earlier recovery payload. |
 
 ## Final cleanup

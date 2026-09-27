@@ -326,8 +326,9 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 /// Diagnostic/Output-Portal answer, from [`cell_visuals_with_cursor_colour`])
 /// combined with the Region/Cursor fallback chain — extracted from
 /// [`crate::paint::Paint::derive_with_theme`]'s per-Cell loop so that
-/// function and [`crate::contrast::painted`]'s standalone per-state answer
-/// read the exact same decision and cannot independently drift.
+/// function and `crate::contrast::painted`, the standalone per-state answer
+/// [`crate::contrast::validate`] measures, read the exact same decision and
+/// cannot independently drift.
 ///
 /// `is_region_cursor` is `crate::paint::Paint::derive_with_theme`'s own
 /// `is_cursor && region_spans`: the Cursor's own Cell inside a Region larger
