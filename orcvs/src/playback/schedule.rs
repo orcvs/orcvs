@@ -74,12 +74,12 @@ struct Sounding {
 ///
 /// Which claim on a voice a scheduled stop belongs to.
 ///
-/// ADR 0016's generation token. An expiry is scheduled at the Tick it is due
-/// at and cannot be found again when the note it would stop is replaced or
-/// stopped early, so a stale one is left in the schedule and refused when it
-/// comes due: it carries the claim that scheduled it, and only the claim still
-/// standing then is stopped. Without it a Source that stops a note and starts
-/// it again would have the first command's expiry cut the second note short.
+/// The generation token. An expiry is scheduled at the Tick it is due at and
+/// cannot be found again when the note it would stop is replaced or stopped
+/// early, so a stale one is left in the schedule and refused when it comes due:
+/// it carries the claim that scheduled it, and only the claim still standing
+/// then is stopped. Without it a Source that stops a note and starts it again
+/// would have the first command's expiry cut the second note short.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Claim(u64);
@@ -439,12 +439,11 @@ mod tests {
 
     #[test]
     fn a_chord_of_timed_plays_stops_each_element_at_its_own_length() {
-        // ADR 0030 widens `!~` over a Sequence, so one Expression hands the
-        // schedule several Timed Play commands at once, in element index
-        // order. Ownership is already keyed by channel and note and each
-        // command already carries its own length, so nothing here was added
-        // for the group — this states that nothing needed to be, rather than
-        // assuming it.
+        // `!~` widens over a Sequence, so one Expression hands the schedule
+        // several Timed Play commands at once, in element index order.
+        // Ownership is keyed by channel and note and each command carries its
+        // own length, so the group needs nothing of its own — this states
+        // that, rather than assuming it.
         //
         // Three notes with three different lengths in one delivery: a schedule
         // that read one length for the whole group, or that let a later

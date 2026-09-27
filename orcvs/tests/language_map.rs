@@ -59,9 +59,9 @@ fn truncated_operand_owns_the_available_row_tail() {
     // The row ends mid-operand: the second Number needs columns 4-5 and the
     // Grid has only column 4. `Parser::take_token`'s error path still records
     // the Cells the row's tail actually held, so the one Cell that exists
-    // carries the operand's declared Token exactly like a complete one would
-    // — `syntax-highlighting/03` reads this fact through to the tint rather
-    // than adding a second classifier beside the Language Map for it.
+    // carries the operand's declared Token exactly like a complete one would,
+    // and the tint reads this fact rather than a second classifier beside the
+    // Language Map.
     assert_eq!(
         map.token_at(grid.position(4, 0).unwrap()),
         Some(Token::Number),
@@ -70,10 +70,10 @@ fn truncated_operand_owns_the_available_row_tail() {
 }
 
 /// A Comment introducer inside a Function's arity-determined claim is an
-/// operand Cell of that Function, not a Comment. ADR 0035 makes `||` a
-/// spelling like any other, and ADR 0033 reads a spelling only in the position
-/// where a spelling is read, so the Add's second operand is `||`, it fails to
-/// bind, and the row holds no Comment at all.
+/// operand Cell of that Function, not a Comment. `||` is a spelling like any
+/// other, read only in the position where a spelling is read, so the Add's
+/// second operand is `||`, it fails to bind, and the row holds no Comment at
+/// all.
 #[test]
 fn an_operand_claim_reaches_over_a_comment_introducer() {
     let grid = Grid::with_shape(8, 1);

@@ -255,15 +255,14 @@ impl OutputAdapter for MidiOutputAdapter {
             };
             if let Err(error) = connection.send(&message) {
                 let delivery_error = OutputAdapterError::new(error.message);
-                // The teardown's own refusals are discarded deliberately, and
-                // all forty-eight of them rather than the sixteen this arm
-                // discarded before the action widened. The sibling call sites
-                // report theirs because they have a caller expecting an answer
-                // about the action; here the delivery failure is already the
-                // answer, and it is the one that describes what went wrong. A
-                // destination that refused the message being delivered is
-                // expected to refuse the safety action behind it, so reporting
-                // that instead would replace the cause with its consequence.
+                // The teardown's own refusals, all forty-eight of them, are
+                // discarded deliberately. The sibling call sites report theirs
+                // because they have a caller expecting an answer about the
+                // action; here the delivery failure is already the answer, and
+                // it is the one that describes what went wrong. A destination
+                // that refused the message being delivered is expected to
+                // refuse the safety action behind it, so reporting that
+                // instead would replace the cause with its consequence.
                 let _ = self.send_safety_reset();
                 self.connection = None;
                 self.destinations
@@ -345,21 +344,20 @@ mod tests {
     ///
     /// Waits until the engine's task has answered, or gives up and says so.
     ///
-    /// Selecting a destination is a message now, so a test that asked for one
+    /// Selecting a destination is a message, so a test that asked for one
     /// waits for the task before reading what the device received. How many
     /// turns that takes belongs to the runtime; what the test is waiting for
     /// belongs to the test, and only the second of those is worth writing
     /// down.
     ///
-    /// It spins because what it waits on is a `Mutex` a test fake writes
-    /// under, which nothing here can await, and because a sleep would move a
-    /// clock the caller is holding still. Both halves of that are hazards
-    /// rather than guarantees — the runtime does not promise that yielding
-    /// lets another task run — and `18-take-the-blocking-hazards-out-of-the-
-    /// playback-test-harness` is where they are answered. Where the wait is
-    /// only for time to pass, `sleep` under the paused clock says it exactly:
-    /// the runtime advances to the next timer only once nothing is runnable,
-    /// so every deadline at or before the instant it returns at has been kept.
+    /// It spins because what it waits on is a `Mutex` a test fake writes under,
+    /// which nothing here can await, and because a sleep would move a clock the
+    /// caller is holding still. Both halves of that are hazards rather than
+    /// guarantees: the runtime does not promise that yielding lets another task
+    /// run. Where the wait is only for time to pass, `sleep` under the paused
+    /// clock says it exactly: the runtime advances to the next timer only once
+    /// nothing is runnable, so every deadline at or before the instant it
+    /// returns at has been kept.
     ///
     macro_rules! settle_until {
         ($condition:expr) => {{
@@ -652,8 +650,8 @@ mod tests {
 
         assert_eq!(error, OutputAdapterError::new("device lost on send 0"));
         // The refused Note On is not recorded, so every message here belongs
-        // to the teardown: the same widened action a stop sends, on all
-        // sixteen channels.
+        // to the teardown: the same action a stop sends, on all sixteen
+        // channels.
         assert_eq!(state.lock().unwrap().messages.len(), SAFETY_ACTION_LEN);
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
@@ -842,7 +840,8 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("two"));
 
         // The bytes, not a delta: a count that only grew would be satisfied by
-        // the narrower All Notes Off loop this action replaced.
+        // an action that sends All Notes Off alone, without the rest of each
+        // channel's safety triple.
         let state = state.lock().unwrap();
         assert_eq!(state.messages, safety_action_messages());
         assert_eq!(state.connection_count, 2);

@@ -72,8 +72,8 @@ impl CellIndex {
 
 ///
 /// The one shape every Grid has: 256 columns by 256 rows (ADR 0054), so every
-/// pair of Numbers, `00 00` through `FF FF`, names a Position (ADR 0049). A
-/// Number is one byte (ADR 0010).
+/// pair of Numbers, `00 00` through `FF FF`, names a Position. A Number is one
+/// byte.
 ///
 pub const COL_COUNT: usize = u8::MAX as usize + 1;
 pub const ROW_COUNT: usize = u8::MAX as usize + 1;
@@ -968,28 +968,21 @@ mod test {
 /// glossary quantifies over *every* Position a Grid mints, so drawing one
 /// Position per case would leave the quantifier itself unchecked.
 ///
-/// `.scratch/property-testing/spec.md` says to prefer an exhaustive loop where
-/// the domain is small enough for one, and 4,096 dimension pairs is small
-/// enough. The rule is about the domain a property covers, not the value it
-/// draws, and the sweep is what separates the two here: a case covers a whole
-/// shape's worth of Positions, so these properties range over the (shape,
-/// Position) space — some 4 x 10^6 pairs — and, for `offset_in_row`, the
-/// (shape, Position, offset) space those shapes open, which runs to some 10^8
-/// triples. Neither is within an enumeration's reach, which is what makes a
-/// sample the right instrument rather than a concession. What the sample is
-/// spent on is the shape, and the shapes the rule would worry about losing are
-/// the edge ones, which `dimensions` draws by weight rather than by luck:
+/// An exhaustive loop is preferred where the domain is small enough for one,
+/// and 4,096 dimension pairs is small enough. The rule is about the domain a
+/// property covers, not the value it draws, and the sweep is what separates the
+/// two here: a case covers a whole shape's worth of Positions, so these
+/// properties range over the (shape, Position) space — some 4 x 10^6 pairs —
+/// and, for `offset_in_row`, the (shape, Position, offset) space those shapes
+/// open, which runs to some 10^8 triples. Neither is within an enumeration's
+/// reach, which is what makes a sample the right instrument rather than a
+/// concession. What the sample is spent on is the shape, and the shapes the
+/// rule would worry about losing are the edge ones, which `dimensions` draws by
+/// weight rather than by luck:
 /// `generated_grids_include_the_one_column_and_one_row_cases` is what says so.
 /// A pull request draws 32 shapes and the merge tier 256 — draws rather than
 /// distinct pairs, since the weighted arms repeat the 1 x 1 Grid and the other
 /// edges on purpose.
-///
-/// This replaces the effort's wiring seed, whose own comment said that proving
-/// the round trip for every minted Position belonged to
-/// `.scratch/property-testing/issues/02-grid-position-round-trip.md`.
-/// `every_position_the_grid_mints_round_trips_through_its_index` is that
-/// proof, so keeping the seed beside it would be a second, weaker statement of
-/// the same law.
 ///
 /// These properties sweep the test-only `Grid::with_shape` so the arithmetic
 /// is checked across many shapes. Dimensions start at one because
@@ -1057,10 +1050,9 @@ mod property {
     /// identity in the comparison.
     ///
     /// The two terms are not independent: `Position` derives `PartialEq` over
-    /// `grid_id`, so the equality already implies `owns`. The call stays
-    /// because acceptance line 5 of `property-testing/02` asks for `owns` in
-    /// those words and this is where every property states it; it is the
-    /// literal form of a claim the equality subsumes, not a second check.
+    /// `grid_id`, so the equality already implies `owns`. The call stays so
+    /// that every property states `owns` in those words; it is the literal
+    /// form of a claim the equality subsumes, not a second check.
     ///
     fn is_a_cell_of(grid: Grid, pos: Position) -> bool {
         grid.owns(pos) && grid.position(pos.x(), pos.y()) == Some(pos)
@@ -1281,8 +1273,7 @@ mod property {
         /// — ask on behalf of a run of Cells they already hold, so `width - 1`
         /// is the offset each hands over and the row's last Cell is what
         /// decides whether a write is refused or a destination has
-        /// relationships at all. There was no test of this method before this
-        /// one.
+        /// relationships at all.
         ///
         #[test]
         fn an_offset_in_row_stays_inside_the_row_it_started_in(
@@ -1411,7 +1402,7 @@ mod property {
     /// across cases; the count is asserted afterwards, where `proptest!` would
     /// have had nowhere to put it. This is the same guard, for the same
     /// reason, as `lang::parser`'s
-    /// `generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer`.
+    /// `generated_source_covers_the_space_the_incomplete_rule_and_the_comment_introducer`.
     ///
     /// The case count is pinned rather than taken from `PROPTEST_CASES`,
     /// because the claim is about the generator rather than about the Grid.

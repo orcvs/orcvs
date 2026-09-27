@@ -114,8 +114,8 @@ pub struct CellWrite {
 /// One interpreted MIDI instruction emitted by an active Terminal Output
 /// Function, and the ordered group of them one Expression performs. Tick
 /// planning decides which terminal roots are active and in what order their
-/// commands appear; the output adapter turns each one into MIDI. Per ADR 0030
-/// one Expression can perform many commands, ordered by element index, so a
+/// commands appear; the output adapter turns each one into MIDI. One
+/// Expression can perform many commands, ordered by element index, so a
 /// Performance crosses the seam and a Tick Plan holds the flattened list.
 pub use lang::{
     BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, Performance,
@@ -332,7 +332,7 @@ impl Source {
 
     ///
     /// The one byte `s` holds, when `s` is one printable single-byte ASCII
-    /// character. This is the only rule the editing seam has left: addressing
+    /// character. This is the only rule the editing seam applies: addressing
     /// is settled by the index, so content is all a Cell can be refused for.
     ///
     fn check_content(s: &str) -> Result<CellContent, SourceError> {
@@ -734,8 +734,8 @@ mod test {
     /// built outside it has no row helper to call.
     ///
     /// It also owns the Playback run's absolute Tick, so a test that Ticks
-    /// twice describes a Playback run that ADR 0012 admits without restating
-    /// the counter. See `execute`.
+    /// twice describes a Playback run without restating the counter. See
+    /// `execute`.
     ///
     /// It derefs to the Source so a test still speaks to a Source directly.
     ///
@@ -750,8 +750,8 @@ mod test {
             Self {
                 grid,
                 src: Source::new(grid),
-                // ADR 0012: the first Tick of a Playback run is absolute Tick
-                // `0`. A Source that has not run yet is a run about to begin.
+                // The first Tick of a Playback run is absolute Tick `0`. A
+                // Source that has not run yet is a run about to begin.
                 tick: Tick::ZERO,
             }
         }
@@ -759,7 +759,7 @@ mod test {
         ///
         /// Runs the next Tick of this Source's Playback run.
         ///
-        /// ADR 0012 numbers the first Playback Tick `0` and increments that
+        /// A Playback run numbers its first Tick `0` and increments that
         /// counter by one for each Tick after it, so a test that executes
         /// twice is describing Ticks `0` and `1`. Counting here rather than at
         /// every call site is what makes the alternative — a run that executes
@@ -886,10 +886,9 @@ mod test {
     ///
     /// Supply an evaluation answer at the seam production delivers one
     /// through: encode it, admit the whole encoding through the ordinary
-    /// result Portal, and resolve the Effect. No parseable Function answers
-    /// with a Sequence yet, so a Sequence is stated here rather than spelled
-    /// in Source; what it exercises is the Portal and the commit, both of
-    /// which are the same ones a Tick uses. Commit remains Source's.
+    /// result Portal, and resolve the Effect. A Sequence is stated here rather
+    /// than spelled in Source; what it exercises is the Portal and the commit,
+    /// both of which are the same ones a Tick uses. Commit remains Source's.
     ///
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
         let value = match result {
@@ -912,9 +911,8 @@ mod test {
             }
         };
         // The rule for what an answer becomes in Cells is production's, called
-        // here rather than restated: these tests state an answer because no
-        // parseable Function answers with a Sequence yet, and what they
-        // exercise is the commit, not a second encoding.
+        // here rather than restated: these tests state an answer, and what
+        // they exercise is the commit, not a second encoding.
         let rendered = Encoding::render(&value).expect("these answers are stated as Source Cells");
         let Rendered::Cells(encoding) = rendered else {
             return resolve(Vec::new());
@@ -951,11 +949,11 @@ mod test {
 
         // Every multi-Tick test in this module reads its Tick numbering from
         // the helper rather than stating one, so this is where that numbering
-        // is pinned. ADR 0012: the first Playback Tick is absolute Tick `0`,
-        // and each Tick after it is one on from the last. A helper that handed
+        // is pinned. The first Playback Tick is absolute Tick `0`, and each
+        // Tick after it is one on from the last. A helper that handed
         // interpretation the same Tick twice would describe a Playback run
-        // that cannot exist, and would silently stop a test that Ticks twice
-        // from exercising a second Tick once a Function reads the Tick.
+        // that cannot exist, and because Functions read the Tick, a test that
+        // Ticks twice would silently stop exercising its second Tick.
         let mut src = source();
 
         assert_eq!(src.tick(), Tick::ZERO, "a run begins at absolute Tick 0");
@@ -1371,13 +1369,13 @@ mod test {
 
         let at = src.cells();
 
-        // ADR 0015 retired `id` from the Function vocabulary, so Source
-        // containing it no longer parses as a Function and diagnoses like any
+        // ADR 0015 keeps `id` out of the Function vocabulary, so Source
+        // containing it does not parse as a Function and diagnoses like any
         // other unknown spelling.
         src.write(at(0), "id");
 
         assert_eq!(src.row(0), "id        ");
-        // Two, because ADR 0018 resumes one Cell after a refused spelling:
+        // Two, because the walk resumes one Cell after a refused spelling:
         // `id` is refused at Cell 0, and `d ` is refused at Cell 1. Each is an
         // Expression of one Cell.
         assert_eq!(diagnostics(&src).len(), 2);
@@ -1388,7 +1386,7 @@ mod test {
         // a Function is expected keeps the Function Glyph, because a Record
         // that failed to parse reports the Token its position expected. That is
         // the same operand-slot hint the editing tests cover, not a claim that
-        // `id` is still a Function.
+        // `id` is a Function.
         assert_eq!(token_at(&src, 0), Some(Token::Function));
         assert_eq!(token_at(&src, 1), Some(Token::Function));
     }
@@ -1639,8 +1637,8 @@ mod test {
 
         let tick = src.execute();
 
-        // ADR 0016 puts the lifetime in the Tick Plan rather than resolving it
-        // here: a Tick plans one Tick, and the Note Off this command owes is
+        // The lifetime rides in the Tick Plan rather than being resolved here:
+        // a Tick plans one Tick, and the Note Off this command owes is
         // due at another one. Each operand also differs from the others, so a
         // transposed declaration changes this answer rather than diagnosing.
         assert_eq!(
@@ -1659,9 +1657,9 @@ mod test {
 
     #[test]
     fn an_unactivated_terminal_root_does_not_report_a_dependency_it_never_read() {
-        // A terminal root with no Bang takes no turn at all. Asking about its
-        // suppliers before asking whether it was ever going to run made it
-        // complain, every Tick, about an operand it was never going to read.
+        // A terminal root with no Bang takes no turn at all. Do not ask about
+        // its suppliers before asking whether it will run: that complains,
+        // every Tick, about an operand it is never going to read.
         let mut src = source();
         let at = src.cells();
         src.write(at(2), ".+0102Z");
@@ -1688,18 +1686,12 @@ mod test {
         // its anchor whether or not anyone has written into them. The Bang the
         // Equality produces lands on the last two of them, which makes it that
         // Function's Note operand and not an activation — and the Play root
-        // beneath it takes no turn.
+        // beneath it takes no turn. The claim is arity, one derivation, so
+        // every reading of this Cell agrees that it is a slot.
         //
-        // This is the geometry `8e7bdce` worked around by filtering the slots
-        // a whitespace run could not reach. There is no run to reach past now:
-        // the claim is arity, one derivation, and the two readings that used to
-        // disagree about this Cell agree that it is a slot.
-        //
-        // What is owed here is the diagnostic, not a different claim. ADR 0032
-        // requires a result covering an operand slot to be told apart from an
-        // activation *before* the Tick publishes, and reported either way;
-        // `cell-indexed-parse/03` is where that verdict is drawn, and until it
-        // lands this Source is refused silently rather than loudly.
+        // The `**` it writes is characters in a Number operand, not a Bang, so
+        // the Source is not refused silently: the parse of the written Source
+        // reports that operand at the Play's anchor.
         let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
         let at = src.cells();
         src.write(at(6), ".=0101");
@@ -1722,6 +1714,13 @@ mod test {
             tick.play_commands.is_empty(),
             "the Bang was delivered as an activation from inside an operand slot: {:?}",
             tick.play_commands,
+        );
+        assert!(
+            src.language_map()
+                .diagnostics()
+                .any(|diagnostic| diagnostic.start() == 16
+                    && diagnostic.message.contains("expected a number")),
+            "the Bang in the operand slot was not reported",
         );
     }
 
@@ -2141,14 +2140,14 @@ mod test {
 
     #[test]
     fn test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root() {
-        // Pins the limitation `spatial-tick-planning/02` inherits. ADR 0006's
-        // west and east anchors sit two Cells from the Bang, but a Raw Play's
-        // operands occupy those Cells, and the walk partitions a row by parse,
-        // so a Bang beside a Function is that Function's operand Source. The
-        // contiguous spellings form no root at all, and the space-separated
-        // ones put the Bang anchor three or more columns away from the root
-        // anchor. Every horizontal placement is inert; the day the partition
-        // Bang activation reads changes, this test says so.
+        // Pins a limitation of Bang activation: its west and east anchors sit
+        // two Cells from the Bang, but a Raw Play's operands occupy those
+        // Cells, and the walk partitions a row by parse, so a Bang beside a
+        // Function is that Function's operand Source. The contiguous spellings
+        // form no root at all, and the space-separated ones put the Bang anchor
+        // three or more columns away from the root anchor. Every horizontal
+        // placement is inert; the day the partition Bang activation reads
+        // changes, this test says so.
         for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
             // The Grid is as wide as the spelling it holds. The geometry under
             // test is horizontal, so a spelling that outran the row would wrap
@@ -2170,8 +2169,7 @@ mod test {
 
     #[test]
     fn test_a_value_producing_root_evaluates_without_a_bang() {
-        // Gating every root behind activation belongs to spatial Tick
-        // planning. Until then only terminal roots consult the Bang.
+        // A value-producing root takes its Turn without a Bang.
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".+0102");
@@ -2185,8 +2183,8 @@ mod test {
     fn an_equal_comparison_commits_a_bang_and_an_unequal_one_commits_nothing() {
         // Equality answers a pulse, so its two answers reach the Source by two
         // different paths: the equal case is an ordinary two-Cell result write
-        // that must render as `**`, and the unequal case rides the existing
-        // Empty signal and must leave the result row exactly as it found it.
+        // that must render as `**`, and the unequal case rides the Empty
+        // signal and must leave the result row exactly as it found it.
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0303");
@@ -2275,8 +2273,8 @@ mod test {
 
     #[test]
     fn a_zero_divisor_diagnoses_and_commits_nothing() {
-        // The ticket pairs "diagnoses" with "produces no result", and only the
-        // Source can show the second half: an Interpreter error has to reach
+        // A diagnosis pairs with producing no result, and only the Source can
+        // show the second half: an Interpreter error has to reach
         // the Tick Plan as a diagnostic AND leave the result row untouched,
         // rather than committing a Cell the next Tick would read as an operand.
         let mut src = source();
@@ -2346,8 +2344,8 @@ mod test {
         let at = src.cells();
 
         // The last-column `.` is one incomplete Expression and `+0102` is an
-        // invalid Expression in the next row. Neither can produce the `03`
-        // that their formerly wrapped `.+0102` run produced.
+        // invalid Expression in the next row. An Expression never wraps, so
+        // neither can produce the `03` a wrapped `.+0102` would.
         src.write(at(9), ".+0102");
 
         src.execute();
@@ -2384,9 +2382,9 @@ mod test {
 
         let at = src.cells();
 
-        // This formerly parsed as one wrapped `.+0102` Expression. It is now
-        // an incomplete `.+` followed by a separate literal `0102`, neither
-        // of which can produce the old `03` result.
+        // An Expression never wraps, so this is an incomplete `.+` followed by
+        // a separate literal `0102` on the next row, neither of which can
+        // produce `03`.
         src.write(at(8), ".+0102");
 
         src.execute();
@@ -2427,8 +2425,8 @@ mod test {
         // A committed result is not itself a computation, so re-Ticking the
         // same Source re-commits the same Cells and never marches down the
         // grid. Ticks `1` through `4` of the same Playback run, not Tick `0`
-        // four times: the helper counts, so what is re-Ticked here is a run
-        // ADR 0012 admits.
+        // four times: the helper counts, so what is re-Ticked here is a
+        // Playback run.
         for _ in 0..4 {
             src.execute();
             assert_eq!(src.snapshot(), after_first_tick);
@@ -2483,8 +2481,8 @@ mod test {
         // Wide enough to hold both, because `.+` with no operands still claims
         // the six Cells its arity declares. The second Addition begins after
         // them, so the two are unrelated — which is the whole of what this
-        // test is about, and now a fact about arity rather than about the
-        // space between them.
+        // test is about, and a fact about arity rather than about the space
+        // between them.
         let mut src = SourceUnderTest::new(Grid::with_shape(16, 2));
 
         let at = src.cells();
@@ -2713,7 +2711,7 @@ mod test {
         assert_eq!(generated.snapshot(), typed.snapshot());
         assert_eq!(tokens(&generated), tokens(&typed));
         assert_eq!(reported(&generated), reported(&typed));
-        // Six diagnostics rather than one: ADR 0033 resumes one Cell after a
+        // Six diagnostics rather than one: the walk resumes one Cell after a
         // refused spelling, so each Cell of the run is refused on its own and
         // says so. The last is the row's final Cell, where no spelling can be
         // read at all.

@@ -1,4 +1,4 @@
-//! ADR 0009's Portal: where one interpreted result becomes Cells.
+//! The Portal: where one interpreted result becomes Cells.
 //!
 //! A Portal is one Cell destination resolved during a Tick. [`PortalAccess`] is
 //! how one computation interacts with Portals: whether it writes any, and which
@@ -7,12 +7,11 @@
 //! change: a future Cell-addressing model, an infinite canvas among them, moves
 //! a result somewhere else without touching Function evaluation, effect
 //! ordering, or Tick Plan commit. Keeping resolution in its own module is what
-//! makes that a change to one file rather than a change threaded through the
-//! producer that happened to hardcode "the row below the root".
-//! Reads, write admission, Reservations, occupancy, and Jump's Language Unit
-//! share its row-fit calculation; each caller retains the policy deciding how
-//! much coverage it needs, and whether an occupied Portal diagnoses, activates,
-//! locks, copies, or stays silent.
+//! makes that a change to one file rather than a change threaded through every
+//! producer. Reads, write admission, Reservations, occupancy, and Jump's
+//! Language Unit share its row-fit calculation; each caller retains the policy
+//! deciding how much coverage it needs, and whether an occupied Portal
+//! diagnoses, activates, locks, copies, or stays silent.
 //!
 //! Nothing in this module is reachable from the language crate, and nothing in
 //! it is serialized. That is the whole of CONTEXT.md's "a Portal is neither a
@@ -33,8 +32,8 @@ use super::language_map::{LanguageMap, LanguageUnitKind, Span};
 use super::{CellContent, Cells};
 
 /// The Cell pair one Atom occupies, and the one declaration of it: what a
-/// scalar answer reserves (ADR 0036), what a Jump reads at its opposite
-/// Portal, and the step an Output Portal highlight extends by.
+/// scalar answer reserves, what a Jump reads at its opposite Portal, and the
+/// step an Output Portal highlight extends by.
 pub(super) const SCALAR_WIDTH: usize = 2;
 
 ///
@@ -48,11 +47,8 @@ pub(super) const SCALAR_WIDTH: usize = 2;
 /// needs no destination rule of its own.
 ///
 /// ADR 0009 also lets a Source Function resolve several Portals as one effect
-/// bundle, validated complete before any of its writes is admitted. Nothing
-/// builds a bundle yet, because ADR 0005 defers the Source-addressing
-/// Functions that would resolve one and a bundle API with no caller would be
-/// shaped by guesswork. The shape it needs is already here: every Portal
-/// answers with a whole [`SpanWrite`] or a refusal, so a bundle is those
+/// bundle, validated complete before any of its writes is admitted. Every
+/// Portal answers with a whole [`SpanWrite`] or a refusal, so a bundle is those
 /// answers collected with `?` and is admitted whole or not at all, with no
 /// validation pass of its own to write.
 #[derive(Clone, Copy, Debug)]
@@ -117,8 +113,7 @@ pub(super) enum PortalUnit {
 ///
 /// Whether the content can be Cells at all is not among them. That is true of
 /// a value wherever it lands and is settled by [`Encoding`] before a
-/// destination is asked, which is why this type no longer carries a content
-/// refusal.
+/// destination is asked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PortalError {
     /// There is no row below the producer's root, so no default Portal
@@ -126,9 +121,9 @@ pub(super) enum PortalError {
     BelowSource,
     /// The declared displacement lands outside the Grid, so the destination
     /// this Function asked for does not exist. It is [`PortalError::BelowSource`]
-    /// generalised: that one is this refusal for the one displacement every
-    /// Function used to take, and it is kept apart because its diagnostic names
-    /// the row below rather than a displacement the Source never wrote.
+    /// generalised: that one is this refusal for the default Portal, kept apart
+    /// because its diagnostic names the row below rather than a displacement
+    /// the Source never wrote.
     OutsideGrid,
     /// The encoding is wider than the destination row's remaining Cells.
     CrossesRowEdge,
@@ -140,7 +135,7 @@ impl Portal {
     ///
     /// The row below is the default Portal: leaving the Grid there is the row
     /// below, not a displacement the Source wrote. Any other coordinates use
-    /// the same displaced resolution Jump already takes.
+    /// the same displaced resolution Jump takes.
     ///
     pub(super) fn named(
         grid: Grid,
@@ -455,8 +450,8 @@ impl SpanWrite {
 ///
 /// Terminal Output answers Play, not a Cell, so its writes are [`PortalOutput::None`]
 /// — a kind, so [`Self::carry`] cannot mint a site the resolve step refused.
-/// Empty-vec silence was the leak: a test helper could stuff a Portal onto
-/// `!>`. Play stays an Effect; it is not a Portal.
+/// Do not model it as an empty write list: a test helper could stuff a Portal
+/// into one for `!>`. Play stays an Effect; it is not a Portal.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct PortalAccess {
@@ -625,9 +620,8 @@ mod test {
 
     #[test]
     fn every_printable_cell_reaches_its_destination() {
-        // What a Portal is left holding once content validity belongs to
-        // `Encoding`: the Cells arrive as given, and the refusal that used to
-        // sit here is tested where the rule now lives.
+        // Content validity belongs to `Encoding` and is tested there, so a
+        // Portal places the Cells as given.
         let grid = Grid::with_shape(4, 2);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(
@@ -827,8 +821,8 @@ mod test {
     fn a_root_terminal_output_function_resolves_silent_after_carry() {
         // Terminal Output answers Play, not a Cell write. PortalAccess is how
         // a computation interacts with Portals: a root `!>` never demands a
-        // write site, and carry cannot mint one. Empty-vec silence was the
-        // leak — it could be stuffed.
+        // write site, and carry cannot mint one: an empty write list could be
+        // stuffed, and `PortalOutput::None` cannot.
         let grid = Grid::with_shape(8, 2);
         let anchor = grid.position(0, 0).expect("inside the Grid");
         let elsewhere = grid.position(0, 1).expect("inside the Grid");

@@ -11,8 +11,7 @@ use crate::grid::{Grid, Position};
 /// rather than leaving a corner behind. The Cursor sits on the live end, except
 /// after command A spans the whole Grid around it and leaves it where it was.
 /// A Region always exists, and when the anchor sits on the live end it is that
-/// one Cell — the ordinary state. See
-/// `docs/adr/0046-the-primary-drag-selects-a-region.md`.
+/// one Cell — the ordinary state.
 ///
 /// ```
 /// use orcvs::grid::Grid;
@@ -86,8 +85,8 @@ impl Region {
     /// left on `cursor`.
     ///
     /// The Cursor stays where it was, as a spreadsheet's active Cell does, so
-    /// the Cursor follow of ADR 0045 does not move the Source View and the Cell
-    /// a keystroke writes to next is the one it would have written to anyway.
+    /// the console's Cursor follow does not move the Source View and the Cell a
+    /// keystroke writes to next is the one it would have written to anyway.
     ///
     pub fn whole(grid: Grid, cursor: Position) -> Self {
         let last = grid

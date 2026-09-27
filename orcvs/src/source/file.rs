@@ -1,5 +1,5 @@
 //!
-//! The Source File: a Source written out as plain text (ADR 0054).
+//! The Source File: a Source written out as plain text.
 //!
 //! One line per row, one character per Cell, a space for an empty Cell. Line
 //! *n* is row *n* and character *m* is column *m*, so a Source File states

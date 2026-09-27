@@ -13,8 +13,7 @@ use super::{Cells, Diagnostic};
 const SPACE_BYTE: u8 = b' ';
 
 ///
-/// The fewest Cells a Sequence-capable root's Output Portal highlight covers,
-/// per `.scratch/syntax-highlighting/issues/12`.
+/// The fewest Cells a Sequence-capable root's Output Portal highlight covers.
 ///
 /// Four, because a Function that never wrote more than two Cells would be
 /// declared scalar: being Sequence-capable only shows in an answer longer than
@@ -25,8 +24,8 @@ const SPACE_BYTE: u8 = b' ';
 pub(super) const OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH: usize = 2 * SCALAR_WIDTH;
 
 ///
-/// One root Function's Output Portal Reservation: the Cells ADR 0036 reserves
-/// for its answer, and whether that root may answer a Sequence.
+/// One root Function's Output Portal Reservation: the Cells reserved for its
+/// answer, and whether that root may answer a Sequence.
 ///
 /// The flag is carried rather than recovered from the range's length. A
 /// Sequence-capable root at the row edge can reserve two Cells or fewer, and
@@ -88,11 +87,11 @@ pub enum LanguageUnitKind {
     OperandLiteral,
     Function(Function),
     Bang,
-    /// The `||` introducer and every Cell of the row after it. ADR 0035 makes
-    /// a Comment a Language Unit the Parser establishes, so it has a Span and
-    /// an anchor like the rest — and, unlike the rest, no value: it records a
-    /// Token and no Atom, so it is never an operand, never a Function, and
-    /// never scheduled.
+    /// The `||` introducer and every Cell of the row after it. A Comment is a
+    /// Language Unit the Parser establishes, so it has a Span and an anchor
+    /// like the rest — and, unlike the rest, no value: it records a Token and
+    /// no Atom, so it is never an operand, never a Function, and never
+    /// scheduled.
     Comment,
 }
 
@@ -147,7 +146,7 @@ pub struct Claim {
     /// Whether any Cell in `cells` holds content in the Source revision this
     /// claim was read with. It is what tells an unbound operand apart: an
     /// entirely blank slot is Pending, a partly or wholly written one is
-    /// Invalid. `atom: None` alone covers both (ADR 0052).
+    /// Invalid. `atom: None` alone covers both.
     ///
     /// Answered once, as the claim is built from the revision's bytes, so
     /// every Cell sharing the claim reads the same answer and nothing walks
@@ -532,23 +531,21 @@ impl LanguageMap {
     /// Every root Function's Output Portal Reservation in this revision, in
     /// Expression order.
     ///
-    /// This is `.scratch/syntax-highlighting/issues/05`'s Answer: known
-    /// before any Tick runs, derived from this revision alone rather than
-    /// from what a Tick wrote. Eligibility matches the Tick scheduler's
+    /// Known before any Tick runs, derived from this revision alone rather
+    /// than from what a Tick wrote. Eligibility matches the Tick scheduler's
     /// `function_candidate()` selection — every root whose leading Cells
     /// parse as a Function, whether or not its operands bind — rather than
     /// [`ExpressionEntry::root`], which additionally requires them to. A
     /// nested Function is never eligible: its answer goes to its parent's
     /// operand, not to a Cell of its own.
     ///
-    /// Coverage is the Reservation ADR 0036 states: [`Portal::reservation`]
-    /// from the Output Portal [`lang::Function`] declares, as wide as
-    /// [`SequenceCapability`] says the root's answer may be. A Terminal
-    /// Output Function, Halt, and a
-    /// Source-writing Function (including an Advance's cleared anchor) cover
-    /// no Cell, because none of them writes an answer through its Output
-    /// Portal; neither does a scalar destination the row edge leaves no room
-    /// for a Cell pair.
+    /// Coverage is the Reservation: [`Portal::reservation`] from the Output
+    /// Portal [`lang::Function`] declares, as wide as [`SequenceCapability`]
+    /// says the root's answer may be. A Terminal Output Function, Halt, and a
+    /// Source-writing Function (including an Advance's cleared anchor) cover no
+    /// Cell, because none of them writes an answer through its Output Portal;
+    /// neither does a scalar destination the row edge leaves no room for a Cell
+    /// pair.
     ///
     /// Tick scheduling reserves the same Cells for the same root: it reads
     /// its widths from the same [`SequenceCapability`], resolves the same
@@ -659,8 +656,8 @@ impl LanguageMap {
 
 ///
 /// Whether `function` may answer a Sequence, given whether any of its direct
-/// operands may: ADR 0036's rule for one Function, which every
-/// Sequence-capability question in this crate asks.
+/// operands may: the rule for one Function, which every Sequence-capability
+/// question in this crate asks.
 ///
 /// Sequence-capability is derivable before any Function evaluates because a
 /// Sequence can only reach a Function from a nested child: ADR 0034 makes a
@@ -674,10 +671,10 @@ pub(super) fn may_answer_a_sequence(function: Function, an_operand_may: bool) ->
 }
 
 ///
-/// Which entries of an Expression may answer a Sequence, per ADR 0036: the one
-/// derivation of Sequence-capability. The Output Portal Reservations read the
-/// root's answer from it, and Tick scheduling reads every computation's
-/// reservation width from it.
+/// Which entries of an Expression may answer a Sequence: the one derivation of
+/// Sequence-capability. The Output Portal Reservations read the root's answer
+/// from it, and Tick scheduling reads every computation's reservation width
+/// from it.
 ///
 /// It owns its scratch storage, one flag per entry, so a caller deriving many
 /// Expressions reuses one buffer: sized by [`Self::for_map`] for the widest
@@ -850,8 +847,8 @@ impl DerivedRow {
 /// One Expression the walk established: the Cells it occupies, and what the
 /// Parser made of them.
 ///
-/// The analysis travels with the Span because the Span came from it. Under the
-/// partition ADR 0033 describes there is no second way to decide where an
+/// The analysis travels with the Span because the Span came from it. When the
+/// parse partitions the row there is no second way to decide where an
 /// Expression ends, so re-reading the Source to find out what a Span holds
 /// would be asking the same question twice and inviting two answers.
 ///
@@ -866,9 +863,9 @@ struct Parse {
 /// A row decides three things at once — which Expressions it holds, which
 /// Language Units they are spelled from, and which characters diagnose — and
 /// they are decided by the same rules. Collecting them together is what keeps
-/// the rules from being written twice: ADR 0018 has Expression construction
-/// operate on the partition rather than reinterpret overlapping character
-/// pairs, and one walk is how that is true rather than merely intended.
+/// the rules from being written twice: Expression construction operates on the
+/// partition rather than reinterpreting overlapping character pairs, and one
+/// walk is how that is true rather than merely intended.
 ///
 /// Spans cannot be derived afterwards from the units: a Span covers Cells that
 /// produce no unit, so a lone unrecognized character is its own Span and no
@@ -893,10 +890,10 @@ struct RowWalk {
 ///
 /// **A row is partitioned by parse.** The walk hands the Parser the row's
 /// remaining Cells and the Cell they begin at, takes the Expression it
-/// establishes, and resumes at the Cell after it. ADR 0033 records what that
-/// makes of an empty Cell: one between Expressions is skipped rather than
-/// named, and one inside an Expression's arity-determined claim is an operand
-/// Cell that fails to bind, because a space terminates nothing.
+/// establishes, and resumes at the Cell after it. That decides what an empty
+/// Cell is: one between Expressions is skipped rather than named, and one
+/// inside an Expression's arity-determined claim is an operand Cell that fails
+/// to bind, because a space terminates nothing.
 ///
 /// The whole row goes to the Parser, which alone decides where a row's Source
 /// stops: the `||` introducer is a spelling read where a spelling is read, and
@@ -958,10 +955,9 @@ fn name_units(
         // The Token is asked first, because the kind of a unit is a syntactic
         // fact and the Token is where syntax lives. Only the Comment arm needs
         // it: every other unit's Token and Atom agree, so the Atom arms below
-        // say exactly what they said before. A Comment is the one unit that
-        // records no Atom, and matching on the Atom alone would drop it into
-        // the diagnose branch and report every Cell of it as an unmatched
-        // character.
+        // decide the rest. A Comment is the one unit that records no Atom, and
+        // matching on the Atom alone would drop it into the diagnose branch and
+        // report every Cell of it as an unmatched character.
         let kind = match (entry.token, entry.atom) {
             (Token::Comment, _) => Some(LanguageUnitKind::Comment),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
@@ -1044,10 +1040,9 @@ mod tests {
 
     #[test]
     fn a_bang_outside_every_claim_is_a_bang_however_the_source_around_it_reads() {
-        // The other side of the rule above, and the one ADR 0033 changed: a
-        // `**` no Function claims is a Bang, and the invalid Source beside it
-        // costs only its own Cells. `**X0**` was one refused six-Cell run
-        // before the partition was decided by the parse.
+        // The other side of the rule above: a `**` no Function claims is a
+        // Bang, and the invalid Source beside it costs only its own Cells, so
+        // `**X0**` is two Bangs rather than one refused six-Cell run.
         let grid = Grid::with_shape(6, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**X0**"));
 
@@ -1101,10 +1096,10 @@ mod tests {
 
     #[test]
     fn a_malformed_prefix_costs_its_own_cells_and_leaves_the_function_after_it_recognised() {
-        // The Source before a Function no longer decides whether that Function
+        // The Source before a Function does not decide whether that Function
         // is read. Each prefix here is refused a Cell at a time and the Play
         // that follows it is a candidate anchored where it is spelled, which
-        // is what ADR 0033's partition buys a person mid-keystroke: a mistyped
+        // is what partitioning by parse buys a person mid-keystroke: a mistyped
         // Cell costs that Cell rather than the rest of the row.
         for (source, column) in [("XX!>007FC4", 2), ("**!>007FC4", 2), ("0!>007FC4", 1)] {
             let grid = Grid::with_shape(source.len(), 1);
@@ -1272,8 +1267,8 @@ mod tests {
     fn language_map_recognizes_every_current_unit_kind_on_a_rectangular_grid() {
         // Every unit kind, and each one inside the Expression that claims it:
         // an Operand Literal is spelled in a Function's slot, because a pair
-        // of hexadecimal characters standing on its own is no longer part of
-        // any Expression for a unit to belong to.
+        // of hexadecimal characters standing on its own is not part of any
+        // Expression for a unit to belong to.
         let map = LanguageMap::build(
             Grid::with_shape(12, 2),
             Cells::of(b".+C4**>>    ^^vv<<.+00  "),
@@ -1325,9 +1320,8 @@ mod tests {
     ///
     /// A Comment forms a Language Unit like every other spelling, and the one
     /// that is not two Cells: `||` claims itself and every Cell after it in
-    /// its row. ADR 0035 moved the rule out of the byte pre-pass and into the
-    /// parse, so a Comment now has a Span, an anchor and a kind rather than
-    /// being text the walk removed before the Parser saw it.
+    /// its row. The parse establishes it, so a Comment has a Span, an anchor
+    /// and a kind like every other unit.
     ///
     /// It answers with no value and reports nothing. Both follow from its
     /// shape: it records a Token and no Atom, so the Expression withholds its
@@ -1369,9 +1363,9 @@ mod tests {
     }
 
     ///
-    /// A live-edit fragment still forms no unit and still diagnoses. One `|`
-    /// alone is incomplete or invalid Source, exactly as one `#` was, and `#`
-    /// is now an ordinary unmatched character with no reading of its own.
+    /// A live-edit fragment forms no unit and diagnoses. One `|` alone is
+    /// incomplete or invalid Source, and `#` is an ordinary unmatched
+    /// character with no reading of its own.
     ///
     #[test]
     fn live_edit_fragments_do_not_form_language_units() {
@@ -1438,8 +1432,8 @@ mod tests {
         // An Addition takes two operands, so it claims six Cells from its
         // anchor and the Span says so. The `1` and the space after it are the
         // first operand, which is why they are inside the Span rather than
-        // beside it: a space no longer ends anything, so what bounds this
-        // Expression is arity.
+        // beside it: a space ends nothing, so what bounds this Expression is
+        // arity.
         let grid = Grid::with_shape(5, 1);
         let spans = expression_spans(grid, b" .+1 ");
 
@@ -1482,10 +1476,10 @@ mod tests {
 
     #[test]
     fn a_space_inside_an_expressions_claim_is_an_operand_cell_and_not_a_boundary() {
-        // ADR 0033's space rule, and the one behaviour change a reader is most
-        // likely to be surprised by. `.+` claims six Cells whatever they hold,
-        // so the two spaces and the `.-` after them are its operands rather
-        // than the next Expression: one Span, not two.
+        // The space rule a reader is most likely to be surprised by. `.+`
+        // claims six Cells whatever they hold, so the two spaces and the `.-`
+        // after them are its operands rather than the next Expression: one
+        // Span, not two.
         let grid = Grid::with_shape(8, 1);
 
         assert_eq!(expression_spans(grid, b".+  .-  "), vec![span(grid, 0, 7)]);
@@ -1527,11 +1521,10 @@ mod tests {
 
     #[test]
     fn a_run_of_standalone_atoms_is_as_many_expressions_as_the_parser_finds() {
-        // ADR 0018 already said `**^^` is a Bang and then a Self-Banging
-        // Function; ADR 0033 makes the partition say it too. Each is a whole
-        // Expression with a Span of its own and Atoms of its own, where the
-        // assembly path this replaces reported one four-Cell Expression that
-        // no single parse ever produced.
+        // `**^^` is a Bang and then a Self-Banging Function, and the partition
+        // says so: each is a whole Expression with a Span of its own and Atoms
+        // of its own, never one four-Cell Expression that no single parse
+        // produced.
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**^^"));
 
@@ -1553,11 +1546,10 @@ mod tests {
 
     #[test]
     fn an_odd_standalone_run_costs_one_cell_and_leaves_the_rest_readable() {
-        // ADR 0018's `***`: a Bang and one invalid `*`. The Bang is a whole
-        // Expression that answers with Atoms, so a Tick can execute it — the
-        // stray character costs the Cell it occupies and nothing more. The
-        // trailing-content verdict this replaces refused the Bang along with
-        // it.
+        // `***` is a Bang and one invalid `*`. The Bang is a whole Expression
+        // that answers with Atoms, so a Tick can execute it — the stray
+        // character costs the Cell it occupies and nothing more, and never
+        // refuses the Bang along with it.
         let map = LanguageMap::build(Grid::with_shape(3, 1), Cells::of(b"***"));
 
         assert_eq!(
@@ -1658,8 +1650,8 @@ mod tests {
         #[test]
         fn an_incomplete_functions_reservation_still_counts_per_function_candidate() {
             // `.+01` is Add one operand short: `root()` is `None`, but
-            // `function_candidate()` still names it, and `05` covers it the
-            // same as a complete root.
+            // `function_candidate()` still names it, and the Reservation covers
+            // it the same as a complete root.
             let grid = Grid::with_shape(4, 2);
             let map = build(grid, &[".+01"]);
             let expression = map.expressions().next().expect("one Expression");
@@ -1702,8 +1694,8 @@ mod tests {
         fn a_root_widened_by_a_nested_sequence_operand_covers_its_row_to_the_end() {
             // Add(NumberRange(01, 02), 03): Add answers Elementwise, so it
             // widens over an operand a nested Function answers a Sequence
-            // to, per ADR 0036, even though NumberRange stands in a
-            // Number-typed operand position.
+            // to, even though NumberRange stands in a Number-typed operand
+            // position.
             let grid = Grid::with_shape(10, 2);
             let map = build(grid, &[".+:-010203"]);
             assert_eq!(
@@ -2016,11 +2008,10 @@ mod property {
     /// One Function spelled with a literal in each operand position it
     /// declares: the shape the walk reads as a whole Expression.
     ///
-    /// This is the minority branch, and it is here because the coverage guard
-    /// below proved it was needed — without it, no revision in 256 cases held
-    /// a Function the walk read whole, so both properties' Expression arms
-    /// were reached only by standalone runs, which `standalone_run` answers
-    /// without ever calling the Parser.
+    /// This is the minority branch, and the coverage guard below requires it:
+    /// without it, no revision in 256 cases would hold a Function the walk
+    /// reads whole, so both properties' Expression arms would be reached only
+    /// by standalone Atoms.
     ///
     /// `lang` keeps a Function's signature crate-private, so the operand count
     /// and types are not restated here: a Function is drawn with between one
@@ -2045,9 +2036,8 @@ mod property {
 
     /// Source text for one Operand Literal of the type its position declares.
     ///
-    /// ADR 0021 makes an Operand Literal's type the consuming Function's
-    /// rather than the Source's, so a literal is spelled against the `Token`
-    /// the slot declares.
+    /// An Operand Literal's type is the consuming Function's rather than the
+    /// Source's, so a literal is spelled against the `Token` the slot declares.
     fn literal_source(token: Token) -> BoxedStrategy<String> {
         match token {
             Token::Number => any::<u8>()
@@ -2126,15 +2116,14 @@ mod property {
         /// unmatched character diagnosed on its own Cell and the walk resuming
         /// one Cell later.
         ///
-        /// A Comment is the one unit that is not two Cells. ADR 0035 makes it
-        /// a Language Unit the Parser establishes, spelled `||` and claiming
-        /// every remaining Cell of its row, so its Span runs to the last
-        /// column and everything under it — empty Cells included — belongs to
-        /// it. This reads that unit back from the Map rather than searching
-        /// the row for `||`, which is the point of the move: the search this
-        /// replaced stepped over overlapping byte pairs rather than in
-        /// two-Cell units, so it agreed with the defect it was meant to catch.
-        /// Where a row's Comment begins is now the Parser's answer, and what
+        /// A Comment is the one unit that is not two Cells. It is a Language
+        /// Unit the Parser establishes, spelled `||` and claiming every
+        /// remaining Cell of its row, so its Span runs to the last column and
+        /// everything under it — empty Cells included — belongs to it. This
+        /// reads that unit back from the Map rather than searching the row for
+        /// `||`: a search steps over overlapping byte pairs rather than
+        /// two-Cell units, so it would agree with the defect it was meant to
+        /// catch. Where a row's Comment begins is the Parser's answer, and what
         /// is asserted here is the shape of the claim rather than where it
         /// starts.
         ///
@@ -2304,14 +2293,13 @@ mod property {
                 // anchor of one that does.
                 //
                 // A Comment is a complete Language Unit that is not a value.
-                // That sentence is the whole of ADR 0035's design and it is
-                // this property's premise rather than a case skipped past: a
-                // Comment reports no diagnostic, because nothing about it was
-                // refused; it answers with no Atoms, because it records a
-                // Token and none; and there is nothing to render back, because
-                // its text is arbitrary and was never decoded. It is the one
-                // Expression for which "nothing to report" and "answers with a
-                // value" come apart.
+                // That is this property's premise rather than a case skipped
+                // past: a Comment reports no diagnostic, because nothing about
+                // it was refused; it answers with no Atoms, because it records
+                // a Token and none; and there is nothing to render back,
+                // because its text is arbitrary and was never decoded. It is
+                // the one Expression for which "nothing to report" and "answers
+                // with a value" come apart.
                 let comment = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Comment);
@@ -2387,10 +2375,10 @@ mod property {
         /// always two Cells and is always spelled; an Expression Span is
         /// whatever the Parser claimed, which includes Cells that spell no unit
         /// at all — `a_cell_that_produces_no_language_unit_is_still_its_own_span`
-        /// is one. ADR 0033 is what makes the difference worth a property:
-        /// `walk_row` no longer decides where an Expression stops, it resumes
-        /// at the Cell the Parser reports, so a Span is the Parser's answer
-        /// taken on trust and this is where the trust is checked.
+        /// is one. That makes the difference worth a property: `walk_row` does
+        /// not decide where an Expression stops, it resumes at the Cell the
+        /// Parser reports, so a Span is the Parser's answer taken on trust and
+        /// this is where the trust is checked.
         ///
         /// The Grid bounds are asserted on the raw Cell numbers rather than
         /// through `positions()`, for the reason the Diagnostic arm above
@@ -2525,12 +2513,11 @@ mod property {
                     empty.set(empty.get() + 1);
                 }
                 // A Comment the walk established, not a `||` somewhere in the
-                // text. Searching the rows for the introducer would be the
-                // unaligned overlapping-pair scan ADR 0035 deleted, and it
-                // over-counts for the same reason it was unsound: `.|` beside
-                // a `|`, and a `||` inside a Function's arity-determined
-                // claim, both hold the pair and establish no Comment. The Map
-                // is already in hand, so it answers.
+                // text. Do not search the rows for the introducer: an unaligned
+                // overlapping-pair scan over-counts, because `.|` beside a `|`,
+                // and a `||` inside a Function's arity-determined claim, both
+                // hold the pair and establish no Comment. The Map is already in
+                // hand, so it answers.
                 if map
                     .units()
                     .any(|unit| unit.kind() == LanguageUnitKind::Comment)
@@ -2553,8 +2540,7 @@ mod property {
                     unmatched.set(unmatched.get() + 1);
                 }
                 // A Function among the Atoms rather than merely an Expression
-                // that answers: a lone `**` or `<<` is answered by
-                // `standalone_run` without the Parser ever being called, so
+                // that answers: a lone `**` answers with no Function, so
                 // counting any answering Expression would let this guard pass
                 // while the Function-bearing arms of both properties above had
                 // never once run.

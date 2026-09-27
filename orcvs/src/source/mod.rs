@@ -7,8 +7,8 @@ pub mod file;
 mod language_map;
 pub use lang::Token;
 // `Claim::atom`'s type: re-exported so a caller naming a `Claim` value — the
-// console's colour tests among them (`syntax-highlighting/09`) — can spell
-// `Atom` without adding a direct dependency on `lang`.
+// console's colour tests among them — can spell `Atom` without adding a direct
+// dependency on `lang`.
 pub use lang::Atom;
 pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 use language_map::{OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation};
@@ -130,13 +130,12 @@ impl SourceRevision {
     /// Whether each Cell of this revision draws as a root Function's Output
     /// Portal, in the Grid's row-major order.
     ///
-    /// The highlight, not the Reservation. Tick scheduling still reserves a
-    /// Sequence-capable root the rest of its destination row (ADR 0036) and
-    /// [`LanguageMap::output_portal_reservations`] still answers exactly that;
-    /// this narrows the Sequence-capable ones to the answer they hold, which
-    /// is `.scratch/syntax-highlighting/issues/12`. A whole-row highlight ran
-    /// under the neighbouring column's Expressions in a two-column layout,
-    /// which is the defect that ticket records.
+    /// The highlight, not the Reservation. Tick scheduling reserves a
+    /// Sequence-capable root the rest of its destination row, and
+    /// [`LanguageMap::output_portal_reservations`] answers exactly that; this
+    /// narrows the Sequence-capable ones to the answer they hold. Do not
+    /// highlight the whole Reservation: in a two-column layout a whole-row
+    /// highlight runs under the neighbouring column's Expressions.
     ///
     /// The fit lives here because it needs both inputs at once: the
     /// Reservations, which only the Language Map derives, and the Cell
@@ -164,13 +163,13 @@ impl SourceRevision {
     /// from the Portal, but the Cells past it are whatever the Source holds,
     /// and a single written Cell there ends the run inside a pair.
     ///
-    /// A **blank Cell**, not a wholly blank pair, is what ends the run. A
-    /// pair counted by either of its Cells stepped over a gutter narrower
-    /// than an aligned blank pair: the neighbouring column's first glyph wrote
-    /// the far Cell of the pair the gutter fell in, the extension resumed
-    /// through that column's Expression, and the fit degenerated to the
-    /// whole-row tint this derivation exists to remove. One blank Cell ends
-    /// the answer, however the columns happen to be aligned.
+    /// A **blank Cell**, not a wholly blank pair, is what ends the run. Do not
+    /// count a pair as written by either of its Cells: across a gutter
+    /// narrower than an aligned blank pair, the neighbouring column's first
+    /// glyph writes the far Cell of the pair the gutter falls in, the
+    /// extension resumes through that column's Expression, and the fit
+    /// degenerates to the whole-row tint this derivation exists to remove. One
+    /// blank Cell ends the answer, however the columns happen to be aligned.
     ///
     pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
@@ -457,9 +456,9 @@ mod tests {
 
     #[test]
     fn setting_clearing_and_reading_a_cell_all_take_a_grid_minted_index() {
-        // The whole editing seam in one place, now that it has one shape.
-        // Addressing is settled before the Source is asked anything, so the
-        // only rules left are about content.
+        // The whole editing seam in one place. Addressing is settled before
+        // the Source is asked anything, so the only rules left are about
+        // content.
         let grid = Grid::with_shape(4, 2);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
@@ -490,9 +489,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "CellIndex belongs to another Grid")]
     fn the_editing_seam_refuses_an_index_minted_by_another_grid() {
-        // What the seam has instead of an out-of-range error: a Cell this
-        // Source does not have cannot be presented to it at all, and an index
-        // from a Grid of the same shape is still not one of this Source's.
+        // The seam has no out-of-range error: a Cell this Source does not
+        // have cannot be presented to it at all, and an index from a Grid of
+        // the same shape is still not one of this Source's.
         let source = SourceCommander::new(Grid::with_shape(4, 2));
         let foreign = Grid::with_shape(4, 2)
             .cell_index(0)
@@ -579,13 +578,13 @@ mod tests {
     }
 
     ///
-    /// `.scratch/syntax-highlighting/issues/12`: the Output Portal highlight
-    /// fitted to the answer a Sequence-capable root holds.
+    /// The Output Portal highlight fitted to the answer a Sequence-capable root
+    /// holds.
     ///
     /// Every case is written straight into Source with no Tick, because the
-    /// highlight reads the current revision alone (`05`'s Answer). The
-    /// Reservation these are fitted inside stays whole, and
-    /// `LanguageMap::output_portal_cells`'s own tests pin it.
+    /// highlight reads the current revision alone. The Reservation these are
+    /// fitted inside stays whole, and `LanguageMap::output_portal_cells`'s own
+    /// tests pin it.
     ///
     mod output_portal_highlight {
         use super::{Grid, SourceCommander};
@@ -632,8 +631,8 @@ mod tests {
 
         #[test]
         fn a_sequence_answer_of_four_cells_or_more_is_covered_exactly() {
-            // `12`'s four worked examples, each answer written south of the
-            // root that would produce it.
+            // Four worked examples, each answer written south of the root
+            // that would produce it.
             let wide = Grid::with_shape(10, 2);
             let range = revision(wide, &[":-0104", "01020304"]);
             assert_eq!(row(&range, wide, 1), "########..");

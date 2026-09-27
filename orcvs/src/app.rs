@@ -155,7 +155,7 @@ pub struct Orcvs<S = MidiSelectionHandle> {
     ///
     /// Whether this Orcvs has asked its Playback Engine to be running.
     ///
-    /// Not a second copy of the engine's lifecycle state: ADR 0041 publishes
+    /// Not a second copy of the engine's lifecycle state: the engine publishes
     /// that, and it answers what the engine *is*. This answers what it has
     /// been *asked* to be, which is the only thing Space can toggle against.
     /// An input batch is a whole frame's events handled with nothing awaited
@@ -168,8 +168,8 @@ pub struct Orcvs<S = MidiSelectionHandle> {
 
 impl Orcvs {
     ///
-    /// A running Orcvs over an empty Source on the one Grid (ADR 0054), on the
-    /// output the platform supplies.
+    /// A running Orcvs over an empty Source on the one Grid, on the output the
+    /// platform supplies.
     ///
     pub fn new() -> Result<Self, PlaybackStartError> {
         Self::with_midi_output_adapter(MidiOutputAdapter::new())
@@ -263,9 +263,9 @@ impl Orcvs<()> {
     /// carries the shape it was stored with, and the Cursor starts at that
     /// Grid's origin.
     ///
-    /// Fallible because the Playback Engine is: ADR 0041 gives the engine's
-    /// state a task that owns it, and a task needs a runtime to be spawned on,
-    /// so a running Orcvs is one whose engine is already running.
+    /// Fallible because the Playback Engine is: a task owns the engine's state,
+    /// and a task needs a runtime to be spawned on, so a running Orcvs is one
+    /// whose engine is already running.
     ///
     /// ```
     /// use orcvs::app::Orcvs;
@@ -328,10 +328,10 @@ impl<S> Orcvs<S> {
     /// console to report, and withdraws a request the engine has just said it
     /// is no longer carrying out.
     ///
-    /// It answers with diagnostics alone. Lifecycle state is no longer handed
-    /// back beside them and cached here: per ADR 0041 the engine publishes it,
-    /// and whoever needs it reads the published value at the moment it is
-    /// asked rather than the value the last frame happened to carry away.
+    /// It answers with diagnostics alone. Do not hand lifecycle state back
+    /// beside them or cache it here: the engine publishes it (ADR 0041), and
+    /// whoever needs it reads the published value at the moment it is asked
+    /// rather than the value the last frame happened to carry away.
     ///
     /// `playback_requested` answers what this Orcvs has *asked* Playback to
     /// be, which is the only fact Space can toggle against within one input
@@ -360,9 +360,9 @@ impl<S> Orcvs<S> {
     /// The observation the Playback Engine last published, read without
     /// awaiting and without reaching the engine.
     ///
-    /// ADR 0041 has the console read this while drawing a frame rather than
-    /// asking the engine a question: the browser main thread has no blocking
-    /// receive, so a frame cannot wait for an answer at all.
+    /// The console reads this while drawing a frame rather than asking the
+    /// engine a question: the browser main thread has no blocking receive, so
+    /// a frame cannot wait for an answer at all.
     ///
     pub fn playback_observation(&self) -> crate::playback::PlaybackObservation {
         self.playback.observation()
@@ -1026,10 +1026,10 @@ mod test {
     /// builder, which the `[target.'cfg(not(target_arch = "wasm32"))'
     /// .dependencies]` table pulls in and a browser target never has.
     ///
-    /// ADR 0041 makes the Playback Engine a task, so a runtime is what
-    /// building a running Orcvs requires and construction is where the absence
-    /// of one is answered. There is nothing half-built left over: an Orcvs
-    /// that could not spawn its engine is not returned at all.
+    /// The Playback Engine is a task, so a runtime is what building a running
+    /// Orcvs requires and construction is where the absence of one is
+    /// answered. There is nothing half-built left over: an Orcvs that could
+    /// not spawn its engine is not returned at all.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
@@ -1732,11 +1732,11 @@ mod test {
 
         app.set_at(5, 0, "x");
 
-        // Cell 5 is the second Cell of the Addition's second operand — ADR
-        // 0033 has `.+` claim six Cells whatever they hold — so it is
-        // presented as the operand it is. What this test is about is that the
-        // character survives the classification: an operand-slot Token never
-        // renders an occupied Cell as empty.
+        // Cell 5 is the second Cell of the Addition's second operand — `.+`
+        // claims six Cells whatever they hold — so it is presented as the
+        // operand it is. What this test is about is that the character survives
+        // the classification: an operand-slot Token never renders an occupied
+        // Cell as empty.
         assert_eq!(rendered(&app, position), (Some('x'), Some(Token::Number)));
     }
 
@@ -1799,10 +1799,10 @@ mod test {
 
     ///
     /// A Comment claims every remaining Cell of its row, empty Cells
-    /// included, so those Cells now carry a Token where before they carried
-    /// none. The Token decides the colour and nothing else: a Comment hints
-    /// at no spelling, so a Cell it claims renders the character the Source
-    /// holds, and an empty one renders empty.
+    /// included, so an empty Cell it claims still carries a Token. The Token
+    /// decides the colour and nothing else: a Comment hints at no spelling, so
+    /// a Cell it claims renders the character the Source holds, and an empty
+    /// one renders empty.
     ///
     /// An empty operand Cell renders `h` or `n` because a signature says what
     /// belongs there, which

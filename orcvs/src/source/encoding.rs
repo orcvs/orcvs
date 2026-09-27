@@ -4,16 +4,15 @@
 //! Portal as literal Source encoding", and this is that encoding as a value
 //! rather than as a `String`. It is the counterpart to `lang::Token::decode`,
 //! which reads Cells back as an Atom according to the receiving operand's
-//! declared type: one direction has been a named seam since the Parser was
-//! written, and this is the other.
+//! declared type.
 //!
 //! It lives beside [`super::portal`] rather than inside it because the two
 //! answer different questions. Whether a value can be Cells at all is true of
-//! the value wherever it lands and needs no Grid to decide; whether those
-//! Cells fit is true of one destination and needs nothing else about the
-//! value than how many there are. Handing a `&str` across that seam made the
-//! Portal answer both, which is why [`super::portal::PortalError`] carried a
-//! content refusal that has nothing to do with a destination.
+//! the value wherever it lands and needs no Grid to decide; whether those Cells
+//! fit is true of one destination and needs nothing else about the value than
+//! how many there are. Do not hand the Portal a `&str` across that seam: the
+//! Portal would then answer both, and [`super::portal::PortalError`] would
+//! carry a content refusal that has nothing to do with a destination.
 //!
 //! Rendering is not display. Per ADR 0003 a Tick's spatial output *is* program
 //! text — "a complete executable Orcvs program and the accumulated output of
@@ -33,9 +32,8 @@ use super::CellContent;
 /// Non-emptiness and printable content are properties of the type rather than
 /// checks a caller repeats: [`Encoding::render`] answers [`Rendered::Nothing`]
 /// for the two values that plan no write at all, so an `Encoding` that exists
-/// places at least one Cell. That is the assertion [`super::portal::Portal`]
-/// used to make about a string it was handed, held one step earlier where the
-/// invariant is established.
+/// places at least one Cell. [`super::portal::Portal`] relies on that, and it
+/// is held here, where the invariant is established.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Encoding(Vec<CellContent>);
@@ -46,10 +44,10 @@ pub(super) struct Encoding(Vec<CellContent>);
 /// The two values that plan no Cell write are answered here rather than by a
 /// caller matching on them, because they are the same rule stated twice in
 /// CONTEXT.md: the Absence Marker "is not a language value ... an Expression
-/// answering it plans no Cell write", and per ADR 0007 the empty Sequence "is
-/// a value holding no Atoms rather than the absence of a value" and plans none
-/// either. They differ in kind and agree on effect, which is exactly what one
-/// variant with two arms says.
+/// answering it plans no Cell write", and the empty Sequence is a value
+/// holding no Atoms rather than the absence of a value, and plans none either.
+/// They differ in kind and agree on effect, which is exactly what one variant
+/// with two arms says.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Rendered {
@@ -84,9 +82,8 @@ impl Encoding {
     /// The Cells one answered value occupies, or the reason it occupies none.
     ///
     /// The whole rendering is decided before an `Encoding` exists, so a value
-    /// that cannot be Cells yields nothing to write half of — the same shape
-    /// ADR 0004's whole-destination rule gives [`super::portal::Portal`] one
-    /// step later.
+    /// that cannot be Cells yields nothing to write half of — the same
+    /// whole-destination shape [`super::portal::Portal`] has one step later.
     ///
     /// A Sequence renders through the same arm a scalar does. Per ADR 0007 it
     /// encodes horizontally as ordinary Atoms "without a privileged
@@ -157,8 +154,8 @@ mod test {
     #[test]
     fn the_two_values_that_plan_no_write_render_to_nothing() {
         // CONTEXT.md keeps these apart in kind and has them agree on effect:
-        // the Absence Marker is the absence of a value, and per ADR 0007 the
-        // empty Sequence is a value holding no Atoms. Neither plans a Cell
+        // the Absence Marker is the absence of a value, and the empty
+        // Sequence is a value holding no Atoms. Neither plans a Cell
         // write, and answering both here is what lets an `Encoding` that
         // exists place at least one Cell.
         assert_eq!(
@@ -173,7 +170,7 @@ mod test {
 
     #[test]
     fn a_scalar_and_a_sequence_reach_the_same_arm() {
-        // ADR 0007 encodes a Sequence horizontally as ordinary Atoms with no
+        // A Sequence encodes horizontally as ordinary Atoms with no
         // privileged literal-Sequence reading, so the only thing that differs
         // between the two widths by the time a destination is asked is how
         // many Cells came back.

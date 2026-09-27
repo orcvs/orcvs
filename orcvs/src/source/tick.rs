@@ -1,4 +1,4 @@
-//! Tick-local execution of Parser-owned expressions (ADR 0034).
+//! Tick-local execution of Parser-owned expressions.
 //!
 //! Fixed Portal destinations and nested ownership determine the complete order
 //! before execution. Spatial writes remain character encodings until consumed;
@@ -45,11 +45,11 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     portal_access: PortalAccess,
-    /// How wide this computation's result may be, per ADR 0036, and the one
-    /// home that fact has in a schedule. [`computations`] reads it from the
-    /// Language Map's [`SequenceCapability`], the derivation the Output Portal
-    /// Reservations read, so a root reserves exactly the Cells its Output
-    /// Portal Reservation names.
+    /// How wide this computation's result may be, and the one home that fact
+    /// has in a schedule. [`computations`] reads it from the Language Map's
+    /// [`SequenceCapability`], the derivation the Output Portal Reservations
+    /// read, so a root reserves exactly the Cells its Output Portal Reservation
+    /// names.
     reserved: Reserved,
 }
 
@@ -162,8 +162,7 @@ enum LockTarget {
     Occupied,
 }
 
-/// How many Cells scheduling reserves for one computation's result, per
-/// ADR 0036.
+/// How many Cells scheduling reserves for one computation's result.
 ///
 /// A schedule is fixed before any Function evaluates, so this is derived from
 /// declarations rather than from a width that does not exist yet. It is an
@@ -391,7 +390,7 @@ impl Lookup {
             .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
     }
 
-    /// What scheduling reserved for `index`'s result, per ADR 0036.
+    /// What scheduling reserved for `index`'s result.
     fn reserved(&self, index: usize) -> Reserved {
         self.nodes[index].reserved
     }
@@ -425,11 +424,10 @@ impl Lookup {
     /// changes none of them and the replacement is admitted.
     ///
     /// `lang` answers the four a declaration states and this crate appends the
-    /// fifth, because a reservation is derived from the schedule ADR 0032
-    /// settled and from the widths this computation's children hold, and `lang`
-    /// has neither. Appending it rather than interleaving it is what keeps the
-    /// order the guard has always applied, so every replacement reports the
-    /// fact it reported before the facts had names.
+    /// fifth, because a reservation is derived from the settled schedule and
+    /// from the widths this computation's children hold, and `lang` has
+    /// neither. Appending it puts the width last, so a replacement that differs
+    /// on a declared fact as well reports the declared fact.
     ///
     /// The width is compared against the settled reservation rather than
     /// against a second derivation: the Turns were ordered from that one, and
@@ -568,11 +566,10 @@ impl PortalRelationships<'_> {
     /// The Expression roots a Source-writing Function's own Span could move
     /// into at these Cells.
     ///
-    /// ADR 0006 activates on contact: "Complete aligned root contact also
-    /// directly delivers Bang activation". This is that question asked of the
-    /// schedule, which knows the geometry and not the Source — the Cells a
-    /// move newly enters, and so which of these roots is actually contacted,
-    /// are settled at the Turn against working Source.
+    /// Complete aligned root contact directly delivers Bang activation. This is
+    /// that question asked of the schedule, which knows the geometry and not
+    /// the Source — the Cells a move newly enters, and so which of these roots
+    /// is actually contacted, are settled at the Turn against working Source.
     ///
     /// It is the contacted Function rather than a cardinal neighbour, which is
     /// what separates it from [`PortalRelationships::bang_roots`]: a
@@ -596,31 +593,29 @@ impl PortalRelationships<'_> {
     /// "The whole destination" is whichever Cells the caller stated, which for
     /// a [`Reserved::Row`] producer asked through [`Lookup::reserved_at`] is
     /// the rest of the row: such a producer touches an operand almost wherever
-    /// it points and so answers no Bang root at all. Nothing reaches that
-    /// today, because Equality is the only Function that can emit Bang and it
-    /// answers one Atom whatever its operands carry, so every Bang producer is
-    /// reserved a Cell pair. The constraint becomes live the first time a
-    /// Function that answers or widens into a Sequence can also emit Bang, and
-    /// it is that Function's decision to make: alignment is a fact about a
-    /// Bang's own two Cells rather than about the Cells a wider answer might
-    /// have reached, so what the reservation should be asked here is settled
-    /// against that Function's tests rather than guessed at now.
+    /// it points and so answers no Bang root at all. Nothing reaches that:
+    /// every Function that can emit Bang declares an Atom answer, so it neither
+    /// answers nor widens into a Sequence and is reserved a Cell pair. Do not
+    /// let a Function that answers or widens into a Sequence emit Bang without
+    /// deciding what it asks here: alignment is a fact about a Bang's own two
+    /// Cells rather than about the Cells a wider answer might reach, so asking
+    /// with its whole reservation would silence every Bang it emits.
     ///
-    /// The four anchors are one geometric fact and are stated as one, and the
-    /// west arm was for a long time the one no Source could reach. Until
-    /// `spatial-tick-planning/03`, every Function in `define_functions!` took
-    /// at least one operand, so a root anchored two columns west always claimed
-    /// this destination for that operand and a Bang landing here was operand
-    /// contact rather than an anchor — the `(6, 2)` row of
+    /// The four anchors are one geometric fact and are stated as one. The west
+    /// arm answers a root only for a Function that declares no operand: a root
+    /// anchored two columns west with an operand claims this destination for
+    /// that operand, so a Bang landing here is operand contact rather than an
+    /// anchor — the `(6, 2)` row of
     /// `fixed_bang_destinations_respect_alignment_and_operand_contact` asserts
     /// exactly that silence.
     ///
-    /// `^^ vv << >>` made the arm answer with a root and changed nothing by it,
-    /// because both callers act on a root only where it is not intrinsically
-    /// active and those four take their Turn without a Bang. The Directional
-    /// Bang Functions are what made it decide a Tick: `*^` declares no operand
-    /// and waits for activation, so a Bang two columns east of one is the only
-    /// thing that starts it. `an_active_directional_bang_function_emits_its_self_banging_function`
+    /// A Self-Banging Function `^^ vv << >>` answers the arm with a root and
+    /// changes nothing by it, because both callers act on a root only where it
+    /// is not intrinsically active and those four take their Turn without a
+    /// Bang. The Directional Bang Functions are where it decides a Tick: `*^`
+    /// declares no operand and waits for activation, so a Bang two columns east
+    /// of one is the only thing that starts it.
+    /// `an_active_directional_bang_function_emits_its_self_banging_function`
     /// drives that arm, and deleting it leaves the north and west halves of
     /// that test emitting nothing.
     ///
@@ -832,19 +827,19 @@ fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::Comput
 ///
 /// An inactive root contributes no Portal, so a schedule that left one out
 /// would order nothing against the writes it turns out to make. The seed is
-/// exact — a root declares its activation source and nothing else decides it,
-/// per ADR 0006 — and the closure is deliberately wider than the Tick: which
+/// exact — a root declares its activation source and nothing else decides
+/// it — and the closure is deliberately wider than the Tick: which
 /// root a delivery actually reaches depends on values and on working Source
 /// that no schedule has yet, so execution checks activation again once those
 /// producers have settled.
 ///
-/// Two declarations deliver, because ADR 0006 gives activation two paths. A
-/// Function that can return Bang delivers through the Bang it writes, to the
-/// cardinal anchors that ADR names for a Source-resident Bang. A Function whose
-/// bundle advances delivers on contact, to a complete root its own Span moves
-/// into. No row declares both, and the Directional Bang Functions declare
-/// neither: one emits into Cells it has already required to be empty, so there
-/// is nothing there to activate.
+/// Two declarations deliver, because activation has two paths. A Function that
+/// can return Bang delivers through the Bang it writes, to the cardinal anchors
+/// a Source-resident Bang activates. A Function whose bundle advances delivers
+/// on contact, to a complete root its own Span moves into. No row declares
+/// both, and the Directional Bang Functions declare neither: one emits into
+/// Cells it has already required to be empty, so there is nothing there to
+/// activate.
 ///
 fn active_roots(lookup: &Lookup) -> Vec<bool> {
     let nodes = lookup.nodes();
@@ -1031,12 +1026,9 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             // An operand is short of its Token width only where `take_token`
             // ran out of Source, and that path claims what is left of the
             // Source it was handed, so the Expression ends at the last Cell of
-            // its row. The second message this chose between —
-            // "Expression operand crosses the Source boundary" — named the cut
-            // the `##` pre-pass made mid-row, and ADR 0035 deleted the pre-pass
-            // rather than the boundary it invented: a Comment is a Language
-            // Unit an Expression's claim reaches over, not a place the Source
-            // stops.
+            // its row. No boundary exists mid-row to name instead: a Comment is
+            // a Language Unit an Expression's claim reaches over, not a place
+            // the Source stops.
             diagnostics.push(diagnose(node, "Expression layout crosses the row edge"));
         }
     }
@@ -1045,7 +1037,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 
 ///
 /// One Tick's execution order, from the reservations a [`Lookup`] has already
-/// derived: every dependency edge ADR 0036's reservations name, resolved into
+/// derived: every dependency edge the reservations name, resolved into
 /// the order the Turns are taken in, or the cycle that admits no order at all.
 ///
 fn order_turns(
@@ -1086,16 +1078,15 @@ fn order_turns(
             // The two come apart for a `Reserved::Row` producer. Its
             // reservation runs to the end of the destination's row, so a
             // destination in its own row at or left of its Cells covers its
-            // spelling and literals whatever the answer turns out to be, and
-            // per ADR 0036 a reservation orders Turns and decides nothing else.
-            // Ordering such a producer after itself would reject the whole
-            // Grid's Tick for a write that may stop columns short of it, which
-            // is the cycle between computations that never touch that ADR
-            // 0036's rejected alternative exists to avoid. No edge can express
+            // spelling and literals whatever the answer turns out to be, and a
+            // reservation orders Turns and decides nothing else (ADR 0036). Do
+            // not order such a producer after itself: that rejects the whole
+            // Grid's Tick for a write that may stop columns short of it, a
+            // cycle between computations that never touch. No edge can express
             // "take your Turn after yourself" in any case, so whether the write
             // reached the producer is left to the admitted write: execution
-            // asks `written_over` over the Cells actually covered, and ADR
-            // 0034's executed-computation guard is waiting for them there.
+            // asks `written_over` over the Cells actually covered, and the
+            // executed-computation guard is waiting for them there.
             let may_stop_short = lookup.reserved(index).admits_a_narrower_write();
             // The third way a producer's own Cells are not a defect, and the
             // only one a declaration states outright: an advancing bundle
@@ -1114,8 +1105,8 @@ fn order_turns(
                 edges.insert((index, consumer));
             };
             for contact in relationships.functions() {
-                // ADR 0004 admits a move only where the Cells it enters are
-                // empty, so a Source-writing Function's Portal never writes
+                // A move is admitted only where the Cells it enters are empty,
+                // so a Source-writing Function's Portal never writes
                 // over the Language Unit it contacts: the contact blocks the
                 // move and the Function bangs its own Span instead. The one
                 // thing contact still delivers is Bang activation, and an
@@ -1126,9 +1117,9 @@ fn order_turns(
                 // Without it two Functions whose Portals cover each other name
                 // each other in reservations neither can write through, and
                 // ordering each after the other makes that pair a cycle that
-                // costs the whole Grid its Tick. ADR 0036 names that rejected
-                // alternative: a reservation orders Turns and decides nothing
-                // else, and two blocked moves are not a contested Cell.
+                // costs the whole Grid its Tick. A reservation orders Turns and
+                // decides nothing else, and two blocked moves are not a
+                // contested Cell.
                 if clears_its_own_span
                     && nodes[nodes[contact.index].owner]
                         .function
@@ -1225,17 +1216,17 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     for effect in effects {
         match effect {
             Effect::Write(write) => {
-                // A validated write fans out Cell-wise here, so ADR 0020's
-                // per-Cell conflict resolution is unchanged: a later producer
-                // still wins each Cell it overlaps, independently.
+                // A validated write fans out Cell-wise here, so conflicts resolve
+                // per Cell: a later producer wins each Cell it overlaps,
+                // independently.
                 for (cell, content) in write.cells() {
                     writes.insert(cell, content);
                 }
             }
             // Element order within one producer's group, producer order between
-            // groups: extending preserves both, where pushing the group as one
-            // item would have made the Tick Plan carry a shape the Playback
-            // Engine does not deliver.
+            // groups: extending preserves both. Pushing the group as one item
+            // would make the Tick Plan carry a shape the Playback Engine does
+            // not deliver.
             Effect::Play(performance) => play_commands.extend(&performance),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
             Effect::Lock(root) => locks.push(root),
@@ -1256,7 +1247,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
 }
 
 ///
-/// ADR 0012's explicit inputs for one root's evaluation.
+/// The explicit inputs for one root's evaluation.
 ///
 /// The Tick comes from the Playback Engine, which owns musical time; the
 /// anchor is this root's own Grid-minted Position, converted to the plain pair
@@ -1401,8 +1392,8 @@ mod test {
     /// with no other witness: a computation that runs twice is handed the same
     /// inputs both times and writes the same value both times, so neither the
     /// state's own slot nor the Source can tell it from one that ran once. A
-    /// state repeated [`ComputationState::interpretations`] times restores the
-    /// multiplicity that the retired thread-local record carried for free.
+    /// state repeated [`ComputationState::interpretations`] times restores that
+    /// multiplicity.
     ///
     /// The entries are grouped in the order the schedule holds its
     /// computations, which is the order they were parsed rather than the order
@@ -1508,13 +1499,13 @@ mod test {
 
     #[test]
     fn a_self_banging_function_advances_its_whole_span_by_one_cell() {
-        // ADR 0006's move, in all four directions, each from the middle of a
-        // Grid that admits it. The vertical pair shares no Cell with the Span
-        // it left; the horizontal pair overlaps it by one, and per ADR 0004
-        // the clear still covers the complete old Span while ADR 0020's
-        // later-write-wins commits the Cell the two writes share. Carving the
-        // clear around that Cell and testing both Cells a horizontal move
-        // lands on are the two symmetrical bugs this states the answer to.
+        // The move, in all four directions, each from the middle of a Grid that
+        // admits it. The vertical pair shares no Cell with the Span it left;
+        // the horizontal pair overlaps it by one, and the clear still covers
+        // the complete old Span while later-write-wins commits the Cell the two
+        // writes share. Carving the clear around that Cell and testing both
+        // Cells a horizontal move lands on are the two symmetrical bugs this
+        // states the answer to.
         let column = Grid::with_shape(6, 3);
         let (_, north, _) = tick_by_tick(column, &["", "^^", ""], 1);
         assert_eq!(north[0], ["^^    ", "      ", "      "]);
@@ -1554,8 +1545,8 @@ mod test {
         // is `a_self_banging_function_moves_once_per_tick_and_bangs_where_it_
         // stops` with a second mover supplying the obstacle. An even gap ends
         // flush, and that is this test — each wants the two Cells the other
-        // stands in, and ADR 0006 gives each the refusal it gives a mover
-        // blocked by anything else: "replaces its current Span with `**`".
+        // stands in, and each takes the refusal a mover blocked by anything
+        // else takes: it replaces its current Span with `**`.
         //
         // No rule here is new. `>>` holds the earlier Turn by Source order,
         // finds `<` in the Cell it would enter, and reports in its own Span.
@@ -1564,8 +1555,8 @@ mod test {
         //
         // What this pins is the schedule. Each mover reserves Cells the other
         // stands in, which is an edge each way and an order no sort satisfies.
-        // Before `order_turns` dropped one of them the Tick was rejected, and
-        // the Grid never moved again.
+        // `order_turns` drops one of them: keeping both rejects the Tick, and
+        // the Grid never moves again.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">>  <<  "], 3);
 
         assert_eq!(grids[0], [" >><<   "]);
@@ -1590,11 +1581,11 @@ mod test {
 
     #[test]
     fn a_blocked_pair_of_moves_leaves_the_rest_of_the_grid_running() {
-        // The cost of rejecting that Tick was never local. A rejected schedule
-        // discards every write on the Grid, so an Addition sharing the Source
-        // with a facing pair fell silent with nothing wrong with it and no
-        // diagnostic of its own. The pair reports in its own four Cells and the
-        // Addition answers `03` in the same Tick.
+        // The cost of rejecting that Tick would not be local. A rejected
+        // schedule discards every write on the Grid, so an Addition sharing the
+        // Source with a facing pair would fall silent with nothing wrong with
+        // it and no diagnostic of its own. The pair reports in its own four
+        // Cells and the Addition answers `03` in the same Tick.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(13, 2), &[" >><<  .+0102", ""], 1);
 
         assert_eq!(grids[0], [" ****  .+0102", "       03    "]);
@@ -1611,8 +1602,8 @@ mod test {
         // refusals answer for the four: a displacement past the first column
         // or past the last row resolves no Portal at all, and a displacement
         // that stays inside the Grid but runs past the row edge resolves one
-        // and is refused the whole write. ADR 0006 gives both the same cost,
-        // so the Grid says the same thing four times.
+        // and is refused the whole write. Both have the same cost, so the Grid
+        // says the same thing four times.
         let column = Grid::with_shape(4, 1);
         let (_, north, _) = tick_by_tick(column, &["^^  "], 1);
         assert_eq!(north[0], ["**  "]);
@@ -1629,15 +1620,15 @@ mod test {
 
     #[test]
     fn an_active_directional_bang_function_emits_its_self_banging_function() {
-        // ADR 0006: each of these "emit[s] the matching root-only Self-Banging
-        // Function ... For a producer at `(x, y)`, north emits at `(x, y-1)`,
-        // south at `(x,y+1)`, west at `(x-2,y)`, and east at `(x+2,y)`." The
+        // Each of these emits the matching root-only Self-Banging Function.
+        // For a producer at `(x, y)`, north emits at `(x, y-1)`, south at
+        // `(x, y+1)`, west at `(x-2, y)`, and east at `(x+2, y)`. The
         // horizontal offsets are two columns and the Self-Banging Functions'
         // are one, which is the difference a direction name would have hidden:
         // one emits outside its own Span and the other moves through its own.
         //
-        // Each fixture reaches its producer through a different arm of
-        // ADR 0006's cardinal rule, because the emission has to land somewhere
+        // Each fixture reaches its producer through a different arm of the
+        // cardinal rule, because the emission has to land somewhere
         // the Bang is not. Equality Bangs on every Tick, so the Bang display
         // and the emitted spelling are both in the Grid these compare.
         let tall = Grid::with_shape(8, 3);
@@ -1657,11 +1648,10 @@ mod test {
 
     #[test]
     fn an_inert_directional_bang_function_emits_nothing() {
-        // The asymmetry ADR 0029 refuses to collapse, stated as the Grid that
-        // does not change. `*>` and `>>` declare the same spelling at the same
-        // kind of Portal and differ in where the Turn comes from; with no Bang
-        // to deliver one, this Grid stands still where the `>>` test's Grid
-        // moves every Tick.
+        // The activation asymmetry, stated as the Grid that does not change.
+        // `*>` and `>>` declare the same spelling at the same kind of Portal
+        // and differ in where the Turn comes from; with no Bang to deliver one,
+        // this Grid stands still where the `>>` test's Grid moves every Tick.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  *>", ""], 2);
 
         assert_eq!(grids[0], ["  *>    ", "        "]);
@@ -1673,8 +1663,8 @@ mod test {
 
     #[test]
     fn a_refused_emission_diagnoses_and_writes_no_cell() {
-        // ADR 0006: "The complete initial destination must be empty and inside
-        // the Grid or the producer diagnoses and emits nothing." This is where
+        // The complete initial destination must be empty and inside the Grid,
+        // or the producer diagnoses and emits nothing. This is where
         // the two groups differ in what a refusal costs — a Self-Banging
         // Function replaces its own Span with `**` — and the reason is that
         // this producer is not leaving its own Cells, so it has none to say it
@@ -1731,9 +1721,9 @@ mod test {
     fn an_emitted_self_banging_function_first_moves_on_the_following_tick() {
         // The whole cycle in one fixture: a Delay Bangs on Tick 0 and on no
         // Tick after it, `*>` writes `>>`, and `>>` moves once per Tick from
-        // the Tick after the one that wrote it. ADR 0006's "Generated Functions
-        // first receive a turn from the next Source Snapshot" is the assertion
-        // on the first Grid — `>>` is at Cells 2 and 3 there, not 3 and 4 —
+        // the Tick after the one that wrote it. That a generated Function first
+        // receives a turn from the next Source Snapshot is the assertion on the
+        // first Grid — `>>` is at Cells 2 and 3 there, not 3 and 4 —
         // and it needs no rule of its own: a schedule is built from the Source
         // Snapshot, and nothing this Tick wrote is in it.
         //
@@ -2062,14 +2052,13 @@ mod test {
     fn two_movers_reserving_each_other_each_bang_rather_than_costing_the_tick() {
         // Each of these reserves a destination that covers the other's Span,
         // so the two reservations name each other. A reservation orders Turns
-        // and decides nothing else, per ADR 0036, and neither of these Turns
-        // can write where the other stands: a move is admitted only into empty
-        // Cells, so mutual reservation describes two blocked moves rather than
-        // two writes competing for one Cell. Ordering either after the other
-        // would make that pair a cycle and cost the whole Grid its Tick, which
-        // is the rejected alternative ADR 0036 names. Both are blocked by
-        // complete root contact and both bang, which is what ADR 0006 gives a
-        // blocked move whatever blocked it.
+        // and decides nothing else, and neither of these Turns can write where
+        // the other stands: a move is admitted only into empty Cells, so mutual
+        // reservation describes two blocked moves rather than two writes
+        // competing for one Cell. Ordering either after the other would make
+        // that pair a cycle and cost the whole Grid its Tick. Both are blocked
+        // by complete root contact and both bang, which is what a blocked move
+        // does whatever blocked it.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &[">><<  "], 1);
 
         assert_eq!(grids[0], ["****  "]);
@@ -2094,7 +2083,7 @@ mod test {
 
     #[test]
     fn a_move_blocked_by_one_complete_language_unit_bangs_without_diagnosing() {
-        // ADR 0006: "Complete non-root contact adds no collision diagnostic."
+        // Complete non-root contact adds no collision diagnostic.
         // The two Cells north of `^^` are the whole of the `01` operand
         // literal, so the contact is complete and the unit is no root. The
         // Addition beside it still answers, which is what says the `**` is
@@ -2114,7 +2103,7 @@ mod test {
     fn a_move_that_lands_across_two_language_units_diagnoses_its_misalignment() {
         // The other half of the same rule: these two Cells hold the last Cell
         // of `01` and the first Cell of `02`, so neither unit is met whole.
-        // ADR 0006 diagnoses and delivers nothing, and the move is blocked
+        // The move diagnoses and delivers nothing, and is blocked
         // exactly as a complete contact blocks it — the diagnostic is the only
         // difference, because a misalignment is the one outcome the `**` alone
         // does not tell a Source author about.
@@ -2129,11 +2118,11 @@ mod test {
 
     #[test]
     fn complete_aligned_root_contact_activates_the_root_it_blocked_against() {
-        // ADR 0006: "Complete aligned root contact also directly delivers Bang
-        // activation." The Raw Play north of `^^` is inert on its own, so the
+        // Complete aligned root contact also directly delivers Bang
+        // activation. The Raw Play north of `^^` is inert on its own, so the
         // Play Command is the whole evidence that activation was delivered —
         // and the `**` is the evidence the move was still blocked, because
-        // ADR 0006 gives contact both outcomes and not a choice between them.
+        // contact has both outcomes and not a choice between them.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["!>007FC4", "^^"], 1);
 
         assert_eq!(grids[0], ["!>007FC4", "**      "]);
@@ -2150,7 +2139,7 @@ mod test {
         // The same rule where the geometry differs: a horizontal move enters
         // one Cell, and the root whose Span holds that Cell is anchored two
         // columns from the producer, because every Language Unit spells as a
-        // Cell pair. That is ADR 0006's east anchor `(x+2, y)` reached by
+        // Cell pair. That is the east anchor `(x+2, y)` reached by
         // contact rather than by a Source-resident Bang, and it is why the
         // contact rule asks which unit covers the Cells entered rather than
         // which unit begins at them.
@@ -2176,8 +2165,8 @@ mod test {
         //
         // Without that edge `^^` could move first and `>>` would find the Cell
         // empty, planning a write over Cells a computation that had already
-        // run was scheduled at. That is the defect ADR 0034 rejects a Tick for,
-        // and this is the ordering that stops it arising.
+        // run was scheduled at. That is a defect a Tick is rejected for, and
+        // this is the ordering that stops it arising.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["", ">>^^  "], 1);
 
         assert_eq!(grids[0], ["  ^^  ", "**    "]);
@@ -2192,8 +2181,8 @@ mod test {
     fn a_self_banging_function_is_not_scheduled_inside_another_expression() {
         // Root-only, enforced by the declared kind rather than by a check that
         // names these four spellings: `.+` declares two Number operands, `^^`
-        // answers an effect, and ADR 0028's nesting rule refuses it where a
-        // value is required. The refusal is the Expression's, so the Cells are
+        // answers an effect, and the nesting rule refuses it where a value is
+        // required. The refusal is the Expression's, so the Cells are
         // left standing and nothing moves.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+^^01", ""], 1);
 
@@ -2286,7 +2275,7 @@ mod test {
         // CONTEXT.md: when Halt is active it "establishes a dependency that
         // locks the Expression root directly south before that root can
         // execute." Equality Bangs every Tick; its result sits two columns west
-        // of `*!`, which is ADR 0006's horizontal activation geometry. The Add
+        // of `*!`, which is the horizontal activation geometry. The Add
         // one row south of Halt is intrinsically active, so the lock is the
         // only reason it contributes no `07` and its Source is unchanged.
         let (plans, grids, source) = tick_by_tick(
@@ -2465,11 +2454,11 @@ mod test {
         //
         // A Halt whose Position is after its target cannot be spelled: the
         // target is one row south. A Bang producer after both Halt and that
-        // target also cannot activate Halt under ADR 0006's cardinal
-        // geometry — the default Portal is one row south, so a producer
-        // after the target writes a Bang that cannot touch Halt. The lock
-        // that would reach an already-executed root is therefore
-        // inexpressible; the existing late-write reject path still holds.
+        // target also cannot activate Halt under the cardinal geometry — the
+        // default Portal is one row south, so a producer after the target
+        // writes a Bang that cannot touch Halt. The lock that would reach an
+        // already-executed root is therefore inexpressible; the late-write
+        // reject path still holds.
         let (plans, grids, source) = tick_by_tick(
             Grid::with_shape(14, 4),
             &[
@@ -2695,15 +2684,15 @@ mod test {
     /// Runs one Tick in which the computations at `answers` state the value
     /// they answer rather than computing one, and commits its plan.
     ///
-    /// ADR 0034 defers the Source operation that produces Function values, and
-    /// no Function answers a bare Cell either, so a test that needs one of
-    /// those constructs it. Where it is constructed is the whole point: the
-    /// value is delivered by `stated::plan_with_answers`, one call below the
-    /// planning entry point, so the Source, its destinations, the schedule and
-    /// every other computation's Turn are the production ones and nothing in
-    /// the shipped module compiles differently to admit the answer. The plan is
-    /// committed through `Source::commit_tick`, which is the commit a Tick gets
-    /// however it was planned, rather than through edits that imitate it.
+    /// No Source operation produces a Function value, and no Function answers a
+    /// bare Cell either, so a test that needs one of those constructs it. Where
+    /// it is constructed is the whole point: the value is delivered by
+    /// `stated::plan_with_answers`, one call below the planning entry point, so
+    /// the Source, its destinations, the schedule and every other computation's
+    /// Turn are the production ones and nothing in the shipped module compiles
+    /// differently to admit the answer. The plan is committed through
+    /// `Source::commit_tick`, which is the commit a Tick gets however it was
+    /// planned, rather than through edits that imitate it.
     ///
     fn stated_source(
         grid: Grid,
@@ -2757,8 +2746,7 @@ mod test {
 
     ///
     /// One Tick in which the computations at `replacements` answer a Function
-    /// value, which nothing spells in Source until ADR 0034's deferred
-    /// Function-producing operation exists.
+    /// value, which nothing spells in Source.
     ///
     fn replaced_source(
         grid: Grid,
@@ -2795,18 +2783,17 @@ mod test {
     }
 
     ///
-    /// One Tick in which the computations at `answers` are the Sequence-
-    /// answering rows ADR 0007's Range and Concatenate will spell: each
-    /// reserves the Cells ADR 0036 gives such a row — its destination through
-    /// the end of that row — and each answers the Numbers stated for it.
+    /// One Tick in which the computations at `answers` stand in for
+    /// Sequence-answering rows: each reserves the Cells such a row reserves —
+    /// its destination through the end of that row — and each answers the
+    /// Numbers stated for it.
     ///
-    /// The two facts are stated together here, in one place, because a
-    /// declared Range row states both together too: what it answers is a fact
-    /// of the Tick and what it reserves is a fact of the schedule, and no
-    /// fixture below derives either from the other. That derivation is the one
-    /// thing these tests cannot prove while no Function declares a Sequence
-    /// answer, which is why the test that asserted it is owed by
-    /// `sequence-values/05` rather than stated here.
+    /// The two facts are stated together here, in one place, because a declared
+    /// Range row states both together too: what it answers is a fact of the
+    /// Tick and what it reserves is a fact of the schedule, and no fixture
+    /// below derives either from the other.
+    /// `a_declared_number_range_row_derives_its_own_reservation` proves that
+    /// derivation against a declared row.
     ///
     fn sequence_source(
         grid: Grid,
@@ -2858,8 +2845,7 @@ mod test {
         // Whether it answers at all is the Turn's to decide, and a Turn its own
         // prologue refuses has no answer to deliver, stated or interpreted. A
         // seam that delivered past those refusals would let these tests assert
-        // outcomes production cannot produce, which is the one way stating an
-        // answer here could be worse than the `cfg` fork it replaces.
+        // outcomes production cannot produce.
 
         // An Addition whose second operand is Source it cannot read: the Turn
         // is syntax-blocked, which settles it without a Tick diagnostic.
@@ -2878,7 +2864,7 @@ mod test {
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
 
         // A Terminal Output Function standing inside an Expression: its Turn
-        // records the refusal ADR 0028 states, and the Addition above it is
+        // records the nesting refusal, and the Addition above it is
         // left with no typed result to consume.
         let rows = [".+01!>007FC4", ""];
         let (plan, source) = stated_source(
@@ -2909,7 +2895,7 @@ mod test {
 
     #[test]
     fn a_stated_reservation_leaves_every_derived_reservation_consistent_with_it() {
-        // The seam's own regression, not ADR 0036's widening rule: what a
+        // The seam's own regression, not the widening rule: what a
         // fixture states is one computation's reservation, and every other
         // reservation in the Grid still has to be the one production derives
         // beside it. The nested `.-` at column 2 reserves a row here, so the
@@ -2917,10 +2903,10 @@ mod test {
         // three Atoms across six Cells is admitted rather than refused as a
         // result that is not the Cell pair the schedule reserved.
         //
-        // ADR 0036's rule that a Sequence-answering child widens its ancestor
-        // is not what this proves, because the child's width is stated rather
-        // than declared. That is owed by `sequence-values/05` against a Range
-        // row, and this test can go when it lands.
+        // The rule that a Sequence-answering child widens its ancestor is not
+        // what this proves, because the child's width is stated rather than
+        // declared. `a_pervasive_parent_widens_over_a_declared_number_range_child`
+        // proves it against a Range row.
         //
         // The premise the width above rests on, pinned so it cannot go quiet:
         // the root reserves a Row only by widening over its child. Were Add to
@@ -3049,10 +3035,9 @@ mod test {
 
     #[test]
     fn a_declared_number_range_row_derives_its_own_reservation() {
-        // ADR 0036's bottom-up pass reads a Function's own declaration first.
-        // Number Range is the first built-in row that answers a Sequence, so
-        // this is the first schedule where production derives `Reserved::Row`
-        // rather than stating it through a fixture.
+        // The bottom-up pass reads a Function's own declaration first. Number
+        // Range answers a Sequence, so production derives `Reserved::Row` for
+        // it rather than a fixture stating it.
         let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &[":-0003", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
@@ -3214,7 +3199,8 @@ mod test {
 
     #[test]
     fn a_scalar_computation_still_reserves_a_cell_pair() {
-        // The Range rows do not change what a purely scalar schedule derives.
+        // A purely scalar schedule derives only Cell pairs, whatever Range
+        // rows the table declares.
         let grid = Grid::with_shape(16, 2);
         let source = seeded_source(grid, &["                ", ".+.-000003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
@@ -3352,7 +3338,7 @@ mod test {
     fn live_deep_sibling_computations_preserve_operand_order() {
         // Each sibling requires more pending operands than the Parser keeps
         // inline. The second refills that stack after the first has drained it.
-        // Deep enough to overflow and narrow enough to fit a Grid (ADR 0049).
+        // Deep enough to overflow and narrow enough to fit a Grid.
         let numerator = ".+".repeat(24) + &"02".repeat(25);
         let denominator = ".+".repeat(24) + &"01".repeat(25);
         let text = format!("./{numerator}{denominator}");
@@ -3454,7 +3440,7 @@ mod test {
     }
 
     ///
-    /// The aligned successors of the `:#` case that motivated ADR 0035.
+    /// An Absolute Difference beside a `|` is read in two-Cell units.
     ///
     /// `.|` is the one spelling whose second Cell is a `|`, so it is the one
     /// that could present a `||` to a scan stepping over overlapping byte
@@ -3464,9 +3450,9 @@ mod test {
     ///
     /// A row of `.|` and a real introducer is the other half: the Function
     /// keeps the claim its arity declares, and the `||` after it opens a
-    /// Comment that claims what is left. Both rows run a Tick, because what
-    /// changed is which Cells the walk hands the Parser and the answer has to
-    /// hold through execution rather than only through derivation.
+    /// Comment that claims what is left. Both rows run a Tick, because the
+    /// answer depends on which Cells the walk hands the Parser and has to hold
+    /// through execution rather than only through derivation.
     ///
     #[test]
     fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
@@ -3512,19 +3498,15 @@ mod test {
     }
 
     ///
-    /// The `##` collision that broke the pre-pass holds no Comment.
+    /// A `##` that overlaps a Function's spelling holds no Comment.
     ///
-    /// This is the shape of the row that motivated ADR 0035: `:#` at Cells 3
-    /// and 4 with a `#` at Cell 5 presented `##` at Cells 4 and 5, and the
-    /// walk cut the row at Cell 4, in the middle of what a Function would
-    /// have been. One keystroke of a Live Edit reached it.
+    /// `:#` at Cells 3 and 4 with a `#` at Cell 5 presents `##` at Cells 4 and
+    /// 5 to a scan over overlapping byte pairs, which would cut the row in the
+    /// middle of a Function. One keystroke of a Live Edit reaches it.
     ///
-    /// ADR 0035 moved the Comment off `#` as well as into the parse, so `#`
-    /// spells nothing at all now and the collision class is gone. What this
-    /// pins is that no Comment forms and the row is read one Cell at a time.
-    /// With Note Range in the Function table, `:#` is recognised at Cells 3
-    /// and 4 and the trailing `#` alone is refused; no Comment still forms,
-    /// which is this test's claim either way.
+    /// `#` spells nothing, so what this pins is that no Comment forms and the
+    /// row is read one Cell at a time: `:#` is recognised at Cells 3 and 4 as
+    /// Note Range and the trailing `#` alone is refused.
     ///
     #[test]
     fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
@@ -3671,19 +3653,19 @@ mod test {
 
     #[test]
     fn a_replacement_that_changes_only_the_activation_source_is_refused() {
-        // The term the Self-Banging Functions added to that guard. Raw Play and
-        // `^^` differ on where their activation comes from, and that is the
-        // first difference the guard finds: neither answers a value, so the
-        // term ahead of it agrees. They differ on the Source write as well —
-        // `^^` declares one and Raw Play declares none — so this fixture
-        // changes two facts and is named for the one that is reported.
+        // The activation-source term of that guard. Raw Play and `^^` differ on
+        // where their activation comes from, and that is the first difference
+        // the guard finds: neither answers a value, so the term ahead of it
+        // agrees. They differ on the Source write as well — `^^` declares one
+        // and Raw Play declares none — so this fixture changes two facts and is
+        // named for the one that is reported.
         //
         // No pair changes activation alone. Every Function whose activation is
         // intrinsic either answers a value or declares a Source write, and no
         // Bang-activated Function does either, so a fixture that changed this
         // fact and nothing else cannot be written;
         // `every_declared_change_is_the_first_difference_for_some_pair` in
-        // `lang` holds that. A guard still asking `answers_value` for this
+        // `lang` holds that. A guard asking `answers_value` for this
         // question would admit the replacement and leave the schedule holding
         // edges derived from a root that now needs no Bang.
         let (plan, source) = replaced_source(
@@ -3703,12 +3685,11 @@ mod test {
 
     #[test]
     fn a_replacement_that_changes_only_bang_emission_is_refused() {
-        // The one fact of the five that a pair can differ on alone and that
-        // nothing asserted until now. Equality and Addition agree on every
-        // other column the guard reads — both answer a value, both are
-        // intrinsically active, neither declares a Source write, both reserve a
-        // Cell pair — and ADR 0011's Equality can answer Bang where Addition
-        // never can.
+        // One fact of the five that a pair can differ on alone. Equality and
+        // Addition agree on every other column the guard reads — both answer a
+        // value, both are intrinsically active, neither declares a Source
+        // write, both reserve a Cell pair — and Equality can answer Bang where
+        // Addition never can.
         //
         // Scheduling reads that declaration to decide which roots can supply
         // activation, so admitting this replacement would leave the Turn run by
@@ -3743,8 +3724,8 @@ mod test {
         // neither can return Bang, and both reserve a Cell pair — and they
         // differ only in the Portal offset they declare. The schedule reserved
         // the Cells `^^` declares, so admitting `>>` here would leave the Turn
-        // writing at Cells no dependency edge names, which is the ADR 0036
-        // defect this guard exists to refuse.
+        // writing at Cells no dependency edge names, which is the defect this
+        // guard exists to refuse.
         let (plan, source) = replaced_source(
             Grid::with_shape(16, 3),
             &[".+0000", "^^", ""],
@@ -3776,7 +3757,7 @@ mod test {
         // Multiplication, not the Subtraction that replaced the parsed
         // Addition before it.
         //
-        // Reading the parsed Function answered this the same way, and no
+        // Reading the parsed Function would answer this the same way, and no
         // fixture can make the two disagree: this guard admits no replacement
         // that changes any of the five facts it compares, so the running
         // Function agrees with the parsed one on all five for as long as the
@@ -3847,13 +3828,13 @@ mod test {
 
     #[test]
     fn live_a_sequence_result_reaches_its_destination_cells() {
-        // ADR 0007's ordinary Sequence result, reached through a Tick rather
-        // than through the Portal on its own: the schedule holds the row this
+        // An ordinary Sequence result, reached through a Tick rather than
+        // through the Portal on its own: the schedule holds the row this
         // fixture reserves, execution encodes the answer, and the Source Grid
         // the next Tick reads carries all six Cells. Three Atoms rather than
-        // one is what separates this from the scalar case it now shares a path
-        // with — including ADR 0036's width guard, which refuses any answer
-        // that is not a Cell pair from a computation reserving one.
+        // one is what separates this from the scalar case it shares a path
+        // with — including the width guard, which refuses any answer that is
+        // not a Cell pair from a computation reserving one.
         let grid = Grid::with_shape(16, 2);
         let (plan, source) =
             sequence_source(grid, &[".+0102", ""], &[], &[(0, &[0x0A, 0x0B, 0x0C])]);
@@ -3881,7 +3862,7 @@ mod test {
 
     #[test]
     fn live_a_declared_number_range_reservation_orders_computations_it_covers() {
-        // ADR 0036's reservation, observed as the ordering it buys, with a
+        // The row reservation, observed as the ordering it buys, with a
         // declared Range row rather than a stated Sequence answer.
         let grid = Grid::with_shape(16, 2);
         let rows = ["        .+0102", ":-0005"];
@@ -3982,8 +3963,8 @@ mod test {
 
     #[test]
     fn live_a_sequence_result_that_leaves_its_row_writes_no_cell_of_it() {
-        // ADR 0007's complete-fit rule, which ADR 0009's Portal enforces, for a
-        // Sequence exactly as for a scalar: no Span reaches past the row it
+        // The complete-fit rule, which the Portal enforces, for a Sequence
+        // exactly as for a scalar: no Span reaches past the row it
         // begins in, so an encoding running past the row's end is refused
         // entire. Four of the six Cells fit and none of them is written, which
         // is the half of the rule a diagnostic alone would not hold.
@@ -4052,7 +4033,7 @@ mod test {
 
     #[test]
     fn live_two_overlapping_sequence_results_resolve_cell_by_cell() {
-        // ADR 0020's Cell-wise conflict resolution, which a Sequence inherits
+        // Cell-wise conflict resolution, which a Sequence inherits
         // rather than restates: one admitted write is one validated effect
         // until the Tick Plan resolves, and then as many independently
         // contested Cells as it has characters. The later producer wins the two
@@ -4080,10 +4061,10 @@ mod test {
 
     #[test]
     fn live_an_empty_sequence_result_plans_no_write_and_no_diagnostic() {
-        // ADR 0007: the empty Sequence is a value holding no Atoms rather than
-        // a refused one, so it plans no Cell write and reports nothing. It
-        // never reaches a Portal, which is what lets `Portal::admit` assert
-        // that a write places at least one Cell.
+        // The empty Sequence is a value holding no Atoms rather than a refused
+        // one, so it plans no Cell write and reports nothing. It never reaches
+        // a Portal, which is what lets `Portal::admit` assert that a write
+        // places at least one Cell.
         let grid = Grid::with_shape(16, 2);
         let rows = [".+0102", ""];
         let (plan, source) = sequence_source(grid, &rows, &[], &[(0, &[])]);
@@ -4096,12 +4077,12 @@ mod test {
 
     #[test]
     fn live_a_sequence_reservation_orders_every_computation_its_write_can_reach() {
-        // ADR 0036's reservation, observed as the ordering it buys. The
+        // The row reservation, observed as the ordering it buys. The
         // producer sits in row 1 and writes upward into row 0, so row-major
         // order alone would run the Expression at column 8 first. A scalar
         // reservation covers only columns 0 and 1 and names no edge to it; the
         // Sequence's write then reaches an already-executed computation and
-        // ADR 0034 rejects the whole Tick. Reserving through the end of the
+        // the whole Tick is rejected. Reserving through the end of the
         // destination row instead orders the producer first, and the
         // Expression it covers is suppressed rather than executed against a
         // spelling that is no longer there.
@@ -4130,13 +4111,13 @@ mod test {
 
     #[test]
     fn live_a_reservation_the_sequence_stopped_short_of_suppresses_nothing() {
-        // The other half of ADR 0036: a reservation is deliberately wider than
-        // most of the writes it covers, and only the write decides what
-        // happened to a Cell. The Expression at column 8 is inside the reserved
-        // row and outside the four Cells the Sequence actually reached, so it
-        // is ordered after the producer and then executes normally, answering
-        // `03` into row 1. Suppressing everything the reservation names would
-        // leave that Cell pair empty.
+        // The other half of the reservation rule: a reservation is deliberately
+        // wider than most of the writes it covers, and only the write decides
+        // what happened to a Cell. The Expression at column 8 is inside the
+        // reserved row and outside the four Cells the Sequence actually
+        // reached, so it is ordered after the producer and then executes
+        // normally, answering `03` into row 1. Suppressing everything the
+        // reservation names would leave that Cell pair empty.
         let grid = Grid::with_shape(16, 2);
         let (plan, turns, source) = sequence_turns(
             grid,
@@ -4160,7 +4141,7 @@ mod test {
 
     #[test]
     fn live_a_reservation_covering_its_own_producer_orders_nothing_against_it() {
-        // ADR 0036: a Reservation orders Turns and decides nothing else, and a
+        // A Reservation orders Turns and decides nothing else, and a
         // computation the admitted write stopped short of is left standing.
         // The producer is one such computation whenever its destination lies
         // in its own row at or left of its own Cells, because a
@@ -4173,8 +4154,8 @@ mod test {
         // the write: the four Cells this Sequence actually reaches stop at
         // column 3 and never come near the Expression at column 8. A self-edge
         // makes that Tick a cycle and discards every write and Play Command in
-        // the Grid, which is the outcome ADR 0036's rejected alternative names
-        // — a cycle manufactured between computations that never touch.
+        // the Grid — a cycle manufactured between computations that never
+        // touch.
         let grid = Grid::with_shape(16, 2);
         let (plan, source) = sequence_source(
             grid,
@@ -4194,8 +4175,8 @@ mod test {
         // `Reserved::Row` producer moves the question of writing over itself
         // from the schedule to the admitted write; it does not answer it away.
         // Twelve Cells from column 0 reach the `.+` at column 8, and the
-        // producer is the executed computation ADR 0034 refuses an output to,
-        // so the Tick is rejected entire and the Source is unchanged. The
+        // producer is an executed computation, which no output may reach, so
+        // the Tick is rejected entire and the Source is unchanged. The
         // Expression that is left standing when the write stops short is the
         // test above; this is what happens when it does not.
         let grid = Grid::with_shape(16, 2);
@@ -4256,8 +4237,8 @@ mod test {
 
     #[test]
     fn live_a_row_reservation_names_no_computation_of_the_next_row() {
-        // ADR 0036 reserves the rest of the destination's row, and "the rest"
-        // is counted from the destination's own column: a destination at
+        // A row reservation covers the rest of the destination's row, and "the
+        // rest" is counted from the destination's own column: a destination at
         // column 8 of a sixteen-column Grid reserves eight Cells, not sixteen.
         // Counting the row's full width instead reserves eight Cells of the
         // row below as well, and a reservation names dependency edges over
@@ -4860,9 +4841,9 @@ mod test {
 
     #[test]
     fn a_bang_activates_its_aligned_neighbours_and_no_further_root() {
-        // ADR 0006 names four aligned cardinal anchors — north, south, west,
-        // east — and scheduling now asks about those four Positions rather
-        // than testing every root against every Bang. What that has to keep is
+        // A Bang activates four aligned cardinal anchors — north, south, west,
+        // east — and scheduling asks about those four Positions rather than
+        // testing every root against every Bang. What that has to keep is
         // the boundary: the root one row away performs, and the root two rows
         // away is untouched by the same Bang.
         //
@@ -5006,11 +4987,11 @@ mod test {
 
     #[test]
     fn a_bang_rejected_in_a_typed_operand_never_activates() {
-        // ADR 0032: "A `**` rejected in a typed operand is still invalid
-        // syntax and neither activates nor receives display cleanup." The
-        // Bang lands in `.+`'s left Number slot, so it is a rejected operand
-        // spelling and not an activation event, even though it is Cell-aligned
-        // with the terminal root below it.
+        // A `**` rejected in a typed operand is still invalid syntax and
+        // neither activates nor receives display cleanup. The Bang lands in
+        // `.+`'s left Number slot, so it is a rejected operand spelling and not
+        // an activation event, even though it is Cell-aligned with the terminal
+        // root below it.
         let grid = Grid::with_shape(16, 5);
         let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -5049,7 +5030,6 @@ mod test {
 
     #[test]
     fn outputs_beside_and_over_standalone_source_are_admitted() {
-        // These exact Sources used to trip the obsolete join guard.
         let (plan, source) = carried_source(Grid::with_shape(8, 3), &[".=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[8..14], "**0102");
         assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
@@ -5113,10 +5093,10 @@ mod test {
 
     #[test]
     fn source_after_an_expression_is_the_next_expressions_and_costs_the_tick_nothing() {
-        // What used to be trailing Source. ADR 0033 ends an Expression where
-        // its arity does, so the `Z` after `.+0102` is the Source the next
-        // parse reads rather than evidence against the Addition: the Addition
-        // takes its turn, and the Tick has nothing to report about either.
+        // An Expression ends where its arity does, so the `Z` after `.+0102` is
+        // the Source the next parse reads rather than evidence against the
+        // Addition: the Addition takes its turn, and the Tick has nothing to
+        // report about either.
         //
         // A fifth row so the Addition has somewhere to put its result: what
         // this test is about is that the Addition takes a turn at all.
@@ -5172,24 +5152,21 @@ mod test {
 
     #[test]
     fn the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor() {
-        // ADR 0012's inputs are only as good as something watching the thread
-        // from the Playback Engine to `Interpreter::execute_function`. Severing it —
-        // passing a fixed Tick or a fixed anchor at the call site instead of
-        // this root's own — fails here rather than passing unnoticed until
-        // Clock reads a Tick and Random reads an anchor.
+        // The explicit Tick inputs are only as good as something watching the
+        // thread from the Playback Engine to `Interpreter::execute_function`.
+        // Severing it — passing a fixed Tick or a fixed anchor at the call site
+        // instead of this root's own — fails here rather than passing
+        // unnoticed.
         //
         // The expected anchors are literals, so the assertion cannot be
         // satisfied by the code under test, and they are asymmetric so a
         // transposed column and row is visible. The Tick is not `Tick::ZERO`,
         // so a hardcoded first Tick is visible too.
         //
-        // This test retires when a Function reads an anchor. The Tick half is
-        // already asserted through results by the test below, which watches
-        // what three Tick Functions write rather than what they were handed;
-        // no built Function reads its anchor yet, so the anchor half has no
-        // result to be visible in and is read off the execution states here
-        // instead. When one does, this asserts through that Function's answer
-        // and stops reading states at all.
+        // The Tick half is also asserted through results by the test below,
+        // which watches what three Tick Functions write rather than what they
+        // were handed. These roots read neither input, so both halves are read
+        // off the execution states here.
         let grid = Grid::with_shape(20, 3);
         let bytes = snapshot(grid, &[".+0102 .+0304", "          .-0504", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -5215,11 +5192,9 @@ mod test {
 
     #[test]
     fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
-        // The read `tick-functions/01` left unpinned, now that it has a
-        // consumer to pin it through: the Tick threaded from the Playback
-        // Engine now changes what a Source Snapshot writes, so severing it
-        // fails here rather than only in the seam test above, which watches
-        // the inputs rather than the answers.
+        // The Tick threaded from the Playback Engine changes what a Source
+        // Snapshot writes, so severing it fails here rather than only in the
+        // seam test above, which watches the inputs rather than the answers.
         //
         // One Grid, three roots, two Ticks. Each root's result lands in the
         // Cell pair directly south of its anchor, so the expected writes are
@@ -5262,8 +5237,8 @@ mod test {
 
     #[test]
     fn a_tick_function_with_no_cycle_diagnoses_and_writes_nothing() {
-        // ADR 0012 refuses a cycle with a zero factor rather than inventing
-        // one, and the diagnostic has to reach the Source through the ordinary
+        // A cycle with a zero factor is refused rather than invented, and the
+        // diagnostic has to reach the Source through the ordinary
         // Tick Plan: it names the Function's spelling and the operand role, so
         // the console can say which of the two Cell pairs to edit.
         let grid = Grid::with_shape(16, 2);
@@ -5288,8 +5263,8 @@ mod test {
     #[test]
     fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
         // Delay and Euclidean declare `can_emit_bang`, and that declaration is
-        // what `schedule` reads at `tick.rs:319` and `:462` to decide which
-        // roots can supply activation. Nothing else asserts the edge is built:
+        // what `active_roots` and `order_turns` read to decide which roots can
+        // supply activation. Nothing else asserts the edge is built:
         // the tests above watch the two Cells a pulse writes, which a Function
         // that Banged into no activation edge would still satisfy while the
         // neighbouring terminal fell silent with no diagnostic anywhere.
@@ -5342,7 +5317,7 @@ mod test {
 
     #[test]
     fn an_empty_portal_initialises_increment_and_interpolation_as_zero() {
-        // ADR 0012's first previous: two space cells are Number `00`, so the
+        // The first previous: two space Cells are Number `00`, so the
         // first Tick of an unused Portal is the step itself for Increment and
         // the first step toward the target for Interpolation. The expected
         // writes are literal Cells, so a body that treated empty as occupied
@@ -5415,7 +5390,7 @@ mod test {
 
     #[test]
     fn increment_writes_its_current_encoding_and_leaves_a_stale_tail() {
-        // ADR 0009: an ordinary result writes only its current encoding and
+        // An ordinary result writes only its current encoding and
         // never clears a stale tail outside that Span. The Portal already
         // holds `00ABCD`; Increment writes `01` and leaves `ABCD`.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["~+0104", "00ABCD"], 1);
@@ -5472,8 +5447,8 @@ mod test {
 
     #[test]
     fn two_randoms_in_one_expression_write_different_numbers() {
-        // Two roots, same operands, different anchors. ADR 0013's streams
-        // are a function of Position, so `~?010010` at column 0 writes `02`
+        // Two roots, same operands, different anchors. Random's streams are a
+        // function of Position, so `~?010010` at column 0 writes `02`
         // and the one at column 9 writes `00`. A body that seeded both at
         // the Expression — or at a shared origin — would write `02` twice.
         let (plans, grids, _) =
@@ -5774,7 +5749,7 @@ mod test {
 
     #[test]
     fn test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write() {
-        // ADR 0004: a complete write validates its whole destination before
+        // A complete write validates its whole destination before
         // any Cell of it enters the Tick Plan. This root sits in the last row,
         // so its result has nowhere to go and the Tick contributes a
         // diagnostic and nothing else — not the first Cell of a result that
@@ -5802,11 +5777,9 @@ mod test {
         // takes only the Cell they share, and every other Cell of the earlier
         // producer's complete write still stands.
         //
-        // No Source can express this yet, because every result today is one
-        // two-Cell Atom written below a root, and two roots in one row sit at
-        // least three columns apart. The Source-writing Functions of issues 03
-        // and 04 emit exactly this shape of overlapping bundle, so the
-        // resolution they rely on is pinned here at the seam that owns it.
+        // The resolution is pinned here, at the seam that owns it, rather than
+        // through a Source whose overlapping writes depend on which Functions
+        // emit them.
         let grid = Grid::with_shape(20, 3);
         let plan = resolve(vec![write(grid, 10, "ABC"), write(grid, 12, "XY")]);
 
@@ -5839,14 +5812,14 @@ mod test {
         // Cell, which one producer can take from another, each command and
         // each diagnostic keeps the place its producer's turn gave it.
         //
-        // The earlier producer performs a group of two, which is ADR 0030's
-        // widened Expression. Element index orders the commands inside one
-        // producer's Effect and ADR 0020's producer order holds around it, so
-        // the Tick Plan reads as though the chord had been written left to
-        // right as separate Expressions. The three commands differ in every
-        // field that can be read back, so a group flattened in reverse, or a
-        // producer order that let the later Expression in first, is a different
-        // Tick Plan rather than the same one.
+        // The earlier producer performs a group of two, which is a widened
+        // Expression. Element index orders the commands inside one producer's
+        // Effect and producer order holds around it, so the Tick Plan reads as
+        // though the chord had been written left to right as separate
+        // Expressions. The three commands differ in every field that can be
+        // read back, so a group flattened in reverse, or a producer order that
+        // let the later Expression in first, is a different Tick Plan rather
+        // than the same one.
         let grid = Grid::with_shape(10, 3);
         let first = raw(0, 1, 60);
         let second = raw(0, 1, 64);
@@ -5881,18 +5854,15 @@ mod test {
 
     #[test]
     fn the_cells_of_two_overlapping_sequence_results_are_contested_one_by_one() {
-        // ADR 0009: every admitted write participates Cell-wise in ADR 0020's
-        // producer order. A Sequence is one validated write while it is being
-        // planned and as many independently contested Cells as it has
-        // characters once it is resolved, so the later root takes only the four
-        // Cells the two encodings share and the earlier root's first two Cells
-        // still stand.
+        // Every admitted write participates Cell-wise in producer order. A
+        // Sequence is one validated write while it is being planned and as many
+        // independently contested Cells as it has characters once it is
+        // resolved, so the later root takes only the four Cells the two
+        // encodings share and the earlier root's first two Cells still stand.
         //
-        // Two roots two columns apart is a shape no Source can express today —
-        // a two-Cell Atom result never overlaps a neighbour's — and exactly the
-        // shape Sequence results make ordinary. Each root's encoding is
-        // admitted through the Portal below it, which is where a Sequence
-        // answer would arrive.
+        // A two-Cell Atom result never overlaps a neighbour's, and Sequence
+        // results overlap routinely. Each root's encoding is admitted through
+        // the Portal below it, which is where a Sequence answer arrives.
         let grid = Grid::with_shape(20, 3);
         let effects = vec![write(grid, 20, "0A0B0C"), write(grid, 22, "0D0E0F")];
 
@@ -6000,7 +5970,8 @@ mod output_portal_exclusion {
 }
 
 ///
-/// The Cell-wise half of ADR 0020, over overlap shapes no example states.
+/// The Cell-wise half of producer-order conflict resolution, over overlap
+/// shapes no example states.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
@@ -6018,12 +5989,12 @@ mod property {
 
     proptest! {
         ///
-        /// "Later Cell effects win conflicts at each Cell independently", and
-        /// its unstated other half: a Tick Plan contains a Cell exactly when
-        /// some admitted write covers it. Together those are ADR 0009's
-        /// promise that an ordinary result "writes only its current encoding
-        /// and never clears a stale tail outside that Span" — no shorter later
-        /// write can reach a Cell it does not cover, in either direction.
+        /// Later Cell effects win conflicts at each Cell independently, and the
+        /// other half: a Tick Plan contains a Cell exactly when some admitted
+        /// write covers it. Together those are the promise that an ordinary
+        /// result writes only its current encoding and never clears a stale
+        /// tail outside that Span — no shorter later write can reach a Cell it
+        /// does not cover, in either direction.
         ///
         /// A property rather than an example because the interesting input is
         /// the shape of the overlaps: partial at either end, one write wholly
