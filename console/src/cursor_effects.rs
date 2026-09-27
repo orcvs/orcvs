@@ -209,8 +209,8 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// `cursor.border`/`cursor.border.width` for the Cursor's own frame or
 /// `region.border`/`region.border.width` for the lasso around a Region larger
 /// than one Cell. The width is a fixed display-point nominal width, never
-/// scaled by `cell_size`/Grid zoom. Zero hides every frame stroke outright — see this module's private
-/// `frame_shapes` — without touching the living-area fill `area_colour` and
+/// scaled by `cell_size`/Grid zoom. Zero hides every frame stroke outright —
+/// see this module's private `frame_shapes` — without touching the living-area fill `area_colour` and
 /// `amount` still control. `motion` is this frame's sample and the settings
 /// it was advanced under.
 ///

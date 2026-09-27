@@ -120,8 +120,9 @@ pub struct Console {
     /// Whether keyboard input belonged to a control rather than the Source
     /// when the last frame's widgets were done: any widget holding egui's
     /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
-    /// `Memory::focused().is_some()`), or any open popup — a menu, or the destination ComboBox's list — which
-    /// a click opens without taking focus (`Popup::is_any_open`). Latched
+    /// `Memory::focused().is_some()`), or any open popup — a menu, or the
+    /// destination ComboBox's list — which a click opens without taking focus
+    /// (`Popup::is_any_open`). Latched
     /// rather than asked where it is read, because
     /// `event_handler` runs before this frame's widgets are shown, and
     /// `Memory::begin_pass` has already let Escape clear the focus it was
