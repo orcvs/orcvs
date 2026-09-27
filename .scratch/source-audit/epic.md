@@ -36,7 +36,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | [x] | 22 ([#162](https://github.com/orcvs/orcvs/pull/162)) | Read the Cells in place for Source File write and unsaved changes | [#29](issues/29-stop-copying-the-source-to-write-a-source-file-or-check-for-unsaved-changes.md) | Independent. One borrowed byte accessor on `Source`; `snapshot()` stays the owned form. |
 | [x] | 10 ([#165](https://github.com/orcvs/orcvs/pull/165)) | Hold the Cells in a shared SourceBuffer | [#08](issues/08-remove-the-unsafe-byte-write-from-source.md) | After PR 21. Shared copy-on-write Cells remove the `unsafe` byte write and the whole-Cell copy per planning snapshot and per revision read; amend ADR 0057's cost paragraph. |
 | [x] | 23 ([#166](https://github.com/orcvs/orcvs/pull/166)) | Pass the SourceBuffer through planning and the Language Map | [#30](issues/30-pass-the-source-buffer-through-planning-and-the-language-map.md) | After PR 10. Replace the runtime ASCII checks before parsing and operand reads with one checked view. |
-| [ ] | 24 | Write a Source File through the SourceBuffer's checked text | [#31](issues/31-write-a-source-file-through-the-source-buffers-checked-text.md) | After PR 10; independent of PR 23. Remove `file::write`'s per-row ASCII check; judged on the `source_file` series. |
+| [x] | 24 ([#174](https://github.com/orcvs/orcvs/pull/174)) | Write a Source File through the SourceBuffer's checked text | [#31](issues/31-write-a-source-file-through-the-source-buffers-checked-text.md) | After PR 10; independent of PR 23. Remove `file::write`'s per-row ASCII check; judged on the `source_file` series. |
 
 ## Language implementation
 
@@ -70,7 +70,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 ## Sequencing
 
-PRs 1–19 and 21–23 are complete; PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, and PR 19 was settled by discarding the refused payload (#170). PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. Remaining: PR 24, whose prerequisite PR 10 is delivered and which is independent of PR 23; and PR 20's `orcvs` portion, which waits on PR 24, and `console` portion, which waits on source-comments/04 — its `lang` portion (source-comments/02 with #15) is delivered by #168. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
+PRs 1–19 and 21–24 are complete; PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, and PR 19 was settled by discarding the refused payload (#170), and PR 24 is delivered by #174. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. Remaining: PR 20's `orcvs` portion, which follows PR 24, and `console` portion, which waits on source-comments/04 — its `lang` portion (source-comments/02 with #15) is delivered by #168. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
 
 Required ordering within this plan:
 
