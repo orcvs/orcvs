@@ -112,6 +112,10 @@ These are epic-level reconciliation requirements from the `67d28248` audit. Chil
 
 At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved; playback-actor/11 was also resolved. #03 retained only its missing regression coverage. #23 remains obsolete. All other source-audit tickets were then outstanding, including explicit design decisions and measured evaluations. This paragraph records that audit; the tables above and each child ticket's Status line carry current status.
 
+## 2026-09-28 closure reconciliation
+
+A three-agent progress audit against `origin/main` `8728a90f` found two remaining closure mismatches. #16's follow-up corrects the Function-value test rationale and adds `relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges`, proving that Jump relays reach both edges the old comment called impossible. [#177](https://github.com/orcvs/orcvs/pull/177) delivers this follow-up; its ticket records the 1180 passing tests and scoped checks.
+
 ## Audit evidence
 
 - Three agents inspected every issue against `origin/main` `67d28248`; no implementation changes were made during the audit.

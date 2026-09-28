@@ -878,14 +878,14 @@ fn render_message(reason: RenderError) -> String {
 /// One Tick whose named producers answer a value a test states rather than one
 /// the Interpreter computes.
 ///
-/// ADR 0034 defers the Source operation that produces Function values, so no
-/// Function spelling answers one; and every Atom a Function does answer encodes
-/// as the Cell pair a scalar result reserves. The rules those two absences
-/// leave unreachable — replacement at an original anchor, and the refusal of a
-/// result that is not the Cell pair the schedule reserved — are therefore
-/// reached only from a value a test constructs. That value is constructed here,
-/// one call below [`execute`], so that the shipped Turn stays one thing in
-/// every build: the Interpreter's answer, delivered.
+/// A Jump can copy a Function value from its input Portal. These tests instead
+/// choose a producer's answer independently of its operands and Portal input,
+/// including answers its declared Function cannot produce, to isolate delivery
+/// and replacement rules. A bare Cell also needs a stated answer: no Function
+/// returns one, and it does not encode as the Cell pair a scalar result reserves.
+/// These values are constructed here, one call below [`execute`], so that the
+/// shipped Turn stays one thing in every build: the Interpreter's answer,
+/// delivered.
 ///
 /// A reservation is stated the same way and for the same reason: scheduling
 /// derives one from what a Function declares its answer to be, and a stated
