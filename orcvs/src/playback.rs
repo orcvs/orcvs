@@ -495,9 +495,7 @@ struct PlaybackInner<A: OutputAdapter> {
     /// at.
     ///
     /// Here rather than beside the Source for the reason the absolute Tick is:
-    /// a scheduled stop belongs to one Playback run, and ADR 0003 keeps every
-    /// piece of language state in the Source Snapshot, which a schedule of
-    /// future effects is not.
+    /// a scheduled stop belongs to one Playback run.
     ///
     owned: OwnedNotes,
 }
@@ -564,11 +562,10 @@ impl From<Unavailable> for PlaybackStartError {
 ///
 /// No request made through it waits on the task or on a Tick. Each is a
 /// constant-time write to a slot of the engine's mailbox under a lock the task
-/// holds only for the same kind of write, so a browser frame can make one. A
-/// `disconnect` that replaces a pending MIDI connection drops that connection
-/// on the caller's thread, which may wait on the device to close its port. No
-/// request is refused for lack of room: `start` and `retune` answer an error
-/// only once the task is gone, and `stop` and `disconnect` answer nothing.
+/// holds only for the same kind of write, so a browser frame can make one. No
+/// request is refused for lack of room: `start` and `retune` refuse only an
+/// invalid period or a task that is gone, and `stop` and `disconnect` answer
+/// nothing.
 ///
 pub struct PlaybackEngine {
     ///
@@ -598,9 +595,7 @@ pub struct PlaybackEngine {
     /// the handles and the task, which ADR 0041 forbids.
     ///
     tick_gate: Arc<TickGate>,
-    /// The reading end of the published observation. Read without awaiting
-    /// and without reaching the engine, which is what lets a console frame
-    /// draw the Panel from it.
+    /// The reading end of the published observation.
     observation: watch::Receiver<PlaybackObservation>,
     ///
     /// The one diagnostic log for however many handles there are, which is
@@ -632,11 +627,6 @@ struct PlaybackChannels {
     ///
     /// The log the state reports into, for the handle to drain and to report
     /// its own refusals into.
-    ///
-    /// A handle that could not report would have to queue its failures for the
-    /// task, which is a message behind the caller draining on the next line.
-    /// One log with two writers keeps the order the reports were made in,
-    /// which is the order ADR 0002 asks for.
     ///
     diagnostics: DiagnosticLog,
 }
@@ -834,9 +824,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // deadlines, so what is recorded is the deadline this Tick was due at
         // rather than the moment it was seen. Recording the observation would
         // let an ordinary slow Tick shift the grid at the next retune, which is
-        // the permanent offset ADR 0037 rejects; so would rebuilding the
-        // deadline from the present here, which would carry the wait for this
-        // engine's lock into the grid instead.
+        // the permanent offset ADR 0037 rejects. `TickTiming::deadline` says
+        // why the deadline is carried rather than rebuilt here.
         self.last_tick_at = Some(timing.deadline());
         // One Tick executed, one increment. The advance sits with the
         // execution rather than with the clock so that a Tick the engine
@@ -933,12 +922,9 @@ impl<A: OutputAdapter> Drop for PlaybackInner<A> {
 
 impl PlaybackEngine {
     ///
-    /// The lifecycle state this engine last published.
-    ///
-    /// It reads the latest published value: no await, and no wait on whatever
-    /// this engine is doing. That is what lets a console frame gate Space on
-    /// it — and on the browser it is not merely the faster option, because the
-    /// main thread there has no blocking receive with which to ask.
+    /// The lifecycle state this engine last published, read without waiting
+    /// as [`Self::observation`] is, which is what lets a console frame gate
+    /// Space on it.
     ///
     pub fn state(&self) -> PlaybackState {
         self.observation.borrow().state
@@ -1013,11 +999,10 @@ impl PlaybackEngine {
     /// whatever it started.
     ///
     /// The flag is always free to set, so no other request can crowd it out,
-    /// and every `stop` made before the task takes it is answered by it. The gate
-    /// is shut before the flag is set, under the same lock. A stop asked of an
-    /// engine whose task has ended has nothing to tell a caller: that engine
-    /// has already made the transition, and the state it would have silenced
-    /// went with the task.
+    /// and every `stop` made before the task takes it is answered by it. A
+    /// stop asked of an engine whose task has ended has nothing to tell a
+    /// caller: that engine has already made the transition, and the state it
+    /// would have silenced went with the task.
     ///
     pub fn stop(&self) {
         self.requests.stop(&self.tick_gate);
@@ -1026,6 +1011,9 @@ impl PlaybackEngine {
     ///
     /// Gives up the engine's output, replacing any destination change still
     /// pending.
+    ///
+    /// A pending MIDI connection it replaces is dropped on the caller's
+    /// thread, which may wait on the device to close its port.
     ///
     pub fn disconnect(&self) {
         self.requests.disconnect();
@@ -1053,9 +1041,8 @@ impl PlaybackInner<crate::midi::MidiOutputAdapter> {
         // started them, and a claim kept across the change would stop a note
         // the Source starts on that voice afterwards.
         self.owned.clear();
-        // The latch stops a run reporting the same broken device once per
-        // Tick, and a selection is not a Tick: it is a thing the user just
-        // asked for, and it is owed its own answer even when the answer is the
+        // A selection is not a Tick: it is a thing the user just asked for,
+        // and it is owed its own answer even when the answer is the
         // one the last selection got. Clearing before the install is what
         // makes a safety-action refusal that repeats the latched failure
         // visible.
@@ -1162,10 +1149,6 @@ impl PlaybackEngine {
     /// goes through here; a caller that only returns the error leaves the user
     /// with silence.
     ///
-    /// Reported by the handle rather than queued for the task, because the
-    /// caller that is being handed the error is the one whose next line drains
-    /// the stream: a report made a message behind would not be there yet.
-    ///
     fn report_start_error(&self, error: PlaybackStartError) -> PlaybackStartError {
         self.report(Report::StartFailure {
             message: error.to_string(),
@@ -1211,11 +1194,8 @@ impl PlaybackEngine {
     /// Begins a Playback run at `tick_period`, and does nothing to an engine
     /// already in one.
     ///
-    /// Idempotence belongs to the task, which is the only thing that knows
-    /// whether a run is live at the moment the request is applied: two starts
-    /// made before either is applied are one run, at the newer period, and a
-    /// check made here against a published value either request could outrun
-    /// is not what makes that true.
+    /// The task decides that when it applies the request, so two starts made
+    /// before either is applied are one run, at the newer period.
     ///
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
@@ -1272,7 +1252,8 @@ async fn sleep_until(deadline: ClockInstant) {
     // turn: nothing rendered, no input dispatched, and no moment in which the
     // Space that calls `stop` could be delivered. The immediate first Tick,
     // which is what a browser timer would cost a whole period at the short end
-    // of `Bpm`, is spared this wait by `run_clock` and not by this function.
+    // of `Bpm`, is spared this wait by `next_playback_event` and not by this
+    // function.
     gloo_timers::future::TimeoutFuture::new(wasm_timeout_millis(delay)).await;
 }
 
@@ -1298,8 +1279,7 @@ struct TickClock {
     /// `is_overrun` to decline that Tick at the one-millisecond end of `Bpm`.
     ///
     /// Only the first. Every deadline after it waits whether or not it has
-    /// elapsed, because that wait is the browser clock's only yield back to the
-    /// event loop.
+    /// elapsed, for the reason `sleep_until` gives.
     ///
     due_on_arrival: bool,
 }
@@ -1405,11 +1385,11 @@ const BACKLOGS_BEFORE_A_DEADLINE: usize = 64;
 /// arriving in the same moment as a deadline must not leave the Tick to be
 /// executed by a task that already has the stop in hand.
 ///
-/// Past `BACKLOGS_BEFORE_A_DEADLINE` the bias inverts for a *sleeping*
-/// deadline and the deadline is taken first, because a mailbox that never
-/// empties is not a tie. Inverting it costs `stop` nothing: the gate is shut
-/// before the request is left, so a Tick that overtakes a pending `Stop`
-/// still meets a shut gate and is refused admission.
+/// Past [`BACKLOGS_BEFORE_A_DEADLINE`] the bias inverts for a *sleeping*
+/// deadline and the deadline is taken first. Inverting it costs `stop`
+/// nothing: the gate is shut before the request is left, so a Tick that
+/// overtakes a pending `Stop` still meets a shut gate and is refused
+/// admission.
 ///
 /// The first Tick of a run is due on arrival and answered without taking
 /// another backlog. The backlog that began the run is the boundary: it was
@@ -1434,9 +1414,7 @@ async fn next_playback_event<D>(
     if clock.due_on_arrival {
         // Answered without awaiting, so that the first Tick of a run is
         // executed in the turn the run began in rather than one browser timer
-        // later. An engine whose handles are all gone executes no Tick: it
-        // applies what they left and shuts down, and with no sender left
-        // `recv` answers at once.
+        // later. With no sender left `recv` answers at once.
         if requests.is_closed() {
             return match requests.recv().await {
                 Some(backlog) => PlaybackEvent::Requests(backlog),
@@ -1450,9 +1428,7 @@ async fn next_playback_event<D>(
     };
     if backlogs_since_tick >= BACKLOGS_BEFORE_A_DEADLINE {
         // The bias is given up for one turn, so a deadline already reached is
-        // taken ahead of a mailbox that has had its share. A `stop` waiting
-        // behind this Tick is not lost by it: the gate this Tick has to be
-        // admitted through was shut before the request was left.
+        // taken ahead of a mailbox that has had its share.
         tokio::select! {
             biased;
             () = sleep_until(deadline) => PlaybackEvent::Deadline,
@@ -1544,9 +1520,7 @@ async fn run_engine<A: OutputAdapter, D>(
                 // be expressed, so reaching this means a run outlasted its own
                 // grid rather than that a caller asked for one. Ending the run
                 // with a diagnostic is what the engine does with every other
-                // failure it cannot continue through. Do not fall back to a
-                // deadline of now: this loop would reach it, execute, and
-                // arrive back at it immediately.
+                // failure it cannot continue through.
                 inner.report(Report::ClockFailure {
                     message: "Playback clock ran past the last instant it can schedule".to_string(),
                 });

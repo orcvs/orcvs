@@ -199,11 +199,11 @@ pub fn read(text: &[u8]) -> Result<Source, SourceFileError> {
 /// ```
 ///
 pub fn write(source: &Source) -> String {
-    let cells = source.text();
-    let columns = source.grid().columns();
-    let rows = (0..cells.len())
-        .step_by(columns)
-        .map(|start| cells[start..start + columns].trim_end_matches(char::from(SPACE)))
+    let cells = source.shared_cells();
+    let rows = cells
+        .cells()
+        .rows(source.grid().columns())
+        .map(|row| row.as_str().trim_end_matches(char::from(SPACE)))
         .collect::<Vec<_>>();
     let Some(last) = rows.iter().rposition(|row| !row.is_empty()) else {
         return String::new();

@@ -4,15 +4,22 @@
 
 **Blocked by:** source-comments/03; 01 — Derive the Tick period from BPM without truncation; 02 — Close the Tick gate race; 06 — Reuse unchanged Language Map rows; 07 — Plan a Tick outside the Source write lock; 08 — Remove the unsafe byte write from Source; 10 — Move orcvs test-only state out of shipped code; 19 — Cache the Tick schedule; 20 — Derive Sequence capability in one place; 21 — Bound the Playback diagnostics queue; 31 — Write a Source File through the SourceBuffer's checked text.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each argument appears once, at the item that enforces it.
-- [ ] Doc comments are no longer than what a caller needs to use the item.
-- [ ] Concurrency, ordering and invariant statements are kept.
-- [ ] Comments that contradict the code after the tickets above land are corrected or removed.
+- [x] Each argument appears once, at the item that enforces it.
+- [x] Doc comments are no longer than what a caller needs to use the item.
+- [x] Concurrency, ordering and invariant statements are kept.
+- [x] Comments that contradict the code after the tickets above land are corrected or removed.
 
 ## Comments
 
 **2026-09-25 — audited against `origin/main` `199c3331`.** The lineage and citation criteria duplicated source-comments/03 (filed by 0ce8d2c4, ready-for-agent). The old criterion banning every issue-tracker citation also contradicted rule 3 of `docs/agents/comments.md`, which keeps a citation to an open ticket. Manifest comments belong to source-comments/05. Removed 23 (obsolete) from the blockers.
 
 **2026-09-27 — reconciled with the criteria and with delivered code.** The prose now sizes doc comments by what a caller needs, as the second criterion does, rather than by the length of the function. The Playback command mailbox (`orcvs/src/playback/mailbox.rs`) and the fairness budget (`BACKLOGS_BEFORE_A_DEADLINE`, `orcvs/src/playback.rs`), delivered by 27 and playback-actor/11 in orcvs/orcvs#148, are added to the review scope; both are resolved, so they are code to review, not prerequisites.
+
+**2026-09-27 — resolved in [#176](https://github.com/orcvs/orcvs/pull/176).** 18 files under `orcvs/src` (175 lines added, 374 removed). Every changed line is a comment except in `source/file.rs` and `source/model.rs`: `write` splits rows with `Cells::rows` and reads each row's text through `Cells::as_str`, the narrowest view that holds it, and the whole-Source `Source::text` that 31 added for it is removed as unused.
+
+- **Contradictions corrected:** `PlaybackEngine` said `start` and `retune` answer an error only once the task is gone (they also refuse an invalid period); `sleep_until` named a `run_clock` that does not exist (`next_playback_event`); the mailbox `Backlog` doc announced "two exceptions" before three bullets, one not an exception; `Lookup::written_over` called Equality the sole Bang emitter; `portal_message` said Advance and Emit answer an out-of-Grid displacement with `**` (only Advance writes it; both are settled in `deliver_source_effect`); `Orcvs::anchor`, `region` and `set_region` treated the Cursor as the Region's other end (the `end` field is); `RenderFrame::cursor` and `cursor_visible` cited a `selected` Cell flag that does not exist; `encoding.rs`'s `render` claimed a shared match arm; a render-frame test said Pending and Invalid are not told apart where it asserts Pending; `Orcvs::write` read "triggers parse of expression".
+- **Each argument once:** the fairness bound (a mailbox that never empties is not a tie) lives on `BACKLOGS_BEFORE_A_DEADLINE`, and why inverting the bias costs `stop` nothing on `next_playback_event`; the handle-reports-its-own-refusals argument on `PlaybackEngine`'s `diagnostics`; start idempotence at `run_engine`'s start arm; the zero-timer yield on `sleep_until`; the replaced-connection drop on `RequestSender::change_destination`; a `retune` writing a pending start on `RequestSender::retune`; the gate's request bound on the mailbox's `stop`; Space toggling against the request on `playback_requested`; the Output Portal fit on `SourceRevision::output_portal_highlight`; Span disjointness on `entry_at`; the stated-width exception in `execution::stated`; the written-versus-reserved Cells on `Lookup::written_over`; the stale-plan rule on `StalePlan` and `Source::execute`; the empty-write-list argument on `PortalOutput`, which also removes `PortalAccess`'s link to the `cfg(test)` `Self::carry`, the private rustdoc warning #171 recorded.
+- **Kept:** every `SAFETY:` comment, doctest and ADR 0002/0036/0037/0041 guarantee; concurrency, ordering, panic, bound and measured-performance statements.
+- **Found, not changed (test comments whose correction needs a test or a design call):** the `stated` module doc in `tick/execution.rs` says no Function spelling answers a Function value, but a Jump copying a Function unit answers `Atom::Function` (`lang/src/functions/jump.rs`), which matches ADR 0034's wording; and a test comment near `tick.rs:1659` lists Delay, Equality and Euclidean as the only Bang sources, where Select and the Jumps emit Bang too — whether that test's edge-reachability argument still holds needs a test to settle.

@@ -15,17 +15,13 @@
 //! Nothing else is held: the slots are the whole backlog. The task wakes on a
 //! [`Notify`], which stores at most one permit. A connection the task has
 //! taken but not yet installed is outside the slots, so Playback holds at most
-//! two connections that are not installed: that one, and one pending. A
-//! connection a request replaces is held only by the caller that replaced it,
-//! until that call returns.
+//! two connections that are not installed: that one, and one pending.
 //!
 //! A caller never waits on the task or on a Tick. The lock over the slots is
 //! held for a constant-time update on either side and never across an `await`
 //! or a Tick. On native targets a caller can still meet it briefly held by the
 //! task or another caller; on the browser's single thread it is never
-//! contended. A caller whose destination change replaces a pending one drops
-//! the replaced connection itself, which may wait on that device to close its
-//! port.
+//! contended.
 //!
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -54,22 +50,21 @@ pub(crate) enum Destination<D> {
 /// tempo, then the destination. That order leaves the engine in the state the
 /// requests would have left it in had they been applied in the order they
 /// were made, because each slot absorbs whatever an earlier request in
-/// another slot would have changed, with the two exceptions below:
+/// another slot would have changed, except in two cases named after the list:
 ///
 /// - A `stop` empties both tempo slots. Nothing asked before it survives it,
 ///   and whatever is asked after it applies to the stopped engine it leaves.
 /// - `start` and `retune` are split by the state they act on, which only the
 ///   task knows. `start` does nothing to a live run and `retune` nothing to a
-///   stopped engine, so each writes the slot for the state it changes. A
-///   `retune` made while a `start` is pending also writes the start slot,
-///   because the run that start begins is the run it retunes.
+///   stopped engine, so each writes the slot for the state it changes, and a
+///   `retune` also writes a pending start (see [`RequestSender::retune`]).
 /// - The destination commutes with the other two: beginning, retuning and
 ///   stopping a run do not choose where it is delivered.
 ///
-/// The exceptions are where a slot keeps the newest request rather than what
-/// order would have applied. A `start` that replaces a pending one sets the
-/// period the run begins at, where in order it would have found the run live
-/// and done nothing: stopped, `start(1s)`, `retune(2s)`, `start(3s)` begins
+/// The exceptions keep the newest request rather than what order would have
+/// applied. A `start` that replaces a pending one sets the period the run
+/// begins at, where in order it would have found the run live and done
+/// nothing: stopped, `start(1s)`, `retune(2s)`, `start(3s)` begins
 /// at 3s rather than 2s. A `disconnect` that replaces a pending installation
 /// leaves the published destination on the device installed before it,
 /// where in order the replaced one would have been published first; nothing
@@ -206,7 +201,8 @@ impl<D> RequestSender<D> {
 
     ///
     /// Asks for the live run to be retuned to `period`, and for a run a
-    /// pending `start` begins to run at it.
+    /// pending `start` begins to run at it, because the run that start begins
+    /// is the run this retunes.
     ///
     pub(super) fn retune(&self, period: Duration) -> Result<(), Unavailable> {
         self.update(|backlog| {

@@ -78,13 +78,12 @@ impl RenderCell {
     ///
     /// `true` covers the Cell pair from the Output Portal for a Function that
     /// can only answer a scalar. A Function that can answer a Sequence covers
-    /// the fitted highlight `SourceRevision::output_portal_highlight` derives:
-    /// at least four Cells from the Output Portal, then each following written
-    /// Cell pair, clipped to the Reservation — not the whole Reservation, which
-    /// is what the Tick scheduler reserves. A nested Function, a Terminal Output
-    /// Function, Halt, and a Source-writing Function (including an Advance's
-    /// cleared anchor) never set it, and neither does a scalar destination the
-    /// row edge leaves no room for.
+    /// the highlight `SourceRevision::output_portal_highlight` fits to the
+    /// answer it holds, not the whole Reservation the Tick scheduler reserves.
+    /// A nested Function, a Terminal Output Function, Halt, and a
+    /// Source-writing Function (including an Advance's cleared anchor) never
+    /// set it, and neither does a scalar destination the row edge leaves no
+    /// room for.
     ///
     pub fn output_portal(&self) -> bool {
         self.output_portal
@@ -186,33 +185,24 @@ impl RenderFrame {
     ///
     /// The Grid this Render Frame was derived from.
     ///
-    /// Carried rather than recovered. The derivation already holds it to assert
-    /// the selected Position belongs to it, and `Grid` is `Copy`, so keeping
-    /// the fact costs nothing.
-    ///
     pub fn grid(&self) -> Grid {
         self.grid
     }
 
     ///
-    /// The Cursor: the Position the derivation was given and asserted
-    /// the Grid owns.
-    ///
-    /// Carried rather than recovered. The derivation already holds the Position, and
-    /// `Position` is `Copy`, so keeping it costs nothing. It spares every
-    /// consumer scanning the Cells for the one whose `selected` flag is set —
-    /// a search whose answer the type of `&[RenderCell]` cannot state.
+    /// The Cursor of [`Self::region`], which the derivation asserted the Grid
+    /// owns.
     ///
     pub fn cursor(&self) -> Position {
         self.region.cursor()
     }
 
     ///
-    /// The Region: the anchor and the Cursor the derivation was given.
+    /// The Region the derivation was given: from the anchor to its live end,
+    /// with the Cursor on one of its Cells.
     ///
-    /// Carried beside the Cursor, which is its live end, so a console can tint
-    /// the Region without being told which Cell the Cursor is twice. It is
-    /// running state rather than Source, so it is never stored with one.
+    /// It is running state rather than Source, so it is never stored with
+    /// one.
     ///
     pub fn region(&self) -> Region {
         self.region
@@ -221,8 +211,7 @@ impl RenderFrame {
     ///
     /// Whether the Cursor is visible in this Frame.
     ///
-    /// Carried from derivation rather than recovered from a Cell
-    /// flag. Visibility is a fact about the Frame, not about any one Cell.
+    /// Visibility is a fact about the Frame, not about any one Cell.
     ///
     pub fn cursor_visible(&self) -> bool {
         self.cursor_visible
@@ -517,8 +506,9 @@ mod tests {
     #[test]
     fn a_bound_number_sits_beside_an_unbound_blank_operand_claim() {
         // `.+01  `: the first Number binds; the second operand is two blank
-        // Cells the arity still claims. Pending and Invalid are not told
-        // apart here — `atom: None` covers both.
+        // Cells the arity still claims. `atom: None` covers both Pending and
+        // Invalid; the claim's `written` answer makes these blank Cells
+        // Pending.
         let grid = Grid::with_shape(6, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+01  ");

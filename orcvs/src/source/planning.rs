@@ -6,8 +6,7 @@
 //! lock held. What that gives up is the guarantee that the Source is still at
 //! that revision when the plan is committed, so the revision's identity is
 //! captured with its contents and checked again under the write lock the
-//! commit takes. A plan refused there is dropped whole: its Cell writes, Play
-//! Commands and diagnostics describe a revision nobody can observe any more.
+//! commit takes. A plan refused there is dropped whole.
 
 use std::sync::Arc;
 
@@ -47,8 +46,7 @@ impl PlanningSnapshot {
 
     /// Interprets this revision at `tick`. Touches no Source.
     pub(super) fn plan(&self, tick: Tick) -> PlannedTick {
-        // Each computation's Turn is discarded, as `Source::execute` discards
-        // it: a Playback Engine asks nothing about how a plan was reached.
+        // Each computation's Turn is discarded, as `Source::execute` discards it.
         let (plan, _) = tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
         PlannedTick {
             revision: self.revision,
@@ -170,7 +168,7 @@ impl Attempt<'_, '_> {
     ///
     /// Commits this attempt and answers the plan to publish. Only an
     /// optimistic attempt is refused, when an edit landed after it was
-    /// planned; the locked attempt plans and commits under one write guard.
+    /// planned.
     ///
     fn commit(self) -> Result<TickPlan, StalePlan> {
         let tick_commit = self.tick_commit;

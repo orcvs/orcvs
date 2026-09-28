@@ -24,7 +24,7 @@ const MAX_BPM: usize = (QUARTER_MINUTE_NANOS / 1_000_000) as usize;
 /// How the console presents and plays a Source. Nothing in this file is a
 /// Source dimension: column and row counts belong to the Grid, which is the
 /// only thing that states them. `sector_seam_spacing` counts the Sector Seam
-/// period in Cells; it is not a Source dimension.
+/// period in Cells.
 ///
 #[derive(Clone, Debug)]
 pub struct Opts {

@@ -6,12 +6,10 @@
 //! `tick` because destination resolution is the question ADR 0009 expects to
 //! change: a future Cell-addressing model, an infinite canvas among them, moves
 //! a result somewhere else without touching Function evaluation, effect
-//! ordering, or Tick Plan commit. Keeping resolution in its own module is what
-//! makes that a change to one file rather than a change threaded through every
-//! producer. Reads, write admission, Reservations, occupancy, and Jump's
-//! Language Unit share its row-fit calculation; each caller retains the policy
-//! deciding how much coverage it needs, and whether an occupied Portal
-//! diagnoses, activates, locks, copies, or stays silent.
+//! ordering, or Tick Plan commit. Reads, write admission, Reservations,
+//! occupancy, and Jump's Language Unit share its row-fit calculation; each
+//! caller retains the policy deciding how much coverage it needs, and whether
+//! an occupied Portal diagnoses, activates, locks, copies, or stays silent.
 //!
 //! Nothing in this module is reachable from the language crate, and nothing in
 //! it is serialized. That is the whole of CONTEXT.md's "a Portal is neither a
@@ -407,13 +405,8 @@ fn spans_overlap(left: std::ops::Range<usize>, right: std::ops::Range<usize>) ->
 ///
 /// A validated write of one encoding to a contiguous run of Cells.
 ///
-/// The ways a whole write is refused are the variants of
-/// [`PortalError`]; each producer turns them into its own diagnostic, and
-/// none yields a `SpanWrite`. [`Portal::admit`] is the only constructor, so
-/// a `SpanWrite` exists only because some Portal accepted its whole
-/// destination, and a partial write is unrepresentable rather than merely
-/// avoided. Cells are addressed only when the Tick Plan resolves, so no
-/// producer can emit half of one either.
+/// [`Portal::admit`] is the only constructor, so a `SpanWrite` exists only
+/// because some Portal accepted its whole destination.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct SpanWrite {
     span: Span,
@@ -448,10 +441,8 @@ impl SpanWrite {
 /// are independent of that: a nested Jump writes nothing and still reads the
 /// opposite Portal, so a producer of those Cells is ordered first.
 ///
-/// Terminal Output answers Play, not a Cell, so its writes are [`PortalOutput::None`]
-/// — a kind, so [`Self::carry`] cannot mint a site the resolve step refused.
-/// Do not model it as an empty write list: a test helper could stuff a Portal
-/// into one for `!>`. Play stays an Effect; it is not a Portal.
+/// Terminal Output answers Play, not a Cell, so its output is
+/// [`PortalOutput::None`]. Play stays an Effect; it is not a Portal.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct PortalAccess {
@@ -462,8 +453,9 @@ pub(super) struct PortalAccess {
 ///
 /// What a computation delivers at its output: Cell writes or a root lock.
 ///
-/// [`PortalOutput::None`] is a kind, not an empty site list. An empty list can
-/// be stuffed; none cannot.
+/// [`PortalOutput::None`] is a kind, not an empty site list. Do not model it
+/// as an empty list: a test could stuff a write site into one, for `!>` among
+/// others, which `PortalOutput::None` cannot hold.
 ///
 #[derive(Clone, Debug, PartialEq)]
 enum PortalOutput {

@@ -266,11 +266,9 @@ impl OwnedNotes {
         let mut stops = Vec::new();
         for expiry in due.into_values().flatten() {
             // A stale expiry stops nothing: its claim was released when the
-            // voice was replaced or stopped, so what sounds there now is not
-            // what it was scheduled for. The note comes from the claim rather
-            // than from the expiry for the reason a Mono voice needs it to —
-            // the key names a channel, not a note — and reading it there means
-            // only a claim that is still standing can name a note to stop.
+            // voice was replaced or stopped. The note comes from the standing
+            // claim's `Sounding`, so only a claim still standing names a note
+            // to stop.
             if let Some(sounding) = self.voices.get(&expiry.voice).copied()
                 && sounding.claim == expiry.claim
             {
