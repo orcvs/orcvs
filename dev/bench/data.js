@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790582344309,
+  "lastUpdate": 1790582367446,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -59757,6 +59757,185 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/8728a90f8507211f32dc0f556f09bbee1ba46e60"
         },
         "date": 1790570821970,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang call fixture blocks",
+            "value": 8,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang call fixture bytes",
+            "value": 408,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang call fixture written four times blocks",
+            "value": 32,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang call fixture written four times bytes",
+            "value": 1632,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 24,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang turn Add blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang turn Add bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang turn Concatenate of two 64-member Sequences blocks",
+            "value": 2,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang turn Concatenate of two 64-member Sequences bytes",
+            "value": 304,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang turn Reverse over 64 members blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang turn Reverse over 64 members bytes",
+            "value": 24,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled blocks",
+            "value": 33549,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled bytes",
+            "value": 10118936,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled blocks",
+            "value": 33549,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled bytes",
+            "value": 10118936,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3405,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 15,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 4570,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3533,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 29,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 12319,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 3789,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 53,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 27108,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d1245ce855df3093fbf762ff4aad1e6cab5bec4",
+          "message": "Merge pull request #172 from orcvs/dependabot/cargo/rust-dependencies-d3036c01b2\n\nBump thiserror from 2.0.20 to 2.0.21 in the rust-dependencies group",
+          "timestamp": "2026-09-28T07:43:33Z",
+          "tree_id": "00ca9e86f7381c394eca4abb296160250b8fddb3",
+          "url": "https://github.com/orcvs/orcvs/commit/0d1245ce855df3093fbf762ff4aad1e6cab5bec4"
+        },
+        "date": 1790582367392,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
