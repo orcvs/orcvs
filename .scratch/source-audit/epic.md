@@ -1,6 +1,6 @@
 # Epic — Implement the source audit
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Reference:** Re-audited against `origin/main` at `67d28248069b1361de085b49e0c0008cc02d49fe` on 2026-09-25 by three delegated reviewers. Original source baseline: `199c3331`; implementation plan recorded on 2026-09-25.
 
@@ -66,11 +66,11 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 | Done | PR | Scope | Issues | Sequencing and completion focus |
 |---|---|---|---|---|
-| [ ] | 20 | Reconcile comments with the finished implementation | [#15](issues/15-trim-lang-comments-to-their-durable-why.md), [#16](issues/16-trim-orcvs-comments-to-their-durable-why.md), [#17](issues/17-trim-console-comments-to-their-durable-why.md) | After each affected crate’s implementations and comment prerequisites. Permit separate crate PRs; include the delivered mailbox/fairness code and use caller needs, not function length, to size comments. The `lang` portion ([#15](issues/15-trim-lang-comments-to-their-durable-why.md)) is delivered by [#168](https://github.com/orcvs/orcvs/pull/168); the `console` portion ([#17](issues/17-trim-console-comments-to-their-durable-why.md), with source-comments/04) is delivered by [#175](https://github.com/orcvs/orcvs/pull/175); the `orcvs` portion ([#16](issues/16-trim-orcvs-comments-to-their-durable-why.md)) is delivered by [#176](https://github.com/orcvs/orcvs/pull/176). |
+| [x] | 20 | Reconcile comments with the finished implementation | [#15](issues/15-trim-lang-comments-to-their-durable-why.md), [#16](issues/16-trim-orcvs-comments-to-their-durable-why.md), [#17](issues/17-trim-console-comments-to-their-durable-why.md) | After each affected crate’s implementations and comment prerequisites. Permit separate crate PRs; include the delivered mailbox/fairness code and use caller needs, not function length, to size comments. The `lang` portion ([#15](issues/15-trim-lang-comments-to-their-durable-why.md)) is delivered by [#168](https://github.com/orcvs/orcvs/pull/168), the `orcvs` portion ([#16](issues/16-trim-orcvs-comments-to-their-durable-why.md)) by [#176](https://github.com/orcvs/orcvs/pull/176), and the `console` portion ([#17](issues/17-trim-console-comments-to-their-durable-why.md), with source-comments/04) by [#175](https://github.com/orcvs/orcvs/pull/175). |
 
 ## Sequencing
 
-PRs 1–19 and 21–24 are complete; PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, and PR 19 was settled by discarding the refused payload (#170), and PR 24 is delivered by #174. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. PR 20's `lang` portion (source-comments/02 with #15) is delivered by #168, its `console` portion (source-comments/04 with #17) by [#175](https://github.com/orcvs/orcvs/pull/175), and its `orcvs` portion (#16) by #176. Before starting a PR, check child-ticket status and current source so already-landed work is not repeated.
+All 24 PR groups are complete. PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, PR 19 was settled by discarding the refused payload (#170), and PR 24 is delivered by #174. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. PR 20's `lang` portion (source-comments/02 with #15) is delivered by #168, its `orcvs` portion (#16) by #176, and its `console` portion (source-comments/04 with #17) by #175.
 
 Required ordering within this plan:
 
@@ -123,13 +123,13 @@ At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved
 
 ## Definition of done
 
-- [ ] Every PR group has a recorded disposition and links to its implementation PR or measured decision.
-- [ ] Every non-obsolete child ticket's acceptance criteria are satisfied and its status updated; the audit follow-ups above are reconciled explicitly, including PR 5’s recorded polling disposition. An explicitly permitted decision to retain an implementation is recorded with evidence.
-- [ ] Required external prerequisites are resolved or their scope is explicitly reconciled with the affected child tickets.
+- [x] Every PR group has a recorded disposition and links to its implementation PR or measured decision.
+- [x] Every non-obsolete child ticket's acceptance criteria are satisfied and its status updated; the audit follow-ups above are reconciled explicitly, including PR 5’s recorded polling disposition. An explicitly permitted decision to retain an implementation is recorded with evidence.
+- [x] Required external prerequisites are resolved or their scope is explicitly reconciled with the affected child tickets.
 - [x] Correctness changes include meaningful regressions, including the single-word stop gate's two-outstanding-stops regression and stale-plan effect suppression.
-- [ ] Performance changes include reproducible benchmarks and the comparison evidence required by the child tickets; no unmeasured speedup is claimed.
-- [ ] Each implementation PR records the applicable crate, feature and platform verification. Native and WASM support are preserved.
-- [ ] Source-audit/23 remains excluded, all ticket references resolve, and the roadmap tests and generation succeed.
+- [x] Performance changes include reproducible benchmarks and the comparison evidence required by the child tickets; no unmeasured speedup is claimed.
+- [x] Each implementation PR records the applicable crate, feature and platform verification. Native and WASM support are preserved.
+- [x] Source-audit/23 remains excluded, all ticket references resolve, and the roadmap tests and generation succeed.
 
 ## Verification of epic and ticket edits
 
