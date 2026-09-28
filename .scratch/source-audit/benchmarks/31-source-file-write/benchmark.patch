@@ -1,0 +1,94 @@
+diff --git a/orcvs/benches/source.rs b/orcvs/benches/source.rs
+index 39fe52e1..7d955688 100644
+--- a/orcvs/benches/source.rs
++++ b/orcvs/benches/source.rs
+@@ -705,32 +705,26 @@ fn whole_grid(c: &mut Criterion) {
+ /// includes one Language Map derivation (`source_whole_grid/language_map_derive`).
+ ///
+ fn source_file(c: &mut Criterion) {
+-    let mut group = c.benchmark_group("source_file");
+-    let source = whole_grid_source();
+-    let text = file::write(&source);
+-
+-    group.bench_function("read/256x256", |b| {
+-        b.iter(|| black_box(file::read(black_box(text.as_bytes())).expect("a Source File")))
+-    });
+-
+-    group.bench_function("write/256x256", |b| {
+-        b.iter(|| black_box(file::write(black_box(&source))))
+-    });
+-
++    let mut group = c.benchmark_group("source_file_local");
++    let grid = Grid::new();
++    let empty = Source::new(grid);
++    let mut sparse = Source::new(grid);
++    sparse.set(cell(grid, 2), "1").unwrap();
++    let dense = whole_grid_source();
++    for (name, source) in [("empty", empty), ("sparse", sparse), ("populated", dense)] {
++        let text = file::write(&source);
++        assert_eq!(file::read(text.as_bytes()).unwrap().cells(), source.cells());
++        match name {
++            "empty" => assert_eq!(text, ""),
++            "sparse" => assert_eq!(text, "  1\n"),
++            _ => assert!(!text.is_empty()),
++        }
++        group.bench_function(name, |b| {
++            b.iter(|| black_box(file::write(black_box(&source))))
++        });
++    }
+     group.finish();
+ }
+
+-criterion_group!(
+-    benches,
+-    whole_grid,
+-    source_file,
+-    read_revision,
+-    render_frame,
+-    render_frame_nested,
+-    edit_rebuild_valid,
+-    edit_rebuild_invalid,
+-    execute_tick,
+-    execute_tick_with_edges,
+-    execute_tick_with_portal_inputs
+-);
+-criterion_main!(benches);
++criterion_group!(local_benches, source_file);
++criterion_main!(local_benches);
+diff --git a/orcvs/src/source/file.rs b/orcvs/src/source/file.rs
+index 6d26bc9c..839abceb 100644
+--- a/orcvs/src/source/file.rs
++++ b/orcvs/src/source/file.rs
+@@ -199,11 +199,11 @@ pub fn read(text: &[u8]) -> Result<Source, SourceFileError> {
+ /// ```
+ ///
+ pub fn write(source: &Source) -> String {
+-    let cells = source.shared_cells();
+-    let rows = cells
+-        .cells()
+-        .rows(source.grid().columns())
+-        .map(|row| row.as_str().trim_end_matches(char::from(SPACE)))
++    let cells = source.text();
++    let columns = source.grid().columns();
++    let rows = (0..cells.len())
++        .step_by(columns)
++        .map(|start| cells[start..start + columns].trim_end_matches(char::from(SPACE)))
+         .collect::<Vec<_>>();
+     let Some(last) = rows.iter().rposition(|row| !row.is_empty()) else {
+         return String::new();
+diff --git a/orcvs/src/source/model.rs b/orcvs/src/source/model.rs
+index 4509ab98..58bbffa8 100644
+--- a/orcvs/src/source/model.rs
++++ b/orcvs/src/source/model.rs
+@@ -316,6 +316,11 @@ impl Source {
+         self.inner.bytes()
+     }
+
++    /// Borrow the Cells as text with one whole-buffer UTF-8 check.
++    pub(super) fn text(&self) -> &str {
++        self.inner.as_str()
++    }
++
+     /// The semantic view derived from this exact Source revision.
+     pub fn language_map(&self) -> &LanguageMap {
+         &self.language_map

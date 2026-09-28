@@ -1,6 +1,6 @@
 # Epic — Implement the source audit
 
-**Status:** resolved
+**Status:** in progress
 
 **Reference:** Re-audited against `origin/main` at `67d28248069b1361de085b49e0c0008cc02d49fe` on 2026-09-25 by three delegated reviewers. Original source baseline: `199c3331`; implementation plan recorded on 2026-09-25.
 
@@ -36,7 +36,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 | [x] | 22 ([#162](https://github.com/orcvs/orcvs/pull/162)) | Read the Cells in place for Source File write and unsaved changes | [#29](issues/29-stop-copying-the-source-to-write-a-source-file-or-check-for-unsaved-changes.md) | Independent. One borrowed byte accessor on `Source`; `snapshot()` stays the owned form. |
 | [x] | 10 ([#165](https://github.com/orcvs/orcvs/pull/165)) | Hold the Cells in a shared SourceBuffer | [#08](issues/08-remove-the-unsafe-byte-write-from-source.md) | After PR 21. Shared copy-on-write Cells remove the `unsafe` byte write and the whole-Cell copy per planning snapshot and per revision read; amend ADR 0057's cost paragraph. |
 | [x] | 23 ([#166](https://github.com/orcvs/orcvs/pull/166)) | Pass the SourceBuffer through planning and the Language Map | [#30](issues/30-pass-the-source-buffer-through-planning-and-the-language-map.md) | After PR 10. Replace the runtime ASCII checks before parsing and operand reads with one checked view. |
-| [x] | 24 ([#174](https://github.com/orcvs/orcvs/pull/174)) | Write a Source File through the SourceBuffer's checked text | [#31](issues/31-write-a-source-file-through-the-source-buffers-checked-text.md) | After PR 10; independent of PR 23. Remove `file::write`'s per-row ASCII check; judged on the `source_file` series. |
+| [ ] | 24 ([#174](https://github.com/orcvs/orcvs/pull/174)) | Write a Source File through the SourceBuffer's checked text | [#31](issues/31-write-a-source-file-through-the-source-buffers-checked-text.md) | Delivered by #174, revised by #176; reopened after three paired CI jobs consistently favored one whole-buffer conversion. #31 records the measured recommendation and pending implementation. |
 
 ## Language implementation
 
@@ -70,7 +70,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 ## Sequencing
 
-All 24 PR groups are complete. PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, PR 19 was settled by discarding the refused payload (#170), and PR 24 is delivered by #174. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. PR 20's `lang` portion (source-comments/02 with #15) is delivered by #168, its `orcvs` portion (#16) by #176, and its `console` portion (source-comments/04 with #17) by #175.
+23 PR groups have completed dispositions; PR group 24 is reopened for the single-conversion implementation supported by paired CI. The 2026-09-28 #16 follow-up is delivered by [#177](https://github.com/orcvs/orcvs/pull/177); #31 requires the focused implementation follow-up recorded below. PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, PR 19 was settled by discarding the refused payload (#170), and PR 24 is delivered by #174. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. PR 20's `lang` portion (source-comments/02 with #15) is delivered by #168, its `orcvs` portion (#16) by #176, and its `console` portion (source-comments/04 with #17) by #175.
 
 Required ordering within this plan:
 
@@ -115,6 +115,8 @@ At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved
 ## 2026-09-28 closure reconciliation
 
 A three-agent progress audit against `origin/main` `8728a90f` found two remaining closure mismatches. #16's follow-up corrects the Function-value test rationale and adds `relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges`, proving that Jump relays reach both edges the old comment called impossible. [#177](https://github.com/orcvs/orcvs/pull/177) delivers this follow-up; its ticket records the 1180 passing tests and scoped checks.
+
+#31 is reopened. Local comparisons on one Apple M2 reversed between two builds that differ only in Cargo.lock, so three paired Linux CI jobs compared the current per-row writer with one whole-buffer conversion. All three favored the single conversion by 19.1–26.5% on the populated fixture, with no empty/sparse median regression above 5%. PR group 24 is reopened for a focused production change with correctness and allocation gates. [The CI report](benchmarks/31-source-file-write/ci-report.md) records the decision rule, results and platform limits.
 
 ## Audit evidence
 
