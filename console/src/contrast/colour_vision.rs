@@ -440,7 +440,7 @@ impl Role {
     ///
     /// A fact channel whose foreground is exactly transparent paints nothing
     /// over the glyph — `style::blend_channel` leaves the Token's colour
-    /// showing, which is ADR 0053's way to carry a fact on the background
+    /// showing, which is how a Theme carries a fact on the background
     /// alone — so the glyph is measured as the channel it reveals. An
     /// Invalid Sequence then reveals `source.sequence`, which is not a
     /// [`GlyphChannel`], and is left out. An Invalid Atom reveals
@@ -610,10 +610,8 @@ mod tests {
     ///
     /// A red and a green at *different* lightness stay far apart under
     /// protanopia even so, because lightness survives every dichromacy —
-    /// which is why Orcvs Light separates its Diagnostic from its Output
-    /// Portal by lightness, and why this test measures the collapse as a
-    /// ratio rather than asserting the remainder falls under
-    /// [`CONFUSION_FLOOR`].
+    /// which is why this test measures the collapse as a ratio rather than
+    /// asserting the remainder falls under [`CONFUSION_FLOOR`].
     ///
     #[test]
     fn each_dichromacy_removes_its_own_axis_and_leaves_the_other() {

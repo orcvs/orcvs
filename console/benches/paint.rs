@@ -11,8 +11,8 @@
 //!
 //! Two ranges per Grid: fitted (the whole Grid) and culled (a fixed 16×16
 //! window). Fitted should grow with the Source. Culled should stay flat from
-//! 32×32 up, which is the claim `source-paint/07` made and the counting tests
-//! already assert by shape. At 16×16 the two ranges are the same point.
+//! 32×32 up, which the counting tests already assert by shape. At 16×16 the
+//! two ranges are the same point.
 //!
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
@@ -88,7 +88,7 @@ fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
 
 fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
     let _runtime = benchmark_runtime().enter();
-    // `Grid::with_shape` is test-only; 256x256 is the shipped Grid (ADR 0054).
+    // `Grid::with_shape` is test-only; 256x256 is the shipped Grid.
     let mut orcvs = Orcvs::with_source_and_output_adapter(
         Source::new(Grid::with_shape(cols, rows)),
         InMemoryOutputAdapter::default(),
@@ -183,9 +183,7 @@ fn bench_theme() -> Theme {
 /// *values*: the Cursor's fill lands on the one selected Cell, the Region
 /// fill on no Cell at all (nothing here selects a Region spanning more than
 /// one), and the resolved Theme answers one channel per Token fact whatever
-/// its colours are. So what this benchmark measures — the per-Cell walk — is
-/// the same number for any Theme, which is why [`bench_theme`] is the
-/// built-in rather than a custom one built to match the console's own tests.
+/// its colours are.
 ///
 fn paint(frame: &RenderFrame, drawn: VisiblePositions, theme: &Theme) -> Paint {
     Paint::derive_with_theme(FramePaint::new(frame, drawn), theme)
@@ -294,8 +292,8 @@ fn background_runs(c: &mut Criterion) {
 
 /// The Cursor frame/living-area colours the console would hand this walk —
 /// `theme.cursor_area`/`theme.cursor_border` in production. Restated as
-/// literals for the same reason `REGION_FILL` used to be: `Theme`'s fields
-/// are `pub(crate)`, a benchmark is a separate crate, and this geometry-only
+/// literals because `Theme`'s fields are `pub(crate)`, a benchmark is a
+/// separate crate, and this geometry-only
 /// walk reads a colour's bytes without branching on them, so any opaque
 /// colour measures the same cost as the Theme's own.
 const AREA_COLOUR: egui::Color32 = egui::Color32::from_rgb(76, 190, 156);

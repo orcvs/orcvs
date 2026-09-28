@@ -1067,7 +1067,7 @@ mod tests {
     }
 
     ///
-    /// Issue 07: the error explains the valid key. `serde`'s refusal lists
+    /// The error explains the valid key. `serde`'s refusal lists
     /// the valid property names, colours first, as far as the message cap
     /// allows; a near miss is not singled out.
     ///

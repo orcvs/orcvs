@@ -52,7 +52,7 @@ impl Console {
     }
 
     ///
-    /// Opens an empty Source on the one Grid (ADR 0054): `File → New`.
+    /// Opens an empty Source on the one Grid: `File → New`.
     ///
     fn new_source(&mut self) {
         if !self.open(default_source()) {

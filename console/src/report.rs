@@ -11,15 +11,15 @@
 //! makes "reported" true in the browser as well.
 //!
 //! `log` is already a `wasm32`-only dependency of this crate, so the second
-//! line costs no manifest change. The alternative — enabling `tracing`'s `log`
-//! feature in the workspace manifest, which bridges every `tracing` event to
-//! `log` wherever no subscriber is installed — is one line but a much wider
-//! change: it routes every event in the workspace to the browser console at
-//! `WebLogger`'s `Debug` filter, and `orcvs/src/source/model.rs` emits `debug!`
-//! on every Cell write, which is the Tick and edit path. Turning a handful of
-//! error reports into per-Cell console traffic in the browser is an unmeasured
-//! cost on a hot path, so the second channel is carried here, where only the
-//! sites that ask for it pay for it.
+//! line costs no manifest change. Do not enable `tracing`'s `log` feature in
+//! the workspace manifest instead: it bridges every `tracing` event to `log`
+//! wherever no subscriber is installed, so it routes every event in the
+//! workspace to the browser console at `WebLogger`'s `Debug` filter, and
+//! `orcvs/src/source/model.rs` emits `debug!` on every Cell write, which is
+//! the Tick and edit path. That turns a handful of error reports into per-Cell
+//! console traffic in the browser, an unmeasured cost on a hot path, so the
+//! second channel is carried here, where only the sites that ask for it pay
+//! for it.
 //!
 //! This module is the one place that knows any of that. A caller reports an
 //! error; which channels that reaches is not its concern, and no call site

@@ -225,7 +225,7 @@ impl Console {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
             // Without a native backend the destination ComboBox is disabled
-            // and Refresh is hidden, so a refused connect has nowhere on the
+            // and Scan is hidden, so a refused connect has nowhere on the
             // Panel to land; the developer console is the only channel a
             // failure has.
             crate::diagnostics::report_playback_failures(&playback_diagnostics);

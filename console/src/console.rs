@@ -81,8 +81,8 @@ fn prefers_reduced_motion() -> bool {
 }
 
 ///
-/// How many Cells the default window (ADR 0047) shows at Zoom 1.0, margin
-/// included. The Grid (ADR 0054) is larger, so the rest of it is a Pan away.
+/// How many Cells the default window shows at Zoom 1.0, margin included. The
+/// Grid is larger, so the rest of it is a Pan away.
 ///
 const DEFAULT_VIEW_COLUMNS: usize = 64;
 const DEFAULT_VIEW_ROWS: usize = 40;
@@ -108,7 +108,7 @@ pub struct Console {
     /// this target. The console never asks what target it is on: a target with
     /// no native backend answers an empty destination list here, and
     /// `native_midi::AVAILABLE` says whether the ComboBox is enabled and
-    /// whether Refresh is shown.
+    /// whether Scan is shown.
     midi: MidiDeviceSelection,
     font_family: egui::FontFamily,
     source_view: SourceView,
@@ -120,13 +120,13 @@ pub struct Console {
     /// Whether keyboard input belonged to a control rather than the Source
     /// when the last frame's widgets were done: any widget holding egui's
     /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
-    /// `Memory::focused().is_some()`, `egui-0.36.2/src/context.rs:2985-2988`),
-    /// or any open popup — a menu, or the destination ComboBox's list — which
-    /// a click opens without taking focus (`Popup::is_any_open`). Latched
+    /// `Memory::focused().is_some()`), or any open popup — a menu, or the
+    /// destination ComboBox's list — which a click opens without taking focus
+    /// (`Popup::is_any_open`). Latched
     /// rather than asked where it is read, because
     /// `event_handler` runs before this frame's widgets are shown, and
     /// `Memory::begin_pass` has already let Escape clear the focus it was
-    /// pressed to leave (`egui-0.36.2/src/memory/mod.rs:596-601`).
+    /// pressed to leave.
     keyboard_elsewhere: bool,
     /// The dark and light Theme selections, the Themes they choose from, and
     /// the Theme each presents. The same pair is installed as egui's dark and
@@ -173,8 +173,8 @@ impl Console {
     ///
     /// The console over the running Orcvs its storage last held.
     ///
-    /// Fallible because a running Orcvs is: ADR 0041 makes its Playback Engine
-    /// a task, and a task needs a runtime to be spawned on. The native binary
+    /// Fallible because a running Orcvs is: its Playback Engine is a task, and
+    /// a task needs a runtime to be spawned on. The native binary
     /// is inside `#[tokio::main]` when `eframe` calls this, and the browser
     /// spawns onto the page's event loop and needs nothing; a build that
     /// reached here with neither has no console to show, which is what handing
@@ -219,7 +219,7 @@ impl Console {
         // calling this constructor, but never reinstalls a style. Register
         // each appearance's Theme in its egui slot and leave the restored
         // (or default `System`) preference alone: `install` never calls
-        // `set_theme`. `.scratch/theming/issues/02-…` is the decision.
+        // `set_theme`.
         themes.install(&cc.egui_ctx);
 
         // egui's own `Context::end_pass` answers the same command `=`/`+`,
@@ -231,11 +231,10 @@ impl Console {
         cc.egui_ctx
             .options_mut(|options| options.zoom_with_keyboard = false);
 
-        // Start with the default fonts (we will be adding to them rather than replacing them).
+        // egui's default fonts, with the bundled Monaspace Neon put first in
+        // both the proportional and the monospace family.
         let mut fonts = egui::FontDefinitions::default();
         let key = "MonaspaceNeon";
-        // Install my own font (maybe supporting non-latin characters).
-        // .ttf and .otf files supported.
         fonts.font_data.insert(
             key.to_owned(),
             egui::FontData::from_static(include_bytes!("../assets/MonaspaceNeon-Regular.otf"))
@@ -248,7 +247,6 @@ impl Console {
             .or_default()
             .insert(0, key.to_owned());
 
-        // Put my font as last fallback for monospace:
         fonts
             .families
             .entry(egui::FontFamily::Monospace)
@@ -343,18 +341,15 @@ impl eframe::App for Console {
     /// The window's own clear colour: `.scratch/theming/schema.md`'s Chrome
     /// mapping table, "Application backdrop | `window.background`, opaque."
     ///
-    /// This is the resolved Theme's answer to "confirm both [the window
-    /// backdrop and the Grid background] are wired" (`.scratch/theming/
-    /// issues/06` slice C) — the window backdrop's own consumer, wired
-    /// independently of `source_panel_frame`'s `theme.grid_background`.
-    /// Without this override `eframe::App::clear_color`'s own default
+    /// This is the window backdrop's own consumer, wired independently of
+    /// `source_panel_frame`'s `theme.grid_background`. Without this override
+    /// `eframe::App::clear_color`'s own default
     /// (`Color32::from_rgba_unmultiplied(12, 12, 12, 180)`) shows through
     /// wherever a Theme's partly transparent panel, Grid or Cell layer
     /// reveals the console surface beneath it, rather than the Theme's own
     /// opaque backdrop — a translucent grey the Theme never chose, in place
-    /// of the surface ADR 0053 and `.scratch/theming/schema.md` describe:
-    /// "Transparency reveals the underlying console surface; the application
-    /// window remains opaque."
+    /// of the surface the Theme format describes: "Transparency reveals the
+    /// underlying console surface; the application window remains opaque."
     ///
     /// The native glow integration asks before it runs the frame, passing
     /// egui's active style, so the Theme is the one of the appearance
@@ -366,9 +361,8 @@ impl eframe::App for Console {
     ///
     /// Every built-in's `window_background` is opaque by construction, and a
     /// custom Theme's is refused at resolution if it is not
-    /// (`theme::resolve`'s `ThemeError::NonOpaqueWindowBackground`,
-    /// `.scratch/theming/schema.md`: "alpha other than 255 on this property
-    /// is an error"), so nothing presented can hold a nonopaque value and
+    /// (`theme::resolve`'s `ThemeError::NonOpaqueWindowBackground`), so
+    /// nothing presented can hold a nonopaque value and
     /// this reads the field directly rather than re-validating it here.
     ///
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {

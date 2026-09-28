@@ -1,8 +1,7 @@
 //!
 //! The Themes a console can select: the built-ins, the custom Themes loaded
-//! from Theme documents, and what went wrong loading them.
-//! `.scratch/theming/issues/07`, following `schema.md`'s "Discovery,
-//! persistence and failures".
+//! from Theme documents, and what went wrong loading them, following
+//! `schema.md`'s "Discovery, persistence and failures".
 //!
 //! Every custom document reaches the registry through one path —
 //! [`crate::theme_document::decode`], then [`crate::theme::resolve`] against
@@ -189,7 +188,7 @@ impl ThemeRegistry {
     }
 
     ///
-    /// Adds a loaded Theme, with a notice when `08`'s contrast validator finds
+    /// Adds a loaded Theme, with a notice when the contrast validator finds
     /// a state below the floor. A contrast failure never refuses the Theme.
     ///
     #[cfg_attr(
@@ -246,8 +245,8 @@ impl ThemeRegistry {
 }
 
 ///
-/// `08`'s report on `theme`, as a notice naming every state below the floor,
-/// or `None` when every state clears it.
+/// The contrast report on `theme`, as a notice naming every state below the
+/// floor, or `None` when every state clears it.
 ///
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),

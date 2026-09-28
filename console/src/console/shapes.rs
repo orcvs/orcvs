@@ -23,16 +23,15 @@ use crate::theme::Theme;
 /// Not to prevent a seam. epaint snaps the rectangle whether or not this does:
 /// `RectShape::filled` leaves `round_to_pixels: None`,
 /// `TessellationOptions::round_rects_to_pixels` defaults to true, and
-/// `tessellate_rect` then applies `Rect::round_to_pixels` — the same `emath`
-/// function this calls — at `epaint-0.36.2/src/tessellator.rs:1829-1862`. A run
-/// left unsnapped here would reach the screen as the same pixels.
+/// `Tessellator::tessellate_rect` then applies `Rect::round_to_pixels` — the
+/// same `emath` function this calls — for every `StrokeKind` but `Middle`. A
+/// run left unsnapped here would reach the screen as the same pixels.
 ///
 /// It is snapped so the rectangle is one a test can predict. The snap is the
 /// last thing that moves an edge, so doing it here puts the Shape a Render
 /// Frame carries at the coordinates the paint lands on, and an assertion can
 /// state them exactly rather than within a pixel. `Rect::round_to_pixels`
-/// rounds the two corners independently
-/// (`emath-0.36.2/src/gui_rounding.rs:155-186`), so a run's far edge lands on
+/// rounds the two corners independently, so a run's far edge lands on
 /// the physical pixel the next Cell's near edge would have and neighbouring
 /// runs still tile — which is what makes that predicted rectangle the same
 /// paint as the Cells it replaces.
@@ -92,9 +91,8 @@ impl SourceShapes {
     /// of, applied to the colours and characters it carries all of.
     ///
     /// Stroke widths are fixed display points that stay the same visible
-    /// thickness at every Grid zoom (`.scratch/theming/issues/06` slice C),
-    /// unlike the [`GridViewport::cell_scale`]-multiplied constants this
-    /// replaced: `sector.seam.width` from the resolved `theme`, and each
+    /// thickness at every Grid zoom, never multiplied by
+    /// [`GridViewport::cell_scale`]: `sector.seam.width` from the resolved `theme`, and each
     /// Cell's own border width already resolved onto it as `cell.
     /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
     /// either composited with Diagnostic/Output Portal, by fact priority).
@@ -132,18 +130,10 @@ impl SourceShapes {
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
     /// `theme.sector_seam_width` is read once, here, rather than once per
-    /// Cell inside the loop below — `.scratch/theming/issues/06`'s "resolve
-    /// widths once per frame" — and a width of exactly zero skips building
+    /// Cell inside the loop below, and a width of exactly zero skips building
     /// that Shape outright rather than emitting a zero-width one for the
-    /// painter to drop, per the same issue's "Width 0 hides the stroke." Each
-    /// Cell's own border width has no one frame-level constant to read here:
-    /// `cell.border_width` already carries the fact-priority pick
-    /// `crate::style::cell_visuals_with_cursor_colour` and
-    /// `crate::style::ordinary_border` resolved for it — `grid.border.width`
-    /// for an ordinary Cell composited with Diagnostic/Output Portal,
-    /// `cell.selection.border.width` for a single-Cell Cursor — so this step
-    /// reads that answer per Cell rather than choosing among Theme fields
-    /// itself.
+    /// painter to drop. Each Cell's own border width is the one already
+    /// resolved onto `cell.border_width`.
     ///
     pub(super) fn geometry(
         paint: &Paint,
@@ -151,10 +141,8 @@ impl SourceShapes {
         pixels_per_point: f32,
         theme: &Theme,
     ) -> Self {
-        // Border widths do not read `theme` here: `cell.border_width` is
-        // already the resolved, fact-priority-picked answer — see the loop
-        // below. Sector Seam width has no per-Cell fact to vary by, so it
-        // stays a plain frame-level read.
+        // Sector Seam width has no per-Cell fact to vary by, so it is a plain
+        // frame-level read.
         let sector_seam_width = theme.sector_seam_width.points();
         // A border is the rule on every Cell the Paint covers, so it is sized
         // up front — to those Cells rather than to the Grid: a densely written
@@ -262,8 +250,7 @@ impl SourceShapes {
     /// Places one galley per Cell that shows a character other than the space.
     ///
     /// Needs a [`GlyphTable`] — a galley's size exists only after layout — and
-    /// fills `glyphs` eagerly so [`Self::into_shapes`] never builds a Shape
-    /// while holding the `Context` write lock `Painter::extend` takes.
+    /// fills `glyphs` eagerly, for the reason [`SourceShapes`] gives.
     ///
     fn place_glyphs(&mut self, paint: &Paint, viewport: &GridViewport, table: &GlyphTable) {
         self.glyphs = Vec::with_capacity(paint.count());
@@ -372,9 +359,6 @@ pub(super) fn show_source(
     // over the chrome around it. The Source Grid is all this layer holds, so
     // painting it directly orders it without a sublayer.
     let painter = ui.painter().with_clip_rect(clip);
-    // The scale is already in the Cell size, and the strokes need it too, so
-    // the Grid lines and sector seams take it here
-    // rather than staying one Source point wide at every zoom.
     // The device scale the background runs are snapped to; see
     // [`background_run`].
     let pixels_per_point = ui.pixels_per_point();
@@ -423,7 +407,7 @@ pub(super) fn show_source(
     // `Stroke` so colour and width cannot come from different answers:
     // `cursor.border.width` for the Cursor's own frame, `region.border.width`
     // for the lasso — a fixed display-point value `cursor_effect_shapes` never
-    // scales with Grid zoom (`.scratch/theming/issues/06` slice C).
+    // scales with Grid zoom.
     let frame_stroke = if paint.region_spans() {
         egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
     } else {
@@ -449,8 +433,7 @@ pub(super) fn show_source(
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
-    // per-Cell loop would take more locks than the Button field it replaces and
-    // turn this change into a regression.
+    // per-Cell loop would take one lock per Shape.
     painter.extend(shapes.into_shapes());
 
     // The click resolves by division through the viewport the Cells were

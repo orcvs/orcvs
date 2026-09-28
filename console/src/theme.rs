@@ -4,18 +4,15 @@
 //! resolver that builds a custom Theme's resolved values from a built-in and
 //! a sparse document of overrides.
 //!
-//! ADR 0053 decides the model; `.scratch/theming/schema.md` is the
-//! implementation contract this module follows — the property catalogue,
-//! the dark built-in's exact values, and the composition/inheritance rules.
+//! `.scratch/theming/schema.md` is the implementation contract this module
+//! follows — the property catalogue, the dark built-in's exact values, and
+//! the composition/inheritance rules.
 //! This module owns the resolved [`Theme`], the built-in Okabe–Ito
 //! definition, the unresolved `ThemeDocument`, and the pure `resolve`
 //! function. It has no file I/O and no document decoder:
 //! the crate-private `theme_document` module decodes a document's bytes into a
 //! `ThemeDocument`, and the crate-private `theme_registry` module's native
-//! discovery (`.scratch/theming/issues/07`) reads those bytes and calls
-//! `resolve`.
-//! Source painting, settings and persistence are unchanged by this slice;
-//! `.scratch/theming/issues/06`'s later slices consume this module.
+//! discovery reads those bytes and calls `resolve`.
 //!
 
 use std::borrow::Cow;
@@ -26,8 +23,7 @@ use egui::Color32;
 
 ///
 /// A Theme's declared light/dark appearance. Only a Theme of matching
-/// appearance can be a custom Theme's parent (ADR 0053: "Custom appearance
-/// follows the parent").
+/// appearance can be a custom Theme's parent.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Appearance {
@@ -98,8 +94,7 @@ impl GridWidth {
     }
 
     /// Consumed by `console::shapes`'s Grid line/Sector Seam strokes and
-    /// `cursor_effects.rs`'s Cursor/Region frame width
-    /// (`.scratch/theming/issues/06` slice C's fixed display-point strokes).
+    /// `cursor_effects.rs`'s Cursor/Region frame width.
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -126,7 +121,7 @@ impl ChromeWidth {
     }
 
     /// Consumed by `style.rs::style`'s chrome borders, input caret and IME
-    /// underline widths (`.scratch/theming/issues/03`).
+    /// underline widths.
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -396,7 +391,6 @@ pub(crate) enum ChromeWidthKey {
 /// pure `resolve` function.
 ///
 /// Fields are `pub(crate)` rather than encapsulated behind accessors: unlike
-/// the console's former `SourcePaintSettings` and
 /// [`crate::cursor_effects::CursorEffectSettings`], a resolved `Theme` is
 /// immutable once built — nothing edits one in place or persists it
 /// field-by-field — so there is no invariant an accessor needs to protect.
@@ -683,7 +677,7 @@ pub(crate) const fn straight_rgba(rgba: u32) -> Color32 {
 /// The name a Theme is selected by, never its display label.
 ///
 /// A built-in's is reserved and fixed here; a custom Theme's is the stem of
-/// its file name (ADR 0053), which the Theme registry supplies. A saved
+/// its file name, which the Theme registry supplies. A saved
 /// selection is restored as one too, though it may name no Theme at all:
 /// the fallback keeps it rather than rewriting it.
 ///
@@ -769,15 +763,13 @@ pub(crate) const OKABE_ITO_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("ok
 ///
 /// The Okabe–Ito built-in dark Theme: `schema.md`'s complete dark
 /// definition, at the reserved identity `OKABE_ITO_IDENTITY`. Every field
-/// is spelled out explicitly, so the compiler enforces "built-ins define
-/// every property" rather than a runtime completeness check — remove a field
-/// from this literal and the crate fails to build.
+/// is spelled out explicitly (see [`Theme`]).
 ///
 /// `okabe_ito_defines_every_key_at_the_schema_values` in this module's tests
 /// pins every field against `schema.md`'s own dark table, and
 /// `style::tests::okabe_ito_chrome_matches_the_decided_record` cross-checks
 /// the chrome keys against `theme.md`'s decided record read through
-/// [`crate::style::style`], so this built-in reproduces today's shipped
+/// [`crate::style::style`], so this built-in reproduces the shipped
 /// appearance and not merely the document `examples/okabe-ito-copy.toml`
 /// records.
 ///
@@ -999,8 +991,7 @@ pub(crate) struct ThemeDocument {
     /// The declared display label (`name`).
     pub(crate) name: String,
     /// `appearance`, when the document declares one explicitly. `None`
-    /// resolves from the parent (ADR 0053: "Custom appearance follows the
-    /// parent").
+    /// resolves from the parent.
     pub(crate) appearance: Option<Appearance>,
     pub(crate) colors: Vec<(ColorKey, Color32)>,
     pub(crate) grid_widths: Vec<(GridWidthKey, f32)>,
@@ -1030,8 +1021,7 @@ pub(crate) enum ThemeError {
     /// parents. Parent chains, missing parents ... are errors."
     UnknownParent { parent: String },
     /// The identity being resolved into collides with a built-in's
-    /// reserved identity. ADR 0053: "Built-in Theme identities are
-    /// reserved: a file using one is refused."
+    /// reserved identity: a file using one is refused.
     ReservedIdentity { identity: ThemeIdentity },
     /// `appearance` was declared explicitly and disagrees with the
     /// parent's.
@@ -1115,7 +1105,7 @@ fn width_error(property: &'static str, points: f32, max: f32, error: WidthError)
 /// holds — the crate-private `theme_registry` module reads native and web
 /// documents and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
 /// by the caller rather than read from `document`, because a custom
-/// document's identity is its filename stem (ADR 0053), which this module
+/// document's identity is its filename stem, which this module
 /// never reads a file to learn.
 ///
 #[cfg_attr(
@@ -1333,8 +1323,7 @@ mod tests {
     }
 
     ///
-    /// `.scratch/theming/issues/04`'s 2026-09-23 decision, checked rather
-    /// than recorded: every Source glyph hue Orcvs Light draws is
+    /// Checked rather than recorded: every Source glyph hue Orcvs Light draws is
     /// Okabe–Ito's, in the same role, with the OKLCh hue angle held to
     /// within 0.7° — rounding into 8-bit sRGB — so only lightness moved.
     /// `console/src/theme.md`'s "What moved, and what held" table states
@@ -1375,10 +1364,9 @@ mod tests {
     /// The light counterpart of the test above: `console/src/theme.md`'s
     /// Orcvs Light table, restated as `Theme` field assertions. Every one of
     /// `schema.md`'s named properties appears here at an exact value —
-    /// including the ones Orcvs Light shares with Okabe–Ito, which
-    /// `.scratch/theming/issues/04` requires be recorded explicitly rather
-    /// than left to a toolkit default, and including the border-width keys
-    /// ADR 0053 added.
+    /// including the ones Orcvs Light shares with Okabe–Ito, which are
+    /// recorded explicitly rather than left to a toolkit default, and
+    /// including the border-width keys.
     ///
     #[test]
     fn orcvs_light_defines_every_key_at_the_recorded_values() {
@@ -1456,8 +1444,8 @@ mod tests {
         assert_eq!(theme.cursor_background, None);
         assert_eq!(theme.region_cursor_background, None);
 
-        // Every width is shared with Okabe–Ito and recorded anyway — ADR
-        // 0053's border-width keys, at the same display-point defaults.
+        // Every width is shared with Okabe–Ito and recorded anyway, at the
+        // same display-point defaults.
         assert_eq!(theme.grid_border_width.points(), 0.5);
         assert_eq!(theme.sector_seam_width.points(), 0.75);
         assert_eq!(theme.cell_selection_border_width.points(), 0.5);
@@ -1479,9 +1467,9 @@ mod tests {
     /// on, and they declare opposite appearances.
     ///
     /// `source.sequence` is deliberately absent from the list below, and is
-    /// asserted *equal* instead. The user's 2026-09-23 decision re-picks
-    /// Orcvs Light's glyph hues from the same Okabe–Ito palette, darkening
-    /// each only as far as the near-white ground requires; no reachable state
+    /// asserted *equal* instead. Orcvs Light's glyph hues are the same
+    /// Okabe–Ito palette's, each darkened only as far as the near-white
+    /// ground requires; no reachable state
     /// draws a glyph in Okabe–Ito's blue `#0072B2`, so no floor asked for any
     /// darkening and the two built-ins share it exactly. That
     /// shared value is the rule working, not the two Themes collapsing into
@@ -1542,9 +1530,8 @@ mod tests {
 
     ///
     /// A custom document inheriting the light built-in resolves to light —
-    /// the appearance rule ADR 0053 states ("A light custom Theme must start
-    /// from a light built-in"), now exercised against a real light parent
-    /// rather than only the synthetic mismatch below.
+    /// a light custom Theme starts from a light built-in — exercised against
+    /// a real light parent as well as the synthetic mismatch below.
     ///
     #[test]
     fn a_document_inheriting_the_light_built_in_resolves_light() {
@@ -1759,8 +1746,8 @@ mod tests {
     /// alpha other than 255 on this property is an error." Nothing composites
     /// over the OS window itself, so a translucent `window.background` would
     /// leak the desktop through the console rather than through a Panel or
-    /// Grid surface, which `.scratch/theming/issues/03`'s own chrome mapping
-    /// keeps distinct (`window.background` for the opaque backdrop,
+    /// Grid surface, which the chrome mapping keeps distinct
+    /// (`window.background` for the opaque backdrop,
     /// `panel.background`/`grid.background` for the surfaces that may carry
     /// alpha). Both a partial alpha and a fully transparent one (`0`) are
     /// refused the same way — the rule names one exact value, not merely
@@ -2081,8 +2068,8 @@ mod tests {
     ///
     /// The Grid/chrome-bounded width counterpart of
     /// `every_color_key_can_be_independently_overridden`, and what exercises
-    /// [`Theme::grid_width`] and [`Theme::chrome_width`] — the by-key
-    /// readers slice B's flat per-frame lookup can build from.
+    /// [`Theme::grid_width`] and [`Theme::chrome_width`], the by-key
+    /// readers.
     ///
     #[test]
     fn every_grid_and_chrome_width_key_can_be_independently_overridden() {

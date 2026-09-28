@@ -2,11 +2,11 @@
 //! Which Theme the console presents for each appearance: the viewer's dark
 //! and light Theme selections, and the Themes they are chosen from.
 //!
-//! ADR 0053's settings are a dark Theme, a light Theme and a mode. The mode
-//! is egui's own `ThemePreference` (`.scratch/theming/issues/02`'s "one
-//! owner" comment), which egui memory already stores and eframe already
-//! restores. The two Theme selections are this module's: identities, never
-//! values, so an improved built-in reaches every install. They come from
+//! The settings are a dark Theme, a light Theme and a mode. The mode is
+//! egui's own `ThemePreference`, with no second owner: egui memory already
+//! stores it and eframe already restores it. The two Theme selections are
+//! this module's: identities, never values, so an improved built-in reaches
+//! every install. They come from
 //! `~/.orcvs/config.toml`'s `theme.dark` and `theme.light`
 //! (`crate::config`); the console offers no picker and never changes them.
 //!

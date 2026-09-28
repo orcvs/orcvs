@@ -37,7 +37,7 @@ pub(crate) fn destination_selected_text<'a>(
 /// How the Panel presents destination selection for this build.
 ///
 /// When the backend is missing, the ComboBox is still drawn — disabled, with
-/// the empty copy — and Refresh is not. The build flag is read here rather
+/// the empty copy — and Scan is not. The build flag is read here rather
 /// than passed in: a parameter only tests would flip is a seam
 /// `AGENTS.md` forbids.
 ///
@@ -189,7 +189,7 @@ impl MidiDeviceSelection {
     /// Selects the first discovered destination when nothing is selected yet.
     ///
     /// A later read that already has a selection leaves it, even if that id is
-    /// gone from the new list — Refresh must not steal a choice the user has
+    /// gone from the new list — a Scan must not steal a choice the user has
     /// made.
     ///
     pub(crate) fn auto_select_first_if_unselected(&mut self) {
@@ -356,7 +356,7 @@ mod tests {
     ///
     ///
     /// A refused automatic connect is reported once and not retried on every
-    /// frame; Refresh is the explicit action that may ask again.
+    /// frame; Scan is the explicit action that may ask again.
     ///
     #[tokio::test]
     async fn a_failed_automatic_selection_is_not_retried_until_refresh() {
@@ -403,7 +403,7 @@ mod tests {
     }
 
     ///
-    /// A later Refresh does not steal a selection the user already made, even
+    /// A later Scan does not steal a selection the user already made, even
     /// when the new list's first destination is a different one, and even when
     /// the chosen id is missing from that list.
     ///
@@ -509,7 +509,7 @@ mod tests {
 
     ///
     /// A build with no native MIDI backend still draws the destination
-    /// Readout, disabled, with the empty copy, and does not offer Refresh.
+    /// Readout, disabled, with the empty copy, and does not offer Scan.
     ///
     #[test]
     fn an_unavailable_backend_disables_the_destination_and_hides_refresh() {
@@ -523,7 +523,7 @@ mod tests {
 
     ///
     /// A build that has a backend keeps the Output readout enabled and offers
-    /// Refresh in its menu, even when the last discovery was empty.
+    /// Scan in its menu, even when the last discovery was empty.
     ///
     #[test]
     fn an_available_backend_keeps_refresh_and_the_destination_enabled() {

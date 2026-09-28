@@ -187,22 +187,18 @@ impl Paint {
     /// fill when evaluating Region fallback" holds even when a custom
     /// Theme's Cell base is not transparent. `theme` is the resolved Theme
     /// the console currently shows the Source with, so every Token colour
-    /// here is a Theme channel rather than a constant
-    /// (`.scratch/theming/issues/06`).
+    /// here is a Theme channel rather than a constant.
     ///
     /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
     /// decides what to do with its answer, not what the answer is. It reads
     /// the finished language fact on the Cell (`RenderCell::source_paint`)
     /// and whether the Cell lies in a root Function's Output Portal
-    /// Reservation (`RenderCell::output_portal`, `.scratch/syntax-
-    /// highlighting/issues/06`).
+    /// Reservation (`RenderCell::output_portal`).
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
-    /// Cell — `.scratch/theming/issues/06`'s `paint-cell-cost` constraint,
-    /// which a per-Cell resolution would spend the recovery
-    /// `paint-cell-cost/03` bought. The Cursor/Region fills and the uniform
-    /// base fallback are hoisted, and `style::SourcePaintVisuals` holds
-    /// `cell_visuals_with_cursor_colour`'s answer for each unselected fact
+    /// Cell: a per-Cell resolution would add its cost to every drawn Cell of
+    /// every frame. `style::SourcePaintVisuals` holds the answer
+    /// `cell_visuals_with_cursor_colour` gives for each unselected fact
     /// and Output Portal flag the walk asks for, so an unselected Cell costs
     /// one indexed load rather than the role match, Diagnostic/Output Portal
     /// blends, `cell.background` composite and border priority match. Only
@@ -291,16 +287,11 @@ impl Paint {
                     border: visuals.border,
                     border_width: visuals.border_width,
                     foreground: visuals.foreground,
-                    // A sector seam is suppressed on the Cursor's Cell, so the
-                    // Cursor's frame is never crossed by one. While a Region
-                    // spans more than one Cell the lasso is the frame and the
-                    // Cursor's Cell is not `selected`, so it keeps its seams
-                    // as every other Cell of the Region does. It is decided here rather
-                    // than left to the step that draws it: in the loop this
-                    // replaced the rule was structural — the selected Cell took
-                    // a branch the seams were not in — and a rule that survives
-                    // only as a branch shape is a rule the next reader has to
-                    // rediscover.
+                    // A sector seam is suppressed on the `selected` Cell, so
+                    // the Cursor's frame is never crossed by one. It is decided
+                    // here rather than left to the step that draws it: a rule
+                    // that survives only as a branch shape is a rule the next
+                    // reader has to rediscover.
                     //
                     // `sector_line` is pure, so the strength becomes a colour
                     // here, against `sector_seam` read from `theme` once
@@ -320,13 +311,10 @@ impl Paint {
                         .flatten(),
                     // A Cell's own content when it has one; the space
                     // otherwise, which `place_glyphs` (`console::shapes`) draws no
-                    // Glyph for. `syntax-highlighting/03` retired the blank
-                    // spelling table that used to stand a placeholder letter
-                    // in here: an empty claimed operand Cell now answers the
-                    // same space an empty unclaimed one always has, and reads
-                    // as its Token channel alone
-                    // (`crate::style::source_paint_visuals`), never as a
-                    // spelled letter.
+                    // Glyph for. An empty claimed operand Cell answers the same
+                    // space an empty unclaimed one does, and reads as its Token
+                    // channel alone (`crate::style::source_paint_visuals`),
+                    // never as a spelled letter.
                     character: cell.content().unwrap_or(' '),
                 });
             }
@@ -354,8 +342,7 @@ impl Paint {
     /// `show_source` always holds the console's own resolved one. What this
     /// saves is a test having to build a Theme to ask a question about one
     /// Cell, and `console/benches/paint.rs` — a separate crate, which never
-    /// sees this — states its own convenience Theme for the same reason
-    /// (`.scratch/theming/issues/06`).
+    /// sees this — states its own convenience Theme for the same reason.
     ///
     #[cfg(test)]
     pub(crate) fn derive(input: FramePaint<'_>) -> Self {
@@ -578,8 +565,7 @@ mod tests {
 
     /// The background a role's own foreground `colour` composites to, read
     /// back from `theme` rather than recomputed: `.scratch/theming/schema.md`
-    /// replaced `syntax-highlighting/02`'s runtime Fill tint mix with a
-    /// stored value per role, so what a test asks is which stored value a
+    /// stores a background per role, so what a test asks is which stored value a
     /// Cell answers, not a mix this layer would have to reimplement to
     /// check. Every foreground `cell_visuals_with_cursor_colour` can answer
     /// is distinct in the Okabe–Ito built-in except Ordinary/Atom, which
@@ -788,7 +774,7 @@ mod tests {
     /// Region that spans them; the blank row above, which claims nothing,
     /// falls back to the Region fill. The Function sits on the *last* row so
     /// its Output Portal Reservation — the row south of a scalar-only
-    /// Function's anchor, `06`'s Answer — has no row to land on and cannot
+    /// Function's anchor — has no row to land on and cannot
     /// be mistaken for "claims nothing" on a row this test never asked about.
     ///
     #[tokio::test]
@@ -899,9 +885,7 @@ mod tests {
     /// composited beneath an ordinary Cell (no role fill — the `base_fill`
     /// fallback above), a tinted Cell (a role background composited over it)
     /// and a selected Cell outside a Region (the Cursor's own fill
-    /// composited over it) — `.scratch/theming/issues/06`: "Test transparent,
-    /// partial-alpha and opaque `cell.background` beneath ordinary, tinted
-    /// and selected Cells."
+    /// composited over it).
     /// `region_fallback_applies_over_a_nontransparent_cell_background` above
     /// already sweeps an *opaque* base across a Region; this sweeps every
     /// alpha level and adds a tinted Cell and a non-Region selected Cell,
@@ -975,8 +959,7 @@ mod tests {
     /// seam was wanted would prove nothing.
     ///
     /// Everywhere else the colour is `sector_line`'s answer for the strength
-    /// Paint computed. `sector_line` is pure, so the derive resolves it here;
-    /// the stroke widths are geometry and are not in this layer.
+    /// Paint computed.
     ///
     #[tokio::test]
     async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
@@ -1067,14 +1050,11 @@ mod tests {
     /// Each Cell shows exactly its own content, or the space when it holds
     /// none — never a placeholder letter standing in for its Token.
     ///
-    /// `syntax-highlighting/03` retired the blank spelling table
-    /// `each_cell_shows_the_character_the_table_answers` used to pin: what a
-    /// Cell shows is answered from the Render Frame alone, with no Token
+    /// What a Cell shows is answered from the Render Frame alone, with no Token
     /// lookup at all. The Grid carries an Addition, whose claim reaches past
     /// the two Cells it is spelled in and leaves classified but empty operand
     /// Cells behind it — this is the Cell this test is about, and it answers
-    /// the space like any other empty Cell, not a letter the deleted table
-    /// used to spell for it.
+    /// the space like any other empty Cell, not a letter spelled for its Token.
     ///
     #[tokio::test]
     async fn every_cell_shows_only_its_own_content_or_the_space() {
@@ -1235,12 +1215,12 @@ mod tests {
     /// glyph, through the real paint path — `console::shapes`'s `place_glyphs` skips
     /// a Cell whose `character` is `' '`, and a Pending slot's Cells are
     /// never anything else, since a Pending slot is blank by definition.
-    /// `.scratch/theming/issues/08`'s contrast validator relies on this: a
-    /// Pending Cell has no foreground for it to measure, so
-    /// `contrast::Role::SOURCE_ROLES` carries no Pending fact. If this test ever
-    /// fails — a Pending Cell starts drawing a character — restore Pending
-    /// states to `contrast::Role::SOURCE_ROLES`, since the "no foreground to
-    /// measure" reasoning that dropped them would no longer hold.
+    /// The contrast validator relies on this: a Pending Cell has no foreground
+    /// for it to measure, so `contrast::Role::SOURCE_ROLES` carries no Pending
+    /// fact. If this test ever fails — a Pending Cell starts drawing a character
+    /// — add Pending states to `contrast::Role::SOURCE_ROLES`, since the "no
+    /// foreground to measure" reasoning that leaves them out would no longer
+    /// hold.
     ///
     #[tokio::test]
     async fn every_pending_operand_token_draws_no_glyph_through_the_real_paint_path() {
@@ -1341,25 +1321,24 @@ mod tests {
     }
 
     ///
-    /// `.scratch/syntax-highlighting/issues/04`: `**` and `||` written into a
-    /// typed operand slot are read as that slot's declared Token and refused.
-    /// Neither is a nested Bang or a Comment at an operand position — the
-    /// Parser only asks whether a Function comes next where an Expression
-    /// could start — so both record an unbound `Token::Number` entry, keep
-    /// the declared Number tint, and draw their glyphs in the Diagnostic
-    /// colour. The valid operand beside each is unaffected: Number on the
-    /// same Number tint.
+    /// `**` and `||` written into a typed operand slot are read as that slot's
+    /// declared Token and refused. Neither is a nested Bang or a Comment at an
+    /// operand position — the Parser only asks whether a Function comes next
+    /// where an Expression could start — so both record an unbound
+    /// `Token::Number` entry, keep the declared Number tint, and draw their
+    /// glyphs in the Diagnostic colour. The valid operand beside each is
+    /// unaffected: Number on the same Number tint.
     ///
     /// All four operand Cells of each Expression are asserted, because a
     /// rule stated only over the rejected pair cannot say that the operand
     /// beside it was left alone. The tint is read as one answer shared by the
     /// four Cells and distinct from `.+`'s own Function tint, rather than as
-    /// a colour restated from `style::source_paint_visuals`'s mix.
+    /// a colour restated from the Theme.
     ///
     /// The two Expressions sit two rows apart so that neither one's Output
     /// Portal Reservation — row 1 for the first, row 3 for the second, both
     /// two Cells wide at columns 0-1 — reaches a Cell asserted here:
-    /// `06`'s Output Portal paint takes precedence over the claim's own, so
+    /// Output Portal paint takes precedence over the claim's own, so
     /// an operand under a Reservation would be answering a different rule.
     ///
     #[tokio::test]
@@ -1434,8 +1413,7 @@ mod tests {
     }
 
     ///
-    /// The Cursor's own fill wins outright on its Cell
-    /// (`.scratch/syntax-highlighting/issues/01`), and an Invalid operand is
+    /// The Cursor's own fill wins outright on its Cell, and an Invalid operand is
     /// no exception: the Cell under the Cursor fills with the Cursor's colour
     /// in place of its Number tint, while its glyph stays Diagnostic. Its
     /// twin one column over is the control — the other Cell of the same
@@ -1481,7 +1459,7 @@ mod tests {
     }
 
     ///
-    /// Defect 3, end to end: a written Invalid operand's border composites
+    /// End to end: a written Invalid operand's border composites
     /// `theme.diagnostic_border` over `theme.grid_border`, reaching
     /// `Paint::derive_with_theme` from a real written Source rather than a
     /// hand-built `SourcePaint` fact —
@@ -1521,14 +1499,14 @@ mod tests {
     /// Source: `.+` for Number, `:#C4D4` for Note, `:&` for Atom and `:<XY`
     /// for Sequence.
     ///
-    /// The four rows stand two apart. `06`'s Output Portal paint takes
-    /// precedence over an operand's own tint, and a root Function's
-    /// Reservation lands one row south — the whole row south, for the three
-    /// Sequence-answering roots here — so Expressions on adjacent rows would
-    /// have row `N + 1`'s operands answering `06`'s rule instead of `02`'s.
-    /// Two rows apart puts every Reservation on an empty row, and the tests
-    /// below assert `!output_portal()` on every Cell they read rather than
-    /// trusting this paragraph.
+    /// The four rows stand two apart. Output Portal paint takes precedence over
+    /// an operand's own tint, and a root Function's Reservation lands one row
+    /// south — the whole row south, for the three Sequence-answering roots here
+    /// — so Expressions on adjacent rows would have row `N + 1`'s operands
+    /// answering the Output Portal rule instead of their own tint. Two rows
+    /// apart puts every Reservation on an empty row, and the tests below assert
+    /// `!output_portal()` on every Cell they read rather than trusting this
+    /// paragraph.
     ///
     /// The Cursor parks at the east end of row 0, which no Expression claims
     /// and no Reservation covers, so the Cursor's own fill cannot stand in
@@ -1564,7 +1542,7 @@ mod tests {
     }
 
     ///
-    /// `syntax-highlighting/02`'s Fill tint on an Operand Cell of every Token
+    /// The Fill tint on an Operand Cell of every Token
     /// a Source can claim, walked from written Source through the Render
     /// Frame rather than from a `Claim` built by hand: Number, Note, Atom and
     /// Sequence each tint with their own colour, and the Function's own
@@ -1577,8 +1555,8 @@ mod tests {
     /// tint.
     ///
     /// The five tints are finally required to be five colours. Four operand
-    /// arms that all answered one tint — the mix collapsing, or every Token
-    /// reaching the same colour — would satisfy every assertion above.
+    /// arms that all answered one tint — every Token reaching the same
+    /// colour — would satisfy every assertion above.
     ///
     #[tokio::test]
     async fn an_operand_cell_of_every_token_a_source_can_claim_is_tinted_with_its_own_colour() {
@@ -1679,10 +1657,10 @@ mod tests {
     ///
     /// A Theme whose role backgrounds are all transparent paints no
     /// background anywhere — not on a Function Cell, not on an Operand Cell
-    /// of any Token, and not on an Output Portal Cell either, since `06`'s
-    /// paint composites the same channel. The assertion is over every Cell of
-    /// the Grid rather than over the claimed ones, so a role that acquired a
-    /// fill of its own would fail here.
+    /// of any Token, and not on an Output Portal Cell either, since Output
+    /// Portal paint composites the same channel. The assertion is over every
+    /// Cell of the Grid rather than over the claimed ones, so a role that
+    /// acquired a fill of its own would fail here.
     ///
     /// The same Source under the Okabe–Ito built-in is the control: each of
     /// the 22 Cells an Expression claims does carry a background there, so
@@ -1756,8 +1734,8 @@ mod tests {
     /// cannot hide behind an already-transparent Theme. None of the three
     /// roles is inside a Reservation — a Comment reserves nothing and a
     /// standalone Bang is not a root Function — which the test asserts rather
-    /// than assumes, since `06`'s paint would otherwise supply the tint that
-    /// is supposed to be absent.
+    /// than assumes, since Output Portal paint would otherwise supply the tint
+    /// that is supposed to be absent.
     ///
     #[tokio::test]
     async fn a_comment_a_bang_and_an_unclaimed_cell_take_no_tint_from_source() {
@@ -1801,12 +1779,12 @@ mod tests {
     }
 
     ///
-    /// The Cursor's own fill wins over the Fill tint on its Cell
-    /// (`syntax-highlighting/02`), driven from Source on a Function Cell:
-    /// `.+0102`'s `.` is the Cursor's Cell and fills with the Cursor's
-    /// colour, while its twin `+` — the other Cell of the same Function
-    /// spelling, unselected — keeps the Function tint. The control is what
-    /// says the Cursor replaced a fill rather than that there was none.
+    /// The Cursor's own fill wins over the Fill tint on its Cell, driven from
+    /// Source on a Function Cell: `.+0102`'s `.` is the Cursor's Cell and fills
+    /// with the Cursor's colour, while its twin `+` — the other Cell of the
+    /// same Function spelling, unselected — keeps the Function tint. The
+    /// control is what says the Cursor replaced a fill rather than that there
+    /// was none.
     ///
     /// The glyph is untouched: a Cursor changes which fill a Cell takes and
     /// not what colour the Function spells in.
@@ -1846,12 +1824,11 @@ mod tests {
     }
 
     ///
-    /// `.scratch/syntax-highlighting/issues/06`: end-to-end Output Portal
-    /// paint tests, built from Source text through the Render Frame. Every
-    /// scenario writes the answer directly into Source rather than running a
-    /// Tick, since the highlight comes from the current revision alone
-    /// (`.scratch/syntax-highlighting/issues/05`'s Answer): a written value
-    /// south of a Function is indistinguishable from one a Tick wrote.
+    /// End-to-end Output Portal paint tests, built from Source text through the
+    /// Render Frame. Every scenario writes the answer directly into Source
+    /// rather than running a Tick, since the highlight comes from the current
+    /// revision alone: a written value south of a Function is indistinguishable
+    /// from one a Tick wrote.
     ///
     mod output_portal_paint {
         use super::{okabe_ito, running_orcvs, tinted, whole, write_row};
@@ -1859,10 +1836,9 @@ mod tests {
         ///
         /// A scalar answer south of a Function draws in the Output Portal
         /// colour on the Output Portal tint: `07` left south of `.+0304` re-
-        /// parses as two one-Cell unbound Function claims (`.scratch/syntax-
-        /// highlighting/issues/05`'s Answer), and the Output Portal fact
-        /// paints over that Diagnostic-shaped claim rather than leaving it
-        /// Diagnostic.
+        /// parses as two one-Cell unbound Function claims, and the Output
+        /// Portal fact paints over that Diagnostic-shaped claim rather than
+        /// leaving it Diagnostic.
         ///
         #[tokio::test]
         async fn a_scalar_answer_paints_in_the_output_portal_colour() {
@@ -1897,7 +1873,7 @@ mod tests {
         }
 
         ///
-        /// The other scalar-answer example `06` names: `C4` left south of
+        /// Another scalar answer: `C4` left south of
         /// `.^3C` (ConvertToNote) paints the same way — the rule reads the
         /// Output Portal fact and the claim's shape, not which Function or
         /// which characters produced it.
@@ -1931,13 +1907,11 @@ mod tests {
         /// Cells, and the highlight stops where written content stops rather
         /// than running to the end of the Reservation. `:<:-0104` (Reverse of
         /// NumberRange 01..04) answers a Sequence outright, so its
-        /// Reservation runs to the end of the destination row
-        /// (`.scratch/syntax-highlighting/issues/10`'s Answer), but the
+        /// Reservation runs to the end of the destination row, but the
         /// written answer, `04030201`, fills only the row's first eight Cells
         /// of ten, so the last two stay ordinary and untinted. The fit
         /// follows written content, not the answer itself: here they coincide
-        /// because nothing else is written in the row
-        /// (`.scratch/syntax-highlighting/issues/12`'s known limit, and `13`).
+        /// because nothing else is written in the row.
         ///
         #[tokio::test]
         async fn a_sequence_answer_paints_every_written_cell_and_the_highlight_stops_there() {
@@ -2020,8 +1994,7 @@ mod tests {
         /// An empty Output Portal Cell shows the Output Portal tint and no
         /// glyph, including before the first Tick: nothing ever runs a Tick
         /// in this test, so the highlight can only have come from the
-        /// current Source revision, as `.scratch/syntax-highlighting/
-        /// issues/05`'s Answer states.
+        /// current Source revision.
         ///
         #[tokio::test]
         async fn an_empty_output_portal_cell_shows_the_tint_and_no_glyph_before_any_tick() {
@@ -2053,9 +2026,8 @@ mod tests {
         ///
         /// A Terminal Output Function paints nothing at its Output Portal:
         /// `!>` (RawPlay) answers Play, not a Cell, so `output_portal()` is
-        /// `None` for it (`.scratch/syntax-highlighting/issues/10`'s
-        /// Answer) and the row south of it reads exactly as if no root stood
-        /// north of it.
+        /// `None` for it and the row south of it reads exactly as if no root
+        /// stood north of it.
         ///
         #[tokio::test]
         async fn a_terminal_output_functions_south_row_is_ordinary() {
@@ -2080,8 +2052,7 @@ mod tests {
 
         ///
         /// Halt paints nothing at its Output Portal: it locks the root there
-        /// rather than writing (`.scratch/syntax-highlighting/issues/10`'s
-        /// Answer), so the row south of `*!` reads as ordinary.
+        /// rather than writing, so the row south of `*!` reads as ordinary.
         ///
         #[tokio::test]
         async fn halts_south_row_is_ordinary() {
@@ -2107,8 +2078,7 @@ mod tests {
         /// A Self-Banging (Source-writing) Function paints nothing at its
         /// Output Portal: its Advance's writes, including the Cells it
         /// moves onto, are its declared Source effect rather than an answer
-        /// through an Output Portal (`.scratch/syntax-highlighting/
-        /// issues/10`'s Answer). `>>` is `SelfBangingEast`; the Cells east
+        /// through an Output Portal. `>>` is `SelfBangingEast`; the Cells east
         /// of its own anchor, which its Advance would move onto during a
         /// Tick, carry no Output Portal fact even though nothing has ticked
         /// yet to prove that by writing there.
@@ -2136,8 +2106,7 @@ mod tests {
 
         ///
         /// The paint precedence where an Output Portal covers another
-        /// Expression's claimed Cells (`.scratch/syntax-highlighting/
-        /// issues/06`'s precedence decision): `:-0102` (NumberRange) answers
+        /// Expression's claimed Cells: `:-0102` (NumberRange) answers
         /// a Sequence outright, so its Reservation runs the whole of the row
         /// south, where `.+0304` (Add) stands as a second, independent root.
         /// Add's own two-Cell spelling is a bound Function claim and keeps
@@ -2145,8 +2114,7 @@ mod tests {
         /// Add's own Number operand Cells, which the Reservation also
         /// covers, take the Output Portal colour and tint instead of their
         /// declared Number role — the "a consumer's operand" case. Both
-        /// named overlaps from `.scratch/syntax-highlighting/issues/05`'s
-        /// Answer are exercised by this one Source.
+        /// overlaps are exercised by this one Source.
         ///
         #[tokio::test]
         async fn a_bound_function_spelling_wins_but_its_operands_take_the_output_portal() {
@@ -2190,13 +2158,12 @@ mod tests {
             // Add's own Number operand background is not `output_tinted`
             // alone: the Output Portal tint composites *over* Number's own
             // translucent role background (`role_and_portal`'s
-            // `background.blend(theme.output_portal_background)`), and the
-            // user's 2026-09-22 retune made every tinted role background
-            // translucent rather than opaque, so Number's own hue still
-            // shows through under the Portal tint here. `output_tinted`
-            // alone is only the composited answer where the underlying
-            // role's own background is fully transparent, which is why
-            // every other `output_tinted` assertion in this module — over
+            // `background.blend(theme.output_portal_background)`), and every
+            // tinted role background is translucent rather than opaque, so
+            // Number's own hue still shows through under the Portal tint here.
+            // `output_tinted` alone is only the composited answer where the
+            // underlying role's own background is fully transparent, which is
+            // why every other `output_tinted` assertion in this module — over
             // Unclaimed Cells — is unaffected.
             let number_under_portal = theme
                 .cell_background
@@ -2217,23 +2184,21 @@ mod tests {
         }
 
         ///
-        /// The regression `.scratch/syntax-highlighting/issues/12` was
-        /// opened for, from a screenshot on 2026-09-19: a two-column layout
-        /// where Sequence-capable roots on the left share rows with scalar
-        /// roots on the right.
+        /// A two-column layout where Sequence-capable roots on the left share
+        /// rows with scalar roots on the right.
         ///
-        /// With the highlight covering the whole Reservation, each left
-        /// root tinted its destination row to the Grid's right edge, so the
-        /// tint ran under the right column's Tick Expressions — `.+0304` on
-        /// row 1 and `.^3C` on row 3 — and past the right column's own
-        /// two-Cell Output Portals. Fitted to the answer, each left root
-        /// stops at its own written Cells and the right column is left
-        /// entirely to its own roots.
+        /// A highlight covering the whole Reservation would tint each left
+        /// root's destination row to the Grid's right edge, so the tint would
+        /// run under the right column's Tick Expressions — `.+0304` on row 1
+        /// and `.^3C` on row 3 — and past the right column's own two-Cell
+        /// Output Portals. Fitted to the answer, each left root stops at its
+        /// own written Cells and the right column is left entirely to its own
+        /// roots.
         ///
         /// The right column is offset one row from the left so that a left
-        /// root's destination row is a right root's Expression row; that is
-        /// the arrangement the screenshot had, and it is what makes the
-        /// defect visible rather than hidden under a Cell both roots cover.
+        /// root's destination row is a right root's Expression row; that
+        /// arrangement is what makes the defect visible rather than hidden
+        /// under a Cell both roots cover.
         ///
         #[tokio::test]
         async fn a_left_columns_sequence_tint_never_reaches_the_right_columns_roots() {
@@ -2275,9 +2240,9 @@ mod tests {
             assert_eq!(highlighted(4), "............##......");
 
             // The right roots' own Number operands keep the Number colour on
-            // the Number tint. Under the whole-row highlight they took the
+            // the Number tint. A whole-row highlight would give them the
             // Output Portal colour on the Output Portal tint, because the
-            // left root's Reservation covered them.
+            // left root's Reservation covers them.
             for (y, columns) in [(1_usize, 14..18_usize), (3, 14..16)] {
                 for x in columns {
                     let position = grid.position(x, y).expect("inside the grid");
@@ -2323,12 +2288,10 @@ mod tests {
         /// narrowed from four blank Cells to one. Four is wider than the
         /// rule needs to be exercised, and a layout owes no minimum gutter.
         ///
-        /// One blank Cell ends the left root's answer. Anything narrower
-        /// than a blank Cell pair used to let the extension step over the
-        /// gutter, because a pair counted when either of its Cells was
-        /// written and the right column's first glyph wrote one of them; the
-        /// tint then ran the rest of the row, which is the whole-row
-        /// behaviour `12` exists to remove.
+        /// One blank Cell ends the left root's answer. Do not extend the
+        /// highlight by Cell pairs: a pair written in either Cell would let the
+        /// right column's first glyph carry it over a one-Cell gutter, and the
+        /// tint would run the rest of the row.
         ///
         #[tokio::test]
         async fn a_one_cell_gutter_stops_the_left_columns_sequence_tint() {
@@ -2434,7 +2397,7 @@ mod tests {
     }
 
     ///
-    /// `syntax-highlighting/02`'s Fill tint, walked end to end from written
+    /// The Fill tint, walked end to end from written
     /// Source through `Paint::derive` rather than through `cell_visuals_with_cursor_colour`
     /// alone: a nested Function's own Cells tint like its parent's, an
     /// Operand Cell tints with its declared Token's colour whether or not
@@ -2568,11 +2531,9 @@ mod tests {
     /// A Paint decides the Cells the console draws and no others, and decides
     /// each of them exactly as a Paint of the whole Grid would.
     ///
-    /// This is the Cell-iteration half of the claim `source-grid-rendering/05`
-    /// made — the cost of a Render Frame follows the viewport rather than the
-    /// Source. `05` could only count it through a console pass, because the
-    /// per-Cell decision had no surface of its own; here the `CellPaint`s are
-    /// the count, with no `egui::Context` and no window.
+    /// This is the Cell-iteration half of the claim that the cost of a Render
+    /// Frame follows the viewport rather than the Source. Here the
+    /// `CellPaint`s are the count, with no `egui::Context` and no window.
     ///
     /// The second assertion is the half that matters for correctness. Nothing
     /// the derivation reads reaches past its own Cell, so a culled Paint has
@@ -2626,8 +2587,7 @@ mod tests {
     /// alone.
     ///
     /// That is an equality rather than a resemblance, so it is asserted as one
-    /// instead of left to a comment — which is what `3c2b640` asked for when
-    /// it pinned the one-Cell margin's purpose with assertions.
+    /// instead of left to a comment.
     ///
     #[tokio::test]
     async fn the_runs_a_culled_paint_answers_are_the_whole_grids_clipped_to_it() {

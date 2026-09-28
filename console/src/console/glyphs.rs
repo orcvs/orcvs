@@ -13,17 +13,15 @@ use egui::{FontId, text::Galley};
 /// A Glyph is laid out at the size it is drawn at, so the scale has to reach
 /// the font size. A *continuous* scale would reach it as a fresh size per
 /// Render Frame, and epaint rasterises a fresh glyph set per distinct size —
-/// `FontImpl::glyph_info` scales by `font_size * pixels_per_point` and rounds
-/// nothing (`epaint-0.36.2/src/text/font.rs:567`). `subpixel_binning` is on by
-/// default (`epaint-0.36.2/src/text/mod.rs:62`) and renders each glyph at up to
-/// four fractional offsets, so a zoom sweep across `N` sizes costs up to
-/// `N x alphabet x 4` rasters into one atlas.
+/// `FontFace::styled_metrics` scales by `font_size * pixels_per_point` and
+/// rounds nothing. `subpixel_binning` is on in epaint's default `TextOptions`
+/// and renders each glyph at up to four fractional offsets, so a zoom sweep
+/// across `N` sizes costs up to `N x alphabet x 4` rasters into one atlas.
 ///
 /// That is the budget, because the atlas is not merely wasted when it fills:
 /// `Fonts::begin_pass` replaces the whole `FontsImpl` — a new atlas with empty
-/// glyph caches — as soon as `atlas.fill_ratio()` passes 0.8
-/// (`epaint-0.36.2/src/text/fonts.rs:728-742`), restarting glyph rasterisation
-/// mid-session for every size already paid for.
+/// glyph caches — as soon as `atlas.fill_ratio()` passes 0.8, restarting
+/// glyph rasterisation mid-session for every size already paid for.
 ///
 /// At a step of an eighth, the zoom range `MIN_ZOOM..=MAX_ZOOM` holds fifteen
 /// distinct scales, so a viewer who sweeps that range spends at most
@@ -35,14 +33,13 @@ use egui::{FontId, text::Galley};
 ///
 /// Fifteen is the whole range, not a floor a large window can widen: Zoom is
 /// a stated step between [`MIN_ZOOM`](super::source_view::MIN_ZOOM) and [`MAX_ZOOM`](super::source_view::MAX_ZOOM), and no window size
-/// changes the Cell size. The atlas budget ADR 0038 and ADR 0040 state covers
-/// the whole range rather than its floor.
+/// changes the Cell size.
 ///
 /// The step costs a Glyph at most an eighth of the Source's Cell scale in size,
 /// taken downwards so a Glyph is never larger than its share of the Cell — see
-/// [`glyph_scale`], which states why the rounding goes that way. It is still
-/// strictly sharper than what it replaces: a Scene bilinearly resamples one
-/// rasterised size at *every* zoom.
+/// [`glyph_scale`], which states why the rounding goes that way. Do not draw
+/// one rasterised size and let a Scene bilinearly resample it instead: that
+/// blurs at *every* zoom, and the step is strictly sharper.
 ///
 pub(super) const GLYPH_SCALE_STEP: f32 = 0.125;
 
@@ -61,8 +58,8 @@ pub(super) const GLYPH_SCALE_STEP: f32 = 0.125;
 /// its Cell at or under what the fit gave it at every scale, and costs at most
 /// one step of sharpness rather than a Cell's worth of proportion. Both zoom
 /// limits and the Source's own scale are exact multiples of the step, so
-/// flooring leaves them exactly where rounding did, and the step count the
-/// atlas budget above is stated over is unchanged.
+/// flooring leaves them where rounding did, and the step count the atlas
+/// budget is stated over is unchanged.
 ///
 pub(super) fn glyph_scale(scaling: f32) -> f32 {
     if !scaling.is_finite() || scaling <= 0.0 {

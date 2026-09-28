@@ -280,12 +280,10 @@ fn a_zoom_step_moves_by_one_step_and_stops_at_the_range() {
 }
 
 ///
-/// The frame rate is still derived; the Source zoom no longer is. Under an
-/// owned transform the zoom the diagnostics show *is* `scaling`, so what
-/// used to be a ratio recovered from a Scene-space region collapsed to a
-/// field read and `scene_zoom` went with it. What is left to assert is that
-/// the field the diagnostics read is never a value they cannot show: the
-/// guard is what makes the read safe.
+/// The frame rate is derived; the Source zoom is not. Under an owned
+/// transform the zoom the diagnostics show *is* `scaling`, a field read.
+/// What is left to assert is that the field the diagnostics read is never a
+/// value they cannot show: the guard is what makes the read safe.
 ///
 #[test]
 fn diagnostics_derive_frame_rate_and_read_the_source_zoom_from_the_owned_transform() {
@@ -296,8 +294,7 @@ fn diagnostics_derive_frame_rate_and_read_the_source_zoom_from_the_owned_transfo
     assert!(is_presentable(zoomed));
     assert_eq!(zoomed.scaling, 2.0);
     // The visible Source region the diagnostics show is the console area
-    // read back through the transform, which is what the Scene-space
-    // rectangle used to hold directly.
+    // read back through the transform.
     assert_eq!(
         zoomed.inverse() * Rect::from_min_size(Pos2::new(11.0, 7.0), Vec2::new(800.0, 400.0)),
         Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))
@@ -377,9 +374,8 @@ fn the_glyph_scale_is_quantised_to_a_stated_step() {
 /// step is disproportionate at a small scale: a console fitting at 0.2
 /// rounds up to 0.25 and lays an 11.5 point Glyph out at 2.875 points inside a
 /// 3.2 point Cell, where the same Glyph at the Source's own scale takes 11.5 of
-/// 16. Under the retired Scene the layer scaled the Glyph exactly, so this
-/// is the proportion the effort's strict-parity rule is about. Quantising
-/// downwards keeps it and costs at most one step of sharpness.
+/// 16. That proportion is what has to hold. Quantising downwards keeps it
+/// and costs at most one step of sharpness.
 ///
 /// The floor at [`GLYPH_SCALE_STEP`] is the one deliberate exception, and
 /// the case above it is what this pins.
@@ -422,7 +418,7 @@ fn console_pass(
 /// The scale is given as the viewport's `native_pixels_per_point` rather
 /// than through `Context::set_pixels_per_point`, which sets the zoom factor
 /// instead and rewrites the next pass's `screen_rect` from the previous
-/// one's to avoid jitter (`egui-0.36.2/src/context.rs:437-447`) — so the
+/// one's to avoid jitter (in `ContextImpl::begin_pass`) — so the
 /// console would not be the size the caller asked for.
 ///
 fn console_pass_at(
@@ -781,7 +777,7 @@ fn fresh_console() -> (egui::Context, Console, eframe::Frame) {
 
 ///
 /// Waits, bounded by [`ENGINE_WAIT`], until `watch` answers `ready`. Playback
-/// runs on its own task (ADR 0041), so this waits on a fact only that task can
+/// runs on its own task, so this waits on a fact only that task can
 /// make true, never on a clock.
 ///
 pub(super) async fn engine_reaches(
@@ -1083,15 +1079,13 @@ async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
 /// eframe restores egui memory — `ThemePreference` included — before it
 /// calls `Console::new`, on native and on web. Standing in for that
 /// restore: setting the preference on a fresh `Context` before
-/// `Console::new` runs, the way `.scratch/theming/issues/02-…` describes
-/// the defect. The removed `set_theme(Dark)` call used to overwrite
-/// whatever this set; `install` must not.
+/// `Console::new` runs. `install` must not overwrite whatever this set.
 ///
 /// Each egui slot holds its own appearance's default built-in, so the
 /// restored Light preference presents Orcvs Light rather than egui's own
 /// default light style. The style comparison is `Visuals`, not
 /// `Style`'s own `PartialEq`: `Style::number_formatter` compares by
-/// `Arc::ptr_eq` (`egui-0.36.2/src/style.rs:57-60`), so two
+/// `Arc::ptr_eq` (`NumberFormatter`'s `PartialEq`), so two
 /// independently built `Style::default()`s never compare equal on that
 /// field alone, whatever their visible content.
 ///
@@ -1118,10 +1112,9 @@ async fn console_new_keeps_a_theme_preference_already_on_the_context() {
 
 ///
 /// A fresh `Context` restores nothing, so its `ThemePreference` starts at
-/// egui's own default, `System`. `Console::new` must not force `Dark`
-/// the way the removed `set_theme(Dark)` call did — a build without the
-/// `persistence` feature has nothing else that would set a preference,
-/// so `System` is what it opens with.
+/// egui's own default, `System`. `Console::new` must not force `Dark` —
+/// a build without the `persistence` feature has nothing else that would
+/// set a preference, so `System` is what it opens with.
 ///
 #[tokio::test]
 async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
@@ -1348,7 +1341,7 @@ async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
 }
 
 ///
-/// At 1 BPM a Tick lasts 15 seconds. Cursor Effect off, so its 45–190 ms
+/// At 1 BPM a Tick lasts 15 seconds. Cursor Effect off, so its sub-second
 /// wakes cannot hide a missing Run Clock remainder. A quiet Playing pass
 /// must still request a delay of at most one second.
 ///
@@ -1444,7 +1437,7 @@ async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones(
 
     // A request made during one pass still repaints the next even with
     // nothing new to answer, "to give some things time to settle"
-    // (`egui-0.36.2/src/context.rs:128-137`); several quiet passes let
+    // (a zero-delay `Context::request_repaint`); several quiet passes let
     // that one-time grace period from opening the console lapse before
     // the assertion below reads a steady state.
     for _ in 0..4 {
@@ -2717,11 +2710,9 @@ fn close(left: Rect, right: Rect) -> bool {
 /// The Cursor Effect reaches what a Cell is painted *with* and never
 /// where it is painted.
 ///
-/// This is the property the retired `cell_line_width` test held over a
-/// shipped function that took the blink phase and ignored it. Under the
-/// painter the property is structural —
-/// `GridViewport::cell_rect` takes a Position and nothing else — so it is
-/// asserted here against the geometry that actually reached the Shapes.
+/// The property is structural — `GridViewport::cell_rect` takes a Position
+/// and nothing else — so it is asserted here against the geometry that
+/// actually reached the Shapes.
 ///
 /// The Cursor's visibility is owned by `orcvs`; a console test does not
 /// need a wall-clock seam to assert geometry. What is asserted is the
@@ -3068,13 +3059,13 @@ fn a_character_outside_the_alphabet_is_laid_out_as_itself() {
 /// Every Cell is stroked with its own border, and the Cursor Effect
 /// changes that colour, never the width its own Cell is stroked at.
 ///
-/// "That width" is no longer one constant to compare every Cell against:
+/// "That width" is not one constant to compare every Cell against:
 /// `.scratch/theming/schema.md`'s Source composition step 5 gives a
 /// single-Cell Cursor its own `cell.selection.border.width`, independent
 /// of the ordinary `grid.border.width` every other Cell — including the
 /// Cursor's Cell inside a multi-Cell Region — is stroked at. Okabe–Ito
 /// happens to default both to 0.5 points, which is what lets this test
-/// still compare every stroke, cursor included, against one
+/// compare every stroke, cursor included, against one
 /// `grid_border_width` local;
 /// `the_grid_and_selection_border_widths_vary_independently` and
 /// `zero_width_suppresses_only_its_own_border_stroke` below are what
@@ -3100,8 +3091,7 @@ async fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
     let paint = painted(&frame, viewport, screen);
     let shapes = source_geometry(&paint, viewport, 1.0);
     // Fixed at the resolved Theme's `grid.border.width`, in display
-    // points — `.scratch/theming/issues/06` slice C — rather than scaled
-    // by the owned transform the way the Scene's layer transform used to.
+    // points, rather than scaled by the owned transform.
     // Okabe–Ito's `cell.selection.border.width` is also 0.5, so this
     // single local still covers the Cursor's own Cell; see the doc above.
     let grid_border_width = okabe_ito().grid_border_width.points();
@@ -3147,8 +3137,7 @@ async fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
 ///
 /// The Grid carries an Addition, whose claim reaches past the two Cells it
 /// is spelled in and leaves classified but empty operand Cells behind it.
-/// `syntax-highlighting/03` retired the blank spelling table that used to
-/// stand a placeholder letter in those Cells, so the Cells showing
+/// No placeholder letter stands in those Cells, so the Cells showing
 /// something are exactly the written ones — the unfilled operand Cells
 /// are tinted (`style::fill_tint_colour`) but spell nothing, which is what
 /// this test's exact count of two asserts rather than only a lower bound.
@@ -3238,8 +3227,6 @@ fn the_omitted_background_is_the_colour_the_panel_is_filled_with() {
 /// layer reveals the window backdrop `clear_color_is_the_resolved_
 /// themes_opaque_window_background` wires underneath it, the same way an
 /// opaque `grid_background` composites to itself.
-/// `.scratch/theming/issues/06`: "Test transparent and partial-alpha Grid
-/// compositing without changing other background properties."
 ///
 #[test]
 fn the_grid_panel_frame_composites_a_transparent_or_partial_alpha_background_unchanged() {
@@ -3409,9 +3396,9 @@ async fn a_background_run_covers_exactly_the_cells_it_replaces() {
 ///
 /// The viewport is stated instead of presented — a 16 point Cell with the
 /// Grid's corner at the origin — so every expected rectangle below is a
-/// literal. That is the point: the assertion this replaced re-ran
+/// literal. That is the point: an assertion that re-ran
 /// `SourceShapes::new`'s own `Rect::from_min_max(cell_rect(start).min,
-/// cell_rect(end - 1).max)`, which catches a one-sided edit and passes a
+/// cell_rect(end - 1).max)` would catch a one-sided edit and pass a
 /// simultaneous one. These numbers move for neither.
 ///
 /// At one device pixel per point every edge of that Grid is already on a
@@ -3482,12 +3469,11 @@ async fn a_background_run_is_the_rectangle_its_columns_span() {
 ///
 /// The device scale is `show_source`'s own arithmetic — the `Ui`'s — and
 /// is handed to `SourceShapes::new` and reaches the Shapes nowhere else.
-/// The Grid/Sector Seam *widths* are `.scratch/theming/issues/06` slice
-/// C's fixed points, read from `theme` and never multiplied by the
-/// presented Cell side over the Source's own: at Zoom 0.5 this is the
-/// test that would have caught the old `GRID_LINE_WIDTH * scale`/
-/// `SECTOR_LINE_WIDTH * scale` behaviour reappearing, since at Zoom 1 the
-/// two are indistinguishable. Every other Shape assertion here builds a
+/// The Grid/Sector Seam *widths* are fixed display points, read from
+/// `theme` and never multiplied by the presented Cell side over the
+/// Source's own: at Zoom 0.5 this is the test that catches a width scaled
+/// by the zoom, since at Zoom 1 the two are indistinguishable. Every other
+/// Shape assertion here builds a
 /// `SourceShapes` through `source_geometry` or `source_shapes`, which are
 /// given a device scale the test chose, so all of them still hold with
 /// that argument replaced by a constant one at the call site. What would
@@ -3580,9 +3566,8 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
 /// Cell carries none while it is framed on its own, are the Render
 /// Frame's and the derive's answers and
 /// are asserted in `paint.rs` with no Context at all. The seam's *width*
-/// is the resolved Theme's own fixed display-point value
-/// (`.scratch/theming/issues/06` slice C), so it is geometry and belongs
-/// here.
+/// is the resolved Theme's own fixed display-point value, so it is
+/// geometry and belongs here.
 ///
 /// The Grid is 16 Cells square because the default Sector Seam spacing is
 /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
@@ -3650,8 +3635,6 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
 /// Width zero hides the Cell grid line and the Sector Seam outright — no
 /// zero-width `Shape` left for the painter to drop — at several Grid
 /// zoom levels spanning `MIN_ZOOM` to `MAX_ZOOM`.
-/// `.scratch/theming/issues/06`: "Width 0 hides the stroke: emit no
-/// shape rather than a zero-width one."
 ///
 #[tokio::test]
 async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom() {
@@ -3851,8 +3834,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
 ///
 /// The Cell grid line and the Sector Seam stay the resolved Theme's own
 /// fixed display-point widths at every Grid zoom from `MIN_ZOOM` to
-/// `MAX_ZOOM` — never multiplied by `GridViewport::cell_scale`, the
-/// zoom-scaled behaviour `.scratch/theming/issues/06` slice C replaces.
+/// `MAX_ZOOM` — never multiplied by `GridViewport::cell_scale`.
 /// The single selected Cell's own stroke is chained in against
 /// `grid_border_width` too: Okabe–Ito's `cell.selection.border.width` is
 /// also 0.5, the same coincidence `a_cell_border_is_one_grid_line_wide_
@@ -4225,8 +4207,7 @@ async fn a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_gr
         "a frame scrolled more than one Cell: {far:?}"
     );
     // Never past the Grid: a Cursor on the last Column brings the margin
-    // past it into view, and the console's right edge meets the margin's
-    // (ADR 0047).
+    // past it into view, and the console's right edge meets the margin's.
     assert_eq!(view.pan.x, screen.width() - 32.0 * side - 2.0 * MARGIN);
     assert_eq!(selected_cell(&orcvs), (31, 5));
 }
@@ -4337,11 +4318,11 @@ fn pinned_at(view: &mut SourceView, pan: Vec2, zoom: f32) {
 /// `GridViewport::visible_positions`' real answer rather than with a
 /// counter the console keeps for a test's benefit.
 ///
-/// The shape total is a bound rather than an equality. Issue 04 coalesces
-/// consecutive backgrounds into one rectangle, so a row's shapes are not
+/// The shape total is a bound rather than an equality. Consecutive
+/// backgrounds coalesce into one rectangle, so a row's shapes are not
 /// one per Cell and the two totals are not proportional. What the bound
-/// says is the claim this change makes: cost follows the viewport, not the
-/// Source. No frame time is asserted — epaint already discards off-screen
+/// says is that cost follows the viewport, not the Source. No frame time
+/// is asserted — epaint already discards off-screen
 /// shapes at tessellation (`coarse_tessellation_culling`), so what this
 /// saves is Cell iteration and Shape construction. The Cell iteration is
 /// counted in `paint.rs`, which needs no `Context` to count it.
@@ -4521,8 +4502,8 @@ async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
 /// Every sector seam the Render Frame asks for inside a culled viewport is
 /// painted, so culling cannot drop a seam a viewer can see.
 ///
-/// This is the acceptance criterion about seams at the edges of the visible
-/// range, asserted from the Render Frame at a zoom that culls on all four
+/// This covers seams at the edges of the visible range, asserted from the
+/// Render Frame at a zoom that culls on all four
 /// sides. `sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor`
 /// runs on a default `SourceView` — the fit, with every Position drawn — so
 /// it says nothing about a range-limited row.
@@ -4531,7 +4512,7 @@ async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
 /// the clip's own edge is what the clip is entitled to discard, and it is
 /// the only thing the one-Cell margin reaches: a margin Cell's left edge is
 /// the right boundary of what is shown, never inside it. So this test pins
-/// the criterion, and the margin is the separate, deliberate over-draw its
+/// the claim above, and the margin is the separate, deliberate over-draw its
 /// own comment describes.
 ///
 /// Two pans rather than one, because which seams land strictly inside the
@@ -4717,7 +4698,7 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
 }
 
 ///
-/// Pinch and command-wheel no longer Zoom. Zoom is a change of Cell size
+/// Pinch and command-wheel do not Zoom. Zoom is a change of Cell size
 /// from the keyboard alone.
 ///
 #[tokio::test]
@@ -4856,7 +4837,7 @@ async fn command_zoom_stops_at_the_range_limits() {
 /// View back inside the Grid, through the same `clamp_pan` a Pan uses.
 ///
 /// The Cursor is moved to the Cell the pinned Pan already shows, at the
-/// far corner, so issue 05's follow has nothing to do here: what settles
+/// far corner, so the Cursor follow has nothing to do here: what settles
 /// the gap below is `clamp_pan` alone, which is this test's own claim.
 ///
 #[tokio::test]
@@ -4899,7 +4880,7 @@ async fn a_command_zoom_that_would_open_a_gap_settles_the_source_view_back_insid
 
 ///
 /// A fresh `SourceView`'s first frame does not Pan to the Cursor, however
-/// far a fixture puts it from an unpanned top-left origin. Issue 05's
+/// far a fixture puts it from an unpanned top-left origin. The Cursor
 /// follow needs a previous Cursor to compare against, and there is none
 /// yet on the very first frame — the same reason a Source reload would
 /// not surprise a viewer either.
@@ -4953,7 +4934,7 @@ async fn a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it() {
 ///
 /// A Cursor move onto the Grid's last or first Column and Row brings the
 /// margin past that edge into view with it, so the Grid's edge shows as
-/// an edge rather than flush against the console's (ADR 0047).
+/// an edge rather than flush against the console's.
 ///
 #[tokio::test]
 async fn a_cursor_follow_to_an_edge_cell_shows_the_margin_past_it() {
@@ -5223,8 +5204,8 @@ async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
 }
 
 ///
-/// The double click that returned to the fit is gone, along with the fit.
-/// A double click inside the Grid still selects the Cell under it.
+/// A double click inside the Grid selects the Cell under it and leaves the
+/// view where it was.
 ///
 #[tokio::test]
 async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
@@ -5258,7 +5239,7 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
 /// under the pointer.
 ///
 /// `Response::drag_delta` divides by the layer transform's scaling *only
-/// when the layer has one* (`response.rs:452-465`). With the transform
+/// when the layer has one* (`Context::layer_transform_from_global`). With the transform
 /// owned by the console there is no layer transform, so a leftover
 /// multiply by the Zoom would move the Source by the Zoom times the
 /// pointer. Zoom 2.0 is what makes that bug visible.
@@ -5373,8 +5354,6 @@ async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
 }
 
 ///
-/// **The acceptance criterion the whole effort exists for.**
-///
 /// No layer the Source Grid is painted into carries a transform, so no
 /// `TextShape` in it reaches `Arc::make_mut`. `GraphicLayers::drain`
 /// applies a layer's transform to every shape in it at end of pass, and for
@@ -5446,9 +5425,9 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
         None,
         "the Source Grid's own layer carries a transform"
     );
-    // Not just that layer: no layer at all. The Scene painted into a
+    // Not just that layer: no layer at all. An egui `Scene` paints into a
     // sublayer of its own, so checking only the layer the console paints
-    // into would miss the transform that used to exist.
+    // into would miss its transform.
     assert!(
         ctx.memory(|memory| memory.to_global.is_empty()),
         "a layer transform survived: {:?}",

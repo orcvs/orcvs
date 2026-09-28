@@ -10,12 +10,11 @@ use crate::grid_viewport::CELL_SIZE;
 /// (ADR 0053: "A Theme decides how things look, never how much they move.").
 ///
 /// The Effect's colours — the Cursor frame, the living-field area, the
-/// Region fill and the two optional Cell fills — moved to the resolved
-/// `crate::theme::Theme` (`.scratch/theming/issues/06`): `cursor.border`,
-/// `region.border`, `cursor.area`, `region.background`,
-/// `cursor.background` and `region.cursor.background`. `crate::style::style`
-/// and `crate::paint` read those directly; this settings value carries only
-/// what `.scratch/theming/issues/09` still owns.
+/// Region fill and the two optional Cell fills — are on the resolved
+/// `crate::theme::Theme`: `cursor.border`, `region.border`, `cursor.area`,
+/// `region.background`, `cursor.background` and `region.cursor.background`.
+/// `crate::style::style` and `crate::paint` read those directly; this settings
+/// value carries only the motion.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CursorEffectSettings {
@@ -151,9 +150,9 @@ impl CursorEffectAnimation {
 
     ///
     /// `None` when the effect has no scheduled change to wake for: either
-    /// value zero is enough. `.scratch/theming/issues/09`: amount zero paints
-    /// a stationary frame regardless of frequency, so a positive frequency
-    /// alone must not keep scheduling a wake for a frame that never changes.
+    /// value zero is enough. Amount zero paints a stationary frame regardless
+    /// of frequency, so a positive frequency alone must not keep scheduling a
+    /// wake for a frame that never changes.
     ///
     pub(crate) fn repaint_after(
         self,
@@ -209,12 +208,9 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// outline's colour and nominal width taken together, as one choice, from
 /// `cursor.border`/`cursor.border.width` for the Cursor's own frame or
 /// `region.border`/`region.border.width` for the lasso around a Region larger
-/// than one Cell — `.scratch/theming/issues/06` moved both out of
-/// [`CursorEffectSettings`], which now carries only the motion `settings`
-/// decide from here. The width is a fixed display-point nominal width, never
-/// scaled by `cell_size`/Grid zoom (`.scratch/theming/issues/06` slice C).
-/// Zero hides every frame stroke outright — see this module's private
-/// `frame_shapes` — without touching the living-area fill `area_colour` and
+/// than one Cell. The width is a fixed display-point nominal width, never
+/// scaled by `cell_size`/Grid zoom. Zero hides every frame stroke outright —
+/// see this module's private `frame_shapes` — without touching the living-area fill `area_colour` and
 /// `amount` still control. `motion` is this frame's sample and the settings
 /// it was advanced under.
 ///
@@ -267,13 +263,12 @@ pub fn cursor_effect_shapes(
 /// computes is what a fully opaque `colour` would want as its literal alpha
 /// byte, divided back out of 255 — `gamma_multiply` reapplies it through
 /// `colour.a()` rather than through an assumed 255, so a transparent
-/// `colour` (`a() == 0`) multiplies to exactly zero for every candidate
-/// rather than the flat `alpha.clamp(1.0, 255.0)` floor this replaced, which
-/// used to paint a faint minimum speck even when the Theme's own `cursor.area`
-/// asked for nothing at all. Reading `colour.r()/g()/b()` directly and handing
-/// them to [`Color32::from_rgba_unmultiplied`] — this function's own bug
-/// before this fix — would instead treat those premultiplied bytes as a
-/// straight triple and premultiply them a second time by the new alpha,
+/// `colour` (`a() == 0`) multiplies to exactly zero for every candidate. Do
+/// not floor the alpha: a floor paints a faint minimum speck even when the
+/// Theme's own `cursor.area` asks for nothing at all. Reading
+/// `colour.r()/g()/b()` directly and handing them to
+/// [`Color32::from_rgba_unmultiplied`] would instead treat those premultiplied
+/// bytes as a straight triple and premultiply them a second time by the new alpha,
 /// shifting the hue and, at `colour.a() == 0`, discarding the caller's colour
 /// entirely in favour of black.
 ///
@@ -621,10 +616,9 @@ mod tests {
     }
 
     ///
-    /// Amount zero paints a stationary frame regardless of frequency
-    /// (`frame_shapes`'s `amount == 0.0` branch never reads it), so a
-    /// positive frequency alone must not keep `repaint_after` scheduling a
-    /// wake for a frame that never changes.
+    /// Amount zero paints a stationary frame (`frame_shapes`'s `amount == 0.0`
+    /// branch never reads the frequency), so `repaint_after` schedules no wake
+    /// for it.
     ///
     #[test]
     fn zero_amount_with_positive_frequency_requests_no_repaint() {
@@ -634,9 +628,8 @@ mod tests {
     }
 
     ///
-    /// `.scratch/theming/issues/09`: "Frequency zero freezes the current
-    /// effect, which may retain decorative fragmentation when amount is
-    /// nonzero." The frozen `CursorEffectSample` a zero-frequency
+    /// Frequency zero freezes the current effect, which may retain decorative
+    /// fragmentation when amount is nonzero. The frozen `CursorEffectSample` a zero-frequency
     /// `CursorEffectAnimation` keeps handing out still paints through the
     /// fragmented branch whenever amount is nonzero: frequency governs only
     /// how often `advance` changes the sample it hands `cursor_effect_shapes`,
@@ -829,8 +822,7 @@ mod tests {
 
     ///
     /// A Cell's frame is the Cursor's frame whichever way it is asked for, so
-    /// generalising the frame to a Region left the Cursor's presentation as it
-    /// was.
+    /// a one-Cell outline presents exactly as the Cursor does.
     ///
     #[test]
     fn a_one_cell_outline_is_the_cursors_own_frame() {
@@ -854,11 +846,10 @@ mod tests {
     }
 
     // The Region fill, the Cursor's optional Cell fill, and the Cursor's
-    // optional fill within a Region moved to the resolved Theme
-    // (`.scratch/theming/issues/06`): `region.background`,
-    // `cursor.background` and `region.cursor.background`. Their defaults,
-    // optional-fill states and inheritance are `theme::tests`' subject now
-    // — `okabe_ito_defines_every_key_at_the_schema_values`,
+    // optional fill within a Region are on the resolved Theme:
+    // `region.background`, `cursor.background` and `region.cursor.background`.
+    // Their defaults, optional-fill states and inheritance are `theme::tests`'
+    // subject — `okabe_ito_defines_every_key_at_the_schema_values`,
     // `omitted_optional_fills_inherit_the_parent`,
     // `explicit_none_clears_the_optional_fill_even_over_a_parent_colour` and
     // `explicit_transparent_colour_is_a_supplied_value_not_a_clear`.
@@ -954,8 +945,6 @@ mod tests {
     /// 0.0` and every animated fragment it draws otherwise — without
     /// disabling the living-area fill `amount` and `area_colour` still
     /// control, at several Grid zoom levels from `MIN_ZOOM` to `MAX_ZOOM`.
-    /// `.scratch/theming/issues/06`: "Width 0 hides every affected stroke
-    /// without disabling fills or changing motion preferences."
     ///
     #[test]
     fn zero_frame_width_hides_every_stroke_at_every_amount_and_zoom() {
@@ -1059,8 +1048,8 @@ mod tests {
                 stroked.stroke.width, FRAME_WIDTH,
                 "the stationary outline scaled with cell_size {cell_size}"
             );
-            // `.scratch/theming/issues/09`: "without decorative noise" —
-            // amount zero also skips the living-area fill outright.
+            // Amount zero is without decorative noise: it also skips the
+            // living-area fill outright.
             assert!(
                 effects.area.is_empty(),
                 "amount zero painted decorative area noise at cell_size {cell_size}"
@@ -1073,9 +1062,7 @@ mod tests {
     /// reproduced across every Grid zoom level from `MIN_ZOOM` to `MAX_ZOOM`:
     /// the same `sample` and `width` produce the identical set of stroke
     /// widths whatever `cell_size` is, because the modulation is a function
-    /// of the sample and the nominal width alone
-    /// (`.scratch/theming/issues/06`: "Cursor/Region effect width is
-    /// nominal... without Grid zoom scaling").
+    /// of the sample and the nominal width alone.
     ///
     #[test]
     fn animated_fragment_widths_modulate_the_nominal_width_and_never_the_grid_zoom() {
@@ -1124,14 +1111,11 @@ mod tests {
 
     ///
     /// A fully transparent `cursor.area` colour paints neither a tear nor a
-    /// strand — the fix for the bug this function used to carry: reading
-    /// `colour.r()/g()/b()` (already zero at zero alpha, since `Color32`'s
-    /// premultiplied bytes collapse a transparent colour to `(0, 0, 0, 0)`
-    /// regardless of its straight RGB) and handing them to
+    /// strand. Reading `colour.r()/g()/b()` (already zero at zero alpha, since
+    /// `Color32`'s premultiplied bytes collapse a transparent colour to
+    /// `(0, 0, 0, 0)` regardless of its straight RGB) and handing them to
     /// `Color32::from_rgba_unmultiplied` with a `.clamp(1.0, 255.0)`-floored
-    /// alpha always produced a faint but nonzero speck.
-    /// `.scratch/theming/issues/06`: "Fix Cursor area alpha propagation so
-    /// transparent area colour produces no visible tears or strands."
+    /// alpha would always produce a faint but nonzero speck.
     ///
     #[test]
     fn zero_alpha_area_colour_paints_no_tears_or_strands() {
@@ -1163,11 +1147,9 @@ mod tests {
     /// colour's own straight RGB regardless of the alpha `area_shapes`
     /// computed for it. This is what distinguishes correct premultiplied
     /// scaling (`Color32::gamma_multiply`, which scales r/g/b/a together)
-    /// from the old bug (reading the premultiplied bytes as a straight
-    /// triple and re-premultiplying them a second time), which would have
-    /// shifted the hue here since the fixture's colour is not fully opaque.
-    /// `.scratch/theming/issues/06`: "partial alpha is respected consistently
-    /// without treating premultiplied RGB as straight RGB."
+    /// from reading the premultiplied bytes as a straight triple and
+    /// re-premultiplying them a second time, which would shift the hue here
+    /// since the fixture's colour is not fully opaque.
     ///
     #[test]
     fn partial_alpha_area_colour_is_respected_and_keeps_the_colours_hue() {
@@ -1208,9 +1190,9 @@ mod tests {
             // rounds each of r/g/b/a independently. Comparing
             // `painted.channel() * colour.a()` against
             // `colour.channel() * painted.a()` proves the same proportion
-            // without a division, and the old bug's magnitude — reading
+            // without a division, and the error from reading
             // `colour.r()/g()/b()` as already-straight bytes and
-            // re-premultiplying them a second time by the new alpha — is
+            // re-premultiplying them a second time by the new alpha is
             // still far outside the ~500 a correct scaling's rounding can
             // reach here (`colour.a()` and `painted.a()` both under 256, so
             // one rounding step on either side of the cross product moves it

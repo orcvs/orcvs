@@ -15,9 +15,9 @@
 //! on the `Context`, runs the same `eframe::App`, and hands back a queryable
 //! tree, so `get_by_label("View")` fails when the console stops offering a
 //! control by that name. The harness is `Harness::build_eframe`, which calls
-//! `App::logic` and `App::ui` with no wrapper of its own
-//! (`egui_kittest-0.36.2/src/app_kind.rs:36-44`), so what runs here is the
-//! shipped `Console::ui` and not a second UI written for a test.
+//! `App::logic` and `App::ui` with no wrapper of its own (`AppKind::run`), so
+//! what runs here is the shipped `Console::ui` and not a second UI written for
+//! a test.
 //!
 //! # The two halves of the console, and why the assertions differ across them
 //!
@@ -29,11 +29,11 @@
 //! rectangle over the whole Grid and paints every Cell into it. `Sense::CLICK`
 //! rather than `Sense::click()` keeps that rectangle out of the keyboard tab
 //! order, which is the input-routing this module relies on; Cells are painted
-//! rather than instantiated as widgets, and must not become widgets solely so
-//! a test can query them. One `Painter::extend` rather than a `Painter::add`
-//! per Cell. So there is no widget per Cell to query and there must not become
-//! one: minting a thousand AccessKit nodes to please a test tool would undo
-//! the change ADR 0040 and `show_source` were written to make.
+//! rather than instantiated as widgets, with one `Painter::extend` rather than
+//! a `Painter::add` per Cell. So there is no widget per Cell to query and there
+//! must not become one: minting a thousand AccessKit nodes to please a test
+//! tool would undo the painting on one untransformed layer that ADR 0038
+//! records.
 //!
 //! What the Source Grid offers instead is a geometry contract —
 //! `presented_grid` maps the owned transform onto a `GridViewport`,
@@ -353,7 +353,7 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
     );
 }
 
-// === Theme switching (`.scratch/theming/issues/04`) ===
+// === Theme switching ===
 
 ///
 /// Every filled rectangle the last frame painted, on every layer.
@@ -731,8 +731,8 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
 
 ///
 /// The backdrop the web clears to agrees with the frame it sits under.
-/// eframe's web runner asks `clear_color` after the frame
-/// (`eframe-0.36.2/src/web/app_runner.rs`, `paint` after `logic`), so on the
+/// eframe's web runner asks `clear_color` after the frame (its
+/// `AppRunner::paint` runs after `AppRunner::logic`), so on the
 /// frame a mode is chosen in — still wholly the old Theme — the backdrop is
 /// the old Theme's too, and the next frame's is the new one's. A translucent
 /// loaded Theme would otherwise show the other Theme's backdrop through it.
@@ -912,10 +912,9 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 }
 
 ///
-/// Issue 05's own criterion, end to end: an ArrowRight run that pushes the
-/// Cursor past the console Pans the Source View to bring it back, the same
-/// frame the keys reach the Source (`Console::ui` reads the Render Frame
-/// after `Orcvs::event_handler` runs).
+/// End to end: an ArrowRight run that pushes the Cursor past the console Pans
+/// the Source View to bring it back, the same frame the keys reach the Source
+/// (`Console::ui` reads the Render Frame after `Orcvs::event_handler` runs).
 ///
 /// This Zooms to `MAX_ZOOM` first, so Column 40 lies past the default
 /// window's far edge — command Zoom is keyboard-only and leaves
@@ -1150,7 +1149,7 @@ fn shortcut_text(harness: &Harness<'_, Console>, shift: bool, key: Key) -> Strin
 }
 
 ///
-/// An Open leaves the viewer's settings standing: the Theme (ADR 0053),
+/// An Open leaves the viewer's settings standing: the Theme,
 /// Cursor effects, and whether Diagnostics is showing.
 ///
 #[tokio::test]
@@ -1198,8 +1197,7 @@ async fn an_open_leaves_every_setting_standing() {
 
 ///
 /// An Open whose Orcvs cannot start leaves the console on the Source it
-/// already had. Opening outside a runtime is what makes the start fail
-/// (ADR 0041).
+/// already had. Opening outside a runtime is what makes the start fail.
 ///
 #[test]
 fn an_open_that_cannot_start_leaves_the_running_source_standing() {
@@ -1460,10 +1458,10 @@ async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer()
 }
 
 ///
-/// Issue 06's own criterion, end to end: Alt (Option) held with a primary
-/// drag Pans the Source View through the shipped `Console`, moves the Cursor
-/// nowhere, and reaches the Source as nothing — the whole input path a
-/// trackpad with no middle button takes to Pan by dragging.
+/// End to end: Alt (Option) held with a primary drag Pans the Source View
+/// through the shipped `Console`, moves the Cursor nowhere, and reaches the
+/// Source as nothing — the whole input path a trackpad with no middle button
+/// takes to Pan by dragging.
 ///
 #[tokio::test]
 async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
@@ -1526,7 +1524,7 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
 ///
 /// The pointer announces a drag Pan: a grab hand while Alt is held over the
 /// console, a grabbing hand while the Alt-held primary drag or a middle-drag
-/// is Panning, and the ordinary pointer once neither is (ADR 0047).
+/// is Panning, and the ordinary pointer once neither is.
 ///
 #[tokio::test]
 async fn the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_pans() {
@@ -1603,9 +1601,9 @@ async fn the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_
 
 ///
 /// The grab hand offers a Pan, so it does not show where Alt starts none: partway
-/// through a primary drag that is selecting a Region, which stays a Region drag
-/// (ADR 0046), or over a Grid that with its margins fits the console on both
-/// axes and has nowhere to Pan (ADR 0047).
+/// through a primary drag that is selecting a Region, which stays a Region drag,
+/// or over a Grid that with its margins fits the console on both axes and has
+/// nowhere to Pan.
 ///
 #[tokio::test]
 async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
@@ -1691,11 +1689,11 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 }
 
 ///
-/// Issue 05's own criterion for a click, end to end and under the one
-/// condition where nothing *Console-specific* repaints on its own: reduced
-/// motion zeroes the Cursor Effect's frequency and this console never starts
-/// Playback, so `Console::ui` itself asks for no further frame once the click
-/// has been handled.
+/// A click's follow, end to end and under the one condition where nothing
+/// *Console-specific* repaints on its own: reduced motion zeroes the Cursor
+/// Effect's frequency and this console never starts Playback, so
+/// `Console::ui` itself asks for no further frame once the click has been
+/// handled.
 ///
 /// A click's Cursor move reaches the Source only once `Console::ui` calls
 /// `orcvs.select` after `show_source_scene` returns (see that function's own
@@ -1706,17 +1704,16 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// would paper over a missing repaint request by supplying the frame anyway.
 ///
 /// It runs regardless: pinned egui 0.36.2's own `InputState::wants_repaint_after`
-/// (`egui-0.36.2/src/input_state/mod.rs:655-678`) answers an immediate repaint
-/// for any pass whose `RawInput` carries events — which the click's own
-/// resolving `PointerButton` release does — and `Context::request_repaint_after`
-/// answers that with *two* repaints rather than one, "to give some things
-/// time to settle" and "solve some corner-cases of missing repaints on
-/// frame-delayed responses" (`egui-0.36.2/src/context.rs:128-137`). That
-/// second, free repaint is exactly the frame after a click needs, supplied by
-/// the toolkit itself rather than by anything Console asks for — so this
-/// holds even with reduced motion on and Playback stopped, the one
-/// combination in which Console's own repaint scheduling asks for nothing at
-/// all.
+/// answers an immediate repaint for any pass whose `RawInput` carries events —
+/// which the click's own resolving `PointerButton` release does — and
+/// `Context::request_repaint_after` answers that with *two* repaints rather than
+/// one, "to give some things time to settle" and "solve some corner-cases of
+/// missing repaints on frame-delayed responses" (egui's comment in
+/// `ContextImpl::request_repaint_after`). That second, free repaint is exactly
+/// the frame after a click needs, supplied by the toolkit itself rather than by
+/// anything Console asks for — so this holds even with reduced motion on and
+/// Playback stopped, the one combination in which Console's own repaint
+/// scheduling asks for nothing at all.
 ///
 /// The console is resized to a width that is not a multiple of `CELL_SIZE`,
 /// so Column 10 (192..208 at Zoom 1.0, after the two-Cell margin) is cut off
@@ -1776,8 +1773,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 ///
 /// Egui states the rule itself: `RawInput::events` has "no way to know if
 /// egui handles a particular event, but you can check if egui is using the
-/// keyboard with `Context::egui_wants_keyboard_input`"
-/// (`egui-0.36.2/src/data/input/raw_input.rs:56-60`).
+/// keyboard with `Context::egui_wants_keyboard_input`".
 ///
 #[tokio::test]
 async fn a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source() {
@@ -1801,7 +1797,7 @@ async fn a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source
     harness.step();
     harness.run_steps(1);
     // A pointer click on an item closes the menu it sits in
-    // (`PopupCloseBehavior::CloseOnClick`, `egui-0.36.2/src/containers/popup.rs:78-82`),
+    // (`PopupCloseBehavior::CloseOnClick`, egui's default for menus),
     // so the viewer who reaches one arrives by keyboard: Tab walks egui's
     // focus order into the open menu.
     let item_focused = |harness: &Harness<'_, Console>| {
@@ -2020,8 +2016,7 @@ async fn tab_and_shift_tab_move_the_cursor_by_sector_through_the_source_input_pa
 /// `tab_never_focuses_the_console_area_the_source_is_shown_in` guards the
 /// console area specifically; this guards that Tab, while the Source holds
 /// the keys, focuses nothing in the tree at all — not even a menu-bar
-/// button, which `docs/adr/0048-the-source-takes-the-keys-no-control-holds.md`
-/// names as the pre-fix behaviour.
+/// button.
 ///
 #[tokio::test]
 async fn tab_focuses_no_widget_collapses_the_region_and_leaves_typing_open() {
@@ -2074,10 +2069,9 @@ async fn tab_focuses_no_widget_collapses_the_region_and_leaves_typing_open() {
 ///
 /// Tab walks egui's focus order through the chrome and never onto the console
 /// area the Source is shown in. The pan rectangle there senses clicks and
-/// drags, and `Sense::click_and_drag()` is `CLICK | FOCUSABLE | DRAG`
-/// (`egui-0.36.2/src/sense.rs:81-83`): focused, it would count as a control
-/// holding the keyboard, and the Source would get no keys until Escape or a
-/// click.
+/// drags but is not focusable (`show_source_scene` says why): focused, it would
+/// count as a control holding the keyboard, and the Source would get no keys
+/// until Escape or a click.
 ///
 #[tokio::test]
 async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
@@ -2784,7 +2778,7 @@ async fn the_file_chords_run_their_commands_and_never_the_source() {
 
 ///
 /// A File chord pressed while the keys are elsewhere — a menu open, or the
-/// question asking — runs nothing, as a Zoom chord does (ADR 0048).
+/// question asking — runs nothing, as a Zoom chord does.
 ///
 #[tokio::test]
 async fn the_file_chords_run_nothing_while_the_keys_are_elsewhere() {

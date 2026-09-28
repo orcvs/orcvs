@@ -37,16 +37,12 @@ pub(crate) struct CellVisuals {
 /// (see [`source_paint_visuals`]).
 ///
 /// Composes the Source Paint decision with Cursor precedence, applied here
-/// rather than inside it: the Cursor's own fill beats a role's channel
-/// outright on its own Cell, and the single-Cell Cursor's own border
-/// (`selection.border`/`.rest`) draws regardless of what stands on the Cell.
-/// Every other Cell's border instead depends on what stands there:
-/// [`ordinary_border`] composites Diagnostic/Output Portal over the ordinary
-/// Grid border by the same fact priority `role_and_portal` already applies
-/// to foreground and background. `paint` is the per-Cell language fact
-/// `RenderCell::source_paint` answers from the shared Claim (ADR 0052),
-/// including Pending, Valid, or Invalid for an Operand. `output_portal` is
-/// the independent fact added by `syntax-highlighting/06`: whether this Cell
+/// rather than inside it: the single-Cell Cursor's own border
+/// (`selection.border`/`.rest`) draws regardless of what stands on the Cell,
+/// and every other Cell's border is [`ordinary_border`]'s. `paint` is the per-Cell language fact
+/// `RenderCell::source_paint` answers from the shared Claim, including
+/// Pending, Valid, or Invalid for an Operand. `output_portal` is an
+/// independent fact: whether this Cell
 /// lies in a root Function's Output Portal Reservation
 /// (`RenderCell::output_portal`), known from the current Source revision
 /// alone.
@@ -74,9 +70,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
     // `.scratch/theming/schema.md`'s Source composition step 5. Every other
     // Cell, including a multi-Cell Region's Cursor Cell (`selected` is false
     // there — see [`crate::paint::Paint::derive_with_theme`]), keeps the
-    // ordinary Grid border, which [`ordinary_border`] composites with
-    // Diagnostic/Output Portal by the same fact priority `role_and_portal`
-    // already applies to foreground and background.
+    // ordinary Grid border.
     let (border, border_width) = if cursor_visible {
         (
             theme.selection_border,
@@ -133,8 +127,7 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
 ///
 /// [`cell_visuals_with_cursor_colour`]'s answer for every Cell that is not
 /// the single-Cell Cursor, resolved from `theme` once per Paint rather than
-/// once per Cell — `.scratch/theming/issues/06`'s "resolve the Theme once per
-/// frame into a flat lookup" constraint.
+/// once per Cell.
 ///
 /// An unselected Cell's visuals depend only on its Source Paint fact and its
 /// Output Portal flag (`selected`, `cursor_visible` and the Cursor fill are
@@ -234,9 +227,7 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// Colour composites with [`blend_channel`], equivalent to the pinned [`Color32::blend`] operation
 /// every other channel in this module uses, so `diagnostic.border`'s and
 /// `output_portal.border`'s transparent Okabe–Ito defaults leave
-/// `theme.grid_border` showing unchanged — this is defect 3's fix: neither
-/// channel was read at all before, so a non-transparent custom value never
-/// painted.
+/// `theme.grid_border` showing unchanged.
 ///
 /// Width is *picked* rather than blended — a stroke has one width, and
 /// composing two would not mean alpha compositing — so whichever channel
@@ -359,17 +350,16 @@ pub(crate) fn cell_background(
 /// Foreground and background together, from a Cell's finished Source Paint
 /// fact and whether it lies in a root Function's Output Portal Reservation,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below
-/// is a direct read of, never a per-Cell walk, match over a table, or hash
-/// (`.scratch/theming/issues/06`'s `paint-cell-cost` constraint).
+/// is a direct read of, never a per-Cell walk, match over a table, or hash.
 ///
 /// # Channel composition
 ///
 /// Every composited channel below uses [`compose_cell_fill`] (background) or
 /// [`blend_channel`] (foreground): a transparent Theme channel
 /// therefore reveals whatever sits beneath it, and an opaque one replaces it
-/// outright, which is what lets the Okabe–Ito built-in — every role channel
-/// opaque except Ordinary, Comment and untouched Bang, which are transparent
-/// — reproduce today's exact appearance while an arbitrary custom Theme can
+/// outright, which is what lets the Okabe–Ito built-in — every tinted role
+/// background a translucent tint, and Ordinary, Comment and untouched Bang
+/// transparent — reproduce its recorded appearance while an arbitrary custom Theme can
 /// still compose partial alpha correctly. [`role_and_portal`] answers the
 /// foreground and the *raw*, not-yet-composited background (a role's own
 /// channel, blended with Diagnostic and Output Portal as those apply); this
@@ -402,14 +392,13 @@ pub(crate) fn cell_background(
 ///
 /// # Output Portal precedence
 ///
-/// `output_portal` (`RenderCell::output_portal()`, `.scratch/syntax-
-/// highlighting/issues/05`'s and `10`'s Answers) is read first, because the
-/// Reservation it names "covers every Cell of the Reservation whatever else
-/// claims it" (`05`'s Overlap rule) — a written scalar or Sequence answer, an
+/// `output_portal` (`RenderCell::output_portal()`) is read first, because the
+/// Reservation it names covers every Cell of the Reservation whatever else
+/// claims it — a written scalar or Sequence answer, an
 /// empty Cell still waiting for one, or another Expression's operand slot the
 /// Reservation happens to land on. The one exception is a bound Function
-/// claim: a Cell that is itself a Function's own two-Cell spelling —
-/// `syntax-highlighting/06`'s precedence decision — keeps its Function paint
+/// claim: a Cell that is itself a Function's own two-Cell spelling keeps its
+/// Function paint
 /// outright, root or nested, the same as when `output_portal` is false. That
 /// is the smallest rule that both lets a producer's Output Portal show
 /// through a consumer's operand Cells (the written value is the producer's
@@ -526,8 +515,8 @@ fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
 /// Pending slot draws `colour` outright, and an Invalid one — Cells whose
 /// written content failed to bind — blends the Diagnostic foreground channel
 /// over it, so a transparent `diagnostic.foreground` still reveals the
-/// declared role while an opaque one (Okabe–Ito's) replaces it exactly as
-/// before. `.+0`'s second operand is this Invalid case: one Cell holds `0`,
+/// declared role while an opaque one (Okabe–Ito's) replaces it. `.+0`'s
+/// second operand is this Invalid case: one Cell holds `0`,
 /// the other is blank, and `written` is true for the whole slot, so both
 /// Cells alike answer Diagnostic — `paint.rs`'s blank-glyph fallback is what
 /// keeps the blank one's colour from ever being drawn, not a different
@@ -578,7 +567,7 @@ pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
 /// `widget.inactive.border` (+ `.width`), `widget.border.width`, `link`,
 /// `code.background`, `input.cursor` (+ `.width`), `error` and `warning` —
 /// so a custom Theme's chrome follows its own colours and widths the same
-/// way the Source Grid already does (`.scratch/theming/issues/06`). After
+/// way the Source Grid does. After
 /// this, nothing the console draws is a compiled constant, and no toolkit
 /// default is a second, hidden fixed palette beside it.
 ///
@@ -608,8 +597,8 @@ pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
 ///
 /// `visuals.widgets.hovered`/`.active.fg_stroke` read `text.active`, not
 /// `selection.border`: Okabe–Ito's own values for the two happen to
-/// coincide, which is why reading the wrong key would still reproduce
-/// today's appearance — `hovered_and_active_foreground_reads_text_active_
+/// coincide, which is why reading the wrong key would still look right
+/// under Okabe–Ito — `hovered_and_active_foreground_reads_text_active_
 /// not_selection_border` retunes them apart to prove the wiring.
 ///
 /// `Visuals::dark_mode`, and every other field `Visuals::dark`/`Visuals::light`
@@ -631,17 +620,13 @@ pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
 /// stroke — `.scratch/theming/schema.md`'s width catalogue) rather than a
 /// literal `1.0`: `panel.border.width` for the panel/window/noninteractive
 /// border, `widget.border.width` for the hovered/active/open widget border,
-/// `widget.inactive.border.width` for the idle widget border (replacing the
-/// literal `Stroke::NONE` it used to be — the same absence today, since the
-/// default width is `0`, but now a Theme's own value rather than a
-/// hardcoded one), `selection.border.width` for text selection, and
+/// `widget.inactive.border.width` for the idle widget border,
+/// `selection.border.width` for text selection, and
 /// `input.cursor.width` for the caret and the active IME underline.
 ///
 pub fn style(theme: &Theme) -> Style {
     // Pairs a bounded `ChromeWidth` with its colour — every chrome border,
-    // the caret and the IME underlines are one of these pairs, so this
-    // replaces a repeated inline `Stroke::new(theme.x_width.points(), theme.x)`
-    // at each of the seven call sites below with the pairing itself.
+    // the caret and the IME underlines are one of these pairs.
     fn bounded_stroke(width: crate::theme::ChromeWidth, colour: Color32) -> Stroke {
         Stroke::new(width.points(), colour)
     }
@@ -744,7 +729,7 @@ pub fn style(theme: &Theme) -> Style {
 /// without reinstalling a style. `Console::new` calls this every launch so
 /// both slots hold the console's style before the first frame, whatever the
 /// preference resolves to; a `set_theme` call here would overwrite the very
-/// value just restored (`.scratch/theming/issues/02`). The console calls it
+/// value just restored. The console calls it
 /// again when a viewer picks a different Theme for either appearance.
 ///
 /// egui then chooses the slot each frame from the preference and the
@@ -826,8 +811,8 @@ mod tests {
     /// sets it in production, so a test that does not exercise Cursor
     /// precedence need not repeat it.
     ///
-    /// `paint` is the per-Cell language fact (ADR 0052), fed in as
-    /// itself. Deriving it here from a hand-built claim would restate
+    /// `paint` is the per-Cell language fact, fed in as itself. Deriving it
+    /// here from a hand-built claim would restate
     /// `RenderCell::source_paint` — a restatement
     /// nothing compares against, free to drift from the mapping it copies
     /// while every test here stays green. Which claim a written Source
@@ -885,21 +870,12 @@ mod tests {
     ///
     /// Every field `style` sets is asserted here, field by field rather than
     /// one `Visuals` equality, so a regression names the one field that
-    /// moved instead of a giant struct diff — the practical equivalent of
-    /// comparing the whole produced `Visuals` against the pre-`03` baseline,
-    /// since every value below is what that baseline already painted
-    /// (`weak_text_color`, `hyperlink_color`, `code_bg_color`, `text_cursor`
-    /// and the IME underlines were egui's own inherited defaults then, not
-    /// yet Theme-read, but numerically identical — that is the audit's own
-    /// point). **One exception, noted rather than hidden**:
-    /// `widgets.inactive.bg_stroke` was the literal `Stroke::NONE` before
-    /// this issue and is now `Stroke::new(0.0, theme.widget_inactive_border)`
-    /// — a real `Color32`, not `TRANSPARENT`, at zero width. Both paint
+    /// moved instead of a giant struct diff. `widgets.inactive.bg_stroke` is
+    /// `Stroke::new(0.0, theme.widget_inactive_border)` — a real `Color32`,
+    /// not `TRANSPARENT`, at zero width — and not `Stroke::NONE`. Both paint
     /// nothing (`chrome_border_widths_come_from_the_theme` pins the zero
     /// width; the geometry step, not this one, drops a zero-width stroke),
-    /// so the *visible* chrome is unchanged, but the value itself is not
-    /// byte-identical to the old constant, which is why this is called out
-    /// explicitly instead of asserted as `Stroke::NONE`.
+    /// but the values differ, which is why it is asserted as it is.
     ///
     #[test]
     fn okabe_ito_chrome_matches_the_decided_record() {
@@ -957,8 +933,7 @@ mod tests {
 
         // text.muted: egui's own weak-text formula (`text_color() *
         // weak_text_alpha`, `weak_text_alpha` defaulting to 0.6) restated as
-        // an explicit value — the exact check the deleted `theme::tests::
-        // okabe_ito_matches_todays_style_and_palette_constants` carried.
+        // an explicit value.
         assert_eq!(
             visuals.weak_text_color,
             Some(ordinary.gamma_multiply(0.6)),
@@ -1143,11 +1118,10 @@ mod tests {
 
     ///
     /// `.scratch/theming/schema.md`'s Chrome mapping table: "Links; code
-    /// spans | `link`; `code.background`". Neither was read by `style`
-    /// before this Theme: egui's own defaults for `hyperlink_color` and
-    /// `code_bg_color` happened to equal Okabe–Ito's `link`/`code.background`
-    /// values, which is exactly the "second fixed palette hidden in
-    /// `Visuals` defaults" the audit line exists to catch.
+    /// spans | `link`; `code.background`". egui's own defaults for
+    /// `hyperlink_color` and `code_bg_color` equal Okabe–Ito's
+    /// `link`/`code.background` values, which is exactly the "second fixed
+    /// palette hidden in `Visuals` defaults" the audit line exists to catch.
     ///
     #[test]
     fn hyperlinks_and_code_spans_read_the_theme() {
@@ -1205,8 +1179,10 @@ mod tests {
     ///
     /// `.scratch/theming/schema.md`'s width catalogue: chrome border widths
     /// are finite display points 0 to 2 inclusive, and "Zero width
-    /// suppresses that stroke, not fills or other strokes." Retuning each of
-    /// the five chrome width keys changes the matching `Stroke`'s width, and
+    /// suppresses that stroke, not fills or other strokes." Retuning four of
+    /// the five chrome width keys changes the matching `Stroke`'s width
+    /// (`text_cursor_and_ime_underlines_read_input_cursor` reads the fifth,
+    /// `input.cursor.width`, at its default), and
     /// a zeroed width still leaves the stroke's own colour (and every other
     /// field) untouched — the geometry step, not this one, is what turns a
     /// zero-width `Stroke` into nothing drawn.
@@ -1282,9 +1258,8 @@ mod tests {
     ///
     /// `theme.md` is the decided record for Orcvs Light's chrome as well,
     /// pinned the same way `okabe_ito_chrome_matches_the_decided_record`
-    /// pins the dark one — the extension `.scratch/console-testing/issues/03`
-    /// asked for, written so a third Theme extends this suite again rather
-    /// than rewriting it. Every chrome key is asserted at a literal, so a
+    /// pins the dark one, written so a third Theme extends this suite again
+    /// rather than rewriting it. Every chrome key is asserted at a literal, so a
     /// retune of the light definition fails here and the same commit must
     /// move `console/src/theme.md`.
     ///
@@ -1400,8 +1375,9 @@ mod tests {
     }
 
     ///
-    /// ADR 0053's own reading of the upstream docs: "Merely changing
-    /// `Visuals::dark_mode` does not convert a palette." `style` follows
+    /// `docs/research/egui-theming.md`'s reading of the upstream docs:
+    /// "Merely changing `Visuals::dark_mode` does not convert a palette."
+    /// `style` follows
     /// that by starting from `Visuals::dark()`/`Visuals::light()` rather
     /// than flipping the flag alone, so `dark_mode` still tracks
     /// `theme.appearance` exactly.
@@ -1413,7 +1389,7 @@ mod tests {
     }
 
     ///
-    /// `restyle-egui-console/02`'s four prohibitions — no gradients, no
+    /// The four prohibitions — no gradients, no
     /// rounded tiles, no shadows, no animation — hold for every Theme
     /// `style` produces, not only Okabe–Ito's: none of the four is
     /// themeable, so `style` never reads `theme` to decide them.
@@ -1513,9 +1489,8 @@ mod tests {
 
         // A changed Theme reaches `cell_visuals_with_cursor_colour` on the
         // very next call — the Source Grid paints from the resolved Theme,
-        // not from a fixed palette, so a loaded custom Theme's colours
-        // preview immediately once `.scratch/theming/issues/04` lets a
-        // selection paint.
+        // not from a fixed palette, so a selected custom Theme's colours
+        // paint immediately.
         let retuned = Theme {
             source_function: Color32::from_rgb(1, 2, 3),
             ..okabe_ito()
@@ -1579,7 +1554,7 @@ mod tests {
     }
 
     ///
-    /// Defect 1: a Cell's border reads `theme.grid_border`,
+    /// A Cell's border reads `theme.grid_border`,
     /// `theme.selection_border` and `theme.selection_border_rest` — the
     /// resolved Theme, never a fixed constant. Retuning each of the three
     /// changes the matching `CellVisuals::border` on the next call, the way
@@ -1754,7 +1729,7 @@ mod tests {
         // The literal `.scratch/theming/schema.md` records, independent of
         // both the Theme field above and the composition that surfaces it:
         // Function's own foreground colour at 10% alpha, the uniform tint
-        // opacity the user's 2026-09-22 retune gives every tinted role.
+        // opacity every tinted role has.
         assert_eq!(
             function.background,
             Some(Color32::from_rgba_unmultiplied(0x00, 0x9E, 0x73, 0x1A))
@@ -1813,11 +1788,9 @@ mod tests {
     /// background at all on a Function or Operand Cell, the same `None` an
     /// untinted role answers — not `Some` of a transparent colour, which
     /// `background_runs` would still have to walk as a Cell wanting a fill of
-    /// its own. `.scratch/theming/schema.md`'s role backgrounds replace
-    /// `syntax-highlighting/02`'s runtime Fill tint percentage with stored
-    /// values, so this is that ticket's "0% tints nothing" rule restated for
-    /// the Theme model: a role whose background Theme value is transparent,
-    /// not merely a strength of zero.
+    /// its own. `.scratch/theming/schema.md`'s role backgrounds are stored
+    /// values rather than a tint strength, so a role that tints nothing is
+    /// one whose background Theme value is transparent.
     ///
     /// The Function arm is [`SourcePaint::Function`] and stays that: text
     /// that spells no Function is Unclaimed and answers `None` whatever the
@@ -1926,16 +1899,11 @@ mod tests {
     /// `.+c40G`: an unbound Number entry — `c4` or `0G`, neither hexadecimal
     /// — draws its glyph in Diagnostic rather than Number, but keeps the
     /// Number tint on its background: the declared Token stays Number, which
-    /// is why the tint stays (`syntax-highlighting/04`'s own Comment). This is
+    /// is why the tint stays. This is
     /// [`OperandState::Invalid`], which the slot's shared Claim decides for
     /// the whole slot: at least one Cell of it holds content that failed to
-    /// bind. `.+0`'s second operand is the same shape with only one of its
-    /// two Cells written, and its Claim answers Invalid for that
-    /// whole slot too, so its blank Cell answers Diagnostic exactly as its
-    /// written one does — `paint.rs`'s blank-glyph fallback is what keeps a
-    /// Diagnostic foreground from ever being drawn on a Cell with no
-    /// content, not a different verdict for it (ADR 0044). A Valid Number is
-    /// unaffected either way.
+    /// bind; `operand_paint` states the partly written case. A Valid Number
+    /// is unaffected either way.
     ///
     #[test]
     fn an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint() {
@@ -2006,12 +1974,8 @@ mod tests {
     /// An entirely blank Pending slot — an operand a Function has claimed but
     /// nothing yet fills — draws its declared Token colour rather than
     /// Diagnostic: no Cell of the slot holds content, so nothing there has
-    /// failed to bind yet. The tint is unaffected either way:
-    /// `syntax-highlighting/02` tints a Pending, Valid, or Invalid operand
-    /// alike. This has no visible effect today — `paint.rs`'s blank-glyph
-    /// fallback draws no character on a Pending Cell regardless of
-    /// foreground — but it is the distinction [`OperandState`] exists to
-    /// answer correctly rather than by coincidence (ADR 0044).
+    /// failed to bind yet. The tint is unaffected either way: a Pending,
+    /// Valid, or Invalid operand is tinted alike.
     ///
     #[test]
     fn a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic() {
@@ -2029,8 +1993,8 @@ mod tests {
     /// Fill tint instead of whatever its own fact would answer. A written
     /// scalar or Sequence answer is not a third arm —
     /// `RenderCell::source_paint` answers the refused Function spelling it
-    /// parses as with Unclaimed (`.scratch/syntax-highlighting/issues/05`'s
-    /// Answer, pinned from written Source by `orcvs::render_frame`'s
+    /// parses as with Unclaimed (pinned from written Source by
+    /// `orcvs::render_frame`'s
     /// `a_written_07_is_two_one_cell_unbound_function_claims` and
     /// `every_cell_of_a_claim_reads_the_written_answer_its_claim_was_built_with`),
     /// so it is the Unclaimed arm below.
@@ -2043,9 +2007,8 @@ mod tests {
         // role background, not in place of it (`role_and_portal`'s
         // `background.blend(theme.output_portal_background)`) — Unclaimed's
         // own background is fully transparent, so the composite collapses
-        // to the Output Portal tint alone; Number's is not, since the
-        // user's 2026-09-22 retune made every tinted role background
-        // translucent rather than opaque, so its own hue still shows
+        // to the Output Portal tint alone; Number's is not, since every
+        // tinted role background is translucent, so its own hue still shows
         // through under the Portal tint.
         for (paint, role_background) in [
             (SourcePaint::Unclaimed, theme.source_ordinary_background),
@@ -2105,11 +2068,9 @@ mod tests {
     }
 
     ///
-    /// A Bang answer keeps its own Bang glyph colour rather than blending
-    /// with the Output Portal foreground — a Bang is what a Producer emits,
-    /// not a value it writes — but its background still takes the Output
-    /// Portal's own channel in place of its usual transparent one, so it
-    /// still reads as an Output Portal Cell.
+    /// A Bang answer keeps its own Bang glyph colour inside an Output Portal
+    /// but takes the Output Portal's background; `source_paint_visuals`
+    /// states why.
     ///
     #[test]
     fn output_portal_keeps_the_bang_glyph_colour_but_takes_its_own_tint() {
@@ -2128,15 +2089,8 @@ mod tests {
 
     ///
     /// A Cell that is a bound Function's own two-Cell spelling keeps its
-    /// Function paint outright when `output_portal` is also true —
-    /// `.scratch/syntax-highlighting/issues/06`'s precedence decision,
-    /// restated by `.scratch/theming/schema.md` as "A bound Function retains
-    /// all its own paint inside a Portal." This is the smallest rule that
-    /// both lets a producer's Output Portal show through a consumer's
-    /// operand Cells while still letting a reader find the Function that
-    /// stands on a Cell; this layer cannot and need not tell a root's own
-    /// spelling from a nested one to apply it, since every Function's own
-    /// two-Cell spelling carries `Token::Function` regardless of nesting.
+    /// Function paint outright when `output_portal` is also true, root or
+    /// nested; `source_paint_visuals` states why.
     ///
     #[test]
     fn a_bound_function_spelling_wins_over_output_portal() {
@@ -2157,8 +2111,7 @@ mod tests {
     }
 
     ///
-    /// Defect 3: `diagnostic.border` was never read. An Invalid Number
-    /// operand's border composites `theme.diagnostic_border` over
+    /// An Invalid Number operand's border composites `theme.diagnostic_border` over
     /// `theme.grid_border` — the same fact this Cell's foreground and
     /// background already use
     /// (`an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint`) —
@@ -2184,10 +2137,8 @@ mod tests {
     }
 
     ///
-    /// Portal precedence over Diagnostic — schema composition step 4,
-    /// "Portal channels take precedence over other non-Function facts,
-    /// including Diagnostic" — reaches the border channel too: an Invalid
-    /// operand inside an Output Portal takes the Output Portal's own border
+    /// Portal precedence over Diagnostic reaches the border channel too: an
+    /// Invalid operand inside an Output Portal takes the Output Portal's own border
     /// colour and width outright, the same as it already does for foreground
     /// and background
     /// (`invalid_operand_under_output_portal_takes_the_portal_colour`).
@@ -2216,8 +2167,8 @@ mod tests {
     /// fully transparent colour on top is the identity, so this Theme's
     /// Invalid/Portal Cells still show only `theme.grid_border` — which is
     /// what keeps `okabe_ito_reproduces_the_pre_refactor_cell_visuals_
-    /// exactly` passing unchanged even though every such Cell now runs
-    /// through `ordinary_border`.
+    /// exactly` passing although every such Cell runs through
+    /// `ordinary_border`.
     ///
     #[test]
     fn transparent_diagnostic_and_portal_borders_leave_the_grid_border_visible() {
@@ -2235,9 +2186,7 @@ mod tests {
 
     ///
     /// Width zero suppresses the stroke a Diagnostic border would otherwise
-    /// draw, even with an opaque colour — `.scratch/theming/schema.md`'s
-    /// "Width 0 hides the stroke," extended to whichever channel
-    /// `ordinary_border` picks.
+    /// draw, even with an opaque colour.
     /// `console::tests::zero_width_suppresses_only_its_own_border_stroke`
     /// proves the geometry step drops the `Shape` outright once this reaches
     /// it as `0.0`.
@@ -2345,12 +2294,10 @@ mod tests {
     }
 
     ///
-    /// The seam `theming/02-keep-the-restored-theme-preference-at-startup.md`
-    /// fixes: eframe restores `ThemePreference` into egui memory before it
-    /// builds the application, and `install` is what `Console::new` calls
+    /// eframe restores `ThemePreference` into egui memory before it builds
+    /// the application, and `install` is what `Console::new` calls
     /// afterwards. A preference already on the context — standing in for one
-    /// eframe just restored — must survive the call, unlike the removed
-    /// `set_theme(Dark)` call it replaces.
+    /// eframe just restored — must survive the call.
     ///
     #[test]
     fn install_leaves_a_restored_theme_preference_untouched() {
@@ -2367,14 +2314,14 @@ mod tests {
     }
 
     ///
-    /// `.scratch/theming/issues/04`: `style()` of the selected dark Theme
-    /// for `egui::Theme::Dark` and of the selected light Theme for
-    /// `egui::Theme::Light`, each registered through `set_style_of`.
+    /// `style()` of the selected dark Theme for `egui::Theme::Dark` and of
+    /// the selected light Theme for `egui::Theme::Light`, each registered
+    /// through `set_style_of`.
     ///
     /// The comparison is `Visuals` and `animation_time`, the two fields
     /// [`style`] actually sets, rather than `Style`'s own `PartialEq`:
     /// `Style::number_formatter` compares by `Arc::ptr_eq`
-    /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
+    /// (`NumberFormatter`'s `PartialEq`), so two independently built
     /// `Style::default()`s — one inside each `style()` call — never compare
     /// equal on that field alone, whatever their visible content.
     ///
@@ -2401,16 +2348,10 @@ mod tests {
 
     ///
     /// Pins `cell_visuals_with_cursor_colour`'s answer for a representative
-    /// fact set to exact premultiplied byte arrays, captured — not
-    /// recomputed from this module or `theme.rs` — by a temporary
-    /// `eprintln!`-driven test run with `--nocapture`, removed afterwards.
-    /// Originally captured from `ba987f6`, the commit immediately before
-    /// `.scratch/theming/issues/06`'s refactor, as a TDD baseline proving
-    /// the refactor reproduced pre-refactor output rather than arguing the
-    /// algebra should. Every role-background literal was recaptured
-    /// 2026-09-22 against the user's uniform-10%-opacity retune of the
-    /// tinted roles; the values below are current output, not the original
-    /// `ba987f6` capture.
+    /// fact set to exact premultiplied byte arrays captured from its output,
+    /// not recomputed from this module or `theme.rs`, so a change to the
+    /// composition that moves a byte fails here rather than agreeing with
+    /// itself.
     ///
     /// Every role, every Operand binding state Diagnostic distinguishes,
     /// Output Portal over Unclaimed/a Valid operand/Bang (keeps its own
@@ -2418,7 +2359,7 @@ mod tests {
     /// fill winning over a role's tint, an Invalid operand's Diagnostic
     /// glyph, and the rest/visible border pair.
     ///
-    /// One captured `ba987f6` case: the fact `cell_visuals_with_cursor_colour`
+    /// One captured case: the fact `cell_visuals_with_cursor_colour`
     /// was asked about, and the exact premultiplied byte arrays it answered.
     /// A named struct rather than an eight-element tuple, so a field is
     /// named at every use instead of counted by position.
@@ -2438,8 +2379,7 @@ mod tests {
         let theme = okabe_ito();
         let cursor_colour = Some(Color32::from_rgb(9, 8, 7));
 
-        // Every byte array copied verbatim from the `ba987f6` capture
-        // described above.
+        // Every byte array copied verbatim from the capture described above.
         let cases = vec![
             BaselineCase {
                 name: "unclaimed",
