@@ -353,10 +353,6 @@ impl Lookup {
         // linked to the parent that owns it — which is what a replacement's
         // width check relies on. It is cheap to hold in debug builds and silent
         // everywhere else.
-        //
-        // It also pins an ordering `stated::plan_with_answers` depends on: the
-        // `Reserved::Row` that fixture states is a width no declaration
-        // derives, so it can only be written after this has run.
         debug_assert!(
             (0..lookup.nodes.len()).all(|index| {
                 lookup.would_reserve(index, lookup.nodes[index].function)
@@ -399,9 +395,7 @@ impl Lookup {
     /// same guard keeps stable.
     ///
     /// Asked with the computation's own Function it answers what that
-    /// computation already reserves, which `Lookup::new` asserts. The one
-    /// exception is a width `stated::plan_with_answers` states, and that
-    /// fixture refuses to check a replacement against it.
+    /// computation already reserves, which `Lookup::new` asserts.
     fn would_reserve(&self, index: usize, function: Function) -> Reserved {
         reserved_for(&self.nodes, index, function)
     }

@@ -6,10 +6,10 @@
 //! `tick` because destination resolution is the question ADR 0009 expects to
 //! change: a future Cell-addressing model, an infinite canvas among them, moves
 //! a result somewhere else without touching Function evaluation, effect
-//! ordering, or Tick Plan commit. Reads, write admission, Reservations, occupancy, and Jump's
-//! Language Unit share its row-fit calculation; each caller retains the policy
-//! deciding how much coverage it needs, and whether an occupied Portal
-//! diagnoses, activates, locks, copies, or stays silent.
+//! ordering, or Tick Plan commit. Reads, write admission, Reservations,
+//! occupancy, and Jump's Language Unit share its row-fit calculation; each
+//! caller retains the policy deciding how much coverage it needs, and whether
+//! an occupied Portal diagnoses, activates, locks, copies, or stays silent.
 //!
 //! Nothing in this module is reachable from the language crate, and nothing in
 //! it is serialized. That is the whole of CONTEXT.md's "a Portal is neither a

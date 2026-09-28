@@ -562,9 +562,7 @@ impl From<Unavailable> for PlaybackStartError {
 ///
 /// No request made through it waits on the task or on a Tick. Each is a
 /// constant-time write to a slot of the engine's mailbox under a lock the task
-/// holds only for the same kind of write, so a browser frame can make one. A
-/// `disconnect` that replaces a pending MIDI connection drops that connection
-/// on the caller's thread, which may wait on the device to close its port. No
+/// holds only for the same kind of write, so a browser frame can make one. No
 /// request is refused for lack of room: `start` and `retune` refuse only an
 /// invalid period or a task that is gone, and `stop` and `disconnect` answer
 /// nothing.
@@ -1013,6 +1011,9 @@ impl PlaybackEngine {
     ///
     /// Gives up the engine's output, replacing any destination change still
     /// pending.
+    ///
+    /// A pending MIDI connection it replaces is dropped on the caller's
+    /// thread, which may wait on the device to close its port.
     ///
     pub fn disconnect(&self) {
         self.requests.disconnect();

@@ -655,10 +655,10 @@ impl<'a> Execution<'a> {
         // names one.
         let producer = self.states[index].function;
         // The Cells this Function stands in. Every Function spelling is two
-        // ASCII Cells by compile-time assertion, and every spelling a
-        // Source-writing Function writes is another Function's, so the Span it
-        // occupies and the Span it writes are the same width and one length
-        // serves both.
+        // ASCII Cells, which `define_functions!` asserts at compile time, and
+        // every spelling a Source-writing Function writes is another
+        // Function's, so the Span it occupies and the Span it writes are the
+        // same width and one length serves both.
         let advancing = effect.bundle == SourceBundle::Advance;
         let start = self.grid.index(anchor).get();
         let own = start..start + spelling.len();
@@ -710,7 +710,8 @@ impl<'a> Execution<'a> {
                 // rather than the ones it replaced.
                 if advancing {
                     // Stated rather than built, for the reason `Execution::new`
-                    // states it; `own` above is the two Cells it clears.
+                    // states it. It clears `own`, which is always two Cells
+                    // because every spelling is, so two spaces cover it.
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     let clear = Portal::at(self.grid, anchor)
                         .admit(&cleared)
@@ -989,7 +990,9 @@ pub(super) mod stated {
         // a schedule and only one of them is execution. Ordering, admission,
         // suppression and rejection are all read out of it downstream, so
         // stating it after `order_turns` would leave every edge derived from
-        // the width the fixture is replacing.
+        // the width the fixture is replacing. It also follows `Lookup::new`,
+        // whose debug check refuses a width no declaration derives, which a
+        // stated `Reserved::Row` is.
         for (anchor, reserved) in reservations {
             let index = anchored(&lookup, grid, *anchor)
                 .expect("a stated reservation names a computation the schedule contains");

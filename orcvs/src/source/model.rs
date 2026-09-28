@@ -316,12 +316,6 @@ impl Source {
         self.inner.bytes()
     }
 
-    /// The Cells at the current revision as text, borrowed: every Cell is one
-    /// ASCII byte, so a row's text is the byte range of its Cells.
-    pub(super) fn text(&self) -> &str {
-        self.inner.as_str()
-    }
-
     /// The semantic view derived from this exact Source revision.
     pub fn language_map(&self) -> &LanguageMap {
         &self.language_map

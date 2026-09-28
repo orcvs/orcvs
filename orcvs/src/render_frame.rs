@@ -198,7 +198,8 @@ impl RenderFrame {
     }
 
     ///
-    /// The Region: the anchor and the Cursor the derivation was given.
+    /// The Region the derivation was given: from the anchor to its live end,
+    /// with the Cursor on one of its Cells.
     ///
     /// It is running state rather than Source, so it is never stored with
     /// one.
