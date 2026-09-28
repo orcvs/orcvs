@@ -1,6 +1,6 @@
 # Epic — Implement the source audit
 
-**Status:** in progress
+**Status:** ready-for-agent
 
 **Reference:** Re-audited against `origin/main` at `67d28248069b1361de085b49e0c0008cc02d49fe` on 2026-09-25 by three delegated reviewers. Original source baseline: `199c3331`; implementation plan recorded on 2026-09-25.
 
@@ -70,7 +70,7 @@ All 30 non-obsolete source-audit tickets belong to exactly one PR group. Source-
 
 ## Sequencing
 
-23 PR groups have completed dispositions; PR group 24 is reopened for the single-conversion implementation supported by paired CI. The 2026-09-28 #16 follow-up is delivered by [#177](https://github.com/orcvs/orcvs/pull/177); #31 requires the focused implementation follow-up recorded below. PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, PR 19 was settled by discarding the refused payload (#170), and PR 24 is delivered by #174. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. PR 20's `lang` portion (source-comments/02 with #15) is delivered by #168, its `orcvs` portion (#16) by #176, and its `console` portion (source-comments/04 with #17) by #175.
+23 PR groups have completed dispositions; PR group 24 is reopened for the single-conversion implementation supported by paired CI. The 2026-09-28 #16 follow-up is delivered by [#177](https://github.com/orcvs/orcvs/pull/177); #31 requires the focused implementation follow-up recorded below. PR 23 merged as #166 (`84b76dd0`), PR 18 as #169, PR 19 was settled by discarding the refused payload (#170), and PR 24 was delivered by #174 and revised by #176 before it was reopened. PR 8 (#153) was accepted on cross-runner CI benchmark evidence, recorded in #19. PR 20's `lang` portion (source-comments/02 with #15) is delivered by #168, its `orcvs` portion (#16) by #176, and its `console` portion (source-comments/04 with #17) by #175.
 
 Required ordering within this plan:
 
@@ -112,12 +112,6 @@ These are epic-level reconciliation requirements from the `67d28248` audit. Chil
 
 At the `67d28248` audit reference, #01, #02, #10, #18, #21 and #27 were resolved; playback-actor/11 was also resolved. #03 retained only its missing regression coverage. #23 remains obsolete. All other source-audit tickets were then outstanding, including explicit design decisions and measured evaluations. This paragraph records that audit; the tables above and each child ticket's Status line carry current status.
 
-## 2026-09-28 closure reconciliation
-
-A three-agent progress audit against `origin/main` `8728a90f` found two remaining closure mismatches. #16's follow-up corrects the Function-value test rationale and adds `relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges`, proving that Jump relays reach both edges the old comment called impossible. [#177](https://github.com/orcvs/orcvs/pull/177) delivers this follow-up; its ticket records the 1180 passing tests and scoped checks.
-
-#31 is reopened. Local comparisons on one Apple M2 reversed between two builds that differ only in Cargo.lock, so three paired Linux CI jobs compared the current per-row writer with one whole-buffer conversion. All three favored the single conversion by 19.1–26.5% on the populated fixture, with no empty/sparse median regression above 5%. PR group 24 is reopened for a focused production change with correctness and allocation gates. [The CI report](benchmarks/31-source-file-write/ci-report.md) records the decision rule, results and platform limits.
-
 ## Audit evidence
 
 - Three agents inspected every issue against `origin/main` `67d28248`; no implementation changes were made during the audit.
@@ -125,12 +119,11 @@ A three-agent progress audit against `origin/main` `8728a90f` found two remainin
 - `PROPTEST_CASES=32 cargo nextest run --package orcvs --locked -E 'test(playback::) | test(opts::)'` passed: 132 tests, 514 skipped.
 - `node --test scripts/tests/roadmap.test.ts` passed all 10 tests; `node scripts/roadmap.ts > /dev/null` passed in the tickets worktree.
 - Full workspace, WASM, dependency and performance checks were not rerun for the read-only audit. Source inspection and focused tests do not establish measured performance improvements.
-- 2026-09-27 re-check at `2f955278` by six delegated reviewers: the 24 PR groups assign all 30 non-obsolete tickets exactly once; all 41 relative links resolve; the roadmap tests (10/10) and generation succeed; focused suites passed with `PROPTEST_CASES=32` — `orcvs` 678, `lang` 281 plus doctests, `console` 496. No implementation changes were made.
 
 ## Definition of done
 
-- [x] Every PR group has a recorded disposition and links to its implementation PR or measured decision.
-- [x] Every non-obsolete child ticket's acceptance criteria are satisfied and its status updated; the audit follow-ups above are reconciled explicitly, including PR 5’s recorded polling disposition. An explicitly permitted decision to retain an implementation is recorded with evidence.
+- [ ] Every PR group has a recorded disposition and links to its implementation PR or measured decision.
+- [ ] Every non-obsolete child ticket's acceptance criteria are satisfied and its status updated; the audit follow-ups above are reconciled explicitly, including PR 5’s recorded polling disposition. An explicitly permitted decision to retain an implementation is recorded with evidence.
 - [x] Required external prerequisites are resolved or their scope is explicitly reconciled with the affected child tickets.
 - [x] Correctness changes include meaningful regressions, including the single-word stop gate's two-outstanding-stops regression and stale-plan effect suppression.
 - [x] Performance changes include reproducible benchmarks and the comparison evidence required by the child tickets; no unmeasured speedup is claimed.
@@ -140,3 +133,11 @@ A three-agent progress audit against `origin/main` `8728a90f` found two remainin
 ## Verification of epic and ticket edits
 
 Run `node --test scripts/tests/roadmap.test.ts`, `node scripts/roadmap.ts > /dev/null`, and `git diff --check`. These validate the planning edits; they do not replace the implementation checks required by each child ticket.
+
+## Comments
+
+**2026-09-27 — re-check.** Six delegated reviewers re-checked `2f955278`: the 24 PR groups assign all 30 non-obsolete tickets exactly once; all 41 relative links resolve; the roadmap tests (10/10) and generation succeed; focused suites passed with `PROPTEST_CASES=32` — `orcvs` 678, `lang` 281 plus doctests, `console` 496. No implementation changes were made.
+
+**2026-09-28 — closure reconciliation.** A three-agent progress audit against `origin/main` `8728a90f` found two remaining closure mismatches. #16's follow-up corrects the Function-value test rationale and adds `relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges`, proving that Jump relays reach both edges the old comment called impossible. [#177](https://github.com/orcvs/orcvs/pull/177) delivers this follow-up; its ticket records the 1180 passing tests and scoped checks.
+
+#31 is reopened. Local comparisons on one Apple M2 reversed between two builds that differ only in Cargo.lock, so three paired Linux CI jobs compared the current per-row writer with one whole-buffer conversion. All three favored the single conversion by 19.1–26.5% on the populated fixture, with no empty/sparse median regression above 5%. PR group 24 is reopened for a focused production change with correctness and allocation gates. [The CI report](benchmarks/31-source-file-write/ci-report.md) records the decision rule, results and platform limits.

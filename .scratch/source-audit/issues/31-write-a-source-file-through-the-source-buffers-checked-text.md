@@ -1,15 +1,15 @@
 # 31 — Write a Source File through the SourceBuffer's checked text
 
-**What to build:** Restore one whole-buffer checked text conversion for `file::write`, then slice its ASCII rows without re-validating each row. Keep the format, signature, allocation bound and public borrowed-bytes accessor unchanged. The paired CI comparison below supersedes the earlier per-row performance rationale; production implementation is a follow-up.
+**What to build:** Restore one whole-buffer checked text conversion for `file::write`, then slice its ASCII rows without re-validating each row. Keep the format, signature, allocation bound and public borrowed-bytes accessor unchanged. The paired CI comparison below supersedes the earlier per-row performance rationale.
 
 **Blocked by:** None — 08 is resolved (orcvs/orcvs#165).
 
-**Status:** open
+**Status:** ready-for-agent
 
 - [ ] `file::write` borrows the whole buffer through one checked text conversion, slices rows at ASCII boundaries, and introduces no `unsafe` or whole-Cell copy. Implement and verify this follow-up against the current source.
-- [x] `Source::cells()` stays the public borrowed-bytes accessor; the console's unsaved-changes check keeps comparing bytes through it. — unchanged; `reading_the_cells_to_compare_them_allocates_nothing` passes.
-- [x] The Source File format and `file::write`'s signature are unchanged; its doctest and the existing Source File round-trip tests pass unmodified. — no test or doctest edited; `cargo nextest run --package orcvs` (680 passed) and `cargo test --workspace --doc` pass.
-- [x] `orcvs/tests/allocation.rs` still holds writing a Source File to less than one copy of the Cells. — `writing_a_source_file_allocates_less_than_one_copy_of_the_cells` passes unmodified (two blocks: the row list and the text).
+- [ ] `Source::cells()` stays the public borrowed-bytes accessor; the console's unsaved-changes check keeps comparing bytes through it; `reading_the_cells_to_compare_them_allocates_nothing` passes.
+- [ ] The Source File format and `file::write`'s signature are unchanged; its doctest and the existing Source File round-trip tests pass unmodified under `cargo nextest run --package orcvs` and `cargo test --workspace --doc`.
+- [ ] `orcvs/tests/allocation.rs` still holds writing a Source File to less than one copy of the Cells; `writing_a_source_file_allocates_less_than_one_copy_of_the_cells` passes unmodified.
 - [x] The current writer is compared with the single-conversion alternative and the measured decision is recorded. — paired CI comparison, 2026-09-28 comment below.
 
 ## Comments

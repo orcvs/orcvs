@@ -3223,6 +3223,43 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "two are stated here for the same anchor")]
+    fn two_reservations_at_one_anchor_are_a_fixture_error() {
+        // One computation reserves one width. A second stated at the same
+        // anchor would silently replace the first, leaving the test asserting
+        // around a width it did not mean.
+        let grid = Grid::with_shape(16, 2);
+        stated_source(
+            grid,
+            &[".+0102", ""],
+            &[],
+            &[(0, super::Reserved::Row), (0, super::Reserved::Row)],
+            &[],
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "a stated reservation and a stated Function replacement cannot be combined"
+    )]
+    fn a_stated_reservation_and_function_replacement_are_a_fixture_error() {
+        // A replacement is checked against the width its producer declares,
+        // and a stated reservation is a width no declaration gave, so the two
+        // cannot be judged against each other in one Tick.
+        let grid = Grid::with_shape(16, 2);
+        stated_source(
+            grid,
+            &[".+0102  .+0304", ""],
+            &[],
+            &[(0, super::Reserved::Row)],
+            &[(
+                8,
+                Value::Atom(lang::Atom::Function(lang::Function::Subtract)),
+            )],
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "a stated answer belongs to a computation that answers a value")]
     fn a_stated_answer_at_a_terminal_output_root_is_a_fixture_error() {
         // A root Terminal Output Function is the one Function a Turn lets
