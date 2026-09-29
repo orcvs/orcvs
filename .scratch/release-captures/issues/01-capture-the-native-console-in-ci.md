@@ -15,7 +15,7 @@
 - [x] Before rendering, the job asserts that the seeded Source loaded, the pinned mode and Theme are the ones presented, zoom is 1.0, and every state is present. A missing state fails the job.
 - [x] The artifact holds the images and a manifest recording SHA, runner OS, renderer, viewport, mode, Theme, zoom and procedure for each image.
 - [ ] One real dispatched run against `main` produces the artifact, and its run link is recorded here.
-- [ ] `actionlint`, `zizmor --offline .github/workflows`, `bash scripts/check-tooling-contract.sh` and `bash scripts/tests/check-tooling-contract.sh` pass. `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass without the capture feature.
+- [x] `actionlint`, `zizmor --offline .github/workflows`, `bash scripts/check-tooling-contract.sh` and `bash scripts/tests/check-tooling-contract.sh` pass. `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass without the capture feature.
 
 ## Comments
 
@@ -23,6 +23,6 @@
 
 The capture feature is `console/release-capture` (`persistence`, `egui_kittest/snapshot`, `egui_kittest/wgpu`), rationale in `console/Cargo.toml`, `docs/tooling.md` and the egui skill's guide. `deny.toml` gains `pollster@0.4` and `rustc-hash@1` skips and an MPL-2.0 exception for `colored@2` alone (behind `dify`, `snapshot`'s differ); `mise run audit_deps` passes.
 
-The test is `console::kittest_tests::capture`. The fixture is `console/tests/fixtures/release-capture.orcvs`; it enters as `orcvs_source` in an `app.ron` written with the native RON codec, beside egui memory holding the mode and `zoom_factor` 1.0 (restored into the `Context` as eframe's native runner does), with the Theme selections from a `config.toml` read by `Config::read`. Viewports are 1200 × 700 and 700 × 1200 points at `pixels_per_point` 2. A local run on macOS (Metal, not lavapipe) produced all four images and a valid manifest; the lavapipe criterion stays open until the job has run on the Linux runner, which is the same dispatched run the next criterion asks for.
+The test is `console::kittest_tests::capture`. The fixture is `console/tests/fixtures/release-capture.orcvs`; it enters as `orcvs_source` in an `app.ron` written with the native RON codec, beside egui memory holding the mode and `zoom_factor` 1.0 (restored into the `Context` as eframe's native runner does), with the Theme selections from a `config.toml` read by `Config::read`. Viewports are 1200 × 700 and 700 × 1200 points at `pixels_per_point` 2. A local run on macOS (Metal, not lavapipe) produced all four images and a valid manifest, and the console's clippy and nextest gates pass without the feature (491 tests); the lavapipe criterion stays open until the job has run on the Linux runner, which is the same dispatched run the next criterion asks for.
 
 What is left is human: once this is on `main`, dispatch **Release captures** with `main`'s head SHA, record the run link here, and tick the lavapipe and dispatched-run criteria.
