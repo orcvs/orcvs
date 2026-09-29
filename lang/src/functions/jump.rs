@@ -31,7 +31,7 @@ pub fn jump(ctx: &mut Context, function: Function) -> Result<Value, Error> {
 }
 
 fn copied_atom(cells: &str) -> Option<Atom> {
-    if let Ok(function) = Function::try_from(cells) {
+    if let Some(function) = Function::from_spelling(cells) {
         return Some(Atom::Function(function));
     }
     if let Ok(atom) = to_atom_num(cells) {

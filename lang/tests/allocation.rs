@@ -303,13 +303,6 @@ fn reread(rows: &[String]) -> usize {
     units
 }
 
-/// The characters a Source actually has written in it. Every ceiling below is
-/// derived from this rather than stated as a number, so a cheaper path still
-/// passes and no assertion rots on a compiler or dependency release.
-fn written(rows: &[String]) -> usize {
-    rows.iter().map(String::len).sum()
-}
-
 #[test]
 fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
@@ -402,37 +395,79 @@ fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
 
 #[test]
 fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
-    // FINDING: a Render Frame re-read is not allocation-free
-    // either, and the reason is a discarded error rather than any parser
-    // state. `Parser::is_function_next` calls `is_function`, which asks
-    // `Function::try_from(spelling).is_ok()`; the refusal path builds
-    // `SyntaxError::UnknownFunction(spelling.to_string())`, heap-allocating
-    // the two Cells it was handed only for `is_ok()` to throw the error away.
-    // That is one small allocation per literal operand read, on the path a
-    // Render Frame runs many times a second, and it is why this test asserts
-    // independence from the empty rows rather than zero.
-    // `.scratch/allocation-reduction/issues/02-test-a-function-spelling-without-building-an-error.md`
-    // tracks relieving it.
+    // A row whose analysis reports no error allocates nothing to read. The
+    // Parser's pending stack is inline, and asking whether two Cells spell a
+    // Function borrows them rather than building the
+    // `SyntaxError::UnknownFunction` a refusal reports, so a literal operand
+    // costs nothing to tell from a Function.
     //
-    // What is asserted is what the Grid actually varies: a Source is as tall
-    // as the Grid, most of it empty most of the time, and re-reading it must
-    // cost only what is written in it.
+    // Measured row by row, so no row's cost can hide inside another's: a
+    // total over the fixture would let a clean row allocate what an
+    // error-reporting row happens not to.
+    //
+    // A row that reports an error allocates at most the one error it reports,
+    // and that error owns at most a copy of text written in the row, such as
+    // the spelling a malformed operand's `TypeError::Number` carries. The
+    // ceiling is derived from the row rather than from the measurement, so a
+    // cheaper error still passes, and any allocation the Parser makes and
+    // then discards on the way to the error exceeds it.
+    let mut clean = 0;
+    for row in SOURCE {
+        // Warm up, for the same reason the call test does.
+        black_box(Parser::at(row, 0).analyze());
+        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
+        if analysis.error().is_none() {
+            clean += 1;
+            assert_eq!(
+                allocations,
+                Allocations::default(),
+                "reading {row:?}, which reports no error, allocated"
+            );
+        } else {
+            assert!(
+                allocations.blocks <= 1 && allocations.bytes <= row.len(),
+                "reading {row:?} allocated {allocations:?}, more than the one error it reports"
+            );
+        }
+    }
+    assert!(clean > 0, "the fixture must hold rows that read cleanly");
+
+    // A row that reports an error owns what it reports: a malformed operand's
+    // `TypeError::Number` carries the operand's spelling. So the whole fixture
+    // costs exactly what its error-reporting rows cost read alone, and empty
+    // rows add nothing to that. A Source is as tall as the Grid, most of it
+    // empty most of the time, and re-reading it costs only what is written in
+    // it.
+    let reported: Vec<String> = SOURCE
+        .iter()
+        .filter(|row| Parser::at(row, 0).analyze().error().is_some())
+        .map(|row| row.to_string())
+        .collect();
+    assert!(
+        !reported.is_empty(),
+        "the fixture must hold a row that reports an error"
+    );
     let few = rows(SOURCE, 4);
     let many = rows(SOURCE, 512);
 
-    // Warm up, for the same reason the call test does.
     black_box(reread(&few));
 
     let (sparse, units) = measure(|| reread(black_box(&few)));
     black_box(units);
     let (empty, units) = measure(|| reread(black_box(&many)));
     black_box(units);
+    let (errors, units) = measure(|| reread(black_box(&reported)));
+    black_box(units);
 
-    // One point of the three measured here. `empty` is asserted equal to
-    // `sparse`, and `nothing` below is asserted to be zero — a zero point
-    // leaves the action's ratio against the previous one undefined.
+    // One point of the measurements here: the others are asserted equal to it.
     publish("lang render frame re-read fixture", sparse);
 
+    assert_eq!(
+        sparse,
+        errors,
+        "re-reading the fixture allocated more than its {} error-reporting rows",
+        reported.len()
+    );
     assert_eq!(
         sparse,
         empty,
@@ -440,44 +475,6 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
         few.len(),
         many.len()
     );
-
-    // A ceiling as well as the independence. The equality above compares two
-    // Sources against each other, so a cost that rises on both moves them
-    // together and it sees nothing; a second discarded
-    // `SyntaxError::UnknownFunction` per operand would double this path and
-    // still pass it.
-    //
-    // The bound is one allocation of the operand's spelling per literal
-    // operand, which is what the FINDING above describes. A literal operand is
-    // a two-character Cell pair and an Expression spends at least two more
-    // characters on its Anchor and Function, so a Source of `characters`
-    // written characters holds at most `characters / 2` operands whatever is
-    // written in it — the ceiling is derived from the input, never from the
-    // measurement. Relieving the discarded error drives both counts to zero
-    // and must still pass.
-    let characters = written(&few);
-    let operands = characters / 2;
-    assert!(
-        sparse.blocks <= operands,
-        "re-reading {characters} written characters, at most {operands} literal operands, \
-         took {} blocks",
-        sparse.blocks
-    );
-    // Two bytes per operand spelling, so the same ceiling in bytes is one per
-    // written character.
-    assert!(
-        sparse.bytes <= characters,
-        "re-reading {characters} written characters took {} bytes",
-        sparse.bytes
-    );
-
-    // The stronger half of the same statement: a row with nothing written in
-    // it costs nothing, so the equality above is independence rather than two
-    // equally wasteful passes.
-    let blank = rows(&[], 512);
-    let (nothing, units) = measure(|| reread(black_box(&blank)));
-    black_box(units);
-    assert_eq!(nothing, Allocations::default());
 }
 
 /// A Sequence of `length` Numbers, built outside every measured span.
