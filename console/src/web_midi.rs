@@ -7,9 +7,10 @@
 //! once, when the backend is built, and the answer is kept. Every call after
 //! that reads where the request stands and answers synchronously:
 //!
-//! - while the browser has not answered, discovery and connect both report that
-//!   access is still being waited for, so the menu says why its list is empty
-//!   and the performer's next Scan asks again;
+//! - while the browser has not answered, discovery and connect both answer a
+//!   pending error saying access is still being waited for, so the menu says
+//!   why its list is empty, and the answer wakes the Panel so its next frame
+//!   discovers again;
 //! - once access is granted, the output map is enumerated and a port is found
 //!   on the thread that asked, exactly as the native backend does;
 //! - a browser that offers no Web MIDI, or refuses access, answers an empty
@@ -108,7 +109,7 @@ impl<A: WebMidiAccess> WebMidiBackend<A> {
 impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
         match self.access.status() {
-            AccessStatus::Pending => Err(MidiError::new(ACCESS_PENDING)),
+            AccessStatus::Pending => Err(MidiError::pending(ACCESS_PENDING)),
             AccessStatus::Unavailable => Ok(Vec::new()),
             AccessStatus::Granted => Ok(self
                 .access
@@ -130,7 +131,7 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
         destination_id: &MidiDestinationId,
     ) -> Result<Box<dyn MidiConnection>, MidiError> {
         match self.access.status() {
-            AccessStatus::Pending => Err(MidiError::new(ACCESS_PENDING)),
+            AccessStatus::Pending => Err(MidiError::pending(ACCESS_PENDING)),
             AccessStatus::Unavailable => Err(MidiError::new(NO_ACCESS)),
             AccessStatus::Granted => {
                 let open = self
@@ -187,7 +188,11 @@ mod browser {
     ///
     enum Access {
         NotRequested,
-        Pending,
+        ///
+        /// The browser has not answered. The Promise resolves once it has and
+        /// the answer is stored here, so whoever awaits it reads the answer.
+        ///
+        Pending(js_sys::Promise),
         Granted(MidiAccess),
         Unavailable,
     }
@@ -229,8 +234,12 @@ mod browser {
                     .and_then(|window| window.navigator().request_midi_access());
                 match promise {
                     Ok(promise) => {
-                        *access = Access::Pending;
-                        Some(promise)
+                        let mut settle = None;
+                        let answered = js_sys::Promise::new(&mut |resolve, _reject| {
+                            settle = Some(resolve);
+                        });
+                        *access = Access::Pending(answered);
+                        Some((promise, settle))
                     }
                     Err(reason) => {
                         log::warn!("Web MIDI is unavailable: {reason:?}");
@@ -239,7 +248,7 @@ mod browser {
                     }
                 }
             });
-            if let Some(promise) = requested {
+            if let Some((promise, settle)) = requested {
                 wasm_bindgen_futures::spawn_local(async move {
                     let answer = wasm_bindgen_futures::JsFuture::from(promise).await;
                     let next = match answer.map(JsCast::dyn_into::<MidiAccess>) {
@@ -254,9 +263,24 @@ mod browser {
                         }
                     };
                     ACCESS.with(|access| *access.borrow_mut() = next);
+                    if let Some(settle) = settle {
+                        let _ = settle.call0(&wasm_bindgen::JsValue::UNDEFINED);
+                    }
                 });
             }
             Self
+        }
+
+        ///
+        /// A Promise that resolves once the browser has answered the page's
+        /// request and the answer is stored, or `None` when there is nothing
+        /// to wait for: access was never requested, or it is already settled.
+        ///
+        pub(crate) fn answered() -> Option<js_sys::Promise> {
+            ACCESS.with(|access| match &*access.borrow() {
+                Access::Pending(answered) => Some(answered.clone()),
+                Access::NotRequested | Access::Granted(_) | Access::Unavailable => None,
+            })
         }
     }
 
@@ -270,7 +294,7 @@ mod browser {
     impl WebMidiAccess for BrowserMidi {
         fn status(&self) -> AccessStatus {
             ACCESS.with(|access| match &*access.borrow() {
-                Access::Pending => AccessStatus::Pending,
+                Access::Pending(_) => AccessStatus::Pending,
                 Access::Granted(_) => AccessStatus::Granted,
                 // A thread that never requested has no access to read, which
                 // is the same answer as a browser that has none.
@@ -466,7 +490,10 @@ mod tests {
         let fake = FakeWebMidi::with(AccessStatus::Pending, &[("a", Some("Synth"))]);
         let mut backend = backend(&fake);
 
-        assert_eq!(backend.destinations(), Err(MidiError::new(ACCESS_PENDING)));
+        assert_eq!(
+            backend.destinations(),
+            Err(MidiError::pending(ACCESS_PENDING))
+        );
         assert_eq!(
             backend
                 .connect(&MidiDestinationId::new("a"))
@@ -566,6 +593,39 @@ mod tests {
             midi.selected_destination_id(),
             Some(MidiDestinationId::new("a"))
         );
+    }
+
+    ///
+    /// The console's startup discovery runs before the browser can answer, so
+    /// it finds access pending. The first frame after the browser grants
+    /// access lists the outputs and selects the first, and the first frame
+    /// after it refuses clears the pending status, both without a Scan.
+    ///
+    #[tokio::test]
+    async fn the_frame_after_the_browser_answers_catches_up_without_a_scan() {
+        let cases = [
+            (
+                AccessStatus::Granted,
+                vec![MidiDestination::new("a", "Synth")],
+                Some(MidiDestinationId::new("a")),
+            ),
+            (AccessStatus::Unavailable, Vec::new(), None),
+        ];
+        for (answer, listed, selected) in cases {
+            let fake = FakeWebMidi::with(AccessStatus::Pending, &[("a", Some("Synth"))]);
+            let (_orcvs, mut midi) = playing(&fake);
+            midi.refresh_destinations();
+            midi.observe_frame();
+            assert_eq!(midi.status(), Some(ACCESS_PENDING), "{answer:?}");
+
+            fake.set_status(answer);
+            midi.observe_frame();
+            tokio::task::yield_now().await;
+
+            assert_eq!(midi.status(), None, "{answer:?}");
+            assert_eq!(midi.destinations(), listed.as_slice(), "{answer:?}");
+            assert_eq!(midi.selected_destination_id(), selected, "{answer:?}");
+        }
     }
 
     ///

@@ -79,12 +79,13 @@ it.* That needs a browser, a MIDI device and a person listening. Manual steps:
 2. `cd console && trunk serve --open`, in Chrome or Edge (Firefox needs the site-permission add-on
    it prompts for; Safari has no Web MIDI).
 3. Allow MIDI access when the browser asks. Before that, the Panel's status reads "waiting for the
-   browser to grant MIDI access".
-4. Click the Output (`O`) readout; with an empty list that Scans. The device's port should be
-   listed and selected.
+   browser to grant MIDI access"; once allowed, it clears without a click.
+4. The device's port should be listed and selected without a Scan. Clicking the Output (`O`)
+   readout shows it.
 5. Type `.=0101` on the first row and `!>007FC4` two rows below its first Cell, then press Space.
    The device should sound C4 on channel 1 every Tick.
 6. Pick another port, or unplug the device. The first should fall silent (All Notes Off, Reset All
    Controllers, centred bend), and an unplugged device's refusal should appear beside the readout.
-7. Deny MIDI access in the site settings and reload. The list should read `None` with no error.
+7. Deny MIDI access in the site settings and reload. The list should read `None` with no error,
+   without a click.
 

@@ -8,15 +8,27 @@ Discovery needs to report "access still pending" as its own kind of answer rathe
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Tags:** release/v1
 
 - [ ] Settling the access request wakes the Panel, so the next frame runs even without performer input.
-- [ ] While the last discovery answered pending, each frame runs discovery again until it doesn't; a settled answer stops the retries.
-- [ ] A granted page lists its connected outputs and auto-selects the first without a Scan.
-- [ ] A refusing page, or a browser without Web MIDI, shows no status and reads `None` without a Scan, so manual step 7 of `midi-port-ownership/06` passes as written.
-- [ ] A fake-adapter test builds the console's MIDI selection while access is pending, settles the fake to granted and to unavailable, runs one frame's worth of Panel MIDI logic without a Scan, and asserts both the destination list and the status line.
-- [ ] Native discovery behaviour and its tests are unchanged.
-- [ ] ADR 0059 no longer says nothing re-runs discovery when the Promise settles, and describes the wake and retry instead.
-- [ ] The manual steps in `midi-port-ownership/06` that tell the performer to Scan after allowing access describe the automatic listing instead.
+- [x] While the last discovery answered pending, each frame runs discovery again until it doesn't; a settled answer stops the retries.
+- [x] A granted page lists its connected outputs and auto-selects the first without a Scan.
+- [x] A refusing page, or a browser without Web MIDI, shows no status and reads `None` without a Scan, so manual step 7 of `midi-port-ownership/06` passes as written.
+- [x] A fake-adapter test builds the console's MIDI selection while access is pending, settles the fake to granted and to unavailable, runs one frame's worth of Panel MIDI logic without a Scan, and asserts both the destination list and the status line.
+- [x] Native discovery behaviour and its tests are unchanged.
+- [x] ADR 0059 no longer says nothing re-runs discovery when the Promise settles, and describes the wake and retry instead.
+- [x] The manual steps in `midi-port-ownership/06` that tell the performer to Scan after allowing access describe the automatic listing instead.
+
+## Comments
+
+**2026-09-29 — implemented.** `MidiError::pending` is the discovery answer a backend gives while its MIDI service has not answered; the browser backend gives it while access is pending, and no native backend does. `MidiDeviceSelection::observe_frame` is the Panel's per-frame MIDI work: it discovers again while the last discovery answered pending, then auto-selects. The browser keeps a Promise that resolves once the access answer is stored, and the console spawns a task that awaits it and requests a repaint.
+
+Evidence:
+
+- `web_midi::tests::the_frame_after_the_browser_answers_catches_up_without_a_scan` builds the selection while the fake is pending, settles it to granted and to unavailable, and runs one frame with no Scan: granted lists and selects the first output with no status; unavailable lists nothing with no status.
+- `midi::tests::a_failed_discovery_is_not_repeated_by_later_frames` holds that a native-style failure is asked once and kept until a Scan.
+- `console/tests/wasm.rs` also asserts the headless browser's pending answer is the pending kind.
+
+Left open: *settling the access request wakes the Panel*. The wake compiles for `wasm32` but only a browser shows that a frame runs with no input. Manual steps 3, 4 and 7 of `midi-port-ownership/06` check it: after allowing access, the port is listed and selected without moving the mouse; after denying it in site settings and reloading, `None` shows with no status.

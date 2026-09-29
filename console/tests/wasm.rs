@@ -148,7 +148,10 @@ fn web_midi_answers_discovery_and_connect_without_waiting() {
 
     match backend.destinations() {
         Ok(_) => {}
-        Err(error) => assert_eq!(error.message, PENDING),
+        Err(error) => {
+            assert_eq!(error.message, PENDING);
+            assert!(error.is_pending());
+        }
     }
     assert!(
         backend

@@ -109,6 +109,11 @@ pub(crate) struct MidiDeviceSelection {
     /// erase the refusal just received.
     ///
     auto_select_attempted: bool,
+    ///
+    /// Whether the last discovery answered that the backend is still waiting
+    /// on its MIDI service, so a later frame asks again without a Scan.
+    ///
+    discovery_pending: bool,
 }
 
 impl MidiDeviceSelection {
@@ -120,6 +125,7 @@ impl MidiDeviceSelection {
             status: None,
             engine_status: None,
             auto_select_attempted: false,
+            discovery_pending: false,
         }
     }
 
@@ -132,12 +138,30 @@ impl MidiDeviceSelection {
             Ok(destinations) => {
                 self.destinations = destinations;
                 self.status = None;
+                self.discovery_pending = false;
             }
             Err(error) => {
                 self.destinations = Vec::new();
+                self.discovery_pending = error.is_pending();
                 self.status = Some(error.message);
             }
         }
+    }
+
+    ///
+    /// The selection's work for one Panel frame: discovery again while the
+    /// last one answered pending, then automatic selection of the first
+    /// destination.
+    ///
+    /// A pending answer is the only one a frame repeats. Any other failure
+    /// stays until the performer Scans, so a broken MIDI service is asked once
+    /// rather than on every frame.
+    ///
+    pub(crate) fn observe_frame(&mut self) {
+        if self.discovery_pending {
+            self.refresh_destinations();
+        }
+        self.auto_select_first_if_unselected();
     }
 
     pub(crate) fn destinations(&self) -> &[MidiDestination] {
@@ -296,6 +320,39 @@ mod tests {
                 spins += 1;
             }
         }};
+    }
+
+    ///
+    /// A discovery that fails outright is final until the performer Scans:
+    /// frames after it neither ask the backend again nor clear the failure.
+    ///
+    #[tokio::test]
+    async fn a_failed_discovery_is_not_repeated_by_later_frames() {
+        struct CountingFailure(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+        impl MidiBackend for CountingFailure {
+            fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Err(MidiError::new("device discovery failed"))
+            }
+
+            fn connect(
+                &mut self,
+                _destination_id: &MidiDestinationId,
+            ) -> Result<Box<dyn MidiConnection>, MidiError> {
+                Ok(Box::new(FakeConnection))
+            }
+        }
+
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (_orcvs, mut midi) = selection_for(CountingFailure(asked.clone()));
+        midi.refresh_destinations();
+        for _ in 0..5 {
+            midi.observe_frame();
+        }
+
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(midi.status(), Some("device discovery failed"));
     }
 
     #[tokio::test]

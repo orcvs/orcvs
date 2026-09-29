@@ -49,13 +49,31 @@ impl MidiDestination {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MidiError {
     pub message: String,
+    pending: bool,
 }
 
 impl MidiError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            pending: false,
         }
+    }
+
+    ///
+    /// An answer from a backend still waiting on its MIDI service: the same
+    /// call can succeed later without the performer doing anything, so a
+    /// caller may ask again rather than treat it as final.
+    ///
+    pub fn pending(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            pending: true,
+        }
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.pending
     }
 }
 

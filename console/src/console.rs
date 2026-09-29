@@ -300,6 +300,8 @@ fn environment(
         Box::new(NativeMidiBackend::new()),
     );
     midi.refresh_destinations();
+    #[cfg(target_arch = "wasm32")]
+    repaint::wake_panel_when_midi_access_answers(ctx.clone());
     Ok((orcvs, midi))
 }
 

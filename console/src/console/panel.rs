@@ -307,7 +307,7 @@ impl Console {
     /// shows what that discovery found from the next frame.
     ///
     fn show_destination(&mut self, ui: &mut egui::Ui) {
-        self.midi.auto_select_first_if_unselected();
+        self.midi.observe_frame();
         let selected_id = self.midi.selected_destination_id();
         let destinations = self.midi.destinations();
         let presentation = destination_presentation(destinations, selected_id.as_ref());
