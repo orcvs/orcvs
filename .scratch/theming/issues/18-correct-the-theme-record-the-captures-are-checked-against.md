@@ -17,3 +17,5 @@
 ## Comments
 
 **2026-09-24 — split from `14` by the release-membership audit.** `theme.md` is the record `restyle-egui-console/03`'s captures are checked against, and the ADR's exception table describes an exclusion the definition of done forbids unless recorded. Blocks `restyle-egui-console/03`.
+
+**2026-09-29 — audit at `cad296df`.** Every line still holds. The unset-fills claim is now at `console/src/theme.md:731-733` ("Okabe–Ito's are unset, so its own Cursor/Region states happen to repeat `plain`'s figures"), while `region_background` is `straight_rgba(0xFF_FF_FF_2B)` (`console/src/theme.rs:815`). "Five of the seven" is at `theme.md:300` and `:362`; the header claim is at `theme.md:7`. ADR 0053 still carries the Sequence "accepted exception" paragraph (`docs/adr/0053-one-theme-styles-the-whole-console.md:67`) and the "Known dark failures awaiting acceptance" table (`:69`).

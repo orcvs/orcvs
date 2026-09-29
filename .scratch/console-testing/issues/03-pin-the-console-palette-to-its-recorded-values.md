@@ -5,7 +5,7 @@ decides and `console/src/theme.md` records, so the record and the code cannot dr
 
 **Blocked by:** 01 — Rename the shell crate to console.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Every one of the twenty-two dark tokens is asserted at its exact value in
       `console/src/style.rs`: page, source, grid line, sector line, ordinary, function, bang and
@@ -23,7 +23,7 @@ decides and `console/src/theme.md` records, so the record and the code cannot dr
       `cell_visuals` rather than a visual one.
 - [ ] A later palette change fails this test, and the same commit must change `console/src/theme.md`
       and `restyle-egui-console/02`.
-- [ ] The test is written so that a second palette extends it rather than rewrites it.
+- [x] The test is written so that a second palette extends it rather than rewrites it.
 
 ## Comments
 
@@ -41,3 +41,17 @@ dependency, no harness, and no CI change.
 this test to pin those twenty-two values too. Neither is a blocker: run first against whichever
 constant exists, and let the later issues grow the test. That is what the final acceptance line above
 is for.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved, superseded by the theming work. Both built-in Themes are pinned at exact values:
+`okabe_ito_defines_every_key_at_the_schema_values` (`console/src/theme.rs:1223`),
+`orcvs_light_defines_every_key_at_the_recorded_values` (`:1372`), and the chrome tests
+`okabe_ito_chrome_matches_the_decided_record` and `orcvs_light_chrome_matches_the_decided_record`
+(`console/src/style.rs:881`, `:1267`). The light suite extends the dark one, which is the one box ticked.
+
+The other boxes are left unticked because their subjects no longer exist, not because the work is
+missing: there is no `PALETTE`/`DARK_PALETTE` const, no twenty-two-token set, no `Glyph::Marker`
+(the marker and highlight tokens were retired under `retired-glyph-vocabulary`), and `cell_visuals`
+is now `cell_visuals_with_cursor_colour`. The dark Source test names `schema.md` as its record rather
+than `theme.md`.

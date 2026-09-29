@@ -5,7 +5,7 @@ and an explicit, unwaived human GO/NO-GO decision.
 
 **Blocked by:** v1-release/04; restyle-egui-console/03; v1-roadmap-wayfinding/07; menu-structure/03; menu-structure/04; menu-structure/08.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Tags:** release/v1
 
@@ -37,8 +37,10 @@ and an explicit, unwaived human GO/NO-GO decision.
       explicitly, and records a decision to
       accept each or to move it into `release/v1`.
 - [ ] Every Benchmark floor breach on the series since the last clean run is cleared by a later
-      run or accepted by the reviewer with its reason. Known at nomination time: `execute` measured
-      108 ns against its 100 ns floor on `fbc1344c` (run 35855592973).
+      run or accepted by the reviewer with its reason. The `execute` breach known at nomination time
+      (108 ns against its 100 ns floor on `fbc1344c`, run 35855592973) no longer applies: 26167b95
+      deleted `Interpreter::execute`, and its floor is now `execute_function` at 60 ns. The push
+      runs on `main` since then pass, most recently 36508316780 on `cad296df`.
 - [ ] A named reviewer and date conclude with `GO` only when every requirement passes; otherwise the
       ticket records `NO-GO`. Missing evidence cannot be waived inside this ticket.
 
@@ -55,3 +57,15 @@ Append the completed evidence index, known-defect and deferral review, reviewer,
 - `benchmarks/07`: joined `release/v1` and resolved (`benches/floors.toml`, #119 and #124), so the known-defect line no longer names it.
 - `verification-gaps/15`: out of the release. `v1-release/03` requires the candidate to carry its own push-triggered Benchmark run instead.
 - The `execute` floor breach after #129 is tracked by the new floor-breach line above.
+
+### Audit at cad296df — 2026-09-29
+
+- Status `ready-for-agent` → `ready-for-human`. The ticket ends in a named reviewer's `GO`/`NO-GO`,
+  which no agent can give. `v1-release/04` and `restyle-egui-console/03` are still open, so the
+  `Blocked by:` line keeps it off the frontier until they resolve.
+- The floor-breach line now names `execute_function`. 26167b95 removed the `execute` benchmark
+  together with `Interpreter::execute`, and `benches/floors.toml` holds `execute_function` at
+  `max_ns = 60`. The Benchmark push runs on `main` pass: 36508316780 (`cad296df`), 36505969814,
+  36393997440 and 36378699391.
+- `verification-gaps/09` is still `ready-for-human`. It was not closed when it was accepted as
+  advisory above.

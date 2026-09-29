@@ -15,3 +15,16 @@ deadline.
       private engine state.
 - [ ] The test does not sleep, pump a run loop, or depend on how quickly a queue drains; it asserts
       timing behaviour directly.
+
+## Comments
+
+### Independent implementation audit — 2026-09-29
+
+Still open. Installation runs inside the Tick-owning actor (`orcvs/src/playback.rs:1514`),
+and the old connection's safety reset calls synchronous `MidiConnection::send` before replacement
+(`orcvs/src/midi.rs:138-146`). An arbitrarily slow send can therefore delay a Tick. Define the
+bounded fake-connection timing scenario before writing the assertion; if the intended guarantee
+includes arbitrarily slow installation, that requires a design decision, not just another test.
+`orcvs/tests/midi_selection_handle.rs:106` installs before playback starts. Existing reconnect
+tests at `orcvs/src/midi.rs:953,1032` prove eventual output and schedule clearing, not an exact
+deadline across a mid-run installation. Four selection integration tests passed in this audit.

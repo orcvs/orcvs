@@ -5,7 +5,7 @@ sizes in both built-in Themes, with enough metadata and human review to reproduc
 
 **Blocked by:** 01 — Square, centred Source Grid viewport; 02 — Prototype-aligned console palette; v1-release/03 — Run the exact-candidate verification workflow; release-captures/01 — Capture the native console in CI; release-captures/02 — Capture the web console in CI; theming/18 — Correct the Theme record the captures are checked against.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Tags:** release/v1
 
@@ -25,3 +25,11 @@ sizes in both built-in Themes, with enough metadata and human review to reproduc
 ## Comments
 
 **2026-09-24 — rescoped to both built-in Themes, with captures produced in CI.** Orcvs Light ships as an accepted, selectable built-in and the default mode follows the OS, so "the decided palette" now means both Themes and every capture pins its mode. The release decision is eight CI captures from a dispatch-only workflow (`.scratch/release-captures/`), which renders natively through a software GPU driver and in headless Firefox, plus one manual macOS capture per Theme as the real-GPU check. The checklist's "centred" line was replaced: ADR 0047 rests the Source View at the top-left with a margin. Its state list now names what `theme.md` and the contrast gate decide. The light captures in `.scratch/theming/evidence/` came from a patched build and do not count as candidate evidence. Blockers 01 and 02 keep their original titles as history; both are resolved.
+
+### Audit at cad296df — 2026-09-29
+
+Status `ready-for-agent` → `ready-for-human`. Two of the five criteria need a person on real
+hardware: the manual macOS capture per Theme and the reviewer's checklist. v1-release/03,
+release-captures/01 and /02, and theming/18 are still open, so the `Blocked by:` line keeps it
+off the frontier. No capture workflow exists yet: `.github/workflows/` holds only `advisories`,
+`bench`, `miri`, `test` and `tooling`.

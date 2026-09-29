@@ -32,8 +32,12 @@ than a stub that lists nothing and refuses every connect.
       answer the caller that asked, matching the native shape.
 - [ ] A performer can refresh destinations in the browser, select one, and hear output from it.
 - [ ] A build for a target with no MIDI service still falls back to the silent backend and offers an
-      empty destination list rather than an error.
+      empty destination list rather than an error. Met today by the stub every non-native target
+      builds (`console/src/native_midi.rs:137-175`); what this line owes is that it stays met once
+      the browser has a real backend, since the browser will no longer be that target.
 
 ## Comments
 
-**2026-09-24 — joins `release/v1`.** The release decision is to build Web MIDI: the WASM build promises MIDI output, as the release goal ("deterministic native and WASM playback") and ADR 0041 state. This issue blocks `v1-release/03`. Proof is fake-adapter tests of exact bytes and lifecycle on the browser path; physical-device evidence stays native-only under `v1-release/04`. Until this lands, the web console's MIDI list and Refresh are offered while `AVAILABLE` is true on wasm but can never find a destination.
+**2026-09-24 — joins `release/v1`.** The release decision is to build Web MIDI: the WASM build promises MIDI output, as the release goal ("deterministic native and WASM playback") and ADR 0041 state. This issue blocks `v1-release/03`. Proof is fake-adapter tests of exact bytes and lifecycle on the browser path; physical-device evidence stays native-only under `v1-release/04`. Until this lands, the web console offers no MIDI destination: `AVAILABLE` is false on wasm, so the list is disabled and Refresh is hidden (see the 2026-09-29 audit).
+
+**2026-09-29 — audit at `cad296df`.** The 2026-09-24 comment said the web console's MIDI list and Refresh are offered while `AVAILABLE` is true on wasm. That was false and is corrected in place: every target outside native macOS, Windows and Linux builds the stub backend (`console/src/native_midi.rs:137-175`), whose `AVAILABLE` is `false` (`:150`), whose `destinations()` answers `Ok(Vec::new())`, and whose `connect` refuses. `destination_presentation` then disables the destination list and hides Refresh (`console/src/midi.rs:48-63`, from `1033fcad`), and refused connects go to the developer console (`console/src/console/panel.rs:224-232`). So the silent-fallback line is met today by the stub; it stays open to be re-proven once wasm stops building that stub. Nothing references Web MIDI yet: `console/Cargo.toml`'s wasm `web-sys` features carry no MIDI entries, and no source mentions `MIDIAccess`. The two Remaining lines on discovery and audible output are unmet.

@@ -20,15 +20,15 @@ Narrowing it — two named variants for the two transitions that exist — costs
 seam its generality and puts MIDI vocabulary somewhere. That is the same choice ADR 0041 leaves open
 about where the destination subscription belongs, so the two should probably be settled together.
 
-**Status:** needs-triage
+**Status:** resolved
 
 **Sources of truth:** `orcvs/src/playback.rs:397-402` (the variant and its alias); ADR 0041's closing
 paragraphs (what the message set is supposed to guarantee, and the open question beside it).
 
-- [ ] The decision is recorded, either as an ADR amendment or as this ticket's answer.
+- [x] The decision is recorded, either as an ADR amendment or as this ticket's answer.
 - [ ] If the hatch stays, the ADR says so — that the message set enumerates every transition *except*
       the adapter's, and why.
-- [ ] If it goes, the transitions that replace it are named, and where the MIDI vocabulary lands is
+- [x] If it goes, the transitions that replace it are named, and where the MIDI vocabulary lands is
       decided alongside ADR 0041's open question about `published_destinations`.
 
 ## Verification
@@ -44,3 +44,14 @@ Filed from the `playback-actor` review ledger as **CR-16**, minor.
 Minor because nothing is broken and the hatch is crate-private. Filed because it is an unnamed
 exception to the one property this effort exists to establish, and an unnamed exception is the kind
 that grows.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved: the hatch went. `a4ce0671` ("Deepen MIDI selection ownership within Playback") removed
+`PlaybackCommand::Adapter` and `AdapterTransition`; neither exists in `orcvs/src`. What replaced it is
+data: the mailbox's `Backlog<D>` (`orcvs/src/playback/mailbox.rs:80`) with its
+`Destination<D> { Disconnect, Output(D) }` slot (`:40`), `MidiRequest::Install`
+(`orcvs/src/midi/selection.rs:21`), and a non-capturing `fn(&mut PlaybackInner<A>, D)` output handler
+fixed at construction (`orcvs/src/playback.rs:1121`). ADR 0041 records it: "Selection requests are
+data, not transitions supplied by callers", and it settles `published_destinations` in the paragraph
+before. The second box does not apply, since the hatch did not stay.

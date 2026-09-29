@@ -8,18 +8,18 @@ drawn.
 
 **Status:** ready-for-agent
 
-- [ ] `egui_kittest` is added as a dev-dependency at the version matching the pinned `egui` and
+- [x] `egui_kittest` is added as a dev-dependency at the version matching the pinned `egui` and
       `eframe`, with the `eframe` feature and no others. Not `wgpu`, not `snapshot`.
 - [ ] The rationale is recorded per the repository contract, and `mise run audit_deps` is run with
       its result recorded. The new tree is `kittest` and `accesskit_consumer`; the `wgpu`, `dify` and
       `image` trees are specifically not taken on.
-- [ ] The harness is built with `Harness::builder().build_eframe(Console::new)`, at a fixed
+- [x] The harness is built with `Harness::builder().build_eframe(Console::new)`, at a fixed
       `with_size` and `with_pixels_per_point`, so a layout-dependent assertion is reproducible.
-- [ ] Typing a Glyph writes it into the selected Cell, and the Source reads it back.
+- [x] Typing a Glyph writes it into the selected Cell, and the Source reads it back.
 - [ ] Arrow keys move the Cursor and clamp at all four Grid edges.
 - [ ] Backspace, Delete and Space each do what `translate_event` claims they do, end to end.
 - [ ] A key egui delivers that `translate_event` drops — Enter, or a key release — changes nothing.
-- [ ] Clicking a Cell button selects that Cell's Position.
+- [x] Clicking a Cell selects that Cell's Position (the Grid is one painted interact rect, not a field of Cell buttons; `kittest_tests.rs:1385`).
 - [ ] The menus are exercised by label: File and its Quit item, View, the Tempo drag-commit, and the
       MIDI menu opening.
 - [ ] Assertions are made against `Console` and `Orcvs` state and the Render Frame, not by querying
@@ -47,3 +47,32 @@ unchanged; confirm this with `cargo tree` rather than assuming it.
 
 Leave the MIDI destination branches alone. They need a fake backend, and `MidiDeviceSelection`
 already has five tests at that seam.
+
+### Audit at cad296df — 2026-09-29
+
+Harness landed (this ticket was reopened below): the harness landed in `f7337fb1`. `console/Cargo.toml:203` pins
+`egui_kittest = "=0.36.2"` with only the `eframe` feature, and `build_eframe` runs at a fixed
+`with_size` and `with_pixels_per_point(1.0)` (`console/src/console/kittest_tests.rs:126-129`). Typing,
+arrow-key movement (`:879`) and click selection are covered end to end. The Grid is one painted
+interact rect, not a field of Cell buttons, so the "Cell button" and label-query premises no longer
+apply. The Tempo and MIDI menus were removed (`console/src/console/tests.rs:1200-1212` asserts they
+are gone), and `scripts/check-tooling-contract.sh:640` now pins `egui_kittest`, a harmless deviation.
+
+Two gaps remain and are not filed: arrow keys clamping at all four Grid edges end to end, and Enter
+or a key release changing nothing end to end (only the `translate_event` unit test covers the
+latter). Backspace and Delete appear in kittest only inside menu and title tests. The `audit_deps`
+record was not checked by this audit.
+
+### Independent implementation audit — 2026-09-29
+
+Reopened against `cad296df`: landing the harness does not satisfy the remaining input criteria.
+The real-app arrow test (`console/src/console/kittest_tests.rs:879-914`) presses Right three
+times and Down once; it never reaches any edge. The only Backspace (`:1821`) is deliberately
+suppressed by a focused menu. Enter (`:2478`) answers a modal, and the `pressed: false`
+events are pointer releases. Translation unit tests do not prove those inputs cross the App.
+
+Keep the remaining work here: all-four-edge arrow clamping, ordinary Source Backspace, and
+an ignored Source-focused key or key release. Credit existing Space coverage (`:2118-2128`,
+asserts Playing) and Delete coverage (`:2595-2608`, sole character deletion clears the dirty
+title); those need no duplicate tests. The existing arrow integration test passed in this audit.
+The dependency-audit evidence criterion remains unverified, not assumed satisfied.

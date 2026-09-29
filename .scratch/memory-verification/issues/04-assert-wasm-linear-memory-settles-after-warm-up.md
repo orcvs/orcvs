@@ -6,11 +6,11 @@ instead of by a user's tab.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human — the assertion is written and compile-checked, and has never run.
+**Status:** resolved
 
 - [x] Linear-memory size is sampled in the browser regression suite, after a warm-up run and again
       after a long sequence of Source writes and Ticks, and the two are asserted equal.
-- [ ] The warm-up length and the run length are chosen so the first sample is past allocator growth,
+- [x] The warm-up length and the run length are chosen so the first sample is past allocator growth,
       and the choice is stated. **The choice is stated; that it is past allocator growth is
       reasoned, not measured** — see the finding below.
 - [x] The assertion states why monotonicity makes this a sound leak signal: freed memory returns to
@@ -91,3 +91,12 @@ is the same work, synchronously.
 inside one test body with no harness code between them, and wasm-bindgen-test runs tests one at a
 time, so nothing else should allocate inside the measured span. "Should" is doing work in that
 sentence, and only a run can remove it.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved: the assertion has run and held. The merge tier's `wasm` job on `cad296df` (job
+109214656628, Rust run 36508316642) ran `test_wasm` and logged `test web_linear_memory_settles_after_warm_up ... ok`
+and `16 passed`. That run is the measurement the finding above asked for, so the second box is ticked
+on it: the samples were equal with the chosen warm-up. It also settles the shared-instance risk for
+that run. The test is at `console/tests/wasm.rs:76`; the `shell/` paths above predate the rename to
+`console` (`a79f2fcb`).

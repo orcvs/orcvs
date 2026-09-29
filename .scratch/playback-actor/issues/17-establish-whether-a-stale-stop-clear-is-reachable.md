@@ -26,14 +26,14 @@ Why nobody reviewing the console could construct it. The console is single-threa
 `Orcvs::event_handler`; there is one handle and the calls are serialised. A second concurrent caller
 is possible through the public API — `PlaybackEngine` is `Clone` — but no in-tree caller does it.
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] Whether an interleaving exists that clears a live request is established, by construction or by
+- [x] Whether an interleaving exists that clears a live request is established, by construction or by
       argument that none exists.
 - [ ] If one exists, the decision is recorded: tie the clear to the request that raised it (a
       generation, or a per-request flag), or accept it as within what ADR 0041 already concedes and
       say so in the ADR.
-- [ ] If none exists, what forbids it is written beside `:1271`, because the code does not currently
+- [x] If none exists, what forbids it is written beside `:1271`, because the code does not currently
       say that the `Stop` it is clearing for is the `Stop` that raised the flag.
 
 ## Verification
@@ -84,3 +84,21 @@ than closed, because that trade is not mine to make.
 
 Verified against `orcvs/src/playback/gate.rs` and the `Stop` arm at
 `orcvs/src/playback.rs`, not inferred from the flag it replaced.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved: no interleaving now clears a live request. The interleaving in the comment above cannot
+be built. `b23403f0` turned `TickGate` into a counted word: `request_stop` adds one request
+(`orcvs/src/playback/gate.rs:63`), and `clear_stop` answers one with `checked_sub`, reopening only
+when none remain (`:97-110`). The mailbox raises a request only when no stop is already pending, under
+its lock, and every `stop` empties the pending `start` and `retune` (`orcvs/src/playback/mailbox.rs:221-240`).
+So in the comment's sequence, B either finds A's flag pending (covered by it, and B's stop wipes the
+queued `start`) or finds it taken (the count is two, and answering A leaves the gate shut).
+
+The rule is written beside the clear site (`orcvs/src/playback.rs:1475-1479`) and on the gate
+(`gate.rs:30-40`, `:88-96`), and it is tested by
+`two_outstanding_stops_keep_the_gate_shut_until_both_are_answered` (`gate.rs:195`),
+`answering_with_no_request_standing_changes_nothing` (`:233`) and
+`a_stop_made_behind_a_full_backlog_shuts_admission_and_is_answered` (`playback.rs:3299`). This is a
+static argument over the lock and the count; no interleaving test drives two handles concurrently.
+The second box does not apply.

@@ -6,7 +6,7 @@ Worth confirming rather than assuming: the benchmark command selects two package
 
 **Blocked by:** 02 — Put midir behind a native-midi feature.
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 - [ ] The standard local benchmark command builds `orcvs` with `native-midi` disabled, and neither `midir` nor a system audio library appears in the benchmark build.
 - [ ] Every benchmark identifier and the shape of its measurement are unchanged, so the stored series stays continuous across the change.
@@ -27,3 +27,14 @@ The reason here is the benchmark environment. `v1-release/01` compares `mise run
 candidate against a named stable baseline, which holds the measured build constant. Dropping
 `midir` and the ALSA step changes what the benchmark jobs compile and link, so a merge inside the
 window breaks the comparison the GO decision rests on. Land it before the SHA is cut, or after GO.
+
+### Audit at cad296df — 2026-09-29
+
+Wontfix as written: the premise is gone. `ca781e51` moved MIDI port opening, and `midir`, into the
+console. `orcvs/Cargo.toml` has no `midir` and no `native-midi` feature, and no manifest declares
+that feature. `console/Cargo.toml:118` depends on `midir` unconditionally for native targets, and the
+bench command benchmarks `console` too (`mise.toml:197`, `:213`), so ALSA is still needed on Linux.
+
+If dropping ALSA from the bench jobs is still wanted, it needs a console-level rewrite: gate `midir`
+in `console`, or bench without linking it. Separately, the comment at `.github/workflows/bench.yml:88`
+still says "`orcvs` depends on `midir`", which is false; the console does.

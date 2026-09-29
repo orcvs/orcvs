@@ -26,8 +26,8 @@ ordinary refusal — it replaces its current Span with `**`.
 ```
 
 The odd case always worked and matches Orca, which resolves the same event by evaluation order. The
-even case rejected the Tick as a dependency cycle until `order_turns` learned to drop the edge that
-would order a mover ahead of a mover earlier in Source.
+even case is admitted because `order_turns` omits contact dependencies from an advancing
+Function to an intrinsically active owner. Ready Turns are then chosen by Source position.
 
 ## The alternative
 
@@ -59,7 +59,8 @@ litter follows the parse, not the collision. `****` is the spelling that means t
       cases differ in how many Cells are contested, and the shipping rule gives one a survivor and
       the other none.
 - [ ] The decision covers three or more movers converging. Today they resolve in Source order with
-      no cycle, because every kept edge between two movers points from the earlier to the later:
+      no cycle from mover-to-mover contact, because those contact dependencies are omitted and
+      ready Turns are chosen by Source position:
       `">>>>  <<    "` gives `"** >><<     "` and then `"   ****     "`.
 - [ ] The decision covers a Directional Bang emission that contests Cells with a mover. An emission
       never vacates its own Span, so "both are consumed" has no meaning for it, and any rule that
@@ -74,3 +75,35 @@ litter follows the parse, not the collision. `****` is the spelling that means t
 ## Comments
 
 **2026-09-24 — decided: the shipping rule is the v1 rule.** Each blocked mover takes ADR 0006's ordinary refusal and replaces its current Span with `**`, with Source order deciding which moves first. "Both consumed" is not adopted. The remaining lines are now documentation and regression tests for the kept rule, not open questions: ADR 0006 states the rule outright, and tests cover the odd and even gaps, three or more movers converging (`">>>>  <<    "`), a Directional Bang emission contesting a mover, and a mover blocked by a static Cell. This issue joins `release/v1` and blocks `v1-release/03`, under the definition of done's spatial "conflicts" line.
+
+### Audit at cad296df — 2026-09-29
+
+The decision is taken. What remains is the ADR 0006 wording and three regression tests. No box
+below is ticked, because each asks for the decision to be *stated*, and ADR 0006 still carries
+only the generic refusal sentence (no collision, convergence or Source-order text).
+
+Test coverage in `orcvs/src/source/tick.rs`:
+
+- Even gap: covered. `two_moves_that_want_the_same_cells_each_bang_in_their_own_span` (`:1497`,
+  a two-Cell gap) and `two_movers_reserving_each_other_each_bang_rather_than_costing_the_tick`
+  (`:2019`, flush `>><<`).
+- Mover blocked by a static Cell: covered.
+  `a_move_blocked_by_one_complete_language_unit_bangs_without_diagnosing` (`:2052`).
+- Odd gap (`">> <<"`): missing. The comment at `:1500-1503` defers to
+  `a_self_banging_function_moves_once_per_tick_and_bangs_where_it_stops` (`:1481`), but that test
+  has one mover and no second one.
+- Three or more movers (`">>>>  <<    "`): missing. No fixture exists in `orcvs/src` or
+  `orcvs/tests`.
+- A Directional Bang emission contesting a mover: missing.
+  `a_refused_emission_diagnoses_and_writes_no_cell` (`:1621`) blocks the emission on static Cells
+  only.
+
+Remaining work: amend ADR 0006 so it states the kept rule for all five cases, then add the three
+missing tests.
+
+### Independent implementation audit — 2026-09-29
+
+Corrected the scheduler explanation: `orcvs/src/source/tick.rs:1083-1089` skips
+contact dependencies to intrinsically active owners without comparing Source positions.
+`tick.rs:1128-1142` orders ready nodes by anchor. The kept collision decision and remaining
+ADR/regression work are unchanged. This audit did not execute the example grids.

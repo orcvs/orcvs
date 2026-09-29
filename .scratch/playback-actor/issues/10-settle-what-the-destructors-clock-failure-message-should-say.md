@@ -1,7 +1,7 @@
 # 10 — Settle what the destructor's clock-failure message should say
 
 **What to decide:** `Drop for PlaybackInner` reports `ClockFailure { message: "Playback clock
-terminated unexpectedly" }` (`orcvs/src/playback.rs:834`). ADR 0041 deleted the clock task, so there
+terminated unexpectedly" }` (`orcvs/src/playback.rs:886-888`). ADR 0041 deleted the clock task, so there
 is no longer a clock task to name. Decide what the message should say, and first find out whether
 anyone ever sees it.
 
@@ -10,18 +10,18 @@ terminated" describes a component that no longer exists as a separate thing. For
 it is also wrong in tone — nothing failed.
 
 **Whether it fires on an orderly teardown is unsettled, and the original report stated it as fact.**
-`console/src/main.rs:51-55` runs `eframe::run_native` inside `#[tokio::main]`, and `run_native` owns
-the `Console`, so the `PlaybackEngine` handles drop while the runtime is still alive with live
-workers. The task may well get polled, see `PlaybackEvent::Closed` (`orcvs/src/playback.rs:1245`),
-break, and run `inner.stop()` at `:1300` — which leaves `is_playing()` false, so `Drop` (`:831-832`)
-returns early and reports nothing at all. It is a scheduling race, not a static property, and which
+`console/src/main.rs:51` runs `eframe::run_native` inside `#[tokio::main]` (`:33`), and `run_native`
+owns the `Console`, so the `PlaybackEngine` handles drop while the runtime is still alive with live
+workers. The task may well get polled, see `PlaybackEvent::Closed` (`orcvs/src/playback.rs:1472`),
+break, and run `inner.stop_contained()` at `:1559` — which leaves `is_playing()` false, so `Drop`
+(`:883-885`) returns early and reports nothing at all. It is a scheduling race, not a static property, and which
 way it falls is the first thing to establish.
 
-**Even on the `Drop` path the report is probably invisible.** `:834` goes through
-`PlaybackInner::report` (`:668-670`), which sends into a channel whose receiver lives in the handle
-that has already dropped; the doc at `:665-666` says exactly that — "the send fails only once the
-receiving end is gone, which happens when the last handle is dropping and there is no console left to
-tell". So on this path the wrong message is never user-visible.
+**Even on the `Drop` path the report is probably invisible.** `:886` goes through
+`PlaybackInner::report` (`:679-681`), which records into the shared `DiagnosticLog`
+(`orcvs/src/playback/diagnostics.rs:231-246`, an `Arc<Mutex<..>>` per ADR 0055). The record always
+succeeds, but the console drains that log from the handle, and when the last handle is dropping
+there is no console left to drain it. So on this path the wrong message is never user-visible.
 
 The safety action, which is the part that matters, happens either way.
 
@@ -51,3 +51,17 @@ things stand between the teardown and the message, and the issue should not be w
 had been.
 
 `05` covers the other defect in the same destructor.
+
+### Audit at cad296df — 2026-09-29
+
+Re-read against the code; the body is corrected in place.
+
+- The report no longer goes into a channel whose send fails once the receiver is gone. Diagnostics
+  are a shared `DiagnosticLog(Arc<Mutex<Retained>>)` (`orcvs/src/playback/diagnostics.rs:231`), so
+  the destructor's report is recorded and simply never drained. The conclusion — invisible — holds;
+  the mechanism the body quoted does not exist any more.
+- The orderly-close path is `PlaybackEvent::Closed => break` at `orcvs/src/playback.rs:1472`, then
+  `inner.stop_contained()` at `:1559`; `an_orderly_shutdown_silences_the_output_without_reporting_a_failure`
+  (`:4425`) covers it. Line references refreshed: the message 834→886, `Drop`'s early return
+  831→883, `report` 668→679.
+- The message is still "Playback clock terminated unexpectedly"; no criterion is met.

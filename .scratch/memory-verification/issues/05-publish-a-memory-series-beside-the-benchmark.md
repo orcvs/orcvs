@@ -5,9 +5,7 @@ existing timing series, so a slow creep that no single assertion catches is visi
 
 **Blocked by:** 01 — Count allocations on the Tick and Render Frame paths; 02 — Count allocations on the Source write and Language Map rebuild.
 
-**Status:** ready-for-human — everything is written, and every local gate the change can reach
-was run and passed. The two workflow steps themselves have never run in CI: nothing appends the
-first point to the `memory` series until a push to `main` runs the publishing job.
+**Status:** resolved
 
 - [x] The existing pinned `github-action-benchmark` is reused with `tool: customSmallerIsBetter` and
       its own `name`. No new action, no new pin. The action merges multiple named series into the one
@@ -105,3 +103,14 @@ negative-tested against a mutated fixture copy and each rejects the mutation.
 The series has no points yet, so there is nothing to judge stability against and `fail-on-alert`
 stays `false`. Turning it on is the follow-up the spec already describes, and it wants a handful of
 points on `main` first.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved: the workflow steps have run in CI. On the `main` push run for `cad296df` (Benchmark run
+36508316780), the publish job's "Measure allocations", "Assemble the memory series", "Fetch gh-pages
+for the memory series" and "Publish and compare allocations" all succeeded. The `memory` series on
+gh-pages (`dev/bench/data.js`) holds 118 points, the first from 2026-09-09. The steps live at
+`.github/workflows/bench.yml:241-268` and `:463-488`.
+
+Turning on `fail-on-alert` for the series, which the "Not done here" section defers, is not filed.
+The series now has enough points to judge stability against.

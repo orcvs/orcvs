@@ -7,12 +7,12 @@
 **Status:** ready-for-agent
 
 - [x] *(Done by #129, which replaced the test.)* `no_picker_labels_appear_anywhere_in_the_top_bar` (`console/src/console/kittest_tests.rs:287`, menu loop at `:304`) opens `["File", "View", "Theme"]`. The Theme menu was removed by `09`, so it is silently skipped, and Settings is never opened. Open the menus that exist, and fail when a listed menu is missing, rather than skipping it.
-- [ ] `benches/floors.toml:60-62`: 106 ns against a 70 ns baseline is about 151%, which trips the 150% alert. It passes only the 300% fail threshold. Correct the reasoning; the 100 ns floor is unchanged.
-- [ ] `benches/floors.toml:70` and `.scratch/paint-cell-cost/spec.md` name `Paint::derive_with_colours`, which #120 renamed to `derive_with_theme`.
-- [ ] `console/src/console.rs:1515-1517` says the Grid lines and seams take the zoom scale. They stay a fixed display-point width.
+- [x] *(Obsolete: 26167b95 replaced the `execute` floor with `execute_function` at 60 ns and new reasoning, `benches/floors.toml:47-59`.)* `benches/floors.toml:60-62`: 106 ns against a 70 ns baseline is about 151%, which trips the 150% alert. It passes only the 300% fail threshold. Correct the reasoning; the 100 ns floor is unchanged.
+- [ ] `benches/floors.toml:63` and `.scratch/paint-cell-cost/spec.md:3,17` name `Paint::derive_with_colours`, which #120 renamed to `derive_with_theme`.
+- [x] *(Done: the comment is gone from `console/src`; `console/src/console/shapes.rs:94` now states the fixed display-point width.)* `console/src/console.rs:1515-1517` says the Grid lines and seams take the zoom scale. They stay a fixed display-point width.
 - [x] `console/src/contrast.rs:539-541` says chrome has no reused composition because `03` has not landed. Delete it here if `11` has not already replaced it. *(Removed by `11` on `theming-11-chrome-contrast`, which replaced the hand-written layering with `contrast::chrome`.)*
-- [ ] The `shipped_theme_gate` rustdoc (`contrast.rs:2226-2230`), and the `ContrastResult::accepted` rustdoc (`contrast.rs:633`), which says acceptances are recorded in `08`'s comments although `08` records none and both accepted lists are empty, cites a "known weakness recorded in `08`'s comments" that does not exist. Record the weakness (the hand-kept `[okabe_ito(), orcvs_light()]` array) somewhere real, or remove the citation.
-- [ ] `console/src/style.rs:2439` says the byte arrays were "copied verbatim from the `ba987f6` capture". The test's own doc (`:2405-2411`) says they were recaptured after the retune.
+- [x] *(Done by 85ae5b28: the `08` citations are removed, and `contrast.rs:1527` states the hand-kept `shipped` array in place.)* The `shipped_theme_gate` rustdoc (`contrast.rs:2226-2230`), and the `ContrastResult::accepted` rustdoc (`contrast.rs:633`), which says acceptances are recorded in `08`'s comments although `08` records none and both accepted lists are empty, cites a "known weakness recorded in `08`'s comments" that does not exist. Record the weakness (the hand-kept `[okabe_ito(), orcvs_light()]` array) somewhere real, or remove the citation.
+- [x] *(Done by 85ae5b28: the `ba987f6` wording is gone from `style.rs`.)* `console/src/style.rs:2439` says the byte arrays were "copied verbatim from the `ba987f6` capture". The test's own doc (`:2405-2411`) says they were recaptured after the retune.
 - [x] *(Moved to `syntax-highlighting/14`, which fixes the defect it describes.)* The public rustdoc on `RenderCell::output_portal` (`orcvs/src/render_frame.rs:83-85`) states the "each following written Cell pair" rule that `syntax-highlighting/12`'s review rejected. The shipped rule is the run of written Cells, stopping at the first blank Cell and clipped to the Reservation.
 - [ ] `cargo fmt --all -- --check`, clippy and nextest pass on `console` and `orcvs`. `cargo test --workspace --doc --locked` passes.
 
@@ -21,3 +21,20 @@
 **2026-09-23 — opened by the audit of the merged pull requests against their issues.** Each line is a test, comment or doc that #119–#126 left describing behaviour `main` no longer has. They are one-line corrections with no shared code, grouped so one pull request clears them.
 
 **2026-09-24 — rechecked against `origin/main` after #128-#130 merged.** The kittest line was done by #129. Every other line is still present on `main`; line references were refreshed. `contrast.rs:633` joins the `08`-citation line: it is a second reference to `08` comments that do not exist.
+
+### Audit at cad296df — 2026-09-29
+
+One content line is left: rename `Paint::derive_with_colours` to `derive_with_theme` in
+`benches/floors.toml:63` and `.scratch/paint-cell-cost/spec.md:3,17`. The code has only
+`derive_with_theme`, and no `derive_with_colours` remains in any crate. The gates line applies to
+that change.
+
+The other lines were checked:
+
+- The floors-106 line is obsolete. 26167b95 deleted the `execute` floor, and `execute_function` at
+  `max_ns = 60` carries its own reasoning.
+- The zoom-scale comment no longer appears in `console/src`. I did not pin down which commit
+  removed it. `shapes.rs:94` now says the stroke keeps its thickness at every Grid zoom.
+- 85ae5b28 removed every `.scratch/theming/issues/08` citation from `contrast.rs`, restated the
+  hand-kept `shipped` array at `contrast.rs:1527`, and removed the `ba987f6` wording from
+  `style.rs`.

@@ -7,7 +7,7 @@ Filed from ticket `05`'s cascade question. With `CellVisuals.background` already
 `Option<Color32>`, the second pass over derived Cells is no longer forced by a filter that lives
 one module away — the derive walk already knows each Cell's fill. Closing runs there would also let
 `BackgroundRun` stop exposing a half-open `Range<usize>` whose consumer subtracts one under a
-`debug_assert!` (`console/src/console.rs` around the background-run shape step).
+`debug_assert!` (`console/src/console/shapes.rs:174-181`, the background-run shape step).
 
 **Do not treat this as free.** `source-paint` deliberately chose "derived, never stored" for runs so
 the fold stays testable in isolation. A single-pass fold is a different derivation shape with its
@@ -30,3 +30,12 @@ than as a drive-by on `05`.
 
 Filed by ticket `05`: the cascade holds as a possible follow-up once the background is decided at
 source. Not done there on purpose.
+
+### Audit at cad296df — 2026-09-29
+
+The shape step no longer lives in `console/src/console.rs`: the `debug_assert!` and the
+`run.columns.end - 1` subtraction are at `console/src/console/shapes.rs:174-181`, and the body now
+cites that path. The rest holds: `Paint::background_runs` is still a second pass
+(`console/src/paint.rs:475`) over what `Paint::derive` (`:348`) produced, `BackgroundRun.columns`
+(`:99`) is still a half-open `Range<usize>`, and `CellVisuals.background` is still `Option<Color32>`.
+No criterion is met.

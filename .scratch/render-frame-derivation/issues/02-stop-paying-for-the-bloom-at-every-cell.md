@@ -5,7 +5,7 @@ distance, breakup and hash first.
 
 **Blocked by:** 01 — Measure what a Render Frame costs before changing anything.
 
-**Status:** needs-triage
+**Status:** wontfix
 
 - [ ] A Cell outside the bloom radius costs a bounds comparison rather than `signal_breakup` and
       `cell_hash`. The radius is Chebyshev over `DEFAULT_HIGHLIGHT_DOT_SPACING = 7`
@@ -26,3 +26,12 @@ exactly what issue 01 exists to find out. Do not promote this before there is a 
 The reason it is written down now rather than later is that it is the one cost in `derive` that is
 pure waste rather than work: the Cell is going to answer `None`, the answer does not depend on the
 hash, and the hash is computed anyway. The other two costs are paying for something.
+
+### Audit at cad296df — 2026-09-29
+
+Wontfix: the cost this targets is gone. `5627c655` moved the Cursor bloom and Sector Seams into
+the console. `classify_cursor_bloom`, `signal_breakup` and `DEFAULT_HIGHLIGHT_DOT_SPACING` no longer
+exist anywhere in the workspace, and `orcvs/src/opts.rs:9` keeps only
+`DEFAULT_CURSOR_BLOOM_RADIUS = 7` as a carried setting. The console no longer draws a per-Cell bloom:
+the Cursor Effect paints inside a bounded rect (`console/src/cursor_effects.rs:191`
+`effect_bounds`), and the remaining `cell_hash` (`console/src/marks.rs:8`) serves Sector Seams only.
