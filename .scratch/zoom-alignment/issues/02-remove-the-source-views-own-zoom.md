@@ -15,3 +15,8 @@
 - [ ] Code comments and rustdoc no longer describe a Grid or Source View zoom separate from egui's, and ADR 0038 and ADR 0040 point to the ADR `01` added where they discuss the Source View's scaling.
 - [ ] `paint_derive` stays within `benches/floors.toml` on the pull request's benchmark job.
 - [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and the `--no-default-features` arm pass. `mise run check_wasm` passes.
+
+## Comments
+
+**2026-09-29 — part landed with `01`.** The zoom command recogniser (`ZoomCommand`, `zoom_command`), `stepped_zoom`, the View menu's `requested_zoom` and their unit tests are deleted by `01`: once no input reached them they were dead code the clippy gate refuses. The Source View's `zoom` field, `MIN_ZOOM`/`MAX_ZOOM`, the Glyph scale quantisation, the Diagnostics readout and the Zoom-parameterised width tests remain here.
+

@@ -863,3 +863,76 @@ mod product_path {
         clear_orcvs_keys();
     }
 }
+
+///
+/// On the web, command `+`, `=`, `-` and `0` are the browser's page zoom and
+/// never egui's as well, so a chord changes exactly one zoom.
+///
+/// eframe's web runner turns egui's keyboard zoom off and sets its zoom factor
+/// to 1.0 before it builds the app (`eframe-0.36.2/src/web/app_runner.rs`,
+/// `AppRunner::new`), and it leaves the browser's default action for these
+/// chords alone (`should_prevent_default_for_key` in `web/events.rs`), so the
+/// browser zooms the page and eframe follows its device pixel ratio as the
+/// native pixels per point. This holds the console's half: building it leaves
+/// egui's keyboard zoom off, and the chords, delivered as the web runner
+/// delivers them, leave egui's zoom factor at 1.0. Were egui to zoom too, its
+/// factor would multiply the browser's.
+///
+mod zoom {
+    use console::console::{Console, DEFAULT_VIEW_SIZE};
+    use eframe::App as _;
+    use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    fn pass(
+        ctx: &egui::Context,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+        events: Vec<Event>,
+    ) {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::from(DEFAULT_VIEW_SIZE),
+            )),
+            events,
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root| console.ui(root, host))
+            .drop_without_applying_deltas();
+    }
+
+    #[wasm_bindgen_test]
+    fn the_zoom_chords_leave_the_zoom_to_the_browser() {
+        let ctx = egui::Context::default();
+        // What eframe's web runner sets before it builds the app.
+        ctx.options_mut(|options| {
+            options.zoom_with_keyboard = false;
+            options.zoom_factor = 1.0;
+        });
+        let mut console = Console::start(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("browser playback does not require a Tokio runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        assert!(
+            !ctx.options(|options| options.zoom_with_keyboard),
+            "building the console turned egui's keyboard zoom on over the browser's"
+        );
+
+        for key in [Key::Plus, Key::Equals, Key::Minus, Key::Num0] {
+            let chord = Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::COMMAND,
+            };
+            pass(&ctx, &mut console, &mut host, vec![chord]);
+            pass(&ctx, &mut console, &mut host, Vec::new());
+            assert_eq!(
+                ctx.zoom_factor(),
+                1.0,
+                "command {key:?} zoomed egui as well as the browser's page"
+            );
+        }
+    }
+}

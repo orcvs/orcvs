@@ -222,15 +222,6 @@ impl Console {
         // `set_theme`.
         themes.install(&cc.egui_ctx);
 
-        // egui's own `Context::end_pass` answers the same command `=`/`+`,
-        // `-` and `0` chords by changing `zoom_factor` — the whole UI's
-        // scale, not the Source View's (`egui-0.36.2/src/gui_zoom.rs`,
-        // `Options::zoom_with_keyboard`, on by default). Those chords are the
-        // Source View's Zoom here, so egui's own reading of them is turned
-        // off rather than left to race it.
-        cc.egui_ctx
-            .options_mut(|options| options.zoom_with_keyboard = false);
-
         // egui's default fonts, with the bundled Monaspace Neon put first in
         // both the proportional and the monospace family.
         let mut fonts = egui::FontDefinitions::default();

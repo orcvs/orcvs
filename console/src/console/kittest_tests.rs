@@ -84,7 +84,7 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::source_view::{MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
+use super::source_view::{SOURCE_MARGIN_CELLS, source_bounds};
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
@@ -916,36 +916,31 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// the Source View to bring it back, the same frame the keys reach the Source
 /// (`Console::ui` reads the Render Frame after `Orcvs::event_handler` runs).
 ///
-/// This Zooms to `MAX_ZOOM` first, so Column 40 lies past the default
-/// window's far edge — command Zoom is keyboard-only and leaves
-/// the window and its Panels exactly as they were, so the console's own width
-/// is still the default window's, `DEFAULT_VIEW_SIZE[0]`, with none of a
-/// resize's uncertainty about how tall the Panels leave the console.
+/// This zooms egui to 2.0 first, which halves the window's width in points,
+/// so Column 40 lies past its far edge. The console's width is read back from
+/// egui rather than written down, since each zoom step rescales it.
 ///
 #[tokio::test]
 async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_follow_it() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    for _ in 0..8 {
+    for _ in 0..10 {
         harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
     }
     harness.step();
     harness.run_steps(1);
     assert_eq!(
-        harness.state().source_view.zoom,
-        MAX_ZOOM,
-        "eight command Equals did not reach MAX_ZOOM"
+        harness.ctx.zoom_factor(),
+        2.0,
+        "ten command Equals did not zoom egui to 2.0"
     );
     assert_eq!(
         harness.state().source_view.pan,
         Vec2::ZERO,
-        "Zooming in on an unmoved Cursor already in view Panned regardless"
+        "zooming in on an unmoved Cursor already in view Panned regardless"
     );
 
-    // At `MAX_ZOOM` a Cell is `CELL_SIZE * MAX_ZOOM` points, and the default
-    // window is `DEFAULT_VIEW_SIZE[0]` points wide whatever the Zoom — so
-    // Column 40 sits well past it.
     for _ in 0..40 {
         harness.key_press(egui::Key::ArrowRight);
     }
@@ -959,93 +954,313 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
     );
 
     // The follow shows Column 40's far edge, which sits the Source View's
-    // margin of two Cells further along than the Column itself.
-    let cell_at_max_zoom = CELL_SIZE * MAX_ZOOM;
-    let console_width = DEFAULT_VIEW_SIZE[0];
+    // margin of two Cells further along than the Column itself. A Cell is
+    // `CELL_SIZE` points at every zoom.
+    let console_width = harness.ctx.content_rect().width();
     let pan = harness.state().source_view.pan;
-    assert_eq!(
-        pan,
-        Vec2::new(
-            console_width - (41.0 + SOURCE_MARGIN_CELLS) * cell_at_max_zoom,
-            0.0
-        ),
-        "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}"
+    let expected = console_width - (41.0 + SOURCE_MARGIN_CELLS) * CELL_SIZE;
+    assert!(
+        (pan.x - expected).abs() < 1e-3 && pan.y == 0.0,
+        "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}, not {expected}"
     );
 
     let column_40 = presented_source(&harness).cell_rect(40, 0);
     assert!(
-        column_40.min.x >= 0.0 && column_40.max.x <= console_width,
+        column_40.min.x >= 0.0 && column_40.max.x <= console_width + 1e-3,
         "Column 40 is still out of view at {column_40:?} in a console {console_width} points wide"
     );
 }
 
 ///
-/// Keyboard Zoom end to end: a command `=`/`0` chord reaches
-/// `Console::ui`'s own event routing exactly like an arrow key does, and
-/// changes the Source View rather than the Source. The bare `=` the chord is
-/// built from is still Source input, egui's own Cmd `=` UI zoom
-/// (`Options::zoom_with_keyboard`, `Console::new` turns it off) never fires
-/// for it, and a fresh console opens with `zoom_with_keyboard` already off —
-/// otherwise the first chord below would move `harness.ctx.zoom_factor()`
-/// too, and pass for the wrong reason.
+/// A command `+`, `=`, `-` or `0` chord is egui's whole-UI zoom, stepped by
+/// egui's own step within egui's own range, and never the Source's: the
+/// Source View's own Zoom and Pan stay where they were and no Cell is
+/// written. The bare characters the chords are built from are still Source
+/// input.
 ///
 #[tokio::test]
-async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
+async fn command_zoom_chords_change_egui_zoom_and_never_the_source() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    assert_eq!(harness.state().source_view.zoom, 1.0);
-    assert_eq!(
-        cell_under_cursor(harness.state()),
-        None,
-        "a fresh console did not open with an empty Cell under the Cursor"
-    );
+    assert_eq!(harness.ctx.zoom_factor(), 1.0);
+    let source = cells(harness.state());
+    let pan = harness.state().source_view.pan;
 
-    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    let chord = |harness: &mut Harness<'_, Console>, key: Key| {
+        harness.key_press_modifiers(Modifiers::COMMAND, key);
+        harness.step();
+        harness.run_steps(1);
+    };
+    for (key, expected) in [
+        (Key::Equals, 1.1),
+        (Key::Plus, 1.2),
+        (Key::Minus, 1.1),
+        (Key::Num0, 1.0),
+        (Key::Minus, 0.9),
+    ] {
+        chord(&mut harness, key);
+        let console = harness.state();
+        assert_eq!(
+            harness.ctx.zoom_factor(),
+            expected,
+            "command {key:?} did not step egui's zoom to {expected}"
+        );
+        assert_eq!(
+            console.source_view.zoom, 1.0,
+            "command {key:?} changed the Source View's Zoom"
+        );
+        assert_eq!(
+            console.source_view.pan, pan,
+            "command {key:?} Panned the Source View"
+        );
+        assert_eq!(
+            cells(console),
+            source,
+            "command {key:?} wrote to the Source"
+        );
+    }
+
+    // egui's range: fifty steps out stop at its floor, fifty in at its ceiling.
+    for _ in 0..50 {
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);
+    }
     harness.step();
     harness.run_steps(1);
-
-    assert_eq!(
-        harness.state().source_view.zoom,
-        1.125,
-        "command Equals did not Zoom the Source View"
-    );
     assert_eq!(
         harness.ctx.zoom_factor(),
-        1.0,
-        "egui's own UI zoom fired for the Source View's Zoom chord"
+        0.2,
+        "egui's zoom passed its floor"
     );
+    for _ in 0..50 {
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    }
+    harness.step();
+    harness.run_steps(1);
     assert_eq!(
-        cell_under_cursor(harness.state()),
+        harness.ctx.zoom_factor(),
+        5.0,
+        "egui's zoom passed its ceiling"
+    );
+    chord(&mut harness, Key::Num0);
+    assert_eq!(harness.ctx.zoom_factor(), 1.0);
+
+    // Bare, each is a Glyph written to the Cell under the Cursor, and the
+    // zoom stays where it was.
+    for glyph in ['+', '-', '=', '0'] {
+        let cell = harness.state().orcvs.render_frame().cursor();
+        harness.event(Event::Text(glyph.to_string()));
+        harness.step();
+        harness.run_steps(1);
+        assert_eq!(
+            harness.state().orcvs.render_frame().at(cell).content(),
+            Some(glyph),
+            "a bare {glyph:?} did not reach the Source as Cell input"
+        );
+        assert_eq!(
+            harness.ctx.zoom_factor(),
+            1.0,
+            "a bare {glyph:?} changed egui's zoom"
+        );
+    }
+}
+
+///
+/// Every Shape the last frame painted inside the Source's own clip, flattened:
+/// the clip that holds the Grid's first Cell and not the window's corner,
+/// which the menu bar, the Panel and the window's own layers do not share.
+///
+fn painted_source_shapes(harness: &Harness<'_, Console>) -> Vec<egui::Shape> {
+    fn flatten(shape: &egui::Shape, into: &mut Vec<egui::Shape>) {
+        match shape {
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    flatten(shape, into);
+                }
+            }
+            shape => into.push(shape.clone()),
+        }
+    }
+
+    let first_cell = presented_source(harness).cell_rect(0, 0).center();
+    let mut shapes = Vec::new();
+    for clipped in &harness.output().shapes {
+        if clipped.clip_rect.contains(first_cell) && !clipped.clip_rect.contains(Pos2::ZERO) {
+            flatten(&clipped.shape, &mut shapes);
+        }
+    }
+    shapes
+}
+
+///
+/// A zoomed console paints square Cells a whole number of physical pixels on
+/// a side and at a whole-pixel corner, and its Grid lines, Sector Seams and
+/// Cursor stroke keep the Theme's display-point widths: egui's zoom scales
+/// points to pixels and never the points a Theme states.
+///
+/// 1.3 is a zoom at which the Source's 16 point Cell is 20.8 pixels, so the
+/// snap has something to do.
+///
+#[tokio::test]
+async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
+    // A still Cursor Effect, so the Cursor's stroke is its stationary outline.
+    let mut config = crate::config::Config::default();
+    *config.cursor_effects.amount_mut() = 0;
+    let mut harness = console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
         None,
-        "a command Equals chord reached the Source"
+        ThemeRegistry::built_in(),
+        config,
     );
-
-    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num0);
+    harness.run_steps(2);
+    for _ in 0..3 {
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    }
     harness.step();
     harness.run_steps(1);
     assert_eq!(
-        harness.state().source_view.zoom,
-        1.0,
-        "command Num0 did not reset the Zoom"
+        harness.ctx.zoom_factor(),
+        1.3,
+        "three chords did not zoom to 1.3"
+    );
+    let pixels_per_point = harness.ctx.pixels_per_point();
+    assert_eq!(
+        pixels_per_point, 1.3,
+        "egui's zoom did not reach pixels_per_point"
     );
 
-    // Bare "=" is still Source input: it types into the Cell under the
-    // Cursor, the same path the arrow keys above take.
-    let cell = harness.state().orcvs.render_frame().cursor();
-    harness.event(Event::Text("=".to_owned()));
-    harness.step();
-    harness.run_steps(1);
+    let whole = |points: f32| {
+        let pixels = points * pixels_per_point;
+        (pixels - pixels.round()).abs() < 1e-3
+    };
+    let viewport = presented_source(&harness);
+    let cursor_cell = viewport.cell_rect(0, 0);
+    assert!(
+        (cursor_cell.width() - cursor_cell.height()).abs() < 1e-3,
+        "a zoomed Cell is not square: {cursor_cell:?}"
+    );
+    assert!(
+        whole(viewport.cell_size),
+        "a zoomed Cell is {} pixels on a side",
+        viewport.cell_size * pixels_per_point
+    );
+    assert!(
+        whole(viewport.rect.min.x) && whole(viewport.rect.min.y),
+        "the zoomed Grid's corner {:?} is off the pixel grid",
+        viewport.rect.min
+    );
 
+    let theme = harness
+        .state()
+        .themes
+        .presented(Appearance::from(harness.ctx.theme()))
+        .clone();
+    let (mut borders, mut cursor_strokes, mut seams) = (0, 0, 0);
+    for shape in painted_source_shapes(&harness) {
+        match shape {
+            egui::Shape::Rect(rect) if rect.stroke.width > 0.0 => {
+                let expected = if rect.rect.center().distance(cursor_cell.center()) < 1e-3 {
+                    cursor_strokes += 1;
+                    theme.cursor_border_width.points()
+                } else {
+                    borders += 1;
+                    theme.grid_border_width.points()
+                };
+                assert_eq!(
+                    rect.stroke.width, expected,
+                    "a stroke around {:?} is not the Theme's width at zoom 1.3",
+                    rect.rect
+                );
+            }
+            egui::Shape::LineSegment { stroke, .. } => {
+                seams += 1;
+                assert_eq!(
+                    stroke.width,
+                    theme.sector_seam_width.points(),
+                    "a Sector Seam is not the Theme's width at zoom 1.3"
+                );
+            }
+            _ => {}
+        }
+    }
+    assert!(borders > 0, "the zoomed console painted no Grid line");
     assert_eq!(
-        harness.state().orcvs.render_frame().at(cell).content(),
-        Some('='),
-        "a bare \"=\" did not reach the Source as Cell input"
+        cursor_strokes, 1,
+        "the zoomed console painted no one Cursor stroke"
+    );
+    assert!(seams > 0, "the zoomed console painted no Sector Seam");
+}
+
+///
+/// The key eframe stores egui memory under in its storage, which it does not
+/// export (`eframe-0.36.2/src/native/epi_integration.rs`,
+/// `STORAGE_EGUI_MEMORY_KEY`).
+///
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
+const EGUI_MEMORY_KEY: &str = "egui";
+
+///
+/// A zoom a viewer chose survives a save and a restart in a persistence
+/// build. The console stores nothing for it: egui memory holds the zoom
+/// factor, and eframe saves that memory beside `App::save` and restores it
+/// into the context before the console is built.
+///
+/// eframe's save and restore are done here by hand, through the native file
+/// codec, since a harness has no eframe integration to do them.
+///
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn a_zoom_survives_a_save_and_a_restart() {
+    use crate::persistence::{IsolatedRonDir, RonFileStorage};
+
+    let dir = IsolatedRonDir::new();
+    {
+        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        harness.run_steps(2);
+        for _ in 0..3 {
+            harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+        }
+        harness.step();
+        harness.run_steps(1);
+        assert_eq!(
+            harness.ctx.zoom_factor(),
+            1.3,
+            "three chords did not zoom to 1.3"
+        );
+
+        let mut file = RonFileStorage::create(dir.path());
+        eframe::App::save(harness.state_mut(), &mut file);
+        harness
+            .ctx
+            .memory(|memory| eframe::set_value(&mut file, EGUI_MEMORY_KEY, memory));
+        eframe::Storage::flush(&mut file);
+    }
+
+    let storage = RonFileStorage::from_file(dir.path());
+    let mut restarted = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| {
+            if let Some(memory) = eframe::get_value::<egui::Memory>(&storage, EGUI_MEMORY_KEY) {
+                cc.egui_ctx.memory_mut(|restored| *restored = memory);
+            }
+            cc.storage = Some(&storage);
+            start_console(
+                cc,
+                ThemeRegistry::built_in(),
+                crate::config::Config::default(),
+            )
+        });
+    restarted.run_steps(2);
+    assert_eq!(
+        restarted.ctx.zoom_factor(),
+        1.3,
+        "the restarted console did not open at the zoom it was saved at"
     );
     assert_eq!(
-        harness.state().source_view.zoom,
-        1.0,
-        "a bare \"=\" changed the Zoom"
+        restarted.ctx.pixels_per_point(),
+        1.3,
+        "the restored zoom did not reach pixels_per_point"
     );
 }
 
@@ -1285,14 +1500,17 @@ const FILE_ITEMS: [(&str, bool, Key); 4] = [
 ];
 
 ///
-/// The View menu's zoom items sit above Diagnostics, each showing its chord
-/// and doing what that chord does.
+/// The View menu's zoom items are egui's own, above Diagnostics, each showing
+/// egui's chord and stepping egui's zoom as that chord does. None of them
+/// changes the Source View's own Zoom.
 ///
 #[tokio::test]
-async fn the_view_menu_zooms_the_source_view_as_its_chords_do() {
+async fn the_view_menu_zooms_egui_as_its_chords_do() {
+    use egui::gui_zoom::kb_shortcuts;
+
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    assert_eq!(harness.state().source_view.zoom, 1.0);
+    assert_eq!(harness.ctx.zoom_factor(), 1.0);
 
     let open_view = |harness: &mut Harness<'_, Console>| {
         harness.get_by_label("View").click();
@@ -1302,14 +1520,12 @@ async fn the_view_menu_zooms_the_source_view_as_its_chords_do() {
     open_view(&mut harness);
     let diagnostics_top = harness.get_by_label("Diagnostics").rect().min.y;
     let mut previous_top = f32::NEG_INFINITY;
-    for (item, key) in [
-        ("Zoom In", Key::Equals),
-        ("Zoom Out", Key::Minus),
-        ("Reset Zoom", Key::Num0),
+    for (item, shortcut) in [
+        ("Zoom In", kb_shortcuts::ZOOM_IN),
+        ("Zoom Out", kb_shortcuts::ZOOM_OUT),
+        ("Reset Zoom", kb_shortcuts::ZOOM_RESET),
     ] {
-        let shortcut = harness
-            .ctx
-            .format_shortcut(&egui::KeyboardShortcut::new(Modifiers::COMMAND, key));
+        let shortcut = harness.ctx.format_shortcut(&shortcut);
         let node = harness.get_by_label_contains(item);
         let label = node.accesskit_node().label().unwrap_or_default();
         assert!(
@@ -1325,9 +1541,9 @@ async fn the_view_menu_zooms_the_source_view_as_its_chords_do() {
     }
 
     for (item, expected) in [
-        ("Zoom In", 1.125),
-        ("Zoom In", 1.25),
-        ("Zoom Out", 1.125),
+        ("Zoom In", 1.1),
+        ("Zoom In", 1.2),
+        ("Zoom Out", 1.1),
         ("Reset Zoom", 1.0),
     ] {
         if harness.query_all_by_label_contains(item).next().is_none() {
@@ -1337,16 +1553,16 @@ async fn the_view_menu_zooms_the_source_view_as_its_chords_do() {
         harness.step();
         harness.run_steps(1);
         assert_eq!(
-            harness.state().source_view.zoom,
+            harness.ctx.zoom_factor(),
             expected,
-            "View → {item} did not step the Zoom as its chord does"
+            "View → {item} did not step egui's zoom as its chord does"
+        );
+        assert_eq!(
+            harness.state().source_view.zoom,
+            1.0,
+            "View → {item} changed the Source View's Zoom"
         );
     }
-    assert_eq!(
-        harness.ctx.zoom_factor(),
-        1.0,
-        "a View zoom item moved egui's own UI zoom"
-    );
 }
 
 ///
@@ -1639,20 +1855,21 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     harness.event(Event::ModifiersChanged(Modifiers::default()));
     harness.step();
 
-    // A Grid with nowhere to Pan: at `MIN_ZOOM` this one and its margins are
-    // smaller than the default window's console on both axes.
+    // A Grid with nowhere to Pan: zoomed out to half, the default window is
+    // twice as many points across, and this Grid and its margins are
+    // smaller than its console on both axes.
     harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
     harness.state_mut().source_view = super::source_view::SourceView::default();
     harness.step();
-    for _ in 0..8 {
+    for _ in 0..5 {
         harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);
     }
     harness.step();
     harness.run_steps(1);
     assert_eq!(
-        harness.state().source_view.zoom,
-        MIN_ZOOM,
-        "eight command Minus did not reach MIN_ZOOM"
+        harness.ctx.zoom_factor(),
+        0.5,
+        "five command Minus did not zoom egui to 0.5"
     );
     let over = cell_centre(&harness, 2, 2);
     harness.event(Event::PointerMoved(over));
@@ -2099,8 +2316,8 @@ async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
 
 ///
 /// `File → New` replaces the environment with an empty Source on the one
-/// Grid, resetting the Cells, Cursor, Zoom, Bpm and Playback and leaving the
-/// settings standing.
+/// Grid, resetting the Cells, Cursor, Pan, Bpm and Playback and leaving the
+/// settings standing, egui's zoom among them.
 ///
 #[tokio::test]
 async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
@@ -2126,11 +2343,7 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
         "Space did not start the Playback New is to stop"
     );
     assert_ne!(cursor(harness.state()), (0, 0), "the Cursor never moved");
-    assert_ne!(
-        harness.state().source_view.zoom,
-        1.0,
-        "the Zoom never moved"
-    );
+    assert_eq!(harness.ctx.zoom_factor(), 1.1, "the zoom never moved");
     assert!(
         cells(harness.state()).iter().any(Option::is_some),
         "nothing was written"
@@ -2155,10 +2368,11 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
         "New left the Cursor off the origin"
     );
     assert_eq!(
-        (console.source_view.zoom, console.source_view.pan),
-        (1.0, Vec2::ZERO),
+        console.source_view.pan,
+        Vec2::ZERO,
         "New left the Source View off its rest"
     );
+    assert_eq!(harness.ctx.zoom_factor(), 1.1, "New reset egui's zoom");
     assert_eq!(
         console.orcvs.playback_observation().state,
         PlaybackState::Stopped,
@@ -2243,8 +2457,8 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
 
 ///
 /// A console whose Source holds one written Cell, at the origin, with the
-/// Cursor moved on past it and the Source View zoomed: an environment New
-/// would visibly discard.
+/// Cursor moved on past it and egui zoomed in: an environment New would
+/// visibly discard, and a zoom it leaves standing.
 ///
 fn console_with_written_content() -> Harness<'static, Console> {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
@@ -2327,15 +2541,15 @@ async fn file_new_on_written_content_asks_and_confirming_opens_an_empty_source()
         "confirming left the Cursor off the origin"
     );
     assert_eq!(
-        (console.source_view.zoom, console.source_view.pan),
-        (1.0, Vec2::ZERO),
+        console.source_view.pan,
+        Vec2::ZERO,
         "confirming left the Source View off its rest"
     );
 }
 
 ///
 /// Cancelling leaves the environment exactly as it was: the Source, its Grid,
-/// the Cursor, the Source View, and Playback — still playing, on the engine
+/// the Cursor, the Source View, egui's zoom, and Playback — still playing, on the engine
 /// it was playing on.
 ///
 #[tokio::test]
@@ -2353,7 +2567,8 @@ async fn file_new_cancelled_leaves_the_environment_as_it_was() {
     );
     let written = cells(harness.state());
     let cursor_before = cursor(harness.state());
-    let zoom = harness.state().source_view.zoom;
+    let pan = harness.state().source_view.pan;
+    let zoom = harness.ctx.zoom_factor();
 
     choose_in_menu(&mut harness, "File", "New");
     assert!(asking(&harness), "New discarded written content unasked");
@@ -2369,7 +2584,8 @@ async fn file_new_cancelled_leaves_the_environment_as_it_was() {
         cursor_before,
         "cancelling moved the Cursor"
     );
-    assert_eq!(console.source_view.zoom, zoom, "cancelling moved the Zoom");
+    assert_eq!(console.source_view.pan, pan, "cancelling moved the Pan");
+    assert_eq!(harness.ctx.zoom_factor(), zoom, "cancelling moved the zoom");
     assert_eq!(
         console.orcvs.playback_observation().state,
         PlaybackState::Playing,
@@ -2383,15 +2599,14 @@ async fn file_new_cancelled_leaves_the_environment_as_it_was() {
 
 ///
 /// New on a Source with nothing written asks nothing and opens straight away.
-/// The Cursor and the Zoom are moved first — neither writes the Source — so
-/// the Open is seen to have happened.
+/// The Cursor is moved first — which writes nothing — so the Open is seen to
+/// have happened.
 ///
 #[tokio::test]
 async fn file_new_on_an_empty_source_opens_without_asking() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     harness.key_press(Key::ArrowDown);
-    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
     harness.step();
     harness.run_steps(1);
     assert_ne!(cursor(harness.state()), (0, 0), "the Cursor never moved");
@@ -2400,20 +2615,20 @@ async fn file_new_on_an_empty_source_opens_without_asking() {
 
     assert!(!asking(&harness), "New asked before discarding nothing");
     assert_eq!(cursor(harness.state()), (0, 0), "New did not open");
-    assert_eq!(harness.state().source_view.zoom, 1.0, "New did not open");
 }
 
 ///
 /// The question holds the keys, as an open popup does: Escape cancels rather
-/// than confirms, and a character, an arrow or a Zoom chord pressed while it
-/// is asking reaches neither the Grid nor the Source View behind it.
+/// than confirms, and a character or an arrow pressed while it is asking
+/// reaches neither the Grid nor the Source View behind it. A zoom chord is
+/// egui's whole-UI zoom and zooms the question with the rest of the console.
 ///
 #[tokio::test]
 async fn escape_cancels_the_question_and_keys_never_reach_the_source_behind_it() {
     let mut harness = console_with_written_content();
     let written = cells(harness.state());
     let cursor_before = cursor(harness.state());
-    let zoom = harness.state().source_view.zoom;
+    let pan = harness.state().source_view.pan;
 
     choose_in_menu(&mut harness, "File", "New");
     assert!(asking(&harness), "New discarded written content unasked");
@@ -2425,9 +2640,14 @@ async fn escape_cancels_the_question_and_keys_never_reach_the_source_behind_it()
     harness.run_steps(1);
     assert!(asking(&harness), "a key closed the question");
     assert_eq!(
-        harness.state().source_view.zoom,
-        zoom,
-        "a Zoom chord pressed while asking zoomed the Source View"
+        harness.state().source_view.pan,
+        pan,
+        "a key pressed while asking moved the Source View"
+    );
+    assert_eq!(
+        harness.ctx.zoom_factor(),
+        1.0,
+        "command Minus pressed while asking did not zoom egui out"
     );
     assert_eq!(
         cells(harness.state()),
@@ -2778,7 +2998,7 @@ async fn the_file_chords_run_their_commands_and_never_the_source() {
 
 ///
 /// A File chord pressed while the keys are elsewhere — a menu open, or the
-/// question asking — runs nothing, as a Zoom chord does.
+/// question asking — runs nothing.
 ///
 #[tokio::test]
 async fn the_file_chords_run_nothing_while_the_keys_are_elsewhere() {

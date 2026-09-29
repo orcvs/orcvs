@@ -1,6 +1,6 @@
 //! Keyboard routing: which keys reach the Source and which a control holds,
-//! and the translation of the toolkit's events into the Source's input, the
-//! Source View's Zoom commands and the File commands' chords.
+//! and the translation of the toolkit's events into the Source's input and
+//! the File commands' chords.
 
 use egui::{Event, EventFilter, Key};
 use orcvs::app::{Arrow, InputEvent, InputKey};
@@ -95,74 +95,6 @@ fn arrow(key: Key) -> Option<Arrow> {
         Key::ArrowLeft => Some(Arrow::Left),
         Key::ArrowRight => Some(Arrow::Right),
         Key::ArrowUp => Some(Arrow::Up),
-        _ => None,
-    }
-}
-
-///
-/// A keyboard Zoom command: a command chord for `=`/`+`, `-`, or `0`.
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ZoomCommand {
-    In,
-    Out,
-    Reset,
-}
-
-impl ZoomCommand {
-    pub(super) const ALL: [Self; 3] = [Self::In, Self::Out, Self::Reset];
-
-    ///
-    /// The key that, with a command modifier, is this command's chord: what
-    /// [`zoom_command`] answers and the View menu shows. `+` is also Zoom In,
-    /// since it shares `=`'s key on most layouts.
-    ///
-    pub(super) fn key(self) -> Key {
-        match self {
-            Self::In => Key::Equals,
-            Self::Out => Key::Minus,
-            Self::Reset => Key::Num0,
-        }
-    }
-
-    /// The chord as the View menu shows it.
-    pub(super) fn shortcut(self) -> egui::KeyboardShortcut {
-        egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, self.key())
-    }
-
-    /// The View menu item's label.
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::In => "Zoom In",
-            Self::Out => "Zoom Out",
-            Self::Reset => "Reset Zoom",
-        }
-    }
-}
-
-///
-/// The Zoom command a toolkit event asks for, or none.
-///
-/// Only a held [`egui::Modifiers::command`] turns `=`, `+`, `-` or `0` into a
-/// Zoom step. Bare, they are Source characters — [`translate_event`] reaches
-/// them as [`Event::Text`], never through this — so this answers `None` for
-/// an unmodified key and
-/// [`show_source_scene`](super::source_view::show_source_scene) leaves the
-/// Zoom exactly where it was.
-///
-pub(super) fn zoom_command(event: &Event) -> Option<ZoomCommand> {
-    match event {
-        Event::Key {
-            key,
-            pressed: true,
-            modifiers,
-            ..
-        } if modifiers.command => match key {
-            Key::Plus => Some(ZoomCommand::In),
-            key => ZoomCommand::ALL
-                .into_iter()
-                .find(|command| command.key() == *key),
-        },
         _ => None,
     }
 }
@@ -297,17 +229,14 @@ impl Console {
             // Keys a control took are still the event that follows a command
             // Enter, so they disarm its fill as one reaching the Source would.
             self.orcvs.disarm_fill();
-            // `show_source_scene` reads Zoom chords, so drop them here while
-            // the keys are elsewhere, such as a discard confirmation.
-            ctx.input_mut(|i| i.events.retain(|event| zoom_command(event).is_none()));
             return None;
         }
-        // A command Zoom chord answers `show_source_scene`, not the
-        // Source. `egui-winit`'s `State::on_keyboard_input` and eframe's web
-        // keydown handler both withhold `Event::Text` while a command
-        // modifier is held, so a shipped build
-        // never raises the matching bare character alongside the chord
-        // that already answered it.
+        // A command `+`, `=`, `-` or `0` chord is egui's whole-UI zoom, which
+        // `Context::end_pass` reads, and never the Source: `translate_event`
+        // maps none of those keys to Source input, and `egui-winit`'s
+        // `State::on_keyboard_input` and eframe's web keydown handler both
+        // withhold `Event::Text` while a command modifier is held, so a
+        // shipped build never raises the bare character alongside the chord.
         let events = ctx.input(|i| {
             i.filtered_events(&event_filter)
                 .into_iter()

@@ -10,8 +10,6 @@ use orcvs::{
 };
 
 use super::Console;
-use super::glyphs::GLYPH_SCALE_STEP;
-use super::input::{ZoomCommand, zoom_command};
 use super::shapes::{effect_outline, show_source};
 use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
@@ -34,28 +32,6 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 ///
 pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 
-///
-/// `zoom` after one keyboard Zoom command: stepped by [`GLYPH_SCALE_STEP`] and
-/// clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`].
-///
-/// Stepped from the nearest multiple of the step rather than by adding it, so
-/// a long session stays exactly on the grid [`glyph_scale`](super::glyphs::glyph_scale) quantises to
-/// instead of drifting off it through repeated float addition. `Reset`
-/// answers 1.0 outright, whatever step `zoom` was on.
-///
-pub(super) fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
-    if command == ZoomCommand::Reset {
-        return 1.0;
-    }
-    let direction = if command == ZoomCommand::In {
-        1.0
-    } else {
-        -1.0
-    };
-    let steps = (zoom / GLYPH_SCALE_STEP).round() + direction;
-    (steps * GLYPH_SCALE_STEP).clamp(MIN_ZOOM, MAX_ZOOM)
-}
-
 pub(super) fn source_bounds(grid: Grid) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
@@ -67,16 +43,17 @@ pub(super) fn source_bounds(grid: Grid) -> Rect {
 /// The Source View: a Zoom and a Pan, presented as the scale and translation
 /// the Cells are drawn under.
 ///
-/// Zoom opens at 1.0 — the Source's own Cell — and is a stated step, never a
-/// property of the window. Pan is anchored at the console's top-left and is
+/// Zoom is 1.0 — the Source's own Cell — and no input changes it: egui's
+/// whole-UI zoom is what enlarges the Source with the rest of the console,
+/// through `pixels_per_point`. Pan is anchored at the console's top-left and is
 /// bounded by the Grid: an axis the whole Source already fills has nowhere to
 /// Pan, and a Pan that would open a gap past an edge settles back inside.
 ///
-/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
-/// console Pans the least distance that brings the whole Cell back into view,
-/// still bounded by the Grid; a Pan on its own does not chase the Cursor.
-/// `previous_cursor` is what tells a Cursor move apart from a frame that
-/// merely redrew it.
+/// A Cursor move or a change of egui's zoom factor that would leave the
+/// Cursor's Cell outside the console Pans the least distance that brings the
+/// whole Cell back into view, still bounded by the Grid; a Pan on its own does
+/// not chase the Cursor. `previous_cursor` and `previous_zoom_factor` are what
+/// tell those changes apart from a frame that merely redrew the Cursor.
 ///
 /// `to_global` is derived each frame from Zoom, Pan and the console's origin
 /// so `presented_grid` and the diagnostics still read one transform.
@@ -93,9 +70,10 @@ pub(super) struct SourceView {
     /// The anchor of the primary drag selecting a Region, while one is in
     /// progress. The Cursor follow is paced to the pointer while it is.
     region_drag: Option<Position>,
-    /// A Zoom command the View menu asked for this frame, applied by the
-    /// next [`show_source_scene`] exactly as the chord it names would be.
-    pub(super) requested_zoom: Option<ZoomCommand>,
+    /// egui's zoom factor on the last frame [`show_source_scene`] presented,
+    /// so a change of it reads as a zoom worth following. `None` before the
+    /// first frame, as `previous_cursor` is.
+    previous_zoom_factor: Option<f32>,
     pub(super) to_global: TSTransform,
 }
 
@@ -106,7 +84,7 @@ impl Default for SourceView {
             pan: Vec2::ZERO,
             previous_cursor: None,
             region_drag: None,
-            requested_zoom: None,
+            previous_zoom_factor: None,
             to_global: TSTransform::IDENTITY,
         }
     }
@@ -311,12 +289,11 @@ pub(super) struct PresentedSource {
 /// drag without Alt selects a Region from the pressed Cell to the Cell nearest
 /// the pointer; neither Pans. A drag past the console's edge scrolls after the
 /// Cursor at the pointer's pace, at most one Cell a frame. Pinch and command-wheel do not
-/// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
-/// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
-/// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
+/// zoom. Zoom is egui's whole-UI zoom, which changes the console's size in
+/// points and never the Source's; a zoom that would open a gap past an edge
 /// settles back inside through the same `clamp_pan` a Pan does.
 ///
-/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
+/// A Cursor move or a zoom that would leave the Cursor's Cell outside the
 /// console Pans just far enough to bring it back, before that same
 /// `clamp_pan` settles the result inside the Grid; a Pan with neither is not
 /// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
@@ -348,17 +325,14 @@ pub(super) fn show_source_scene(
     }
     view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
 
-    let zoom_before_command = view.zoom;
-    // A View menu item and a chord are the same command: the menu's is
-    // taken first, since a click that closed the menu carries no chord.
-    let command = view
-        .requested_zoom
-        .take()
-        .or_else(|| ui.input(|i| i.events.iter().find_map(zoom_command)));
-    if let Some(command) = command {
-        view.zoom = stepped_zoom(view.zoom, command);
-    }
-    let zoomed = view.zoom != zoom_before_command;
+    // egui's zoom factor, not `pixels_per_point`: a move to a display of
+    // another scale leaves the console's size in points as it was, so it has
+    // nothing for the Cursor follow to answer.
+    let zoom_factor = ui.ctx().zoom_factor();
+    let zoomed = view
+        .previous_zoom_factor
+        .is_some_and(|previous| previous != zoom_factor);
+    view.previous_zoom_factor = Some(zoom_factor);
 
     // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
     // held, so a trackpad with no middle button still has a way to Pan by

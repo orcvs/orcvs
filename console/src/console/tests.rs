@@ -13,13 +13,13 @@ use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
 use super::diagnostics_window::frames_per_second;
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
-use super::input::{ZoomCommand, translate_event, zoom_command};
+use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
     MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
-    show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
+    show_source_scene, source_bounds, source_panel_frame,
 };
 use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE};
 
@@ -69,17 +69,6 @@ fn command_key_event(key: Key) -> Event {
         repeat: false,
         modifiers: Modifiers::COMMAND,
     }
-}
-
-///
-/// A command Zoom chord for `key`, as `pinch_at` and `command_wheel_at`
-/// stage a pointer gesture: the one event a real `=`/`+`/`-`/`0` press
-/// under a held command modifier delivers, with no accompanying
-/// `Event::Text` — `egui-winit` and eframe's web backend both withhold it
-/// while a command modifier is held.
-///
-fn command_zoom_at(key: Key) -> Vec<Event> {
-    vec![command_key_event(key)]
 }
 
 #[test]
@@ -191,92 +180,6 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
             "bare {key:?} was translated as Source input on its own"
         );
     }
-}
-
-///
-/// The command chord [`zoom_command`] answers, and the bare key it never
-/// answers for: `=`, `+`, `-` and `0` ask for a Zoom only with
-/// [`egui::Modifiers::command`] held, and an unrelated command chord asks
-/// for nothing.
-///
-#[test]
-fn only_a_command_chord_of_the_four_keys_asks_for_a_zoom() {
-    let cases = [
-        (Key::Equals, ZoomCommand::In),
-        (Key::Plus, ZoomCommand::In),
-        (Key::Minus, ZoomCommand::Out),
-        (Key::Num0, ZoomCommand::Reset),
-    ];
-    for (key, command) in cases {
-        assert_eq!(
-            zoom_command(&command_key_event(key)),
-            Some(command),
-            "command {key:?} did not ask for a Zoom"
-        );
-        assert_eq!(
-            zoom_command(&key_event(key, true)),
-            None,
-            "bare {key:?} asked for a Zoom"
-        );
-        assert_eq!(
-            zoom_command(&Event::Key {
-                key,
-                physical_key: None,
-                pressed: false,
-                repeat: false,
-                modifiers: Modifiers::COMMAND,
-            }),
-            None,
-            "a released command {key:?} asked for a Zoom"
-        );
-    }
-
-    assert_eq!(
-        zoom_command(&command_key_event(Key::C)),
-        None,
-        "an unrelated command chord asked for a Zoom"
-    );
-}
-
-///
-/// A Zoom step is exact: `In` and `Out` move by one [`GLYPH_SCALE_STEP`]
-/// from the nearest multiple of it, `Reset` always lands on 1.0, and every
-/// step stops at [`MIN_ZOOM`] or [`MAX_ZOOM`] rather than passing it.
-///
-#[test]
-fn a_zoom_step_moves_by_one_step_and_stops_at_the_range() {
-    assert_eq!(stepped_zoom(1.0, ZoomCommand::In), 1.125);
-    assert_eq!(stepped_zoom(1.0, ZoomCommand::Out), 0.875);
-    assert_eq!(stepped_zoom(1.375, ZoomCommand::Reset), 1.0);
-    assert_eq!(stepped_zoom(MIN_ZOOM, ZoomCommand::Reset), 1.0);
-
-    assert_eq!(stepped_zoom(MAX_ZOOM, ZoomCommand::In), MAX_ZOOM);
-    assert_eq!(stepped_zoom(MIN_ZOOM, ZoomCommand::Out), MIN_ZOOM);
-
-    // Every step a keyboard Zoom can reach is a whole number of eighths,
-    // and `glyph_scale` — the atlas budget `GLYPH_SCALE_STEP` states —
-    // has to floor every one of them to itself rather than to the step
-    // below.
-    let mut zoom = MIN_ZOOM;
-    let mut steps = 0;
-    while zoom < MAX_ZOOM {
-        let stepped = stepped_zoom(zoom, ZoomCommand::In);
-        assert!(
-            stepped > zoom,
-            "In did not move the Zoom forward from {zoom}"
-        );
-        assert_eq!(
-            glyph_scale(stepped),
-            stepped,
-            "the Glyph was not laid out at the Cell size of the {stepped} step"
-        );
-        zoom = stepped;
-        steps += 1;
-    }
-    assert_eq!(
-        steps, 14,
-        "the keyboard range holds fifteen steps, not {steps} moves between them"
-    );
 }
 
 ///
@@ -4698,8 +4601,8 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
 }
 
 ///
-/// Pinch and command-wheel do not Zoom. Zoom is a change of Cell size
-/// from the keyboard alone.
+/// Pinch and command-wheel do not zoom the Source View: its Zoom and the
+/// presented scale stay at 1.0.
 ///
 #[tokio::test]
 async fn pinch_and_command_wheel_do_not_zoom() {
@@ -4722,159 +4625,6 @@ async fn pinch_and_command_wheel_do_not_zoom() {
     assert_eq!(
         view.to_global.scaling, 1.0,
         "a command-wheel changed the presented scale"
-    );
-}
-
-///
-/// Command `=` and command `+` step the Zoom in; command `-` steps it
-/// out; command `0` returns it to 1.0 whatever step it was on.
-///
-#[tokio::test]
-async fn command_chords_step_the_zoom_and_command_zero_resets_it() {
-    let ctx = egui::Context::default();
-    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
-    let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
-
-    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(view.zoom, 1.0);
-
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Equals),
-        &mut orcvs,
-        &mut view,
-    );
-    assert_eq!(view.zoom, 1.125, "command Equals did not step the Zoom in");
-
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Plus),
-        &mut orcvs,
-        &mut view,
-    );
-    assert_eq!(view.zoom, 1.25, "command Plus did not step the Zoom in");
-
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Minus),
-        &mut orcvs,
-        &mut view,
-    );
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Minus),
-        &mut orcvs,
-        &mut view,
-    );
-    assert_eq!(
-        view.zoom, 1.0,
-        "two command Minus did not undo two steps in"
-    );
-
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Minus),
-        &mut orcvs,
-        &mut view,
-    );
-    assert_eq!(view.zoom, 0.875, "command Minus did not step the Zoom out");
-
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Num0),
-        &mut orcvs,
-        &mut view,
-    );
-    assert_eq!(view.zoom, 1.0, "command Num0 did not reset the Zoom to 1.0");
-}
-
-///
-/// The Zoom stops exactly at [`MIN_ZOOM`] and [`MAX_ZOOM`] rather than
-/// passing them, however many times the chord repeats.
-///
-#[tokio::test]
-async fn command_zoom_stops_at_the_range_limits() {
-    let ctx = egui::Context::default();
-    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
-    let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
-
-    for _ in 0..16 {
-        console_frame(
-            &ctx,
-            screen,
-            command_zoom_at(Key::Equals),
-            &mut orcvs,
-            &mut view,
-        );
-    }
-    assert_eq!(
-        view.zoom, MAX_ZOOM,
-        "command Equals passed the Zoom's ceiling"
-    );
-
-    for _ in 0..32 {
-        console_frame(
-            &ctx,
-            screen,
-            command_zoom_at(Key::Minus),
-            &mut orcvs,
-            &mut view,
-        );
-    }
-    assert_eq!(view.zoom, MIN_ZOOM, "command Minus passed the Zoom's floor");
-}
-
-///
-/// A command Zoom that would open a gap past an edge settles the Source
-/// View back inside the Grid, through the same `clamp_pan` a Pan uses.
-///
-/// The Cursor is moved to the Cell the pinned Pan already shows, at the
-/// far corner, so the Cursor follow has nothing to do here: what settles
-/// the gap below is `clamp_pan` alone, which is this test's own claim.
-///
-#[tokio::test]
-async fn a_command_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
-    let ctx = egui::Context::default();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-    let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
-    orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
-
-    // 32 Cells of 16 points is 512 points; at `MAX_ZOOM` that is 1024, with
-    // a 64 point margin either side, and panning fully to the far edge of
-    // a 200 point console takes -952.
-    pinned_at(&mut view, Vec2::new(-952.0, -952.0), MAX_ZOOM);
-    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(
-        view.pan,
-        Vec2::new(-952.0, -952.0),
-        "the fixture did not open already pinned to the far edge"
-    );
-
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Minus),
-        &mut orcvs,
-        &mut view,
-    );
-    assert_eq!(view.zoom, 1.875, "command Minus did not step the Zoom out");
-    // At 1.875 the source is 960 points and its margins 60 each, so the
-    // far edge of a 200 point console is -880: the old -952 Pan now opens
-    // a 72 point gap past it.
-    assert_eq!(
-        view.pan,
-        Vec2::new(-880.0, -880.0),
-        "the Zoom left a gap past the Grid: {:?}",
-        view.pan
     );
 }
 
@@ -4968,7 +4718,53 @@ async fn a_cursor_follow_to_an_edge_cell_shows_the_margin_past_it() {
 }
 
 ///
-/// A Zoom that would leave the Cursor outside the Source View Pans the
+/// A zoom that would open a gap past an edge settles the Source View back
+/// inside the margin, through the same `clamp_pan` a Pan uses.
+///
+/// egui's zoom changes the console's size in points and never the Source's,
+/// so zooming out widens the console around a Pan pinned to the far edge.
+/// The Cursor sits on the far corner the pinned Pan already shows, so the
+/// Cursor follow has nothing to do: what settles the gap is `clamp_pan`.
+///
+#[tokio::test]
+async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::default();
+    orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
+
+    // 32 Cells of 16 points is 512, with a 32 point margin either side, so
+    // the far edge of a 200 point console is -376.
+    pinned_at(&mut view, Vec2::new(-376.0, -376.0), 1.0);
+    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(
+        view.pan,
+        Vec2::new(-376.0, -376.0),
+        "the fixture did not open already pinned to the far edge"
+    );
+
+    // At half zoom the same window is 400 points across, the size egui's
+    // integration reports once the zoom factor has changed.
+    ctx.set_zoom_factor(0.5);
+    let zoomed_out = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let viewport = console_frame(&ctx, zoomed_out, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(ctx.zoom_factor(), 0.5, "the pass did not run zoomed out");
+    assert_eq!(
+        viewport.cell_size, CELL_SIZE,
+        "the zoom changed the Cell's points"
+    );
+    assert_eq!(view.zoom, 1.0, "the zoom changed the Source View's Zoom");
+    assert_eq!(
+        view.pan,
+        Vec2::new(-176.0, -176.0),
+        "the zoom left a gap past the Grid: {:?}",
+        view.pan
+    );
+}
+
+///
+/// A zoom that would leave the Cursor outside the Source View Pans the
 /// least distance that shows it, the same as a Cursor move does.
 ///
 #[tokio::test]
@@ -4977,7 +4773,7 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    // Already past a 200 point console at Zoom 1.0 (240..256), but the
+    // Already past a 200 point console (272..288 with the margin), but the
     // first frame below only records it: see
     // `a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame`.
     orcvs.select(orcvs.grid().position(15, 15).expect("inside the grid"));
@@ -4989,21 +4785,24 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
         "the fixture's first frame already Panned"
     );
 
-    console_frame(
-        &ctx,
-        screen,
-        command_zoom_at(Key::Equals),
-        &mut orcvs,
-        &mut view,
-    );
+    // At 1.25 the same window is 160 points across.
+    ctx.set_zoom_factor(1.25);
+    let zoomed_in = Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0));
+    console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
 
-    assert_eq!(view.zoom, 1.125, "command Equals did not step the Zoom in");
+    assert_eq!(ctx.zoom_factor(), 1.25, "the pass did not run zoomed in");
     assert_eq!(
         view.pan,
-        Vec2::new(-124.0, -124.0),
-        "the Zoom did not Pan the least distance that shows the Cursor: {:?}",
+        Vec2::new(-128.0, -128.0),
+        "the zoom did not Pan the least distance that shows the Cursor: {:?}",
         view.pan
     );
+
+    // A frame at the zoom it already had is not a zoom, so a Pan away from
+    // the Cursor stays where it was put.
+    view.pan = Vec2::ZERO;
+    console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(view.pan, Vec2::ZERO, "an unchanged zoom chased the Cursor");
 }
 
 ///

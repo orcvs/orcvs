@@ -313,7 +313,7 @@ The shared appearance of the Source Grid and the console around it: colours, opa
 _Avoid_: Palette, Visuals, chrome palette, colour settings, override
 
 **Source View**:
-The region of the Source's space the console shows, and the Cell size it shows it at. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
+The region of the Source's space the console shows. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
 _Avoid_: Canvas, camera, viewport, document, scroll position
 
 **Pan**:
@@ -321,7 +321,7 @@ Moving the Source View across the Source, as far as the margin past the Grid's e
 _Avoid_: Scroll, drag
 
 **Zoom**:
-A change of the Source View's Cell size, in stated steps.
+egui's whole-UI zoom: a scale of the whole console, Source Grid included, in egui's steps.
 _Avoid_: Scale, pinch, fit
 
 **Panel**:
