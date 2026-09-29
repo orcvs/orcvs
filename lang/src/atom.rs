@@ -585,6 +585,28 @@ macro_rules! define_functions {
                 }
             }
 
+            /// The Function `spelling` spells, if it spells one.
+            ///
+            /// Borrows the spelling and builds nothing on refusal, so a caller
+            /// that only asks whether two Cells spell a Function allocates
+            /// nothing to learn that they do not. [`TryFrom<&str>`](TryFrom)
+            /// answers through this and builds its
+            /// [`SyntaxError::UnknownFunction`](crate::SyntaxError::UnknownFunction)
+            /// only where a refusal is reported.
+            ///
+            /// Two definitions sharing a spelling would generate a duplicate arm
+            /// here and leave the later variant unreachable from the parser.
+            /// Denying the lint turns that into a compile error rather than a
+            /// warning the build would accept.
+            #[deny(unreachable_patterns)]
+            #[inline(always)]
+            pub(crate) fn from_spelling(spelling: &str) -> Option<Self> {
+                match spelling {
+                    $($spelling => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+
             const fn kind(self) -> FunctionKind {
                 match self {
                     $(Self::$variant => function_kind!($kind),)+
@@ -782,16 +804,11 @@ macro_rules! define_functions {
         impl TryFrom<&str> for Function {
             type Error = Error;
 
-            /// Two definitions sharing a spelling would generate a duplicate arm here and
-            /// leave the later variant unreachable from the parser. Denying the lint turns
-            /// that into a compile error rather than a warning the build would accept.
-            #[deny(unreachable_patterns)]
             #[inline(always)]
             fn try_from(spelling: &str) -> Result<Self, Self::Error> {
-                match spelling {
-                    $($spelling => Ok(Self::$variant),)+
-                    _ => Err(crate::SyntaxError::UnknownFunction(spelling.to_string()).into()),
-                }
+                Self::from_spelling(spelling).ok_or_else(|| {
+                    crate::SyntaxError::UnknownFunction(spelling.to_string()).into()
+                })
             }
         }
     };

@@ -331,11 +331,7 @@ impl<'a> Parser<'a> {
 
 #[inline(always)]
 fn is_function(s: Option<&str>) -> bool {
-    if let Some(t) = s {
-        Function::try_from(t).is_ok()
-    } else {
-        false
-    }
+    s.and_then(Function::from_spelling).is_some()
 }
 
 #[cfg(test)]
@@ -636,6 +632,7 @@ mod test {
             let spelling = function.spelling();
 
             assert_eq!(Function::try_from(spelling).unwrap(), *function);
+            assert_eq!(Function::from_spelling(spelling), Some(*function));
             assert_eq!(function.to_string(), spelling);
         }
     }
@@ -791,6 +788,11 @@ mod test {
                 matches!(error, Error::Syntax(SyntaxError::UnknownFunction(ref found)) if found == spelling),
                 "{spelling} produced {error:?}"
             );
+            assert_eq!(Function::from_spelling(spelling), None);
+            assert!(matches!(
+                Function::try_from(spelling),
+                Err(Error::Syntax(SyntaxError::UnknownFunction(ref found))) if found == spelling
+            ));
         }
     }
 
