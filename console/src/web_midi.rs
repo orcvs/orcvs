@@ -18,11 +18,17 @@
 //!   gives.
 //!
 //! What crosses into Playback is a connection that names its output by id and
-//! reaches the port through the same kept access when it sends.
+//! reaches the port through the same kept access when it sends. The output is
+//! closed when the last connection naming it is dropped, which Playback does
+//! only after the outgoing safety action, so a device another application
+//! wants is not held for the life of the page.
 //!
 //! [`WebMidiBackend`] holds that logic over a [`WebMidiAccess`], so it is the
 //! same code whether the access is the browser's or a test's.
 //!
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
 
@@ -90,6 +96,14 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
     /// that output is gone or disconnected.
     ///
     fn send(&self, id: &str, message: &[u8]) -> Result<(), MidiError>;
+
+    ///
+    /// Releases the output with `id`, so a platform that grants a device to
+    /// one application at a time can hand it to another. Messages already
+    /// sent without a timestamp are delivered before the port closes, and the
+    /// next `send` opens it again.
+    ///
+    fn close(&self, id: &str);
 }
 
 ///
@@ -98,11 +112,22 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
 ///
 pub(crate) struct WebMidiBackend<A> {
     access: A,
+    held: Held,
 }
+
+///
+/// How many live connections name each output. Counted per backend: the
+/// console builds one backend per page, so every connection to an output is
+/// counted here.
+///
+type Held = Arc<Mutex<HashMap<String, usize>>>;
 
 impl<A: WebMidiAccess> WebMidiBackend<A> {
     pub(crate) fn new(access: A) -> Self {
-        Self { access }
+        Self {
+            access,
+            held: Held::default(),
+        }
     }
 }
 
@@ -142,9 +167,17 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
                 if !open {
                     return Err(MidiError::new(DESTINATION_GONE));
                 }
+                let id = destination_id.as_str().to_owned();
+                *self
+                    .held
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .entry(id.clone())
+                    .or_default() += 1;
                 Ok(Box::new(WebMidiConnection {
                     access: self.access.clone(),
-                    id: destination_id.as_str().to_owned(),
+                    held: Arc::clone(&self.held),
+                    id,
                 }))
             }
         }
@@ -159,14 +192,36 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
 /// refuses the next message, which the adapter turns into a Playback
 /// diagnostic.
 ///
-struct WebMidiConnection<A> {
+/// Reselecting the output already selected builds a second connection before
+/// the first is dropped, so the port stays open across it.
+///
+struct WebMidiConnection<A: WebMidiAccess> {
     access: A,
+    held: Held,
     id: String,
 }
 
 impl<A: WebMidiAccess> MidiConnection for WebMidiConnection<A> {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
         self.access.send(&self.id, message)
+    }
+}
+
+impl<A: WebMidiAccess> Drop for WebMidiConnection<A> {
+    fn drop(&mut self) {
+        let last = {
+            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+            let count = held.entry(self.id.clone()).or_insert(1);
+            *count -= 1;
+            let last = *count == 0;
+            if last {
+                held.remove(&self.id);
+            }
+            last
+        };
+        if last {
+            self.access.close(&self.id);
+        }
     }
 }
 
@@ -330,6 +385,18 @@ mod browser {
                 .send(&bytes)
                 .map_err(|reason| MidiError::new(format!("MIDI send refused: {reason:?}")))
         }
+
+        fn close(&self, id: &str) {
+            let Some(output) = with_granted(|granted| granted.outputs().get(id)).flatten() else {
+                return;
+            };
+            // A disconnected port refuses to close, and there is nothing
+            // left to release.
+            let closing = wasm_bindgen_futures::JsFuture::from(output.close());
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = closing.await;
+            });
+        }
     }
 }
 
@@ -353,6 +420,8 @@ mod tests {
         status: Option<AccessStatus>,
         outputs: Vec<WebMidiOutput>,
         sent: Vec<(String, Vec<u8>)>,
+        /// Each close, with how many messages its output had accepted when it closed.
+        closed: Vec<(String, usize)>,
     }
 
     ///
@@ -405,6 +474,10 @@ mod tests {
         fn clear_sent(&self) {
             self.state().sent.clear();
         }
+
+        fn closed(&self) -> Vec<(String, usize)> {
+            self.state().closed.clone()
+        }
     }
 
     impl WebMidiAccess for FakeWebMidi {
@@ -432,6 +505,12 @@ mod tests {
             }
             state.sent.push((id.to_owned(), message.to_vec()));
             Ok(())
+        }
+
+        fn close(&self, id: &str) {
+            let mut state = self.state();
+            let accepted = state.sent.iter().filter(|(to, _)| to == id).count();
+            state.closed.push((id.to_owned(), accepted));
         }
     }
 
@@ -678,5 +757,45 @@ mod tests {
 
         assert_eq!(midi.status(), Some(DESTINATION_GONE));
         assert_eq!(midi.selected_destination_id(), None);
+    }
+
+    ///
+    /// An output Playback stops using is closed once its safety action is
+    /// delivered, and an output still held by the selection is not: choosing
+    /// the destination that is already selected keeps its port open, and a
+    /// refusing output is closed after the teardown behind the refusal.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn an_output_is_closed_once_no_connection_holds_it() {
+        let fake = FakeWebMidi::with(
+            AccessStatus::Granted,
+            &[("a", Some("First")), ("b", Some("Second"))],
+        );
+        let (mut orcvs, mut midi) = playing(&fake);
+
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("a"));
+        toggle_playback(&mut orcvs).await;
+        toggle_playback(&mut orcvs).await;
+        midi.select_destination(&MidiDestinationId::new("a"));
+        tokio::task::yield_now().await;
+
+        assert_eq!(fake.closed(), Vec::new());
+
+        midi.select_destination(&MidiDestinationId::new("b"));
+        tokio::task::yield_now().await;
+
+        let delivered_to_a = fake.sent_to("a").len();
+        assert_eq!(fake.sent_to("a").last(), safety_action().last());
+        assert_eq!(fake.closed(), vec![("a".to_owned(), delivered_to_a)]);
+
+        fake.disconnect("b");
+        toggle_playback(&mut orcvs).await;
+
+        assert_eq!(midi.selected_destination_id(), None);
+        assert_eq!(
+            fake.closed(),
+            vec![("a".to_owned(), delivered_to_a), ("b".to_owned(), 0)]
+        );
     }
 }
