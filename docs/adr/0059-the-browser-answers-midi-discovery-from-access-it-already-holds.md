@@ -1,0 +1,26 @@
+# The browser answers MIDI discovery from access it already holds
+
+Status: accepted. Extends [ADR 0041](0041-the-playback-engine-owns-its-state-in-one-task.md) and [ADR 0022](0022-keep-the-core-crate-free-of-the-ui-toolkit.md) to the browser target: the console opens the port, the Playback Engine's task owns the connection once it is open, and discovery and connect answer the frame that called them.
+
+**The browser requests MIDI access once, keeps the answer, and every discovery and connect reads it synchronously.** The console's `MidiBackend` contract is synchronous: `destinations` and `connect` return to the frame that called them, and the browser main thread has no blocking receive, so neither may wait. Web MIDI grants access only through the Promise `navigator.requestMIDIAccess()` returns. The browser backend asks for it when the backend is built, which is when the console is, and stores the outcome in one place on the main thread when the Promise settles. Enumerating `MIDIAccess.outputs` and calling `MIDIOutput.send` are both synchronous once access is held, so everything after the grant has exactly the native shape.
+
+Until the Promise settles, the request's state is itself the answer:
+
+- **Pending.** Discovery and connect both answer an error saying access is awaited. The menu shows it in place of the rows, as it shows any discovery failure. The performer's next Scan, or opening the empty list, asks again and finds the grant. Nothing re-runs discovery when the Promise settles.
+- **Granted.** Discovery lists the connected outputs in the order the output map iterates them. A port with no name is listed by its id. Connect checks the output is still there and connected, and hands back a connection.
+- **Unavailable.** A browser without `requestMIDIAccess`, or one that refuses it, answers an empty destination list rather than an error. This is the silent fallback every target without a MIDI service gives, and the reason is logged to the developer console once. The state is final for the page. Access is not requested again, because a browser that refused once refuses again without asking.
+
+**The Promise's settlement triggers no discovery.** [`spec.md`](../../.scratch/midi-port-ownership/spec.md) keeps discovery something the performer asks for, and keeps asynchronous or incremental discovery out of scope. A Promise callback that refreshed the menu would be the published discovery answer the console already stopped reading, arriving in a frame that did not ask for it. The cost is one extra click after granting permission, and it buys a menu that only changes when it was asked.
+
+**A connection names its output by id, not by holding it.** `MidiConnection` is `Send` because it crosses into the Playback Engine's task, and a `MIDIOutput` is a JavaScript value, which is not. The kept `MIDIAccess` lives in a thread-local on the main thread, and the connection looks its output up there on every send. This needs no `unsafe impl Send`. It is sound because the browser runs the console and the Playback Engine's task (`spawn_local`) on that one thread. An output that disconnects after the connect refuses the next send. The MIDI adapter turns that refusal into the ordered Playback diagnostic it already produces for any refused delivery. The connection has no open step, because Web MIDI opens a port implicitly on its first `send`.
+
+**System exclusive is not requested.** Orcvs sends channel messages only, and asking for sysex makes the browser's permission prompt ask for more than the console uses.
+
+**The browser logic is tested natively over a fake of what it reads.** `WebMidiBackend` is generic over a small `WebMidiAccess` trait. That trait covers the access state, the output map as id, name and connection state, and a send by id. The browser build instantiates it with the thread-local adapter over `web-sys`, and the native test suite instantiates it with a fake. The generic backend is what ships, so the fake reaches no branch production cannot. The tests drive a running Orcvs through the console's `MidiDeviceSelection` and assert exact bytes. The output the console opened receives the Note On. The outgoing output receives the full safety action when the destination changes. A disconnected output's refusal reaches the status line. The headless browser suite builds the real backend and holds that discovery and connect answer without waiting, whatever the browser's permission policy.
+
+## Consequences
+
+- One description of MIDI selection covers both platforms: discovery and port opening on the main thread, answered to the caller, and an open connection delivered to Playback through `install` on the ordered queue.
+- `console::native_midi::AVAILABLE` is true for the browser build, so the Panel enables the destination ComboBox, offers Scan, and shows Playback failures beside it. A browser that has no Web MIDI shows the ComboBox with the empty copy rather than a disabled one, because whether a browser has Web MIDI is known only at run time.
+- A target that is neither native nor the browser still builds the silent backend, which lists nothing and refuses every connect.
+- A human with a browser and a MIDI device still has to confirm audible output. The fake proves the bytes and the lifecycle; it cannot prove that a browser's Web MIDI implementation delivers them.

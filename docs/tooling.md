@@ -93,7 +93,8 @@ uncovered, and the absence of the suite from `check_pull_request` is pinned alon
 in the workflow, because putting the line back is a one-word edit nothing else notices.
 
 Platform MIDI lives in the console, not the toolkit-free crate. The console declares `midir` for
-macOS, Windows, and Linux only; the browser build never sees it. `orcvs` carries the MIDI vocabulary
+macOS, Windows, and Linux only; the browser build never sees it and reaches Web MIDI through
+`web-sys` bindings instead (ADR 0059). `orcvs` carries the MIDI vocabulary
 and output adapter but no platform binding — no `midir`, no `dispatch`, and no target table that
 could pull either in.
 

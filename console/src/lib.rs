@@ -53,6 +53,10 @@ mod theme_document;
 mod theme_registry;
 // The dark and light Theme selections and the Theme each presents.
 mod theme_selection;
+// The browser's MIDI backend over the Web MIDI API. Its logic is compiled
+// for tests on every target, driven by a fake of the Web MIDI access it reads.
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_midi;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;
 

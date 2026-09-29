@@ -1,11 +1,13 @@
 #![cfg(target_arch = "wasm32")]
 
 use console::cursor_effects::{CursorEffectAnimation, CursorEffectSettings};
+use console::native_midi::NativeMidiBackend;
 use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
+use orcvs::midi::{MidiBackend, MidiDestinationId};
 use orcvs::playback::{
     InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand, OutputOnlyAdapter,
     PlaybackEngine, PlaybackState,
@@ -127,6 +129,34 @@ fn web_app_and_cursor_effects_construct_without_panicking() {
 
     let mut animation = CursorEffectAnimation::default();
     animation.advance(Duration::from_secs(1), CursorEffectSettings::default());
+}
+
+///
+/// The browser's MIDI backend asks for Web MIDI access and answers discovery
+/// and connect synchronously, whatever the browser does with the request: a
+/// browser that has not answered says access is awaited, one without Web MIDI
+/// or that refused it lists nothing, and one that granted it lists its ports.
+/// None of them offers a port no browser names, and none panics. Which of the
+/// three this browser is depends on its permission policy, so the test holds
+/// all three rather than one.
+///
+#[wasm_bindgen_test]
+fn web_midi_answers_discovery_and_connect_without_waiting() {
+    const PENDING: &str = "waiting for the browser to grant MIDI access";
+    let mut backend = NativeMidiBackend::new();
+    const { assert!(console::native_midi::AVAILABLE) };
+
+    match backend.destinations() {
+        Ok(_) => {}
+        Err(error) => assert_eq!(error.message, PENDING),
+    }
+    assert!(
+        backend
+            .connect(&MidiDestinationId::new("no browser names this port"))
+            .is_err()
+    );
+    // A second backend reuses the page's one request rather than asking again.
+    let _ = NativeMidiBackend::new().destinations();
 }
 
 #[wasm_bindgen_test]

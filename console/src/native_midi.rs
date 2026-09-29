@@ -134,20 +134,22 @@ mod backend {
     }
 }
 
-#[cfg(not(all(
-    not(target_arch = "wasm32"),
-    any(target_os = "macos", target_os = "windows", target_os = "linux")
-)))]
+#[cfg(target_arch = "wasm32")]
 mod backend {
     use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
 
-    ///
-    /// A build with no platform MIDI service, the browser among them: it finds
-    /// no destination and refuses every connect.
-    ///
-    pub struct NativeMidiBackend;
+    use crate::web_midi::{BrowserMidi, WebMidiBackend};
 
-    pub const AVAILABLE: bool = false;
+    pub const AVAILABLE: bool = true;
+
+    ///
+    /// The browser's Web MIDI, reached on the console thread.
+    ///
+    /// Building one asks the browser for MIDI access if this page has not
+    /// asked yet; see `crate::web_midi` for how discovery and connect answer
+    /// while that request is outstanding and after it is refused.
+    ///
+    pub struct NativeMidiBackend(WebMidiBackend<BrowserMidi>);
 
     impl Default for NativeMidiBackend {
         fn default() -> Self {
@@ -157,11 +159,71 @@ mod backend {
 
     impl NativeMidiBackend {
         pub fn new() -> Self {
-            Self
+            Self(WebMidiBackend::new(BrowserMidi::request()))
         }
     }
 
     impl MidiBackend for NativeMidiBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            self.0.destinations()
+        }
+
+        fn connect(
+            &mut self,
+            destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            self.0.connect(destination_id)
+        }
+    }
+}
+
+#[cfg(not(any(
+    target_arch = "wasm32",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux"
+)))]
+mod backend {
+    pub use super::silent::SilentMidiBackend as NativeMidiBackend;
+
+    pub const AVAILABLE: bool = false;
+}
+
+///
+/// The backend a target with no MIDI service builds: it finds no destination
+/// and refuses every connect.
+///
+/// Compiled for tests on every target as well, so the silent fallback is
+/// proved on the hosts the suite runs on rather than only on targets it does
+/// not.
+///
+#[cfg(any(
+    test,
+    not(any(
+        target_arch = "wasm32",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux"
+    ))
+))]
+mod silent {
+    use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
+
+    pub struct SilentMidiBackend;
+
+    impl Default for SilentMidiBackend {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl SilentMidiBackend {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    impl MidiBackend for SilentMidiBackend {
         fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
             Ok(Vec::new())
         }
@@ -170,7 +232,22 @@ mod backend {
             &mut self,
             _destination_id: &MidiDestinationId,
         ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Err(MidiError::new("this build has no native MIDI backend"))
+            Err(MidiError::new("this build has no MIDI backend"))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use orcvs::midi::{MidiBackend, MidiDestinationId};
+
+        use super::SilentMidiBackend;
+
+        #[test]
+        fn a_target_without_a_midi_service_offers_an_empty_list_rather_than_an_error() {
+            let mut backend = SilentMidiBackend::new();
+
+            assert_eq!(backend.destinations(), Ok(Vec::new()));
+            assert!(backend.connect(&MidiDestinationId::new("any")).is_err());
         }
     }
 }

@@ -508,7 +508,7 @@ mod tests {
     }
 
     ///
-    /// A build with no native MIDI backend still draws the destination
+    /// A build with no MIDI backend still draws the destination
     /// Readout, disabled, with the empty copy, and does not offer Scan.
     ///
     #[test]

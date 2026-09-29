@@ -217,14 +217,14 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
 impl Console {
     ///
     /// Hands this frame's Playback diagnostics to the Panel's MIDI status, or,
-    /// without a native backend, to the developer console.
+    /// without a MIDI backend, to the developer console.
     ///
     pub(super) fn observe_playback_diagnostics(&mut self) {
         let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
         if native_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
-            // Without a native backend the destination ComboBox is disabled
+            // Without a MIDI backend the destination ComboBox is disabled
             // and Scan is hidden, so a refused connect has nowhere on the
             // Panel to land; the developer console is the only channel a
             // failure has.

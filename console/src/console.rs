@@ -106,7 +106,7 @@ pub struct Console {
     orcvs: Orcvs,
     /// Device discovery and selection for whatever MIDI backend `orcvs` has on
     /// this target. The console never asks what target it is on: a target with
-    /// no native backend answers an empty destination list here, and
+    /// no MIDI service answers an empty destination list here, and
     /// `native_midi::AVAILABLE` says whether the ComboBox is enabled and
     /// whether Scan is shown.
     midi: MidiDeviceSelection,

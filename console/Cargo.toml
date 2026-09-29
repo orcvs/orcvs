@@ -174,14 +174,33 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# `Uint8Array`, the buffer `MIDIOutput.send` takes a message in
+# (`web_midi.rs`). Already in the locked graph beneath `web-sys` and
+# `wasm-bindgen-futures`, at the version they resolve, so no crate enters.
+js-sys = "0.3"
 log = "0.4"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+# The Web MIDI entries are the browser's MIDI backend (`web_midi.rs`), which
+# discovery and port opening reach on the main thread: `Navigator` for
+# `requestMIDIAccess`, `MidiAccess` and `MidiOutputMap` for enumeration, and
+# `MidiOutput`, `MidiPort` and `MidiPortDeviceState` for a port's id, name,
+# connection state and `send`. Each is a generated binding in the `web-sys`
+# already built for this target, gated by a feature so the unused ones are not
+# compiled; none of them adds a dependency. Input ports, `MidiOptions` and the
+# connection events are left off: Orcvs sends, does not ask for system
+# exclusive, and discovery is something the performer asks for.
 web-sys = { version = "0.3", features = [
     "Document",
     "Element",
     "HtmlCanvasElement",
     "MediaQueryList",
+    "MidiAccess",
+    "MidiOutput",
+    "MidiOutputMap",
+    "MidiPort",
+    "MidiPortDeviceState",
+    "Navigator",
     "Window",
 ] }
 
@@ -252,7 +271,12 @@ orcvs = { path = "../orcvs", version = "0.1.0", default-features = false, featur
 # even though they are run natively, and tokio's `rt` and `macros` are among the
 # features that target supports. Already in the locked graph through `orcvs`, so
 # no crate enters here.
-tokio = { workspace = true, features = ["macros", "rt"] }
+#
+# `test-util` is for `start_paused`: a test that delivers a run's first Tick
+# and then asserts the exact bytes a device received holds the clock still, so
+# a second Tick cannot land between the two however slow the host is. `orcvs`
+# declares the same feature on its own dev-dependency for the same reason.
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 
 [[bench]]
