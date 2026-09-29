@@ -842,12 +842,29 @@ done
 # The release captures are deliberate and non-gating on the same terms as Miri,
 # and the reason is the feature rather than the cost alone. `release-capture`
 # turns on `egui_kittest`'s `snapshot` and `wgpu`, which bring the wgpu and naga
-# trees into the build and a GPU adapter into the run, and the ordinary `console`
-# build and every gate are meant never to compile either. So the feature is
-# named on exactly one `mise.toml` line, the capture task's own; a tier line that
-# named it, or a second task, would compile it where this says nothing does.
-# Matched as a whole word with its flag so the prose around it cannot count.
-assert_occurs_exactly "$root_dir/mise.toml" '[-][-]features release-capture( |$)' 1
+# trees into the build and a GPU adapter into the run. The ordinary `console`
+# build and every pull-request gate compile neither, and nothing but the capture
+# task renders. The one exception is `check_release_capture`, which type-checks
+# the capture in the native merge tier so a change to the helpers it calls fails
+# before it reaches `main` rather than when a reviewer dispatches the capture.
+# So the feature is named on exactly two `mise.toml` lines, those two tasks' own,
+# and the compile task is called once, from `check_merge_native`; a tier line
+# that named it, or a third task, would compile it where this says nothing does.
+# Matched as the name wherever it stands rather than as one spelling of the flag,
+# because cargo takes it in a comma or space list, after `=`, behind `-F` and
+# qualified as `console/release-capture`; only `release-captures`, a different
+# word, is left out. `--all-features` enables it without naming it, so the one
+# line allowed to say that is the dependency audit's `cargo tree`, which
+# resolves the graph and compiles nothing.
+release_capture_name='(^|[^[:alnum:]_])release-capture([^[:alnum:]_-]|$)'
+assert_occurs_exactly "$root_dir/mise.toml" "$release_capture_name" 2
+if grep -Ev '^[[:space:]]*#' "$root_dir/mise.toml" | grep -E -- '--all-features' | grep -Evx 'cargo tree --workspace --all-features -e features --locked' >/dev/null; then
+  echo "expected $root_dir/mise.toml to name --all-features only in the dependency audit's cargo tree" >&2
+  exit 1
+fi
+assert_toml_task_contains "$root_dir/mise.toml" 'check_release_capture' '^run = .cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^mise run check_release_capture$'
+assert_occurs_exactly "$root_dir/mise.toml" 'mise (run|r) check_release_capture([^[:alnum:]_-]|$)' 1
 assert_toml_task_contains "$root_dir/mise.toml" 'capture_native' '^cargo nextest run --package console --lib --features release-capture --locked -E .test[(]=console::kittest_tests::capture::the_release_captures_show_every_checklist_state[)].$'
 assert_not_contains "$root_dir/mise.toml" 'mise (run|r) capture_native([^[:alnum:]_-]|$)'
 assert_contains "$root_dir/console/Cargo.toml" '^release-capture = \["persistence", "egui_kittest/snapshot", "egui_kittest/wgpu"\]$'
@@ -859,9 +876,11 @@ assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: jdx/mi
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 # Stated over whichever workflow names the task or the feature, as the Miri rule
 # is, and as a whole trigger set: a pull request, a push to `main`, a merge group
-# or a schedule would each make a change pay for images nobody asked for.
+# or a schedule would each make a change pay for images nobody asked for. The
+# feature is matched as it is in `mise.toml`, and `--all-features` counts as
+# naming it.
 for workflow in "$root_dir"/.github/workflows/*.yml; do
-  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E 'mise (run|r) capture_native([^[:alnum:]_-]|$)|release-capture( |$)' >/dev/null; then
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E -- "mise (run|r) capture_native([^[:alnum:]_-]|\$)|$release_capture_name|--all-features" >/dev/null; then
     assert_only_trigger "$workflow" 'workflow_dispatch'
   fi
 done

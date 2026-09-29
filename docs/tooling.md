@@ -14,8 +14,8 @@ Verification has two trigger tiers:
   the application twice, once under each. Pull requests run the first on Linux and the second on the
   WASM job. macOS runs the native tier only during merge queue verification, pushes to `main`, and
   manual dispatch.
-- `mise run check_merge` runs the browser regression suite and the persistence
-  tier at proptest's full case count. CI distributes these gates across the existing Linux and WASM
+- `mise run check_merge` runs the browser regression suite, the persistence
+  tier at proptest's full case count, and a compile of the release captures. CI distributes these gates across the existing Linux and WASM
   jobs on `merge_group`, after a push to `main`, or on manual dispatch.
 
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate before it
@@ -411,10 +411,17 @@ against a baseline; a reviewer reads them against the visual checklist.
 
 The capture is gated by a feature rather than a test filter, because what it must keep out of the
 tiers is a dependency tree and not only a run. `release-capture` enables `egui_kittest/snapshot`
-and `egui_kittest/wgpu` on a dev-dependency, so no shipped build can carry it, and the capture task
-is the one `mise.toml` line that names it. `scripts/check-tooling-contract.sh` pins that count,
-pins that no task calls the capture task, and requires any workflow that runs the task or names the
-feature to carry `workflow_dispatch` and no other trigger. `cargo deny` still reads the feature's
+and `egui_kittest/wgpu` on a dev-dependency, so no shipped build can carry it. Two `mise.toml`
+lines name it. The capture task runs it. `mise run check_release_capture` compiles it with clippy,
+from `check_merge_native` alone: the capture calls the console's crate-private test helpers, so a
+change to one that every pull-request gate accepts would otherwise first fail when a reviewer
+dispatches the capture. That compile renders nothing and needs no GPU adapter; what the merge tier
+pays is the wgpu and naga trees, and a pull request pays nothing. `scripts/check-tooling-contract.sh`
+pins that count of two over every spelling cargo accepts — a feature list, `=`, `-F`,
+`console/release-capture` — pins the compile task's line and its one caller, allows
+`--all-features` only on the dependency audit's `cargo tree`, pins that no task calls the capture
+task, and requires any workflow that runs the task, names the feature or passes `--all-features`
+to carry `workflow_dispatch` and no other trigger. `cargo deny` still reads the feature's
 tree, because `deny.toml` resolves with every feature on: the wgpu graph brings a second `pollster`
 and a second `rustc-hash`, and `snapshot`'s image differ brings `colored` 2 under MPL-2.0, allowed
 for that one crate. `mise run audit_deps` answers for all three on every pull request whether or not
@@ -433,7 +440,7 @@ anything compiles them.
   a working GPU into every job that runs the console's tests — buys coverage the `Shape`-level
   assertions in `console::tests` already hold at a finer grain. No snapshot test compares against a
   baseline. The two features are on only under `console`'s `release-capture` feature, for the
-  release captures described below. The dependency is confined to `console`'s non-WASM `dev-dependencies` for the reason
+  release captures described above. The dependency is confined to `console`'s non-WASM `dev-dependencies` for the reason
   `proptest` is confined to `lang` and `orcvs`': the invariants are platform-independent, and
   `check_wasm` compiles this crate's test targets for `wasm32-unknown-unknown`. Its `eframe` feature
   does activate `eframe/accesskit`, so a `cargo test` build of `eframe` carries `accesskit_winit`

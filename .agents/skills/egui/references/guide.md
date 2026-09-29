@@ -367,8 +367,9 @@ behind its own ticket, with baseline updates made deliberately rather than by
 accepting whatever the last run produced.
 
 The two features are on in one place: `console`'s `release-capture` feature,
-which only `mise run capture_native` names and only the dispatch-only
-`.github/workflows/release-captures.yml` runs. It renders images for a human
+which `mise run capture_native` runs, only from the dispatch-only
+`.github/workflows/release-captures.yml`, and `mise run check_release_capture`
+compiles, without rendering, in the native merge tier. It renders images for a human
 reviewer, not for a comparison. `console::kittest_tests::capture` builds the
 harness with `WgpuTestRenderer::from_render_state`, so it can record the adapter
 it rendered on (lavapipe in CI), and it fixes everything that decides what the

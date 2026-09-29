@@ -27,8 +27,8 @@ allow = [
 ]
 # `dify` 0.8, the image differ behind `egui_kittest/snapshot`, requires `colored` 2, which is
 # MPL-2.0. It is reached only through `console/release-capture`, a test-only feature no shipped
-# build and no verification tier enables, so it is allowed for that crate alone rather than for
-# the graph.
+# build enables: the merge tier compiles it without rendering and only the dispatch-only capture
+# workflow runs it, so it is allowed for that crate alone rather than for the graph.
 exceptions = [
   { crate = "colored@2", allow = ["MPL-2.0"] },
 ]

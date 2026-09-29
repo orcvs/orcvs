@@ -564,7 +564,7 @@ test_capture_feature_in_a_gate_is_rejected() {
   # No gate compiles the capture feature, in a tier line or through the task.
   make_fixture
   perl -pi -e 's/^(cargo clippy --workspace --all-targets --locked -- -D warnings)$/$1\ncargo clippy --package console --all-targets --features release-capture --locked -- -D warnings/' "$fixture_dir/mise.toml"
-  assert_rejected_with "a pull-request tier compiling the release capture feature" "features release-capture"
+  assert_rejected_with "a pull-request tier compiling the release capture feature" "release-capture"
 
   make_fixture
   perl -pi -e 's/^(\[tasks\.bench\])$/[tasks.sneak]\nrun = "mise run check_inspection \&\& mise r capture_native"\n\n$1/' "$fixture_dir/mise.toml"
@@ -573,6 +573,44 @@ test_capture_feature_in_a_gate_is_rejected() {
   make_fixture
   perl -pi -e 's/^(      - uses: jdx\/mise-action@.*)$/$1\n      - run: mise r capture_native/' "$fixture_dir/.github/workflows/test.yml"
   assert_rejected_with "the pull-request workflow running the release capture" "as its only trigger"
+}
+
+test_capture_compile_outside_the_merge_tier_is_rejected() {
+  # The capture compiles, without rendering, in the native merge tier and no
+  # other: a pull request never pays for the wgpu tree, and a merge never skips it.
+  make_fixture
+  perl -pi -e 's/^(mise run check_inspection)$/$1\nmise run check_release_capture/' "$fixture_dir/mise.toml"
+  assert_rejected_with "the pull-request tier compiling the release capture" "check_release_capture"
+
+  make_fixture
+  perl -ni -e 'print unless /^mise run check_release_capture$/' "$fixture_dir/mise.toml"
+  assert_rejected_with "a merge tier that no longer compiles the release capture" "check_release_capture"
+
+  make_fixture
+  perl -pi -e 's/^(run = .cargo clippy --package console --lib --tests --features release-capture) --locked/$1 --all-targets --locked/' "$fixture_dir/mise.toml"
+  assert_rejected_with "a release capture compile that reaches the benchmarks" "check_release_capture"
+}
+
+test_capture_feature_spelled_another_way_is_rejected() {
+  # The capture feature is kept out of the gates by what cargo would enable, not
+  # by one spelling of the flag: a feature list, `=`, the short flag, a quoted
+  # list, the package-qualified name and `--all-features` each compile it.
+  local spelling
+  for spelling in '--features inspection,release-capture' '--features=release-capture' '-F release-capture' '--features "inspection release-capture"' '--features console/release-capture'; do
+    make_fixture
+    SPELLING="$spelling" perl -pi -e 's/^(cargo clippy --workspace --all-targets --locked -- -D warnings)$/$1\ncargo clippy --package console --all-targets $ENV{SPELLING} --locked -- -D warnings/' "$fixture_dir/mise.toml"
+    assert_rejected_with "a tier compiling the release capture feature as $spelling" "release-capture"
+  done
+
+  make_fixture
+  perl -pi -e 's/^(cargo clippy --workspace --all-targets --locked -- -D warnings)$/$1\ncargo clippy --workspace --all-targets --all-features --locked -- -D warnings/' "$fixture_dir/mise.toml"
+  assert_rejected_with "a tier compiling every feature" "all-features"
+
+  for spelling in '--features inspection,release-capture' '--features "release-capture"' '-F release-capture,inspection' '--all-features'; do
+    make_fixture
+    SPELLING="$spelling" perl -pi -e 's/^(      - uses: jdx\/mise-action@.*)$/$1\n      - run: cargo clippy --package console --all-targets $ENV{SPELLING} --locked -- -D warnings/' "$fixture_dir/.github/workflows/test.yml"
+    assert_rejected_with "the pull-request workflow compiling the release capture feature as $spelling" "as its only trigger"
+  done
 }
 
 test_memory_series_measured_by_a_second_binary_is_rejected() {
@@ -1147,6 +1185,8 @@ case "${1:-all}" in
   miri-called-by-another-task) test_miri_called_by_another_task_is_rejected ;;
   automatically-triggered-capture) test_automatically_triggered_capture_workflow_is_rejected ;;
   capture-feature-in-a-gate) test_capture_feature_in_a_gate_is_rejected ;;
+  capture-compile-in-the-merge-tier) test_capture_compile_outside_the_merge_tier_is_rejected ;;
+  capture-feature-spellings) test_capture_feature_spelled_another_way_is_rejected ;;
   defaulted-bench-budget) test_defaulted_bench_budget_is_rejected ;;
   measuring-warmup-run) test_measuring_warmup_run_is_rejected ;;
   asymmetric-bench-warmup) test_asymmetric_bench_warmup_is_rejected ;;
@@ -1263,6 +1303,8 @@ case "${1:-all}" in
     test_miri_called_by_another_task_is_rejected
     test_automatically_triggered_capture_workflow_is_rejected
     test_capture_feature_in_a_gate_is_rejected
+    test_capture_compile_outside_the_merge_tier_is_rejected
+    test_capture_feature_spelled_another_way_is_rejected
     test_memory_series_measured_by_a_second_binary_is_rejected
     test_memory_series_assembled_with_jq_is_rejected
     test_allocation_series_skipped_by_the_ratio_gate_is_rejected

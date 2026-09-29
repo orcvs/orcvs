@@ -2,20 +2,21 @@
 //! Release captures: the running console rendered to images for a human
 //! reviewer to judge against the release's visual checklist.
 //!
-//! Compiled only under `console`'s `release-capture` feature, which the
-//! dispatch-only `.github/workflows/release-captures.yml` enables and no
-//! verification tier does. It drives the shipped `Console` through the same
+//! Compiled only under `console`'s `release-capture` feature. The merge tier's
+//! `mise run check_release_capture` compiles it without rendering, and only the
+//! dispatch-only `.github/workflows/release-captures.yml` runs it. It drives the shipped `Console` through the same
 //! `Harness::build_eframe` the tests above use, with `egui_kittest`'s wgpu
 //! renderer added, so what is rendered is what `Console::ui` painted.
 //!
 //! # What a capture proves before it renders
 //!
 //! Pixels are for the reviewer; the run's own claim is that the frame about to
-//! be rendered is the one the checklist describes. Before each image is
-//! rendered the test asserts that the seeded Source loaded, that the pinned
-//! mode and Theme are the ones presented, that egui's zoom is 1.0, and that
-//! every checklist state is among the Cells the console draws. A missing state
-//! fails the run and writes no image.
+//! be rendered is the one the checklist describes. As the console starts, the
+//! test asserts that it starts under the mode and zoom its stored egui memory
+//! pins. Before each image is rendered it asserts that the seeded Source
+//! loaded, that the pinned mode and Theme are the ones presented, that egui's
+//! zoom is 1.0, and that every checklist state is among the Cells the console
+//! draws. A missing state fails the run and writes no image.
 //!
 //! # How the pinned settings arrive
 //!
@@ -33,8 +34,10 @@
 //!
 //! The harness sets egui's theme preference to its builder's theme after the
 //! app is built (`egui_kittest-0.36.2/src/lib.rs:142`), so the builder is given
-//! the same mode the stored memory holds, and the assertion reads the
-//! preference the frame was presented under.
+//! the same mode the stored memory holds. That override presents the pinned
+//! mode whether or not the stored memory arrived, so the mode and zoom the
+//! stored memory pins are asserted as the console is built, before the
+//! harness applies it.
 //!
 //! # Output
 //!
@@ -65,8 +68,7 @@ use crate::theme_registry::ThemeRegistry;
 use crate::{FramePaint, Paint};
 
 ///
-/// The seeded Source: one Source File reaching every checklist state, shared
-/// with the web capture so both targets show the same Cells.
+/// The seeded Source: one Source File reaching every checklist state.
 ///
 const FIXTURE: &str = include_str!("../../../tests/fixtures/release-capture.orcvs");
 
@@ -126,17 +128,41 @@ const CHECKLIST: [&str; 13] = [
 ];
 
 ///
-/// How each capture is made, recorded in the manifest beside it.
+/// The `egui_kittest` version `console`'s manifest pins, read from that
+/// manifest so the record cannot name a harness the run did not use.
 ///
-const PROCEDURE: &str = "egui_kittest Harness::build_eframe over the shipped Console::new, \
-    rendered by egui_kittest's wgpu renderer. Storage: an app.ron in eframe's native RON codec \
-    holding orcvs_source (console/tests/fixtures/release-capture.orcvs) and egui memory with the \
-    mode as theme_preference and zoom_factor 1.0, restored into the Context before the console \
-    is built. Settings: config.toml with theme.dark = okabe-ito and theme.light = orcvs-light, \
-    over the built-in Themes alone. Input: ArrowRight x20, ArrowDown x2, Shift+ArrowRight, \
-    Shift+ArrowDown, raising a Region over four empty Cells. Asserted before rendering: the \
-    seeded Source, the mode and Theme presented, egui zoom 1.0 and every checklist state among \
-    the drawn Cells.";
+fn harness_version() -> String {
+    let manifest: toml::Table =
+        toml::from_str(include_str!("../../../Cargo.toml")).expect("console's manifest parses");
+    manifest["target"][r#"cfg(not(target_arch = "wasm32"))"#]["dev-dependencies"]["egui_kittest"]
+        ["version"]
+        .as_str()
+        .expect("egui_kittest's version is a string")
+        .trim_start_matches('=')
+        .to_owned()
+}
+
+///
+/// How each capture is made, recorded in the manifest beside it. Built from
+/// the constants the capture runs on, so the record cannot drift from them.
+///
+fn procedure() -> String {
+    format!(
+        "egui_kittest Harness::build_eframe over the shipped Console::new, rendered by \
+        egui_kittest's wgpu renderer. Storage: an app.ron in eframe's native RON codec holding \
+        orcvs_source (console/tests/fixtures/release-capture.orcvs) and egui memory with the mode \
+        as theme_preference and zoom_factor 1.0, restored into the Context before the console is \
+        built. Settings: {CONFIG_FILE} holding {settings}, over the built-in Themes alone. Input: \
+        ArrowRight x{columns}, ArrowDown x{rows}, Shift+ArrowRight, Shift+ArrowDown, raising a \
+        Region over {cells} empty Cells. Asserted as the console starts: the mode and zoom 1.0 \
+        from the stored egui memory. Asserted before rendering: the seeded Source, the mode and \
+        Theme presented, egui zoom 1.0 and every checklist state among the drawn Cells.",
+        settings = SETTINGS.trim_end().replace('\n', "; "),
+        columns = REGION_ANCHOR.0,
+        rows = REGION_ANCHOR.1,
+        cells = REGION_COLUMNS.len() * REGION_ROWS.len(),
+    )
+}
 
 #[derive(Clone, Copy)]
 struct Viewport {
@@ -233,8 +259,32 @@ fn capture_harness<'a>(
                 .expect("the stored egui memory");
             cc.egui_ctx.memory_mut(|restored| *restored = memory);
             cc.storage = Some(storage);
-            start_console(cc, ThemeRegistry::built_in(), Config::read(&settings))
+            let console = start_console(cc, ThemeRegistry::built_in(), Config::read(&settings));
+            assert_started_pinned(&cc.egui_ctx, mode);
+            console
         })
+}
+
+///
+/// Asserts that the console started under the mode and zoom its stored egui
+/// memory pins. It runs before the harness applies its builder's theme, which
+/// would present `mode` whatever the memory held. A `Context` the stored
+/// memory never reached holds egui's defaults, `System` and zoom 1.0, so the
+/// preference is what shows the memory was restored and survived
+/// `Console::new`.
+///
+fn assert_started_pinned(ctx: &egui::Context, mode: egui::Theme) {
+    let situation = format!("{mode:?} capture");
+    assert_eq!(
+        ctx.options(|options| options.theme_preference),
+        mode.into(),
+        "{situation}: the console did not start under the mode its stored egui memory pins"
+    );
+    assert_eq!(
+        ctx.zoom_factor(),
+        1.0,
+        "{situation}: the console did not start at the zoom its stored egui memory pins"
+    );
 }
 
 ///
@@ -366,11 +416,6 @@ fn assert_capturable(harness: &Harness<'_, Console>, mode: egui::Theme, theme: &
         "{situation}: the console did not start the seeded Source its storage held"
     );
 
-    assert_eq!(
-        harness.ctx.options(|options| options.theme_preference),
-        mode.into(),
-        "{situation}: the mode is not the one pinned"
-    );
     assert_eq!(
         harness.ctx.theme(),
         mode,
@@ -509,6 +554,8 @@ fn json(text: &str) -> String {
 /// to know about it.
 ///
 fn manifest(sha: &str, runner: &str, captures: &[Captured]) -> String {
+    let harness_version = harness_version();
+    let procedure = procedure();
     let images: Vec<String> = captures
         .iter()
         .map(|captured| {
@@ -521,7 +568,7 @@ fn manifest(sha: &str, runner: &str, captures: &[Captured]) -> String {
                     "      \"sha\": {sha},\n",
                     "      \"runner_os\": {runner},\n",
                     "      \"renderer\": {{\n",
-                    "        \"harness\": \"egui_kittest 0.36.2 wgpu renderer\",\n",
+                    "        \"harness\": {harness},\n",
                     "        \"adapter\": {adapter},\n",
                     "        \"backend\": {backend},\n",
                     "        \"device_type\": {device_type},\n",
@@ -541,6 +588,7 @@ fn manifest(sha: &str, runner: &str, captures: &[Captured]) -> String {
                 file = json(&captured.file),
                 sha = json(sha),
                 runner = json(runner),
+                harness = json(&format!("egui_kittest {harness_version} wgpu renderer")),
                 adapter = json(&adapter.name),
                 backend = json(&adapter.backend.to_string()),
                 device_type = json(&format!("{:?}", adapter.device_type)),
@@ -557,7 +605,7 @@ fn manifest(sha: &str, runner: &str, captures: &[Captured]) -> String {
                 name = json(&captured.theme.name),
                 zoom = captured.zoom,
                 checklist = CHECKLIST.map(json).join(", "),
-                procedure = json(PROCEDURE),
+                procedure = json(&procedure),
             )
         })
         .collect();

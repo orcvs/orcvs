@@ -173,9 +173,10 @@ description = "Render the native release captures and their manifest"
 # and non-gating like `miri`: it is absent from every tier, and
 # `.github/workflows/release-captures.yml` runs it on manual dispatch only.
 #
-# `release-capture` is the only line in this file that names the feature. It turns
-# on `egui_kittest`'s `snapshot` and `wgpu`, which put the wgpu and naga trees
-# into the build and a GPU adapter into the run; no tier pays for either. The job
+# `release-capture` turns on `egui_kittest`'s `snapshot` and `wgpu`, which put the
+# wgpu and naga trees into the build and a GPU adapter into the run. This task and
+# `check_release_capture` are the two lines in this file that name the feature:
+# that one compiles it in the merge tier, and only this one runs it. The job
 # supplies the adapter as Mesa's lavapipe. `--lib` because the capture is a unit
 # test of the console's own harness, and the filter names the one test so nothing
 # else in the crate is run twice. The test reads `ORCVS_CAPTURE_DIR`,
@@ -183,6 +184,18 @@ description = "Render the native release captures and their manifest"
 run = '''
 cargo nextest run --package console --lib --features release-capture --locked -E 'test(=console::kittest_tests::capture::the_release_captures_show_every_checklist_state)'
 '''
+
+[tasks.check_release_capture]
+description = "Compile the release captures without rendering them"
+# `console::kittest_tests::capture` builds only under `release-capture`, and it
+# calls the console's crate-private test helpers, so a change to one of them
+# that every other gate accepts would first fail when a reviewer dispatches the
+# capture. This line type-checks it in the native merge tier, where the wgpu and
+# naga trees are compiled and nothing renders, so it needs no GPU adapter and a
+# pull request never pays for the tree. `--lib --tests` because the capture is a
+# unit test of the console's library; the benchmarks and the binary do not see
+# the feature.
+run = 'cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings'
 
 [tasks.bench]
 description = "Benchmark the lang, Source, and console Paint paths"
@@ -308,6 +321,7 @@ esac
 description = "Native merge-only verification gates"
 run = '''
 mise run test_persistence
+mise run check_release_capture
 cargo deny --locked check
 '''
 
