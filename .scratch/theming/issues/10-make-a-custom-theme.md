@@ -89,3 +89,10 @@ Both boxes that ask for tests on both loading paths are unticked again. Native c
 (`console/src/theme.rs:1731`) and conflicting (`:1712`) appearance declarations, but no test
 resolves a document that omits `appearance`. The web half of both boxes is deferred past v1 by the
 scope note above, so neither box can be ticked on the native half alone.
+
+**2026-09-29 — `17` resolved; this ticket is unblocked.** `17` landed its Paint-level Region
+Cursor fill test and its composited Grid test, so every issue on the `Blocked by:` line (`06`,
+`07`, `08`, `17`) is resolved. The blocking notes in both audits above no longer hold. The status
+stays `ready-for-agent`: the appearance box (no test resolves a document that omits
+`appearance`), the optional Cursor fills box (its web half is deferred past v1, so the native half
+alone cannot tick it) and the gates box remain open.
