@@ -1654,22 +1654,33 @@ mod test {
         // reach `Portal::displaced` through different arms of `Grid::displaced`
         // — a row that does not exist against a column that does not — and one
         // fixture proves only the arm it takes.
-        //
-        // The other two edges are not written out because no Source reaches
-        // them. A Bang comes only from the Delay, the Equality, or the
-        // Euclidean, each six Cells wide, so a producer at column `C` needs
-        // `C + 6 <= W` and the roots its Bang can anchor are `C - 2` and
-        // `C + 2`. The rightmost is `W - 4`, whose emission ends at `W - 1` and
-        // stays in the row: `*>` cannot be made to cross the row edge. A `*^`
-        // in the first row would need a Bang in that row, and nothing writes
-        // one there — a producer Bangs into the row below itself, and a
-        // Source-resident `**` is cleared before any Turn.
         let floor = Grid::with_shape(8, 2);
         let (plans, grids, _) = tick_by_tick(floor, &[".=0101", "  *v"], 1);
         assert_eq!(grids[0], [".=0101  ", "***v    "]);
         assert_eq!(
             messages(&plans[0]),
             vec!["*v has no empty destination inside the Grid for vv"]
+        );
+    }
+
+    #[test]
+    fn relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges() {
+        // A Jump can relay a newly produced Bang directly onto an edge root.
+        // Activation must precede its Turn even when the root sorts before
+        // the Jump, as the top-edge fixture does.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".=0101", "  &>*>"], 1);
+        assert_eq!(grids[0], [".=0101", "**&>*>"]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*> has no empty destination inside the Grid for >>"]
+        );
+
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(10, 3), &["*^", "&^  .=0101", "  &<"], 1);
+        assert_eq!(grids[0], ["*^        ", "&^  .=0101", "**&<**    "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*^ has no empty destination inside the Grid for ^^"]
         );
     }
 
@@ -2640,15 +2651,14 @@ mod test {
     /// Runs one Tick in which the computations at `answers` state the value
     /// they answer rather than computing one, and commits its plan.
     ///
-    /// No Source operation produces a Function value, and no Function answers a
-    /// bare Cell either, so a test that needs one of those constructs it. Where
-    /// it is constructed is the whole point: the value is delivered by
-    /// `stated::plan_with_answers`, one call below the planning entry point, so
-    /// the Source, its destinations, the schedule and every other computation's
-    /// Turn are the production ones and nothing in the shipped module compiles
-    /// differently to admit the answer. The plan is committed through
-    /// `Source::commit_tick`, which is the commit a Tick gets however it was
-    /// planned, rather than through edits that imitate it.
+    /// A test chooses answers independently of what its producers can compute,
+    /// as the [`stated`](super::execution::stated) module describes. The values
+    /// are delivered by `stated::plan_with_answers`, one call below the
+    /// planning entry point, so the Source, its destinations, the schedule and
+    /// every other computation's Turn are the production ones and nothing in
+    /// the shipped module compiles differently to admit the answer. The plan is
+    /// committed through `Source::commit_tick`, which is the commit a Tick gets
+    /// however it was planned, rather than through edits that imitate it.
     ///
     fn stated_source(
         grid: Grid,
