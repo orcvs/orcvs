@@ -311,18 +311,16 @@ fn written(rows: &[String]) -> usize {
 }
 
 #[test]
-fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
+fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
 
-    // FINDING: a call is not allocation-free. `Interpreter::execute_function`
-    // builds its operand stack through `Stack::new(operands.len())`, which is a
-    // `Vec::with_capacity`, so every call with an operand costs exactly one
-    // block sized to its operand count. That is the shape asserted below: a
-    // ceiling of one block per call with an operand, nothing per row, and no
-    // super-linear term.
-    // The ceiling is `<=` rather than `==` on purpose — giving the operand
-    // stack inline storage the way the Parser's pending stack already has
-    // would drive this to zero, and an improvement must not read as a failure.
+    // A call over Atom operands allocates nothing. `Interpreter::execute_function`
+    // holds its Operand Stack inline, sized to the widest operand list the
+    // Function table declares, and no Function in the fixture answers a
+    // Sequence, so neither the stack nor the answer asks the allocator for a
+    // block. Zero, for one pass and for four, rather than a ceiling per call:
+    // a ceiling of one block per call would admit exactly the heap-backed
+    // stack this rules out.
     let short = rows(SOURCE, 0);
     let short = calls(&short);
     assert!(!short.is_empty(), "the fixture must hold calls");
@@ -346,38 +344,20 @@ fn evaluating_a_parsed_source_allocates_per_call_and_not_per_row() {
     let (four, evaluated) = measure(|| evaluate(black_box(&long), inputs));
     black_box(evaluated);
 
-    // The two points this test contributes to the series. `with_empty_rows`
-    // below is asserted equal to `one`, so publishing it too would store the
-    // same number twice under two names.
-    publish("lang call fixture", one);
-    publish("lang call fixture written four times", four);
-
-    // At most one block per call with an operand, and never one per operand.
-    // A call over no operand builds no stack, so counting it would leave a
-    // block of slack for another call to spend unnoticed.
-    let with_operands = short
-        .iter()
-        .filter(|(_, operands)| !operands.is_empty())
-        .count();
-    assert!(
-        one.blocks <= with_operands,
-        "{with_operands} calls with operands took {} blocks",
-        one.blocks
-    );
-
-    // Linear with a zero intercept: four times the calls cost four times as
-    // much, so nothing is allocated per pass and nothing grows with the square
-    // of the Source.
+    // Neither point is published: both are asserted to be zero, and a zero
+    // point leaves the action's ratio against the previous one undefined.
     assert_eq!(
-        four.blocks,
-        one.blocks * 4,
-        "{} calls took {} blocks, {} took {}",
-        short.len(),
-        one.blocks,
-        long.len(),
-        four.blocks
+        one,
+        Allocations::default(),
+        "{} calls allocated",
+        short.len()
     );
-    assert_eq!(four.bytes, one.bytes * 4);
+    assert_eq!(
+        four,
+        Allocations::default(),
+        "{} calls allocated",
+        long.len()
+    );
 
     // Empty rows hold no Expression, so a taller Grid over the same writing
     // leaves exactly the calls it already had.
@@ -485,13 +465,6 @@ fn numbers(length: usize) -> Sequence {
     Sequence::new((0..length).map(|index| Atom::Number(index as u8))).expect("Numbers are members")
 }
 
-/// The bytes of the Operand Stack one Turn over `operands` operands builds.
-/// Every ceiling below admits this block and no other beyond the answer's own,
-/// so inline Operand Stack storage lowers the measurement without failing it.
-fn operand_stack(operands: usize) -> usize {
-    operands * size_of::<Value>()
-}
-
 /// One Turn through [`Interpreter::execute_function`], and what it allocated.
 ///
 /// The answer is dropped outside the span, so only what the Turn asked for is
@@ -513,28 +486,25 @@ fn turn<const N: usize>(function: Function, operands: [Value; N]) -> Allocations
 }
 
 #[test]
-fn a_turn_over_atoms_allocates_nothing_but_its_operand_stack() {
+fn a_turn_over_atoms_allocates_nothing() {
+    // The Operand Stack is inline and the answer is one Atom, so the Turn asks
+    // the allocator for nothing. Asserted rather than published, for the
+    // reason the call test gives.
     let add = turn(
         Function::Add,
         [Atom::Number(1).into(), Atom::Number(2).into()],
     );
-    publish("lang turn Add", add);
 
-    assert!(add.blocks <= 1, "`.+0102` took {} blocks", add.blocks);
-    assert!(
-        add.bytes <= operand_stack(2),
-        "`.+0102` took {} bytes",
-        add.bytes
-    );
+    assert_eq!(add, Allocations::default(), "`.+0102` allocated");
 }
 
 #[test]
 fn a_sequence_operand_is_consumed_without_copying_its_members() {
     // Reverse, Replace and Select answer from the Sequence they are handed:
-    // the answer reuses its members' storage or is one Atom of it. A Turn over
-    // them therefore allocates the same at every length, and nothing beyond
-    // the Operand Stack — a copy of the members anywhere between the caller
-    // and the Function body would be sized by the length and fail both.
+    // the answer reuses its members' storage or is one Atom of it, and the
+    // Operand Stack is inline. A Turn over them therefore allocates nothing at
+    // any length — a copy of the members anywhere between the caller and the
+    // Function body would be a block sized by the length.
     for length in [16, 64] {
         let reverse = turn(Function::Reverse, [numbers(length).into()]);
         let replace = turn(
@@ -550,18 +520,15 @@ fn a_sequence_operand_is_consumed_without_copying_its_members() {
             [Atom::Number(3).into(), numbers(length).into()],
         );
 
-        if length == 64 {
-            publish("lang turn Reverse over 64 members", reverse);
-        }
-
-        for (name, arity, allocations) in [
-            ("Reverse", 1, reverse),
-            ("Replace", 3, replace),
-            ("Select", 2, select),
+        for (name, allocations) in [
+            ("Reverse", reverse),
+            ("Replace", replace),
+            ("Select", select),
         ] {
-            assert!(
-                allocations.blocks <= 1 && allocations.bytes <= operand_stack(arity),
-                "{name} over {length} members took {allocations:?}"
+            assert_eq!(
+                allocations,
+                Allocations::default(),
+                "{name} over {length} members allocated"
             );
         }
     }
@@ -570,8 +537,9 @@ fn a_sequence_operand_is_consumed_without_copying_its_members() {
 #[test]
 fn a_turn_that_builds_a_sequence_allocates_only_that_answer() {
     // A broadcast answer and a concatenation are Sequences no operand holds,
-    // so each is one block of its own. That block is the answer; the operands
-    // are consumed where they stand rather than copied on the way to it.
+    // so each is one block of its own. That block is the answer: the Operand
+    // Stack is inline, and the operands are consumed where they stand rather
+    // than copied on the way to it.
     let length = 64;
     let atom = size_of::<Atom>();
 
@@ -580,7 +548,7 @@ fn a_turn_that_builds_a_sequence_allocates_only_that_answer() {
         [numbers(length).into(), Atom::Number(1).into()],
     );
     assert!(
-        subtract.blocks <= 2 && subtract.bytes <= operand_stack(2) + length * atom,
+        subtract.blocks <= 1 && subtract.bytes <= length * atom,
         "Subtract over {length} members took {subtract:?}"
     );
 
@@ -593,7 +561,7 @@ fn a_turn_that_builds_a_sequence_allocates_only_that_answer() {
         concatenate,
     );
     assert!(
-        concatenate.blocks <= 2 && concatenate.bytes <= operand_stack(2) + 2 * length * atom,
+        concatenate.blocks <= 1 && concatenate.bytes <= 2 * length * atom,
         "Concatenate of two {length}-member Sequences took {concatenate:?}"
     );
 }

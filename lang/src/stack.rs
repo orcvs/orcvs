@@ -267,24 +267,49 @@ impl Broadcast {
 /// prematurely. Whether a Sequence arriving at an operand position widens the
 /// operation or is refused is not decided here: every Function declares its
 /// pervasion in `define_functions!`, and the broadcast seam below asks.
+///
+/// The storage is inline, `MAX_OPERANDS` slots, so building one for a Turn
+/// asks the allocator for nothing. That capacity is sufficient because the
+/// stack holds one Function's operands and no answer: the Interpreter refuses
+/// an operand count other than the Function's signature length before
+/// building the stack, and no signature is longer than `MAX_OPERANDS`.
 #[derive(Debug)]
 pub struct Stack {
-    inner: Vec<Value>,
+    inner: ArrayVec<Value, MAX_OPERANDS>,
+    /// Never above `MAX_OPERANDS`, so every push [`Stack::push`] admits has an
+    /// inline slot and exhaustion is always its diagnostic, never a panic.
     limit: usize,
 }
 
 impl Stack {
+    /// An empty stack that admits at most `limit` values, clamped to the
+    /// inline capacity so the limit is one the storage can always honour.
     pub fn new(limit: usize) -> Self {
         Self {
-            inner: Vec::with_capacity(limit),
-            limit,
+            inner: ArrayVec::new(),
+            limit: limit.min(MAX_OPERANDS),
         }
     }
 
-    /// Pushes one value, diagnosing a stack with no slot left.
+    /// The stack for one Function's `operands`, given in signature order.
     ///
-    /// The Interpreter supplies the Function's operand count as the limit.
-    /// Check that logical limit, not the allocator's possibly larger capacity.
+    /// Pushed last to first, so the declared pops take them back in
+    /// signature order. The limit is the operand count, so an operand list
+    /// longer than the inline capacity answers `OperandStackExhausted` rather
+    /// than panicking.
+    #[inline(always)]
+    pub(crate) fn with_operands<I>(operands: I) -> Result<Self, Error>
+    where
+        I: DoubleEndedIterator<Item = Value> + ExactSizeIterator,
+    {
+        let mut stack = Self::new(operands.len());
+        for operand in operands.rev() {
+            stack.push(operand)?;
+        }
+        Ok(stack)
+    }
+
+    /// Pushes one value, diagnosing a stack with no slot left.
     #[inline(always)]
     pub fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {
         if self.inner.len() == self.limit {
@@ -2087,6 +2112,37 @@ mod test {
         // The refused value displaced nothing already on the stack.
         assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(1))));
         assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(0))));
+    }
+
+    #[test]
+    fn an_operand_list_wider_than_the_inline_storage_diagnoses_rather_than_panicking() {
+        // The storage holds `MAX_OPERANDS` values and `ArrayVec::push` panics
+        // past that. The Interpreter never asks for more, and a caller that
+        // did still gets the diagnostic: the limit is clamped to the storage,
+        // so the checked push refuses before the storage could overflow.
+        let operands = (0..MAX_OPERANDS + 1).map(|number| Value::Atom(Atom::Number(number as u8)));
+
+        assert!(matches!(
+            Stack::with_operands(operands),
+            Err(Error::Interpretation(
+                InterpretationError::OperandStackExhausted { capacity }
+            )) if capacity == MAX_OPERANDS
+        ));
+    }
+
+    #[test]
+    fn operands_pop_back_in_signature_order() {
+        let mut stack = Stack::with_operands(
+            [Atom::Number(1), Atom::Number(2), Atom::Number(3)]
+                .into_iter()
+                .map(Value::Atom),
+        )
+        .unwrap();
+
+        assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(1))));
+        assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(2))));
+        assert_eq!(stack.pop_value(), Some(Value::Atom(Atom::Number(3))));
+        assert_eq!(stack.pop_value(), None);
     }
 
     #[test]

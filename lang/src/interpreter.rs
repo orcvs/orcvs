@@ -56,6 +56,9 @@ pub struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
+    /// An empty stack of `stack_limit` slots, for a test that pushes a
+    /// Function body's operands itself.
+    #[cfg(test)]
     pub fn new(inputs: FunctionInputs<'a>, stack_limit: usize) -> Self {
         Self {
             stack: Stack::new(stack_limit),
@@ -120,10 +123,10 @@ impl Interpreter {
             // this.
             return Ok(Interpretation::Source(effect));
         }
-        let mut ctx = Context::new(inputs, operands.len());
-        for operand in operands.rev() {
-            ctx.stack.push(operand)?;
-        }
+        let mut ctx = Context {
+            stack: Stack::with_operands(operands)?,
+            inputs,
+        };
         // Every Function answers a language Value, so a Function that returns
         // a Sequence needs an arm here and nothing else: the match below
         // already carries whichever shape the Value holds.
