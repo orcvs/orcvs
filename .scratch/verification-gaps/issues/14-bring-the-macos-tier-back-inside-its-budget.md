@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 - [ ] The macOS job's runtime is measured, and the dominant cost is named rather than guessed.
-- [ ] That cost is reduced, or the budget is raised with a recorded reason for the new number.
+- [x] That cost is reduced, or the budget is raised with a recorded reason for the new number.
 - [ ] A job that exceeds its budget is distinguishable from one that was superseded.
 
 ## Comments
@@ -52,3 +52,18 @@ reading the run, not by being told about it.
 
 Raising `timeout-minutes` on its own would satisfy nobody: it buys time without saying what the
 time is for, and it leaves the reporting gap in place.
+
+### Audit at cad296df — 2026-09-29
+
+Wontfix: the premise was superseded before this ticket was filed (`05eb60ea`, 2026-09-20). On
+2026-09-09, `44ff0067` took the `macos` job off pull requests (`if: github.event_name != 'pull_request'`
+in `.github/workflows/test.yml`), and `3bbf5594` raised it to `timeout-minutes: 40`, with the second
+feature set's cold compile as the recorded reason. So there is no pull-request macOS job left to
+budget. The last six `macos` jobs on `main` pushes took five to six and a half minutes. The dominant
+cost was never measured, so the first box stays unticked.
+
+The third box is met in substance but not enforced. `cancel-in-progress` applies only to pull
+requests (`test.yml:23`), so a cancelled `macos` job means a timeout or a manual cancel, and
+`scripts/check-ci-results.sh` fails the `ci` aggregate on any `macos` result other than `success`
+for merge-group, push and dispatch runs. `ci` is not a required status context yet; see
+`verification-gaps/09`.

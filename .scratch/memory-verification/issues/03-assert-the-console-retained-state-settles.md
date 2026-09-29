@@ -29,3 +29,14 @@ no cap, a texture handle recreated every frame.
 no others — and already verified that the Console constructs under `build_eframe` with no refactor.
 None of that is reopened here. If the harness turns out not to exist in the shape this needs, that
 is a comment on `console-testing/04`, not a second dependency decision.
+
+### Audit at cad296df — 2026-09-29
+
+The harness this ticket depends on exists on `main`. `console_harness`
+(`console/src/console/kittest_tests.rs:120-135`) builds `Harness::builder().with_size(..)
+.with_pixels_per_point(1.0).build_eframe(..)`, and `console/Cargo.toml` pins `egui_kittest =
+"=0.36.2"` with only the `eframe` feature. `console-testing/04` landed in f7337fb1 and is being
+resolved in the same audit, which leaves this ticket unblocked: `01` is resolved too.
+
+No settle or steady-state assertion exists in `console/` yet, and `console` has no counting
+allocator, so every criterion is still open.

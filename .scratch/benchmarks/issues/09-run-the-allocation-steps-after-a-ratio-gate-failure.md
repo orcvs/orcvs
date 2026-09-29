@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human — implemented, and every local gate passes; the second box needs one real CI run to prove, which only a push can give (see the 2026-09-23 implementation comment)
+**Status:** resolved
 
 - [x] The allocation steps no longer rely on the timing step having fetched `gh-pages`. Today both set `skip-fetch-gh-pages: true` (`bench.yml:212`, `:402`). Either they fetch it themselves, or they run on a reliable signal that the fetch happened.
-- [ ] After a ratio-gate failure the allocation steps run and report, and the job still fails.
+- [x] After a ratio-gate failure the allocation steps run and report, and the job still fails.
 - [x] "Check bench floors" stays the last step of each job, and `scripts/check-tooling-contract.sh` still asserts that.
 - [x] `bash scripts/check-tooling-contract.sh`, `bash scripts/tests/check-tooling-contract.sh`, `actionlint` and `zizmor --offline .github/workflows` pass.
 
@@ -34,3 +34,7 @@ One awk pass over each job then enforces two rules. First, every step after a `f
 Local gates passed: `bash scripts/check-tooling-contract.sh`, `bash scripts/tests/check-tooling-contract.sh`, `actionlint`, and `zizmor --offline .github/workflows` (no findings; 19 suppressed, the same as `HEAD`).
 
 **Open:** the second box, where the allocation steps run and report after a real ratio-gate failure and the job still fails, has not been observed. It rests on the action's source and on GitHub's step-status rules. Proving it needs a real Benchmark run that trips the 300% gate, for example a throwaway pull request that slows a benchmark to more than three times its time. That run's log should show a red "Compare against main", then the three allocation steps, the fetch and the floor steps all running, and the job red.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved. The second box is observed in real CI. Pull-request run 36135018866 failed "Compare against main", then ran "Measure allocations", "Assemble the memory series", "Fetch gh-pages for the memory series", "Compare allocations against main" and "Check bench floors" to success, and concluded failure. Push run 36237666338 on `main` concluded failure the same way. The implementation is on `main` via #131 (`.github/workflows/bench.yml:153-160`, `:233-238`, and `:389-473` for the PR job).

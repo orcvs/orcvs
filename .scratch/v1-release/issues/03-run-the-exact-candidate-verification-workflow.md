@@ -16,7 +16,8 @@ documentation results without moving the full cost onto every ordinary pull requ
 - [ ] Every shipped inventory member maps to positive and applicable boundary/failure evidence.
 - [ ] Finite domains run exhaustively and each structured property runs at least 256 cases with
       committed regressions.
-- [ ] The published result records the merge tier's rustdoc and dependency-policy results by name:
+- [ ] The published result records the rustdoc (pull-request tier, `check_pull_request`) and
+      dependency-policy (merge tier, `check_merge_native`) results by name:
       `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` and
       `cargo deny --locked check`, each with its exit status. Both already run inside
       `mise run check`; this names them in the record rather than commissioning new work.
@@ -34,3 +35,11 @@ pointer is so this record can find the native and WASM proof. It is not a
 resolution of this ticket.
 
 **2026-09-24 — the candidate must be a benchmarked commit.** The release decision is that the nominated SHA carries its own push-triggered Benchmark run, rather than relying on manual dispatch (`verification-gaps/15`, which stays out of the release). The Benchmark workflow's push trigger is path-filtered, so a commit that touched only docs or `.scratch` has no run and is not eligible.
+
+### Audit at cad296df — 2026-09-29
+
+The rustdoc criterion called rustdoc a merge-tier result, but it runs in the pull-request tier.
+`RUSTDOCFLAGS="-D warnings" cargo doc` is in `[tasks.check_pull_request]` in `mise.toml`, and
+`cargo deny --locked check` is in `[tasks.check_merge_native]`. The line now names each tier.
+Everything else in the ticket still matches the code: there is no candidate task or workflow, and
+the bench push trigger is path-filtered.

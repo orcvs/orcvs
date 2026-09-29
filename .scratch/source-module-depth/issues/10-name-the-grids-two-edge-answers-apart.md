@@ -3,7 +3,9 @@
 **What to build:** Decide, and then spell, the difference between a Grid query that clamps at an
 edge and one that reports the edge. `down(pos)` returns a `Position` and clamps in the bottom row;
 `below(pos)` returns `Option<Position>` and answers `None` there. Both behaviours are wanted. The
-names do not distinguish them, and only one axis has both.
+names do not distinguish them. Only the vertical axis has a clamping and a reporting method
+side by side; the general reporting form is `displaced(pos, columns, rows)`, which a decision on
+names must now fold in.
 
 **Blocked by:** None.
 
@@ -12,7 +14,8 @@ names do not distinguish them, and only one axis has both.
 - [ ] The clamping family and the reporting family are named so that a reader picks the one they
       meant without reading the doc comment.
 - [ ] The decision covers whether the reporting form exists for all four directions or only where a
-      caller needs it, and records which.
+      caller needs it, and records which — including where `Grid::displaced` (`orcvs/src/grid.rs:311`)
+      and `offset_in_row` (`:259`) sit in the scheme.
 - [ ] Every call site moves in the same change; the crate is internal and unpublished, so a
       deprecation window buys nothing.
 - [ ] `orcvs/src/grid.rs`'s `mod property` and `mod test` keep stating both behaviours, whatever
@@ -38,9 +41,9 @@ arithmetic `source-playback-engine/10` moved into the Grid in the first place.
 
 **A tagged open issue needs the missing half.** `spatial-tick-planning/03` requires that "blocked
 or out-of-Grid movement replaces the current Span with Bang", for all four directions and at row
-edges. On the vertical axis that is `below`, and `Portal::ordinary_result`
-(`orcvs/src/source/portal.rs:79`) already reads exactly that way: `None` from `below` *is* the
-bottom-row diagnostic. On the horizontal axis there is nothing to read, and `left`/`right` answer a
+edges. On the vertical axis that is `below`, and `Portal::below`
+(`orcvs/src/source/portal.rs:158-162`) already reads exactly that way: `None` from `Grid::below` *is*
+the bottom-row diagnostic (`PortalError::BelowSource`). On the horizontal axis there is nothing to read, and `left`/`right` answer a
 silent clamp — the same Position back — which a mover cannot distinguish from a successful step of
 zero Cells. Whatever this ticket decides about names, `spatial-tick-planning/03` will otherwise add
 the horizontal answer under a third naming convention.
@@ -66,3 +69,18 @@ already cannot disagree about where one row down is; this is about what a reader
 what the Grid does. Do not rename without settling the second checkbox: renaming the vertical pair
 and leaving the horizontal axis clamp-only would make the asymmetry harder to see rather than
 easier.
+
+### Audit at cad296df — 2026-09-29
+
+- The third naming convention this ticket warned about has landed. `spatial-tick-planning/03` is
+  resolved, and `e5155c16` added `pub(crate) fn displaced(pos, columns: i16, rows: i16) ->
+  Option<Position>` (`orcvs/src/grid.rs:311`), which `Portal::displaced`
+  (`orcvs/src/source/portal.rs:177-186`) reads as `PortalError::OutsideGrid`. So the horizontal axis
+  is now askable, through a general displacement rather than a `left_of`/`right_of` pair.
+  `offset_in_row` (`grid.rs:259`) is a further `Option` query. The naming decision now has three
+  shapes to reconcile, not two.
+- `Portal::ordinary_result` no longer exists; its role is `Portal::below`
+  (`orcvs/src/source/portal.rs:158-162`). The body is corrected.
+- The rest still holds: `below` (`grid.rs:291`) returns `Option`, `down` (`:337`) clamps, `up`,
+  `left` and `right` (`:322`, `:345`, `:358`) clamp, and the two pairing tests are at `grid.rs:911`
+  and `:1337`. No criterion is met.

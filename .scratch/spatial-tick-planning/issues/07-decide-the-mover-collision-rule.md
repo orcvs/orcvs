@@ -74,3 +74,28 @@ litter follows the parse, not the collision. `****` is the spelling that means t
 ## Comments
 
 **2026-09-24 — decided: the shipping rule is the v1 rule.** Each blocked mover takes ADR 0006's ordinary refusal and replaces its current Span with `**`, with Source order deciding which moves first. "Both consumed" is not adopted. The remaining lines are now documentation and regression tests for the kept rule, not open questions: ADR 0006 states the rule outright, and tests cover the odd and even gaps, three or more movers converging (`">>>>  <<    "`), a Directional Bang emission contesting a mover, and a mover blocked by a static Cell. This issue joins `release/v1` and blocks `v1-release/03`, under the definition of done's spatial "conflicts" line.
+
+### Audit at cad296df — 2026-09-29
+
+The decision is taken. What remains is the ADR 0006 wording and three regression tests. No box
+below is ticked, because each asks for the decision to be *stated*, and ADR 0006 still carries
+only the generic refusal sentence (no collision, convergence or Source-order text).
+
+Test coverage in `orcvs/src/source/tick.rs`:
+
+- Even gap: covered. `two_moves_that_want_the_same_cells_each_bang_in_their_own_span` (`:1497`,
+  a two-Cell gap) and `two_movers_reserving_each_other_each_bang_rather_than_costing_the_tick`
+  (`:2019`, flush `>><<`).
+- Mover blocked by a static Cell: covered.
+  `a_move_blocked_by_one_complete_language_unit_bangs_without_diagnosing` (`:2052`).
+- Odd gap (`">> <<"`): missing. The comment at `:1500-1503` defers to
+  `a_self_banging_function_moves_once_per_tick_and_bangs_where_it_stops` (`:1481`), but that test
+  has one mover and no second one.
+- Three or more movers (`">>>>  <<    "`): missing. No fixture exists in `orcvs/src` or
+  `orcvs/tests`.
+- A Directional Bang emission contesting a mover: missing.
+  `a_refused_emission_diagnoses_and_writes_no_cell` (`:1621`) blocks the emission on static Cells
+  only.
+
+Remaining work: amend ADR 0006 so it states the kept rule for all five cases, then add the three
+missing tests.

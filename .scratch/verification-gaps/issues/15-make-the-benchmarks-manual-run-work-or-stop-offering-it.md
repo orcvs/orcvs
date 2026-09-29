@@ -33,13 +33,16 @@ by main." The manual half has never worked. Dispatched against `08-memory-verifi
 from `payload.head_commit` on a `push` or `payload.pull_request` on a `pull_request`. A
 `workflow_dispatch` payload carries neither, so the action aborts before comparing anything. The job
 spends the full warm-up and benchmark run — about twelve minutes — and then always errors. It is not
-specific to this branch and it is not new: nothing about the guard or the action pin has changed.
+specific to this branch and it is not new: the guard is unchanged, and the failure reproduces on the
+current pin (see the 2026-09-29 audit below).
 
-The failure also takes the three memory-series steps with it, since they run after the timing
-comparison in the same job and are skipped once it fails. A manual dispatch therefore cannot be used
-to exercise the memory series either, which is how this was found.
+When this was found, the failure also took the memory-series steps with it, since they were skipped
+once the timing comparison failed. Since `8d7ca6fd` they gate on the criterion run's outcome instead
+(`.github/workflows/bench.yml:160`, `:396`), so they now run on a dispatch — and the memory comparison
+fails the same way, because it calls the same action. A manual dispatch still cannot exercise the
+memory series.
 
-There is a supported fix. The pinned action, `52576c9` (v1.22.1), takes a `ref` input described as
+There is a supported fix. The pinned action, `4322e57` (v1.22.2), takes a `ref` input described as
 "optional Ref to use when finding commit", which exists for events whose payload has no commit.
 Passing `ref: ${{ github.sha }}` should let it resolve the commit through the API. One thing to check
 before relying on it: that lookup may require `github-token`, which this job deliberately does not
@@ -54,3 +57,18 @@ If the trigger is kept, note that `scripts/check-tooling-contract.sh` pins much 
 shape and will need the same treatment as the rest.
 
 **2026-09-24 — out of the release.** `v1-release/03` requires the nominated candidate to carry its own push-triggered Benchmark run, so release evidence does not depend on manual dispatch. This issue stays open as post-v1 work.
+
+### Audit at cad296df — 2026-09-29
+
+- The action pin moved from `52576c9` (v1.22.1) to `4322e5726e6334590d251fc4f92bec0efafc45dc`
+  (v1.22.2) in `17e555e6`; all three uses in `.github/workflows/bench.yml` (`:125`, `:241`, `:359`)
+  carry it. The failure reproduces on it: dispatch runs `36219958326` (2026-09-26, branch
+  `lang/operand-agreement`) and `36146480015` both conclude `failure` with
+  `##[error]No commit information is found in payload` at "Compare against main".
+- The memory steps no longer skip after that failure. Since `8d7ca6fd` they gate on
+  `steps.bench.outcome`; in run `36219958326` "Measure allocations", "Assemble the memory series" and
+  "Fetch gh-pages for the memory series" succeed and "Compare allocations against main" fails with
+  the same payload error. The body is corrected.
+- The guard (`bench.yml:302`) and its comment (`:300`, "manual branch runs") are unchanged, no
+  compare step passes `ref:`, and `docs/tooling.md` does not address dispatch. Neither criterion is
+  met.

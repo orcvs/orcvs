@@ -6,15 +6,24 @@ Engine task to assert something about where a rectangle is painted. Decide wheth
 of ADR 0041 or whether the console's test surface should be able to build a console without a running
 engine.
 
-The count, against `origin/main` at `cda0632` rather than against the fork point. 27 in
-`console/src/console.rs`, which has 37 plain `#[test]` on main and retains 10; plus 6 in
-`console/src/midi.rs`, which has none left. Thirty-three converted, not the "~40" an earlier report
-gave and not the 30 this ticket carried before the rebase — main grew three more of the same shape
-while the branch was open, and the rebase converted those too.
+The count taken at `cda0632` — 33 converted, 35 carrying a runtime, across `console/src/console.rs`
+and `console/src/midi.rs` — no longer describes the tree. The console's tests have since moved out of
+`console/src/console.rs`, which now holds none, and the surface has grown. At `cad296df` the
+`#[tokio::test]` / plain `#[test]` counts are:
 
-Thirty-five tests carry a runtime, which is not the same number: `console/src/midi.rs` has 8
-`#[tokio::test]`, of which 6 are conversions and 2 are new to this branch. Count conversions when
-asking what ADR 0041 charged; count runtimes when asking what the tier now pays for.
+| File | `#[tokio::test]` | `#[test]` |
+|---|---|---|
+| `console/src/console/tests.rs` | 81 | 15 |
+| `console/src/console/kittest_tests.rs` | 57 | 3 |
+| `console/src/console/storage_tests.rs` | 7 | 0 |
+| `console/src/paint.rs` | 38 | 5 |
+| `console/src/midi.rs` | 18 | 4 |
+| `console/src/marks.rs` | 1 | 0 |
+
+That is 202 console tests carrying a runtime. How many of them need one only because `Orcvs::new`
+spawns eagerly, rather than for a reason of their own, has not been re-derived; the recount is part
+of this ticket. Count conversions when asking what ADR 0041 charged; count runtimes when asking what
+the tier now pays for.
 
 It is probably unavoidable and should be said so if it is. `PlaybackEngine::new` spawning eagerly is
 one of ADR 0041's stated decisions — "an engine without its task is not one" — and a `Console` holds
@@ -22,7 +31,8 @@ an `Orcvs`. Anything that let a layout test skip the engine would be a construct
 for tests, which the repo contract rules out.
 
 What is worth recording either way is the widening itself: a change to the engine's construction can
-now turn a geometry test red, and thirty-three tests carry a runtime they do not use. That is a real
+now turn a geometry test red, and a large share of the console's runtime-carrying tests carry one
+they do not use. That is a real
 cost
 and it is currently written down nowhere.
 
@@ -32,8 +42,8 @@ and it is currently written down nowhere.
 cascade through `Orcvs::new`, `with_source`, `with_output_adapter`, `with_source_and_output_adapter`
 and `Console::new`), the repo contract's rule against test-only construction seams.
 
-- [ ] The count is recorded correctly: 33 converted and 35 carrying a runtime, across
-      `console/src/console.rs` and `console/src/midi.rs`.
+- [ ] The count is recorded against the current layout: how many console tests carry a runtime,
+      and how many of those carry it only because `Orcvs::new` spawns the engine.
 - [ ] The decision is recorded — accepted cost, or a seam worth finding — and if accepted, the reason
       is written where a later reader of those tests will find it.
 - [ ] Nothing proposed introduces a construction path that only tests take.
@@ -52,3 +62,13 @@ The audit corrected the count from "~40" to 30 and the framing from a defect to 
 Filed at all because it is the clearest measure of what ADR 0041 charged to code that has nothing to
 do with playback, and because `18` reports that the same tests are where the tier's timing margin is
 tightest.
+
+### Audit at cad296df — 2026-09-29
+
+The 33/35 count was taken at `cda0632` against `console/src/console.rs` and `console/src/midi.rs`.
+`console/src/console.rs` now holds no tests: they moved to `console/src/console/tests.rs`,
+`kittest_tests.rs` and `storage_tests.rs`, and `paint.rs`, `midi.rs` and `marks.rs` carry more. The
+body now tabulates the current `#[tokio::test]` counts (202 in all) and leaves the conversions-only
+figure to be re-derived, rather than keeping a number the tree no longer supports. `Orcvs::new` is
+still fallible and spawns eagerly (`orcvs/src/app.rs:171-173`). No rationale for the accepted cost
+is written beside the tests yet.

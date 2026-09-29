@@ -5,7 +5,7 @@ documents record them as part of the console's palette.
 
 **Blocked by:** 03 — Delete the two Glyph variants nothing can produce.
 
-**Status:** needs-triage
+**Status:** resolved
 
 **Triage owes the same decision `03` states, plus one of its own.**
 `typed-source-paint/01` already carries the acceptance line "`PALETTE.marker` and `PALETTE.highlight`
@@ -15,10 +15,10 @@ is `console/src/theme.md:15-16`, which records both tokens and which no ticket i
 mentions. If `typed-source-paint/01` is taken, this ticket reduces to that one document and the
 count corrections, and should be re-scoped rather than closed.
 
-- [ ] `ConsolePalette` (`console/src/style.rs:7-32`) no longer declares `marker` or `highlight`.
-- [ ] `PALETTE` (`console/src/style.rs:34-58`) no longer assigns `rgba(46, 82, 72, 0.44)`
+- [x] `ConsolePalette` (`console/src/style.rs:7-32`) no longer declares `marker` or `highlight`.
+- [x] `PALETTE` (`console/src/style.rs:34-58`) no longer assigns `rgba(46, 82, 72, 0.44)`
       (`:45`) or `#2A5A4E` (`:46`).
-- [ ] `console/src/theme.md:15-16` no longer lists a Marker or a Highlight token.
+- [x] `console/src/theme.md:15-16` no longer lists a Marker or a Highlight token.
 - [ ] The palette token count is corrected wherever it is stated in words, not left stale.
 - [ ] `restyle-egui-console/02` and `console-testing/03` are amended in the same change, or this
       ticket is held until they settle. See below.
@@ -77,3 +77,15 @@ literals and two list entries. What is not trivial is that it invalidates writte
 criteria in three other efforts that a maintainer scoped, and that one of those efforts already
 claims half the work. Whether to amend, to fold, or to hold is a sequencing call about someone
 else's effort, and an agent should not make it unilaterally.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved by other work. `c6c323ea` ("Derive the console chrome from the resolved Theme") deleted
+`ConsolePalette` and `PALETTE` outright; neither name appears in `console/src`. `00c0d2f7` ("Record
+the twenty-one shipped tokens as the decided console palette") removed Marker and Highlight from the
+token list at the top of `console/src/theme.md`. `theme.md:199-202` records their retirement, and
+the seam explanation this ticket asked to keep survives.
+
+The remaining boxes are left unticked. `restyle-egui-console/02` is resolved, and
+`console-testing/03` is resolved as superseded by the Theme value tests rather than amended, so its
+"twenty-two" wording stays as history. The exact-value and gate boxes were not re-run by this audit.

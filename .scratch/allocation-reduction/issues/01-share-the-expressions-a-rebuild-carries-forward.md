@@ -5,23 +5,23 @@ holds, so a keystroke stops paying to copy the rows it did not touch.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A rebuild no longer deep-clones the `ExpressionEntry` values of rows it did not re-parse.
+- [x] A rebuild no longer deep-clones the `ExpressionEntry` values of rows it did not re-parse.
       Sharing them — `Arc`, or a representation an unchanged row can be carried by reference — is
       the shape; which one is the ticket's design decision and is recorded here.
-- [ ] The allocation cost of one Cell write stops scaling with the number of Expressions the Map
+- [x] The allocation cost of one Cell write stops scaling with the number of Expressions the Map
       carries. `a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster` in
       `orcvs/tests/allocation.rs` reports the number; it is a ratio assertion and passes either way,
       so the measured before-and-after counts are recorded here rather than asserted.
 - [ ] Editing a Cell in an empty margin row costs measurably less than editing one inside an
       Expression. Today it costs almost the same, which is the clearest statement of the defect.
-- [ ] `LanguageMap` stays a value the Source can hand out as `Arc<LanguageMap>` from
+- [x] `LanguageMap` stays a value the Source can hand out as `Arc<LanguageMap>` from
       `shared_language_map`, and `SourceRevision` keeps sharing one Map across unchanged reads —
       `unchanged_revision_reads_share_the_language_map` pins that and must keep passing.
 - [ ] Every existing `orcvs` test and property passes unchanged, including the Language Map suite in
       `orcvs/tests/language_map.rs`.
-- [ ] `source_edit_rebuild_valid` and `source_edit_rebuild_invalid` are the benchmarks that cover
+- [x] `source_edit_rebuild_valid` and `source_edit_rebuild_invalid` are the benchmarks that cover
       this path. Note them for the comparison the benchmark workflow runs; do not run the comparison
       locally.
 
@@ -57,3 +57,16 @@ Cell plus about 136 bytes per row for the `glyphs` vector, the three `row_runs` 
 `row_units`. A rebuild that produces a whole Map cannot be smaller than the Map. That part is not
 the defect and must not be optimised away by making the Map lazy; the defect is the per-Expression
 carry on top of it.
+
+### Audit at cad296df — 2026-09-29
+
+Resolved: the work landed under `source-audit/06` as `b0b780b1` ("Share unchanged Language Map
+rows across revisions"). `LanguageMap` holds `rows: Vec<Arc<DerivedRow>>`
+(`orcvs/src/source/language_map.rs:75`), and `rebuild` carries a clean row with
+`Arc::clone(&previous.rows[row])` (`:347`); the design choice is recorded there, not here.
+
+The second box is asserted rather than reported: `a_rebuild_costs_the_same_however_many_expressions_the_rows_it_carries_hold`
+(`orcvs/tests/allocation.rs:493`). The test this ticket names does not exist; its successor is
+`a_language_map_rebuild_costs_no_more_per_carried_expression_as_the_source_grows` (`:545`). The third
+box is left unticked: no margin-versus-Expression comparison is asserted, and the carried-rows
+assertion above supersedes it. The fifth box is not re-run by this audit.
