@@ -114,6 +114,13 @@ pub(crate) struct MidiDeviceSelection {
     /// on its MIDI service, so a later frame asks again without a Scan.
     ///
     discovery_pending: bool,
+    ///
+    /// The destination whose connect last answered that its port is still
+    /// opening. A later frame connects to it again and installs it once the
+    /// port is open; until then the destination already installed keeps
+    /// playing. A Scan or another choice stops waiting for it.
+    ///
+    opening: Option<MidiDestinationId>,
 }
 
 impl MidiDeviceSelection {
@@ -126,6 +133,7 @@ impl MidiDeviceSelection {
             engine_status: None,
             auto_select_attempted: false,
             discovery_pending: false,
+            opening: None,
         }
     }
 
@@ -134,6 +142,7 @@ impl MidiDeviceSelection {
     ///
     pub(crate) fn refresh_destinations(&mut self) {
         self.auto_select_attempted = false;
+        self.opening = None;
         match self.backend.destinations() {
             Ok(destinations) => {
                 self.destinations = destinations;
@@ -150,8 +159,8 @@ impl MidiDeviceSelection {
 
     ///
     /// The selection's work for one Panel frame: discovery again while the
-    /// last one answered pending, then automatic selection of the first
-    /// destination.
+    /// last one answered pending, a connect again while the chosen port is
+    /// still opening, then automatic selection of the first destination.
     ///
     /// A pending answer is the only one a frame repeats. Any other failure
     /// stays until the performer Scans, so a broken MIDI service is asked once
@@ -160,6 +169,9 @@ impl MidiDeviceSelection {
     pub(crate) fn observe_frame(&mut self) {
         if self.discovery_pending {
             self.refresh_destinations();
+        }
+        if let Some(opening) = self.opening.clone() {
+            self.select_destination_with_origin(&opening, SelectionOrigin::Auto);
         }
         self.auto_select_first_if_unselected();
     }
@@ -183,7 +195,12 @@ impl MidiDeviceSelection {
         if origin == SelectionOrigin::User {
             self.auto_select_attempted = true;
         }
-        let connection = match self.backend.connect(destination_id) {
+        let connection = self.backend.connect(destination_id);
+        self.opening = match &connection {
+            Err(error) if error.is_pending() => Some(destination_id.clone()),
+            _ => None,
+        };
+        let connection = match connection {
             Ok(connection) => connection,
             Err(error) => {
                 self.status = Some(error.message);

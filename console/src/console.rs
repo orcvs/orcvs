@@ -301,7 +301,10 @@ fn environment(
     );
     midi.refresh_destinations();
     #[cfg(target_arch = "wasm32")]
-    repaint::wake_panel_when_midi_access_answers(ctx.clone());
+    {
+        repaint::wake_panel_when_midi_access_answers(ctx.clone());
+        repaint::wake_panel_when_a_midi_output_opens(ctx.clone());
+    }
     Ok((orcvs, midi))
 }
 

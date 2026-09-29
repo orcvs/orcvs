@@ -89,3 +89,8 @@ it.* That needs a browser, a MIDI device and a person listening. Manual steps:
 7. Deny MIDI access in the site settings and reload. The list should read `None` with no error,
    without a click.
 
+8. On Windows, open the device's port exclusively in another application (a DAW or MIDI-OX),
+   then pick it in the Output list while another port is playing. The status should read "waiting
+   for the browser to open the MIDI destination" and then the browser's refusal, and the port that
+   was playing should keep sounding without a pause. Close the other application and pick the port
+   again: it should be selected once the browser opens it, with no Scan.

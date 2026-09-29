@@ -13,6 +13,10 @@
 //!   discovers again;
 //! - once access is granted, the output map is enumerated and a port is found
 //!   on the thread that asked, exactly as the native backend does;
+//! - a connect asks the browser to open the port and answers a pending error
+//!   until it has, and the answer wakes the Panel so its next frame connects
+//!   again, so a port the browser cannot open is refused before it replaces
+//!   the destination that is playing;
 //! - a browser that offers no Web MIDI, or refuses access, answers an empty
 //!   destination list, the silent fallback every target without a MIDI service
 //!   gives.
@@ -51,6 +55,26 @@ pub(crate) const DESTINATION_GONE: &str = "the selected MIDI destination is no l
 /// from somewhere other than this browser's list reaches it.
 ///
 pub(crate) const NO_ACCESS: &str = "this browser offers no MIDI access";
+
+///
+/// The message a connect answers while the browser is still opening the
+/// output it names.
+///
+pub(crate) const PORT_OPENING: &str = "waiting for the browser to open the MIDI destination";
+
+///
+/// Where opening one output stands.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum PortOpening {
+    /// The port is open and accepts messages.
+    Open,
+    /// The browser has not finished opening the port.
+    Opening,
+    /// The browser could not open the port, for the reason given. Reported
+    /// once: the next open of that output asks the browser again.
+    Refused(String),
+}
 
 ///
 /// Where the one request for MIDI access stands.
@@ -98,10 +122,17 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
     fn send(&self, id: &str, message: &[u8]) -> Result<(), MidiError>;
 
     ///
+    /// Where opening the output with `id` stands, asking the browser to open
+    /// it when nothing has asked yet. Never waits for the answer.
+    ///
+    fn open(&self, id: &str) -> PortOpening;
+
+    ///
     /// Releases the output with `id`, so a platform that grants a device to
     /// one application at a time can hand it to another. Messages already
-    /// sent without a timestamp are delivered before the port closes, and the
-    /// next `send` opens it again.
+    /// sent without a timestamp are delivered before the port closes. An
+    /// output still opening is closed once it opens, and its answer is not
+    /// reported.
     ///
     fn close(&self, id: &str);
 }
@@ -113,6 +144,12 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
 pub(crate) struct WebMidiBackend<A> {
     access: A,
     held: Held,
+    ///
+    /// The output a connect is waiting on the browser to open. A connect to
+    /// another output, or a discovery, abandons it, since the selection that
+    /// asked has stopped waiting for it.
+    ///
+    opening: Option<String>,
 }
 
 ///
@@ -127,12 +164,32 @@ impl<A: WebMidiAccess> WebMidiBackend<A> {
         Self {
             access,
             held: Held::default(),
+            opening: None,
+        }
+    }
+
+    ///
+    /// Stops waiting on the open in progress, if any, other than one for
+    /// `keep`. Its output is released unless a live connection holds it.
+    ///
+    fn abandon_opening(&mut self, keep: Option<&str>) {
+        let Some(abandoned) = self.opening.take_if(|id| Some(id.as_str()) != keep) else {
+            return;
+        };
+        let held = self
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(&abandoned);
+        if !held {
+            self.access.close(&abandoned);
         }
     }
 }
 
 impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+        self.abandon_opening(None);
         match self.access.status() {
             AccessStatus::Pending => Err(MidiError::pending(ACCESS_PENDING)),
             AccessStatus::Unavailable => Ok(Vec::new()),
@@ -167,6 +224,18 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
                 if !open {
                     return Err(MidiError::new(DESTINATION_GONE));
                 }
+                self.abandon_opening(Some(destination_id.as_str()));
+                match self.access.open(destination_id.as_str()) {
+                    PortOpening::Open => self.opening = None,
+                    PortOpening::Opening => {
+                        self.opening = Some(destination_id.as_str().to_owned());
+                        return Err(MidiError::pending(PORT_OPENING));
+                    }
+                    PortOpening::Refused(reason) => {
+                        self.opening = None;
+                        return Err(MidiError::new(reason));
+                    }
+                }
                 let id = destination_id.as_str().to_owned();
                 *self
                     .held
@@ -185,12 +254,12 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
 }
 
 ///
-/// An output the console found connected, delivered to by id.
+/// An output the browser has opened, delivered to by id.
 ///
-/// Web MIDI opens a port implicitly on its first `send`, so the connection
-/// needs no open step of its own, and a port that disconnects afterwards
-/// refuses the next message, which the adapter turns into a Playback
-/// diagnostic.
+/// It is built only once the port is open, so a port the browser cannot open
+/// is refused at connect rather than accepting messages it never delivers. A
+/// port that disconnects afterwards refuses the next message, which the
+/// adapter turns into a Playback diagnostic.
 ///
 /// Reselecting the output already selected builds a second connection before
 /// the first is dropped, so the port stays open across it.
@@ -231,12 +300,33 @@ pub(crate) use browser::BrowserMidi;
 #[cfg(target_arch = "wasm32")]
 mod browser {
     use std::cell::RefCell;
+    use std::collections::HashMap;
 
     use orcvs::midi::MidiError;
     use wasm_bindgen::JsCast;
     use web_sys::{MidiAccess, MidiOutput, MidiPortDeviceState};
 
-    use super::{AccessStatus, DESTINATION_GONE, WebMidiAccess, WebMidiOutput};
+    use super::{AccessStatus, DESTINATION_GONE, PortOpening, WebMidiAccess, WebMidiOutput};
+
+    ///
+    /// The prefix of the status a port the browser could not open reports.
+    ///
+    const PORT_REFUSED: &str = "the browser could not open the MIDI destination";
+
+    ///
+    /// How far the page has opened one output, as this backend asked.
+    ///
+    enum Port {
+        ///
+        /// The browser is opening it. An abandoned open is closed once it
+        /// opens, and its answer is not kept.
+        ///
+        Opening {
+            abandoned: bool,
+        },
+        Open,
+        Refused(String),
+    }
 
     ///
     /// The page's one request for MIDI access and its answer.
@@ -261,6 +351,19 @@ mod browser {
         /// the value the request stored.
         ///
         static ACCESS: RefCell<Access> = const { RefCell::new(Access::NotRequested) };
+
+        ///
+        /// Every output this page has asked to open, by id, kept beside the
+        /// access for the same reason. An output missing here is closed.
+        ///
+        static PORTS: RefCell<HashMap<String, Port>> = RefCell::new(HashMap::new());
+
+        ///
+        /// What runs once the browser answers an open, so the frame that
+        /// connects again with the answer runs without waiting for the
+        /// performer's next input.
+        ///
+        static PORT_ANSWERED: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
     }
 
     ///
@@ -337,6 +440,52 @@ mod browser {
                 Access::NotRequested | Access::Granted(_) | Access::Unavailable => None,
             })
         }
+
+        ///
+        /// Runs `wake` each time the browser answers the open of an output,
+        /// in place of whatever ran before.
+        ///
+        pub(crate) fn on_port_answer(wake: impl Fn() + 'static) {
+            PORT_ANSWERED.with(|answered| *answered.borrow_mut() = Some(Box::new(wake)));
+        }
+    }
+
+    fn start_opening(id: &str, output: &MidiOutput) {
+        let id = id.to_owned();
+        let output = output.clone();
+        let opening = wasm_bindgen_futures::JsFuture::from(output.open());
+        wasm_bindgen_futures::spawn_local(async move {
+            let answer = opening.await;
+            let close = PORTS.with(|ports| {
+                let mut ports = ports.borrow_mut();
+                let abandoned =
+                    matches!(ports.remove(&id), Some(Port::Opening { abandoned: true }));
+                match answer {
+                    Ok(_) if abandoned => true,
+                    Ok(_) => {
+                        ports.insert(id, Port::Open);
+                        false
+                    }
+                    Err(_) if abandoned => false,
+                    Err(reason) => {
+                        let reason = reason
+                            .dyn_ref::<js_sys::Error>()
+                            .map(|error| String::from(error.message()))
+                            .unwrap_or_else(|| format!("{reason:?}"));
+                        ports.insert(id, Port::Refused(format!("{PORT_REFUSED}: {reason}")));
+                        false
+                    }
+                }
+            });
+            if close {
+                let _ = wasm_bindgen_futures::JsFuture::from(output.close()).await;
+            }
+            PORT_ANSWERED.with(|answered| {
+                if let Some(wake) = &*answered.borrow() {
+                    wake();
+                }
+            });
+        });
     }
 
     fn with_granted<T>(read: impl FnOnce(&MidiAccess) -> T) -> Option<T> {
@@ -386,7 +535,45 @@ mod browser {
                 .map_err(|reason| MidiError::new(format!("MIDI send refused: {reason:?}")))
         }
 
+        fn open(&self, id: &str) -> PortOpening {
+            let Some(output) = with_granted(|granted| granted.outputs().get(id)).flatten() else {
+                return PortOpening::Refused(DESTINATION_GONE.to_owned());
+            };
+            let (answer, start) = PORTS.with(|ports| {
+                let mut ports = ports.borrow_mut();
+                let asked = ports.remove(id);
+                let start = match asked {
+                    Some(Port::Refused(reason)) => return (PortOpening::Refused(reason), false),
+                    Some(Port::Open) => {
+                        ports.insert(id.to_owned(), Port::Open);
+                        return (PortOpening::Open, false);
+                    }
+                    Some(Port::Opening { .. }) => false,
+                    None => true,
+                };
+                // An open asked for again is no longer abandoned.
+                ports.insert(id.to_owned(), Port::Opening { abandoned: false });
+                (PortOpening::Opening, start)
+            });
+            if start {
+                start_opening(id, &output);
+            }
+            answer
+        }
+
         fn close(&self, id: &str) {
+            let still_opening = PORTS.with(|ports| {
+                let mut ports = ports.borrow_mut();
+                if let Some(Port::Opening { abandoned }) = ports.get_mut(id) {
+                    *abandoned = true;
+                    return true;
+                }
+                ports.remove(id);
+                false
+            });
+            if still_opening {
+                return;
+            }
             let Some(output) = with_granted(|granted| granted.outputs().get(id)).flatten() else {
                 return;
             };
@@ -402,6 +589,7 @@ mod browser {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use orcvs::app::{InputEvent, InputKey, Orcvs};
@@ -410,8 +598,8 @@ mod tests {
     };
 
     use super::{
-        ACCESS_PENDING, AccessStatus, DESTINATION_GONE, NO_ACCESS, WebMidiAccess, WebMidiBackend,
-        WebMidiOutput,
+        ACCESS_PENDING, AccessStatus, DESTINATION_GONE, NO_ACCESS, PORT_OPENING, PortOpening,
+        WebMidiAccess, WebMidiBackend, WebMidiOutput,
     };
     use crate::midi::MidiDeviceSelection;
 
@@ -422,11 +610,14 @@ mod tests {
         sent: Vec<(String, Vec<u8>)>,
         /// Each close, with how many messages its output had accepted when it closed.
         closed: Vec<(String, usize)>,
+        /// How far each output is opened. An output absent here is closed.
+        ports: HashMap<String, PortOpening>,
     }
 
     ///
-    /// Web MIDI as a test drives it: the access status, the output map, and
-    /// every message a port accepted, in order.
+    /// Web MIDI as a test drives it: the access status, the output map, how
+    /// far each port is opened, and every message a port accepted, in order.
+    /// The outputs it is built with are already open.
     ///
     #[derive(Clone, Default)]
     struct FakeWebMidi(Arc<Mutex<FakeState>>);
@@ -442,6 +633,10 @@ mod tests {
                     name: name.map(str::to_owned),
                     connected: true,
                 })
+                .collect();
+            fake.state().ports = outputs
+                .iter()
+                .map(|(id, _)| ((*id).to_owned(), PortOpening::Open))
                 .collect();
             fake
         }
@@ -478,6 +673,26 @@ mod tests {
         fn closed(&self) -> Vec<(String, usize)> {
             self.state().closed.clone()
         }
+
+        /// Leaves the output with `id` closed, so the next open has to wait.
+        fn close_port(&self, id: &str) {
+            self.state().ports.remove(id);
+        }
+
+        /// Answers the open the browser is working on for `id`.
+        fn answer_open(&self, id: &str, answer: Result<(), &str>) {
+            let mut state = self.state();
+            assert_eq!(
+                state.ports.get(id),
+                Some(&PortOpening::Opening),
+                "only an open under way is answered"
+            );
+            let settled = match answer {
+                Ok(()) => PortOpening::Open,
+                Err(reason) => PortOpening::Refused(reason.to_owned()),
+            };
+            state.ports.insert(id.to_owned(), settled);
+        }
     }
 
     impl WebMidiAccess for FakeWebMidi {
@@ -507,10 +722,26 @@ mod tests {
             Ok(())
         }
 
+        fn open(&self, id: &str) -> PortOpening {
+            let mut state = self.state();
+            match state.ports.remove(id) {
+                Some(PortOpening::Refused(reason)) => PortOpening::Refused(reason),
+                Some(open_or_opening) => {
+                    state.ports.insert(id.to_owned(), open_or_opening.clone());
+                    open_or_opening
+                }
+                None => {
+                    state.ports.insert(id.to_owned(), PortOpening::Opening);
+                    PortOpening::Opening
+                }
+            }
+        }
+
         fn close(&self, id: &str) {
             let mut state = self.state();
             let accepted = state.sent.iter().filter(|(to, _)| to == id).count();
             state.closed.push((id.to_owned(), accepted));
+            state.ports.remove(id);
         }
     }
 
@@ -797,5 +1028,132 @@ mod tests {
             fake.closed(),
             vec![("a".to_owned(), delivered_to_a), ("b".to_owned(), 0)]
         );
+    }
+
+    ///
+    /// A connected output the browser cannot open, for instance one another
+    /// application holds, never replaces the destination that is playing:
+    /// choosing it answers that the port is opening, and the browser's refusal
+    /// reaches the status line while the old output keeps every note and
+    /// never receives the safety action.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn an_output_that_fails_to_open_leaves_the_playing_destination() {
+        let fake = FakeWebMidi::with(
+            AccessStatus::Granted,
+            &[("a", Some("First")), ("b", Some("Held elsewhere"))],
+        );
+        fake.close_port("b");
+        let (mut orcvs, mut midi) = playing(&fake);
+
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("a"));
+        toggle_playback(&mut orcvs).await;
+        toggle_playback(&mut orcvs).await;
+        fake.clear_sent();
+
+        midi.select_destination(&MidiDestinationId::new("b"));
+        tokio::task::yield_now().await;
+
+        assert_eq!(midi.status(), Some(PORT_OPENING));
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        assert_eq!(fake.sent_to("a"), Vec::<Vec<u8>>::new());
+
+        fake.answer_open("b", Err("the port is in use"));
+        midi.observe_frame();
+        tokio::task::yield_now().await;
+
+        assert_eq!(midi.status(), Some("the port is in use"));
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        toggle_playback(&mut orcvs).await;
+        assert_eq!(fake.sent_to("a"), vec![NOTE_ON_C4.to_vec()]);
+        assert_eq!(fake.sent_to("b"), Vec::<Vec<u8>>::new());
+        assert_eq!(fake.closed(), Vec::new());
+    }
+
+    ///
+    /// Selecting an output the browser has still to open answers that it is
+    /// opening, and the first frame after the browser opens it installs it,
+    /// without a Scan or a second choice.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn the_frame_after_an_output_opens_installs_it() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("Synth"))]);
+        fake.close_port("a");
+        let (mut orcvs, mut midi) = playing(&fake);
+
+        midi.refresh_destinations();
+        midi.observe_frame();
+        tokio::task::yield_now().await;
+
+        assert_eq!(midi.status(), Some(PORT_OPENING));
+        assert_eq!(midi.selected_destination_id(), None);
+
+        midi.observe_frame();
+        assert_eq!(midi.status(), Some(PORT_OPENING));
+
+        fake.answer_open("a", Ok(()));
+        midi.observe_frame();
+        tokio::task::yield_now().await;
+
+        assert_eq!(midi.status(), None);
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        toggle_playback(&mut orcvs).await;
+        assert_eq!(fake.sent_to("a"), vec![NOTE_ON_C4.to_vec()]);
+    }
+
+    ///
+    /// An open the performer walks away from, by choosing another output or
+    /// Scanning, is released rather than left holding the device, and its
+    /// answer never installs it.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn an_abandoned_open_releases_its_output() {
+        let fake = FakeWebMidi::with(
+            AccessStatus::Granted,
+            &[
+                ("a", Some("First")),
+                ("b", Some("Second")),
+                ("c", Some("Third")),
+            ],
+        );
+        fake.close_port("a");
+        fake.close_port("c");
+        let (_orcvs, mut midi) = playing(&fake);
+
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("a"));
+        midi.select_destination(&MidiDestinationId::new("b"));
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("b"))
+        );
+        assert_eq!(fake.closed(), vec![("a".to_owned(), 0)]);
+
+        midi.select_destination(&MidiDestinationId::new("c"));
+        midi.refresh_destinations();
+        assert_eq!(
+            fake.closed(),
+            vec![("a".to_owned(), 0), ("c".to_owned(), 0)]
+        );
+
+        midi.observe_frame();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("b"))
+        );
+        assert_eq!(midi.status(), None);
     }
 }

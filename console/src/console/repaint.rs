@@ -44,6 +44,16 @@ pub(super) fn wake_panel_when_midi_access_answers(ctx: egui::Context) {
 }
 
 ///
+/// Paints the Panel each time the browser answers the open of a MIDI output,
+/// so the frame that connects again and installs the opened port, or shows
+/// the refusal, runs without waiting for the performer's next input.
+///
+#[cfg(target_arch = "wasm32")]
+pub(super) fn wake_panel_when_a_midi_output_opens(ctx: egui::Context) {
+    crate::web_midi::BrowserMidi::on_port_answer(move || ctx.request_repaint());
+}
+
+///
 /// Requests a repaint of `ctx` each time `observation` publishes, and ends
 /// once the Playback Engine that owns the observation's sender is gone. An
 /// Open replaces the Orcvs, so each wake-up has to end with the Orcvs it
