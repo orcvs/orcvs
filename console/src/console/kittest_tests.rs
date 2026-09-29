@@ -765,6 +765,145 @@ async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
 }
 
 ///
+/// The colour the last frame composites to at `point`: every mesh the
+/// frame's Shapes tessellate to, in paint order, blended over the window
+/// backdrop `clear_color` answers.
+///
+/// The harness has no renderer, so this samples the one point a renderer
+/// would shade there. Colours are premultiplied gamma-space `Color32`, and
+/// each triangle covering `point` is composited source-over with its
+/// interpolated vertex colour, the premultiplied blend egui's painters use.
+/// Only untextured triangles are sampled: a glyph over `point` would need
+/// the font atlas, so it fails the test instead of being guessed at. A
+/// triangle covers `point` only strictly inside it, so `point` must lie on no
+/// triangle's edge; callers pick one that no rectangle's corner or diagonal
+/// passes through.
+///
+fn composited_colour(harness: &Harness<'_, Console>, point: Pos2) -> egui::Color32 {
+    use egui::epaint::{Primitive, WHITE_UV};
+
+    let cross = |o: Pos2, a: Pos2, b: Pos2| (a - o).x * (b - o).y - (a - o).y * (b - o).x;
+    let backdrop = eframe::App::clear_color(harness.state(), &harness.ctx.global_style().visuals);
+    let mut composite = backdrop.map(|channel| channel * 255.0);
+    let primitives = harness.ctx.tessellate(
+        harness.output().shapes.clone(),
+        harness.ctx.pixels_per_point(),
+    );
+    for primitive in primitives {
+        if !primitive.clip_rect.contains(point) {
+            continue;
+        }
+        let Primitive::Mesh(mesh) = primitive.primitive else {
+            panic!("the console paints no callback primitive");
+        };
+        let (triangles, _) = mesh.indices.as_chunks::<3>();
+        for triangle in triangles {
+            let [a, b, c] = triangle.map(|index| mesh.vertices[index as usize]);
+            let area = cross(a.pos, b.pos, c.pos);
+            if area == 0.0 {
+                continue;
+            }
+            let weights = [
+                cross(point, b.pos, c.pos) / area,
+                cross(point, c.pos, a.pos) / area,
+                cross(point, a.pos, b.pos) / area,
+            ];
+            if weights.iter().any(|weight| *weight <= 0.0) {
+                continue;
+            }
+            assert!(
+                [a, b, c].iter().all(|vertex| vertex.uv == WHITE_UV),
+                "a textured triangle covers {point:?}; pick a point with no glyph over it"
+            );
+            let source: [f32; 4] = std::array::from_fn(|channel| {
+                [a, b, c]
+                    .iter()
+                    .zip(weights)
+                    .map(|(vertex, weight)| f32::from(vertex.color.to_array()[channel]) * weight)
+                    .sum()
+            });
+            let revealed = 1.0 - source[3] / 255.0;
+            for (below, above) in composite.iter_mut().zip(source) {
+                *below = above + *below * revealed;
+            }
+        }
+    }
+    let [r, g, b, a] = composite.map(|channel| channel.round().clamp(0.0, 255.0) as u8);
+    egui::Color32::from_rgba_premultiplied(r, g, b, a)
+}
+
+///
+/// A custom Theme's transparent or partial-alpha `grid.background` reveals
+/// the console surface beneath the Grid: an empty Cell composites to its
+/// `window.background` where the Grid is transparent, to the Grid colour
+/// over it where the Grid is translucent, and to the Grid colour alone where
+/// it is opaque. `panel.background` differs from both, so a chrome panel
+/// painted under the Grid would show here.
+///
+/// Measured at a point inside a Cell far enough from the Cursor that no
+/// Cursor Effect reaches it, off the Cell's borders and every diagonal.
+///
+#[tokio::test]
+async fn a_custom_themes_transparent_or_translucent_grid_composites_over_the_window_backdrop() {
+    use crate::theme_registry::tests_support::load;
+    use egui::Color32;
+
+    let window = Color32::from_rgb(0x20, 0x10, 0x30);
+    let panel = Color32::from_rgb(0x70, 0x70, 0x10);
+    for (grid, hex) in [
+        (Color32::TRANSPARENT, "#C8643200"),
+        (
+            Color32::from_rgba_unmultiplied(0xC8, 0x64, 0x32, 0x80),
+            "#C8643280",
+        ),
+        (Color32::from_rgb(0xC8, 0x64, 0x32), "#C86432FF"),
+    ] {
+        let mut themes = ThemeRegistry::built_in();
+        load(
+            &mut themes,
+            "glass.toml",
+            format!(
+                "format = \"orcvs-theme\"\nversion = 1\nname = \"Glass\"\n\
+                 inherits = \"okabe-ito\"\n[style]\n\
+                 \"window.background\" = \"#201030\"\n\
+                 \"panel.background\" = \"#707010\"\n\
+                 \"grid.background\" = \"{hex}\"\n"
+            )
+            .as_bytes(),
+        );
+        let config = crate::config::Config {
+            theme_selection: crate::theme_selection::ThemeSelection::new(
+                id("glass"),
+                crate::theme::ThemeIdentity::default_for(Appearance::Light),
+            ),
+            ..crate::config::Config::default()
+        };
+        let harness = configured_console_under_os_appearance(egui::Theme::Dark, themes, config);
+        let presented = harness.state().themes.presented(Appearance::Dark);
+        assert_eq!(
+            (
+                presented.window_background,
+                presented.panel_background,
+                presented.grid_background
+            ),
+            (window, panel, grid),
+            "the console does not present the loaded Glass Theme"
+        );
+        assert_eq!(cursor(harness.state()), (0, 0));
+
+        let cell = presented_source(&harness).cell_rect(9, 7);
+        let point = cell.min + cell.size() * Vec2::new(0.413_7, 0.582_1);
+        let expected = window.blend(grid);
+        assert_eq!(
+            composited_colour(&harness, point),
+            expected,
+            "an empty Cell over the grid.background {hex} composites to \
+             {expected:?}, window.background {window:?} beneath the Grid"
+        );
+    }
+}
+
+///
 /// An operating-system appearance change, arriving as
 /// `RawInput::system_theme` the way egui's integrations report it, switches
 /// Source and chrome together while the mode follows the OS — and changes

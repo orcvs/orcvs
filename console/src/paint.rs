@@ -767,6 +767,63 @@ mod tests {
     }
 
     ///
+    /// A custom Theme document's `region.cursor.background` in each of its
+    /// three states, painted for the Cursor inside a Region larger than one
+    /// Cell. Omitted, it inherits the parent's absent fill and `none` clears
+    /// it; both fall back to the ordinary Cursor fill. An explicit transparent
+    /// colour is a supplied fill and suppresses that fallback, leaving only
+    /// the uniform `cell.background` beneath it.
+    ///
+    #[tokio::test]
+    async fn an_explicit_transparent_region_cursor_fill_suppresses_the_cursor_fill_fallback() {
+        use crate::theme_registry::tests_support::{dark, id};
+
+        let mut orcvs = running_orcvs(6, 4);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        orcvs.select(at(1, 1));
+        orcvs.extend(at(3, 2));
+        let frame = orcvs.render_frame();
+        let cursor_fill = Color32::from_rgb(1, 2, 3);
+        let base = Color32::from_rgba_unmultiplied(10, 20, 30, 128);
+
+        let painted = |region_cursor: Option<&str>, cell_background: &str| {
+            let mut text = format!(
+                "{}[style]\n\
+                 \"cursor.background\" = \"#010203\"\n\
+                 \"cell.background\" = \"{cell_background}\"\n",
+                dark("Custom")
+            );
+            if let Some(value) = region_cursor {
+                text.push_str(&format!("\"region.cursor.background\" = \"{value}\"\n"));
+            }
+            let document = crate::theme_document::decode("custom.toml", text.as_bytes())
+                .expect("a valid document");
+            let theme =
+                crate::theme::resolve(&[okabe_ito()], &id("custom"), &document).expect("resolves");
+            let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+            assert!(paint.region_spans());
+            paint.at(at(3, 2)).background
+        };
+
+        for (region_cursor, cell_background, expected) in [
+            (None, "#00000000", Some(cursor_fill)),
+            (Some("none"), "#00000000", Some(cursor_fill)),
+            (Some("#FFFFFF00"), "#00000000", None),
+            (None, "#0A141E80", Some(base.blend(cursor_fill))),
+            (Some("none"), "#0A141E80", Some(base.blend(cursor_fill))),
+            (Some("#FFFFFF00"), "#0A141E80", Some(base)),
+        ] {
+            assert_eq!(
+                painted(region_cursor, cell_background),
+                expected,
+                "the Region's Cursor with region.cursor.background {region_cursor:?} \
+                 over cell.background {cell_background}"
+            );
+        }
+    }
+
+    ///
     /// "Other Region Cells use Region fill only when no visible effective
     /// fact fill exists after role, Diagnostic and Portal composition"
     /// (`.scratch/theming/schema.md`). A Function's own two-Cell spelling and
