@@ -395,6 +395,31 @@ standard library before any of it starts. `scripts/check-tooling-contract.sh` pi
 that no task calls `mise run miri`, and requires any workflow that does run it to carry
 `workflow_dispatch` and neither of the other two triggers.
 
+A fifth trigger is also manual, and produces evidence rather than a verdict. The release needs to
+see the exact candidate rendered — both built-in Themes, wide and tall — and a test can prove every
+colour as a value but not what reaches the screen. `.github/workflows/release-captures.yml` runs
+`mise run capture_native` on `workflow_dispatch` alone, given a full commit SHA: it renders the
+console through the kittest harness the interaction tests use, with `egui_kittest`'s `wgpu` renderer
+and Mesa's lavapipe as the GPU, and uploads four images and a `manifest.json` as one artifact. The
+test behind it, `console::kittest_tests::capture`, asserts before each image that the seeded Source
+(`console/tests/fixtures/release-capture.orcvs`) loaded, that the pinned mode and Theme are the ones
+presented, that egui's zoom is 1.0 and that every checklist state is among the drawn Cells, so an
+incomplete capture fails instead of uploading. Everything it pins enters the way it enters the
+shipped console — the Source and egui memory through a native `app.ron`, the Theme selections
+through `config.toml` — so no shipped code carries a capture branch. Nothing compares the images
+against a baseline; a reviewer reads them against the visual checklist.
+
+The capture is gated by a feature rather than a test filter, because what it must keep out of the
+tiers is a dependency tree and not only a run. `release-capture` enables `egui_kittest/snapshot`
+and `egui_kittest/wgpu` on a dev-dependency, so no shipped build can carry it, and the capture task
+is the one `mise.toml` line that names it. `scripts/check-tooling-contract.sh` pins that count,
+pins that no task calls the capture task, and requires any workflow that runs the task or names the
+feature to carry `workflow_dispatch` and no other trigger. `cargo deny` still reads the feature's
+tree, because `deny.toml` resolves with every feature on: the wgpu graph brings a second `pollster`
+and a second `rustc-hash`, and `snapshot`'s image differ brings `colored` 2 under MPL-2.0, allowed
+for that one crate. `mise run audit_deps` answers for all three on every pull request whether or not
+anything compiles them.
+
 - `criterion` measures the three benchmarked paths — language execution in `lang`, populated Source
   reading, rendering, and editing in `orcvs`, and Paint derivation in `console`; `benchmark-action/github-action-benchmark` stores and
   compares the results, and the same pinned action stores the allocation series beside them. The
@@ -403,11 +428,12 @@ that no task calls `mise run miri`, and requires any workflow that does run it t
 - `egui_kittest` runs the console's UI interaction tests. It enables AccessKit on the `Context` and
   drives the shipped `eframe::App` through `Harness::build_eframe`, which is what lets a test find a
   control by the label a viewer reads instead of by a position the test computed. Feature `eframe`
-  and nothing else: `snapshot` has no renderer without `wgpu`
+  and nothing else in every gate: `snapshot` has no renderer without `wgpu`
   (`egui_kittest-0.36.2/src/renderer.rs:36-45`), and pulling the wgpu tree into the dev graph — and
   a working GPU into every job that runs the console's tests — buys coverage the `Shape`-level
-  assertions in `console::tests` already hold at a finer grain. No snapshot test exists and none is
-  claimed. The dependency is confined to `console`'s non-WASM `dev-dependencies` for the reason
+  assertions in `console::tests` already hold at a finer grain. No snapshot test compares against a
+  baseline. The two features are on only under `console`'s `release-capture` feature, for the
+  release captures described below. The dependency is confined to `console`'s non-WASM `dev-dependencies` for the reason
   `proptest` is confined to `lang` and `orcvs`': the invariants are platform-independent, and
   `check_wasm` compiles this crate's test targets for `wasm32-unknown-unknown`. Its `eframe` feature
   does activate `eframe/accesskit`, so a `cargo test` build of `eframe` carries `accesskit_winit`

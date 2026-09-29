@@ -66,6 +66,21 @@ persistence = ["eframe/persistence", "orcvs/persistence"]
 # start no server. No tier enables it for `wasm32`, and `mise run check_wasm`
 # builds the two feature sets it has always built.
 inspection = ["eframe/inspection"]
+# Test-only: the release captures in `console::kittest_tests::capture`, which render
+# the running console to images for a reviewer. It turns on the two
+# `egui_kittest` features that render a frame — `wgpu`, the renderer, and
+# `snapshot`, which encodes the image as PNG — and `persistence`, the path the
+# seeded Source enters through. Both `egui_kittest` features reach the
+# dev-dependency only, so no shipped build can carry them, and no verification
+# tier enables this: `mise run capture_native` is the one line that names it,
+# and `.github/workflows/release-captures.yml` runs that on manual dispatch
+# alone. `scripts/check-tooling-contract.sh` pins both.
+#
+# What it costs, paid only there: `wgpu`, `naga` and `egui-wgpu` (MIT or
+# Apache-2.0), `dify` and `colored` 2 behind `snapshot` (`colored` is MPL-2.0 and
+# allowed for that crate alone in `deny.toml`), `eframe/wgpu` in the dev graph,
+# and second copies of `pollster` and `rustc-hash`, recorded in `deny.toml`.
+release-capture = ["persistence", "egui_kittest/snapshot", "egui_kittest/wgpu"]
 
 [dependencies]
 # Defaults off here; platform MIDI lives in this crate's `native_midi` module.
@@ -186,13 +201,14 @@ web-sys = { version = "0.3", features = [
 # `cargo build` does not. That is a dev-graph activation and it is the price of
 # querying production widgets by role and label.
 #
-# `snapshot` and `wgpu` are deliberately absent. Both exist to render a frame to
-# an image, `snapshot` has no renderer without `wgpu`
-# (`egui_kittest-0.36.2/src/renderer.rs:36-45`), and `wgpu` would put the whole
-# wgpu and naga tree into the dev graph and a GPU requirement into CI for
-# coverage the `Shape`-level assertions in `console::tests` already hold at a finer
-# grain. `.agents/skills/egui/references/guide.md` records that decision and
-# when to revisit it.
+# `snapshot` and `wgpu` are off here and on only under the `release-capture`
+# feature above. Both exist to render a frame to an image, `snapshot` has no
+# renderer without `wgpu` (`egui_kittest-0.36.2/src/renderer.rs:36-45`), and
+# `wgpu` puts the whole wgpu and naga tree into the graph and a GPU adapter into
+# the run. The ordinary test build and every gate do without both: the
+# `Shape`-level assertions in `console::tests` hold paint at a finer grain than
+# an image can, and nothing compares images against a baseline.
+# `.agents/skills/egui/references/guide.md` records where they are on and why.
 #
 # Confined to the non-WASM target table for the reason `proptest` is: the
 # invariants these tests hold are platform-independent, `cargo clippy

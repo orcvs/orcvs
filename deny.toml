@@ -25,6 +25,13 @@ allow = [
   "Unicode-3.0",
   "Zlib",
 ]
+# `dify` 0.8, the image differ behind `egui_kittest/snapshot`, requires `colored` 2, which is
+# MPL-2.0. It is reached only through `console/release-capture`, a test-only feature no shipped
+# build and no verification tier enables, so it is allowed for that crate alone rather than for
+# the graph.
+exceptions = [
+  { crate = "colored@2", allow = ["MPL-2.0"] },
+]
 
 [bans]
 multiple-versions = "deny"
@@ -64,6 +71,9 @@ skip = [
   { crate = "hashbrown@0.16", reason = "the accesskit_consumer, accesskit_macos and accesskit_windows releases egui pins require it" },
   # Most proc macros in the graph (zerocopy-derive, enumn, tracing-attributes, zbus) are on syn 2.
   { crate = "syn@2", reason = "proc macros in egui's and zbus's dependencies have not moved to syn 3" },
+  # `console/release-capture` only: the capture job's wgpu renderer.
+  { crate = "pollster@0.4", reason = "rfd 0.17 requires pollster 0.4; eframe's wgpu path and egui_kittest/wgpu require 1.0" },
+  { crate = "rustc-hash@1", reason = "naga 30 and wgpu-core 30 require rustc-hash 1.1; type-map 0.5 (via egui-wgpu) requires 2" },
   { crate = "getrandom@0.3", reason = "ahash 0.8 (via epaint) and rand_core 0.9 (via proptest) require it" },
 ]
 

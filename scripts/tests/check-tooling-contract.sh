@@ -47,11 +47,11 @@ make_fixture() {
   cp "$repo_root/console/assets/sw.js" "$fixture_dir/console/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
-  # `miri.yml` is copied like the other three. The contract's Miri rules are
-  # stated over whichever workflow runs the task rather than over a file name,
-  # so without the file here nothing in the fixture matches `run: mise run miri`
-  # and every one of those rules is dead code in this suite.
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
+  # `miri.yml` and `release-captures.yml` are copied like the other three. The
+  # contract's Miri and capture rules are stated over whichever workflow runs the
+  # task rather than over a file name, so without the files here nothing in the
+  # fixture matches and every one of those rules is dead code in this suite.
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/release-captures.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
@@ -534,6 +534,45 @@ test_miri_called_by_another_task_is_rejected() {
   make_fixture
   perl -pi -e 's/^(cargo fmt --all -- --check)$/$1 \&\& mise run miri/' "$fixture_dir/mise.toml"
   assert_rejected "a tier calling Miri as the second half of a line"
+}
+
+test_automatically_triggered_capture_workflow_is_rejected() {
+  # The capture compiles the wgpu tree and renders on a software GPU. Every
+  # trigger below makes a change pay for that without anyone asking for images.
+  make_fixture
+  perl -pi -e 's/^on:$/on:\n  pull_request:\n    branches: [main]/' "$fixture_dir/.github/workflows/release-captures.yml"
+  assert_rejected_with "a release capture workflow running on pull requests" "as its only trigger"
+
+  make_fixture
+  perl -pi -e "s/^on:\$/on:\n  push:\n    branches: [main]/" "$fixture_dir/.github/workflows/release-captures.yml"
+  assert_rejected_with "a release capture workflow running on a push" "as its only trigger"
+
+  make_fixture
+  perl -pi -e 's/^on:$/on:\n  merge_group:/' "$fixture_dir/.github/workflows/release-captures.yml"
+  assert_rejected_with "a release capture workflow running in the merge queue" "as its only trigger"
+
+  make_fixture
+  perl -pi -e "s/^on:\$/on:\n  schedule:\n    - cron: '0 3 * * *'/" "$fixture_dir/.github/workflows/release-captures.yml"
+  assert_rejected_with "a release capture workflow running on a schedule" "as its only trigger"
+
+  make_fixture
+  perl -pi -e 's/^  workflow_dispatch:$/  workflow_call:/' "$fixture_dir/.github/workflows/release-captures.yml"
+  assert_rejected_with "a release capture workflow nobody can dispatch" "as its only trigger"
+}
+
+test_capture_feature_in_a_gate_is_rejected() {
+  # No gate compiles the capture feature, in a tier line or through the task.
+  make_fixture
+  perl -pi -e 's/^(cargo clippy --workspace --all-targets --locked -- -D warnings)$/$1\ncargo clippy --package console --all-targets --features release-capture --locked -- -D warnings/' "$fixture_dir/mise.toml"
+  assert_rejected_with "a pull-request tier compiling the release capture feature" "features release-capture"
+
+  make_fixture
+  perl -pi -e 's/^(\[tasks\.bench\])$/[tasks.sneak]\nrun = "mise run check_inspection \&\& mise r capture_native"\n\n$1/' "$fixture_dir/mise.toml"
+  assert_rejected_with "a task calling the release capture as the second half of a line" "capture_native"
+
+  make_fixture
+  perl -pi -e 's/^(      - uses: jdx\/mise-action@.*)$/$1\n      - run: mise r capture_native/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected_with "the pull-request workflow running the release capture" "as its only trigger"
 }
 
 test_memory_series_measured_by_a_second_binary_is_rejected() {
@@ -1106,6 +1145,8 @@ case "${1:-all}" in
   advisories-without-audit) test_advisory_workflow_without_the_audit_is_rejected ;;
   automatically-triggered-miri) test_automatically_triggered_miri_workflow_is_rejected ;;
   miri-called-by-another-task) test_miri_called_by_another_task_is_rejected ;;
+  automatically-triggered-capture) test_automatically_triggered_capture_workflow_is_rejected ;;
+  capture-feature-in-a-gate) test_capture_feature_in_a_gate_is_rejected ;;
   defaulted-bench-budget) test_defaulted_bench_budget_is_rejected ;;
   measuring-warmup-run) test_measuring_warmup_run_is_rejected ;;
   asymmetric-bench-warmup) test_asymmetric_bench_warmup_is_rejected ;;
@@ -1220,6 +1261,8 @@ case "${1:-all}" in
     test_advisory_workflow_without_the_audit_is_rejected
     test_automatically_triggered_miri_workflow_is_rejected
     test_miri_called_by_another_task_is_rejected
+    test_automatically_triggered_capture_workflow_is_rejected
+    test_capture_feature_in_a_gate_is_rejected
     test_memory_series_measured_by_a_second_binary_is_rejected
     test_memory_series_assembled_with_jq_is_rejected
     test_allocation_series_skipped_by_the_ratio_gate_is_rejected

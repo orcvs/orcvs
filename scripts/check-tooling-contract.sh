@@ -839,6 +839,33 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
   fi
 done
 
+# The release captures are deliberate and non-gating on the same terms as Miri,
+# and the reason is the feature rather than the cost alone. `release-capture`
+# turns on `egui_kittest`'s `snapshot` and `wgpu`, which bring the wgpu and naga
+# trees into the build and a GPU adapter into the run, and the ordinary `console`
+# build and every gate are meant never to compile either. So the feature is
+# named on exactly one `mise.toml` line, the capture task's own; a tier line that
+# named it, or a second task, would compile it where this says nothing does.
+# Matched as a whole word with its flag so the prose around it cannot count.
+assert_occurs_exactly "$root_dir/mise.toml" '[-][-]features release-capture( |$)' 1
+assert_toml_task_contains "$root_dir/mise.toml" 'capture_native' '^cargo nextest run --package console --lib --features release-capture --locked -E .test[(]=console::kittest_tests::capture::the_release_captures_show_every_checklist_state[)].$'
+assert_not_contains "$root_dir/mise.toml" 'mise (run|r) capture_native([^[:alnum:]_-]|$)'
+assert_contains "$root_dir/console/Cargo.toml" '^release-capture = \["persistence", "egui_kittest/snapshot", "egui_kittest/wgpu"\]$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" '^          mise run capture_native$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
+# Stated over whichever workflow names the task or the feature, as the Miri rule
+# is, and as a whole trigger set: a pull request, a push to `main`, a merge group
+# or a schedule would each make a change pay for images nobody asked for.
+for workflow in "$root_dir"/.github/workflows/*.yml; do
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E 'mise (run|r) capture_native([^[:alnum:]_-]|$)|release-capture( |$)' >/dev/null; then
+    assert_only_trigger "$workflow" 'workflow_dispatch'
+  fi
+done
+
 # Criterion covers the three benchmarked paths: language execution in `lang`,
 # populated Source rendering and editing in `orcvs`, and Paint derivation in
 # `console`. It stays a plain versioned dev-dependency of exactly those crates,

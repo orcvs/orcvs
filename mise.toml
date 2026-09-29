@@ -166,6 +166,24 @@ rustup toolchain install nightly --component miri
 cargo +nightly miri nextest run --package orcvs -E 'test(/^source::model::test::/)'
 '''
 
+[tasks.capture_native]
+description = "Render the native release captures and their manifest"
+# The console rendered to images for a release reviewer: {wide, tall} ×
+# {Okabe–Ito, Orcvs Light}, and a manifest naming what each one is of. Deliberate
+# and non-gating like `miri`: it is absent from every tier, and
+# `.github/workflows/release-captures.yml` runs it on manual dispatch only.
+#
+# `release-capture` is the only line in this file that names the feature. It turns
+# on `egui_kittest`'s `snapshot` and `wgpu`, which put the wgpu and naga trees
+# into the build and a GPU adapter into the run; no tier pays for either. The job
+# supplies the adapter as Mesa's lavapipe. `--lib` because the capture is a unit
+# test of the console's own harness, and the filter names the one test so nothing
+# else in the crate is run twice. The test reads `ORCVS_CAPTURE_DIR`,
+# `ORCVS_CAPTURE_SHA` and `ORCVS_CAPTURE_RUNNER`, and fails without them.
+run = '''
+cargo nextest run --package console --lib --features release-capture --locked -E 'test(=console::kittest_tests::capture::the_release_captures_show_every_checklist_state)'
+'''
+
 [tasks.bench]
 description = "Benchmark the lang, Source, and console Paint paths"
 # `--benches` keeps the orcvs integration-test harnesses out, and each benchmarked
