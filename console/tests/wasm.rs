@@ -162,6 +162,17 @@ fn web_midi_answers_discovery_and_connect_without_waiting() {
     let _ = NativeMidiBackend::new().destinations();
 }
 
+///
+/// The page's wait for MIDI access before the console starts ends whether or
+/// not the browser answers. A headless browser may leave the permission
+/// request unanswered, and the wait must not hold the console back, so a wait
+/// that ignored its timeout would hang this test.
+///
+#[wasm_bindgen_test]
+async fn the_midi_access_wait_ends_whether_or_not_the_browser_answers() {
+    console::native_midi::request_access_within(Duration::from_millis(50)).await;
+}
+
 #[wasm_bindgen_test]
 fn missing_canvas_reports_an_in_page_startup_error_without_panicking() {
     let document = web_sys::window()

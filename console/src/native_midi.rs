@@ -6,6 +6,8 @@
 //! [`MidiSelectionHandle::install`]: orcvs::midi::MidiSelectionHandle::install
 
 pub use backend::NativeMidiBackend;
+#[cfg(target_arch = "wasm32")]
+pub use backend::request_access_within;
 
 ///
 /// Whether this build can present MIDI device selection.
@@ -161,6 +163,38 @@ mod backend {
         pub fn new() -> Self {
             Self(WebMidiBackend::new(BrowserMidi::request()))
         }
+    }
+
+    ///
+    /// Asks the browser for MIDI access and waits for its answer, but for no
+    /// longer than `timeout`.
+    ///
+    /// A page whose permission is already granted or blocked answers well
+    /// within it, so the console built afterwards discovers with the answer on
+    /// its first frame. A first visit shows a permission prompt the performer
+    /// may take any time to answer, or never answer; the wait ends at
+    /// `timeout` and the console starts with access pending. A browser without
+    /// Web MIDI answers at once and is not waited for.
+    ///
+    pub async fn request_access_within(timeout: std::time::Duration) {
+        let _ = BrowserMidi::request();
+        let Some(answered) = BrowserMidi::answered() else {
+            return;
+        };
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let millis = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+        let elapsed = js_sys::Promise::new(&mut |resolve, _reject| {
+            if let Err(reason) =
+                window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, millis)
+            {
+                log::warn!("the MIDI access wait has no timer: {reason:?}");
+                let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+            }
+        });
+        let first = js_sys::Promise::race(&js_sys::Array::of2(&answered, &elapsed));
+        let _ = wasm_bindgen_futures::JsFuture::from(first).await;
     }
 
     impl MidiBackend for NativeMidiBackend {

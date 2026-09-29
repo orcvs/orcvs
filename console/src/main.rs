@@ -55,6 +55,13 @@ async fn main() -> eframe::Result {
     )
 }
 
+///
+/// How long the page waits for the browser's MIDI access answer before it
+/// starts the console. ADR 0059 records why it is this long.
+///
+#[cfg(target_arch = "wasm32")]
+const MIDI_ACCESS_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use console::console::Console;
@@ -77,6 +84,7 @@ fn main() {
     };
 
     wasm_bindgen_futures::spawn_local(async {
+        console::native_midi::request_access_within(MIDI_ACCESS_WAIT).await;
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
