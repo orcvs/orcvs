@@ -26,8 +26,8 @@ ordinary refusal — it replaces its current Span with `**`.
 ```
 
 The odd case always worked and matches Orca, which resolves the same event by evaluation order. The
-even case rejected the Tick as a dependency cycle until `order_turns` learned to drop the edge that
-would order a mover ahead of a mover earlier in Source.
+even case is admitted because `order_turns` omits contact dependencies from an advancing
+Function to an intrinsically active owner. Ready Turns are then chosen by Source position.
 
 ## The alternative
 
@@ -59,7 +59,8 @@ litter follows the parse, not the collision. `****` is the spelling that means t
       cases differ in how many Cells are contested, and the shipping rule gives one a survivor and
       the other none.
 - [ ] The decision covers three or more movers converging. Today they resolve in Source order with
-      no cycle, because every kept edge between two movers points from the earlier to the later:
+      no cycle from mover-to-mover contact, because those contact dependencies are omitted and
+      ready Turns are chosen by Source position:
       `">>>>  <<    "` gives `"** >><<     "` and then `"   ****     "`.
 - [ ] The decision covers a Directional Bang emission that contests Cells with a mover. An emission
       never vacates its own Span, so "both are consumed" has no meaning for it, and any rule that
@@ -99,3 +100,10 @@ Test coverage in `orcvs/src/source/tick.rs`:
 
 Remaining work: amend ADR 0006 so it states the kept rule for all five cases, then add the three
 missing tests.
+
+### Independent implementation audit — 2026-09-29
+
+Corrected the scheduler explanation: `orcvs/src/source/tick.rs:1083-1089` skips
+contact dependencies to intrinsically active owners without comparing Source positions.
+`tick.rs:1128-1142` orders ready nodes by anchor. The kept collision decision and remaining
+ADR/regression work are unchanged. This audit did not execute the example grids.

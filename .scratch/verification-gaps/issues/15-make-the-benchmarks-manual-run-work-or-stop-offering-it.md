@@ -61,7 +61,7 @@ shape and will need the same treatment as the rest.
 ### Audit at cad296df — 2026-09-29
 
 - The action pin moved from `52576c9` (v1.22.1) to `4322e5726e6334590d251fc4f92bec0efafc45dc`
-  (v1.22.2) in `17e555e6`; all three uses in `.github/workflows/bench.yml` (`:125`, `:241`, `:359`)
+  (v1.22.2) in `17e555e6`; all four uses in `.github/workflows/bench.yml` (`:125`, `:241`, `:359`, `:463`)
   carry it. The failure reproduces on it: dispatch runs `36219958326` (2026-09-26, branch
   `lang/operand-agreement`) and `36146480015` both conclude `failure` with
   `##[error]No commit information is found in payload` at "Compare against main".

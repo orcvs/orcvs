@@ -1,13 +1,14 @@
 # 02 — Test a Function spelling without building an error
 
-**What to build:** Asking whether two Cells spell a Function answers without allocating, so a Render
-Frame stops building error text that nothing reads.
+**What to build:** Asking whether two Cells spell a Function answers without allocating, so deriving a
+Language Map row stops building error text that nothing reads.
 
 **Blocked by:** None — can start immediately.
 
 **Status:** ready-for-agent
 
-- [ ] Reading a Source revision allocates nothing per literal operand. The path is
+- [ ] Parsing a Source row allocates nothing for the Function-spelling predicate per literal
+      operand. The path is
       `Parser::take_language_unit` -> `Parser::is_function_next` -> `parser::is_function` ->
       `Function::try_from(t).is_ok()`, whose refusal arm builds
       `SyntaxError::UnknownFunction(spelling.to_string())` in `lang/src/atom.rs` only for `is_ok()`
@@ -15,9 +16,9 @@ Frame stops building error text that nothing reads.
 - [ ] The predicate answers without constructing an `Error`. A borrowing test — matching the
       spelling directly, or a `Function::matches`-shaped predicate the `TryFrom` then reuses — is
       the shape; which one is the ticket's design decision and is recorded here.
-- [ ] The same treatment is applied to `str_to_num`'s `TypeError::Number(s.to_string())` where it is
-      reached as a test rather than as a reported failure. A malformed operand pays this twice
-      today, once peeking and once converting.
+- [x] No numeric conversion error is built merely to test an operand. `take_token` calls
+      `Token::decode` once; the former numeric peek is absent. A genuine numeric failure still
+      constructs its reported `TypeError::Number` (verified 2026-09-29).
 - [ ] The error a genuine syntax failure reports is unchanged: same variant, same text, same
       Diagnostic. This ticket removes an allocation on the path that discards the error, not the
       error.
@@ -56,3 +57,15 @@ frame, including for Source that is malformed because someone is halfway through
 The strengthening in the fifth box is the point of the ticket rather than an afterthought: this is
 the one finding of the three where zero is reachable, and an assertion that says zero is worth more
 than a ceiling that happens to be low.
+
+### Independent implementation audit — 2026-09-29
+
+The Function predicate still allocates on refusal (`lang/src/parser.rs:333-339`,
+`lang/src/atom.rs:793`). Numeric conversion is now one call from `take_token`
+(`parser.rs:289-299`) through `Token::decode` (`lang/src/expression.rs:145`);
+`str_to_num` has no production predicate caller. The numeric double-peek criterion is met.
+The historical per-frame explanation above is obsolete: `RenderFrame::derive` reads the
+revision's cached Language Map (`orcvs/src/render_frame.rs:135-173`), while row derivation
+parses source (`orcvs/src/source/language_map.rs:766`). The remaining allocation belongs to
+parsing/rebuilding changed rows and direct parser callers. The allocation test is a direct
+parser fixture despite its render-frame wording. Status remains open.

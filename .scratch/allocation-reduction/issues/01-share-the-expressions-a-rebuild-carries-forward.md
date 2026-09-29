@@ -19,7 +19,7 @@ holds, so a keystroke stops paying to copy the rows it did not touch.
 - [x] `LanguageMap` stays a value the Source can hand out as `Arc<LanguageMap>` from
       `shared_language_map`, and `SourceRevision` keeps sharing one Map across unchanged reads —
       `unchanged_revision_reads_share_the_language_map` pins that and must keep passing.
-- [ ] Every existing `orcvs` test and property passes unchanged, including the Language Map suite in
+- [x] Every existing `orcvs` test and property passes unchanged, including the Language Map suite in
       `orcvs/tests/language_map.rs`.
 - [x] `source_edit_rebuild_valid` and `source_edit_rebuild_invalid` are the benchmarks that cover
       this path. Note them for the comparison the benchmark workflow runs; do not run the comparison
@@ -70,3 +70,8 @@ The second box is asserted rather than reported: `a_rebuild_costs_the_same_howev
 `a_language_map_rebuild_costs_no_more_per_carried_expression_as_the_source_grows` (`:545`). The third
 box is left unticked: no margin-versus-Expression comparison is asserted, and the carried-rows
 assertion above supersedes it. The fifth box is not re-run by this audit.
+
+The last box is now checked: `cargo nextest run --package orcvs --locked` at `042abe55` ran 683
+tests, all passed, 1 skipped. The margin-row box stays unticked on purpose. It is superseded by
+the stronger assertion that carried rows add nothing (`orcvs/tests/allocation.rs:493`), not left
+unmet.

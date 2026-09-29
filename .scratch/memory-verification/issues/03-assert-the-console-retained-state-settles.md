@@ -35,8 +35,9 @@ is a comment on `console-testing/04`, not a second dependency decision.
 The harness this ticket depends on exists on `main`. `console_harness`
 (`console/src/console/kittest_tests.rs:120-135`) builds `Harness::builder().with_size(..)
 .with_pixels_per_point(1.0).build_eframe(..)`, and `console/Cargo.toml` pins `egui_kittest =
-"=0.36.2"` with only the `eframe` feature. `console-testing/04` landed in f7337fb1 and is being
-resolved in the same audit, which leaves this ticket unblocked: `01` is resolved too.
+"=0.36.2"` with only the `eframe` feature. The harness landed in f7337fb1, but `console-testing/04`
+stays open for its end-to-end coverage gaps, so this ticket is still blocked by it. `01` is
+resolved. If only the harness is needed here, drop `04` from the `Blocked by:` line instead.
 
 No settle or steady-state assertion exists in `console/` yet, and `console` has no counting
 allocator, so every criterion is still open.

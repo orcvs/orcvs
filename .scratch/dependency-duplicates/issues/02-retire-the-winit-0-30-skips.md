@@ -4,10 +4,19 @@
 
 Waiting on: an eframe release on winit 0.31. As of 2026-09-25, winit 0.31 is at `v0.31.0-beta.3` and egui has no tracking issue for adopting it.
 
-**Blocked by:** 01 — Skip the duplicates winit 0.30 and AccessKit's macOS adapter keep in the graph.
+**Blocked by:** 01
 
 **Status:** needs-triage
 
 - [ ] The console depends on an eframe release built on winit 0.31.
 - [ ] The winit-only skip entries are removed: the nine from 01 and `windows-sys` 0.59 from 05.
 - [ ] `cargo deny --locked --all-features check bans` reports no duplicate for those crates and no unused-skip warning.
+
+## Comments
+
+### Independent implementation audit — 2026-09-29
+
+Still open: `Cargo.lock` resolves winit 0.30.13 and `deny.toml:36-51` retains the skips.
+Shortened the blocker to its issue reference: `scripts/roadmap.ts:101` interpreted `0.30`
+in the old blocker title as nonexistent issue `dependency-duplicates/30`. The real issue 01
+is resolved; the upstream prerequisite remains in the body, not as a fictitious local blocker.
