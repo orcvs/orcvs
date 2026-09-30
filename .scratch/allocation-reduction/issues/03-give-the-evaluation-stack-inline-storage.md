@@ -13,8 +13,8 @@ Related: source-audit/09 deleted `Interpreter::execute` (orcvs/orcvs#156), so `e
 - [x] `Stack::new` stops taking a heap block for every Turn. The path is `Interpreter::execute_function` -> `Context::new(inputs, operands.len())` (`lang/src/interpreter.rs`) -> `Stack::new(limit)` (`lang/src/stack.rs`), which is `Vec::with_capacity(limit)` over a 24-byte `Value`.
 - [x] The storage is inline, following `05e4490` and `a215af7` — the same treatment already applied to the Parser's pending stacks and to the inline Expression records. The inline capacity is `MAX_OPERANDS` (`lang/src/stack.rs`), the widest operand list the Function table declares; the stack holds the operands only, with no slot for the answer. `execute_function` is the only caller, so no growable overflow branch ships.
 - [x] ADR 0028's requirement still holds. `execute_function` refuses an operand count other than its Function's signature length before building the stack, so the depth is at most `MAX_OPERANDS` and an inline capacity of that size is provably sufficient; record the proof. A push onto an exhausted stack still answers `OperandStackExhausted` rather than panicking.
-- [x] A Turn through `execute_function` takes no heap block for its Operand Stack. `a_turn_over_atoms_allocates_nothing_but_its_operand_stack` (`lang/tests/allocation.rs`) pins zero allocations for a Function whose operands and answer hold no Sequence. `evaluating_a_parsed_source_allocates_per_call_and_not_per_row` (same file) drops its one-block-per-call ceiling to zero, and the undated `FINDING:` comment at the head of that test, which attributes the block to `Stack::new`'s `Vec::with_capacity`, is replaced with a note saying what was corrected.
-- [x] Every other existing `lang` test and property passes unchanged, including the `Stack` suite, the Interpreter suites and the parser property tests. The three allocation tests the 2026-09-26 reconciliation comment names are tightened by one block each: `a_turn_over_atoms_allocates_nothing_but_its_operand_stack` to zero, and `a_sequence_operand_is_consumed_without_copying_its_members` and `a_turn_that_builds_a_sequence_allocates_only_that_answer` by dropping the Operand Stack's block from their ceilings.
+- [x] A Turn through `execute_function` takes no heap block for its Operand Stack. `a_turn_over_atoms_allocates_nothing` (`lang/tests/allocation.rs`) pins zero allocations for a Function whose operands and answer hold no Sequence. `evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row` (same file) drops its one-block-per-call ceiling to zero, and the undated `FINDING:` comment at the head of that test, which attributes the block to `Stack::new`'s `Vec::with_capacity`, is replaced with the present-tense invariant the test asserts: the Operand Stack is inline, so a call over Atom operands allocates nothing.
+- [x] Every other existing `lang` test and property passes unchanged, including the `Stack` suite, the Interpreter suites and the parser property tests. The three allocation tests the 2026-09-26 reconciliation comment names are tightened by one block each: `a_turn_over_atoms_allocates_nothing` to zero, and `a_sequence_operand_is_consumed_without_copying_its_members` and `a_turn_that_builds_a_sequence_allocates_only_that_answer` by dropping the Operand Stack's block from their ceilings.
 - [x] The `execute_function` benchmark and the `execute_function_operands` group in `lang/benches/lang.rs` cover this path. Note them for the comparison the benchmark workflow runs; do not run the comparison locally.
 
 ## Comments
@@ -127,3 +127,12 @@ rather than in `execute_function`'s loop.
   passes unchanged, because `Performance` and `Interpretation` do not change size.
 - Benchmarks. The comparison belongs to the benchmark workflow: the `execute_function` benchmark
   and the `execute_function_operands` group in `lang/benches/lang.rs`. It was not run locally.
+
+**2026-09-30 — criteria restated for what shipped.** The fourth and fifth criteria name the tests by
+the names they carry on `perf/inline-operand-stack`: `a_turn_over_atoms_allocates_nothing` (was
+`a_turn_over_atoms_allocates_nothing_but_its_operand_stack`) and
+`evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row` (was
+`evaluating_a_parsed_source_allocates_per_call_and_not_per_row`). The fourth criterion asked for the
+`FINDING:` comment to be replaced with a note saying what was corrected; `docs/agents/comments.md`
+keeps lineage out of source, so it now asks for the present-tense invariant that shipped, and the
+correction is recorded in the 2026-09-29 comment and the commit message.

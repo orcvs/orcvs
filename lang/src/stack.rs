@@ -284,7 +284,7 @@ pub struct Stack {
 impl Stack {
     /// An empty stack that admits at most `limit` values, clamped to the
     /// inline capacity so the limit is one the storage can always honour.
-    pub fn new(limit: usize) -> Self {
+    pub(crate) fn new(limit: usize) -> Self {
         Self {
             inner: ArrayVec::new(),
             limit: limit.min(MAX_OPERANDS),
@@ -311,7 +311,7 @@ impl Stack {
 
     /// Pushes one value, diagnosing a stack with no slot left.
     #[inline(always)]
-    pub fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {
+    pub(crate) fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {
         if self.inner.len() == self.limit {
             return Err(InterpretationError::OperandStackExhausted {
                 capacity: self.limit,
@@ -625,7 +625,7 @@ mod test {
     use arrayvec::ArrayVec;
 
     fn empty_stack() -> Stack {
-        Stack::new(16)
+        Stack::new(MAX_OPERANDS)
     }
 
     /// One Atom of every variant, so a check that claims to answer for all of

@@ -344,8 +344,9 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
     let (four, evaluated) = measure(|| evaluate(black_box(&long), inputs));
     black_box(evaluated);
 
-    // Neither point is published: both are asserted to be zero, and a zero
-    // point leaves the action's ratio against the previous one undefined.
+    // Neither point is published: both are asserted to be zero, and a count
+    // other than zero fails the measurement before anything is published, so a
+    // published point could only ever be zero and would carry no trend.
     assert_eq!(
         one,
         Allocations::default(),

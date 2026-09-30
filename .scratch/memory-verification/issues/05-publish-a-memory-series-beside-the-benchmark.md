@@ -114,3 +114,13 @@ gh-pages (`dev/bench/data.js`) holds 118 points, the first from 2026-09-09. The 
 
 Turning on `fail-on-alert` for the series, which the "Not done here" section defers, is not filed.
 The series now has enough points to judge stability against.
+
+### Zero points — 2026-09-30
+
+The reason "What is published" gives for leaving `nothing` out is wrong for the pinned action.
+`github-action-benchmark` v1.22.2 (`dist/src/write.js`, `getRatio`) answers a ratio of 1 for 0→0
+and `Infinity` for 0→N, so a zero point is well-defined and would alert on a return to non-zero.
+The decision stands for a different reason: a measurement asserted to be zero fails "Measure
+allocations" on any other count, and every later step runs only on its predecessor's success, so a
+published point could only ever be zero and would carry no trend. allocation-reduction/03 leaves
+four more points unpublished for the same reason.
