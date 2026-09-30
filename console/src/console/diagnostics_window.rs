@@ -8,6 +8,15 @@ pub(super) fn frames_per_second(frame_time: f32) -> Option<f32> {
 }
 
 ///
+/// The part of the Source the console area shows, in the Source's own points:
+/// `console` read back through the `origin` the Source's corner was presented
+/// at.
+///
+pub(super) fn visible_source_region(console: Rect, origin: Pos2) -> Rect {
+    console.translate(-origin.to_vec2())
+}
+
+///
 /// The Diagnostics window, while `open`: this frame's timing, the Cell size
 /// and the origin the Source was presented at in `console`, and
 /// egui's inspection.
@@ -55,7 +64,7 @@ pub(super) fn show_diagnostics(
                     ui.end_row();
 
                     ui.label("Visible Source region");
-                    ui.monospace(format!("{:.1?}", console.translate(-origin.to_vec2())));
+                    ui.monospace(format!("{:.1?}", visible_source_region(console, origin)));
                     ui.end_row();
 
                     ui.label("Pixels per point");

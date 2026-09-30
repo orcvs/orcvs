@@ -50,12 +50,13 @@ a kittest, and before attaching `egui-mcp`.
   position or a mutable display string.
 - Reuse the existing style, resolved `Theme`, font, `GlyphTable`, and paint
   infrastructure; do not rebuild a reusable rendering resource every frame.
-- Respect clipping, points against physical pixels, the owned transform,
+- Respect clipping, points against physical pixels, the owned origin,
   hit-testing, focus ownership, and input consumption. Rendering and
   hit-testing stay consistent under resize and pan or zoom.
 - Preserve the established repaint, animation, and reduced-motion behaviour.
 - Cells stay painted; AccessKit nodes belong to real controls. Do not mint
   per-Cell widgets solely for automation, and do not add a domain-control API
   because the canvas is painted.
-- ADR 0040 and the atlas budget in `console::glyphs` are the standing decisions.
-  General performance advice is not a licence for an unrequested optimisation.
+- ADR 0040 and the one-frame `GlyphTable` in `console::glyphs` are the
+  standing decisions. General performance advice is not a licence for an
+  unrequested optimisation.

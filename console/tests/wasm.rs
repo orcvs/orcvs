@@ -542,6 +542,37 @@ mod playback_failure {
 }
 
 ///
+/// One pass of the running console at its default view size over `events`,
+/// answering the AccessKit tree it publishes, which is what a viewer's
+/// assistive technology reads. `ctx` must have AccessKit enabled.
+///
+fn pass(
+    ctx: &egui::Context,
+    console: &mut console::console::Console,
+    host: &mut eframe::Frame,
+    events: Vec<egui::Event>,
+) -> Vec<(egui::accesskit::NodeId, egui::accesskit::Node)> {
+    use eframe::App as _;
+
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::Vec2::from(console::console::DEFAULT_VIEW_SIZE),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(input, |root| console.ui(root, host));
+    let tree = output
+        .platform_output
+        .accesskit_update
+        .take()
+        .expect("AccessKit is enabled, so every pass publishes its tree");
+    output.drop_without_applying_deltas();
+    tree.nodes
+}
+
+///
 /// The browser build has no MIDI backend, and its Output control says so.
 ///
 /// The running console is driven through `eframe::App::ui` with AccessKit on,
@@ -551,35 +582,12 @@ mod playback_failure {
 /// no Panel status to land in and takes `playback_failure`'s path instead.
 ///
 mod midi_output {
-    use console::console::{Console, DEFAULT_VIEW_SIZE};
-    use eframe::App as _;
-    use egui::accesskit::{Node, NodeId, Role};
-    use egui::{Event, Modifiers, PointerButton, Pos2, Rect, Vec2};
+    use console::console::Console;
+    use egui::accesskit::{Node, Role};
+    use egui::{Event, Modifiers, PointerButton, Pos2};
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn pass(
-        ctx: &egui::Context,
-        console: &mut Console,
-        host: &mut eframe::Frame,
-        events: Vec<Event>,
-    ) -> Vec<(NodeId, Node)> {
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(
-                Pos2::ZERO,
-                Vec2::from(DEFAULT_VIEW_SIZE),
-            )),
-            events,
-            ..Default::default()
-        };
-        let mut output = ctx.run_ui(input, |root| console.ui(root, host));
-        let tree = output
-            .platform_output
-            .accesskit_update
-            .take()
-            .expect("AccessKit is enabled, so every pass publishes its tree");
-        output.drop_without_applying_deltas();
-        tree.nodes
-    }
+    use super::pass;
 
     #[wasm_bindgen_test]
     fn the_browser_output_control_is_disabled_and_offers_no_scan() {
@@ -865,54 +873,46 @@ mod product_path {
 }
 
 ///
-/// On the web, command `+`, `=`, `-` and `0` are the browser's page zoom and
-/// never egui's as well, so a chord changes exactly one zoom.
+/// On the web the browser's page zoom is the console's one zoom: neither a
+/// chord nor the View menu changes egui's zoom factor as well.
 ///
 /// eframe's web runner turns egui's keyboard zoom off and sets its zoom factor
-/// to 1.0 before it builds the app (`eframe-0.36.2/src/web/app_runner.rs`,
-/// `AppRunner::new`), and it leaves the browser's default action for these
-/// chords alone (`should_prevent_default_for_key` in `web/events.rs`), so the
-/// browser zooms the page and eframe follows its device pixel ratio as the
-/// native pixels per point. This holds the console's half: building it leaves
-/// egui's keyboard zoom off, and the chords, delivered as the web runner
-/// delivers them, leave egui's zoom factor at 1.0. Were egui to zoom too, its
-/// factor would multiply the browser's.
+/// to 1.0 before it builds the app, and leaves the browser's default action for
+/// command `+`, `=`, `-` and `0` alone, so the browser zooms the page and eframe
+/// follows its device pixel ratio as the native pixels per point. Any egui zoom
+/// factor multiplies that ratio, so these tests hold the console's half: it
+/// leaves egui's keyboard zoom off, the chords as the web runner delivers them
+/// leave egui's factor at 1.0, and the View menu offers no zoom of its own.
+/// The browser's page zoom itself is not observable here: a synthetic key
+/// event does not trigger it.
 ///
 mod zoom {
-    use console::console::{Console, DEFAULT_VIEW_SIZE};
-    use eframe::App as _;
-    use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
+    use console::console::Console;
+    use egui::accesskit::{Node, NodeId, Role};
+    use egui::{Event, Key, Modifiers, PointerButton, Pos2};
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn pass(
-        ctx: &egui::Context,
-        console: &mut Console,
-        host: &mut eframe::Frame,
-        events: Vec<Event>,
-    ) {
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(
-                Pos2::ZERO,
-                Vec2::from(DEFAULT_VIEW_SIZE),
-            )),
-            events,
-            ..Default::default()
-        };
-        ctx.run_ui(input, |root| console.ui(root, host))
-            .drop_without_applying_deltas();
-    }
+    use super::pass;
 
-    #[wasm_bindgen_test]
-    fn the_zoom_chords_leave_the_zoom_to_the_browser() {
+    ///
+    /// The console built over the options eframe's web runner sets, with
+    /// AccessKit on so a pass answers its tree.
+    ///
+    fn web_console() -> (egui::Context, Console, eframe::Frame) {
         let ctx = egui::Context::default();
-        // What eframe's web runner sets before it builds the app.
+        ctx.enable_accesskit();
         ctx.options_mut(|options| {
             options.zoom_with_keyboard = false;
             options.zoom_factor = 1.0;
         });
-        let mut console = Console::start(&eframe::CreationContext::_new_kittest(ctx.clone()))
+        let console = Console::start(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("browser playback does not require a Tokio runtime");
-        let mut host = eframe::Frame::_new_kittest();
+        (ctx, console, eframe::Frame::_new_kittest())
+    }
+
+    #[wasm_bindgen_test]
+    fn the_zoom_chords_leave_the_zoom_to_the_browser() {
+        let (ctx, mut console, mut host) = web_console();
         assert!(
             !ctx.options(|options| options.zoom_with_keyboard),
             "building the console turned egui's keyboard zoom on over the browser's"
@@ -934,5 +934,60 @@ mod zoom {
                 "command {key:?} zoomed egui as well as the browser's page"
             );
         }
+    }
+
+    ///
+    /// The centre of the node labelled `label` in `nodes`.
+    ///
+    fn centre_of(nodes: &[(NodeId, Node)], label: &str) -> Pos2 {
+        let (_, node) = nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some(label))
+            .unwrap_or_else(|| panic!("the console shows no {label:?}"));
+        let bounds = node.bounds().expect("a shown node is laid out");
+        Pos2::new(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        )
+    }
+
+    #[wasm_bindgen_test]
+    fn the_view_menu_offers_no_zoom_over_the_browsers() {
+        let (ctx, mut console, mut host) = web_console();
+        let closed = pass(&ctx, &mut console, &mut host, Vec::new());
+        let view = centre_of(&closed, "View");
+        let click = |pressed| {
+            vec![Event::PointerButton {
+                pos: view,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            }]
+        };
+        pass(
+            &ctx,
+            &mut console,
+            &mut host,
+            vec![Event::PointerMoved(view)],
+        );
+        pass(&ctx, &mut console, &mut host, click(true));
+        pass(&ctx, &mut console, &mut host, click(false));
+        let open = pass(&ctx, &mut console, &mut host, Vec::new());
+
+        assert!(
+            open.iter().any(|(_, node)| {
+                node.role() == Role::CheckBox && node.label() == Some("Diagnostics")
+            }),
+            "the View menu did not open"
+        );
+        let zoom_items: Vec<&str> = open
+            .iter()
+            .filter_map(|(_, node)| node.label())
+            .filter(|label| label.contains("Zoom"))
+            .collect();
+        assert!(
+            zoom_items.is_empty(),
+            "the web View menu offers egui zoom over the browser's page zoom: {zoom_items:?}"
+        );
     }
 }

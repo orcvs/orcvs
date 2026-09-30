@@ -1,6 +1,6 @@
 //! The Source View: the Pan the Source is presented under, how a Cursor move,
-//! a Region drag or a change of egui's zoom moves it, and what the pointer asks
-//! of the Region each Render Frame.
+//! a Region drag or a change of the console's size in points moves it, and
+//! what the pointer asks of the Region each Render Frame.
 
 use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Sense, Vec2};
 use orcvs::{
@@ -40,11 +40,12 @@ pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 /// whole Source already fills has nowhere to Pan, and a Pan that would open a
 /// gap past an edge settles back inside.
 ///
-/// A Cursor move or a change of egui's zoom factor that would leave the
-/// Cursor's Cell outside the console Pans the least distance that brings the
-/// whole Cell back into view, still bounded by the Grid; a Pan on its own does
-/// not chase the Cursor. `previous_cursor` and `previous_zoom_factor` are what
-/// tell those changes apart from a frame that merely redrew the Cursor.
+/// A Cursor move, or a zoom or resize that changes the console's size in
+/// points, that would leave the Cursor's Cell outside the console Pans the
+/// least distance that brings the whole Cell back into view, still bounded by
+/// the Grid; a Pan on its own does not chase the Cursor. `previous_cursor` and
+/// `previous_console_size` are what tell those changes apart from a frame
+/// that merely redrew the Cursor.
 ///
 /// `origin` is derived each frame from the Pan, the margin and the console's
 /// top-left, so `presented_grid` and the diagnostics read one position.
@@ -60,10 +61,10 @@ pub(super) struct SourceView {
     /// The anchor of the primary drag selecting a Region, while one is in
     /// progress. The Cursor follow is paced to the pointer while it is.
     region_drag: Option<Position>,
-    /// egui's zoom factor on the last frame [`show_source_scene`] presented,
-    /// so a change of it reads as a zoom worth following. `None` before the
-    /// first frame, as `previous_cursor` is.
-    previous_zoom_factor: Option<f32>,
+    /// The console's size in points on the last frame [`show_source_scene`]
+    /// presented, so a change of it reads as a zoom or resize worth
+    /// following. `None` before the first frame, as `previous_cursor` is.
+    previous_console_size: Option<Vec2>,
     /// Where the Source's own top-left was presented on the last frame.
     pub(super) origin: Pos2,
 }
@@ -74,7 +75,7 @@ impl Default for SourceView {
             pan: Vec2::ZERO,
             previous_cursor: None,
             region_drag: None,
-            previous_zoom_factor: None,
+            previous_console_size: None,
             origin: Pos2::ZERO,
         }
     }
@@ -276,12 +277,13 @@ pub(super) struct PresentedSource {
 /// points and never the Source's; a zoom that would open a gap past an edge
 /// settles back inside through the same `clamp_pan` a Pan does.
 ///
-/// A Cursor move or a zoom that would leave the Cursor's Cell outside the
-/// console Pans just far enough to bring it back, before that same
-/// `clamp_pan` settles the result inside the Grid; a Pan with neither is not
-/// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
-/// from this same Render Frame — `Console::ui` reads it after
-/// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
+/// A Cursor move, or a zoom (egui's or the browser's) or a resize, that would
+/// leave the Cursor's Cell outside the console Pans just far enough to bring
+/// it back, before that same `clamp_pan` settles the result inside the Grid;
+/// a Pan with none of them is not pulled back to the Cursor. `frame` already
+/// carries a keyboard Cursor move from this same Render Frame — `Console::ui`
+/// reads it after `Orcvs::event_handler` runs — so that case is caught the
+/// frame it happens.
 /// A click's or a drag's Cursor move reaches the Source only after this call
 /// returns (`Console::show_source_panel` applies the [`PointerSelection`]
 /// next), so it is followed on the frame after, not this one.
@@ -302,14 +304,17 @@ pub(super) fn show_source_scene(
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
 
-    // egui's zoom factor, not `pixels_per_point`: a move to a display of
-    // another scale leaves the console's size in points as it was, so it has
+    // The console's size in points rather than egui's zoom factor: on the web
+    // the browser's page zoom leaves that factor at 1.0, and eframe may report
+    // the new device pixel ratio a frame before the canvas's new size in
+    // points. egui's zoom, the browser's and a resize all change the size in
+    // points; a move to a display of another scale does not, so it has
     // nothing for the Cursor follow to answer.
-    let zoom_factor = ui.ctx().zoom_factor();
-    let zoomed = view
-        .previous_zoom_factor
-        .is_some_and(|previous| previous != zoom_factor);
-    view.previous_zoom_factor = Some(zoom_factor);
+    let console_size = console.size();
+    let resized = view
+        .previous_console_size
+        .is_some_and(|previous| previous != console_size);
+    view.previous_console_size = Some(console_size);
 
     // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
     // held, so a trackpad with no middle button still has a way to Pan by
@@ -368,7 +373,7 @@ pub(super) fn show_source_scene(
     // only once this frame has answered it — so a release with the Cursor
     // many Cells past the edge does not jump the Source View to it.
     let dragging_region = view.region_drag.is_some();
-    if zoomed || (cursor_moved && !dragging_region) {
+    if resized || (cursor_moved && !dragging_region) {
         view.pan = follow_cursor(view.pan, console.size(), cursor_at);
     } else if dragging_region && let Some(pointer) = pointer {
         let past = overshoot(console, pointer);

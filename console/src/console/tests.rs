@@ -11,7 +11,7 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
-use super::diagnostics_window::frames_per_second;
+use super::diagnostics_window::{frames_per_second, visible_source_region};
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
@@ -197,12 +197,15 @@ fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
     assert_eq!(frames_per_second(0.02), Some(50.0));
     assert_eq!(frames_per_second(0.0), None);
 
-    let origin = Pos2::new(11.0, 7.0);
+    // Panned 40 points into the Source and letterboxed 30 points below the
+    // console's top, so each axis reads back with its own sign.
+    let console = Rect::from_min_size(Pos2::new(0.0, 24.0), Vec2::new(800.0, 400.0));
+    let origin = Pos2::new(-40.0, 54.0);
     assert!(is_presentable(origin));
     assert_eq!(
-        Rect::from_min_size(Pos2::new(11.0, 7.0), Vec2::new(800.0, 400.0))
-            .translate(-origin.to_vec2()),
-        Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))
+        visible_source_region(console, origin),
+        Rect::from_min_size(Pos2::new(40.0, -30.0), Vec2::new(800.0, 400.0)),
+        "the visible Source region is not the console area read back through the origin"
     );
 
     for unpresentable in [Pos2::new(0.0, f32::NAN), Pos2::new(f32::INFINITY, 0.0)] {
@@ -4495,6 +4498,10 @@ async fn a_resize_keeps_the_cell_size_and_shows_more_or_less_of_the_source() {
 /// A Pan that would open a gap past an edge after a resize settles back
 /// inside the Grid.
 ///
+/// The Cursor sits on the far corner the Pan already shows, so the Cursor
+/// follow a resize asks for has nothing to do: what settles the gap is
+/// `clamp_pan`.
+///
 #[tokio::test]
 async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let ctx = egui::Context::default();
@@ -4502,6 +4509,7 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let large = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
+    orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
 
     pinned_at(&mut view, Vec2::new(-200.0, -200.0));
     console_frame(&ctx, small, Vec::new(), &mut orcvs, &mut view);
@@ -4719,6 +4727,96 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     view.pan = Vec2::ZERO;
     console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "an unchanged zoom chased the Cursor");
+}
+
+///
+/// A browser's page zoom is followed as egui's own zoom is.
+///
+/// On the web the browser zooms the page and eframe reports it as a larger
+/// device pixel ratio, the viewport's `native_pixels_per_point`, with egui's
+/// zoom factor left at 1.0. The console shrinks in points all the same, so a
+/// Cursor near its far edge would drop out of view without the follow.
+///
+/// eframe's device-pixel-ratio listener rescales the canvas so its size in
+/// points holds, and its resize observer later restores the canvas's physical
+/// size, so the new scale and the smaller console can reach egui on separate
+/// frames. The passes below arrive in that order.
+///
+#[tokio::test]
+async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::default();
+    // 32 + 9 * 16 = 176..192, inside a 200 point console and past a 160
+    // point one.
+    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+
+    console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
+    assert_eq!(
+        view.pan,
+        Vec2::ZERO,
+        "the fixture's first frame already Panned"
+    );
+
+    // A page zoom of 1.25: first the new scale over the same 200 points, then
+    // the canvas's physical pixels as they were, 160 points across.
+    console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.25);
+    assert_eq!(view.pan, Vec2::ZERO, "the new scale alone Panned");
+    let zoomed_in = Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0));
+    console_pass_at(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view, 1.25);
+
+    assert_eq!(
+        ctx.zoom_factor(),
+        1.0,
+        "the pass changed egui's zoom factor"
+    );
+    assert_eq!(
+        ctx.pixels_per_point(),
+        1.25,
+        "the pass ran at another scale"
+    );
+    assert_eq!(
+        view.pan,
+        Vec2::new(-32.0, -32.0),
+        "the browser zoom did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
+    );
+}
+
+///
+/// A window resize that would leave the Cursor outside the Source View Pans
+/// to show it, as a zoom does: both change the console's size in points.
+///
+#[tokio::test]
+async fn a_resize_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::default();
+    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+
+    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(
+        view.pan,
+        Vec2::ZERO,
+        "the fixture's first frame already Panned"
+    );
+
+    let shrunk = Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0));
+    console_frame(&ctx, shrunk, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(
+        view.pan,
+        Vec2::new(-32.0, -32.0),
+        "the resize did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
+    );
+
+    // A frame at the size it already had is not a resize, so a Pan away from
+    // the Cursor stays where it was put.
+    view.pan = Vec2::ZERO;
+    console_frame(&ctx, shrunk, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(view.pan, Vec2::ZERO, "an unchanged size chased the Cursor");
 }
 
 ///

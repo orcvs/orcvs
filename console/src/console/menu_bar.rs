@@ -157,10 +157,10 @@ impl Console {
     /// Shows the top bar: File, View and Help, then at its right edge the
     /// mode control and the Notices menu.
     ///
-    /// View's zoom items are egui's own, which step the whole UI's zoom as
-    /// its chords do. Help's Function Reference asks before discarding on
-    /// native at once; the File command and the mode are answered for the
-    /// frame to run.
+    /// View's zoom items on native are egui's own, which step the whole UI's
+    /// zoom as its chords do; the web's View menu has none. Help's Function
+    /// Reference asks before discarding on native at once; the File command
+    /// and the mode are answered for the frame to run.
     ///
     pub(super) fn show_menu_bar(&mut self, root: &mut egui::Ui) -> MenuBarChoice {
         let mut choice = MenuBarChoice {
@@ -197,8 +197,13 @@ impl Console {
                 });
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
-                    egui::gui_zoom::zoom_menu_buttons(ui);
-                    ui.separator();
+                    // The web has no zoom items: the browser's page zoom is
+                    // its one zoom, and egui's factor would multiply it.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        egui::gui_zoom::zoom_menu_buttons(ui);
+                        ui.separator();
+                    }
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
                 ui.add_space(MENU_BAR_GAP);

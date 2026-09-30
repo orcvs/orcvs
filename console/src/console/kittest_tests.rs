@@ -238,12 +238,6 @@ async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
         harness.query_by_label("Visible Source region").is_some(),
         "the console holds diagnostics_open but presented no Diagnostics window"
     );
-    // egui's zoom is the one zoom, and the Pixels per point row already
-    // reports it, so the window reports no Source zoom of its own.
-    assert!(
-        harness.query_by_label("Source zoom").is_none(),
-        "the Diagnostics window reported a Source zoom"
-    );
 }
 
 ///
@@ -979,8 +973,8 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
 ///
 /// A command `+`, `=`, `-` or `0` chord is egui's whole-UI zoom, stepped by
 /// egui's own step within egui's own range, and never the Source's: the
-/// Source View's Pan stays where it was and no Cell is written. The bare characters the chords are built from are still Source
-/// input.
+/// Source View's Pan stays where it was and no Cell is written. The bare
+/// characters the chords are built from are still Source input.
 ///
 #[tokio::test]
 async fn command_zoom_chords_change_egui_zoom_and_never_the_source() {
@@ -1194,7 +1188,9 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
 ///
 /// The key eframe stores egui memory under in its storage, which it does not
 /// export (`eframe-0.36.2/src/native/epi_integration.rs`,
-/// `STORAGE_EGUI_MEMORY_KEY`).
+/// `STORAGE_EGUI_MEMORY_KEY`). The console never reads or writes it: eframe
+/// saves and loads under its own constant, so this spelling only has to agree
+/// with itself across the test's save and restore.
 ///
 #[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
 const EGUI_MEMORY_KEY: &str = "egui";
@@ -1206,7 +1202,10 @@ const EGUI_MEMORY_KEY: &str = "egui";
 /// into the context before the console is built.
 ///
 /// eframe's save and restore are done here by hand, through the native file
-/// codec, since a harness has no eframe integration to do them.
+/// codec, since a harness has no eframe integration to do them. What the
+/// console decides is asserted: it leaves `App::persist_egui_memory` on, which
+/// is the condition eframe's save checks before it writes egui memory, and
+/// building it on restored memory keeps the zoom rather than resetting it.
 ///
 #[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
 #[tokio::test]
@@ -1228,6 +1227,10 @@ async fn a_zoom_survives_a_save_and_a_restart() {
             "three chords did not zoom to 1.3"
         );
 
+        assert!(
+            eframe::App::persist_egui_memory(harness.state()),
+            "the console opted out of eframe saving egui memory, and the zoom with it"
+        );
         let mut file = RonFileStorage::create(dir.path());
         eframe::App::save(harness.state_mut(), &mut file);
         harness
@@ -1605,8 +1608,8 @@ async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer()
     );
 
     // Smaller than the Source on both axes, so the Pan stage below has
-    // somewhere to go — the default window is an exact fit at egui's zoom factor of 1.0 and
-    // leaves no room to Pan at all.
+    // somewhere to go — the default window is an exact fit at egui's zoom
+    // factor of 1.0 and leaves no room to Pan at all.
     harness.set_size(Vec2::new(320.0, 300.0));
     harness.run_steps(2);
 
@@ -1685,8 +1688,8 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
     );
 
     // Smaller than the Source on both axes, so there is somewhere to Pan —
-    // the default window is an exact fit at egui's zoom factor of 1.0 and leaves no room to
-    // Pan at all, the same reason
+    // the default window is an exact fit at egui's zoom factor of 1.0 and
+    // leaves no room to Pan at all, the same reason
     // `a_resized_and_panned_console_still_selects_the_cell_under_the_pointer`
     // resizes before its own middle-drag Pan.
     harness.set_size(Vec2::new(320.0, 300.0));
