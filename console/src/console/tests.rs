@@ -4498,9 +4498,8 @@ async fn a_resize_keeps_the_cell_size_and_shows_more_or_less_of_the_source() {
 /// A Pan that would open a gap past an edge after a resize settles back
 /// inside the Grid.
 ///
-/// The Cursor sits on the far corner the Pan already shows, so the Cursor
-/// follow a resize asks for has nothing to do: what settles the gap is
-/// `clamp_pan`.
+/// The Pan has already taken the Cursor, at (0, 0), out of view, so the
+/// resize does not follow it: what settles the gap is `clamp_pan`.
 ///
 #[tokio::test]
 async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
@@ -4509,7 +4508,6 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let large = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
 
     pinned_at(&mut view, Vec2::new(-200.0, -200.0));
     console_frame(&ctx, small, Vec::new(), &mut orcvs, &mut view);
@@ -4697,10 +4695,9 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    // Already past a 200 point console (272..288 with the margin), but the
-    // first frame below only records it: see
-    // `a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame`.
-    orcvs.select(orcvs.grid().position(15, 15).expect("inside the grid"));
+    // 32 + 9 * 16 = 176..192, inside a 200 point console and past a 160
+    // point one.
+    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
@@ -4717,7 +4714,7 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     assert_eq!(ctx.zoom_factor(), 1.25, "the pass did not run zoomed in");
     assert_eq!(
         view.pan,
-        Vec2::new(-128.0, -128.0),
+        Vec2::new(-32.0, -32.0),
         "the zoom did not Pan the least distance that shows the Cursor: {:?}",
         view.pan
     );
@@ -4785,6 +4782,43 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
 }
 
 ///
+/// A new scale that moves the snapped Cell side, with the console's size in
+/// points unchanged, is followed as a resize is: a Cursor the view showed in
+/// full at the old side stays in full view at the new one.
+///
+#[tokio::test]
+async fn a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::default();
+    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+
+    console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
+    // The Cursor's Cell, 176..192 unpanned, flush against the top-left.
+    pinned_at(&mut view, Vec2::new(-176.0, -176.0));
+    console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
+    assert_eq!(
+        view.pan,
+        Vec2::new(-176.0, -176.0),
+        "the fixture's Pan did not hold"
+    );
+
+    // At 1.1 the Cell snaps to 17 pixels, about 15.45 points, which alone
+    // would move the Cursor's Cell past the top-left edge.
+    let (viewport, _) = console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.1);
+    assert!(
+        viewport.cell_size < CELL_SIZE,
+        "the Cell side did not change"
+    );
+    let shown = viewport.cell_rect(9, 9);
+    assert!(
+        screen.contains_rect(shown),
+        "the new Cell side left the Cursor at {shown:?}, outside {screen:?}"
+    );
+}
+
+///
 /// A window resize that would leave the Cursor outside the Source View Pans
 /// to show it, as a zoom does: both change the console's size in points.
 ///
@@ -4817,6 +4851,44 @@ async fn a_resize_that_would_leave_the_cursor_outside_the_view_pans_to_show_it()
     view.pan = Vec2::ZERO;
     console_frame(&ctx, shrunk, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "an unchanged size chased the Cursor");
+}
+
+///
+/// A resize leaves a Pan the viewer chose away from the Cursor where it was:
+/// only a Cursor the view already showed is followed.
+///
+#[tokio::test]
+async fn a_resize_after_a_pan_away_from_the_cursor_keeps_the_pan() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::default();
+    // 32 + 9 * 16 = 176..192, inside the 200 point console before the Pan.
+    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+
+    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    // A Pan that puts the Cursor at -24..-8, off the console's top-left,
+    // inside the Grid's bounds at every size below.
+    pinned_at(&mut view, Vec2::new(-200.0, -200.0));
+    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(
+        view.pan,
+        Vec2::new(-200.0, -200.0),
+        "the fixture's Pan did not hold"
+    );
+
+    // A shrink and a growth: either one, followed, would Pan the Cursor
+    // back to the console's top-left at (-176, -176).
+    for size in [Vec2::new(160.0, 160.0), Vec2::new(240.0, 240.0)] {
+        let resized = Rect::from_min_size(Pos2::ZERO, size);
+        console_frame(&ctx, resized, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::new(-200.0, -200.0),
+            "a resize to {size:?} pulled the Pan back to the Cursor: {:?}",
+            view.pan
+        );
+    }
 }
 
 ///

@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Command chords zoom the whole console through egui.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -13,7 +13,7 @@
 - [x] Tests that varied the Source View Zoom are re-expressed over egui zoom factors or device scales, and still protect what they protected: fixed display-point Grid, Sector Seam and Cursor stroke widths, Sector Seams inside the clip, and the Cursor follow after a zoom.
 - [x] The Diagnostics window no longer reports a Source View Zoom.
 - [x] Code comments and rustdoc no longer describe a Grid or Source View zoom separate from egui's, and ADR 0038 and ADR 0040 point to the ADR `01` added where they discuss the Source View's scaling.
-- [ ] `paint_derive` stays within `benches/floors.toml` on the pull request's benchmark job.
+- [x] `paint_derive` stays within `benches/floors.toml` on the pull request's benchmark job.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and the `--no-default-features` arm pass. `mise run check_wasm` passes.
 
 ## Comments
@@ -28,3 +28,5 @@
 - ADR 0038 and ADR 0040 point to ADR 0058 where they discuss the Source's scale; ADR 0058's consequence now states the Source View holds no scale.
 
 **Benchmark line: not verified locally.** `paint_derive` against `benches/floors.toml` is the pull request's benchmark job, which a local `mise run bench` cannot decide. This issue resolves once that job passes on the pull request.
+
+**2026-09-30 — the benchmark line met.** The `Benchmark` workflow's `pull-request` job passed on commit `00280c39`, run [36681599819](https://github.com/orcvs/orcvs/actions/runs/36681599819): its floor check reported all five guarded benchmarks within `benches/floors.toml`, the four `paint_derive` floors among them (`fitted/16x16` 3,434 ns against 4,200; `culled/16x16` 3,429 against 4,100; `culled/256x256` 3,495 against 4,300; `fitted/256x256` 1,093,398 against 1,400,000). Every line is met.

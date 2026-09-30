@@ -10,7 +10,7 @@ A viewer who presses command `+` in the console expects what every egui app and 
 
 ## Solution
 
-The console uses egui's zoom and no other. Command `+` (or `=`) and command `-` step egui's whole-UI zoom, and command `0` resets it, exactly as egui does by default. The Source Grid grows with everything else because its Cells are sized in points. The View menu offers the same three actions with their chords shown, so the zoom can be found without knowing the keys. The zoom a viewer chose is kept across a restart wherever egui memory is persisted. The Source View's own Zoom, with its stepped Cell sizes, limits and chords, is removed. Pan and the Cursor follow remain, since a zoomed Grid can still be larger than the window.
+The console uses egui's zoom and no other. Command `+` (or `=`) and command `-` step egui's whole-UI zoom, and command `0` resets it, exactly as egui does by default. The Source Grid grows with everything else because its Cells are sized in points. On native the View menu offers the same three actions with their chords shown, so the zoom can be found without knowing the keys. On the web the browser's page zoom is the one zoom: eframe's web runner leaves those chords to the browser, and the console adds no egui zoom on top of it. The zoom a viewer chose is kept across a restart wherever egui memory is persisted. The Source View's own Zoom, with its stepped Cell sizes, limits and chords, is removed. Pan and the Cursor follow remain, since a zoomed Grid can still be larger than the window.
 
 ## User Stories
 
@@ -39,8 +39,9 @@ The console uses egui's zoom and no other. Command `+` (or `=`) and command `-` 
 
 ## Implementation Decisions
 
-- **egui owns zoom.** The console stops turning off egui's keyboard zoom. The chords, step size (0.1), range (0.2 to 5.0) and reset are egui's defaults, unchanged. The console adds no zoom-handling code of its own.
-- **The View menu exposes egui's zoom** through egui's own zoom menu buttons, which show the chords while keyboard zoom is on. The View menu keeps its existing mode and Theme pickers.
+- **egui owns zoom on native.** The console stops turning off egui's keyboard zoom. The chords, step size (0.1), range (0.2 to 5.0) and reset are egui's defaults, unchanged. The console adds no zoom-handling code of its own.
+- **The View menu exposes egui's zoom** on native through egui's own zoom menu buttons, which show the chords while keyboard zoom is on. The View menu keeps its existing mode and Theme pickers.
+- **The web's zoom is the browser's.** eframe's web runner turns egui's keyboard zoom off and leaves command `+`, `=`, `-` and `0` to the browser, whose page zoom eframe follows as the native pixels-per-point. The console leaves that alone and offers no zoom items in the web's View menu, since egui's factor would multiply onto the browser's zoom (ADR 0058).
 - **Persistence is egui's.** egui serialises its zoom factor with egui memory, and eframe saves egui memory in a persistence build. The console adds no storage key. A build without persistence starts at 1.0.
 - **The Source View's own Zoom is removed:** the Source View's zoom state, the zoom command recogniser and stepped-zoom function, the zoom limits, and the quantised glyph scale derived from them. The Source scene transform keeps translation (Pan) and loses its independent scaling. Glyphs are laid out at the Source's own size, and egui's pixels-per-point does the enlargement.
 - **Cell geometry is unchanged in points.** A Source Cell stays 16 points with an 11.5 point Glyph. The existing snapping of Cells to whole physical pixels at any device scale also covers every egui zoom factor, because egui's zoom factor is folded into pixels-per-point.
@@ -64,7 +65,7 @@ The console uses egui's zoom and no other. Command `+` (or `=`) and command `-` 
   - `command_zoom_chords_change_the_source_view_and_never_the_source` becomes "command chords change egui's zoom and never the Source".
   - The stepped-zoom, zoom-command and glyph-scale unit tests are deleted with the code they test.
   - Tests parameterised over Source View Zoom levels (grid and sector widths, zoomed Sector Seams, Cursor stroke widths, zoomed Cursor follow) are re-expressed over egui zoom factors or device scales, because the property they protect (fixed display-point widths, clipping, the Cursor follow) still matters.
-- **Web:** the headless browser suite (merge tier) checks that command `+` reaches egui's zoom factor. Whether the browser also zooms the page is recorded, and the outcome that avoids a double zoom is chosen.
+- **Web:** the headless browser suite (merge tier) checks that command `+`, `=`, `-` and `0` leave egui's zoom factor at 1.0 and that the web's View menu offers no zoom items. The browser's own page zoom cannot be triggered by a synthetic key event, so that command `+` zooms the page once is a manual check in a real browser.
 - **Performance:** `paint_derive` must stay within `benches/floors.toml`. Removing the Source transform's scaling should cost nothing; the pull request's benchmark job confirms it.
 
 ## Out of Scope

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Tags:** release/v1
 
@@ -14,7 +14,8 @@
 - [x] A zoomed console paints square, whole-physical-pixel Cells, and Grid lines, Sector Seams and Cursor strokes keep their Theme's display-point widths.
 - [x] A zoom that would open a gap past the Grid's edge settles the Source View back inside the margin, and the Cursor follow keeps the Cursor in view.
 - [x] In a persistence build a zoom factor is restored after a save and restart. A build without persistence starts at 1.0.
-- [ ] The web build is checked in the headless browser suite: command `+` changes egui's zoom factor, and whether the browser also zooms the page is recorded. If both zoom, the double zoom is removed.
+- [x] The web build is checked in the headless browser suite: command `+`, `=`, `-` and `0` leave egui's zoom factor at 1.0, and the web View menu offers no zoom items, so egui adds no zoom on top of the browser's.
+- [ ] Checked by hand in a real browser, because a synthetic key event cannot trigger the browser's page zoom: command `+` zooms the page once and command `0` returns it, so on the web the chords change exactly one zoom, the browser's.
 - [x] A new ADR supersedes ADR 0045's zoom section. It records egui's whole-UI zoom as the console's only zoom, and command-shift withdrawn because it collides with egui's logical match of command `+`. ADR 0045's Status line points to it.
 - [x] CONTEXT.md's **Zoom** is redefined as egui's whole-UI zoom.
 - [x] `source-view/12` is marked superseded by this issue.
@@ -41,3 +42,5 @@
 `console/tests/wasm.rs`'s `zoom` module now holds both routes: `the_zoom_chords_leave_the_zoom_to_the_browser` and `the_view_menu_offers_no_zoom_over_the_browsers`, which opens the web View menu by pointer through the AccessKit tree and finds Diagnostics and no zoom item. `mise run check_wasm` compiles them. Neither has been observed red or green in a browser: a local `wasm-pack test --headless --firefox console --test wasm -- zoom::` run lost its geckodriver to SIGKILL before any test ran, so the merge tier's headless Firefox run is their first.
 
 The web line stays unticked. What would close it: the merge tier's headless run passing both `zoom` tests (egui's factor stays 1.0 under the chords and the menu offers no egui zoom), plus a manual check in a real browser that command `+` zooms the page once and command `0` returns it, since a synthetic key event cannot trigger the browser's page zoom. The line's wording, "command `+` changes egui's zoom factor", describes the outcome this effort rejected for the web; whether to reword it to "command `+` changes exactly one zoom, the browser's" is a decision for the ticket owner.
+
+**2026-09-30 — the web line reworded, the automated half met.** The line asked that command `+` change egui's zoom factor on the web, the outcome ADR 0058 rejected: on the web the browser's page zoom is the one zoom. It now reads as spec story 16 does, one zoom and the browser's, and is split in two. The automated half is ticked: the merge tier's `Rust` workflow run [36681527909](https://github.com/orcvs/orcvs/actions/runs/36681527909) (`workflow_dispatch`, commit `00280c39`) passed its `wasm` job's headless Firefox suite, including `zoom::the_zoom_chords_leave_the_zoom_to_the_browser` and `zoom::the_view_menu_offers_no_zoom_over_the_browsers` (18 passed, 0 failed). The manual half stays open: no run has observed the browser's page zoom itself, so the remaining line is a check for a person in a real browser, and the Status is `ready-for-human` until it is done.
