@@ -249,20 +249,27 @@ pub enum SourceBundle {
     Emit,
 }
 
-#[inline(always)]
-pub fn str_to_num(s: &str) -> Result<u8, Error> {
+/// The Number two uppercase hexadecimal Cells spell.
+///
+/// Borrows the spelling and builds nothing on refusal, so a caller that only
+/// asks whether two Cells spell a Number allocates nothing to learn that they
+/// do not. [`str_to_num`] answers through this and builds its
+/// [`TypeError::Number`] only where a refusal is reported.
+pub(crate) fn number_from_spelling(s: &str) -> Option<u8> {
     if s.len() != 2
         || !s
             .bytes()
             .all(|cell| cell.is_ascii_digit() || (b'A'..=b'F').contains(&cell))
     {
-        return Err(TypeError::Number(s.to_string()).into());
+        return None;
     }
 
-    match u8::from_str_radix(s, 16) {
-        Ok(n) => Ok(n),
-        Err(_) => Err(TypeError::Number(s.to_string()).into()),
-    }
+    u8::from_str_radix(s, 16).ok()
+}
+
+#[inline(always)]
+pub fn str_to_num(s: &str) -> Result<u8, Error> {
+    number_from_spelling(s).ok_or_else(|| TypeError::Number(s.to_string()).into())
 }
 
 #[cfg(test)]

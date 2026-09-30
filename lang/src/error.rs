@@ -197,10 +197,11 @@ pub enum InterpretationError {
 
     /// The Operand Stack had no slot left for a value.
     ///
-    /// Evaluation reserves one slot per Atom, enough for every accepted
-    /// Expression. It exists because ADR 0028 requires every bound the
-    /// machine relies on to be proven or diagnosed, and a proof alone still
-    /// leaves the push one edit away from panicking inside a Tick.
+    /// The Interpreter refuses an operand list of any length other than its
+    /// Function's signature before building the stack, and the stack holds
+    /// the widest signature, so no evaluation it accepts reaches this. It
+    /// exists because that proof alone still leaves the push one edit away
+    /// from panicking inside a Tick.
     #[error("the Operand Stack cannot hold more than {capacity} values")]
     OperandStackExhausted { capacity: usize },
 

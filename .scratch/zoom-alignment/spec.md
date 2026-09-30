@@ -1,6 +1,6 @@
 # Zoom alignment: one zoom, egui's
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Tags:** release/v1
 
@@ -40,7 +40,7 @@ The console uses egui's zoom and no other. Command `+` (or `=`) and command `-` 
 ## Implementation Decisions
 
 - **egui owns zoom on native.** The console stops turning off egui's keyboard zoom. The chords, step size (0.1), range (0.2 to 5.0) and reset are egui's defaults, unchanged. The console adds no zoom-handling code of its own.
-- **The View menu exposes egui's zoom** on native through egui's own zoom menu buttons, which show the chords while keyboard zoom is on. The View menu keeps its existing mode and Theme pickers.
+- **The View menu exposes egui's zoom** on native through egui's own zoom menu buttons, which show the chords while keyboard zoom is on. The View menu keeps its Diagnostics toggle.
 - **The web's zoom is the browser's.** eframe's web runner turns egui's keyboard zoom off and leaves command `+`, `=`, `-` and `0` to the browser, whose page zoom eframe follows as the native pixels-per-point. The console leaves that alone and offers no zoom items in the web's View menu, since egui's factor would multiply onto the browser's zoom (ADR 0058).
 - **Persistence is egui's.** egui serialises its zoom factor with egui memory, and eframe saves egui memory in a persistence build. The console adds no storage key. A build without persistence starts at 1.0.
 - **The Source View's own Zoom is removed:** the Source View's zoom state, the zoom command recogniser and stepped-zoom function, the zoom limits, and the quantised glyph scale derived from them. The Source scene transform keeps translation (Pan) and loses its independent scaling. Glyphs are laid out at the Source's own size, and egui's pixels-per-point does the enlargement.

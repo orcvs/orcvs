@@ -1,6 +1,8 @@
 use crate::{
-    Atom, Error, Function, InterpretationError, Value, expression::DEFAULT_TOKEN_LEN,
-    interpreter::Context, to_atom_note, to_atom_num,
+    Atom, Error, Function, InterpretationError, Value,
+    atom::{note_atom_from_spelling, number_atom_from_spelling},
+    expression::DEFAULT_TOKEN_LEN,
+    interpreter::Context,
 };
 
 /// The Language Unit at a Jump's input Portal.
@@ -30,17 +32,16 @@ pub fn jump(ctx: &mut Context, function: Function) -> Result<Value, Error> {
         .into())
 }
 
+/// The Atom two Cells spell, read as a Function, then a Number, then a Note.
+///
+/// Each reading borrows the Cells and builds nothing on refusal: the only
+/// error a Jump reports is `JumpInput`, so an error built by a reading the
+/// Cells fail would be discarded unread.
 fn copied_atom(cells: &str) -> Option<Atom> {
-    if let Some(function) = Function::from_spelling(cells) {
-        return Some(Atom::Function(function));
-    }
-    if let Ok(atom) = to_atom_num(cells) {
-        return Some(atom);
-    }
-    if let Ok(atom) = to_atom_note(cells) {
-        return Some(atom);
-    }
-    None
+    Function::from_spelling(cells)
+        .map(Atom::Function)
+        .or_else(|| number_atom_from_spelling(cells))
+        .or_else(|| note_atom_from_spelling(cells))
 }
 
 #[cfg(test)]

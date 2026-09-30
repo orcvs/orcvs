@@ -124,3 +124,5 @@ The decision stands for a different reason: a measurement asserted to be zero fa
 allocations" on any other count, and every later step runs only on its predecessor's success, so a
 published point could only ever be zero and would carry no trend. allocation-reduction/03 leaves
 four more points unpublished for the same reason.
+
+The `nothing` measurement no longer exists: allocation-reduction/02 (orcvs/orcvs#180) removed it, and its zero is now implied by the re-read fixture measuring equal with 4 and 512 empty rows. That PR also moved the published `lang render frame re-read fixture` point from 24 blocks / 48 bytes to 1 / 2, the one `TypeError::Number` the fixture's `.+01XY` row reports. After allocation-reduction/03, `lang` publishes two measurements: the re-read fixture and `lang turn Concatenate of two 64-member Sequences`.
