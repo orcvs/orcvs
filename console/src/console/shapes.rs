@@ -7,7 +7,7 @@ use egui::{
 };
 use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 
-use super::glyphs::{GlyphTable, glyph_scale};
+use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
 use crate::grid_viewport::GridViewport;
@@ -90,9 +90,9 @@ impl SourceShapes {
     /// Draws a Paint at `viewport`: the geometry the value layer carries none
     /// of, applied to the colours and characters it carries all of.
     ///
-    /// Stroke widths are fixed display points that stay the same visible
-    /// thickness at every Grid zoom, never multiplied by
-    /// [`GridViewport::cell_scale`]: `sector.seam.width` from the resolved `theme`, and each
+    /// Stroke widths are fixed display points at every device scale and egui
+    /// zoom factor, never multiplied by the Cell size: `sector.seam.width`
+    /// from the resolved `theme`, and each
     /// Cell's own border width already resolved onto it as `cell.
     /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
     /// either composited with Diagnostic/Output Portal, by fact priority).
@@ -147,7 +147,7 @@ impl SourceShapes {
         // A border is the rule on every Cell the Paint covers, so it is sized
         // up front — to those Cells rather than to the Grid: a densely written
         // Source that regrew the group would pay the reallocation on every
-        // Render Frame, and a zoomed console reserves what it draws instead of
+        // Render Frame, and a panned console reserves what it draws instead of
         // what the Source holds. Backgrounds are sparse selection state, so
         // that group starts empty. Glyphs are reserved in
         // [`Self::place_glyphs`].
@@ -347,15 +347,15 @@ pub(super) fn show_source(
     // The rectangle is the Grid, not the console area. Surplus console past the
     // Grid's edges is not a Cell, so a click there selects nothing.
     // Clipped to the console, because `Ui::interact` bounds a widget by the
-    // `Ui`'s clip rect rather than by the console area, and a zoomed-in Grid
-    // reaches past the console on every side. No container sets that clip
+    // `Ui`'s clip rect rather than by the console area, and a Grid larger than
+    // the console reaches past it on every side. No container sets that clip
     // rect, so the Grid states its own bound.
     let response = ui.interact(
         viewport.rect.intersect(clip),
         ui.id().with("source_grid"),
         Sense::CLICK,
     );
-    // The Grid is clipped to the console area, so a zoomed Grid cannot paint
+    // The Grid is clipped to the console area, so a panned Grid cannot paint
     // over the chrome around it. The Source Grid is all this layer holds, so
     // painting it directly orders it without a sublayer.
     let painter = ui.painter().with_clip_rect(clip);
@@ -364,15 +364,11 @@ pub(super) fn show_source(
     let pixels_per_point = ui.pixels_per_point();
     let table = GlyphTable::lay_out(
         ui.ctx(),
-        // Laid out at the size it is drawn at rather than resampled from a
-        // rasterisation at the Source's own size, which is the second thing the
-        // layer transform cost. The scale is quantised so a steady zoom hits
-        // the galley cache and a sweep across the zoom range stays inside the
-        // atlas; see `GLYPH_SCALE_STEP`.
-        FontId::new(
-            DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
-            font_family.clone(),
-        ),
+        // The Source's own size in points. egui's `pixels_per_point`, which
+        // folds in its zoom factor, is what makes it more physical pixels, so
+        // a Glyph is rasterised at the size it is drawn at and never
+        // resampled.
+        FontId::new(DEFAULT_FONT_SIZE, font_family.clone()),
     );
 
     // The only source of Positions the two steps below have. Everything they
@@ -407,7 +403,7 @@ pub(super) fn show_source(
     // `Stroke` so colour and width cannot come from different answers:
     // `cursor.border.width` for the Cursor's own frame, `region.border.width`
     // for the lasso — a fixed display-point value `cursor_effect_shapes` never
-    // scales with Grid zoom.
+    // scales with the Cell size.
     let frame_stroke = if paint.region_spans() {
         egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
     } else {

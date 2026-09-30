@@ -1,8 +1,8 @@
-//! The Source View: the Zoom and Pan the Source is presented under, how a
-//! Cursor move or a Region drag moves them, and what the pointer asks of the
-//! Region each Render Frame.
+//! The Source View: the Pan the Source is presented under, how a Cursor move,
+//! a Region drag or a change of egui's zoom moves it, and what the pointer asks
+//! of the Region each Render Frame.
 
-use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Sense, Vec2, emath::TSTransform};
+use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Sense, Vec2};
 use orcvs::{
     app::Orcvs,
     grid::{Grid, Position},
@@ -15,8 +15,6 @@ use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::theme::{Appearance, Theme};
 
-pub(super) const MIN_ZOOM: f32 = 0.25;
-pub(super) const MAX_ZOOM: f32 = 2.0;
 ///
 /// How far past the console's edge, in points, a Region drag's pointer has to
 /// be for each point the Source View scrolls a frame after it. A pointer four
@@ -27,27 +25,20 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 ///
 /// The margin, in Cells, between the Grid and the console at rest and the
 /// distance a Pan can reach past each Grid edge. It is counted in
-/// Cells so it scales with the Zoom, and it is measured in the snapped Cell
-/// side so it is always a whole number of physical pixels.
+/// Cells and measured in the snapped Cell side, so it is always a whole number
+/// of physical pixels.
 ///
 pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 
-pub(super) fn source_bounds(grid: Grid) -> Rect {
-    Rect::from_min_size(
-        Pos2::ZERO,
-        Vec2::new(grid.columns() as f32, grid.rows() as f32) * CELL_SIZE,
-    )
-}
-
 ///
-/// The Source View: a Zoom and a Pan, presented as the scale and translation
-/// the Cells are drawn under.
+/// The Source View: a Pan, presented as the origin the Cells are drawn from.
 ///
-/// Zoom is 1.0 — the Source's own Cell — and no input changes it: egui's
-/// whole-UI zoom is what enlarges the Source with the rest of the console,
-/// through `pixels_per_point`. Pan is anchored at the console's top-left and is
-/// bounded by the Grid: an axis the whole Source already fills has nowhere to
-/// Pan, and a Pan that would open a gap past an edge settles back inside.
+/// The Source is drawn at its own Cell size in points. egui's whole-UI zoom
+/// is what enlarges it with the rest of the console, through
+/// `pixels_per_point`, so the Source View holds no scale of its own. Pan is
+/// anchored at the console's top-left and is bounded by the Grid: an axis the
+/// whole Source already fills has nowhere to Pan, and a Pan that would open a
+/// gap past an edge settles back inside.
 ///
 /// A Cursor move or a change of egui's zoom factor that would leave the
 /// Cursor's Cell outside the console Pans the least distance that brings the
@@ -55,11 +46,10 @@ pub(super) fn source_bounds(grid: Grid) -> Rect {
 /// not chase the Cursor. `previous_cursor` and `previous_zoom_factor` are what
 /// tell those changes apart from a frame that merely redrew the Cursor.
 ///
-/// `to_global` is derived each frame from Zoom, Pan and the console's origin
-/// so `presented_grid` and the diagnostics still read one transform.
+/// `origin` is derived each frame from the Pan, the margin and the console's
+/// top-left, so `presented_grid` and the diagnostics read one position.
 ///
 pub(super) struct SourceView {
-    pub(super) zoom: f32,
     pub(super) pan: Vec2,
     /// The Cursor [`show_source_scene`] last saw, so a change from one frame
     /// to the next reads as a Cursor move worth following rather than every
@@ -74,18 +64,18 @@ pub(super) struct SourceView {
     /// so a change of it reads as a zoom worth following. `None` before the
     /// first frame, as `previous_cursor` is.
     previous_zoom_factor: Option<f32>,
-    pub(super) to_global: TSTransform,
+    /// Where the Source's own top-left was presented on the last frame.
+    pub(super) origin: Pos2,
 }
 
 impl Default for SourceView {
     fn default() -> Self {
         Self {
-            zoom: 1.0,
             pan: Vec2::ZERO,
             previous_cursor: None,
             region_drag: None,
             previous_zoom_factor: None,
-            to_global: TSTransform::IDENTITY,
+            origin: Pos2::ZERO,
         }
     }
 }
@@ -203,21 +193,15 @@ fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
 }
 
 ///
-/// Whether `to_global` can be presented and inverted.
+/// Whether `origin` can be presented: finite on both axes.
 ///
-/// `egui::Scene::show` resets a transform that has gone bad, and the Source is
-/// presented without that container, so nothing resets it here. `grid_viewport` answers a Cell
-/// size of zero for a console with no area, so the fit it yields has a scaling
-/// of zero, and `TSTransform::inverse` divides by the scaling — which the
-/// Diagnostics window does to report the visible Source region. An
-/// unguarded zero therefore answers NaN.
+/// The origin is the console's corner plus a Pan built from pointer input, and
+/// nothing else resets one that has gone bad. A non-finite origin would put
+/// every Cell, every click and the Diagnostics window's visible Source region
+/// at NaN.
 ///
-/// `TSTransform::is_valid` is not enough on its own: it checks only
-/// `translation.x`, not `translation.y`, and admits a negative scaling, which
-/// would present the Source mirrored.
-///
-pub(super) fn is_presentable(to_global: TSTransform) -> bool {
-    to_global.scaling.is_finite() && to_global.scaling > 0.0 && to_global.translation.is_finite()
+pub(super) fn is_presentable(origin: Pos2) -> bool {
+    origin.is_finite()
 }
 
 ///
@@ -268,15 +252,14 @@ pub(super) struct PresentedSource {
 }
 
 ///
-/// Shows the Source in the console area at the Source View's Zoom and Pan, and
+/// Shows the Source in the console area at the Source View's Pan, and
 /// answers the geometry it was presented under along with the Region a click
 /// or a drag asked for.
 ///
-/// The console owns the scale and translation the Source is presented under —
-/// `view.to_global` — and `grid_viewport::presented_grid` is the one place that
-/// scale is applied, so a Cell's two axes still cannot part company: one
-/// `scaling` serves both. Every Cell, and so every click that lands on one,
-/// goes through that one arithmetic. Nothing here sets a layer transform.
+/// The console owns the origin the Source is presented at — `view.origin` —
+/// and `grid_viewport::presented_grid` is the one place a Cell's rectangle is
+/// derived from it. Every Cell, and so every click that lands on one, goes
+/// through that one arithmetic. Nothing here sets a layer transform.
 /// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
@@ -312,18 +295,12 @@ pub(super) fn show_source_scene(
     theme: &Theme,
 ) -> PresentedSource {
     let source_grid = frame.grid();
-    let source = source_bounds(source_grid);
     // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
     // which adds `FOCUSABLE` and would let
     // Tab focus the console area, where a focused widget keeps every key from
     // the Source.
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
-
-    if !view.zoom.is_finite() || view.zoom <= 0.0 {
-        view.zoom = 1.0;
-    }
-    view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
 
     // egui's zoom factor, not `pixels_per_point`: a move to a display of
     // another scale leaves the console's size in points as it was, so it has
@@ -372,8 +349,8 @@ pub(super) fn show_source_scene(
 
     // The Cell side `presented_grid` will draw at, snapped to whole physical
     // pixels, so the follow and the bounds below are measured against the
-    // Grid as drawn rather than the unsnapped extent the Zoom asked for.
-    let side = snapped_cell_side(CELL_SIZE * view.zoom, ui.ctx().pixels_per_point());
+    // Grid as drawn rather than the unsnapped extent the Source asks for.
+    let side = snapped_cell_side(CELL_SIZE, ui.ctx().pixels_per_point());
 
     // `view.pan` places the padded Source — the Grid with a margin on every
     // side — so a Pan of zero rests the Grid one margin in from the console's
@@ -418,19 +395,14 @@ pub(super) fn show_source_scene(
         ui.ctx().set_cursor_icon(CursorIcon::Grab);
     }
 
-    let to_global = TSTransform::new(console.min.to_vec2() + view.pan + margin, view.zoom);
-    view.to_global = if is_presentable(to_global) {
-        to_global
+    let origin = console.min + view.pan + margin;
+    view.origin = if is_presentable(origin) {
+        origin
     } else {
-        TSTransform::IDENTITY
+        Pos2::ZERO
     };
 
-    let grid = presented_grid(
-        view.to_global,
-        source,
-        source_grid,
-        ui.ctx().pixels_per_point(),
-    );
+    let grid = presented_grid(view.origin, source_grid, ui.ctx().pixels_per_point());
     let clicked = show_source(ui, frame, font_family, grid, console, cursor_effect, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -510,7 +482,7 @@ pub(super) struct ShownSource {
 
 impl Console {
     ///
-    /// Shows `frame` in the central panel at the Source View's Zoom and Pan,
+    /// Shows `frame` in the central panel at the Source View's Pan,
     /// in the Theme `appearance` presents, and selects the Region the pointer
     /// asked for.
     ///

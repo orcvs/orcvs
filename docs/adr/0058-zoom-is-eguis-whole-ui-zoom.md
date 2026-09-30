@@ -18,7 +18,7 @@ Status: accepted. Supersedes the zoom section of [ADR 0045](0045-the-source-view
 
 ## Rejected alternatives
 
-**Keep a Source View Zoom beside egui's.** Two zooms mean two transforms to keep consistent, a glossary with two meanings for one word, and chords that do different things in this console from every other egui app. The Source View's own Zoom stays at 1.0 and responds to no input; `.scratch/zoom-alignment/issues/02` removes it.
+**Keep a Source View Zoom beside egui's.** Two zooms mean two transforms to keep consistent, a glossary with two meanings for one word, and chords that do different things in this console from every other egui app. The Source View therefore holds no Zoom of its own.
 
 **Size the Grid independently of the chrome.** Projecting a large Grid under normal-size menus is a real use, but it is a separate setting with its own design, not a second meaning of the zoom chords.
 
@@ -26,4 +26,4 @@ Status: accepted. Supersedes the zoom section of [ADR 0045](0045-the-source-view
 
 `CONTEXT.md`'s **Zoom** is egui's whole-UI zoom. ADR 0045's Status line points here.
 
-While `.scratch/zoom-alignment/issues/02` is open, the Source View still carries a Zoom field, its limits and the Glyph scale quantised from them, reachable only by a test that sets the field.
+The Source View holds a Pan and no scale: the Source scene carries a translation only, and a Glyph is laid out at the Source's own 11.5 points. ADR 0038's owned scale and ADR 0040's scale argument to the shape step point here.

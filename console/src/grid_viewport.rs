@@ -1,8 +1,8 @@
 //! Source Grid viewport geometry.
 //!
-//! The console presents the Source at a Zoom and a Pan it owns (see
-//! `docs/adr/0045-the-source-view-is-a-bounded-space.md`), never fitted to the
-//! window. What lives here is the geometry that follows from a presented Grid
+//! The console presents the Source at its own Cell size under a Pan it owns
+//! (see `docs/adr/0045-the-source-view-is-a-bounded-space.md`), never fitted to
+//! the window. What lives here is the geometry that follows from a presented Grid
 //! rectangle whatever put it there: a Cell's own rectangle, the Cell a point
 //! falls in, and the Positions a clip rectangle shows. The geometry lives apart
 //! from the rendering so it is settled by arithmetic a test can ask about
@@ -10,11 +10,12 @@
 
 use std::ops::Range;
 
-use egui::{Pos2, Rect, Vec2, emath::GuiRounding as _, emath::TSTransform};
+use egui::{Pos2, Rect, Vec2, emath::GuiRounding as _};
 use orcvs::grid::{Grid, GridIdentity};
 
 ///
-/// The side of one Source Cell in points, before any zoom.
+/// The side of one Source Cell in points, before the snap to whole physical
+/// pixels.
 ///
 pub(crate) const CELL_SIZE: f32 = 16.0;
 
@@ -25,21 +26,9 @@ pub(crate) const CELL_SIZE: f32 = 16.0;
 pub(crate) struct GridViewport {
     /// The side of one square Cell, in points.
     pub(crate) cell_size: f32,
-    /// The presented Grid rectangle, anchored at the corner its transform put
-    /// the Source's top-left at.
+    /// The presented Grid rectangle, anchored at the origin the Source's own
+    /// top-left is presented at.
     pub(crate) rect: Rect,
-}
-
-impl GridViewport {
-    ///
-    /// The presented Cell side over the Source's own Cell side.
-    ///
-    /// Glyph layout scales by this. Stroke widths do not: they are fixed
-    /// display points at every zoom.
-    ///
-    pub(crate) fn cell_scale(&self) -> f32 {
-        self.cell_size / CELL_SIZE
-    }
 }
 
 ///
@@ -215,7 +204,7 @@ impl GridViewport {
     /// of seams that would otherwise be missing from inside the viewport:
     /// removing it changes no painted Shape strictly inside the clip in any
     /// case the suite reaches. That is why
-    /// `a_zoomed_console_paints_every_sector_seam_inside_the_clip` asserts the
+    /// `a_panned_console_paints_every_sector_seam_inside_the_clip` asserts the
     /// seams the clip keeps, and why the margin itself is pinned as a range
     /// value in
     /// `the_visible_range_is_the_shown_positions_and_one_cell_more_each_way`
@@ -281,60 +270,48 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 }
 
 ///
-/// The Grid rectangle `to_global` presents, with Cell geometry snapped to whole
-/// physical pixels.
+/// The Grid presented with the Source's own top-left at `origin`, with Cell
+/// geometry snapped to whole physical pixels.
 ///
-/// **This is the one place the Source is scaled.** The console owns
-/// `to_global`. Do not present the Source through `egui::Scene`: a Scene
-/// applies its scale to a whole layer of shapes after they are built. Here the
-/// scale reaches the Grid before a single Shape exists, so a Cell's two axes
-/// still cannot part company (one `scaling` serves both) and no galley is ever
-/// transformed after layout.
+/// The Source is drawn at its own [`CELL_SIZE`] in points. egui's zoom is
+/// folded into `pixels_per_point`, so it reaches the Grid as more physical
+/// pixels per point and never as a scale here. Do not present the Source
+/// through `egui::Scene` or any other layer transform: that scales a whole
+/// layer of shapes after they are built, and deep-clones every Glyph galley
+/// on the way (ADR 0038).
 ///
 /// # Why the Cell size is snapped
 ///
-/// A Cell size derived from a continuous zoom is fractional, and a fractional
-/// Cell size puts each row's edges at a different sub-pixel offset. Rows then
-/// resolve a pixel taller or shorter than their neighbours and the eye reads
-/// the Grid as irregularly spaced. Snapping the Cell side to a whole physical
-/// pixel makes every row identical.
+/// At a fractional device scale the Source's 16 points is a fractional number
+/// of physical pixels, and a fractional Cell side puts each row's edges at a
+/// different sub-pixel offset. Rows then resolve a pixel taller or shorter
+/// than their neighbours and the eye reads the Grid as irregularly spaced.
+/// Snapping the Cell side to a whole physical pixel makes every row identical.
 ///
 /// The snap is [`snapped_cell_side`]'s, and the snapped Grid is anchored at
-/// the transform's origin — the corner `to_global` puts the Source's own
-/// top-left at — rather than re-centred on the rectangle it asked for. The
-/// console bounds its Pan and follows its Cursor at that same snapped side, so
-/// the Grid it clamps is the Grid drawn here: a Source smaller than the console
-/// starts at the console's top-left, and a Pan to the far edge leaves no gap
-/// past the last Cell. Re-centring would move the Grid in by half the snap's
-/// shortfall at both ends, which is exactly what the console's bounds cannot
-/// see.
+/// `origin` rather than re-centred on the extent the unsnapped side asked for.
+/// The console bounds its Pan and follows its Cursor at that same snapped
+/// side, so the Grid it clamps is the Grid drawn here: a Source smaller than
+/// the console starts at the console's top-left, and a Pan to the far edge
+/// leaves no gap past the last Cell. Re-centring would move the Grid in by half
+/// the snap's shortfall at both ends, which is exactly what the console's
+/// bounds cannot see.
 ///
-pub(crate) fn presented_grid(
-    to_global: TSTransform,
-    source: Rect,
-    grid: Grid,
-    pixels_per_point: f32,
-) -> GridViewport {
-    let columns = grid.columns();
-    let rows = grid.rows();
-    let presented = to_global * source;
+pub(crate) fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
     // The device scale is divided by as well as multiplied by — once for the
     // Cell size and again for the corner — so it is refused on the same terms
     // as every other input here rather than checked for finiteness alone. Zero
     // answers an infinite Cell and a NaN corner; a negative one answers a Cell
     // that `cell_rect` paints inverted and `cell_at` refuses every click on.
-    // Refused, the Grid keeps its unsnapped corner and no Cell at all, which is
-    // the same nothing a console with no area presents.
+    // Refused, the Grid keeps its unsnapped corner and no Cell at all.
     let device_scale = device_scale(pixels_per_point);
-    // `Grid` makes a zero-column Grid unrepresentable, so the division is safe.
-    let cell_size = snapped_cell_side(presented.width() / columns as f32, pixels_per_point);
-    let size = Vec2::new(columns as f32, rows as f32) * cell_size;
-    let corner = presented.min;
+    let cell_size = snapped_cell_side(CELL_SIZE, pixels_per_point);
+    let size = Vec2::new(grid.columns() as f32, grid.rows() as f32) * cell_size;
 
     GridViewport {
         cell_size,
         rect: Rect::from_min_size(
-            device_scale.map_or(corner, |scale| corner.round_to_pixels(scale)),
+            device_scale.map_or(origin, |scale| origin.round_to_pixels(scale)),
             size,
         ),
     }
@@ -342,7 +319,7 @@ pub(crate) fn presented_grid(
 
 #[cfg(test)]
 mod tests {
-    use egui::{Pos2, Rect, Vec2, emath::TSTransform};
+    use egui::{Pos2, Rect, Vec2};
 
     use orcvs::grid::Grid;
 
@@ -351,9 +328,8 @@ mod tests {
     const GRID: usize = 32;
 
     ///
-    /// The Source's own Cell is 16 points so every Zoom step of an eighth is a
-    /// whole number of points, and a Cell is a whole number of physical pixels
-    /// at 1×, 1.5× and 2× with nothing to snap.
+    /// The Source's own Cell is 16 points, so a Cell is a whole number of
+    /// physical pixels at 1×, 1.25×, 1.5× and 2× with nothing to snap.
     ///
     #[test]
     fn the_source_cell_is_sixteen_points() {
@@ -361,48 +337,15 @@ mod tests {
     }
 
     #[test]
-    fn every_eighth_from_a_quarter_to_double_is_a_whole_number_of_points() {
-        let mut thousandths = 250_u32;
-        while thousandths <= 2_000 {
-            let zoom = thousandths as f32 / 1_000.0;
-            if (zoom / 0.125 - (zoom / 0.125).round()).abs() < 1e-6 {
-                let points = CELL_SIZE * zoom;
-                assert!(
-                    (points - points.round()).abs() < 1e-6,
-                    "zoom {zoom} presented a Cell of {points} points"
-                );
-            }
-            thousandths += 125;
-        }
-    }
+    fn a_cell_is_the_sources_own_at_one_one_and_a_quarter_one_and_a_half_and_two() {
+        for pixels_per_point in [1.0_f32, 1.25, 1.5, 2.0] {
+            let presented = presented_grid(Pos2::ZERO, sized(8, 8), pixels_per_point);
 
-    #[test]
-    fn a_cell_is_a_whole_number_of_pixels_at_one_one_and_a_half_and_two_with_nothing_to_snap() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(CELL_SIZE * 8.0));
-        let mut thousandths = 250_u32;
-        while thousandths <= 2_000 {
-            let zoom = thousandths as f32 / 1_000.0;
-            for pixels_per_point in [1.0_f32, 1.5, 2.0] {
-                let presented = presented_grid(
-                    TSTransform::from_scaling(zoom),
-                    source,
-                    sized(8, 8),
-                    pixels_per_point,
-                );
-                let asked = CELL_SIZE * zoom;
-                let in_pixels = asked * pixels_per_point;
-
-                assert!(
-                    (in_pixels - in_pixels.round()).abs() < 1e-6,
-                    "zoom {zoom} at {pixels_per_point} ppp is {in_pixels} pixels"
-                );
-                assert_eq!(
-                    presented.cell_size, asked,
-                    "zoom {zoom} at {pixels_per_point} ppp snapped {asked} to {}",
-                    presented.cell_size
-                );
-            }
-            thousandths += 125;
+            assert_eq!(
+                presented.cell_size, CELL_SIZE,
+                "{pixels_per_point} ppp snapped the Source's own Cell to {}",
+                presented.cell_size
+            );
         }
     }
 
@@ -428,10 +371,10 @@ mod tests {
     /// `cell_at` and `visible_positions` through.
     ///
     /// Test-only: no shipped code fits a viewport to an area — the Source View
-    /// pans and zooms instead of fitting, and `presented_grid` is the one place
-    /// a viewport comes from a transform the console owns. This is that
-    /// arithmetic beside the tests that need a viewport with no transform to
-    /// hand.
+    /// pans instead of fitting, and `presented_grid` is the one place
+    /// a viewport comes from, at the origin the console's Pan puts the Source
+    /// at. This is a fit beside the tests that need a viewport of any Cell
+    /// size.
     ///
     fn square_cell_viewport(available: Rect, grid: Grid) -> GridViewport {
         let columns = grid.columns() as f32;
@@ -461,12 +404,13 @@ mod tests {
     /// a Cell size of `34.436707` puts the corner of column 19 just under its
     /// own boundary.
     ///
-    /// At Zoom 1.0 from an unpanned origin `show_source` paints at the
-    /// `CELL_SIZE` constant, where the division is exact for every origin a
-    /// resize can produce. A Zoom step or a Pan puts `rect.min` and
-    /// `cell_size` wherever the transform and the physical-pixel snap answer,
-    /// which need not divide evenly — this pins the inverse for that case
-    /// ahead of a viewer finding it by panning or zooming into it.
+    /// At a device scale of one from an unpanned origin `show_source` paints
+    /// at the `CELL_SIZE` constant, where the division is exact for every
+    /// origin a resize can produce. A Pan or a fractional device scale — egui's
+    /// zoom factor is one — puts `rect.min` and `cell_size` wherever the
+    /// physical-pixel snap answers, which need not divide evenly: this pins
+    /// the inverse for that case ahead of a viewer finding it by panning or
+    /// zooming into it.
     ///
     #[test]
     fn a_cell_corner_answers_its_own_cell_whatever_the_cell_measures() {
@@ -821,30 +765,27 @@ mod tests {
     }
 
     ///
-    /// Every Cell is the same whole number of physical pixels across, at every
-    /// zoom and at every device scale. A fractional Cell side would pixel-snap
-    /// differently row by row and read as irregular spacing.
+    /// Every Cell is the same whole number of physical pixels across at every
+    /// device scale, egui's zoom factors folded in. A fractional Cell side
+    /// would pixel-snap differently row by row and read as irregular spacing.
     ///
     #[test]
     fn every_cell_is_a_whole_number_of_physical_pixels() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
-        for pixels_per_point in [1.0_f32, 1.5, 2.0] {
-            for scaling in [0.25_f32, 0.31, 0.7, 1.0, 1.37, 2.0] {
-                let presented = presented_grid(
-                    TSTransform::new(Vec2::new(11.3, 7.9), scaling),
-                    source,
-                    sized(8, 8),
-                    pixels_per_point,
-                );
+        for native in [1.0_f32, 1.5, 2.0] {
+            // egui's own zoom range, 0.2 to 5.0, in its own steps of a tenth.
+            for tenths in 2_u8..=50 {
+                let pixels_per_point = native * f32::from(tenths) / 10.0;
+                let presented = presented_grid(Pos2::new(11.3, 7.9), sized(8, 8), pixels_per_point);
                 let in_pixels = presented.cell_size * pixels_per_point;
 
                 assert!(
                     (in_pixels - in_pixels.round()).abs() < 1e-3,
-                    "a Cell was {in_pixels} pixels across at {scaling}x, {pixels_per_point} ppp"
+                    "a Cell was {in_pixels} pixels across at {pixels_per_point} ppp"
                 );
                 assert!(
-                    in_pixels >= 1.0,
-                    "a Cell was floored away at {scaling}x, {pixels_per_point} ppp"
+                    presented.cell_size <= CELL_SIZE,
+                    "the snap grew a Cell to {} at {pixels_per_point} ppp",
+                    presented.cell_size
                 );
                 // The whole Grid is a whole number of Cells, so the last Cell's
                 // far edge is where the Grid's is.
@@ -858,43 +799,21 @@ mod tests {
     }
 
     ///
-    /// A pan moves the presented Grid by exactly what it moved the transform
-    /// by, whatever the zoom. The scale multiplies the Source's coordinates,
-    /// never a translation already expressed in presented points.
+    /// A Pan moves the presented Grid by exactly what it moved the origin by,
+    /// at every device scale where the move is a whole number of physical
+    /// pixels, and never changes the Cell.
     ///
     #[test]
-    fn a_translation_moves_the_presented_grid_by_itself_at_any_scale() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+    fn a_translation_moves_the_presented_grid_by_itself_at_any_device_scale() {
         let moved = Vec2::new(40.0, 24.0);
-        for scaling in [0.5_f32, 1.0, 2.0] {
-            let before =
-                presented_grid(TSTransform::from_scaling(scaling), source, sized(8, 8), 1.0);
-            let after = presented_grid(TSTransform::new(moved, scaling), source, sized(8, 8), 1.0);
+        for pixels_per_point in [1.0_f32, 1.5, 2.0] {
+            let before = presented_grid(Pos2::ZERO, sized(8, 8), pixels_per_point);
+            let after = presented_grid(Pos2::ZERO + moved, sized(8, 8), pixels_per_point);
 
             assert_close(after.rect.min.x - before.rect.min.x, moved.x, "panned x");
             assert_close(after.rect.min.y - before.rect.min.y, moved.y, "panned y");
-            assert_close(after.cell_size, before.cell_size, "a pan changed the zoom");
+            assert_close(after.cell_size, before.cell_size, "a pan changed the Cell");
         }
-    }
-
-    ///
-    /// A `to_global` with no scale of its own presents no Cell rather than a
-    /// NaN one. `TSTransform::inverse` divides by the scaling, so a zero there
-    /// would resolve every pointer position to NaN; the console clamps Zoom
-    /// before a transform like this ever reaches `presented_grid`, but the
-    /// geometry refuses it on its own terms rather than trusting the caller.
-    ///
-    #[test]
-    fn a_transform_with_no_scale_presents_no_cell_rather_than_a_nan_one() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
-        let degenerate = TSTransform::from_scaling(0.0);
-
-        assert!(!degenerate.is_valid());
-
-        let presented = presented_grid(degenerate, source, square(), 1.0);
-
-        assert_eq!(presented.cell_size, 0.0);
-        assert_eq!(presented.cell_at(Pos2::ZERO, square()), None);
     }
 
     ///
@@ -904,17 +823,13 @@ mod tests {
     /// The snap divides by `pixels_per_point` after flooring to at least one
     /// physical pixel, so a zero scale answers an infinite Cell and a NaN
     /// rectangle, and a negative one answers a Cell that `cell_rect` paints
-    /// inverted while `cell_at` refuses every click. Every other degenerate
-    /// input to this function is already refused; this is the same refusal
-    /// stated over the device scale, which finiteness alone does not make a
-    /// scale.
+    /// inverted while `cell_at` refuses every click. Finiteness alone does not
+    /// make a device scale a scale.
     ///
     #[test]
     fn a_device_scale_that_is_not_a_scale_presents_no_grid() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
         for pixels_per_point in [0.0_f32, -2.0, f32::NAN, f32::INFINITY] {
-            let presented =
-                presented_grid(TSTransform::IDENTITY, source, sized(8, 8), pixels_per_point);
+            let presented = presented_grid(Pos2::ZERO, sized(8, 8), pixels_per_point);
 
             assert_eq!(
                 presented.cell_size, 0.0,

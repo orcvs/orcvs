@@ -81,16 +81,16 @@ fn prefers_reduced_motion() -> bool {
 }
 
 ///
-/// How many Cells the default window shows at Zoom 1.0, margin included. The
-/// Grid is larger, so the rest of it is a Pan away.
+/// How many Cells the default window shows at egui's zoom factor of 1.0,
+/// margin included. The Grid is larger, so the rest of it is a Pan away.
 ///
 const DEFAULT_VIEW_COLUMNS: usize = 64;
 const DEFAULT_VIEW_ROWS: usize = 40;
 
 ///
 /// The window size that presents `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS`
-/// Cells at Zoom 1.0: the Source's own points, and the chrome above and below
-/// the console. Both are private, so neither is linked here.
+/// Cells at egui's zoom factor of 1.0: the Source's own points, and the chrome
+/// above and below the console. Both are private, so neither is linked here.
 ///
 /// A larger window shows more of the Grid rather than larger Cells; a smaller
 /// one shows less of it.
@@ -429,7 +429,7 @@ impl eframe::App for Console {
                 &ctx,
                 &mut self.diagnostics_open,
                 eframe,
-                self.source_view.to_global,
+                self.source_view.origin,
                 source.console,
                 source.cell_size,
             );

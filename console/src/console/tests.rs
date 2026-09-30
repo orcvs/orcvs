@@ -1,6 +1,6 @@
 use egui::{
     Color32, Event, Key, Modifiers, MouseWheelUnit, Pos2, Rect, Shape, TouchPhase, Vec2,
-    emath::GuiRounding as _, emath::TSTransform,
+    emath::GuiRounding as _,
 };
 use orcvs::app::{Arrow, InputEvent, InputKey, Orcvs};
 use orcvs::render_frame::RenderFrame;
@@ -12,19 +12,24 @@ use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
 use super::diagnostics_window::frames_per_second;
-use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GLYPH_SCALE_STEP, GlyphTable, glyph_scale};
+use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
-    MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable,
-    show_source_scene, source_bounds, source_panel_frame,
+    SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, show_source_scene,
+    source_panel_frame,
 };
 use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE};
 
-/// The Source View's margin at Zoom 1.0 and a device scale of one.
+/// The Source View's margin at a device scale of one.
 const MARGIN: f32 = SOURCE_MARGIN_CELLS * CELL_SIZE;
+
+/// Device scales the Source's own Cell is presented at: whole ones, and
+/// fractional ones whose snap draws the Cell under 16 points. egui folds its
+/// zoom factor into `pixels_per_point`, so these are what a zoom reaches.
+const DEVICE_SCALES: [f32; 5] = [0.3, 1.0, 1.1, 1.5, 2.0];
 
 ///
 /// Asserts that `ctx` styles each appearance's chrome from the given
@@ -183,32 +188,24 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
 }
 
 ///
-/// The frame rate is derived; the Source zoom is not. Under an owned
-/// transform the zoom the diagnostics show *is* `scaling`, a field read.
-/// What is left to assert is that the field the diagnostics read is never a
-/// value they cannot show: the guard is what makes the read safe.
+/// The frame rate is derived. The visible Source region the diagnostics
+/// show is the console area read back through the origin, and the guard is
+/// what keeps that origin a value they can show.
 ///
 #[test]
-fn diagnostics_derive_frame_rate_and_read_the_source_zoom_from_the_owned_transform() {
+fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
     assert_eq!(frames_per_second(0.02), Some(50.0));
     assert_eq!(frames_per_second(0.0), None);
 
-    let zoomed = TSTransform::new(Vec2::new(11.0, 7.0), 2.0);
-    assert!(is_presentable(zoomed));
-    assert_eq!(zoomed.scaling, 2.0);
-    // The visible Source region the diagnostics show is the console area
-    // read back through the transform.
+    let origin = Pos2::new(11.0, 7.0);
+    assert!(is_presentable(origin));
     assert_eq!(
-        zoomed.inverse() * Rect::from_min_size(Pos2::new(11.0, 7.0), Vec2::new(800.0, 400.0)),
-        Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))
+        Rect::from_min_size(Pos2::new(11.0, 7.0), Vec2::new(800.0, 400.0))
+            .translate(-origin.to_vec2()),
+        Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))
     );
 
-    for unpresentable in [
-        TSTransform::from_scaling(0.0),
-        TSTransform::from_scaling(-1.0),
-        TSTransform::from_scaling(f32::NAN),
-        TSTransform::from_translation(Vec2::new(0.0, f32::NAN)),
-    ] {
+    for unpresentable in [Pos2::new(0.0, f32::NAN), Pos2::new(f32::INFINITY, 0.0)] {
         assert!(
             !is_presentable(unpresentable),
             "{unpresentable:?} reached the diagnostics"
@@ -217,86 +214,46 @@ fn diagnostics_derive_frame_rate_and_read_the_source_zoom_from_the_owned_transfo
 }
 
 ///
-/// At Zoom 1.0 the Glyph is 11.5 points inside the Source's 16 point Cell.
+/// A Glyph is laid out at the Source's own 11.5 points at every device scale,
+/// including one whose snap draws the Cell under 16 points. egui's
+/// `pixels_per_point`, which folds in its zoom factor, is what makes it more
+/// physical pixels.
 ///
-#[test]
-fn the_glyph_at_zoom_one_is_eleven_point_five_points() {
-    assert_eq!(DEFAULT_FONT_SIZE * glyph_scale(1.0), 11.5);
-}
+#[tokio::test]
+async fn a_glyph_is_laid_out_at_the_sources_own_size_at_every_device_scale() {
+    for pixels_per_point in [1.0_f32, 1.1, 1.5, 2.0] {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(4, 4);
+        orcvs.select(orcvs.grid().position(1, 1).expect("inside the grid"));
+        orcvs.write("+");
+        let mut view = SourceView::default();
 
-///
-/// The step the glyph scale is quantised to, and the budget it implies.
-/// Both zoom limits and the Source's own scale land on a step, so the
-/// default window lays its Glyphs out at exactly the Source's font size.
-///
-#[test]
-fn the_glyph_scale_is_quantised_to_a_stated_step() {
-    assert_eq!(glyph_scale(1.0), 1.0);
-    assert_eq!(glyph_scale(MIN_ZOOM), MIN_ZOOM);
-    assert_eq!(glyph_scale(MAX_ZOOM), MAX_ZOOM);
-    assert_eq!(glyph_scale(1.01), 1.0, "a nudge re-laid the whole alphabet");
-    // Downwards, so the Glyph keeps its share of the Cell: a zoom part way
-    // into a step is laid out at the step it is past, not the one it is
-    // approaching.
-    assert_eq!(glyph_scale(1.1), 1.0);
-    assert_eq!(glyph_scale(1.13), 1.125);
-    // Never zero, never negative, whatever reaches it.
-    for degenerate in [0.0, -1.0, f32::NAN, f32::INFINITY, 1e-9] {
+        let (_, painted) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            pixels_per_point,
+        );
+        let sizes: Vec<f32> = painted
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Text(text) => Some(text.galley.job.sections[0].format.font_id.size),
+                _ => None,
+            })
+            .collect();
+
         assert!(
-            glyph_scale(degenerate) >= GLYPH_SCALE_STEP,
-            "{degenerate} laid out at a font size of {}",
-            glyph_scale(degenerate)
+            !sizes.is_empty(),
+            "{pixels_per_point} ppp painted no Glyph, so it asserts nothing"
+        );
+        assert!(
+            sizes.iter().all(|size| *size == DEFAULT_FONT_SIZE),
+            "{pixels_per_point} ppp laid Glyphs out at {sizes:?} points"
         );
     }
-
-    // Fifteen distinct sizes over the whole zoom range is the atlas budget
-    // `GLYPH_SCALE_STEP` states. Swept in exact thousandths rather than by
-    // accumulating one: the top of the range is reached by the
-    // `zoom_range` clamp exactly, and a sum that drifts past it would drop
-    // the step it lands on.
-    let mut sizes: Vec<f32> = Vec::new();
-    for thousandth in (MIN_ZOOM * 1_000.0) as u32..=(MAX_ZOOM * 1_000.0) as u32 {
-        let scale = glyph_scale(thousandth as f32 / 1_000.0);
-        if !sizes.iter().any(|held| (held - scale).abs() < 1e-6) {
-            sizes.push(scale);
-        }
-    }
-    assert_eq!(
-        sizes.len(),
-        15,
-        "the zoom range holds {} sizes",
-        sizes.len()
-    );
-}
-
-///
-/// A Glyph is never laid out at a larger fraction of its Cell than the fit
-/// gave it.
-///
-/// The quantisation step is an absolute one, so rounding to the nearest
-/// step is disproportionate at a small scale: a console fitting at 0.2
-/// rounds up to 0.25 and lays an 11.5 point Glyph out at 2.875 points inside a
-/// 3.2 point Cell, where the same Glyph at the Source's own scale takes 11.5 of
-/// 16. That proportion is what has to hold. Quantising downwards keeps it
-/// and costs at most one step of sharpness.
-///
-/// The floor at [`GLYPH_SCALE_STEP`] is the one deliberate exception, and
-/// the case above it is what this pins.
-///
-#[test]
-fn a_glyph_is_never_laid_out_larger_than_the_scale_it_is_drawn_at() {
-    // A sweep at half the step, so it lands both on steps and between them.
-    let mut scaling = GLYPH_SCALE_STEP;
-    while scaling <= MAX_ZOOM {
-        assert!(
-            glyph_scale(scaling) <= scaling,
-            "a Glyph at {scaling} was laid out at {}",
-            glyph_scale(scaling)
-        );
-        scaling += GLYPH_SCALE_STEP / 2.0;
-    }
-    // The fit below the zoom floor is where the rounding was worst.
-    assert_eq!(glyph_scale(0.2), 0.125);
 }
 
 ///
@@ -613,7 +570,7 @@ async fn a_click_selects_the_cell_under_the_pointer_whatever_the_window_size() {
 }
 
 ///
-/// A console too small for the Source still opens at Zoom 1.0 and shows the
+/// A console too small for the Source still opens at the Source's own Cell size and shows the
 /// top-left of the Grid. A click still selects the Cell under the pointer.
 ///
 #[tokio::test]
@@ -916,7 +873,7 @@ fn painted_text(ctx: &egui::Context) -> String {
 /// Where a running Console presented its Source Grid, asked of the
 /// transform the pass left behind.
 ///
-/// The same three calls `show_source_scene` makes, and for the reason the
+/// The same call `show_source_scene` makes, and for the reason the
 /// `presented` helper cannot serve here: that one fits the Grid to a console
 /// area, and a running Console's console area is the screen less whatever
 /// height the menu bar settled the top panel at. The stored transform
@@ -925,12 +882,7 @@ fn painted_text(ctx: &egui::Context) -> String {
 fn console_viewport(ctx: &egui::Context, console: &Console) -> GridViewport {
     let grid = console.orcvs.render_frame().grid();
 
-    presented_grid(
-        console.source_view.to_global,
-        source_bounds(grid),
-        grid,
-        ctx.pixels_per_point(),
-    )
+    presented_grid(console.source_view.origin, grid, ctx.pixels_per_point())
 }
 
 ///
@@ -2073,10 +2025,6 @@ async fn the_default_window_presents_the_grid_at_its_own_scale() {
         "the default console opened at a scale other than one"
     );
     assert_eq!(
-        view.zoom, 1.0,
-        "the default console opened at a Zoom other than 1.0"
-    );
-    assert_eq!(
         viewport.rect.min,
         screen.min + Vec2::splat(MARGIN),
         "the default console did not rest the Grid one margin in"
@@ -2431,39 +2379,20 @@ async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
     );
 }
 
-#[tokio::test]
-async fn source_bounds_are_available_before_the_first_render() {
-    let orcvs = running_orcvs(32, 16);
-    let source_grid = orcvs.render_frame().grid();
-    let bounds = source_bounds(source_grid);
-
-    assert_eq!(
-        bounds,
-        Rect::from_min_size(Pos2::ZERO, Vec2::new(CELL_SIZE * 32.0, CELL_SIZE * 16.0))
-    );
-}
-
 ///
 /// The viewport `show_source_scene` presents a Grid of this shape at, in a
 /// console of this size, before any gesture has moved the view.
 ///
-/// The same transform that function builds at Zoom 1.0 with the Source at
-/// the console's top-left, so nothing about the geometry is restated here:
+/// The same origin that function builds with no Pan, one margin in from the
+/// console's top-left, so nothing about the geometry is restated here:
 /// the presented Cell side is `presented_grid`'s, asserted in
 /// `grid_viewport.rs`.
 ///
 fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
-    let grid = Grid::with_shape(columns, rows);
-    let source = source_bounds(grid);
-
     let side = crate::grid_viewport::snapped_cell_side(CELL_SIZE, pixels_per_point);
     presented_grid(
-        TSTransform::new(
-            screen.min.to_vec2() + Vec2::splat(SOURCE_MARGIN_CELLS * side),
-            1.0,
-        ),
-        source,
-        grid,
+        screen.min + Vec2::splat(SOURCE_MARGIN_CELLS * side),
+        Grid::with_shape(columns, rows),
         pixels_per_point,
     )
 }
@@ -2474,7 +2403,7 @@ fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -
 /// The range is `GridViewport::visible_positions`' own answer, which is
 /// what `show_source` hands `Paint::derive`. A test that fits the whole
 /// Grid on screen therefore gets a Paint of the whole Grid without having
-/// to say so, and one that zooms gets exactly what the console would draw.
+/// to say so, and one that pans gets exactly what the console would draw.
 ///
 fn painted(frame: &RenderFrame, viewport: GridViewport, clip: Rect) -> Paint {
     let grid = frame.grid();
@@ -2540,10 +2469,7 @@ fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
         let table = GlyphTable::lay_out(
             ui.ctx(),
-            egui::FontId::new(
-                DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
-                egui::FontFamily::Monospace,
-            ),
+            egui::FontId::new(DEFAULT_FONT_SIZE, egui::FontFamily::Monospace),
         );
         shapes = Some(SourceShapes::new(
             paint,
@@ -2578,10 +2504,7 @@ fn source_shapes_with_effect(
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
         let table = GlyphTable::lay_out(
             ui.ctx(),
-            egui::FontId::new(
-                DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
-                egui::FontFamily::Monospace,
-            ),
+            egui::FontId::new(DEFAULT_FONT_SIZE, egui::FontFamily::Monospace),
         );
         shapes = Some(SourceShapes::new(
             paint,
@@ -3366,7 +3289,7 @@ async fn a_background_run_is_the_rectangle_its_columns_span() {
 
 ///
 /// A whole console pass strokes the Grid at the resolved Theme's own
-/// fixed display-point widths — unchanged by the zoom it presented the
+/// fixed display-point widths — unchanged by the device scale it presented the
 /// Source at — and snaps its background runs to the device scale it ran
 /// on.
 ///
@@ -3374,30 +3297,28 @@ async fn a_background_run_is_the_rectangle_its_columns_span() {
 /// is handed to `SourceShapes::new` and reaches the Shapes nowhere else.
 /// The Grid/Sector Seam *widths* are fixed display points, read from
 /// `theme` and never multiplied by the presented Cell side over the
-/// Source's own: at Zoom 0.5 this is the test that catches a width scaled
-/// by the zoom, since at Zoom 1 the two are indistinguishable. Every other
+/// Source's own or by `pixels_per_point`: at a device scale of 1.1 — egui's
+/// zoom factor of 1.1 on a display of one — the snap draws the Cell under 16
+/// points, so this is the test that catches a width scaled by either, which
+/// at a device scale of one are indistinguishable from the constant. Every other
 /// Shape assertion here builds a
 /// `SourceShapes` through `source_geometry` or `source_shapes`, which are
 /// given a device scale the test chose, so all of them still hold with
 /// that argument replaced by a constant one at the call site. What would
 /// ship then is a Grid whose lines and sector seams stay the Theme's own
-/// width at every zoom, and runs snapped to whole points on a screen
-/// whose pixels are not whole points.
+/// width at every device scale, and runs snapped to whole points on a
+/// screen whose pixels are not whole points.
 ///
-/// The geometry is chosen so neither the zoom nor the device scale can be
-/// mistaken for the other. A 161 point console over a 20 Cell Grid at
-/// Zoom 0.5, and at a device scale of 1.5 the presented Grid's corner is
-/// floored a physical pixel in — two thirds of a point — so every run
-/// edge is snapped somewhere a snap to whole points would not put it.
+/// A 400 point console shows the whole 20 Cell Grid with its margin, so
+/// every Cell is stroked.
 ///
 #[tokio::test]
 async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_device_scale() {
-    const DEVICE_SCALE: f32 = 1.5;
+    const DEVICE_SCALE: f32 = 1.1;
     let ctx = egui::Context::default();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(161.0));
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
     let mut orcvs = running_orcvs(20, 20);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::ZERO, 0.5);
     let theme = okabe_ito();
 
     let (viewport, shapes) = console_pass_at(
@@ -3408,16 +3329,16 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
         &mut view,
         DEVICE_SCALE,
     );
-    let scale = viewport.cell_scale();
 
     assert!(
-        (scale - 0.5).abs() < 1e-6,
-        "the pass fitted the Source at {scale}, and a zoom of one would be \
-         indistinguishable from the constant"
+        viewport.cell_size < CELL_SIZE,
+        "the pass drew the Source's own {} point Cell, so a width scaled by \
+         the Cell would be indistinguishable from the constant",
+        viewport.cell_size
     );
 
     // Every Cell is stroked once — the Cursor's by the Cursor — and every
-    // one of those strokes carries the Theme's fixed width, not the zoom.
+    // one of those strokes carries the Theme's fixed width, not the scale.
     let mut stroked = 0;
     for shape in &shapes {
         if let Shape::Rect(painted) = shape
@@ -3536,11 +3457,11 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
 
 ///
 /// Width zero hides the Cell grid line and the Sector Seam outright — no
-/// zero-width `Shape` left for the painter to drop — at several Grid
-/// zoom levels spanning `MIN_ZOOM` to `MAX_ZOOM`.
+/// zero-width `Shape` left for the painter to drop — at every device scale
+/// in [`DEVICE_SCALES`].
 ///
 #[tokio::test]
-async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom() {
+async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_scale() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
     let mut orcvs = running_orcvs(16, 16);
     // A sector corner, so the fixture would otherwise draw both a grid
@@ -3560,26 +3481,22 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom() 
         ..okabe_ito()
     };
 
-    for zoom in [MIN_ZOOM, 1.0, MAX_ZOOM] {
-        let cell_size = CELL_SIZE * zoom;
-        let viewport = GridViewport {
-            cell_size,
-            rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
-        };
+    for pixels_per_point in DEVICE_SCALES {
+        let viewport = presented(screen, 16, 16, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
-        let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
 
         assert!(
             shapes.borders.is_empty(),
-            "zoom {zoom}: a grid border stroke survived width 0"
+            "{pixels_per_point} ppp: a grid border stroke survived width 0"
         );
         assert!(
             shapes.cursor.is_empty(),
-            "zoom {zoom}: the Cursor's own border stroke survived width 0"
+            "{pixels_per_point} ppp: the Cursor's own border stroke survived width 0"
         );
         assert!(
             shapes.seams.is_empty(),
-            "zoom {zoom}: a sector seam stroke survived width 0"
+            "{pixels_per_point} ppp: a sector seam stroke survived width 0"
         );
     }
 }
@@ -3651,7 +3568,7 @@ async fn the_grid_and_selection_border_widths_vary_independently() {
 /// stroke, and a zeroed `grid.border.width` silences every ordinary Cell
 /// while the Cursor keeps its own nonzero stroke. Neither zero reaches
 /// the other Cell's border, which
-/// `zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom`
+/// `zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_scale`
 /// does not show on its own since it zeroes both together.
 ///
 #[tokio::test]
@@ -3736,34 +3653,30 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
 
 ///
 /// The Cell grid line and the Sector Seam stay the resolved Theme's own
-/// fixed display-point widths at every Grid zoom from `MIN_ZOOM` to
-/// `MAX_ZOOM` — never multiplied by `GridViewport::cell_scale`.
+/// fixed display-point widths at every device scale in [`DEVICE_SCALES`] —
+/// never multiplied by the snapped Cell side or by `pixels_per_point`.
 /// The single selected Cell's own stroke is chained in against
 /// `grid_border_width` too: Okabe–Ito's `cell.selection.border.width` is
 /// also 0.5, the same coincidence `a_cell_border_is_one_grid_line_wide_
 /// whatever_the_cell_is_doing` notes, so this loop still covers it
-/// without a second theme field to track across every zoom.
+/// without a second theme field to track across every device scale.
 ///
 #[tokio::test]
-async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
+async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
     let mut orcvs = running_orcvs(16, 16);
     orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
     let frame = orcvs.render_frame();
     let theme = okabe_ito();
 
-    for zoom in [MIN_ZOOM, 0.5, 1.0, 1.5, MAX_ZOOM] {
-        let cell_size = CELL_SIZE * zoom;
-        let viewport = GridViewport {
-            cell_size,
-            rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
-        };
+    for pixels_per_point in DEVICE_SCALES {
+        let viewport = presented(screen, 16, 16, pixels_per_point);
         let paint = painted(&frame, viewport, screen);
-        let shapes = source_geometry(&paint, viewport, 1.0);
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
 
         assert!(
             !shapes.borders.is_empty(),
-            "zoom {zoom}: the fixture drew no Cell border"
+            "{pixels_per_point} ppp: the fixture drew no Cell border"
         );
         for shape in shapes.borders.iter().chain(&shapes.cursor) {
             let Shape::Rect(stroked) = shape else {
@@ -3771,7 +3684,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
             };
             assert!(
                 (stroked.stroke.width - theme.grid_border_width.points()).abs() < 1e-4,
-                "zoom {zoom}: a border was {} points wide against the fixed {}",
+                "{pixels_per_point} ppp: a border was {} points wide against the fixed {}",
                 stroked.stroke.width,
                 theme.grid_border_width.points()
             );
@@ -3779,7 +3692,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
 
         assert!(
             !shapes.seams.is_empty(),
-            "zoom {zoom}: the fixture drew no sector seam"
+            "{pixels_per_point} ppp: the fixture drew no sector seam"
         );
         for shape in &shapes.seams {
             let Shape::LineSegment { stroke, .. } = shape else {
@@ -3787,7 +3700,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
             };
             assert!(
                 (stroke.width - theme.sector_seam_width.points()).abs() < 1e-4,
-                "zoom {zoom}: a seam was {} points wide against the fixed {}",
+                "{pixels_per_point} ppp: a seam was {} points wide against the fixed {}",
                 stroke.width,
                 theme.sector_seam_width.points()
             );
@@ -3876,10 +3789,10 @@ async fn a_middle_drag_that_starts_on_a_cell_still_pans_the_source() {
 
 ///
 /// Alt (Option) held with a primary drag Pans by exactly what the
-/// pointer moved, at a scale that is not one — the same claim
+/// pointer moved, at a device scale that is not one — the same claim
 /// `a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_under_it`
-/// makes for the middle button, and the same reason Zoom 2.0 is chosen:
-/// a leftover multiply by the Zoom would move the Source by the Zoom
+/// makes for the middle button, and the same reason a device scale of two
+/// is chosen: a multiply by the scale would move the Source by the scale
 /// times the pointer.
 ///
 #[tokio::test]
@@ -3888,43 +3801,31 @@ async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::ZERO, 2.0);
+    // egui folds its zoom factor into this same `pixels_per_point`.
+    let frame_at = |events: Vec<Event>, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at(&ctx, screen, events, orcvs, view, 2.0).0
+    };
 
-    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(view.to_global.scaling, 2.0);
-    let anchor = view.to_global.translation;
+    frame_at(Vec::new(), &mut orcvs, &mut view);
+    let anchor = view.origin;
 
     let from = screen.min + Vec2::splat(40.0);
     let moved = Vec2::new(-40.0, -24.0);
-    console_frame(
-        &ctx,
-        screen,
-        alt_primary_press_at(from),
-        &mut orcvs,
-        &mut view,
-    );
-    console_frame(
-        &ctx,
-        screen,
+    frame_at(alt_primary_press_at(from), &mut orcvs, &mut view);
+    frame_at(
         vec![Event::PointerMoved(from + moved)],
         &mut orcvs,
         &mut view,
     );
 
     assert_eq!(
-        view.to_global.translation - anchor,
+        view.origin - anchor,
         moved,
         "the Source panned by {:?} for a pointer that moved {moved:?}",
-        view.to_global.translation - anchor
+        view.origin - anchor
     );
 
-    console_frame(
-        &ctx,
-        screen,
-        alt_primary_release_at(from + moved),
-        &mut orcvs,
-        &mut view,
-    );
+    frame_at(alt_primary_release_at(from + moved), &mut orcvs, &mut view);
     assert_eq!(
         selected_cell(&orcvs),
         (0, 0),
@@ -4195,15 +4096,14 @@ async fn an_alt_drag_and_a_middle_drag_leave_the_region() {
 }
 
 ///
-/// The view a viewer reaches by zooming and panning, set directly.
+/// The view a viewer reaches by panning, set directly.
 ///
-/// The gestures that write these fields are asserted elsewhere. This is a
-/// test building its own input below the shipped entry point rather than a
-/// seam cut into one: nothing in `show_source` or `show_source_scene`
-/// exists for it.
+/// The gestures that write the Pan are asserted elsewhere. This is a test
+/// building its own input below the shipped entry point rather than a seam
+/// cut into one: nothing in `show_source` or `show_source_scene` exists for
+/// it.
 ///
-fn pinned_at(view: &mut SourceView, pan: Vec2, zoom: f32) {
-    view.zoom = zoom;
+fn pinned_at(view: &mut SourceView, pan: Vec2) {
     view.pan = pan;
 }
 
@@ -4212,7 +4112,7 @@ fn pinned_at(view: &mut SourceView, pan: Vec2, zoom: f32) {
 /// cost of a Render Frame follows the viewport rather than the Source.
 ///
 /// Two claims at two layers, and both are here because only a console pass
-/// carries the wiring between them. That a zoom reaches fewer Positions and
+/// carries the wiring between them. That a zoom in reaches fewer Positions and
 /// emits fewer Shapes is asserted through the pass itself. That every drawn
 /// Position leaves exactly one Cell-sized *stroked* rectangle — its own
 /// border, or the Cursor's stroke on the selected Cell — is asserted
@@ -4234,8 +4134,8 @@ fn pinned_at(view: &mut SourceView, pan: Vec2, zoom: f32) {
 async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
     let ctx = egui::Context::default();
     // A 128 by 80 Grid at the Source's own Cell size, with its margin on
-    // every side, is exactly this console, so the first pass at Zoom 1.0
-    // has every Cell on screen. Smaller than the one Grid so the whole of
+    // every side, is exactly this console, so the first pass at egui's zoom
+    // factor of 1.0 has every Cell on screen. Smaller than the one Grid so the whole of
     // it fits a console this test can afford to paint.
     const COLUMNS: usize = 128;
     const ROWS: usize = 80;
@@ -4249,7 +4149,7 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
     let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         whole.cell_size, CELL_SIZE,
-        "the console did not open at Zoom 1.0"
+        "the console did not open at the Source's own Cell size"
     );
     assert!(
         screen.contains_rect(whole.rect),
@@ -4260,17 +4160,23 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
     assert_eq!(
         all_positions.count(),
         COLUMNS * ROWS,
-        "the console did not show the whole Grid at Zoom 1.0"
+        "the console did not show the whole Grid at egui's zoom factor of 1.0"
     );
 
-    pinned_at(&mut view, Vec2::new(-500.0, -300.0), MAX_ZOOM);
-    let (zoomed, fewer_shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    let some_positions = zoomed.visible_positions(screen, orcvs.grid());
+    // egui's zoom in halves the console in points, which is the screen its
+    // integration reports once the zoom factor has changed. The frame that
+    // changes it follows the Cursor, so the Pan is pinned after it.
+    ctx.set_zoom_factor(2.0);
+    let zoomed_in = Rect::from_min_size(Pos2::ZERO, screen.size() / 2.0);
+    console_pass(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
+    pinned_at(&mut view, Vec2::new(-500.0, -300.0));
+    let (zoomed, fewer_shapes) = console_pass(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
+    let some_positions = zoomed.visible_positions(zoomed_in, orcvs.grid());
 
+    assert_eq!(ctx.zoom_factor(), 2.0, "the pass did not run zoomed in");
     assert_eq!(
-        zoomed.cell_size,
-        CELL_SIZE * MAX_ZOOM,
-        "the console did not zoom to {MAX_ZOOM}"
+        zoomed.cell_size, CELL_SIZE,
+        "the zoom changed the Cell's points"
     );
     assert!(
         some_positions.columns.start > 0 && some_positions.rows.start > 0,
@@ -4296,8 +4202,11 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
     // viewports. Counted off the groups the shape step builds rather than
     // recovered from the flat list by their fill and stroke width.
     let frame = orcvs.render_frame();
-    for (viewport, positions) in [(whole, all_positions), (zoomed, some_positions)] {
-        let shapes = source_shapes(&painted(&frame, viewport, screen), viewport, 1.0);
+    for (viewport, clip, positions, pixels_per_point) in [
+        (whole, screen, all_positions, 1.0),
+        (zoomed, zoomed_in, some_positions, 2.0),
+    ] {
+        let shapes = source_shapes(&painted(&frame, viewport, clip), viewport, pixels_per_point);
 
         assert_eq!(
             shapes.borders.len() + shapes.cursor.len(),
@@ -4311,7 +4220,7 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
 }
 
 ///
-/// A zoomed console fills every Cell its Paint asks to fill, and no other,
+/// A panned console fills every Cell its Paint asks to fill, and no other,
 /// with rectangles built from runs that begin and end mid-row.
 ///
 /// Runs are row-local state, opened and flushed inside one row. Under
@@ -4323,12 +4232,12 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
 /// one: that the rectangle the shape step builds from a run whose columns
 /// start mid-row still covers exactly the Cells that run replaces.
 ///
-/// The console is small and the zoom is at the limit so both sides of the
-/// Source are culled. Cursor effects are geometry beneath the Grid and
+/// The console is small and panned into the middle of the Grid so both
+/// sides of the Source are culled. Cursor effects are geometry beneath the Grid and
 /// therefore must not reintroduce Cell background runs in this view.
 ///
 #[tokio::test]
-async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
+async fn a_culled_row_leaves_cursor_effects_out_of_cell_fills() {
     let ctx = egui::Context::default();
     // Narrow enough that every drawn row starts and ends inside the Grid.
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
@@ -4340,14 +4249,14 @@ async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
 
     // The Grid's near corner at (-700, -500), so the console shows a window
     // in the middle of it rather than a corner. The Pan places the margin,
-    // which is two Cells of 32 points at `MAX_ZOOM`, so it is 64 further.
-    pinned_at(&mut view, Vec2::new(-764.0, -564.0), MAX_ZOOM);
+    // which is two Cells of 16 points, so it is 32 further.
+    pinned_at(&mut view, Vec2::new(-732.0, -532.0));
     let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let visible = viewport.visible_positions(screen, orcvs.grid());
 
     assert!(
         visible.columns.start > 0 && visible.columns.end < COL_COUNT,
-        "the zoom culled nothing on one side, so no run begins or ends mid-row"
+        "the Pan culled nothing on one side, so no run begins or ends mid-row"
     );
 
     let frame = orcvs.render_frame();
@@ -4406,8 +4315,8 @@ async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
 /// painted, so culling cannot drop a seam a viewer can see.
 ///
 /// This covers seams at the edges of the visible range, asserted from the
-/// Render Frame at a zoom that culls on all four
-/// sides. `sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor`
+/// Render Frame at a Pan that culls on all four sides, at a device scale of
+/// one and at a fractional one. `sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor`
 /// runs on a default `SourceView` — the fit, with every Position drawn — so
 /// it says nothing about a range-limited row.
 ///
@@ -4418,27 +4327,38 @@ async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
 /// the claim above, and the margin is the separate, deliberate over-draw its
 /// own comment describes.
 ///
-/// Two pans rather than one, because which seams land strictly inside the
-/// clip is a property of the pan. The Sector Seam spacing is 8 and a Cell is 32
-/// points at this zoom, so one pan is chosen to put a seam column
-/// immediately inside the first drawn column and the other to put one on
-/// the last: between them a cull that is short by a Cell on any of the four
-/// sides drops a seam this asserts. At a single pan the nearest seam can
-/// sit six columns from the edge and a column-side error goes unseen.
+/// Which seams land strictly inside the clip is a property of the Pan. The
+/// Sector Seam spacing is 8 and a Cell is 16 points, so the Pan is chosen to
+/// put a seam column immediately inside the first drawn column and another
+/// on the last, and a seam row immediately inside the first drawn row: a
+/// cull that is short by a Cell on any of those sides drops a seam this
+/// asserts. At an arbitrary Pan the nearest seam can sit six columns from
+/// the edge and a column-side error goes unseen.
 ///
 #[tokio::test]
-async fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
-    let ctx = egui::Context::default();
+async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+    // The Grid's corner at (-630, -630) once the margin is added: column
+    // and row 39 are the first shown, so seam column and row 40 sit just
+    // inside the clip, and seam column 64 is the last shown.
+    let translation = Vec2::splat(-630.0 - MARGIN);
 
     let mut asserted = 0;
-    for translation in [Vec2::new(-486.0, -333.0), Vec2::new(-525.0, -333.0)] {
+    for pixels_per_point in [1.0, 1.5] {
+        let ctx = egui::Context::default();
         let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
         let mut view = SourceView::default();
 
         let frame = orcvs.render_frame();
-        pinned_at(&mut view, translation, MAX_ZOOM);
-        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        pinned_at(&mut view, translation);
+        let (viewport, shapes) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            pixels_per_point,
+        );
         let visible = viewport.visible_positions(screen, orcvs.grid());
         let painted: Vec<_> = shapes
             .iter()
@@ -4453,7 +4373,7 @@ async fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
                 && visible.columns.end < COL_COUNT
                 && visible.rows.start > 0
                 && visible.rows.end < ROW_COUNT,
-            "the pan {translation:?} culled nothing on one side, so no seam is near a culled edge: {visible:?}"
+            "{pixels_per_point} ppp culled nothing on one side, so no seam is near a culled edge: {visible:?}"
         );
 
         for cell in frame.cells() {
@@ -4489,8 +4409,8 @@ async fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
                         (points[0] - ends[0]).length() < 1e-3
                             && (points[1] - ends[1]).length() < 1e-3
                     }),
-                    "the seam at {position:?} is inside the clip at pan \
-                     {translation:?} and was not painted"
+                    "the seam at {position:?} is inside the clip at \
+                     {pixels_per_point} ppp and was not painted"
                 );
                 asserted += 1;
             }
@@ -4540,7 +4460,7 @@ fn clamp_pan_pins_a_smaller_source_at_the_origin_and_a_larger_one_to_its_edges()
 }
 
 ///
-/// The console opens at Zoom 1.0 whatever the window size, so a resize
+/// The console opens at the Source's own Cell size whatever the window size, so a resize
 /// shows more or less of the Source and never a different Cell size.
 ///
 #[tokio::test]
@@ -4552,11 +4472,9 @@ async fn a_resize_keeps_the_cell_size_and_shows_more_or_less_of_the_source() {
     let mut view = SourceView::default();
 
     let before = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(view.zoom, 1.0);
     assert_eq!(before.cell_size, CELL_SIZE);
     let after = console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
 
-    assert_eq!(view.zoom, 1.0, "a resize changed the Zoom");
     assert_eq!(after.cell_size, CELL_SIZE, "a resize changed the Cell size");
     assert_eq!(
         after.rect.min,
@@ -4585,7 +4503,7 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
 
-    pinned_at(&mut view, Vec2::new(-200.0, -200.0), 1.0);
+    pinned_at(&mut view, Vec2::new(-200.0, -200.0));
     console_frame(&ctx, small, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::new(-200.0, -200.0));
 
@@ -4601,8 +4519,8 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
 }
 
 ///
-/// Pinch and command-wheel do not zoom the Source View: its Zoom and the
-/// presented scale stay at 1.0.
+/// Pinch and command-wheel do not zoom: egui's zoom factor stays at 1.0 and
+/// the Cell at the Source's own size.
 ///
 #[tokio::test]
 async fn pinch_and_command_wheel_do_not_zoom() {
@@ -4613,19 +4531,18 @@ async fn pinch_and_command_wheel_do_not_zoom() {
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let over = viewport.rect.min + Vec2::splat(viewport.cell_size);
-    console_frame(&ctx, screen, pinch_at(over), &mut orcvs, &mut view);
-    assert_eq!(view.zoom, 1.0, "a pinch changed the Zoom");
-    assert_eq!(
-        view.to_global.scaling, 1.0,
-        "a pinch changed the presented scale"
-    );
-
-    console_frame(&ctx, screen, command_wheel_at(over), &mut orcvs, &mut view);
-    assert_eq!(view.zoom, 1.0, "a command-wheel changed the Zoom");
-    assert_eq!(
-        view.to_global.scaling, 1.0,
-        "a command-wheel changed the presented scale"
-    );
+    for (gesture, events) in [
+        ("a pinch", pinch_at(over)),
+        ("a command-wheel", command_wheel_at(over)),
+    ] {
+        console_frame(&ctx, screen, events, &mut orcvs, &mut view);
+        let after = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(ctx.zoom_factor(), 1.0, "{gesture} changed egui's zoom");
+        assert_eq!(
+            after.cell_size, CELL_SIZE,
+            "{gesture} changed the Cell size"
+        );
+    }
 }
 
 ///
@@ -4641,7 +4558,7 @@ async fn a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    // Column 30 at Zoom 1.0 is far outside a 200 point console.
+    // Column 30 at the Source's own Cell size is far outside a 200 point console.
     orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -4668,7 +4585,7 @@ async fn a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it() {
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
-    // Column and row 30 at Zoom 1.0 sit at 512..528 once the margin is
+    // Column and row 30 at the Source's own Cell size sit at 512..528 once the margin is
     // counted, entirely past a 200 point console on both axes.
     orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -4736,7 +4653,7 @@ async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
 
     // 32 Cells of 16 points is 512, with a 32 point margin either side, so
     // the far edge of a 200 point console is -376.
-    pinned_at(&mut view, Vec2::new(-376.0, -376.0), 1.0);
+    pinned_at(&mut view, Vec2::new(-376.0, -376.0));
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         view.pan,
@@ -4754,7 +4671,6 @@ async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
         viewport.cell_size, CELL_SIZE,
         "the zoom changed the Cell's points"
     );
-    assert_eq!(view.zoom, 1.0, "the zoom changed the Source View's Zoom");
     assert_eq!(
         view.pan,
         Vec2::new(-176.0, -176.0),
@@ -4806,7 +4722,7 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
 }
 
 ///
-/// A Pan with no Cursor move and no Zoom is not pulled back to the
+/// A Pan with no Cursor move and no zoom is not pulled back to the
 /// Cursor, even while the Cursor sits outside the Source View.
 ///
 #[tokio::test]
@@ -4822,7 +4738,7 @@ async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor(
     assert_eq!(view.pan, Vec2::ZERO);
 
     // A wheel Pan all the way to the far edge, with the Cursor still
-    // unmoved at (30, 30) and no Zoom, repeated until the Pan settles
+    // unmoved at (30, 30) and no zoom, repeated until the Pan settles
     // however far `smooth_scroll_delta` hands out a frame. Left to the
     // follow this would land at
     // (-328, -328) instead — see
@@ -4851,7 +4767,7 @@ async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor(
 /// The follow Pan is itself naive — it only asks whether the Cursor's
 /// Cell already shows inside the console — so an already out-of-bounds
 /// Pan it leaves untouched still has to settle back inside the Grid
-/// through `clamp_pan`, the same as an ordinary Pan or Zoom does.
+/// through `clamp_pan`, the same as an ordinary Pan or a zoom does.
 ///
 #[tokio::test]
 async fn the_follow_pan_is_still_bounded_by_the_grids_edges() {
@@ -4864,10 +4780,10 @@ async fn the_follow_pan_is_still_bounded_by_the_grids_edges() {
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
     // A Pan past the Grid's near edge, which nothing but `clamp_pan` can
-    // answer: at Zoom 1.0 the Cursor's new Cell (5, 0) sits at 80..96,
+    // answer: at the Source's own Cell size the Cursor's new Cell (5, 0) sits at 80..96,
     // already inside a 200 point console once this Pan is applied, so the
     // follow itself has nothing to add.
-    pinned_at(&mut view, Vec2::new(50.0, 50.0), 1.0);
+    pinned_at(&mut view, Vec2::new(50.0, 50.0));
     orcvs.select(orcvs.grid().position(5, 0).expect("inside the grid"));
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
@@ -4879,12 +4795,11 @@ async fn the_follow_pan_is_still_bounded_by_the_grids_edges() {
     );
 }
 
-/// A device scale at which a Zoom step's Cell is not a whole number of
-/// physical pixels, and the Zoom step that shows it: 18 points at 1.25 is
-/// 22.5 pixels, which `presented_grid` floors to 22 — a Cell of 17.6
-/// points rather than the 18 a Zoom of 1.125 asks for.
-const FRACTIONAL_PPP: f32 = 1.25;
-const FRACTIONAL_ZOOM: f32 = 1.125;
+/// A device scale at which the Source's own Cell is not a whole number of
+/// physical pixels — egui's zoom factor of 1.1 on a display of one: 16
+/// points at 1.1 is 17.6 pixels, which `presented_grid` floors to 17, a Cell
+/// of about 15.45 points rather than the Source's 16.
+const FRACTIONAL_PPP: f32 = 1.1;
 
 /// Half a physical pixel at [`FRACTIONAL_PPP`], the most the corner's own
 /// pixel rounding can move an edge.
@@ -4901,7 +4816,7 @@ async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(8, 8);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::ZERO, FRACTIONAL_ZOOM);
+    pinned_at(&mut view, Vec2::ZERO);
 
     let (viewport, _) = console_pass_at(
         &ctx,
@@ -4913,7 +4828,7 @@ async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
     );
 
     assert!(
-        viewport.cell_size < CELL_SIZE * FRACTIONAL_ZOOM,
+        viewport.cell_size < CELL_SIZE,
         "the fixture snapped nothing, so it asserts nothing: {}",
         viewport.cell_size
     );
@@ -4927,7 +4842,7 @@ async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
 ///
 /// A Pan to the far edge of a Source larger than the console leaves no
 /// gap past the Grid where the snap has shrunk its Cells: the bound is
-/// the extent the Cells are drawn at, not the one the Zoom asked for.
+/// the extent the Cells are drawn at, not the one the Source asks for.
 ///
 #[tokio::test]
 async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
@@ -4935,7 +4850,7 @@ async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(64, 64);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::splat(-1_000_000.0), FRACTIONAL_ZOOM);
+    pinned_at(&mut view, Vec2::splat(-1_000_000.0));
 
     let (viewport, _) = console_pass_at(
         &ctx,
@@ -4947,7 +4862,7 @@ async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
     );
 
     assert!(
-        viewport.cell_size < CELL_SIZE * FRACTIONAL_ZOOM,
+        viewport.cell_size < CELL_SIZE,
         "the fixture snapped nothing, so it asserts nothing: {}",
         viewport.cell_size
     );
@@ -4962,7 +4877,7 @@ async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
 ///
 /// A Cursor move past the console's far edge Pans the whole Cursor Cell,
 /// as drawn, into view — measured at the snapped Cell side the Cells are
-/// painted at rather than the unsnapped side the Zoom asked for.
+/// painted at rather than the Source's unsnapped side.
 ///
 #[tokio::test]
 async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
@@ -4970,7 +4885,7 @@ async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(64, 64);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::ZERO, FRACTIONAL_ZOOM);
+    pinned_at(&mut view, Vec2::ZERO);
 
     console_pass_at(
         &ctx,
@@ -4980,9 +4895,9 @@ async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
         &mut view,
         FRACTIONAL_PPP,
     );
-    // Column and row 22 end at 23 Cells, past a 400 point console at
-    // either Cell side.
-    orcvs.select(orcvs.grid().position(22, 22).expect("inside the grid"));
+    // Column and row 26 end 27 Cells and a margin in, past a 400 point
+    // console at either Cell side.
+    orcvs.select(orcvs.grid().position(26, 26).expect("inside the grid"));
     let (viewport, _) = console_pass_at(
         &ctx,
         screen,
@@ -4992,7 +4907,7 @@ async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
         FRACTIONAL_PPP,
     );
 
-    let cell = viewport.cell_rect(22, 22);
+    let cell = viewport.cell_rect(26, 26);
     assert!(
         cell.min.x >= screen.min.x - HALF_A_PIXEL
             && cell.min.y >= screen.min.y - HALF_A_PIXEL
@@ -5012,10 +4927,10 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::new(-48.0, -32.0), 1.0);
+    pinned_at(&mut view, Vec2::new(-48.0, -32.0));
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    let before = view.to_global;
+    let before = view.origin;
     let target = viewport.cell_rect(5, 5).center();
     double_click(&ctx, screen, target, &mut orcvs, &mut view);
 
@@ -5025,23 +4940,23 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
         "the double click did not reach the Cell under it"
     );
     assert_eq!(
-        view.to_global, before,
+        view.origin, before,
         "the double click reset a view that no longer has a fit to return to"
     );
-    assert_eq!(view.zoom, 1.0);
     assert_eq!(view.pan, Vec2::new(-48.0, -32.0));
 }
 
 ///
 /// A middle-button drag pans the Source by exactly what the pointer moved,
-/// at a scale that is not one, and a later click still selects the Cell
-/// under the pointer.
+/// at a device scale that is not one, and a later click still selects the
+/// Cell under the pointer.
 ///
-/// `Response::drag_delta` divides by the layer transform's scaling *only
-/// when the layer has one* (`Context::layer_transform_from_global`). With the transform
-/// owned by the console there is no layer transform, so a leftover
-/// multiply by the Zoom would move the Source by the Zoom times the
-/// pointer. Zoom 2.0 is what makes that bug visible.
+/// `Response::drag_delta` is in points and divides by a layer transform's
+/// scaling *only when the layer has one*
+/// (`Context::layer_transform_from_global`). The console sets none, so a
+/// multiply by the scale would move the Source by the scale times the
+/// pointer. A device scale of two — what egui's zoom factor of two gives on
+/// a display of one — is what makes that bug visible.
 ///
 #[tokio::test]
 async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_under_it() {
@@ -5049,31 +4964,31 @@ async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_un
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::ZERO, 2.0);
+    // egui folds its zoom factor into this same `pixels_per_point`.
+    let frame_at = |events: Vec<Event>, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at(&ctx, screen, events, orcvs, view, 2.0).0
+    };
 
-    let before = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(view.to_global.scaling, 2.0);
-    let anchor = view.to_global.translation;
+    let before = frame_at(Vec::new(), &mut orcvs, &mut view);
+    let anchor = view.origin;
 
     // Press, then move further than `max_click_dist` so the gesture
     // resolves as a drag rather than a click. Drag left and up: the Pan
     // is top-left-anchored, so a drag the other way is clamped at zero.
     let from = screen.min + Vec2::splat(40.0);
     let moved = Vec2::new(-40.0, -24.0);
-    console_frame(&ctx, screen, middle_press_at(from), &mut orcvs, &mut view);
-    let after = console_frame(
-        &ctx,
-        screen,
+    frame_at(middle_press_at(from), &mut orcvs, &mut view);
+    let after = frame_at(
         vec![Event::PointerMoved(from + moved)],
         &mut orcvs,
         &mut view,
     );
 
     assert_eq!(
-        view.to_global.translation - anchor,
+        view.origin - anchor,
         moved,
         "the Source panned by {:?} for a pointer that moved {moved:?}",
-        view.to_global.translation - anchor
+        view.origin - anchor
     );
     assert_eq!(
         after.rect.min - before.rect.min,
@@ -5086,9 +5001,7 @@ async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_un
         "the pan changed the Cell size"
     );
 
-    console_frame(
-        &ctx,
-        screen,
+    frame_at(
         vec![Event::PointerButton {
             pos: from + moved,
             button: egui::PointerButton::Middle,
@@ -5165,9 +5078,10 @@ async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
 /// would not show it anyway, because the clone happens inside `end_pass`
 /// rather than in `tessellate_shapes`.
 ///
-/// Zoom is pinned at two rather than left at one on purpose:
-/// `Context::set_transform_layer` *removes* the entry for an identity
-/// transform, so Zoom 1.0 would let a Scene pass this.
+/// The Source is presented one margin in from the console's corner, so a
+/// transform that presented it would not be the identity: on purpose,
+/// because `Context::set_transform_layer` *removes* the entry for an
+/// identity transform, which would let a Scene pass this.
 ///
 #[tokio::test]
 async fn no_layer_carrying_the_source_grid_is_transformed() {
@@ -5176,7 +5090,6 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
     let mut orcvs = running_orcvs(8, 8);
     orcvs.write("1");
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::ZERO, 2.0);
     let frame = orcvs.render_frame();
     let mut grid_layer = None;
 
@@ -5209,9 +5122,10 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
     }
     output.drop_without_applying_deltas();
 
-    assert_eq!(
-        view.to_global.scaling, 2.0,
-        "the console did not present at Zoom 2.0"
+    assert_ne!(
+        view.origin,
+        Pos2::ZERO,
+        "the console presented the Source at the identity"
     );
     assert!(
         painted.iter().any(|shape| matches!(shape, Shape::Text(_))),

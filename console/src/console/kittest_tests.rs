@@ -36,10 +36,10 @@
 //! records.
 //!
 //! What the Source Grid offers instead is a geometry contract —
-//! `presented_grid` maps the owned transform onto a `GridViewport`,
+//! `presented_grid` maps the owned origin onto a `GridViewport`,
 //! `GridViewport::cell_rect` hands out a Cell's rectangle and
 //! `GridViewport::cell_at` inverts it — so every pointer coordinate below is
-//! *derived from the live transform at the moment of the click* rather than
+//! *derived from the live origin at the moment of the click* rather than
 //! written down. That is what makes the resize and Pan cases mean anything: a
 //! hardcoded coordinate would either keep passing after the mapping broke or
 //! start failing for reasons that have nothing to do with it.
@@ -47,7 +47,7 @@
 //! Deriving it is also the limit of what those cases prove, and the limit is
 //! deliberate. `presented_source` makes the same `presented_grid` call
 //! `show_source_scene` makes, so what the click tests pin is the *round trip*:
-//! that `cell_rect` and `cell_at` remain mutual inverses under a transform the
+//! that `cell_rect` and `cell_at` remain mutual inverses under an origin the
 //! console has moved, and that a click at the coordinate `cell_rect` answers
 //! reaches the Source as that Cell. An error inside `presented_grid` itself — a
 //! mishandled `pixels_per_point`, a rounded corner off by a Cell — would move
@@ -84,7 +84,7 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::source_view::{SOURCE_MARGIN_CELLS, source_bounds};
+use super::source_view::SOURCE_MARGIN_CELLS;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
@@ -154,7 +154,7 @@ fn cell_under_cursor(console: &Console) -> Option<char> {
 ///
 /// Where the console presented its Source Grid on the last frame.
 ///
-/// The same three calls `show_source_scene` makes, asked of the transform the
+/// The same call `show_source_scene` makes, asked of the origin the
 /// pass left behind rather than re-derived from a console area — so a
 /// coordinate built from this is the coordinate the Cells were actually painted
 /// at, whatever the window has since done.
@@ -164,8 +164,7 @@ fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
     let grid = console.orcvs.render_frame().grid();
 
     presented_grid(
-        console.source_view.to_global,
-        source_bounds(grid),
+        console.source_view.origin,
         grid,
         harness.ctx.pixels_per_point(),
     )
@@ -219,7 +218,7 @@ async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
         "a fresh console opened with the Diagnostics window already showing"
     );
     assert!(
-        harness.query_by_label("Source zoom").is_none(),
+        harness.query_by_label("Visible Source region").is_none(),
         "the Diagnostics window was in the tree before anything opened it"
     );
 
@@ -236,8 +235,14 @@ async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
         "the View menu's checkbox did not reach the console's own state"
     );
     assert!(
-        harness.query_by_label("Source zoom").is_some(),
+        harness.query_by_label("Visible Source region").is_some(),
         "the console holds diagnostics_open but presented no Diagnostics window"
+    );
+    // egui's zoom is the one zoom, and the Pixels per point row already
+    // reports it, so the window reports no Source zoom of its own.
+    assert!(
+        harness.query_by_label("Source zoom").is_none(),
+        "the Diagnostics window reported a Source zoom"
     );
 }
 
@@ -974,8 +979,7 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
 ///
 /// A command `+`, `=`, `-` or `0` chord is egui's whole-UI zoom, stepped by
 /// egui's own step within egui's own range, and never the Source's: the
-/// Source View's own Zoom and Pan stay where they were and no Cell is
-/// written. The bare characters the chords are built from are still Source
+/// Source View's Pan stays where it was and no Cell is written. The bare characters the chords are built from are still Source
 /// input.
 ///
 #[tokio::test]
@@ -1005,10 +1009,6 @@ async fn command_zoom_chords_change_egui_zoom_and_never_the_source() {
             harness.ctx.zoom_factor(),
             expected,
             "command {key:?} did not step egui's zoom to {expected}"
-        );
-        assert_eq!(
-            console.source_view.zoom, 1.0,
-            "command {key:?} changed the Source View's Zoom"
         );
         assert_eq!(
             console.source_view.pan, pan,
@@ -1501,8 +1501,7 @@ const FILE_ITEMS: [(&str, bool, Key); 4] = [
 
 ///
 /// The View menu's zoom items are egui's own, above Diagnostics, each showing
-/// egui's chord and stepping egui's zoom as that chord does. None of them
-/// changes the Source View's own Zoom.
+/// egui's chord and stepping egui's zoom as that chord does.
 ///
 #[tokio::test]
 async fn the_view_menu_zooms_egui_as_its_chords_do() {
@@ -1557,26 +1556,21 @@ async fn the_view_menu_zooms_egui_as_its_chords_do() {
             expected,
             "View → {item} did not step egui's zoom as its chord does"
         );
-        assert_eq!(
-            harness.state().source_view.zoom,
-            1.0,
-            "View → {item} changed the Source View's Zoom"
-        );
     }
 }
 
 ///
-/// The pointer-to-Cell round trip after the transform has moved, which is the
+/// The pointer-to-Cell round trip after the origin has moved, which is the
 /// one thing a fixed coordinate cannot test.
 ///
 /// Two stages, in order: a resize, and a middle-drag Pan. After each, the
-/// click target is read back out of the transform the console is presenting
+/// click target is read back out of the origin the console is presenting
 /// under, and the Cell it selects has to be the Cell that coordinate was
 /// painted from.
 ///
 /// That is a round trip and not a geometry assertion: the target comes from
 /// the same `presented_grid` call `show_source_scene` makes, so this holds
-/// `cell_rect` and `cell_at` to inverting each other under a moved transform,
+/// `cell_rect` and `cell_at` to inverting each other under a moved origin,
 /// and holds a click at `cell_rect`'s answer to reaching the Source as that
 /// Cell — the whole input path, from the toolkit's event through the one Grid
 /// rectangle and `show_source`'s answered Position to `Console::ui`'s
@@ -1589,12 +1583,12 @@ async fn the_view_menu_zooms_egui_as_its_chords_do() {
 /// already inside whatever clamp a smaller console asks for, so Cell (3, 1)
 /// stays exactly where it was — only how much of the Grid is on screen has
 /// changed. That is asserted rather than assumed, because a round trip
-/// through a transform that did not move proves nothing about it. The drag is
-/// what actually moves the transform, and the Pan recorded before it guards
+/// through an origin that did not move proves nothing about it. The drag is
+/// what actually moves the origin, and the Pan recorded before it guards
 /// that stage the same way.
 ///
 /// The selection is also asserted across the resize itself. The Cursor belongs
-/// to the Source and the transform belongs to the console, so a resize that
+/// to the Source and the origin belongs to the console, so a resize that
 /// moved it would mean a presentation change had reached the Source.
 ///
 #[tokio::test]
@@ -1611,7 +1605,7 @@ async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer()
     );
 
     // Smaller than the Source on both axes, so the Pan stage below has
-    // somewhere to go — the default window is an exact fit at Zoom 1.0 and
+    // somewhere to go — the default window is an exact fit at egui's zoom factor of 1.0 and
     // leaves no room to Pan at all.
     harness.set_size(Vec2::new(320.0, 300.0));
     harness.run_steps(2);
@@ -1635,9 +1629,9 @@ async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer()
     );
 
     // A middle-drag Pan over the Grid, the one gesture here that actually
-    // moves the owned transform: `show_source_scene` folds the drag into
+    // moves the owned origin: `show_source_scene` folds the drag into
     // `SourceView::pan`. Every later coordinate has to come back through the
-    // moved transform.
+    // moved origin.
     let pan_before = harness.state().source_view.pan;
     let start = cell_centre(&harness, 6, 5);
     let dragged_to = start - Vec2::new(80.0, 60.0);
@@ -1691,7 +1685,7 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
     );
 
     // Smaller than the Source on both axes, so there is somewhere to Pan —
-    // the default window is an exact fit at Zoom 1.0 and leaves no room to
+    // the default window is an exact fit at egui's zoom factor of 1.0 and leaves no room to
     // Pan at all, the same reason
     // `a_resized_and_panned_console_still_selects_the_cell_under_the_pointer`
     // resizes before its own middle-drag Pan.
@@ -1933,7 +1927,7 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// scheduling asks for nothing at all.
 ///
 /// The console is resized to a width that is not a multiple of `CELL_SIZE`,
-/// so Column 10 (192..208 at Zoom 1.0, after the two-Cell margin) is cut off
+/// so Column 10 (192..208 at egui's zoom factor of 1.0, after the two-Cell margin) is cut off
 /// at the console's right edge (200) and a click on it needs the follow to
 /// bring it fully into view.
 ///
