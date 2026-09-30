@@ -260,7 +260,7 @@ impl Broadcast {
     }
 }
 
-/// The operand stack one Expression evaluates against.
+/// The operand stack one Function evaluation runs against.
 ///
 /// It holds a [`Value`] rather than an `Atom` so a Sequence produced by one
 /// Function can be consumed by another without becoming Source writes

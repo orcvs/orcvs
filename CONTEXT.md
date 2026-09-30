@@ -69,7 +69,7 @@ The evaluator that turns a Function and its typed operands into one value or ter
 _Avoid_: Virtual machine, VM, interpreter loop, runtime
 
 **Operand Stack**:
-The stack of values one Expression is evaluated against. A literal Atom pushes one value onto it, and a Function pops the operands its signature declares and pushes one value in their place; an effect is never pushed onto it. It is created for one Expression and discarded when that Expression answers, so nothing carries from one Expression to the next or from one Tick to the next. ADR 0028 requires its depth to be proven sufficient for every Expression the parser accepts, or exhausting it to answer a diagnostic.
+The stack of operand values one Function is evaluated against. It holds exactly the operands that Function's signature declares, in signature order, and the Function pops them from it; neither the Function's answer nor an effect is ever pushed onto it. An operand list of any other length is refused before the stack exists, so its depth never exceeds the widest signature any Function declares. It is created for one evaluation and discarded when that Function answers, so nothing carries from one evaluation to the next or from one Tick to the next. ADR 0028 bounds its depth by the Function table and has a push past that bound answer a diagnostic rather than panic.
 _Avoid_: Value stack, call stack, machine memory, register
 
 **Function**:
