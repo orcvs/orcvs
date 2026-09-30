@@ -81,7 +81,10 @@
 // global allocator it has no `System` for.
 #![cfg(not(target_arch = "wasm32"))]
 
-use lang::{Anchor, Atom, Function, Interpreter, Parser, Sequence, Tick, TickInputs, Value};
+use lang::{
+    Anchor, Atom, Error, Function, FunctionInputs, InterpretationError, Interpreter, Parser,
+    PortalSource, Sequence, Tick, TickInputs, Value,
+};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::hint::black_box;
@@ -562,4 +565,48 @@ fn a_turn_that_builds_a_sequence_allocates_only_that_answer() {
         concatenate.blocks <= 1 && concatenate.bytes <= 2 * length * atom,
         "Concatenate of two {length}-member Sequences took {concatenate:?}"
     );
+}
+
+#[test]
+fn a_jump_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
+    // A Jump reads the two Cells at its input Portal as a Function, a Number
+    // or a Note, and refuses any other spelling with a `JumpInput` that owns
+    // no text. Asking which of the three the Cells spell borrows them, so a
+    // Note or an unreadable spelling costs nothing on the way through the
+    // readings it is not, and the refusal a Turn reports is itself no block.
+    //
+    // `G4` is the Note: a Note spelled in hexadecimal digits, such as `C4`,
+    // reads as a Number first and never reaches the Note reading.
+    let tick = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
+    let jump = |cells: &str| {
+        Interpreter::execute_function(
+            black_box(Function::JumpEast),
+            [],
+            FunctionInputs::with_portal_source(tick, PortalSource::from_cells(Some(cells))),
+        )
+    };
+
+    for cells in [".+", "0A", "G4", "xx"] {
+        // Warm up, for the reason the call test gives.
+        let _ = black_box(jump(cells));
+        let (allocations, answer) = measure(|| jump(black_box(cells)));
+        if cells == "xx" {
+            assert!(
+                matches!(
+                    answer,
+                    Err(Error::Interpretation(InterpretationError::JumpInput {
+                        function: Function::JumpEast
+                    }))
+                ),
+                "{cells:?} was copied: {answer:?}"
+            );
+        } else {
+            answer.expect("the Jump copies its Portal Cells");
+        }
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "a Jump over {cells:?} allocated"
+        );
+    }
 }

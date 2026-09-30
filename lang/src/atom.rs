@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Error, TypeError, midi_note_to_number, midi_number_to_note, str_to_num};
+use crate::{Error, TypeError, midi_note_to_number, midi_number_to_note};
 
 pub type Atoms = Vec<Atom>;
 
@@ -1117,18 +1117,28 @@ impl Function {
     }
 }
 
+/// The Note Atom two Cells spell, borrowing them and building nothing on
+/// refusal. [`to_atom_note`] answers through this and builds its
+/// [`TypeError::Note`] only where a refusal is reported.
+pub(crate) fn note_atom_from_spelling(s: &str) -> Option<Atom> {
+    midi_note_to_number(s).map(|n| Atom::Note(Note(n)))
+}
+
+/// The Number Atom two Cells spell, borrowing them and building nothing on
+/// refusal. [`to_atom_num`] answers through this and builds its
+/// [`TypeError::Number`] only where a refusal is reported.
+pub(crate) fn number_atom_from_spelling(s: &str) -> Option<Atom> {
+    crate::number_from_spelling(s).map(Atom::Number)
+}
+
 #[inline(always)]
 pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
-    match midi_note_to_number(s) {
-        Some(n) => Ok(Atom::Note(Note(n))),
-        None => Err(TypeError::Note(s.to_string()))?,
-    }
+    note_atom_from_spelling(s).ok_or_else(|| TypeError::Note(s.to_string()).into())
 }
 
 #[inline(always)]
 pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
-    let n = str_to_num(s)?;
-    Ok(Atom::Number(n))
+    number_atom_from_spelling(s).ok_or_else(|| TypeError::Number(s.to_string()).into())
 }
 
 impl From<Atom> for String {
