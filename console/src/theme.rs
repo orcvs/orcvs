@@ -75,7 +75,7 @@ pub(crate) enum WidthError {
 ///
 /// A Grid, Cell or Sector Seam stroke width in display points: 0 to 1
 /// inclusive (`schema.md`'s width catalogue). Zero hides the stroke; the
-/// value is fixed in display points and never scales with Grid zoom.
+/// value is fixed in display points and never scales with the Cell size.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct GridWidth(f32);

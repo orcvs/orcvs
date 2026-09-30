@@ -2679,7 +2679,7 @@ mod tests {
     /// `None` is a statement about the viewport rather than about the Render
     /// Frame: the same Frame answers a Cursor to a Paint whose range reaches
     /// it. A derivation that searched its own Cells and insisted on finding
-    /// one would panic on every zoomed console whose Cursor is off screen.
+    /// one would panic on every panned console whose Cursor is off screen.
     ///
     #[tokio::test]
     async fn the_cursor_is_answered_only_where_the_paint_covers_it() {

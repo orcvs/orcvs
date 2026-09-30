@@ -28,13 +28,11 @@ The second command is the duplicate check: one version of each egui crate.
 Multiple `accesskit_consumer` entries inside `accesskit_winit` are expected
 (dev and inspection only); a *second egui version* is a fault. The three
 direct requirements are exact (`=0.36.2`). Pins are exact; moving the stack
-is its own ticket — it re-reads the citations the `console` module takes from this
-release (`epaint-0.36.2/src/text/font.rs:567`,
-`epaint-0.36.2/src/text/mod.rs:62`, `epaint-0.36.2/src/text/fonts.rs:728-742`,
-`egui-0.36.2/src/containers/scene.rs`, `egui-0.36.2/src/context.rs:437-447`,
-`emath-0.36.2/src/ts_transform.rs:55-57`,
-`egui-0.36.2/src/response.rs:453-466`), re-runs the geometry and painting
-tests in `console::tests`, and moves `egui_kittest` with it. `epaint`,
+is its own ticket — it re-reads every upstream citation the `console` crate
+takes from this release (`grep -rn '0\.36\.2' console/src` lists them; the
+load-bearing one is `Fonts::begin_pass`, `epaint-0.36.2/src/text/fonts.rs:728-742`,
+behind the one-frame `GlyphTable` in `console/src/console/glyphs.rs`), re-runs
+the geometry and painting tests in `console::tests`, and moves `egui_kittest` with it. `epaint`,
 `emath` and `ecolor` are held by the lockfile; if they drift,
 `cargo update epaint --precise 0.36.2` (and the same for the other two) is
 the repair. `egui_mcp`'s version is its own: 0.2.0 requires
@@ -55,6 +53,7 @@ Orcvs first — the contract, the domain model, the decisions:
 - ADR 0041 — the Playback Engine owns its state in one task.
 - ADR 0042 — freedom from the toolkit is necessary to live in `orcvs`, not
   sufficient.
+- ADR 0058 — zoom is egui's whole-UI zoom; the Source has no scale of its own.
 
 Then the framework, at the pinned release:
 
@@ -110,19 +109,23 @@ one is arguing with an ADR, which is a ticket rather than an edit.
   for every Shape. Cells are painted into the rectangle; they are not widgets.
   A `Painter::add` per Cell takes a `Context` write lock per Cell. ADR 0040 is
   the decision; `console/benches/paint.rs` measures it.
-- **The console owns the transform.** `SourceView { to_global, adjusted }`, not
-  an `egui::Scene` region. `egui::Scene::register_pan_and_zoom` is still used
-  for zoom-at-pointer, smooth scroll and the zoom clamp, because all three are
-  layer-independent; its drag-pan branch is switched off with
-  `DragPanButtons::empty()` and replaced, because that branch corrects for a
-  division that happens only inside a transformed layer. ADR 0038.
+- **The console owns the Source's origin.** `SourceView` holds a `pan` and
+  the `origin` the Source's top-left is presented at, not an `egui::Scene`
+  region, and `presented_grid(origin, grid, pixels_per_point)` is the one place
+  a Cell's rectangle is derived from it. Pan is the console's own: scroll
+  through `smooth_scroll_delta`, middle-drag, and Alt with a primary drag.
+  ADR 0038.
+- **The Source has no scale of its own.** Zoom is egui's whole-UI zoom, folded
+  into `pixels_per_point`: a Cell stays `CELL_SIZE` points, snapped to whole
+  physical pixels, and a Glyph is laid out at the Source's own size. Do not
+  add a Source scale or read a zoom into a `FontId`. ADR 0058.
 - **No layer transform.** A transformed layer reaches every `TextShape` in it
   through `Arc::make_mut` at end of pass, and a cached galley's refcount is
-  never one. This is why glyphs are laid out at the size they are drawn at
-  instead.
-- **Glyph scale is quantised** to `GLYPH_SCALE_STEP` (an eighth), taken
-  downwards. The long comment above that constant is an atlas budget with
-  numbers in it; read it before changing how a size reaches a `FontId`.
+  never one. This is why egui's `pixels_per_point` does the enlargement rather
+  than a layer transform.
+- **The `GlyphTable` lives for one Render Frame.** Its comment in
+  `console/src/console/glyphs.rs` states why retaining it across frames paints
+  the wrong character; read it before caching a galley.
 - **Colour comes from the resolved `Theme` and `style(theme)`**,
   `console/src/style.rs`/`theme.rs`. Not from a literal at the call site.
 - **Reduced motion is honoured** through `prefers_reduced_motion` and
@@ -280,8 +283,8 @@ So the Source view is reached four ways, and each answers a different question:
 | Question | Tool |
 | --- | --- |
 | Is this control there, and does it say what it should? | Semantic query — `get_by_label`, `query_tree` with a role or text predicate. Chrome only. |
-| Does a click at this Cell select this Cell? | Coordinate input, with the coordinate **derived from the live transform**: `presented_grid(view.to_global, source_bounds(grid), grid, ppp).cell_rect(col, row).center()`. Never a written-down screen position. |
-| Is the geometry right — square Cells, the fit, the letterboxing, the visible range? | Assert on `GridViewport` directly. `console/src/grid_viewport.rs` is full of these and they need no window. |
+| Does a click at this Cell select this Cell? | Coordinate input, with the coordinate **derived from the live origin**: `presented_grid(view.origin, grid, ppp).cell_rect(col, row).center()`. Never a written-down screen position. |
+| Is the geometry right — square Cells, the whole-pixel snap, the Pan translation, the visible range? | Assert on `GridViewport` directly. `console/src/grid_viewport.rs` is full of these and they need no window. |
 | Did it paint the right thing? | Assert on the `Shape`s, as `console::tests` does. |
 | Does it *look* right? | A human, or a screenshot in an inspection session. Not an automated gate — see below. |
 
@@ -301,16 +304,16 @@ and it holds three things:
 - a menu control found by label and asserted through both the console's state
   and the window it opens;
 - the Source's keyboard path, which is not a widget and so has no locator;
-- the pointer-to-Cell round trip after a resize and after a zoom, with every
-  coordinate read back out of the transform in force at the moment of the click.
+- the pointer-to-Cell round trip after a resize and a Pan, with every
+  coordinate read back out of the origin in force at the moment of the click.
 
 That third one is a round trip and not a geometry assertion, and the difference
 decides where a new case belongs. The click target comes from the same
 `presented_grid` call `show_source_scene` makes, so what it holds is that
-`cell_rect` and `cell_at` still invert each other under a transform the console
+`cell_rect` and `cell_at` still invert each other under an origin the console
 has moved, and that a click at the coordinate `cell_rect` answers reaches the
 Source as that Cell. A fault inside `presented_grid` itself — a mishandled
-`pixels_per_point`, a letterbox origin off by a Cell — moves both sides of that
+`pixels_per_point`, a rounded corner off by a Cell — moves both sides of that
 equality and passes here. Where the Grid actually lands is `console::tests`' and
 `grid_viewport::tests`' to assert, and the module documentation names which
 tests those are.

@@ -4,19 +4,43 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Tags:** release/v1
 
-- [ ] The console no longer turns egui's keyboard zoom off. Command `+`, command `=` and command `-` step egui's zoom factor by egui's own step within egui's own range, and command `0` returns it to 1.0.
-- [ ] No command chord changes the Source View's Zoom or Pan, and no chord writes to the Source. Bare `+`, `-`, `=` and `0` still write Glyphs.
-- [ ] The View menu offers egui's Zoom In, Zoom Out and Reset buttons, with their chords shown, beside the existing mode and Theme pickers.
-- [ ] A zoomed console paints square, whole-physical-pixel Cells, and Grid lines, Sector Seams and Cursor strokes keep their Theme's display-point widths.
-- [ ] A zoom that would open a gap past the Grid's edge settles the Source View back inside the margin, and the Cursor follow keeps the Cursor in view.
-- [ ] In a persistence build a zoom factor is restored after a save and restart. A build without persistence starts at 1.0.
-- [ ] The web build is checked in the headless browser suite: command `+` changes egui's zoom factor, and whether the browser also zooms the page is recorded. If both zoom, the double zoom is removed.
-- [ ] A new ADR supersedes ADR 0045's zoom section. It records egui's whole-UI zoom as the console's only zoom, and command-shift withdrawn because it collides with egui's logical match of command `+`. ADR 0045's Status line points to it.
-- [ ] CONTEXT.md's **Zoom** is redefined as egui's whole-UI zoom.
+- [x] The console no longer turns egui's keyboard zoom off. Command `+`, command `=` and command `-` step egui's zoom factor by egui's own step within egui's own range, and command `0` returns it to 1.0.
+- [x] No command chord changes the Source View's Zoom or Pan, and no chord writes to the Source. Bare `+`, `-`, `=` and `0` still write Glyphs.
+- [x] On native the View menu offers egui's Zoom In, Zoom Out and Reset buttons, with their chords shown, beside the existing mode and Theme pickers. The web's View menu offers none.
+- [x] A zoomed console paints square, whole-physical-pixel Cells, and Grid lines, Sector Seams and Cursor strokes keep their Theme's display-point widths.
+- [x] A zoom that would open a gap past the Grid's edge settles the Source View back inside the margin, and the Cursor follow keeps the Cursor in view.
+- [x] In a persistence build a zoom factor is restored after a save and restart. A build without persistence starts at 1.0.
+- [x] The web build is checked in the headless browser suite: command `+`, `=`, `-` and `0` leave egui's zoom factor at 1.0, and the web View menu offers no zoom items, so egui adds no zoom on top of the browser's.
+- [ ] Checked by hand in a real browser, because a synthetic key event cannot trigger the browser's page zoom: command `+` zooms the page once and command `0` returns it, so on the web the chords change exactly one zoom, the browser's.
+- [x] A new ADR supersedes ADR 0045's zoom section. It records egui's whole-UI zoom as the console's only zoom, and command-shift withdrawn because it collides with egui's logical match of command `+`. ADR 0045's Status line points to it.
+- [x] CONTEXT.md's **Zoom** is redefined as egui's whole-UI zoom.
 - [x] `source-view/12` is marked superseded by this issue.
-- [ ] `command_zoom_chords_change_the_source_view_and_never_the_source` becomes a test that the chords change egui's zoom factor and never the Source. The kittest harness over the running console is the seam.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and the `--no-default-features` arm pass. `mise run check_wasm` passes.
+- [x] `command_zoom_chords_change_the_source_view_and_never_the_source` becomes a test that the chords change egui's zoom factor and never the Source. The kittest harness over the running console is the seam.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and the `--no-default-features` arm pass. `mise run check_wasm` passes.
+
+## Comments
+
+**2026-09-29 — implemented on `feat/egui-whole-ui-zoom`.** Every line but the web one is met, each by a test through the shipped console:
+
+- Chords, range, reset and bare characters: `console::kittest_tests::command_zoom_chords_change_egui_zoom_and_never_the_source` (the renamed test) drives command `=`, `+`, `-` and `0` through the kittest harness and asserts egui's zoom factor steps by a tenth within 0.2..=5.0, the Source View's Zoom stays 1.0, its Pan does not move and no Cell is written; bare `+`, `-`, `=` and `0` write Glyphs.
+- View menu: `the_view_menu_zooms_egui_as_its_chords_do` finds egui's own Zoom In, Zoom Out and Reset Zoom above Diagnostics, each showing egui's chord, and clicks them through egui's zoom factor.
+- Painting: `a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths` zooms to 1.3 by chord and asserts square Cells a whole number of physical pixels at a whole-pixel corner, and the painted Grid line, Sector Seam and Cursor strokes at the Theme's point widths.
+- Bounds and follow: `console::tests::a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside` and `a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it` over egui's zoom factor, and `arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_follow_it` at egui zoom 2.0. The Source View follows the Cursor when egui's zoom factor changes from the last frame's.
+- Persistence: `a_zoom_survives_a_save_and_a_restart` (persistence, native) writes egui memory through the native RON codec under eframe's `egui` key, restarts over it and finds zoom 1.3. Without persistence nothing restores egui memory, and the chords test, which runs in the `--no-default-features` arm, opens at 1.0.
+- ADR 0058 supersedes ADR 0045's zoom section; ADR 0045's Status line and `CONTEXT.md`'s **Zoom** point to egui's zoom.
+
+`ZoomCommand`, `zoom_command`, `stepped_zoom` and the View menu's `requested_zoom` are deleted here rather than in `02`: with no input reaching them they are dead code, which the clippy gate refuses. Their unit tests, and the Source View chord-step and chord-limit tests, went with them. The Source View's `zoom` field, `MIN_ZOOM`/`MAX_ZOOM` and the Glyph scale remain for `02`.
+
+**Web line: unmet, and its premise does not hold.** Read from `eframe-0.36.2`, not observed in a browser: eframe's web runner sets `zoom_with_keyboard = false` and `zoom_factor = 1.0` before it builds the app (`src/web/app_runner.rs`, `AppRunner::new`), and `should_prevent_default_for_key` (`src/web/events.rs`) does not prevent the browser's default for command `+`, `=`, `-` or `0`. So on the web command `+` zooms the browser's page, which eframe follows as the native `pixels_per_point`, and does **not** change egui's zoom factor. There is no double zoom, and the outcome that avoids one is eframe's default, which the console now leaves alone. ADR 0058 records the browser's zoom as the web's one zoom. `console/tests/wasm.rs`'s `zoom::the_zoom_chords_leave_the_zoom_to_the_browser` holds the console's half: built over the options eframe's web runner sets, the console leaves keyboard zoom off, and the four chords leave egui's zoom factor at 1.0. `mise run check_wasm` compiles it; running it is the merge tier's headless Firefox run, which has not happened yet. What no automated test can observe is the browser's own page zoom: a synthetic key event does not trigger it. Whether the web View menu should keep egui's zoom buttons, which do change egui's factor on top of the browser's zoom and show no chord there, is open.
+
+**2026-09-30 — the web View menu's zoom, and the web line still open.** egui 0.36's `gui_zoom::zoom_menu_buttons` calls `set_zoom_factor` whatever `zoom_with_keyboard` says, and on the web eframe computes pixels per point as `zoom_factor * native_pixels_per_point` (`eframe-0.36.2/src/web/mod.rs`), where the device pixel ratio already carries the browser's page zoom. So View → Zoom In on the web multiplied egui's factor onto the browser's zoom: the double zoom story 16 forbids, shown without chords, reset by nothing the browser's command `0` reaches, and dropped on reload because eframe forces the factor to 1.0 after loading memory. The earlier comment's "there is no double zoom" held for the chords only. The zoom buttons are now native-only (`console/src/console/menu_bar.rs`), and ADR 0058's web paragraph says so.
+
+`console/tests/wasm.rs`'s `zoom` module now holds both routes: `the_zoom_chords_leave_the_zoom_to_the_browser` and `the_view_menu_offers_no_zoom_over_the_browsers`, which opens the web View menu by pointer through the AccessKit tree and finds Diagnostics and no zoom item. `mise run check_wasm` compiles them. Neither has been observed red or green in a browser: a local `wasm-pack test --headless --firefox console --test wasm -- zoom::` run lost its geckodriver to SIGKILL before any test ran, so the merge tier's headless Firefox run is their first.
+
+The web line stays unticked. What would close it: the merge tier's headless run passing both `zoom` tests (egui's factor stays 1.0 under the chords and the menu offers no egui zoom), plus a manual check in a real browser that command `+` zooms the page once and command `0` returns it, since a synthetic key event cannot trigger the browser's page zoom. The line's wording, "command `+` changes egui's zoom factor", describes the outcome this effort rejected for the web; whether to reword it to "command `+` changes exactly one zoom, the browser's" is a decision for the ticket owner.
+
+**2026-09-30 — the web line reworded, the automated half met.** The line asked that command `+` change egui's zoom factor on the web, the outcome ADR 0058 rejected: on the web the browser's page zoom is the one zoom. It now reads as spec story 16 does, one zoom and the browser's, and is split in two. The automated half is ticked: the merge tier's `Rust` workflow run [36681527909](https://github.com/orcvs/orcvs/actions/runs/36681527909) (`workflow_dispatch`, commit `00280c39`) passed its `wasm` job's headless Firefox suite, including `zoom::the_zoom_chords_leave_the_zoom_to_the_browser` and `zoom::the_view_menu_offers_no_zoom_over_the_browsers` (18 passed, 0 failed). The manual half stays open: no run has observed the browser's page zoom itself, so the remaining line is a check for a person in a real browser, and the Status is `ready-for-human` until it is done.

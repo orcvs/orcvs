@@ -1,8 +1,8 @@
-//! The Source View: the Zoom and Pan the Source is presented under, how a
-//! Cursor move or a Region drag moves them, and what the pointer asks of the
-//! Region each Render Frame.
+//! The Source View: the Pan the Source is presented under, how a Cursor move,
+//! a Region drag or a change of the console's size in points moves it, and
+//! what the pointer asks of the Region each Render Frame.
 
-use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Sense, Vec2, emath::TSTransform};
+use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Sense, Vec2};
 use orcvs::{
     app::Orcvs,
     grid::{Grid, Position},
@@ -10,15 +10,11 @@ use orcvs::{
 };
 
 use super::Console;
-use super::glyphs::GLYPH_SCALE_STEP;
-use super::input::{ZoomCommand, zoom_command};
 use super::shapes::{effect_outline, show_source};
 use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::theme::{Appearance, Theme};
 
-pub(super) const MIN_ZOOM: f32 = 0.25;
-pub(super) const MAX_ZOOM: f32 = 2.0;
 ///
 /// How far past the console's edge, in points, a Region drag's pointer has to
 /// be for each point the Source View scrolls a frame after it. A pointer four
@@ -29,60 +25,34 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 ///
 /// The margin, in Cells, between the Grid and the console at rest and the
 /// distance a Pan can reach past each Grid edge. It is counted in
-/// Cells so it scales with the Zoom, and it is measured in the snapped Cell
-/// side so it is always a whole number of physical pixels.
+/// Cells and measured in the snapped Cell side, so it is always a whole number
+/// of physical pixels.
 ///
 pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 
 ///
-/// `zoom` after one keyboard Zoom command: stepped by [`GLYPH_SCALE_STEP`] and
-/// clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`].
+/// The Source View: a Pan, presented as the origin the Cells are drawn from.
 ///
-/// Stepped from the nearest multiple of the step rather than by adding it, so
-/// a long session stays exactly on the grid [`glyph_scale`](super::glyphs::glyph_scale) quantises to
-/// instead of drifting off it through repeated float addition. `Reset`
-/// answers 1.0 outright, whatever step `zoom` was on.
+/// The Source is drawn at its own Cell size in points. egui's whole-UI zoom
+/// is what enlarges it with the rest of the console, through
+/// `pixels_per_point`, so the Source View holds no scale of its own. Pan is
+/// anchored at the console's top-left and is bounded by the Grid: an axis the
+/// whole Source already fills has nowhere to Pan, and a Pan that would open a
+/// gap past an edge settles back inside.
 ///
-pub(super) fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
-    if command == ZoomCommand::Reset {
-        return 1.0;
-    }
-    let direction = if command == ZoomCommand::In {
-        1.0
-    } else {
-        -1.0
-    };
-    let steps = (zoom / GLYPH_SCALE_STEP).round() + direction;
-    (steps * GLYPH_SCALE_STEP).clamp(MIN_ZOOM, MAX_ZOOM)
-}
-
-pub(super) fn source_bounds(grid: Grid) -> Rect {
-    Rect::from_min_size(
-        Pos2::ZERO,
-        Vec2::new(grid.columns() as f32, grid.rows() as f32) * CELL_SIZE,
-    )
-}
-
+/// A Cursor move that would leave the Cursor's Cell outside the console Pans
+/// the least distance that brings the whole Cell back into view, still bounded
+/// by the Grid; a Pan on its own does not chase the Cursor. A zoom or resize
+/// that changes the console's size in points, or the snapped Cell side, does
+/// the same only for a Cursor the view showed in full before it, so a Pan the
+/// viewer chose away from the Cursor survives it. `previous_cursor` and
+/// `previous_console` are what tell those changes apart from a frame that
+/// merely redrew the Cursor.
 ///
-/// The Source View: a Zoom and a Pan, presented as the scale and translation
-/// the Cells are drawn under.
-///
-/// Zoom opens at 1.0 — the Source's own Cell — and is a stated step, never a
-/// property of the window. Pan is anchored at the console's top-left and is
-/// bounded by the Grid: an axis the whole Source already fills has nowhere to
-/// Pan, and a Pan that would open a gap past an edge settles back inside.
-///
-/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
-/// console Pans the least distance that brings the whole Cell back into view,
-/// still bounded by the Grid; a Pan on its own does not chase the Cursor.
-/// `previous_cursor` is what tells a Cursor move apart from a frame that
-/// merely redrew it.
-///
-/// `to_global` is derived each frame from Zoom, Pan and the console's origin
-/// so `presented_grid` and the diagnostics still read one transform.
+/// `origin` is derived each frame from the Pan, the margin and the console's
+/// top-left, so `presented_grid` and the diagnostics read one position.
 ///
 pub(super) struct SourceView {
-    pub(super) zoom: f32,
     pub(super) pan: Vec2,
     /// The Cursor [`show_source_scene`] last saw, so a change from one frame
     /// to the next reads as a Cursor move worth following rather than every
@@ -93,21 +63,24 @@ pub(super) struct SourceView {
     /// The anchor of the primary drag selecting a Region, while one is in
     /// progress. The Cursor follow is paced to the pointer while it is.
     region_drag: Option<Position>,
-    /// A Zoom command the View menu asked for this frame, applied by the
-    /// next [`show_source_scene`] exactly as the chord it names would be.
-    pub(super) requested_zoom: Option<ZoomCommand>,
-    pub(super) to_global: TSTransform,
+    /// The console's size in points and the snapped Cell side on the last
+    /// frame [`show_source_scene`] presented, so a change of either reads as
+    /// a zoom or resize worth following, and so whether the Cursor showed
+    /// under them can be asked. `None` before the first frame, as
+    /// `previous_cursor` is.
+    previous_console: Option<(Vec2, f32)>,
+    /// Where the Source's own top-left was presented on the last frame.
+    pub(super) origin: Pos2,
 }
 
 impl Default for SourceView {
     fn default() -> Self {
         Self {
-            zoom: 1.0,
             pan: Vec2::ZERO,
             previous_cursor: None,
             region_drag: None,
-            requested_zoom: None,
-            to_global: TSTransform::IDENTITY,
+            previous_console: None,
+            origin: Pos2::ZERO,
         }
     }
 }
@@ -146,10 +119,7 @@ fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
 ///
 fn followed_cell(cursor: Position, grid: Grid, side: f32) -> Rect {
     let margin = SOURCE_MARGIN_CELLS * side;
-    let cell = Rect::from_min_size(
-        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side + Vec2::splat(margin),
-        Vec2::splat(side),
-    );
+    let cell = cursor_cell(cursor, side);
     let reach = |at: usize, count: usize| {
         let near = if at == 0 { margin } else { 0.0 };
         let far = if at + 1 == count { margin } else { 0.0 };
@@ -160,6 +130,18 @@ fn followed_cell(cursor: Position, grid: Grid, side: f32) -> Rect {
     Rect::from_min_max(
         cell.min - Vec2::new(left, top),
         cell.max + Vec2::new(right, bottom),
+    )
+}
+
+///
+/// The Cursor's own Cell, without the margin [`followed_cell`] reaches
+/// across, in the same unpanned points of the padded Source.
+///
+fn cursor_cell(cursor: Position, side: f32) -> Rect {
+    let margin = SOURCE_MARGIN_CELLS * side;
+    Rect::from_min_size(
+        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side + Vec2::splat(margin),
+        Vec2::splat(side),
     )
 }
 
@@ -225,21 +207,15 @@ fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
 }
 
 ///
-/// Whether `to_global` can be presented and inverted.
+/// Whether `origin` can be presented: finite on both axes.
 ///
-/// `egui::Scene::show` resets a transform that has gone bad, and the Source is
-/// presented without that container, so nothing resets it here. `grid_viewport` answers a Cell
-/// size of zero for a console with no area, so the fit it yields has a scaling
-/// of zero, and `TSTransform::inverse` divides by the scaling — which the
-/// Diagnostics window does to report the visible Source region. An
-/// unguarded zero therefore answers NaN.
+/// The origin is the console's corner plus a Pan built from pointer input, and
+/// nothing else resets one that has gone bad. A non-finite origin would put
+/// every Cell, every click and the Diagnostics window's visible Source region
+/// at NaN.
 ///
-/// `TSTransform::is_valid` is not enough on its own: it checks only
-/// `translation.x`, not `translation.y`, and admits a negative scaling, which
-/// would present the Source mirrored.
-///
-pub(super) fn is_presentable(to_global: TSTransform) -> bool {
-    to_global.scaling.is_finite() && to_global.scaling > 0.0 && to_global.translation.is_finite()
+pub(super) fn is_presentable(origin: Pos2) -> bool {
+    origin.is_finite()
 }
 
 ///
@@ -290,15 +266,14 @@ pub(super) struct PresentedSource {
 }
 
 ///
-/// Shows the Source in the console area at the Source View's Zoom and Pan, and
+/// Shows the Source in the console area at the Source View's Pan, and
 /// answers the geometry it was presented under along with the Region a click
 /// or a drag asked for.
 ///
-/// The console owns the scale and translation the Source is presented under —
-/// `view.to_global` — and `grid_viewport::presented_grid` is the one place that
-/// scale is applied, so a Cell's two axes still cannot part company: one
-/// `scaling` serves both. Every Cell, and so every click that lands on one,
-/// goes through that one arithmetic. Nothing here sets a layer transform.
+/// The console owns the origin the Source is presented at — `view.origin` —
+/// and `grid_viewport::presented_grid` is the one place a Cell's rectangle is
+/// derived from it. Every Cell, and so every click that lands on one, goes
+/// through that one arithmetic. Nothing here sets a layer transform.
 /// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
@@ -311,17 +286,19 @@ pub(super) struct PresentedSource {
 /// drag without Alt selects a Region from the pressed Cell to the Cell nearest
 /// the pointer; neither Pans. A drag past the console's edge scrolls after the
 /// Cursor at the pointer's pace, at most one Cell a frame. Pinch and command-wheel do not
-/// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
-/// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
-/// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
+/// zoom. Zoom is egui's whole-UI zoom, which changes the console's size in
+/// points and never the Source's; a zoom that would open a gap past an edge
 /// settles back inside through the same `clamp_pan` a Pan does.
 ///
-/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
-/// console Pans just far enough to bring it back, before that same
-/// `clamp_pan` settles the result inside the Grid; a Pan with neither is not
-/// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
-/// from this same Render Frame — `Console::ui` reads it after
-/// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
+/// A Cursor move that would leave the Cursor's Cell outside the console Pans
+/// just far enough to bring it back, before that same `clamp_pan` settles the
+/// result inside the Grid. A zoom (egui's or the browser's) or a resize does
+/// the same for a Cursor whose Cell the view showed in full the frame before;
+/// one the viewer had Panned out of view, even in part, stays where the Pan
+/// put it. A Pan with none of them is not pulled back to the Cursor. `frame`
+/// already carries a keyboard Cursor move from this same Render Frame — `Console::ui`
+/// reads it after `Orcvs::event_handler` runs — so that case is caught the
+/// frame it happens.
 /// A click's or a drag's Cursor move reaches the Source only after this call
 /// returns (`Console::show_source_panel` applies the [`PointerSelection`]
 /// next), so it is followed on the frame after, not this one.
@@ -335,7 +312,6 @@ pub(super) fn show_source_scene(
     theme: &Theme,
 ) -> PresentedSource {
     let source_grid = frame.grid();
-    let source = source_bounds(source_grid);
     // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
     // which adds `FOCUSABLE` and would let
     // Tab focus the console area, where a focused widget keeps every key from
@@ -343,22 +319,30 @@ pub(super) fn show_source_scene(
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
 
-    if !view.zoom.is_finite() || view.zoom <= 0.0 {
-        view.zoom = 1.0;
-    }
-    view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+    // The Cell side `presented_grid` will draw at, snapped to whole physical
+    // pixels, so the follow and the bounds below are measured against the
+    // Grid as drawn rather than the unsnapped extent the Source asks for.
+    let side = snapped_cell_side(CELL_SIZE, ui.ctx().pixels_per_point());
 
-    let zoom_before_command = view.zoom;
-    // A View menu item and a chord are the same command: the menu's is
-    // taken first, since a click that closed the menu carries no chord.
-    let command = view
-        .requested_zoom
-        .take()
-        .or_else(|| ui.input(|i| i.events.iter().find_map(zoom_command)));
-    if let Some(command) = command {
-        view.zoom = stepped_zoom(view.zoom, command);
-    }
-    let zoomed = view.zoom != zoom_before_command;
+    // The console's size in points rather than egui's zoom factor: on the web
+    // the browser's page zoom leaves that factor at 1.0, and eframe may report
+    // the new device pixel ratio a frame before the canvas's new size in
+    // points. egui's zoom, the browser's and a resize all change the size in
+    // points, and a new scale can move the snapped Cell side on its own.
+    //
+    // Only a Cursor whose Cell showed in full under the previous size and
+    // side, at the Pan the last frame settled, is followed: one the viewer
+    // Panned out of view stays out. A web zoom that reaches egui over two
+    // frames is followed on the second, because the first leaves the Cursor
+    // showing.
+    let console_size = console.size();
+    let cursor = frame.cursor();
+    let resize_to_follow = view.previous_console.is_some_and(|(size, previous_side)| {
+        let was_shown = Rect::from_min_size(Pos2::ZERO, size)
+            .contains_rect(cursor_cell(cursor, previous_side).translate(view.pan));
+        (size, previous_side) != (console_size, side) && was_shown
+    });
+    view.previous_console = Some((console_size, side));
 
     // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
     // held, so a trackpad with no middle button still has a way to Pan by
@@ -390,16 +374,10 @@ pub(super) fn show_source_scene(
     // to it. `None` on a fresh `SourceView`'s first frame answers no move, so
     // the console does not Pan away from where it opened before anything has
     // moved the Cursor at all.
-    let cursor = frame.cursor();
     let cursor_moved = view
         .previous_cursor
         .is_some_and(|previous| previous != cursor);
     view.previous_cursor = Some(cursor);
-
-    // The Cell side `presented_grid` will draw at, snapped to whole physical
-    // pixels, so the follow and the bounds below are measured against the
-    // Grid as drawn rather than the unsnapped extent the Zoom asked for.
-    let side = snapped_cell_side(CELL_SIZE * view.zoom, ui.ctx().pixels_per_point());
 
     // `view.pan` places the padded Source — the Grid with a margin on every
     // side — so a Pan of zero rests the Grid one margin in from the console's
@@ -417,7 +395,7 @@ pub(super) fn show_source_scene(
     // only once this frame has answered it — so a release with the Cursor
     // many Cells past the edge does not jump the Source View to it.
     let dragging_region = view.region_drag.is_some();
-    if zoomed || (cursor_moved && !dragging_region) {
+    if resize_to_follow || (cursor_moved && !dragging_region) {
         view.pan = follow_cursor(view.pan, console.size(), cursor_at);
     } else if dragging_region && let Some(pointer) = pointer {
         let past = overshoot(console, pointer);
@@ -444,19 +422,14 @@ pub(super) fn show_source_scene(
         ui.ctx().set_cursor_icon(CursorIcon::Grab);
     }
 
-    let to_global = TSTransform::new(console.min.to_vec2() + view.pan + margin, view.zoom);
-    view.to_global = if is_presentable(to_global) {
-        to_global
+    let origin = console.min + view.pan + margin;
+    view.origin = if is_presentable(origin) {
+        origin
     } else {
-        TSTransform::IDENTITY
+        Pos2::ZERO
     };
 
-    let grid = presented_grid(
-        view.to_global,
-        source,
-        source_grid,
-        ui.ctx().pixels_per_point(),
-    );
+    let grid = presented_grid(view.origin, source_grid, ui.ctx().pixels_per_point());
     let clicked = show_source(ui, frame, font_family, grid, console, cursor_effect, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -536,7 +509,7 @@ pub(super) struct ShownSource {
 
 impl Console {
     ///
-    /// Shows `frame` in the central panel at the Source View's Zoom and Pan,
+    /// Shows `frame` in the central panel at the Source View's Pan,
     /// in the Theme `appearance` presents, and selects the Region the pointer
     /// asked for.
     ///

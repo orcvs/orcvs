@@ -90,20 +90,16 @@ orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 # Keep both Linux window backends explicit because disabling eframe defaults removes them.
 #
 # `=0.36.2` rather than `0.36.2`. A caret requirement reads "0.36.2 or any later
-# 0.36", and the console's own reasoning is written against one of those
-# releases and cites it by line: the `console` module and its tests quote
-# `epaint-0.36.2/src/text/font.rs:567`, `epaint-0.36.2/src/text/mod.rs:62`,
-# `epaint-0.36.2/src/text/fonts.rs:728-742`, `egui-0.36.2/src/containers/scene.rs`,
-# `egui-0.36.2/src/context.rs:437-447`, `emath-0.36.2/src/ts_transform.rs:55-57`
-# and `egui-0.36.2/src/response.rs:453-466` as the evidence for the atlas budget,
-# the owned transform, and the drag-pan branch it replaces. A patch release that
-# arrives without anyone deciding to takes those citations out from under the
-# code that depends on them, and a lockfile is the only thing that was holding
-# the version — which is exactly how this workspace once resolved 0.36.2 under a
-# `0.36.1` requirement, before the pin was made exact. Moving the stack to
-# 0.36.2 was then a decision taken on its own: every citation above was re-read
-# against the 0.36.2 sources and renumbered where the release moved it. The pin
-# says what the manifest meant.
+# 0.36", and the console's own reasoning is written against this one release and
+# cites its sources: the one-frame `GlyphTable` against `Fonts::begin_pass`
+# recreating the font atlas, the web clear colour and the storage key against
+# eframe's runners, the repaint tests against `InputState::wants_repaint_after`,
+# and the Theme's colour composition against `ecolor` and egui's `Visuals`.
+# `grep -rn '0\.36\.2' console/src` lists every such citation. A patch release
+# that arrives without anyone deciding to takes those citations out from under
+# the code that depends on them, and without an exact pin only the lockfile holds
+# the version. Moving the stack is a decision taken on its own, which re-reads
+# every citation against the new sources. The pin says what the manifest means.
 #
 # `.agents/skills/egui/references/guide.md` records the release this stack is
 # read against and what moving it costs.

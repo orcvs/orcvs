@@ -71,16 +71,16 @@ Theme values. A Theme uses one versioned Orcvs format: `format: orcvs-theme`, `v
 `name`, `inherits` and a `style` map of named properties. Built-ins define complete
 values; custom files inherit omitted values. Base16 import is deferred.
 Planned Theme controls are colours, opacity, Grid and Cell
-colours, borders and border widths. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same visible thickness as Grid zoom changes; they do not scale with Cell size. Existing square Cells, zoom and spacing remain unchanged.
+colours, borders and border widths. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same thickness in points at every egui zoom factor; they do not scale with Cell size. Existing square Cells, Cell size and spacing remain unchanged.
 Exact key spellings and defaults are in
 [the Theme specification](../../.scratch/theming/schema.md). The table below
 records their relation to the current console. Preserve Grid structure,
 existing fonts and layout, input behaviour and separate motion settings.
 Font choice, font sizes, spacing, corner radii, shadows and gradients are not
 planned. Leave room for future extensions without speculative machinery.
-Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke. Preserve normal-zoom defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Fixed display-point widths intentionally replace the previous zoom-scaled stroke behaviour.
+Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke. Preserve the existing defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Widths are fixed display points: a stroke never scales with the Cell size.
 
-Cursor/Region effect width is nominal: retain the existing animated fragment variation of 0.45–1.25 times that width, without Grid zoom scaling. The 1-point maximum constrains nominal width, so an animated fragment can reach 1.25 points. Width zero hides every affected stroke; it does not implicitly disable separately coloured fills or change motion preferences.
+Cursor/Region effect width is nominal: retain the existing animated fragment variation of 0.45–1.25 times that width, without scaling by Cell size. The 1-point maximum constrains nominal width, so an animated fragment can reach 1.25 points. Width zero hides every affected stroke; it does not implicitly disable separately coloured fills or change motion preferences.
 
 Transparency reveals the underlying console surface; the application window remains opaque. Desktop/window transparency is outside this effort. Painting and contrast validation must use the same composited backgrounds.
 

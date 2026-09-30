@@ -1,22 +1,31 @@
-//! The Diagnostics window: frame timing, the Source View's transform, and
-//! egui's own inspection.
+//! The Diagnostics window: frame timing, where the Source View presents the
+//! Source, and egui's own inspection.
 
-use egui::{Rect, emath::TSTransform};
+use egui::{Pos2, Rect};
 
 pub(super) fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
 }
 
 ///
+/// The part of the Source the console area shows, in the Source's own points:
+/// `console` read back through the `origin` the Source's corner was presented
+/// at.
+///
+pub(super) fn visible_source_region(console: Rect, origin: Pos2) -> Rect {
+    console.translate(-origin.to_vec2())
+}
+
+///
 /// The Diagnostics window, while `open`: this frame's timing, the Cell size
-/// and the transform the Source was presented under in `console`, and
+/// and the origin the Source was presented at in `console`, and
 /// egui's inspection.
 ///
 pub(super) fn show_diagnostics(
     ctx: &egui::Context,
     open: &mut bool,
     frame: &eframe::Frame,
-    to_global: TSTransform,
+    origin: Pos2,
     console: Rect,
     cell_size: f32,
 ) {
@@ -54,13 +63,8 @@ pub(super) fn show_diagnostics(
                     ui.monospace(format!("{cell_size:.1} pt"));
                     ui.end_row();
 
-                    // The console owns the transform, so the zoom is a field of it.
-                    ui.label("Source zoom");
-                    ui.monospace(format!("{:.2}×", to_global.scaling));
-                    ui.end_row();
-
                     ui.label("Visible Source region");
-                    ui.monospace(format!("{:.1?}", to_global.inverse() * console));
+                    ui.monospace(format!("{:.1?}", visible_source_region(console, origin)));
                     ui.end_row();
 
                     ui.label("Pixels per point");

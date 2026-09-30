@@ -4,7 +4,7 @@
 use super::Console;
 #[cfg(not(target_arch = "wasm32"))]
 use super::files::FUNCTION_REFERENCE_CONFIRMATION;
-use super::input::{FileCommand, ZoomCommand};
+use super::input::FileCommand;
 use crate::theme_selection::SelectedThemes;
 
 /// The height the top panel takes from the window, leaving the rest to the
@@ -157,10 +157,10 @@ impl Console {
     /// Shows the top bar: File, View and Help, then at its right edge the
     /// mode control and the Notices menu.
     ///
-    /// A View menu Zoom is handed to the Source View for this frame's
-    /// `show_source_scene`, which runs after the bar, as the chord is. Help's
-    /// Function Reference asks before discarding on native at once; the File
-    /// command and the mode are answered for the frame to run.
+    /// View's zoom items on native are egui's own, which step the whole UI's
+    /// zoom as its chords do; the web's View menu has none. Help's Function
+    /// Reference asks before discarding on native at once; the File command
+    /// and the mode are answered for the frame to run.
     ///
     pub(super) fn show_menu_bar(&mut self, root: &mut egui::Ui) -> MenuBarChoice {
         let mut choice = MenuBarChoice {
@@ -197,16 +197,13 @@ impl Console {
                 });
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
-                    for command in ZoomCommand::ALL {
-                        let item = egui::Button::new(command.label())
-                            .shortcut_text(ui.ctx().format_shortcut(&command.shortcut()));
-                        if ui.add(item).clicked() {
-                            // Applied by this frame's `show_source_scene`,
-                            // which runs after the menu bar, as the chord is.
-                            self.source_view.requested_zoom = Some(command);
-                        }
+                    // The web has no zoom items: the browser's page zoom is
+                    // its one zoom, and egui's factor would multiply it.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        egui::gui_zoom::zoom_menu_buttons(ui);
+                        ui.separator();
                     }
-                    ui.separator();
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
                 ui.add_space(MENU_BAR_GAP);

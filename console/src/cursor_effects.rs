@@ -209,7 +209,7 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// `cursor.border`/`cursor.border.width` for the Cursor's own frame or
 /// `region.border`/`region.border.width` for the lasso around a Region larger
 /// than one Cell. The width is a fixed display-point nominal width, never
-/// scaled by `cell_size`/Grid zoom. Zero hides every frame stroke outright —
+/// scaled by `cell_size`. Zero hides every frame stroke outright —
 /// see this module's private `frame_shapes` — without touching the living-area fill `area_colour` and
 /// `amount` still control. `motion` is this frame's sample and the settings
 /// it was advanced under.
@@ -940,23 +940,39 @@ mod tests {
     }
 
     ///
+    /// The Cell sides the Source's own Cell snaps to at device scales that
+    /// shrink it by different amounts, and at one that leaves it whole. egui
+    /// folds its zoom factor into the device scale, so these are the Cell
+    /// sides a zoom reaches.
+    ///
+    fn snapped_cell_sizes() -> Vec<f32> {
+        let sizes: Vec<f32> = [0.3_f32, 0.7, 1.0, 1.1]
+            .into_iter()
+            .map(|pixels_per_point| {
+                crate::grid_viewport::snapped_cell_side(CELL_SIZE, pixels_per_point)
+            })
+            .collect();
+        assert!(
+            sizes.windows(2).all(|pair| pair[0] != pair[1]),
+            "the device scales snapped two Cells alike: {sizes:?}"
+        );
+        sizes
+    }
+
+    ///
     /// Width zero hides every Cursor/Region frame stroke this function
     /// builds — the stationary outline `frame_shapes` draws at `amount ==
     /// 0.0` and every animated fragment it draws otherwise — without
     /// disabling the living-area fill `amount` and `area_colour` still
-    /// control, at several Grid zoom levels from `MIN_ZOOM` to `MAX_ZOOM`.
+    /// control, at the Cell sides several device scales snap the Source's own
+    /// Cell to.
     ///
     #[test]
-    fn zero_frame_width_hides_every_stroke_at_every_amount_and_zoom() {
+    fn zero_frame_width_hides_every_stroke_at_every_amount_and_device_scale() {
         let mut static_settings = CursorEffectSettings::default();
         *static_settings.amount_mut() = 0;
 
-        for cell_size in [
-            CELL_SIZE * 0.25,
-            CELL_SIZE * 0.5,
-            CELL_SIZE,
-            CELL_SIZE * 2.0,
-        ] {
+        for cell_size in snapped_cell_sizes() {
             let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
             let clip = cursor.expand(500.0);
 
@@ -1008,20 +1024,15 @@ mod tests {
 
     ///
     /// The stationary outline (`amount == 0.0`) is stroked at exactly the
-    /// nominal width, at every Grid zoom level — no `scale.max(0.5)` floor
+    /// nominal width at every snapped Cell side — no `scale.max(0.5)` floor
     /// and no proportional shrink as `cell_size` falls.
     ///
     #[test]
-    fn stationary_frame_stroke_is_the_nominal_width_at_every_zoom() {
+    fn stationary_frame_stroke_is_the_nominal_width_at_every_device_scale() {
         let mut settings = CursorEffectSettings::default();
         *settings.amount_mut() = 0;
 
-        for cell_size in [
-            CELL_SIZE * 0.25,
-            CELL_SIZE * 0.5,
-            CELL_SIZE,
-            CELL_SIZE * 2.0,
-        ] {
+        for cell_size in snapped_cell_sizes() {
             let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
             let clip = cursor.expand(500.0);
             let effects = cursor_effect_shapes(
@@ -1059,23 +1070,18 @@ mod tests {
 
     ///
     /// The animated fragments' 0.45–1.25× nominal-width modulation, exactly
-    /// reproduced across every Grid zoom level from `MIN_ZOOM` to `MAX_ZOOM`:
-    /// the same `sample` and `width` produce the identical set of stroke
-    /// widths whatever `cell_size` is, because the modulation is a function
-    /// of the sample and the nominal width alone.
+    /// reproduced at every snapped Cell side: the same `sample` and `width`
+    /// produce the identical set of stroke widths whatever `cell_size` is,
+    /// because the modulation is a function of the sample and the nominal
+    /// width alone.
     ///
     #[test]
-    fn animated_fragment_widths_modulate_the_nominal_width_and_never_the_grid_zoom() {
+    fn animated_fragment_widths_modulate_the_nominal_width_and_never_the_cell_size() {
         let clip = Rect::from_min_size(Pos2::new(-500.0, -500.0), Vec2::splat(2000.0));
-        let mut widths_by_zoom = Vec::new();
+        let mut widths_by_cell_size = Vec::new();
 
-        for cell_size in [
-            CELL_SIZE * 0.25,
-            CELL_SIZE * 0.5,
-            CELL_SIZE,
-            CELL_SIZE * 2.0,
-        ] {
-            // One Cell's own outline at this zoom, so the loop's fragment
+        for cell_size in snapped_cell_sizes() {
+            // One Cell's own outline at this side, so the loop's fragment
             // count (`across`/`down`) stays the same at every cell_size and
             // only the stroke width can differ.
             let outline = Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size));
@@ -1098,13 +1104,13 @@ mod tests {
                      0.45x-1.25x the nominal width {FRAME_WIDTH}"
                 );
             }
-            widths_by_zoom.push(widths);
+            widths_by_cell_size.push(widths);
         }
 
-        for widths in &widths_by_zoom[1..] {
+        for widths in &widths_by_cell_size[1..] {
             assert_eq!(
-                widths, &widths_by_zoom[0],
-                "fragment stroke widths changed with Grid zoom"
+                widths, &widths_by_cell_size[0],
+                "fragment stroke widths changed with the Cell size"
             );
         }
     }
