@@ -97,7 +97,7 @@ mod backend {
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
             let destination_id = destination_id.clone();
             let output = self.enumeration_client()?;
             let port = match output.find_port_by_id(destination_id.as_str()) {
@@ -111,9 +111,10 @@ mod backend {
             };
             let port_name = format!("{MIDI_CLIENT_NAME} output");
             match output.connect(&port, &port_name) {
-                Ok(connection) => {
-                    Ok(Box::new(MidirConnection(connection)) as Box<dyn MidiConnection>)
-                }
+                Ok(connection) => Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                    MidirConnection(connection),
+                )
+                    as Box<dyn MidiConnection>)),
                 Err(error) => {
                     let message = error.to_string();
                     self.restore_enumeration_client(error.into_inner());
@@ -138,7 +139,7 @@ mod backend {
 
 #[cfg(target_arch = "wasm32")]
 mod backend {
-    use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
+    use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiError};
 
     use crate::web_midi::{BrowserMidi, WebMidiBackend};
 
@@ -161,7 +162,7 @@ mod backend {
 
     impl NativeMidiBackend {
         pub fn new() -> Self {
-            Self(WebMidiBackend::new(BrowserMidi::request()))
+            Self(WebMidiBackend::browser())
         }
     }
 
@@ -205,7 +206,7 @@ mod backend {
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
             self.0.connect(destination_id)
         }
     }
@@ -241,7 +242,7 @@ mod backend {
     ))
 ))]
 mod silent {
-    use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
+    use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiError};
 
     pub struct SilentMidiBackend;
 
@@ -265,7 +266,7 @@ mod silent {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
             Err(MidiError::new("this build has no MIDI backend"))
         }
     }

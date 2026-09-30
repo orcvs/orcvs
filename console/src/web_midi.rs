@@ -1,40 +1,25 @@
+//! Browser MIDI discovery and opening, with page-scoped port ownership.
 //!
-//! MIDI discovery and port opening in the browser, over the Web MIDI API.
+//! Access is requested once and discovery reads the stored answer without
+//! blocking a frame. Each connect returns an owned opening request. Polling
+//! observes completion; dropping the request abandons only its own claim.
 //!
-//! The browser grants MIDI access through a Promise, and neither discovery nor
-//! connect may wait for it: the console calls both from a frame, and the
-//! browser main thread has no blocking receive. Access is therefore requested
-//! once, when the backend is built, and the answer is kept. Every call after
-//! that reads where the request stands and answers synchronously:
+//! The shared port lifecycle survives Source replacement and counts pending
+//! requests together with live connections. A port closes after its final claim
+//! is released, including when an abandoned browser open completes later.
+//! Playback releases connections after its outgoing safety action.
 //!
-//! - while the browser has not answered, discovery and connect both answer a
-//!   pending error saying access is still being waited for, so the menu says
-//!   why its list is empty, and the answer wakes the Panel so its next frame
-//!   discovers again;
-//! - once access is granted, the output map is enumerated and a port is found
-//!   on the thread that asked, exactly as the native backend does;
-//! - a connect asks the browser to open the port and answers a pending error
-//!   until it has, and the answer wakes the Panel so its next frame connects
-//!   again, so a port the browser cannot open is refused before it replaces
-//!   the destination that is playing;
-//! - a browser that offers no Web MIDI, or refuses access, answers an empty
-//!   destination list, the silent fallback every target without a MIDI service
-//!   gives.
-//!
-//! What crosses into Playback is a connection that names its output by id and
-//! reaches the port through the same kept access when it sends. The output is
-//! closed when the last connection naming it is dropped, which Playback does
-//! only after the outgoing safety action, so a device another application
-//! wants is not held for the life of the page.
-//!
-//! [`WebMidiBackend`] holds that logic over a [`WebMidiAccess`], so it is the
-//! same code whether the access is the browser's or a test's.
-//!
+//! Browser operations and test completions drive the same lifecycle in `ports`.
+//! JavaScript values stay on the browser thread; connections reach them by id.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use orcvs::midi::{
+    MidiBackend, MidiConnectionRequest, MidiDestination, MidiDestinationId, MidiError,
+};
 
-use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
+mod ports;
+use ports::Ports;
+
+type Completion = Box<dyn FnOnce(Result<(), MidiError>) + Send>;
 
 ///
 /// The message discovery and connect answer while the browser has not yet
@@ -55,26 +40,6 @@ pub(crate) const DESTINATION_GONE: &str = "the selected MIDI destination is no l
 /// from somewhere other than this browser's list reaches it.
 ///
 pub(crate) const NO_ACCESS: &str = "this browser offers no MIDI access";
-
-///
-/// The message a connect answers while the browser is still opening the
-/// output it names.
-///
-pub(crate) const PORT_OPENING: &str = "waiting for the browser to open the MIDI destination";
-
-///
-/// Where opening one output stands.
-///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PortOpening {
-    /// The port is open and accepts messages.
-    Open,
-    /// The browser has not finished opening the port.
-    Opening,
-    /// The browser could not open the port, for the reason given. Reported
-    /// once: the next open of that output asks the browser again.
-    Refused(String),
-}
 
 ///
 /// Where the one request for MIDI access stands.
@@ -121,86 +86,36 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
     ///
     fn send(&self, id: &str, message: &[u8]) -> Result<(), MidiError>;
 
-    ///
-    /// Where opening the output with `id` stands, asking the browser to open
-    /// it when nothing has asked yet. Never waits for the answer.
-    ///
-    fn open(&self, id: &str) -> PortOpening;
+    /// Starts the browser operation and reports its eventual outcome exactly once.
+    /// Completion may run before this call returns; no lifecycle lock is held.
+    fn open(&self, id: &str, complete: Completion);
 
-    ///
-    /// Releases the output with `id`, so a platform that grants a device to
-    /// one application at a time can hand it to another. Messages already
-    /// sent without a timestamp are delivered before the port closes. An
-    /// output still opening is closed once it opens, and its answer is not
-    /// reported.
-    ///
-    fn close(&self, id: &str);
+    /// Reports completion after previously submitted messages have been delivered.
+    fn close(&self, id: &str, complete: Completion);
 }
 
-///
-/// The browser's [`MidiBackend`], over whichever [`WebMidiAccess`] it was built
-/// with.
-///
 pub(crate) struct WebMidiBackend<A> {
-    access: A,
-    held: Held,
-    ///
-    /// The output a connect is waiting on the browser to open. A connect to
-    /// another output, or a discovery, abandons it, since the selection that
-    /// asked has stopped waiting for it.
-    ///
-    opening: Option<String>,
+    ports: Ports<A>,
 }
-
-///
-/// How many live connections name each output. Counted per backend: the
-/// console builds one backend per page, so every connection to an output is
-/// counted here.
-///
-type Held = Arc<Mutex<HashMap<String, usize>>>;
 
 impl<A: WebMidiAccess> WebMidiBackend<A> {
-    pub(crate) fn new(access: A) -> Self {
-        Self {
-            access,
-            held: Held::default(),
-            opening: None,
-        }
-    }
-
-    ///
-    /// Stops waiting on the open in progress, if any, other than one for
-    /// `keep`. Its output is released unless a live connection holds it.
-    ///
-    fn abandon_opening(&mut self, keep: Option<&str>) {
-        let Some(abandoned) = self.opening.take_if(|id| Some(id.as_str()) != keep) else {
-            return;
-        };
-        let held = self
-            .held
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(&abandoned);
-        if !held {
-            self.access.close(&abandoned);
-        }
+    fn new(ports: Ports<A>) -> Self {
+        Self { ports }
     }
 }
 
 impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-        self.abandon_opening(None);
-        match self.access.status() {
+        match self.ports.access().status() {
             AccessStatus::Pending => Err(MidiError::pending(ACCESS_PENDING)),
             AccessStatus::Unavailable => Ok(Vec::new()),
             AccessStatus::Granted => Ok(self
-                .access
+                .ports
+                .access()
                 .outputs()
                 .into_iter()
                 .filter(|output| output.connected)
                 .map(|output| {
-                    // Web MIDI lets a port have no name. The id is what the
-                    // menu can still tell apart.
                     let name = output.name.unwrap_or_else(|| output.id.clone());
                     MidiDestination::new(output.id, name)
                 })
@@ -211,85 +126,22 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,
-    ) -> Result<Box<dyn MidiConnection>, MidiError> {
-        match self.access.status() {
+    ) -> Result<MidiConnectionRequest, MidiError> {
+        match self.ports.access().status() {
             AccessStatus::Pending => Err(MidiError::pending(ACCESS_PENDING)),
             AccessStatus::Unavailable => Err(MidiError::new(NO_ACCESS)),
             AccessStatus::Granted => {
-                let open = self
-                    .access
+                if !self
+                    .ports
+                    .access()
                     .outputs()
                     .iter()
-                    .any(|output| output.connected && output.id == destination_id.as_str());
-                if !open {
+                    .any(|output| output.connected && output.id == destination_id.as_str())
+                {
                     return Err(MidiError::new(DESTINATION_GONE));
                 }
-                self.abandon_opening(Some(destination_id.as_str()));
-                match self.access.open(destination_id.as_str()) {
-                    PortOpening::Open => self.opening = None,
-                    PortOpening::Opening => {
-                        self.opening = Some(destination_id.as_str().to_owned());
-                        return Err(MidiError::pending(PORT_OPENING));
-                    }
-                    PortOpening::Refused(reason) => {
-                        self.opening = None;
-                        return Err(MidiError::new(reason));
-                    }
-                }
-                let id = destination_id.as_str().to_owned();
-                *self
-                    .held
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .entry(id.clone())
-                    .or_default() += 1;
-                Ok(Box::new(WebMidiConnection {
-                    access: self.access.clone(),
-                    held: Arc::clone(&self.held),
-                    id,
-                }))
+                Ok(self.ports.acquire(destination_id.as_str().to_owned()))
             }
-        }
-    }
-}
-
-///
-/// An output the browser has opened, delivered to by id.
-///
-/// It is built only once the port is open, so a port the browser cannot open
-/// is refused at connect rather than accepting messages it never delivers. A
-/// port that disconnects afterwards refuses the next message, which the
-/// adapter turns into a Playback diagnostic.
-///
-/// Reselecting the output already selected builds a second connection before
-/// the first is dropped, so the port stays open across it.
-///
-struct WebMidiConnection<A: WebMidiAccess> {
-    access: A,
-    held: Held,
-    id: String,
-}
-
-impl<A: WebMidiAccess> MidiConnection for WebMidiConnection<A> {
-    fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
-        self.access.send(&self.id, message)
-    }
-}
-
-impl<A: WebMidiAccess> Drop for WebMidiConnection<A> {
-    fn drop(&mut self) {
-        let last = {
-            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-            let count = held.entry(self.id.clone()).or_insert(1);
-            *count -= 1;
-            let last = *count == 0;
-            if last {
-                held.remove(&self.id);
-            }
-            last
-        };
-        if last {
-            self.access.close(&self.id);
         }
     }
 }
@@ -300,33 +152,20 @@ pub(crate) use browser::BrowserMidi;
 #[cfg(target_arch = "wasm32")]
 mod browser {
     use std::cell::RefCell;
-    use std::collections::HashMap;
 
     use orcvs::midi::MidiError;
     use wasm_bindgen::JsCast;
     use web_sys::{MidiAccess, MidiOutput, MidiPortDeviceState};
 
-    use super::{AccessStatus, DESTINATION_GONE, PortOpening, WebMidiAccess, WebMidiOutput};
+    use super::{
+        AccessStatus, Completion, DESTINATION_GONE, Ports, WebMidiAccess, WebMidiBackend,
+        WebMidiOutput,
+    };
 
     ///
     /// The prefix of the status a port the browser could not open reports.
     ///
     const PORT_REFUSED: &str = "the browser could not open the MIDI destination";
-
-    ///
-    /// How far the page has opened one output, as this backend asked.
-    ///
-    enum Port {
-        ///
-        /// The browser is opening it. An abandoned open is closed once it
-        /// opens, and its answer is not kept.
-        ///
-        Opening {
-            abandoned: bool,
-        },
-        Open,
-        Refused(String),
-    }
 
     ///
     /// The page's one request for MIDI access and its answer.
@@ -352,15 +191,11 @@ mod browser {
         ///
         static ACCESS: RefCell<Access> = const { RefCell::new(Access::NotRequested) };
 
-        ///
-        /// Every output this page has asked to open, by id, kept beside the
-        /// access for the same reason. An output missing here is closed.
-        ///
-        static PORTS: RefCell<HashMap<String, Port>> = RefCell::new(HashMap::new());
+        static PORTS: Ports<BrowserMidi> = Ports::new(BrowserMidi);
 
         ///
-        /// What runs once the browser answers an open, so the frame that
-        /// connects again with the answer runs without waiting for the
+        /// What runs once the browser answers an open or close, so the frame
+        /// that polls the owned request runs without waiting for the
         /// performer's next input.
         ///
         static PORT_ANSWERED: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
@@ -442,7 +277,7 @@ mod browser {
         }
 
         ///
-        /// Runs `wake` each time the browser answers the open of an output,
+        /// Runs `wake` each time the browser answers an open or close,
         /// in place of whatever ran before.
         ///
         pub(crate) fn on_port_answer(wake: impl Fn() + 'static) {
@@ -450,36 +285,26 @@ mod browser {
         }
     }
 
-    fn start_opening(id: &str, output: &MidiOutput) {
-        let id = id.to_owned();
-        let output = output.clone();
-        let opening = wasm_bindgen_futures::JsFuture::from(output.open());
+    impl WebMidiBackend<BrowserMidi> {
+        pub(crate) fn browser() -> Self {
+            BrowserMidi::request();
+            PORTS.with(|ports| Self::new(ports.clone()))
+        }
+    }
+
+    fn finish(promise: js_sys::Promise, complete: Completion) {
         wasm_bindgen_futures::spawn_local(async move {
-            let answer = opening.await;
-            let close = PORTS.with(|ports| {
-                let mut ports = ports.borrow_mut();
-                let abandoned =
-                    matches!(ports.remove(&id), Some(Port::Opening { abandoned: true }));
-                match answer {
-                    Ok(_) if abandoned => true,
-                    Ok(_) => {
-                        ports.insert(id, Port::Open);
-                        false
-                    }
-                    Err(_) if abandoned => false,
-                    Err(reason) => {
-                        let reason = reason
-                            .dyn_ref::<js_sys::Error>()
-                            .map(|error| String::from(error.message()))
-                            .unwrap_or_else(|| format!("{reason:?}"));
-                        ports.insert(id, Port::Refused(format!("{PORT_REFUSED}: {reason}")));
-                        false
-                    }
-                }
-            });
-            if close {
-                let _ = wasm_bindgen_futures::JsFuture::from(output.close()).await;
-            }
+            let answer = wasm_bindgen_futures::JsFuture::from(promise)
+                .await
+                .map(|_| ())
+                .map_err(|reason| {
+                    let reason = reason
+                        .dyn_ref::<js_sys::Error>()
+                        .map(|error| String::from(error.message()))
+                        .unwrap_or_else(|| format!("{reason:?}"));
+                    MidiError::new(reason)
+                });
+            complete(answer);
             PORT_ANSWERED.with(|answered| {
                 if let Some(wake) = &*answered.borrow() {
                     wake();
@@ -535,61 +360,34 @@ mod browser {
                 .map_err(|reason| MidiError::new(format!("MIDI send refused: {reason:?}")))
         }
 
-        fn open(&self, id: &str) -> PortOpening {
+        fn open(&self, id: &str, complete: Completion) {
             let Some(output) = with_granted(|granted| granted.outputs().get(id)).flatten() else {
-                return PortOpening::Refused(DESTINATION_GONE.to_owned());
+                complete(Err(MidiError::new(DESTINATION_GONE)));
+                return;
             };
-            let (answer, start) = PORTS.with(|ports| {
-                let mut ports = ports.borrow_mut();
-                let asked = ports.remove(id);
-                let start = match asked {
-                    Some(Port::Refused(reason)) => return (PortOpening::Refused(reason), false),
-                    Some(Port::Open) => {
-                        ports.insert(id.to_owned(), Port::Open);
-                        return (PortOpening::Open, false);
-                    }
-                    Some(Port::Opening { .. }) => false,
-                    None => true,
-                };
-                // An open asked for again is no longer abandoned.
-                ports.insert(id.to_owned(), Port::Opening { abandoned: false });
-                (PortOpening::Opening, start)
-            });
-            if start {
-                start_opening(id, &output);
-            }
-            answer
+            finish(
+                output.open(),
+                Box::new(move |answer| {
+                    complete(answer.map_err(|error| {
+                        MidiError::new(format!("{PORT_REFUSED}: {}", error.message))
+                    }));
+                }),
+            );
         }
 
-        fn close(&self, id: &str) {
-            let still_opening = PORTS.with(|ports| {
-                let mut ports = ports.borrow_mut();
-                if let Some(Port::Opening { abandoned }) = ports.get_mut(id) {
-                    *abandoned = true;
-                    return true;
-                }
-                ports.remove(id);
-                false
-            });
-            if still_opening {
-                return;
-            }
+        fn close(&self, id: &str, complete: Completion) {
             let Some(output) = with_granted(|granted| granted.outputs().get(id)).flatten() else {
+                complete(Ok(()));
                 return;
             };
-            // A disconnected port refuses to close, and there is nothing
-            // left to release.
-            let closing = wasm_bindgen_futures::JsFuture::from(output.close());
-            wasm_bindgen_futures::spawn_local(async move {
-                let _ = closing.await;
-            });
+            finish(output.close(), complete);
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
+pub(crate) mod tests {
+    use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use orcvs::app::{InputEvent, InputKey, Orcvs};
@@ -598,7 +396,7 @@ mod tests {
     };
 
     use super::{
-        ACCESS_PENDING, AccessStatus, DESTINATION_GONE, NO_ACCESS, PORT_OPENING, PortOpening,
+        ACCESS_PENDING, AccessStatus, Completion, DESTINATION_GONE, NO_ACCESS, Ports,
         WebMidiAccess, WebMidiBackend, WebMidiOutput,
     };
     use crate::midi::MidiDeviceSelection;
@@ -610,20 +408,24 @@ mod tests {
         sent: Vec<(String, Vec<u8>)>,
         /// Each close, with how many messages its output had accepted when it closed.
         closed: Vec<(String, usize)>,
-        /// How far each output is opened. An output absent here is closed.
-        ports: HashMap<String, PortOpening>,
+        auto_open: HashSet<String>,
+        physical_open: HashSet<String>,
+        opening: HashMap<String, Completion>,
+        closing: HashMap<String, Completion>,
+        delay_close: bool,
+        opened: Vec<String>,
     }
 
     ///
     /// Web MIDI as a test drives it: the access status, the output map, how
-    /// far each port is opened, and every message a port accepted, in order.
-    /// The outputs it is built with are already open.
+    /// each operation completes, and every accepted message, in order.
+    /// Outputs complete opening immediately unless a test delays them.
     ///
     #[derive(Clone, Default)]
-    struct FakeWebMidi(Arc<Mutex<FakeState>>);
+    pub(crate) struct BrowserEffects(Arc<Mutex<FakeState>>);
 
-    impl FakeWebMidi {
-        fn with(status: AccessStatus, outputs: &[(&str, Option<&str>)]) -> Self {
+    impl BrowserEffects {
+        pub(crate) fn with(status: AccessStatus, outputs: &[(&str, Option<&str>)]) -> Self {
             let fake = Self::default();
             fake.set_status(status);
             fake.state().outputs = outputs
@@ -634,10 +436,7 @@ mod tests {
                     connected: true,
                 })
                 .collect();
-            fake.state().ports = outputs
-                .iter()
-                .map(|(id, _)| ((*id).to_owned(), PortOpening::Open))
-                .collect();
+            fake.state().auto_open = outputs.iter().map(|(id, _)| (*id).to_owned()).collect();
             fake
         }
 
@@ -657,7 +456,7 @@ mod tests {
             }
         }
 
-        fn sent_to(&self, id: &str) -> Vec<Vec<u8>> {
+        pub(crate) fn sent_to(&self, id: &str) -> Vec<Vec<u8>> {
             self.state()
                 .sent
                 .iter()
@@ -670,32 +469,40 @@ mod tests {
             self.state().sent.clear();
         }
 
-        fn closed(&self) -> Vec<(String, usize)> {
+        pub(crate) fn closed(&self) -> Vec<(String, usize)> {
             self.state().closed.clone()
         }
 
         /// Leaves the output with `id` closed, so the next open has to wait.
-        fn close_port(&self, id: &str) {
-            self.state().ports.remove(id);
+        pub(crate) fn close_port(&self, id: &str) {
+            self.state().auto_open.remove(id);
         }
 
         /// Answers the open the browser is working on for `id`.
-        fn answer_open(&self, id: &str, answer: Result<(), &str>) {
-            let mut state = self.state();
-            assert_eq!(
-                state.ports.get(id),
-                Some(&PortOpening::Opening),
-                "only an open under way is answered"
-            );
-            let settled = match answer {
-                Ok(()) => PortOpening::Open,
-                Err(reason) => PortOpening::Refused(reason.to_owned()),
-            };
-            state.ports.insert(id.to_owned(), settled);
+        pub(crate) fn answer_open(&self, id: &str, answer: Result<(), &str>) {
+            let complete = self
+                .state()
+                .opening
+                .remove(id)
+                .expect("one pending browser open");
+            if answer.is_ok() {
+                self.state().physical_open.insert(id.to_owned());
+            }
+            complete(answer.map_err(MidiError::new));
+        }
+
+        fn answer_close(&self, id: &str) {
+            let complete = self
+                .state()
+                .closing
+                .remove(id)
+                .expect("one pending browser close");
+            self.state().physical_open.remove(id);
+            complete(Ok(()));
         }
     }
 
-    impl WebMidiAccess for FakeWebMidi {
+    impl WebMidiAccess for BrowserEffects {
         fn status(&self) -> AccessStatus {
             self.state().status.unwrap_or(AccessStatus::Pending)
         }
@@ -718,35 +525,64 @@ mod tests {
             {
                 return Err(MidiError::new(DESTINATION_GONE));
             }
+            assert!(
+                state.physical_open.contains(id),
+                "send requires an opened port"
+            );
             state.sent.push((id.to_owned(), message.to_vec()));
             Ok(())
         }
 
-        fn open(&self, id: &str) -> PortOpening {
+        fn open(&self, id: &str, complete: Completion) {
             let mut state = self.state();
-            match state.ports.remove(id) {
-                Some(PortOpening::Refused(reason)) => PortOpening::Refused(reason),
-                Some(open_or_opening) => {
-                    state.ports.insert(id.to_owned(), open_or_opening.clone());
-                    open_or_opening
-                }
-                None => {
-                    state.ports.insert(id.to_owned(), PortOpening::Opening);
-                    PortOpening::Opening
-                }
+            state.opened.push(id.to_owned());
+            if state.auto_open.contains(id) {
+                state.physical_open.insert(id.to_owned());
+                drop(state);
+                complete(Ok(()));
+            } else {
+                assert!(state.opening.insert(id.to_owned(), complete).is_none());
             }
         }
 
-        fn close(&self, id: &str) {
+        fn close(&self, id: &str, complete: Completion) {
             let mut state = self.state();
             let accepted = state.sent.iter().filter(|(to, _)| to == id).count();
             state.closed.push((id.to_owned(), accepted));
-            state.ports.remove(id);
+            if state.delay_close {
+                assert!(state.closing.insert(id.to_owned(), complete).is_none());
+            } else {
+                state.physical_open.remove(id);
+                drop(state);
+                complete(Ok(()));
+            }
         }
     }
 
-    fn backend(fake: &FakeWebMidi) -> WebMidiBackend<FakeWebMidi> {
-        WebMidiBackend::new(fake.clone())
+    pub(crate) struct FakeWebMidi {
+        effects: BrowserEffects,
+        ports: Ports<BrowserEffects>,
+    }
+
+    impl FakeWebMidi {
+        pub(crate) fn with(status: AccessStatus, outputs: &[(&str, Option<&str>)]) -> Self {
+            let effects = BrowserEffects::with(status, outputs);
+            Self {
+                ports: Ports::new(effects.clone()),
+                effects,
+            }
+        }
+    }
+
+    impl std::ops::Deref for FakeWebMidi {
+        type Target = BrowserEffects;
+        fn deref(&self) -> &Self::Target {
+            &self.effects
+        }
+    }
+
+    pub(crate) fn backend(fake: &FakeWebMidi) -> WebMidiBackend<BrowserEffects> {
+        WebMidiBackend::new(fake.ports.clone())
     }
 
     ///
@@ -1055,7 +891,7 @@ mod tests {
         midi.select_destination(&MidiDestinationId::new("b"));
         tokio::task::yield_now().await;
 
-        assert_eq!(midi.status(), Some(PORT_OPENING));
+        assert_eq!(midi.status(), Some("Opening Held elsewhere…"));
         assert_eq!(
             midi.selected_destination_id(),
             Some(MidiDestinationId::new("a"))
@@ -1092,11 +928,11 @@ mod tests {
         midi.observe_frame();
         tokio::task::yield_now().await;
 
-        assert_eq!(midi.status(), Some(PORT_OPENING));
+        assert_eq!(midi.status(), Some("Opening Synth…"));
         assert_eq!(midi.selected_destination_id(), None);
 
         midi.observe_frame();
-        assert_eq!(midi.status(), Some(PORT_OPENING));
+        assert_eq!(midi.status(), Some("Opening Synth…"));
 
         fake.answer_open("a", Ok(()));
         midi.observe_frame();
@@ -1139,10 +975,13 @@ mod tests {
             midi.selected_destination_id(),
             Some(MidiDestinationId::new("b"))
         );
+        assert!(fake.closed().is_empty());
+        fake.answer_open("a", Ok(()));
         assert_eq!(fake.closed(), vec![("a".to_owned(), 0)]);
 
         midi.select_destination(&MidiDestinationId::new("c"));
         midi.refresh_destinations();
+        fake.answer_open("c", Ok(()));
         assert_eq!(
             fake.closed(),
             vec![("a".to_owned(), 0), ("c".to_owned(), 0)]
@@ -1155,5 +994,193 @@ mod tests {
             Some(MidiDestinationId::new("b"))
         );
         assert_eq!(midi.status(), None);
+    }
+    #[tokio::test]
+    async fn replacing_a_source_does_not_close_the_new_backends_connection() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("Synth"))]);
+        let (old_source, mut old_selection) = playing(&fake);
+        old_selection.select_destination(&MidiDestinationId::new("a"));
+        tokio::task::yield_now().await;
+        let (_new_source, mut new_selection) = playing(&fake);
+        new_selection.select_destination(&MidiDestinationId::new("a"));
+        tokio::task::yield_now().await;
+        drop(old_selection);
+        drop(old_source);
+        tokio::task::yield_now().await;
+        assert!(fake.closed().is_empty(), "the new connection still owns A");
+    }
+
+    #[tokio::test]
+    async fn dropping_selection_releases_its_pending_open() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("Synth"))]);
+        fake.close_port("a");
+        let (_source, mut selection) = playing(&fake);
+        selection.select_destination(&MidiDestinationId::new("a"));
+        drop(selection);
+        assert!(fake.closed().is_empty());
+        fake.answer_open("a", Ok(()));
+        assert_eq!(fake.closed(), vec![("a".to_owned(), 0)]);
+    }
+
+    #[tokio::test]
+    async fn a_stale_replacement_releases_the_previous_request() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", None), ("b", None)]);
+        fake.close_port("a");
+        let (_source, mut selection) = playing(&fake);
+        selection.select_destination(&MidiDestinationId::new("a"));
+        fake.disconnect("b");
+        selection.select_destination(&MidiDestinationId::new("b"));
+        assert_eq!(selection.status(), Some(DESTINATION_GONE));
+        assert!(fake.closed().is_empty());
+        fake.answer_open("a", Ok(()));
+        assert_eq!(fake.closed(), vec![("a".to_owned(), 0)]);
+    }
+
+    #[tokio::test]
+    async fn a_new_selection_reuses_an_abandoned_open_before_it_completes() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", None)]);
+        fake.close_port("a");
+        let (_old_source, mut old_selection) = playing(&fake);
+        old_selection.select_destination(&MidiDestinationId::new("a"));
+        drop(old_selection);
+        let (_new_source, mut new_selection) = playing(&fake);
+        new_selection.select_destination(&MidiDestinationId::new("a"));
+        assert_eq!(fake.state().opened, ["a"]);
+        fake.answer_open("a", Ok(()));
+        new_selection.observe_frame();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            new_selection.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        assert!(fake.closed().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dropping_one_of_two_pending_owners_keeps_the_other_request() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", None)]);
+        fake.close_port("a");
+        let (_source_a, mut a) = playing(&fake);
+        let (_source_b, mut b) = playing(&fake);
+        a.select_destination(&MidiDestinationId::new("a"));
+        b.select_destination(&MidiDestinationId::new("a"));
+        drop(a);
+        fake.answer_open("a", Ok(()));
+        b.observe_frame();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            b.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        assert_eq!(fake.state().opened, ["a"]);
+        assert!(fake.closed().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pending_destination_that_disappears_releases_its_late_open() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", None)]);
+        fake.close_port("a");
+        let (_source, mut selection) = playing(&fake);
+        selection.select_destination(&MidiDestinationId::new("a"));
+        fake.disconnect("a");
+        selection.observe_frame();
+        assert_eq!(selection.status(), Some(DESTINATION_GONE));
+        fake.answer_open("a", Ok(()));
+        assert_eq!(fake.closed(), vec![("a".to_owned(), 0)]);
+    }
+
+    #[tokio::test]
+    async fn a_new_claim_waits_for_an_in_flight_close_before_reopening() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", None), ("b", None)]);
+        fake.state().delay_close = true;
+        let (_source, mut selection) = playing(&fake);
+        selection.select_destination(&MidiDestinationId::new("a"));
+        tokio::task::yield_now().await;
+        selection.select_destination(&MidiDestinationId::new("b"));
+        tokio::task::yield_now().await;
+        selection.select_destination(&MidiDestinationId::new("a"));
+        assert_eq!(selection.status(), Some("Opening a…"));
+        assert_eq!(fake.state().opened, ["a", "b"]);
+        fake.answer_close("a");
+        selection.observe_frame();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            selection.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        assert_eq!(fake.state().opened, ["a", "b", "a"]);
+        fake.answer_close("b");
+        fake.state().delay_close = false;
+    }
+
+    #[tokio::test]
+    async fn an_abandoned_refusal_does_not_poison_a_later_request() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", None)]);
+        fake.close_port("a");
+        let (_source, mut selection) = playing(&fake);
+        selection.select_destination(&MidiDestinationId::new("a"));
+        selection.refresh_destinations();
+        fake.answer_open("a", Err("busy"));
+        assert!(fake.closed().is_empty());
+        selection.select_destination(&MidiDestinationId::new("a"));
+        fake.answer_open("a", Ok(()));
+        selection.observe_frame();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            selection.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        assert_eq!(fake.state().opened, ["a", "a"]);
+    }
+    #[tokio::test]
+    async fn choosing_the_installed_output_cancels_without_safety_messages() {
+        let fake = FakeWebMidi::with(
+            AccessStatus::Granted,
+            &[("a", Some("First")), ("b", Some("Second"))],
+        );
+        fake.close_port("b");
+        let (_source, mut selection) = playing(&fake);
+        selection.refresh_destinations();
+        selection.select_destination(&MidiDestinationId::new("a"));
+        tokio::task::yield_now().await;
+        fake.clear_sent();
+        selection.select_destination(&MidiDestinationId::new("b"));
+        selection.select_destination(&MidiDestinationId::new("a"));
+        tokio::task::yield_now().await;
+        assert!(
+            fake.sent_to("a").is_empty(),
+            "cancellation must not reinstall A"
+        );
+        assert_eq!(selection.status(), None);
+        fake.answer_open("b", Ok(()));
+        selection.observe_frame();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            selection.selected_destination_id(),
+            Some(MidiDestinationId::new("a"))
+        );
+        assert_eq!(fake.closed(), [("b".to_owned(), 0)]);
+    }
+
+    #[tokio::test]
+    async fn choosing_the_pending_output_keeps_its_completed_request() {
+        let fake = FakeWebMidi::with(AccessStatus::Granted, &[("b", Some("Second"))]);
+        fake.close_port("b");
+        let (_source, mut selection) = playing(&fake);
+        selection.refresh_destinations();
+        selection.select_destination(&MidiDestinationId::new("b"));
+        fake.answer_open("b", Ok(()));
+        selection.select_destination(&MidiDestinationId::new("b"));
+        selection.observe_frame();
+        tokio::task::yield_now().await;
+        assert!(
+            fake.closed().is_empty(),
+            "reselecting must retain the completed request"
+        );
+        assert_eq!(fake.state().opened, ["b"]);
+        assert_eq!(
+            selection.selected_destination_id(),
+            Some(MidiDestinationId::new("b"))
+        );
     }
 }

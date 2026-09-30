@@ -3647,3 +3647,105 @@ fn an_opened_file_whose_source_cannot_start_says_so() {
         "a failed Open raised no notice"
     );
 }
+
+#[tokio::test]
+async fn midi_clicking_the_installed_row_cancels_a_pending_switch() {
+    use crate::web_midi::{
+        AccessStatus,
+        tests::{FakeWebMidi, backend},
+    };
+    use orcvs::midi::MidiDestinationId;
+    let fake = FakeWebMidi::with(
+        AccessStatus::Granted,
+        &[("a", Some("First")), ("b", Some("Second"))],
+    );
+    fake.close_port("b");
+    let mut harness = running_console(DEFAULT_VIEW_SIZE.into());
+    let selection = crate::midi::MidiDeviceSelection::new(
+        harness.state().orcvs.midi_selection_handle(),
+        Box::new(backend(&fake)),
+    );
+    harness.state_mut().midi = selection;
+    harness.state_mut().midi.refresh_destinations();
+    harness
+        .state_mut()
+        .midi
+        .select_destination(&MidiDestinationId::new("a"));
+    tokio::task::yield_now().await;
+    harness.run_steps(2);
+    harness.get_by_value("First").click();
+    harness.run_steps(2);
+    harness.get_by_label("Second").click();
+    harness.run_steps(2);
+    assert!(harness.state().midi.status().is_some());
+    harness.get_by_value("First").click();
+    harness.run_steps(2);
+    harness.get_by_label("First").click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().midi.status(),
+        None,
+        "the row click must cancel B"
+    );
+    fake.answer_open("b", Ok(()));
+    harness.run_steps(2);
+    tokio::task::yield_now().await;
+    assert_eq!(
+        harness.state_mut().midi.selected_destination_id(),
+        Some(MidiDestinationId::new("a"))
+    );
+    assert!(fake.sent_to("a").is_empty());
+    assert_eq!(fake.closed(), [("b".to_owned(), 0)]);
+}
+
+#[tokio::test]
+async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can_retry() {
+    use crate::web_midi::{
+        AccessStatus,
+        tests::{FakeWebMidi, backend},
+    };
+    use orcvs::midi::MidiDestinationId;
+    let fake = FakeWebMidi::with(
+        AccessStatus::Granted,
+        &[("a", Some("First")), ("b", Some("Second"))],
+    );
+    fake.close_port("b");
+    let mut harness = running_console(DEFAULT_VIEW_SIZE.into());
+    harness.state_mut().midi = crate::midi::MidiDeviceSelection::new(
+        harness.state().orcvs.midi_selection_handle(),
+        Box::new(backend(&fake)),
+    );
+    harness.state_mut().midi.refresh_destinations();
+    harness
+        .state_mut()
+        .midi
+        .select_destination(&MidiDestinationId::new("a"));
+    tokio::task::yield_now().await;
+    harness.run_steps(2);
+    harness.get_by_value("First").click();
+    harness.run_steps(2);
+    harness.get_by_label("Second").click();
+    harness.run_steps(2);
+    assert!(harness.query_by_value("First").is_some());
+    assert!(harness.query_by_label("Opening Second…").is_some());
+    fake.answer_open("b", Err("port is busy"));
+    harness.run_steps(2);
+    assert!(harness.query_by_value("First").is_some());
+    assert!(harness.query_by_label("port is busy").is_some());
+    harness.get_by_value("First").click();
+    harness.run_steps(2);
+    harness.get_by_label("Second").click();
+    harness.run_steps(2);
+    assert!(harness.query_by_label("Opening Second…").is_some());
+    fake.answer_open("b", Ok(()));
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_value("First").is_some(),
+        "the connection is queued but not installed"
+    );
+    assert!(harness.query_by_label("Opening Second…").is_some());
+    tokio::task::yield_now().await;
+    harness.run_steps(2);
+    assert!(harness.query_by_value("Second").is_some());
+    assert!(harness.query_by_label("Opening Second…").is_none());
+}

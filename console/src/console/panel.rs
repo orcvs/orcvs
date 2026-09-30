@@ -307,14 +307,13 @@ impl Console {
     /// shows what that discovery found from the next frame.
     ///
     fn show_destination(&mut self, ui: &mut egui::Ui) {
-        self.midi.observe_frame();
         let selected_id = self.midi.selected_destination_id();
         let destinations = self.midi.destinations();
         let presentation = destination_presentation(destinations, selected_id.as_ref());
         let (scan, selected) = ui
             .add_enabled_ui(presentation.enabled, |ui| {
                 apply_panel_field_spacing(ui);
-                let mut selected = selected_id.clone();
+                let mut selected = None;
                 let mut scan = false;
                 let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
                     .selected_text(
@@ -338,11 +337,18 @@ impl Console {
                             });
                         } else {
                             for destination in destinations {
-                                ui.selectable_value(
-                                    &mut selected,
-                                    Some(destination.id.clone()),
-                                    destination.name.as_str(),
-                                );
+                                if ui
+                                    .push_id(destination.id.as_str(), |ui| {
+                                        ui.selectable_label(
+                                            selected_id.as_ref() == Some(&destination.id),
+                                            destination.name.as_str(),
+                                        )
+                                        .clicked()
+                                    })
+                                    .inner
+                                {
+                                    selected = Some(destination.id.clone());
+                                }
                             }
                         }
                     });
@@ -355,11 +361,10 @@ impl Console {
         if scan {
             self.midi.refresh_destinations();
         }
-        if selected != selected_id
-            && let Some(id) = selected.as_ref()
-        {
+        if let Some(id) = selected.as_ref() {
             self.midi.select_destination(id);
         }
+        self.midi.observe_frame();
         if let Some(status) = self.midi.status() {
             ui.colored_label(ui.visuals().error_fg_color, status);
         }

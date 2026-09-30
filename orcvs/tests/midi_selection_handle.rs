@@ -9,6 +9,13 @@ use orcvs::midi::{
 #[cfg(not(target_arch = "wasm32"))]
 use orcvs::playback::PlaybackDiagnostic;
 
+fn ready(request: orcvs::midi::MidiConnectionRequest) -> Box<dyn MidiConnection> {
+    match request {
+        orcvs::midi::MidiConnectionRequest::Ready(connection) => connection,
+        orcvs::midi::MidiConnectionRequest::Pending(_) => panic!("the fake opens synchronously"),
+    }
+}
+
 #[derive(Default)]
 struct FakeState {
     messages: Vec<Vec<u8>>,
@@ -24,7 +31,7 @@ impl FakeBackend {
         handle: &orcvs::midi::MidiSelectionHandle,
         destination_id: &MidiDestinationId,
     ) -> Result<(), MidiError> {
-        let connection = self.connect(destination_id)?;
+        let connection = ready(self.connect(destination_id)?);
         handle.install(destination_id.clone(), connection)
     }
 }
@@ -37,11 +44,13 @@ impl MidiBackend for FakeBackend {
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,
-    ) -> Result<Box<dyn MidiConnection>, MidiError> {
+    ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
         assert_eq!(destination_id, &MidiDestinationId::new("studio"));
-        Ok(Box::new(FakeConnection {
-            state: self.state.clone(),
-        }))
+        Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+            FakeConnection {
+                state: self.state.clone(),
+            },
+        )))
     }
 }
 
@@ -81,7 +90,7 @@ impl PanickingBackend {
         handle: &orcvs::midi::MidiSelectionHandle,
         destination_id: &MidiDestinationId,
     ) -> Result<(), MidiError> {
-        let connection = self.connect(destination_id)?;
+        let connection = ready(self.connect(destination_id)?);
         handle.install(destination_id.clone(), connection)
     }
 }
@@ -95,11 +104,13 @@ impl MidiBackend for PanickingBackend {
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,
-    ) -> Result<Box<dyn MidiConnection>, MidiError> {
+    ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
         assert_eq!(destination_id, &MidiDestinationId::new("studio"));
-        Ok(Box::new(PanickingConnection {
-            delivery_started: self.delivery_started.clone(),
-        }))
+        Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+            PanickingConnection {
+                delivery_started: self.delivery_started.clone(),
+            },
+        )))
     }
 }
 
@@ -261,7 +272,7 @@ async fn selection_handle_cannot_outlive_the_running_orcvs() {
     assert_eq!(
         midi.install(
             MidiDestinationId::new("studio"),
-            backend.connect(&MidiDestinationId::new("studio")).unwrap()
+            ready(backend.connect(&MidiDestinationId::new("studio")).unwrap())
         )
         .unwrap_err()
         .message,

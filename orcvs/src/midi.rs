@@ -81,12 +81,30 @@ pub trait MidiConnection: Send {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError>;
 }
 
+/// An opening operation owned by its caller until it becomes a connection.
+/// Dropping a pending request releases its claim on the destination.
+pub enum MidiConnectionRequest {
+    /// A connection that can be handed to Playback immediately.
+    Ready(Box<dyn MidiConnection>),
+    /// An acquisition whose claim is released when the request is dropped.
+    Pending(Box<dyn PendingMidiConnection>),
+}
+
+/// A nonblocking opening operation. Poll only until it returns `Ready`;
+/// dropping it before then cancels this caller's interest in the result.
+/// A successful poll transfers ownership to the returned connection; dropping
+/// the completed request must not release that connection. The caller polls
+/// from its own event loop; this interface does not register a task waker.
+pub trait PendingMidiConnection: Send {
+    fn poll(&mut self) -> std::task::Poll<Result<Box<dyn MidiConnection>, MidiError>>;
+}
+
 pub trait MidiBackend: Send {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError>;
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,
-    ) -> Result<Box<dyn MidiConnection>, MidiError>;
+    ) -> Result<MidiConnectionRequest, MidiError>;
 }
 
 pub struct MidiSelection {
@@ -332,6 +350,13 @@ mod tests {
         }
     }
 
+    fn ready(request: super::MidiConnectionRequest) -> Box<dyn MidiConnection> {
+        match request {
+            super::MidiConnectionRequest::Ready(connection) => connection,
+            super::MidiConnectionRequest::Pending(_) => panic!("the fake opens synchronously"),
+        }
+    }
+
     ///
     /// Opens a port through the fake backend and queues it the way the console does.
     ///
@@ -340,9 +365,11 @@ mod tests {
         backend: &mut impl MidiBackend,
         destination_id: &MidiDestinationId,
     ) {
-        let connection = backend
-            .connect(destination_id)
-            .expect("the fake backend offered this destination");
+        let connection = ready(
+            backend
+                .connect(destination_id)
+                .expect("the fake backend offered this destination"),
+        );
         playback
             .selection
             .install(destination_id.clone(), connection)
@@ -429,7 +456,7 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<crate::midi::MidiConnectionRequest, MidiError> {
             let mut state = self.state.lock().unwrap();
             if state.fail_next_connect {
                 state.fail_next_connect = false;
@@ -437,9 +464,11 @@ mod tests {
             }
             state.connection_count += 1;
             drop(state);
-            Ok(Box::new(FakeConnection {
-                state: self.state.clone(),
-            }))
+            Ok(crate::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection {
+                    state: self.state.clone(),
+                },
+            )))
         }
     }
 
@@ -473,7 +502,7 @@ mod tests {
         backend: &mut FakeBackend,
         destination_id: &MidiDestinationId,
     ) {
-        let connection = backend.connect(destination_id).unwrap();
+        let connection = ready(backend.connect(destination_id).unwrap());
         adapter.install_connection(destination_id.clone(), connection);
     }
 
@@ -954,7 +983,7 @@ mod tests {
             selection
                 .install(
                     MidiDestinationId::new("one"),
-                    backend.connect(&MidiDestinationId::new("one")).unwrap(),
+                    ready(backend.connect(&MidiDestinationId::new("one")).unwrap()),
                 )
                 .is_err(),
             "a selection outlived the engine it selects for"
