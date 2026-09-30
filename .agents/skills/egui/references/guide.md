@@ -21,7 +21,7 @@ cargo tree --package console --locked --all-features --prefix none -e normal,dev
 | `eframe` | `=0.36.2` | `console/Cargo.toml` `[dependencies]` | Windowing and the `App` loop. `glow`, `wayland`, `x11`; no `wgpu`. |
 | `epaint`, `emath`, `ecolor` | 0.36.2 | `Cargo.lock` | egui's own crates. Held at 0.36.2 by the lockfile. |
 | `egui_inspection` | 0.36.2 | `Cargo.lock`, through `eframe/inspection` | The inspection plugin and wire protocol. Reached only by `console/inspection`. |
-| `egui_kittest` | `=0.36.2` | `console/Cargo.toml`, non-WASM `dev-dependencies` | The UI test harness. Feature `eframe` only. |
+| `egui_kittest` | `=0.36.2` | `console/Cargo.toml`, non-WASM `dev-dependencies` | The UI test harness. Feature `eframe`; `snapshot` and `wgpu` only under `console/release-capture`. |
 | `egui_mcp` | 0.2.0 | `mise run install_egui_mcp`, `.mcp.json`, `.codex/config.toml` | The MCP server an agent attaches through. Not a workspace dependency. |
 
 The second command is the duplicate check: one version of each egui crate.
@@ -349,26 +349,48 @@ cargo nextest run --package console --locked
 cargo nextest run --package console --locked -E 'test(kittest_tests)'
 ```
 
-### Why there is no snapshot test
+### Why there is no snapshot test, and where the renderer is on
 
 `egui_kittest`'s `snapshot` feature has no renderer of its own
 (`egui_kittest-0.36.2/src/renderer.rs:36-45`); producing an image needs the
-`wgpu` feature as well. That would put the wgpu and naga trees into the dev
-graph and a working GPU into every CI job that runs the console's tests, for
-coverage the `Shape`-level assertions in `console::tests` already hold at a
-finer grain — they can say *which* Shape, in what order, at what rounded
-rectangle, which a pixel diff cannot. The console also ships the `glow`
-renderer, and pulling wgpu in for tests alone is the renderer split this
-repository has so far avoided.
+`wgpu` feature as well. That puts the wgpu and naga trees into the graph and a
+working GPU into the run, for coverage the `Shape`-level assertions in
+`console::tests` already hold at a finer grain — they can say *which* Shape, in
+what order, at what rounded rectangle, which a pixel diff cannot. The console
+also ships the `glow` renderer, and wgpu stays out of every build a gate or a
+viewer runs.
 
-So: no snapshots, and none are claimed. If a visual regression ever appears
-that no Shape assertion can express — a font atlas fault, a blend or gamma
-change — that is the argument for adding `egui_kittest`'s `snapshot` and `wgpu`
-features, behind its own ticket, with the viewport, `pixels_per_point`, theme,
-fonts and animation state all fixed by the harness builder, and with baseline
-updates made deliberately rather than by accepting whatever the last run
-produced. Until then, `screenshot` in an inspection session is the visual check,
-and it is a human looking at it.
+So no test compares an image against a baseline, and none is claimed. If a
+visual regression ever appears that no Shape assertion can express — a font
+atlas fault, a blend or gamma change — that is the argument for a snapshot test,
+behind its own ticket, with baseline updates made deliberately rather than by
+accepting whatever the last run produced.
+
+The two features are on in one place: `console`'s `release-capture` feature,
+which `mise run capture_native` runs, only from the dispatch-only
+`.github/workflows/release-captures.yml`, and `mise run check_release_capture`
+compiles, without rendering, in the native merge tier. It renders images for a human
+reviewer, not for a comparison. `console::kittest_tests::capture` builds the
+harness with `WgpuTestRenderer::from_render_state`, so it can record the adapter
+it rendered on (lavapipe in CI), and it fixes everything that decides what the
+frame shows: the viewport in points, `pixels_per_point` 2, the mode and egui zoom
+1.0 through stored egui memory, the Theme selections through `config.toml`, the
+seeded Source through a stored `app.ron`, and the Region through keys. Before
+each render it asserts the seeded Source, the mode and Theme presented, the zoom,
+and every checklist state among the drawn Cells, so a frame missing a state
+fails rather than uploads. `docs/tooling.md` records the workflow and what the
+tooling contract pins about it.
+
+To run it locally (macOS renders on Metal rather than lavapipe, and the manifest
+says so):
+
+```sh
+ORCVS_CAPTURE_DIR=target/captures ORCVS_CAPTURE_SHA="$(git rev-parse HEAD)" \
+  ORCVS_CAPTURE_RUNNER=local mise run capture_native
+```
+
+Until an image is wanted, `screenshot` in an inspection session is the visual
+check, and it is a human looking at it.
 
 ## Verification
 

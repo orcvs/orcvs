@@ -84,6 +84,9 @@ Then run only the gates whose inputs the change actually touched:
 - dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
 - `console`'s `inspection` feature, or the `eframe` feature set it selects: `mise run check_inspection`.
   The feature is off by default, so every other gate compiles the console without it.
+- `console`'s `release-capture` feature, `console::kittest_tests::capture`, or a console test helper
+  the capture calls: `mise run check_release_capture`. The merge tier runs it; no pull-request gate
+  compiles the feature.
 - egui or eframe presentation, UI tests, or inspection: the `egui` skill
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
   `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused

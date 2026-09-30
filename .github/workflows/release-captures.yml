@@ -1,0 +1,97 @@
+name: Release captures
+
+# The release candidate rendered to images for a human reviewer, who checks them
+# against the visual checklist in `.scratch/restyle-egui-console/`. Given a
+# commit, the native job renders the console through the kittest harness the
+# interaction tests use, with Mesa's lavapipe as the GPU, at wide and tall
+# viewports in Okabe–Ito and Orcvs Light, and uploads the four images and their
+# manifest as one artifact.
+#
+# `workflow_dispatch` is the whole trigger. The capture builds the wgpu tree and
+# a software GPU into the run, and a `pull_request:`, `push:` or `schedule:`
+# trigger would make every change pay for images nobody asked for.
+# `scripts/check-tooling-contract.sh` pins that, and this is never a required
+# status context.
+#
+# The commit is an input rather than the dispatched ref, so a reviewer names the
+# exact candidate. The workflow file itself is read from the ref it is
+# dispatched on, and `mise run capture_native` from the commit checked out: a
+# commit older than that task has no capture to run.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit SHA to capture
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  native:
+    permissions:
+      contents: read
+    # A cold build of the console's test target with the wgpu tree, then four
+    # software-rendered frames. Bounded like every job here, so a lavapipe device
+    # that never answers cannot hold a runner for six hours.
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    steps:
+      # A SHA and nothing else: a branch or tag name would capture whatever it
+      # points at when the job runs, not the candidate the reviewer named. Read
+      # through the environment rather than interpolated into the script.
+      - name: Check the commit input
+        env:
+          CAPTURE_SHA: ${{ inputs.sha }}
+        run: |
+          if ! [[ "$CAPTURE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "sha must be a full 40-character lowercase commit SHA" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      # A dispatch off `main` saves the cache, which every ref can restore; a
+      # dispatch off any other ref only restores.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # ALSA because the console links it through `midir`. `mesa-vulkan-drivers`
+      # is lavapipe, the Vulkan driver that renders on the CPU, and `libvulkan1`
+      # the loader wgpu finds it through; `egui_kittest`'s default setup prefers
+      # a CPU adapter, and the manifest check below holds that it got this one.
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libvulkan1 mesa-vulkan-drivers
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      # The test asserts the seeded Source, the mode, the Theme, egui zoom 1.0
+      # and every checklist state before it renders each image, so a capture
+      # that is missing a state fails here and uploads nothing.
+      - name: Render the native captures
+        env:
+          ORCVS_CAPTURE_DIR: ${{ runner.temp }}/release-captures
+          ORCVS_CAPTURE_SHA: ${{ inputs.sha }}
+        run: |
+          ORCVS_CAPTURE_RUNNER="$ImageOS $ImageVersion ($RUNNER_OS $RUNNER_ARCH)"
+          export ORCVS_CAPTURE_RUNNER
+          mise run capture_native
+      - name: Check the renderer and the manifest
+        env:
+          CAPTURE_DIR: ${{ runner.temp }}/release-captures
+        run: |
+          jq -e '.images | length == 4' "$CAPTURE_DIR/manifest.json"
+          jq -e 'all(.images[]; (.renderer.adapter | test("llvmpipe")) and .renderer.backend == "vulkan" and .zoom == 1)' "$CAPTURE_DIR/manifest.json"
+          jq -r '.images[].file' "$CAPTURE_DIR/manifest.json" | while read -r image; do
+            test -s "$CAPTURE_DIR/$image"
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-captures-native-${{ inputs.sha }}
+          path: ${{ runner.temp }}/release-captures
+          if-no-files-found: error
