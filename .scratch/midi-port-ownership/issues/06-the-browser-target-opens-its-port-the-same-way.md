@@ -33,8 +33,8 @@ than a stub that lists nothing and refuses every connect.
 - [ ] A performer can refresh destinations in the browser, select one, and hear output from it.
 - [x] A build for a target with no MIDI service still falls back to the silent backend and offers an
       empty destination list rather than an error. Met today by the stub every non-native target
-      builds (`console/src/native_midi.rs:137-175`); what this line owes is that it stays met once
-      the browser has a real backend, since the browser will no longer be that target.
+      builds (`console/src/console_midi.rs`, module `silent`); what this line owes is that it stays
+      met once the browser has a real backend, since the browser will no longer be that target.
 
 ## Comments
 
@@ -95,12 +95,6 @@ it.* That needs a browser, a MIDI device and a person listening. Manual steps:
    was playing should keep sounding without a pause. Close the other application and pick the port
    again: it should be selected once the browser opens it, with no Scan.
 
-**2026-09-30 — known gap, not fixed.** Reselecting a port just after its last connection dropped
-waits for the browser's close to answer before opening it again
-(`a_new_claim_waits_for_an_in_flight_close_before_reopening`). Past that point the console trusts
-the browser. If a browser resolves `close()` before it has let go of the device, or resolves the
-following `open()` while the port is still closing, the connection is installed as open. Web MIDI
-then reopens the port implicitly on the next `send`, and a refusal there reaches no status line.
-Reaching it takes that exact timing and an exclusively held device, so it is left open.
-Browser behaviour here is unverified. The fake cannot reproduce it, so proof would need manual
-step 8 run with a reselect straight after the port was left.
+**2026-09-30 — known gap, not fixed.** A port reselected while the browser is still closing it
+can be installed before it has really opened, and a refusal from Web MIDI's implicit reopen then
+reaches no status line. Tracked in `midi-port-ownership/11`.

@@ -19,6 +19,8 @@ use orcvs::midi::{
 mod ports;
 use ports::Ports;
 
+use crate::console_midi::DESTINATION_GONE;
+
 type Completion = Box<dyn FnOnce(Result<(), MidiError>) + Send>;
 
 ///
@@ -26,13 +28,6 @@ type Completion = Box<dyn FnOnce(Result<(), MidiError>) + Send>;
 /// granted or refused access.
 ///
 pub(crate) const ACCESS_PENDING: &str = "waiting for the browser to grant MIDI access";
-
-///
-/// The message a connect answers when the output it names is gone from the
-/// output map or is disconnected. It is the native backend's copy, so a
-/// vanished device reads the same on either target.
-///
-pub(crate) const DESTINATION_GONE: &str = "the selected MIDI destination is no longer available";
 
 ///
 /// The message a connect answers when there is no MIDI access to open a port
@@ -216,7 +211,7 @@ mod browser {
         /// only, and asking for it makes the browser's permission prompt ask
         /// for more than the console uses.
         ///
-        pub(crate) fn request() -> Self {
+        pub(crate) fn request() {
             let requested = ACCESS.with(|access| {
                 let mut access = access.borrow_mut();
                 if !matches!(*access, Access::NotRequested) {
@@ -261,7 +256,6 @@ mod browser {
                     }
                 });
             }
-            Self
         }
 
         ///
@@ -770,6 +764,33 @@ pub(crate) mod tests {
 
             assert_eq!(midi.status(), None, "{answer:?}");
             assert_eq!(midi.destinations(), listed.as_slice(), "{answer:?}");
+            assert_eq!(midi.selected_destination_id(), selected, "{answer:?}");
+        }
+    }
+
+    ///
+    /// A console built after the browser has answered, as the web entry point
+    /// arranges for a page whose permission is already settled, shows that
+    /// answer from its startup discovery on: no frame reads access as pending,
+    /// a granted page selects its first output, and a refused one reads `None`.
+    ///
+    #[tokio::test]
+    async fn a_console_built_after_the_answer_never_shows_access_pending() {
+        let cases = [
+            (AccessStatus::Granted, Some(MidiDestinationId::new("a"))),
+            (AccessStatus::Unavailable, None),
+        ];
+        for (answer, selected) in cases {
+            let fake = FakeWebMidi::with(answer, &[("a", Some("Synth"))]);
+            let (_orcvs, mut midi) = playing(&fake);
+            midi.refresh_destinations();
+            assert_eq!(midi.status(), None, "{answer:?}");
+
+            for _ in 0..3 {
+                midi.observe_frame();
+                tokio::task::yield_now().await;
+                assert_eq!(midi.status(), None, "{answer:?}");
+            }
             assert_eq!(midi.selected_destination_id(), selected, "{answer:?}");
         }
     }

@@ -8,8 +8,8 @@ use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
+use crate::console_midi;
 use crate::midi::destination_presentation;
-use crate::native_midi;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
@@ -221,7 +221,7 @@ impl Console {
     ///
     pub(super) fn observe_playback_diagnostics(&mut self) {
         let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
-        if native_midi::AVAILABLE {
+        if console_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
             // Without a MIDI backend the destination ComboBox is disabled
@@ -365,6 +365,9 @@ impl Console {
             self.midi.select_destination(id);
         }
         self.midi.observe_frame();
+        if self.midi.awaiting_install() {
+            ui.ctx().request_repaint();
+        }
         if let Some(status) = self.midi.status() {
             ui.colored_label(ui.visuals().error_fg_color, status);
         }

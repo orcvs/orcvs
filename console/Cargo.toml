@@ -85,7 +85,7 @@ inspection = ["eframe/inspection"]
 release-capture = ["persistence", "egui_kittest/snapshot", "egui_kittest/wgpu"]
 
 [dependencies]
-# Defaults off here; platform MIDI lives in this crate's `native_midi` module.
+# Defaults off here; platform MIDI lives in this crate's `console_midi` module.
 orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 # Keep both Linux window backends explicit because disabling eframe defaults removes them.
 #

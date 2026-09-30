@@ -8,6 +8,8 @@ The web entry point waits for the page's one MIDI access request before it start
 
 **Status:** ready-for-human
 
+**Tags:** release/v1
+
 - [x] The web entry point awaits the MIDI access request, bounded by a timeout, before starting the console.
 - [ ] A page whose permission is already granted starts with its destinations listed and the first selected, with no pending status on any frame.
 - [ ] A page whose permission is blocked starts reading `None` with no status on any frame.
@@ -27,3 +29,7 @@ Left open, for a person with a browser (Chrome or Edge, `cd console && trunk ser
 1. With MIDI access already allowed for the page and a MIDI output connected, reload. The first painted frame shows the port selected and no "waiting for the browser to grant MIDI access" status.
 2. Block MIDI access in the site settings and reload. `None` shows with no status on any frame.
 3. Clear the site's MIDI permission and reload. The console appears within about a quarter of a second while the prompt is still showing; answering the prompt then behaves as `midi-port-ownership/09` describes.
+
+**2026-09-30 — what the automated suites can and cannot show.** The two "on any frame" lines are held in the model and not in a browser. `console/src/web_midi.rs`'s `a_console_built_after_the_answer_never_shows_access_pending` builds a `MidiDeviceSelection` over access that is already granted or refused, runs the console's startup discovery and three Panel frames, and holds that the status is `None` throughout, that granted access selects the first output, and that refused access selects nothing. It proves the selection's half: given a settled answer when the console is built, no frame reads pending. It does not prove the entry point's half, that the answer really is settled by then on a real page.
+
+The headless browser suite cannot close that gap. `MidiDeviceSelection` is `pub(crate)`, so `console/tests/wasm.rs` cannot build one or step its frames; the suite drives no eframe Panel; and headless Firefox's permission answer is its own policy, which the test cannot set to granted or blocked and has no MIDI output to list. `web_midi_answers_discovery_and_connect_without_waiting` now requires discovery and connect to agree on whichever of pending, refused or granted the browser gives, and `the_midi_access_wait_ends_whether_or_not_the_browser_answers` holds that the wait ends. The per-frame lines, and the prompt line, stay with the three manual steps above.

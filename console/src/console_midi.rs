@@ -5,7 +5,7 @@
 //!
 //! [`MidiSelectionHandle::install`]: orcvs::midi::MidiSelectionHandle::install
 
-pub use backend::NativeMidiBackend;
+pub use backend::ConsoleMidiBackend;
 #[cfg(target_arch = "wasm32")]
 pub use backend::request_access_within;
 
@@ -13,6 +13,19 @@ pub use backend::request_access_within;
 /// Whether this build can present MIDI device selection.
 ///
 pub const AVAILABLE: bool = backend::AVAILABLE;
+
+///
+/// The message a connect answers when the destination it names is no longer
+/// offered, so a vanished device reads the same on every target.
+///
+#[cfg(any(
+    test,
+    target_arch = "wasm32",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux"
+))]
+pub(crate) const DESTINATION_GONE: &str = "the selected MIDI destination is no longer available";
 
 #[cfg(all(
     not(target_arch = "wasm32"),
@@ -38,11 +51,11 @@ mod backend {
     /// client to open the connection; the next enumeration or connect creates
     /// a fresh one.
     ///
-    pub struct NativeMidiBackend {
+    pub struct ConsoleMidiBackend {
         enumeration: Mutex<Option<MidiOutput>>,
     }
 
-    impl Default for NativeMidiBackend {
+    impl Default for ConsoleMidiBackend {
         fn default() -> Self {
             Self {
                 enumeration: Mutex::new(None),
@@ -50,7 +63,7 @@ mod backend {
         }
     }
 
-    impl NativeMidiBackend {
+    impl ConsoleMidiBackend {
         pub fn new() -> Self {
             Self::default()
         }
@@ -77,7 +90,7 @@ mod backend {
         }
     }
 
-    impl MidiBackend for NativeMidiBackend {
+    impl MidiBackend for ConsoleMidiBackend {
         fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
             let output = self.enumeration_client()?;
             let mut destinations = Vec::new();
@@ -104,9 +117,7 @@ mod backend {
                 Some(port) => port,
                 None => {
                     self.restore_enumeration_client(output);
-                    return Err(MidiError::new(
-                        "the selected MIDI destination is no longer available",
-                    ));
+                    return Err(MidiError::new(super::DESTINATION_GONE));
                 }
             };
             let port_name = format!("{MIDI_CLIENT_NAME} output");
@@ -152,15 +163,15 @@ mod backend {
     /// asked yet; see `crate::web_midi` for how discovery and connect answer
     /// while that request is outstanding and after it is refused.
     ///
-    pub struct NativeMidiBackend(WebMidiBackend<BrowserMidi>);
+    pub struct ConsoleMidiBackend(WebMidiBackend<BrowserMidi>);
 
-    impl Default for NativeMidiBackend {
+    impl Default for ConsoleMidiBackend {
         fn default() -> Self {
             Self::new()
         }
     }
 
-    impl NativeMidiBackend {
+    impl ConsoleMidiBackend {
         pub fn new() -> Self {
             Self(WebMidiBackend::browser())
         }
@@ -178,7 +189,7 @@ mod backend {
     /// Web MIDI answers at once and is not waited for.
     ///
     pub async fn request_access_within(timeout: std::time::Duration) {
-        let _ = BrowserMidi::request();
+        BrowserMidi::request();
         let Some(answered) = BrowserMidi::answered() else {
             return;
         };
@@ -198,7 +209,7 @@ mod backend {
         let _ = wasm_bindgen_futures::JsFuture::from(first).await;
     }
 
-    impl MidiBackend for NativeMidiBackend {
+    impl MidiBackend for ConsoleMidiBackend {
         fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
             self.0.destinations()
         }
@@ -219,7 +230,7 @@ mod backend {
     target_os = "linux"
 )))]
 mod backend {
-    pub use super::silent::SilentMidiBackend as NativeMidiBackend;
+    pub use super::silent::SilentMidiBackend as ConsoleMidiBackend;
 
     pub const AVAILABLE: bool = false;
 }

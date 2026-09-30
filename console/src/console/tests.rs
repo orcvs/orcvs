@@ -5317,3 +5317,52 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
         ctx.memory(|memory| memory.to_global.clone())
     );
 }
+
+///
+/// The Panel names a destination the browser opened "Opening …" until Playback
+/// publishes it installed, so the publish must bring the frame that clears the
+/// message. Here Playback takes the install only after the console has stopped
+/// asking for frames, the order a slow engine turn produces.
+///
+#[tokio::test]
+async fn the_panel_repaints_once_playback_publishes_an_installed_destination() {
+    use crate::web_midi::{
+        AccessStatus,
+        tests::{FakeWebMidi, backend},
+    };
+
+    let fake = FakeWebMidi::with(AccessStatus::Granted, &[("one", Some("Studio Synth"))]);
+    fake.close_port("one");
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.reduced_motion = true;
+    console.midi = crate::midi::MidiDeviceSelection::new(
+        console.orcvs.midi_selection_handle(),
+        Box::new(backend(&fake)),
+    );
+    console.midi.refresh_destinations();
+    app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+    fake.answer_open("one", Ok(()));
+    for _ in 0..4 {
+        if app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host)
+            > std::time::Duration::ZERO
+        {
+            break;
+        }
+    }
+    assert_eq!(console.midi.status(), Some("Opening Studio Synth…"));
+    let handle = console.orcvs.midi_selection_handle();
+    tokio::time::timeout(ENGINE_WAIT, async {
+        while handle.selected_destination_id().ok().flatten().is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("Playback never installed the opened destination");
+
+    assert!(
+        ctx.has_requested_repaint(),
+        "Playback published the installed destination and no frame was asked for, so the \
+         Panel still shows the status it painted"
+    );
+}

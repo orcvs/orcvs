@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
+use console::console_midi::ConsoleMidiBackend;
 use console::cursor_effects::{CursorEffectAnimation, CursorEffectSettings};
-use console::native_midi::NativeMidiBackend;
 use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::{MidiChannel, Note, Velocity};
@@ -136,30 +136,42 @@ fn web_app_and_cursor_effects_construct_without_panicking() {
 /// and connect synchronously, whatever the browser does with the request: a
 /// browser that has not answered says access is awaited, one without Web MIDI
 /// or that refused it lists nothing, and one that granted it lists its ports.
-/// None of them offers a port no browser names, and none panics. Which of the
-/// three this browser is depends on its permission policy, so the test holds
-/// all three rather than one.
+/// Which of the three this browser is depends on its permission policy, so the
+/// test holds all three rather than one, and requires connect to give the
+/// answer of the same one: a list may only come with access decided, and a
+/// port the list does not name is refused as gone once access is granted.
 ///
 #[wasm_bindgen_test]
 fn web_midi_answers_discovery_and_connect_without_waiting() {
     const PENDING: &str = "waiting for the browser to grant MIDI access";
-    let mut backend = NativeMidiBackend::new();
-    const { assert!(console::native_midi::AVAILABLE) };
+    const NO_ACCESS: &str = "this browser offers no MIDI access";
+    const GONE: &str = "the selected MIDI destination is no longer available";
+    let mut backend = ConsoleMidiBackend::new();
+    const { assert!(console::console_midi::AVAILABLE) };
 
+    let unnamed = MidiDestinationId::new("no browser names this port");
+    let refused = backend
+        .connect(&unnamed)
+        .err()
+        .expect("a port no browser names is refused");
     match backend.destinations() {
-        Ok(_) => {}
+        Ok(listed) => {
+            assert!(!refused.is_pending());
+            assert!(listed.iter().all(|destination| destination.id != unnamed));
+            if listed.is_empty() {
+                assert!([NO_ACCESS, GONE].contains(&refused.message.as_str()));
+            } else {
+                assert_eq!(refused.message, GONE);
+            }
+        }
         Err(error) => {
             assert_eq!(error.message, PENDING);
             assert!(error.is_pending());
+            assert_eq!(refused.message, PENDING);
         }
     }
-    assert!(
-        backend
-            .connect(&MidiDestinationId::new("no browser names this port"))
-            .is_err()
-    );
     // A second backend reuses the page's one request rather than asking again.
-    let _ = NativeMidiBackend::new().destinations();
+    let _ = ConsoleMidiBackend::new().destinations();
 }
 
 ///
@@ -170,7 +182,7 @@ fn web_midi_answers_discovery_and_connect_without_waiting() {
 ///
 #[wasm_bindgen_test]
 async fn the_midi_access_wait_ends_whether_or_not_the_browser_answers() {
-    console::native_midi::request_access_within(Duration::from_millis(50)).await;
+    console::console_midi::request_access_within(Duration::from_millis(50)).await;
 }
 
 #[wasm_bindgen_test]

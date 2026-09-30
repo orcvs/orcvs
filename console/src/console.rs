@@ -33,10 +33,10 @@ use self::panel::BPM_FIELD_ID;
 use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_playback_publishes};
 use self::source_view::SourceView;
 use crate::config::Config;
+use crate::console_midi::ConsoleMidiBackend;
 use crate::cursor_effects::{CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings};
 use crate::grid_viewport::CELL_SIZE;
 use crate::midi::MidiDeviceSelection;
-use crate::native_midi::NativeMidiBackend;
 use crate::persistence::starting_source;
 use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
@@ -107,7 +107,7 @@ pub struct Console {
     /// Device discovery and selection for whatever MIDI backend `orcvs` has on
     /// this target. The console never asks what target it is on: a target with
     /// no MIDI service answers an empty destination list here, and
-    /// `native_midi::AVAILABLE` says whether the ComboBox is enabled and
+    /// `console_midi::AVAILABLE` says whether the ComboBox is enabled and
     /// whether Scan is shown.
     midi: MidiDeviceSelection,
     font_family: egui::FontFamily,
@@ -297,7 +297,7 @@ fn environment(
     wake_panel_when_playback_publishes(ctx.clone(), orcvs.playback_observation_watch());
     let mut midi = MidiDeviceSelection::new(
         orcvs.midi_selection_handle(),
-        Box::new(NativeMidiBackend::new()),
+        Box::new(ConsoleMidiBackend::new()),
     );
     midi.refresh_destinations();
     #[cfg(target_arch = "wasm32")]

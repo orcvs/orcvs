@@ -56,7 +56,7 @@ pub(crate) fn destination_presentation<'a>(
     destinations: &'a [MidiDestination],
     selected_id: Option<&'a MidiDestinationId>,
 ) -> DestinationPresentation<'a> {
-    if !crate::native_midi::AVAILABLE {
+    if !crate::console_midi::AVAILABLE {
         return DestinationPresentation {
             enabled: false,
             show_refresh: false,
@@ -73,7 +73,7 @@ pub(crate) fn destination_presentation<'a>(
 ///
 /// The presentation a test builds for a backend availability production
 /// cannot construct on this target. Production goes through
-/// [`destination_presentation`], which reads `native_midi::AVAILABLE`.
+/// [`destination_presentation`], which reads `console_midi::AVAILABLE`.
 ///
 #[cfg(test)]
 fn destination_presentation_for<'a>(
@@ -125,8 +125,15 @@ pub(crate) struct MidiDeviceSelection {
     /// keeps its installed connection until a new request succeeds.
     ///
     opening: Option<(MidiDestinationId, MidiConnectionRequest)>,
-    /// An opened connection handed to Playback but not yet published as installed.
-    installing: Option<(MidiDestinationId, String)>,
+    ///
+    /// A connection handed to Playback but not yet published as installed,
+    /// with the "Opening …" message it shows. Only a connection the backend
+    /// finished opening after `connect` returned carries a message; a ready
+    /// one shows none. Either way the record is what keeps choosing the same
+    /// destination again from reconnecting it, and choosing the installed one
+    /// again from being overtaken by the install Playback has not yet taken.
+    ///
+    installing: Option<(MidiDestinationId, Option<String>)>,
 }
 
 impl MidiDeviceSelection {
@@ -233,8 +240,8 @@ impl MidiDeviceSelection {
         let Some((destination_id, request)) = self.opening.take() else {
             return;
         };
-        let connection = match request {
-            MidiConnectionRequest::Ready(connection) => connection,
+        let (connection, opened_later) = match request {
+            MidiConnectionRequest::Ready(connection) => (connection, false),
             MidiConnectionRequest::Pending(mut pending) => match pending.poll() {
                 Poll::Pending => {
                     self.status = Some(self.opening_message(&destination_id));
@@ -245,10 +252,10 @@ impl MidiDeviceSelection {
                     self.status = Some(error.message);
                     return;
                 }
-                Poll::Ready(Ok(connection)) => connection,
+                Poll::Ready(Ok(connection)) => (connection, true),
             },
         };
-        self.install(&destination_id, connection);
+        self.install(&destination_id, connection, opened_later);
     }
 
     fn opening_message(&self, id: &MidiDestinationId) -> String {
@@ -260,11 +267,20 @@ impl MidiDeviceSelection {
         format!("Opening {name}…")
     }
 
-    fn install(&mut self, destination_id: &MidiDestinationId, connection: Box<dyn MidiConnection>) {
+    ///
+    /// Hands `connection` to Playback. A connection `opened_later` keeps its
+    /// "Opening …" message until Playback publishes it installed.
+    ///
+    fn install(
+        &mut self,
+        destination_id: &MidiDestinationId,
+        connection: Box<dyn MidiConnection>,
+        opened_later: bool,
+    ) {
         match self.selection.install(destination_id.clone(), connection) {
             Ok(()) => {
-                self.installing =
-                    Some((destination_id.clone(), self.opening_message(destination_id)));
+                let message = opened_later.then(|| self.opening_message(destination_id));
+                self.installing = Some((destination_id.clone(), message));
                 self.status = None;
                 self.engine_status = None;
             }
@@ -313,20 +329,32 @@ impl MidiDeviceSelection {
     }
 
     pub(crate) fn status(&self) -> Option<&str> {
-        let installing = self.installing.as_ref().and_then(|(id, message)| {
-            (self
-                .selection
-                .selected_destination_id()
-                .ok()
-                .flatten()
-                .as_ref()
-                != Some(id))
-            .then_some(message.as_str())
-        });
         self.status
             .as_deref()
-            .or(installing)
+            .or(self
+                .unpublished_install()
+                .and_then(|(_, message)| message.as_deref()))
             .or(self.engine_status.as_deref())
+    }
+
+    ///
+    /// Whether a connection handed to Playback is not yet published as
+    /// installed.
+    ///
+    /// Playback's install publishes nothing that wakes the Panel, so the
+    /// Panel asks for another frame while this answers `true`, until the
+    /// engine's task takes the install and the Panel can show it. A running
+    /// Orcvs that is gone answers `false`, so no frame is asked for an install
+    /// nothing will take.
+    ///
+    pub(crate) fn awaiting_install(&self) -> bool {
+        self.unpublished_install().is_some()
+    }
+
+    fn unpublished_install(&self) -> Option<&(MidiDestinationId, Option<String>)> {
+        let installing = self.installing.as_ref()?;
+        let published = self.selection.selected_destination_id().ok()?;
+        (published.as_ref() != Some(&installing.0)).then_some(installing)
     }
 
     pub(crate) fn observe_diagnostics(&mut self, diagnostics: Vec<PlaybackDiagnostic>) {
@@ -859,6 +887,69 @@ mod tests {
             backend.connect_order(),
             vec![MidiDestinationId::new("two")],
             "automatic selection queued a connect to the first destination"
+        );
+    }
+
+    ///
+    /// A connection the backend hands over ready is installed without an
+    /// "Opening …" status, before and after Playback publishes it.
+    ///
+    #[tokio::test]
+    async fn a_ready_connection_installs_without_an_opening_status() {
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
+        midi.refresh_destinations();
+
+        midi.select_destination(&MidiDestinationId::new("one"));
+        assert_eq!(midi.status(), None, "before Playback publishes the install");
+
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+        assert_eq!(midi.status(), None, "after Playback publishes the install");
+    }
+
+    ///
+    /// Choosing the destination whose ready connection Playback has not yet
+    /// taken does not connect it a second time.
+    ///
+    #[tokio::test]
+    async fn choosing_an_unpublished_ready_destination_again_does_not_reconnect_it() {
+        let backend = OrderedConnectBackend::new();
+        let (_orcvs, mut midi) = selection_for(backend.clone());
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("one"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+
+        midi.select_destination(&MidiDestinationId::new("two"));
+        midi.select_destination(&MidiDestinationId::new("two"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("two")));
+
+        assert_eq!(
+            backend.connect_order(),
+            vec![MidiDestinationId::new("one"), MidiDestinationId::new("two")]
+        );
+    }
+
+    ///
+    /// Choosing the installed destination again while another's ready
+    /// connection waits for Playback keeps the installed one: the later
+    /// choice is the one Playback ends on.
+    ///
+    #[tokio::test]
+    async fn choosing_back_to_the_installed_destination_outlasts_an_unpublished_one() {
+        let backend = OrderedConnectBackend::new();
+        let (_orcvs, mut midi) = selection_for(backend.clone());
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("one"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+
+        midi.select_destination(&MidiDestinationId::new("two"));
+        midi.select_destination(&MidiDestinationId::new("one"));
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("one"))
         );
     }
 
