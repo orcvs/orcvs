@@ -11,7 +11,7 @@
 - [ ] The decision is recorded, either as an amendment to ADR 0028 or as this ticket's answer.
 - [x] If dispatch stays a hand-written match, ADR 0028 no longer lists it among the things derived from the declaration. *(Met: ADR 0028's paragraph at line 7 says "The evaluation dispatch is not: it is still a hand-written match" and leaves the question open.)*
 - [ ] If dispatch becomes derived, a ticket exists for the change and states the form chosen.
-- [x] Either way, adding a Function still cannot leave dispatch silently incomplete. *(Holds today: the match in `execute_function` has no wildcard arm, `lang/src/interpreter.rs:125-181`. Re-check it if dispatch becomes derived.)*
+- [x] Either way, adding a Function still cannot leave dispatch silently incomplete. *(Holds today: the match in `execute_function` has no wildcard arm, `lang/src/interpreter.rs:133-186`. Re-check it if dispatch becomes derived.)*
 
 ## Comments
 

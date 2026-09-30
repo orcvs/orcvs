@@ -33,3 +33,5 @@ hardware: the manual macOS capture per Theme and the reviewer's checklist. v1-re
 release-captures/01 and /02, and theming/18 are still open, so the `Blocked by:` line keeps it
 off the frontier. No capture workflow exists yet: `.github/workflows/` holds only `advisories`,
 `bench`, `miri`, `test` and `tooling`.
+
+**2026-09-30 — the native capture workflow exists.** #184 added `.github/workflows/release-captures.yml` (dispatch-only, SHA input), which runs `mise run capture_native` for the four native captures. The four web captures wait on `release-captures/02`, and no dispatched run has been recorded (`release-captures/01`). The `Blocked by:` line still holds: `v1-release/03`, `release-captures/01`, `release-captures/02` and `theming/18` are open.

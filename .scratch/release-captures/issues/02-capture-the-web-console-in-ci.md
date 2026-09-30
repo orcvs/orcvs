@@ -17,3 +17,7 @@ The native job from `01` uploads its four images and `manifest.json` as a native
 - [ ] The four images join the run's artifact, and the manifest records the browser and its version as the renderer.
 - [ ] One real dispatched run against `main` produces all eight images in one artifact, and its run link is recorded here.
 - [ ] `actionlint`, `zizmor --offline .github/workflows`, `bash scripts/check-tooling-contract.sh` and `bash scripts/tests/check-tooling-contract.sh` pass. `mise run check_wasm` passes.
+
+## Comments
+
+**2026-09-30 — audit: the artifact layout is still undecided.** The spec asks for one artifact per run holding every image and a manifest, but does not choose between a final job that downloads the native and web outputs and merges their manifests, and the web job writing into the native job's artifact. That choice must be made and recorded in the implementing pull request (and in this ticket). A `collect` job needs no change to `01`: the native job already uploads its images and `manifest.json` as `release-captures-native-<sha>` (`.github/workflows/release-captures.yml`, the `upload-artifact` step), which a later job can download.
