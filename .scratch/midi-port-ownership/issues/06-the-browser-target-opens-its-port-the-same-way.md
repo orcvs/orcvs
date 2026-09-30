@@ -94,3 +94,13 @@ it.* That needs a browser, a MIDI device and a person listening. Manual steps:
    for the browser to open the MIDI destination" and then the browser's refusal, and the port that
    was playing should keep sounding without a pause. Close the other application and pick the port
    again: it should be selected once the browser opens it, with no Scan.
+
+**2026-09-30 — known gap, not fixed.** Reselecting a port just after its last connection dropped
+waits for the browser's close to answer before opening it again
+(`a_new_claim_waits_for_an_in_flight_close_before_reopening`). Past that point the console trusts
+the browser. If a browser resolves `close()` before it has let go of the device, or resolves the
+following `open()` while the port is still closing, the connection is installed as open. Web MIDI
+then reopens the port implicitly on the next `send`, and a refusal there reaches no status line.
+Reaching it takes that exact timing and an exclusively held device, so it is left open.
+Browser behaviour here is unverified. The fake cannot reproduce it, so proof would need manual
+step 8 run with a reselect straight after the port was left.
