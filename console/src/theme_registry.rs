@@ -576,6 +576,49 @@ mod tests {
         );
     }
 
+    ///
+    /// A Theme file's appearance is its built-in parent's: omitted, it
+    /// resolves from the parent; declared to match, it loads; declared
+    /// against the parent, the file is refused with an error naming the
+    /// file and both appearances.
+    ///
+    #[test]
+    fn a_theme_files_appearance_is_its_parents() {
+        let registry = ThemeRegistry::built_in();
+        let with_appearance = |parent: &str, appearance: Option<&str>| {
+            let mut text = format!(
+                "format = \"orcvs-theme\"\nversion = 1\nname = \"Mine\"\ninherits = \"{parent}\"\n"
+            );
+            if let Some(appearance) = appearance {
+                text.push_str(&format!("appearance = \"{appearance}\"\n"));
+            }
+            registry.load("mine.toml", text.as_bytes())
+        };
+
+        for (parent, appearance, word) in [
+            ("okabe-ito", Appearance::Dark, "dark"),
+            ("orcvs-light", Appearance::Light, "light"),
+        ] {
+            let omitted = with_appearance(parent, None).expect("an omitted appearance");
+            assert_eq!(omitted.appearance, appearance, "{parent}, omitted");
+            let matching = with_appearance(parent, Some(word)).expect("a matching appearance");
+            assert_eq!(matching.appearance, appearance, "{parent}, declared {word}");
+        }
+
+        for (parent, word, declared, inherited) in [
+            ("okabe-ito", "light", "Light", "Dark"),
+            ("orcvs-light", "dark", "Dark", "Light"),
+        ] {
+            let error = with_appearance(parent, Some(word)).expect_err("a conflicting appearance");
+            assert!(
+                error.starts_with("mine.toml: ")
+                    && error.contains(&format!("declared appearance {declared}"))
+                    && error.contains(&format!("parent appearance {inherited}")),
+                "{error}"
+            );
+        }
+    }
+
     #[test]
     fn a_theme_below_the_contrast_floor_is_loaded_and_its_report_shown() {
         let mut registry = ThemeRegistry::built_in();
