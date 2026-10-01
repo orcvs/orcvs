@@ -76,3 +76,13 @@ an ignored Source-focused key or key release. Credit existing Space coverage (`:
 asserts Playing) and Delete coverage (`:2595-2608`, sole character deletion clears the dirty
 title); those need no duplicate tests. The existing arrow integration test passed in this audit.
 The dependency-audit evidence criterion remains unverified, not assumed satisfied.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+References moved in `console/src/console/kittest_tests.rs`: harness `:124-135`, arrow test
+`:1021-1043`, click `:1741`, Space `:2698`, ArrowLeft+Delete `:2955`, menu-suppressed Backspace
+`:2178`, modal Enter `:2838`. The remaining gaps are unchanged: four-edge clamping, ordinary
+Source Backspace, ignored Enter and key release. #184 enables `egui_kittest/snapshot` and `wgpu`
+under the opt-in `release-capture` feature only; the dev-dependency (`console/Cargo.toml:237`)
+stays eframe-only. The rationale is at `console/Cargo.toml:207-236`; the `audit_deps` result is
+still unrecorded.

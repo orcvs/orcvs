@@ -4,10 +4,17 @@
 
 Waiting on: an egui/eframe release carrying the AccessKit bump (`emilk/egui#8496` is open as of 2026-09-25) and a `kittest` release after 0.4.0.
 
-**Blocked by:** 05 — Skip the duplicates upstream releases still hold.
+**Blocked by:** None — 05 is resolved; the wait is upstream (see below).
 
 **Status:** needs-triage
 
 - [ ] The console depends on eframe and egui_kittest releases that resolve a single `accesskit_consumer`.
 - [ ] The `accesskit_consumer` and `hashbrown` skip entries are removed.
 - [ ] `cargo deny --locked --all-features check bans` reports no duplicate for those crates and no unused-skip warning.
+
+## Comments
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+`05` is resolved, so `Blocked by:` now names the upstream wait instead. `emilk/egui#8496` is still
+open, `kittest` is still 0.4.0, and the skips are at `deny.toml:69-71`.

@@ -72,3 +72,10 @@ shape and will need the same treatment as the rest.
 - The guard (`bench.yml:302`) and its comment (`:300`, "manual branch runs") are unchanged, no
   compare step passes `ref:`, and `docs/tooling.md` does not address dispatch. Neither criterion is
   met.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Unchanged: guard at `.github/workflows/bench.yml:302`, comment at `:299`, no `ref:` input. The
+failing dispatches ran about six minutes (36219958326, 36146480015), not twelve. Run 36416640889's
+success came from a branch-modified workflow whose `pull-request` job was skipped, so it is not
+evidence of a fix.

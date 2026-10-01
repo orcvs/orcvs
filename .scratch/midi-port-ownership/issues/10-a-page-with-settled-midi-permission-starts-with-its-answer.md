@@ -4,7 +4,7 @@
 
 The web entry point waits for the page's one MIDI access request before it starts the console, but only up to a short timeout. A first visit that shows the permission prompt must never hold the console back: once the timeout passes, the console starts with access pending and relies on `midi-port-ownership/09` to catch up when the performer answers. An ignored or quietly dismissed prompt therefore costs at most the timeout.
 
-**Blocked by:** 09 — its timeout fallback is the pending path that 09 makes correct, and both change the one access request.
+**Blocked by:** 09 — its timeout fallback is the pending path the Panel catch-up makes correct, and both change the one access request.
 
 **Status:** ready-for-human
 
@@ -33,3 +33,10 @@ Left open, for a person with a browser (Chrome or Edge, `cd console && trunk ser
 **2026-09-30 — what the automated suites can and cannot show.** The two "on any frame" lines are held in the model and not in a browser. `console/src/web_midi.rs`'s `a_console_built_after_the_answer_never_shows_access_pending` builds a `MidiDeviceSelection` over access that is already granted or refused, runs the console's startup discovery and three Panel frames, and holds that the status is `None` throughout, that granted access selects the first output, and that refused access selects nothing. It proves the selection's half: given a settled answer when the console is built, no frame reads pending. It does not prove the entry point's half, that the answer really is settled by then on a real page.
 
 The headless browser suite cannot close that gap. `MidiDeviceSelection` is `pub(crate)`, so `console/tests/wasm.rs` cannot build one or step its frames; the suite drives no eframe Panel; and headless Firefox's permission answer is its own policy, which the test cannot set to granted or blocked and has no MIDI output to list. `web_midi_answers_discovery_and_connect_without_waiting` now requires discovery and connect to agree on whichever of pending, refused or granted the browser gives, and `the_midi_access_wait_ends_whether_or_not_the_browser_answers` holds that the wait ends. The per-frame lines, and the prompt line, stay with the three manual steps above.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The `Blocked by:` prose named 09 a second time, which `scripts/roadmap.ts`'s reference pattern
+read as a second blocker; reworded so the line names it once. Read `console::native_midi::request_access_within`
+in the 2026-09-29 comment as `console::console_midi::request_access_within`. The headless suite
+passed on merge-group run 36799739445, under one permission policy (headless Firefox).

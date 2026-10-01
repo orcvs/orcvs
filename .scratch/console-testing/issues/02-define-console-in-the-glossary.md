@@ -40,3 +40,11 @@ effort's `spec.md` instead, and reserved now because `Snapshot` already means So
   `Glyph::Space` assertion that no longer exists; that is history in another ticket and is not
   this ticket's to fix.
 - The **Console** entry itself is still missing.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The Console entry is still missing; the presentation block runs Cursor (`CONTEXT.md:283`) to Panel
+(`:327`). #182's **Zoom** entry (`CONTEXT.md:323-325`) now names egui, so decide whether that entry
+is reworded or this ticket's "no toolkit" rule is relaxed. `docs/agents/domain.md` has no rule
+keeping the glossary free of implementation detail, so the rationale above rests on an unwritten
+rule.

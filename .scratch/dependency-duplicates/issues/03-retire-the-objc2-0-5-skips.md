@@ -20,3 +20,8 @@ Still open: the locked accesskit_macos 0.26.3 and winit 0.30.13 both require obj
 the roadmap parser treated the version numbers in the old title as nonexistent issues 30
 and 31. Issue 02 is the actual local blocker. The dated upstream-release observation above
 is historical; this audit verifies the locked graph, not newer upstream releases.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Unchanged. The skips are now `deny.toml:54-57`. `accesskit_macos` 0.27.1 (2026-09-25) still
+requires `objc2 ^0.5.1`.

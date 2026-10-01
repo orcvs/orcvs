@@ -32,3 +32,9 @@ unverified, and the fake Web MIDI access in `web_midi::tests` cannot reproduce i
 
 **2026-09-30 — split from 06.** Recorded on `midi-port-ownership/06` by `7e99c280` and moved here so
 the gap outlives 06. Not tagged `release/v1`: whether it blocks the release is for triage to decide.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The gap is still present: the browser `open` resolves on the Promise alone
+(`console/src/web_midi.rs:357-369`). Triage needs only a `release/v1` yes or no; either way the
+next step is 06's step 8 with a quick reselect, run by a human.

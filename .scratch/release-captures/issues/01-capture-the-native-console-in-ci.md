@@ -30,3 +30,9 @@ What is left is human: once this is on `main`, dispatch **Release captures** wit
 **2026-09-29 — review follow-ups.** The tag trigger moves to `03-capture-a-release-candidate-tag.md`. The capture is now compiled, without rendering, by `mise run check_release_capture` from `check_merge_native`, so a change to a console test helper it calls fails in the merge queue rather than at dispatch. `release-capture` is therefore named on two `mise.toml` lines, the capture task and the compile task, and the contract pins both lines, the compile task's single caller, and every spelling cargo accepts for the feature. Pull-request gates still compile without it. The capture now also asserts, before the harness applies its theme, that the console started under the mode and zoom its stored egui memory pins.
 
 **2026-09-30 — audit: no dispatched run yet.** `gh run list --repo orcvs/orcvs --workflow release-captures.yml` returns `[]`: #184 merged the workflow to `main`, but nobody has dispatched it. The lavapipe four-image criterion and the dispatched-run criterion both wait on that one dispatch, so Status stays `ready-for-human`. The first two criteria were reworded to match the code: the tag trigger is `03`'s, and `mise.toml`'s `check_merge_native` runs `check_release_capture`, so the merge tier compiles the feature (without rendering) while pull-request gates do not.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Still no dispatched run (`gh run list --workflow release-captures.yml` is empty). The ticked
+criteria hold on main. The only remaining step is a human dispatch with main's head SHA; 02 and 03
+wait on it.

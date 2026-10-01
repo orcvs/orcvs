@@ -14,6 +14,7 @@
 - [x] *(Done by 85ae5b28: the `08` citations are removed, and `contrast.rs:1527` states the hand-kept `shipped` array in place.)* The `shipped_theme_gate` rustdoc (`contrast.rs:2226-2230`), and the `ContrastResult::accepted` rustdoc (`contrast.rs:633`), which says acceptances are recorded in `08`'s comments although `08` records none and both accepted lists are empty, cites a "known weakness recorded in `08`'s comments" that does not exist. Record the weakness (the hand-kept `[okabe_ito(), orcvs_light()]` array) somewhere real, or remove the citation.
 - [x] *(Done by 85ae5b28: the `ba987f6` wording is gone from `style.rs`.)* `console/src/style.rs:2439` says the byte arrays were "copied verbatim from the `ba987f6` capture". The test's own doc (`:2405-2411`) says they were recaptured after the retune.
 - [x] *(Moved to `syntax-highlighting/14`, which fixes the defect it describes.)* The public rustdoc on `RenderCell::output_portal` (`orcvs/src/render_frame.rs:83-85`) states the "each following written Cell pair" rule that `syntax-highlighting/12`'s review rejected. The shipped rule is the run of written Cells, stopping at the first blank Cell and clipped to the Reservation.
+- [ ] `console/src/theme_registry.rs:19-20` says `SelectedThemes` lists its Themes in the View menu's pickers. Selection is by `config.toml` and the console offers no picker (`console/src/theme_selection.rs:11`). Correct the module doc.
 - [ ] `cargo fmt --all -- --check`, clippy and nextest pass on `console` and `orcvs`. `cargo test --workspace --doc --locked` passes.
 
 ## Comments
@@ -38,3 +39,10 @@ The other lines were checked:
 - 85ae5b28 removed every `.scratch/theming/issues/08` citation from `contrast.rs`, restated the
   hand-kept `shipped` array at `contrast.rs:1527`, and removed the `ba987f6` wording from
   `style.rs`.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Two content lines are now left. The `derive_with_colours` rename above still applies. The
+`theme_registry.rs:19-20` line is new: its module doc says `SelectedThemes` lists its Themes in the
+View menu's pickers, but selection is by `config.toml` and the console offers no picker
+(`theme_selection.rs:11`). The gates line applies to both.

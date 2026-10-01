@@ -71,3 +71,13 @@ makes leak detection at termination meaningful per test rather than per binary.
   corrected.
 - `gh run list --workflow miri.yml` returns no runs, so the ready-for-human step — dispatch it once
   and record the result — is still owed.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+No Miri run exists (`gh run list --workflow miri.yml` is empty). `docs/tooling.md`'s claim that
+`orcvs` links `midir` is corrected; `midir` is console-only (`console/Cargo.toml:131`). `AGENTS.md:97`
+still names the byte write in `Source::set_source`. The `miri.yml` comment says the counting
+allocators are outside the filter, but `orcvs/src/lib.rs:38-87` installs a `#[global_allocator]`
+under `cfg(all(test, not(target_arch = "wasm32")))` with no `not(miri)`, in the same lib unit-test
+binary the `source::model::test::` filter selects, so Miri interprets it. Correct the comment or add
+`not(miri)` when dispatching.

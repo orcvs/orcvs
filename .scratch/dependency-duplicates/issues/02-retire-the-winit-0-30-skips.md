@@ -20,3 +20,8 @@ Still open: `Cargo.lock` resolves winit 0.30.13 and `deny.toml:36-51` retains th
 Shortened the blocker to its issue reference: `scripts/roadmap.ts:101` interpreted `0.30`
 in the old blocker title as nonexistent issue `dependency-duplicates/30`. The real issue 01
 is resolved; the upstream prerequisite remains in the body, not as a fictitious local blocker.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Unchanged. winit 0.30.13 locked; eframe 0.36.2 is still the latest release and winit 0.31 is
+still `0.31.0-beta.3`. The skips are now `deny.toml:43-51`, plus `windows-sys@0.59` at `:58`.

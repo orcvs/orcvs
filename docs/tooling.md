@@ -383,11 +383,11 @@ takes, changes.
 The task installs `nightly` and the `miri` component itself rather than moving the pinned channel,
 so nothing else in the repository becomes nightly's problem for the length of a run. It is scoped by
 test filter — `-E 'test(/^source::model::test::/)'`, the tests of the module whose `set_source`
-reaches the Cell write — and not by crate. That distinction is what makes the run possible at all: `orcvs` links ALSA
-through `midir` in the default-featured build the task runs, and builds a multi-threaded Tokio
-runtime, and Miri can execute neither, having no foreign functions and no real threads to hand them. But Miri interprets what actually runs rather
-than what the crate links, so a dependency no selected test calls never becomes a problem, where
-`cargo miri nextest run --package orcvs` would meet both. The run goes through `nextest` for the
+reaches the Cell write — and not by crate. That distinction is what makes the run possible at all:
+`orcvs` links a multi-threaded Tokio runtime, which Miri cannot execute. Miri interprets what
+actually runs rather than what the crate links, so a dependency no selected test calls never becomes
+a problem, where `cargo miri nextest run --package orcvs` would also select the `#[tokio::test]`
+tests that start that runtime. The run goes through `nextest` for the
 reason every gate here does, with one addition: process-per-test gives each test its own interpreter
 context, so Miri's leak check at termination reports per test rather than per binary. The job's
 `timeout-minutes` is longer than any other job in this repository carries, because interpretation

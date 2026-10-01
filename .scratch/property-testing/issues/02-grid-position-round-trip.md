@@ -161,7 +161,7 @@ absent because no property fails, which is what issue 01 predicted.
 
 ### `down` versus `below` is now a ticket
 
-Raised as `source-module-depth/10 — Name the Grid's two edge answers apart`, per this issue's own
+Raised as `source-module-depth/11 — Name the Grid's two edge answers apart`, per this issue's own
 instruction to raise a rename if the properties made the confusion concrete. They did: the
 bottom-row branch of `every_move_lands_on_a_cell_of_the_grid` has to assert both behaviours and
 comment which is which, because a reader meeting either line alone cannot tell whether the clamp is
@@ -242,7 +242,7 @@ for what it originally said. That is the form to keep.
 Three findings were not acted on. `test_grid_indices_cover_every_cell_exactly_once` and the
 `cell_index(8)/cell_index(100)` assertions in `mod test` are subsumed by the new properties, but
 deleting example tests is a different decision from deleting the seed property: the seed was a
-weaker property beside a stronger one in the same register, and `source-module-depth/10` explicitly
+weaker property beside a stronger one in the same register, and `source-module-depth/11` explicitly
 requires `mod test` keep stating the `down`/`below` pairing. Threading `(grid, cols, rows)` through
 a `Shape` struct and splitting `PAST_THE_END` into three constants are readability preferences that
 would touch every property to settle a question no reviewer called a defect.

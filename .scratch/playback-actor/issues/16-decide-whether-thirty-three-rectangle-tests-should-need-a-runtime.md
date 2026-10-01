@@ -72,3 +72,10 @@ body now tabulates the current `#[tokio::test]` counts (202 in all) and leaves t
 figure to be re-derived, rather than keeping a number the tree no longer supports. `Orcvs::new` is
 still fallible and spawns eagerly (`orcvs/src/app.rs:171-173`). No rationale for the accepted cost
 is written beside the tests yet.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The table is stale. #185 added `console/src/web_midi.rs` (19 `#[tokio::test]`), and `tests.rs`
+(84), `kittest_tests.rs` (62), `paint.rs` (39) and `midi.rs` (22) have grown: about 235
+runtime-carrying tests against the table's 202. The recount stays part of this ticket, and should
+say whether `web_midi.rs`'s tests need a runtime for their own reasons.
