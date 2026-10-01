@@ -14,7 +14,7 @@ make sure a light preference cannot produce a half-styled console.
       palette still exists, so both registrations use it.
 - [x] The console reinstalls its style on every launch. eframe restores egui memory but skips the
       styles, so the application owns them.
-- [ ] *(Storage round-trip test: `16`.)* A `persistence` build restores the stored `ThemePreference` and keeps it across a restart.
+- [x] A `persistence` build restores the stored `ThemePreference` and keeps it across a restart. *(Proven by `16`: `a_mode_survives_a_save_and_a_restart`, `console/src/console/kittest_tests.rs:1454`.)*
 - [x] A build without `persistence` starts from `System`.
 - [x] One owner holds the preference: either egui memory, or a later Orcvs settings object. Never
       both.
@@ -46,3 +46,5 @@ document.
 **2026-09-22 — shared presentation retained through `03`.** The earlier comments assigning distinct registration to `03` are superseded. `03` derives the shared style from the resolved dark Theme but keeps both egui appearance slots on that presentation; `04` supplies and accepts the light definition before distinct registration and switching are enabled.
 
 **2026-09-23 — resolved by PR #119; recorded here by the 2026-09-23 audit of the merged pull requests against their issues.** #119 merged into `theme-paint-source` and reached `main` through #120's merge `c7d49156`. Each line checked against `main`: `Console::new` calls only `install` (`console/src/console.rs:812-827`), and every remaining `set_theme` call is in tests. `install` shares one `Arc<Style>` between both slots (`console/src/style.rs:761-765`), tested by `install_shares_one_style_between_both_theme_slots`. `console_new_keeps_a_theme_preference_already_on_the_context` and `console_new_leaves_a_fresh_context_on_the_system_preference` cover the two builds. `persistence.rs` stores only the dark and light Theme identities, so egui memory is the preference's one owner. `mise run test_persistence` ran inside `check_merge` on the push of `c7d49156` to `main`, which passed. Limit: the restart is simulated by setting the preference on the context before `Console::new`; no test round-trips egui memory through real storage, so that line stays unticked and the test is `16`. The shared `Arc<Style>` and its test describe `main` at `c7d49156`; `04` supersedes them, registering each appearance's own Theme in `style::install`, tested by `install_registers_each_appearances_own_theme`.
+
+**2026-10-01 — the restart line is proven.** `16` added `a_mode_survives_a_save_and_a_restart` (`console/src/console/kittest_tests.rs:1454`): a Light mode chosen in a running console is saved with egui memory through `RonFileStorage`, restored into a new `egui::Context`, and still Light after `Console::new`. That is the save–restart–reload path this line asked for, so it is ticked.
