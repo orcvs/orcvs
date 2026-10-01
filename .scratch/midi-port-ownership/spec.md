@@ -88,8 +88,14 @@ This restores the boundary ADR 0022 already drew: MIDI device selection belongs 
 
 - The console owns the MIDI backend. It calls discovery and port opening directly, on its own
   thread, and receives their results as return values.
-- `MidiBackend` is unchanged as an interface. Both of its operations keep their current signatures;
-  only the caller changes. This keeps the existing fakes valid and introduces no new seam.
+- `MidiBackend` keeps two synchronous operations, and neither waits. `destinations` keeps its
+  signature. `connect` returns a `MidiConnectionRequest`: either an already-open connection
+  (`Ready`), which is what native opening returns, or an owned `PendingMidiConnection` whose
+  nonblocking `poll` observes an open still in flight, which is what the browser returns because
+  Web MIDI reports a refused open only through a Promise. The caller owns a pending request and
+  dropping it releases its claim on the port. `MidiError::pending` marks an answer that can change
+  without the performer acting, such as browser MIDI access not yet answered. ADR 0059 records the
+  browser constraints behind both.
 - The MIDI output adapter no longer holds a backend and loses its backend type parameter. It holds
   the current connection, the delivery-failure state and the published selection.
 - Selection crosses the seam as a request carrying an already-open connection together with the
@@ -109,7 +115,14 @@ This restores the boundary ADR 0022 already drew: MIDI device selection belongs 
 - The cached enumeration client becomes a plain owned value rather than a shared mutable one,
   because it now has one owner on one thread.
 - The console's refresh-tracking state is deleted along with the repaint pump that served it:
-  discovery answers synchronously, so there is nothing to wait for and nothing to poll.
+  discovery answers synchronously, so native has nothing to wait for and nothing to poll. The
+  browser has two answers that arrive later, MIDI access and a port's open. Each wakes the Panel
+  when it settles, and the frame it wakes repeats a pending discovery or polls the selection's
+  owned request; neither writes menu state from outside a frame. The `Opening …` status is
+  browser-only: it shows while a port's open is pending and, once the open succeeds, until Playback
+  publishes the connection installed. A native connection is handed to Playback already open and
+  shows no status. For either, the Panel asks for frames until Playback publishes the connection
+  it was handed.
 - The console's status line stops being written from a polled observation. A message from the
   engine and a message from a console-initiated action have distinct precedence, and unavailability
   is never suppressed by an unrelated stale message.
@@ -118,7 +131,7 @@ This restores the boundary ADR 0022 already drew: MIDI device selection belongs 
 - Every public Playback constructor that produces output-only Playback rejects a MIDI adapter,
   including the engine constructor, not only the application-level one.
 - The browser target adopts the same shape: discovery and port opening on the main thread, an open
-  connection delivered to the engine.
+  connection delivered to the engine. Only a connection whose open has succeeded is installed.
 - The tooling contract's native-dependency check matches the class of platform binding rather than
   an enumerated list of crate names.
 
@@ -134,9 +147,10 @@ wrong.
 - The existing integration test over a running Orcvs and its restricted selection handle is the
   primary seam and stays the highest one: it drives discovery, selection and Playback together and
   proves that the destination the console opened is the connection Playback delivers to.
-- The existing MIDI backend fakes are prior art and are reused unchanged. The console's fake backend
-  continues to drive the menu's behaviour; the silent fallback backend continues to hold the
-  no-native-backend build to what the seam promises.
+- The existing MIDI backend fakes are prior art and are reused, their `connect` answering `Ready`
+  with the connection it built. The console's fake backend continues to drive the menu's
+  behaviour; the silent fallback backend continues to hold the no-native-backend build to what the
+  seam promises.
 - The console's menu tests cover: a list rendered from a successful discovery, a failure rendered in
   place of rows, a refused port opening reported without clearing the status line, and an
   unavailable running Orcvs reported even when an older message is showing.

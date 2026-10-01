@@ -779,6 +779,7 @@ dependencies = [
  "egui",
  "egui_kittest",
  "gloo-timers",
+ "js-sys",
  "lang",
  "log",
  "midir",

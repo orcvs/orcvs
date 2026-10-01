@@ -8,7 +8,7 @@
 //!
 //! [`MidiBackend`]: crate::midi::MidiBackend
 
-use crate::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
+use crate::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiError};
 
 ///
 /// The fallback backend a build with no native MIDI backend in this crate has.
@@ -30,7 +30,7 @@ impl MidiBackend for SilentMidiBackend {
     fn connect(
         &mut self,
         _destination_id: &MidiDestinationId,
-    ) -> Result<Box<dyn MidiConnection>, MidiError> {
+    ) -> Result<crate::midi::MidiConnectionRequest, MidiError> {
         Err(MidiError::new("this build has no native MIDI backend"))
     }
 }

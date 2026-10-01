@@ -1,11 +1,13 @@
 #![cfg(target_arch = "wasm32")]
 
+use console::console_midi::ConsoleMidiBackend;
 use console::cursor_effects::{CursorEffectAnimation, CursorEffectSettings};
 use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
+use orcvs::midi::{MidiBackend, MidiDestinationId};
 use orcvs::playback::{
     InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand, OutputOnlyAdapter,
     PlaybackEngine, PlaybackState,
@@ -127,6 +129,60 @@ fn web_app_and_cursor_effects_construct_without_panicking() {
 
     let mut animation = CursorEffectAnimation::default();
     animation.advance(Duration::from_secs(1), CursorEffectSettings::default());
+}
+
+///
+/// The browser's MIDI backend asks for Web MIDI access and answers discovery
+/// and connect synchronously, whatever the browser does with the request: a
+/// browser that has not answered says access is awaited, one without Web MIDI
+/// or that refused it lists nothing, and one that granted it lists its ports.
+/// Which of the three this browser is depends on its permission policy, so the
+/// test holds all three rather than one, and requires connect to give the
+/// answer of the same one: a list may only come with access decided, and a
+/// port the list does not name is refused as gone once access is granted.
+///
+#[wasm_bindgen_test]
+fn web_midi_answers_discovery_and_connect_without_waiting() {
+    const PENDING: &str = "waiting for the browser to grant MIDI access";
+    const NO_ACCESS: &str = "this browser offers no MIDI access";
+    const GONE: &str = "the selected MIDI destination is no longer available";
+    let mut backend = ConsoleMidiBackend::new();
+    const { assert!(console::console_midi::AVAILABLE) };
+
+    let unnamed = MidiDestinationId::new("no browser names this port");
+    let refused = backend
+        .connect(&unnamed)
+        .err()
+        .expect("a port no browser names is refused");
+    match backend.destinations() {
+        Ok(listed) => {
+            assert!(!refused.is_pending());
+            assert!(listed.iter().all(|destination| destination.id != unnamed));
+            if listed.is_empty() {
+                assert!([NO_ACCESS, GONE].contains(&refused.message.as_str()));
+            } else {
+                assert_eq!(refused.message, GONE);
+            }
+        }
+        Err(error) => {
+            assert_eq!(error.message, PENDING);
+            assert!(error.is_pending());
+            assert_eq!(refused.message, PENDING);
+        }
+    }
+    // A second backend reuses the page's one request rather than asking again.
+    let _ = ConsoleMidiBackend::new().destinations();
+}
+
+///
+/// The page's wait for MIDI access before the console starts ends whether or
+/// not the browser answers. A headless browser may leave the permission
+/// request unanswered, and the wait must not hold the console back, so a wait
+/// that ignored its timeout would hang this test.
+///
+#[wasm_bindgen_test]
+async fn the_midi_access_wait_ends_whether_or_not_the_browser_answers() {
+    console::console_midi::request_access_within(Duration::from_millis(50)).await;
 }
 
 #[wasm_bindgen_test]
@@ -483,23 +539,17 @@ mod developer_console {
 ///
 /// The browser end of the Playback failure report.
 ///
-/// `Console::ui` hands the Playback diagnostics it drains to
-/// `console::diagnostics::report_playback_failures` on every build without a
-/// MIDI backend, and in the browser that report is the whole of what a
-/// Playback failure produces: the Output control is disabled there
-/// (`midi_output`), so the Panel shows no status. This holds the browser's
-/// half of "a Playback failure is reported".
+/// `console::diagnostics::report_playback_failures` is the path a build with no
+/// MIDI service takes; the browser has a MIDI backend, so its console presents
+/// a Playback failure in the Panel's MIDI status (`midi_output`) instead. The
+/// reporter is compiled on every target all the same, and this holds its
+/// browser channel: `report::error!` has to reach the developer console that
+/// `eframe::WebLogger` writes to.
 ///
 /// What it drives is the reporting path itself, with a real
 /// `PlaybackDiagnostic` and the real failure decision: a diagnostic that is not
 /// a failure has to stay silent, and one that is has to reach the developer
-/// console. What it does not drive is `Console::ui` calling it. Console holds
-/// its own `Orcvs` over its own adapter, and the browser build has no reachable
-/// way to make that engine fail — `InMemoryOutputAdapter::fail_next_submission`
-/// needs the adapter instance, and the zero Tick period that fails a start or a
-/// retune is unreachable through `Bpm`, whose delay is at least one
-/// millisecond. So the call in `ui()` is a one-line hand-off this test does not
-/// cover.
+/// console.
 ///
 mod playback_failure {
     use console::diagnostics::report_playback_failures;
@@ -573,13 +623,13 @@ fn pass(
 }
 
 ///
-/// The browser build has no MIDI backend, and its Output control says so.
+/// The browser build has a MIDI backend, and its Output control offers it.
 ///
 /// The running console is driven through `eframe::App::ui` with AccessKit on,
 /// which is how a viewer's assistive technology reads it: the destination
-/// ComboBox is present but disabled, and a click on it opens nothing, so no
-/// Scan item is ever offered. A Playback failure on this build therefore has
-/// no Panel status to land in and takes `playback_failure`'s path instead.
+/// ComboBox is present and enabled, and a click on it opens its list with Scan
+/// at the top, whatever the browser has answered about MIDI access. A Playback
+/// failure on this build therefore lands in the Panel's MIDI status.
 ///
 mod midi_output {
     use console::console::Console;
@@ -590,7 +640,7 @@ mod midi_output {
     use super::pass;
 
     #[wasm_bindgen_test]
-    fn the_browser_output_control_is_disabled_and_offers_no_scan() {
+    fn the_browser_output_control_is_enabled_and_offers_scan() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let mut console = Console::start(&eframe::CreationContext::_new_kittest(ctx.clone()))
@@ -607,8 +657,8 @@ mod midi_output {
             panic!("the console shows one Output control, not {combo_boxes:?}");
         };
         assert!(
-            output.is_disabled(),
-            "the browser build offers an Output control with nothing behind it"
+            !output.is_disabled(),
+            "the browser build disables the Output control over its MIDI backend"
         );
 
         let bounds = output.bounds().expect("the Output control is laid out");
@@ -624,9 +674,9 @@ mod midi_output {
                 modifiers: Modifiers::NONE,
             }]
         };
-        // A click lands on the release pass, which is where an enabled
-        // ComboBox shows its list, so that pass and the one after it are the
-        // two trees a Scan item could appear in.
+        // A click lands on the release pass, which is where the ComboBox
+        // shows its list, so that pass and the one after it are the two trees
+        // the Scan item can appear in.
         let _ = pass(
             &ctx,
             &mut console,
@@ -638,15 +688,15 @@ mod midi_output {
         let after = pass(&ctx, &mut console, &mut host, Vec::new());
 
         assert!(
-            !egui::Popup::is_any_open(&ctx),
-            "a click on the disabled Output control opened its list"
+            egui::Popup::is_any_open(&ctx),
+            "a click on the Output control left its list closed"
         );
         assert!(
-            !released
+            released
                 .iter()
                 .chain(&after)
                 .any(|(_, node)| node.label() == Some("Scan")),
-            "the browser build offers Scan"
+            "the browser build's Output list offers no Scan"
         );
     }
 }

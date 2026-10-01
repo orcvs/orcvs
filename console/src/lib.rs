@@ -3,6 +3,7 @@
 // The settings `~/.orcvs/config.toml` holds, read once at native startup.
 mod config;
 pub mod console;
+pub mod console_midi;
 // Validates a resolved Theme's composited text contrast, reusing `style`'s
 // own composition functions so painting and validation cannot independently
 // drift.
@@ -21,7 +22,6 @@ mod function_reference;
 mod grid_viewport;
 mod marks;
 mod midi;
-pub mod native_midi;
 mod paint;
 pub mod persistence;
 mod readout_deadline;
@@ -53,6 +53,10 @@ mod theme_document;
 mod theme_registry;
 // The dark and light Theme selections and the Theme each presents.
 mod theme_selection;
+// The browser's MIDI backend over the Web MIDI API. Its logic is compiled
+// for tests on every target, driven by a fake of the Web MIDI access it reads.
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_midi;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;
 

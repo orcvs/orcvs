@@ -1,4 +1,9 @@
-use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiSelectionHandle};
+use std::task::Poll;
+
+use orcvs::midi::{
+    MidiBackend, MidiConnection, MidiConnectionRequest, MidiDestination, MidiDestinationId,
+    MidiSelectionHandle,
+};
 use orcvs::playback::PlaybackDiagnostic;
 
 use crate::diagnostics::failure_message;
@@ -51,7 +56,7 @@ pub(crate) fn destination_presentation<'a>(
     destinations: &'a [MidiDestination],
     selected_id: Option<&'a MidiDestinationId>,
 ) -> DestinationPresentation<'a> {
-    if !crate::native_midi::AVAILABLE {
+    if !crate::console_midi::AVAILABLE {
         return DestinationPresentation {
             enabled: false,
             show_refresh: false,
@@ -68,7 +73,7 @@ pub(crate) fn destination_presentation<'a>(
 ///
 /// The presentation a test builds for a backend availability production
 /// cannot construct on this target. Production goes through
-/// [`destination_presentation`], which reads `native_midi::AVAILABLE`.
+/// [`destination_presentation`], which reads `console_midi::AVAILABLE`.
 ///
 #[cfg(test)]
 fn destination_presentation_for<'a>(
@@ -109,6 +114,26 @@ pub(crate) struct MidiDeviceSelection {
     /// erase the refusal just received.
     ///
     auto_select_attempted: bool,
+    ///
+    /// Whether the last discovery answered that the backend is still waiting
+    /// on its MIDI service, so a later frame asks again without a Scan.
+    ///
+    discovery_pending: bool,
+    ///
+    /// The request the selection owns until opening completes. Scan, another
+    /// choice and Source replacement drop it, releasing its claim. Playback
+    /// keeps its installed connection until a new request succeeds.
+    ///
+    opening: Option<(MidiDestinationId, MidiConnectionRequest)>,
+    ///
+    /// A connection handed to Playback but not yet published as installed,
+    /// with the "Opening …" message it shows. Only a connection the backend
+    /// finished opening after `connect` returned carries a message; a ready
+    /// one shows none. Either way the record is what keeps choosing the same
+    /// destination again from reconnecting it, and choosing the installed one
+    /// again from being overtaken by the install Playback has not yet taken.
+    ///
+    installing: Option<(MidiDestinationId, Option<String>)>,
 }
 
 impl MidiDeviceSelection {
@@ -120,6 +145,9 @@ impl MidiDeviceSelection {
             status: None,
             engine_status: None,
             auto_select_attempted: false,
+            discovery_pending: false,
+            opening: None,
+            installing: None,
         }
     }
 
@@ -128,16 +156,36 @@ impl MidiDeviceSelection {
     ///
     pub(crate) fn refresh_destinations(&mut self) {
         self.auto_select_attempted = false;
+        self.opening = None;
         match self.backend.destinations() {
             Ok(destinations) => {
                 self.destinations = destinations;
                 self.status = None;
+                self.discovery_pending = false;
             }
             Err(error) => {
                 self.destinations = Vec::new();
+                self.discovery_pending = error.is_pending();
                 self.status = Some(error.message);
             }
         }
+    }
+
+    ///
+    /// The selection's work for one Panel frame: discovery again while the
+    /// last one answered pending, poll the owned opening request, then
+    /// automatically select the first destination if none was requested.
+    ///
+    /// A pending answer is the only one a frame repeats. Any other failure
+    /// stays until the performer Scans, so a broken MIDI service is asked once
+    /// rather than on every frame.
+    ///
+    pub(crate) fn observe_frame(&mut self) {
+        if self.discovery_pending {
+            self.refresh_destinations();
+        }
+        self.poll_opening();
+        self.auto_select_first_if_unselected();
     }
 
     pub(crate) fn destinations(&self) -> &[MidiDestination] {
@@ -159,15 +207,80 @@ impl MidiDeviceSelection {
         if origin == SelectionOrigin::User {
             self.auto_select_attempted = true;
         }
-        let connection = match self.backend.connect(destination_id) {
-            Ok(connection) => connection,
-            Err(error) => {
-                self.status = Some(error.message);
-                return;
+        let installed = self.selected_destination_id();
+        if self
+            .opening
+            .as_ref()
+            .is_some_and(|(id, _)| id == destination_id)
+            || self
+                .installing
+                .as_ref()
+                .is_some_and(|(id, _)| id == destination_id)
+        {
+            return;
+        }
+        if installed.as_ref() == Some(destination_id) && self.installing.is_none() {
+            if self.opening.take().is_some() {
+                self.status = None;
             }
+            return;
+        }
+        self.opening = None;
+        self.installing = None;
+        match self.backend.connect(destination_id) {
+            Ok(request) => {
+                self.opening = Some((destination_id.clone(), request));
+                self.poll_opening();
+            }
+            Err(error) => self.status = Some(error.message),
+        }
+    }
+
+    fn poll_opening(&mut self) {
+        let Some((destination_id, request)) = self.opening.take() else {
+            return;
         };
+        let (connection, opened_later) = match request {
+            MidiConnectionRequest::Ready(connection) => (connection, false),
+            MidiConnectionRequest::Pending(mut pending) => match pending.poll() {
+                Poll::Pending => {
+                    self.status = Some(self.opening_message(&destination_id));
+                    self.opening = Some((destination_id, MidiConnectionRequest::Pending(pending)));
+                    return;
+                }
+                Poll::Ready(Err(error)) => {
+                    self.status = Some(error.message);
+                    return;
+                }
+                Poll::Ready(Ok(connection)) => (connection, true),
+            },
+        };
+        self.install(&destination_id, connection, opened_later);
+    }
+
+    fn opening_message(&self, id: &MidiDestinationId) -> String {
+        let name = self
+            .destinations
+            .iter()
+            .find(|destination| &destination.id == id)
+            .map_or(id.as_str(), |destination| destination.name.as_str());
+        format!("Opening {name}…")
+    }
+
+    ///
+    /// Hands `connection` to Playback. A connection `opened_later` keeps its
+    /// "Opening …" message until Playback publishes it installed.
+    ///
+    fn install(
+        &mut self,
+        destination_id: &MidiDestinationId,
+        connection: Box<dyn MidiConnection>,
+        opened_later: bool,
+    ) {
         match self.selection.install(destination_id.clone(), connection) {
             Ok(()) => {
+                let message = opened_later.then(|| self.opening_message(destination_id));
+                self.installing = Some((destination_id.clone(), message));
                 self.status = None;
                 self.engine_status = None;
             }
@@ -177,7 +290,16 @@ impl MidiDeviceSelection {
 
     pub(crate) fn selected_destination_id(&mut self) -> Option<MidiDestinationId> {
         match self.selection.selected_destination_id() {
-            Ok(destination_id) => destination_id,
+            Ok(destination_id) => {
+                if self
+                    .installing
+                    .as_ref()
+                    .is_some_and(|(id, _)| Some(id) == destination_id.as_ref())
+                {
+                    self.installing = None;
+                }
+                destination_id
+            }
             Err(error) => {
                 self.status = Some(error.message);
                 None
@@ -207,7 +329,32 @@ impl MidiDeviceSelection {
     }
 
     pub(crate) fn status(&self) -> Option<&str> {
-        self.status.as_deref().or(self.engine_status.as_deref())
+        self.status
+            .as_deref()
+            .or(self
+                .unpublished_install()
+                .and_then(|(_, message)| message.as_deref()))
+            .or(self.engine_status.as_deref())
+    }
+
+    ///
+    /// Whether a connection handed to Playback is not yet published as
+    /// installed.
+    ///
+    /// Playback's install publishes nothing that wakes the Panel, so the
+    /// Panel asks for another frame while this answers `true`, until the
+    /// engine's task takes the install and the Panel can show it. A running
+    /// Orcvs that is gone answers `false`, so no frame is asked for an install
+    /// nothing will take.
+    ///
+    pub(crate) fn awaiting_install(&self) -> bool {
+        self.unpublished_install().is_some()
+    }
+
+    fn unpublished_install(&self) -> Option<&(MidiDestinationId, Option<String>)> {
+        let installing = self.installing.as_ref()?;
+        let published = self.selection.selected_destination_id().ok()?;
+        (published.as_ref() != Some(&installing.0)).then_some(installing)
     }
 
     pub(crate) fn observe_diagnostics(&mut self, diagnostics: Vec<PlaybackDiagnostic>) {
@@ -215,6 +362,7 @@ impl MidiDeviceSelection {
             if let Some(message) = failure_message(&diagnostic) {
                 self.engine_status = Some(message);
                 self.status = None;
+                self.installing = None;
             }
         }
     }
@@ -254,8 +402,10 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Ok(Box::new(FakeConnection))
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection,
+            )))
         }
     }
 
@@ -269,8 +419,10 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Ok(Box::new(FakeConnection))
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection,
+            )))
         }
     }
 
@@ -296,6 +448,41 @@ mod tests {
                 spins += 1;
             }
         }};
+    }
+
+    ///
+    /// A discovery that fails outright is final until the performer Scans:
+    /// frames after it neither ask the backend again nor clear the failure.
+    ///
+    #[tokio::test]
+    async fn a_failed_discovery_is_not_repeated_by_later_frames() {
+        struct CountingFailure(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+        impl MidiBackend for CountingFailure {
+            fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Err(MidiError::new("device discovery failed"))
+            }
+
+            fn connect(
+                &mut self,
+                _destination_id: &MidiDestinationId,
+            ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+                Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                    FakeConnection,
+                )))
+            }
+        }
+
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (_orcvs, mut midi) = selection_for(CountingFailure(asked.clone()));
+        midi.refresh_destinations();
+        for _ in 0..5 {
+            midi.observe_frame();
+        }
+
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(midi.status(), Some("device discovery failed"));
     }
 
     #[tokio::test]
@@ -345,8 +532,10 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Ok(Box::new(FakeConnection))
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection,
+            )))
         }
     }
 
@@ -508,7 +697,7 @@ mod tests {
     }
 
     ///
-    /// A build with no native MIDI backend still draws the destination
+    /// A build with no MIDI backend still draws the destination
     /// Readout, disabled, with the empty copy, and does not offer Scan.
     ///
     #[test]
@@ -590,8 +779,10 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Ok(Box::new(FakeConnection))
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection,
+            )))
         }
     }
 
@@ -662,12 +853,14 @@ mod tests {
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
             self.connect_order
                 .lock()
                 .expect("the test still holds the connect log")
                 .push(destination_id.clone());
-            Ok(Box::new(FakeConnection))
+            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection,
+            )))
         }
     }
 
@@ -697,6 +890,69 @@ mod tests {
         );
     }
 
+    ///
+    /// A connection the backend hands over ready is installed without an
+    /// "Opening …" status, before and after Playback publishes it.
+    ///
+    #[tokio::test]
+    async fn a_ready_connection_installs_without_an_opening_status() {
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
+        midi.refresh_destinations();
+
+        midi.select_destination(&MidiDestinationId::new("one"));
+        assert_eq!(midi.status(), None, "before Playback publishes the install");
+
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+        assert_eq!(midi.status(), None, "after Playback publishes the install");
+    }
+
+    ///
+    /// Choosing the destination whose ready connection Playback has not yet
+    /// taken does not connect it a second time.
+    ///
+    #[tokio::test]
+    async fn choosing_an_unpublished_ready_destination_again_does_not_reconnect_it() {
+        let backend = OrderedConnectBackend::new();
+        let (_orcvs, mut midi) = selection_for(backend.clone());
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("one"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+
+        midi.select_destination(&MidiDestinationId::new("two"));
+        midi.select_destination(&MidiDestinationId::new("two"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("two")));
+
+        assert_eq!(
+            backend.connect_order(),
+            vec![MidiDestinationId::new("one"), MidiDestinationId::new("two")]
+        );
+    }
+
+    ///
+    /// Choosing the installed destination again while another's ready
+    /// connection waits for Playback keeps the installed one: the later
+    /// choice is the one Playback ends on.
+    ///
+    #[tokio::test]
+    async fn choosing_back_to_the_installed_destination_outlasts_an_unpublished_one() {
+        let backend = OrderedConnectBackend::new();
+        let (_orcvs, mut midi) = selection_for(backend.clone());
+        midi.refresh_destinations();
+        midi.select_destination(&MidiDestinationId::new("one"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+
+        midi.select_destination(&MidiDestinationId::new("two"));
+        midi.select_destination(&MidiDestinationId::new("one"));
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("one"))
+        );
+    }
+
     struct RefusingConnectBackend;
 
     impl MidiBackend for RefusingConnectBackend {
@@ -707,7 +963,7 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
             Err(MidiError::new("device connection failed"))
         }
     }
@@ -722,7 +978,7 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
             Err(MidiError::new("device connection failed"))
         }
     }
@@ -792,8 +1048,10 @@ mod tests {
         fn connect(
             &mut self,
             _destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Ok(Box::new(FakeConnection))
+        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
+                FakeConnection,
+            )))
         }
     }
 

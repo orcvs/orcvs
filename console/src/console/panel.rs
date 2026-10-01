@@ -8,8 +8,8 @@ use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
+use crate::console_midi;
 use crate::midi::destination_presentation;
-use crate::native_midi;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
@@ -217,14 +217,14 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
 impl Console {
     ///
     /// Hands this frame's Playback diagnostics to the Panel's MIDI status, or,
-    /// without a native backend, to the developer console.
+    /// without a MIDI backend, to the developer console.
     ///
     pub(super) fn observe_playback_diagnostics(&mut self) {
         let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
-        if native_midi::AVAILABLE {
+        if console_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
-            // Without a native backend the destination ComboBox is disabled
+            // Without a MIDI backend the destination ComboBox is disabled
             // and Scan is hidden, so a refused connect has nowhere on the
             // Panel to land; the developer console is the only channel a
             // failure has.
@@ -307,14 +307,13 @@ impl Console {
     /// shows what that discovery found from the next frame.
     ///
     fn show_destination(&mut self, ui: &mut egui::Ui) {
-        self.midi.auto_select_first_if_unselected();
         let selected_id = self.midi.selected_destination_id();
         let destinations = self.midi.destinations();
         let presentation = destination_presentation(destinations, selected_id.as_ref());
         let (scan, selected) = ui
             .add_enabled_ui(presentation.enabled, |ui| {
                 apply_panel_field_spacing(ui);
-                let mut selected = selected_id.clone();
+                let mut selected = None;
                 let mut scan = false;
                 let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
                     .selected_text(
@@ -338,11 +337,18 @@ impl Console {
                             });
                         } else {
                             for destination in destinations {
-                                ui.selectable_value(
-                                    &mut selected,
-                                    Some(destination.id.clone()),
-                                    destination.name.as_str(),
-                                );
+                                if ui
+                                    .push_id(destination.id.as_str(), |ui| {
+                                        ui.selectable_label(
+                                            selected_id.as_ref() == Some(&destination.id),
+                                            destination.name.as_str(),
+                                        )
+                                        .clicked()
+                                    })
+                                    .inner
+                                {
+                                    selected = Some(destination.id.clone());
+                                }
                             }
                         }
                     });
@@ -355,10 +361,12 @@ impl Console {
         if scan {
             self.midi.refresh_destinations();
         }
-        if selected != selected_id
-            && let Some(id) = selected.as_ref()
-        {
+        if let Some(id) = selected.as_ref() {
             self.midi.select_destination(id);
+        }
+        self.midi.observe_frame();
+        if self.midi.awaiting_install() {
+            ui.ctx().request_repaint();
         }
         if let Some(status) = self.midi.status() {
             ui.colored_label(ui.visuals().error_fg_color, status);

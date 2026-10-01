@@ -24,10 +24,10 @@ pub(crate) fn failure_message(diagnostic: &PlaybackDiagnostic) -> Option<String>
 ///
 /// Reports every Playback failure among `diagnostics`.
 ///
-/// A build with a native MIDI backend presents these next to the destination
-/// ComboBox (`MidiDeviceSelection::observe_diagnostics`); this is the reporting
-/// path every other build takes, the browser among them. Which of the two
-/// applies is `native_midi::AVAILABLE`, a constant the caller branches on
+/// A build with a MIDI backend, native or browser, presents these next to the
+/// destination ComboBox (`MidiDeviceSelection::observe_diagnostics`); this is
+/// the reporting path a build with no MIDI service takes. Which of the two
+/// applies is `console_midi::AVAILABLE`, a constant the caller branches on
 /// rather than a `cfg`, so this is compiled everywhere rather than on the
 /// targets that happen to ask for it.
 ///
