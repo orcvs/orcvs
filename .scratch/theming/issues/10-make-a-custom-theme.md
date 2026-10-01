@@ -99,10 +99,10 @@ alone cannot tick it) and the gates box remain open.
 
 **2026-09-30 — correction: a test does resolve an omitted `appearance`.** The two 2026-09-29 comments above say no test resolves a document that omits `appearance`. That is wrong. `omitted_properties_inherit_from_the_parent` (`console/src/theme.rs:1574`) resolves `child("okabe-ito")`, whose `ThemeDocument::default()` leaves `appearance` as `None` (`:987-995`, `child` at `:1206`), and asserts `Appearance::Dark` (`:1583`). The native half of the appearance box is therefore complete: omitted (`:1574`), matching (`:1731`) and conflicting (`:1712`, and the light-parent mismatch at `:1548`). The native half of the optional Cursor fills box now runs through the document parser too: `paint::tests::an_explicit_transparent_region_cursor_fill_suppresses_the_cursor_fill_fallback` (`console/src/paint.rs:778`, #181) decodes `region.cursor.background` omitted, `"none"` and `"#FFFFFF00"` with `theme_document::decode` and paints each. Both boxes stay unticked only because their web halves are deferred past v1.
 
-**2026-10-01 — v1 scope complete; web halves split out and deferred.** Re-verified on `d3fd1b27`
-(main after #185). The appearance and optional Cursor fills boxes are each split into a ticked
-native half and an unticked web half marked deferred, so the web requirements stay recorded while
-v1 status reads plainly. Every v1 (native) requirement is now ticked.
+**2026-10-01 — v1 scope complete; native boxes ticked.** Re-verified on `d3fd1b27`
+(main after #185). The appearance and optional Cursor fills boxes now state their native
+requirements only and are ticked; their web halves moved to `19` (next comment). Every v1 (native)
+requirement is now ticked.
 
 Native appearance evidence: omitted (`omitted_properties_inherit_from_the_parent`,
 `console/src/theme.rs:1574`), matching (`matching_declared_appearance_is_accepted`, `:1731`) and
@@ -129,8 +129,5 @@ Gates, run with `PROPTEST_CASES=32`; `check_wasm`'s commands were run directly f
 - `cargo nextest run --workspace --tests --no-default-features --locked` — passed, 1473 tests
 - `cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings` — passed
 - `trunk build --locked` and `trunk build --no-default-features --locked` in `console/` — passed
-
-The status stays `ready-for-agent` and is not `resolved`: the two web halves remain open here until
-they move to a follow-up ticket for the web Theme import.
 
 **2026-10-01 — web halves moved to `19`; resolved.** The user chose to move the deferred web work to a follow-up ticket. `19` holds the two web-path test clauses this ticket left unticked and the web halves of its ticked lines (imported documents, reimport, stored web documents), and records the open question of how the web selects a custom Theme. Every remaining criterion here is native and ticked, so this ticket is resolved.
