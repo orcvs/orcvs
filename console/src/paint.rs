@@ -2408,6 +2408,65 @@ mod tests {
                 );
             }
         }
+
+        ///
+        /// The one-Cell gutter of the test above, reached by an odd-length
+        /// answer: the left root's nine written Cells put the gutter at
+        /// column 9, the second Cell of the pair that starts at column 8.
+        ///
+        /// That blank ends the answer and its pair is taken whole, so the
+        /// gutter carries the Output Portal tint with no glyph and the right
+        /// root's Expression from column 10 keeps its own paint. Testing only
+        /// the first Cell of each pair would step over the gutter and tint
+        /// the right root's operands.
+        ///
+        #[tokio::test]
+        async fn a_blank_second_cell_of_a_pair_stops_the_left_columns_sequence_tint() {
+            let mut orcvs = running_orcvs(20, 2);
+            //                        01234567890123456789
+            write_row(&mut orcvs, 0, ":-0104              ");
+            write_row(&mut orcvs, 1, "010203040 .+0304    ");
+            orcvs.select(orcvs.grid().position(19, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let theme = okabe_ito();
+            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let number_tinted = tinted(&theme, theme.source_number);
+            let grid = orcvs.grid();
+            let highlighted = |y: usize| -> String {
+                (0..grid.columns())
+                    .map(|x| {
+                        let position = grid.position(x, y).expect("inside the grid");
+                        if frame.at(position).output_portal() {
+                            '#'
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect()
+            };
+
+            // The left root covers its nine written Cells and completes the
+            // pair at the gutter; nothing from column 10 is highlighted.
+            assert_eq!(highlighted(0), "....................");
+            assert_eq!(highlighted(1), "##########..........");
+
+            // The gutter is an empty Output Portal Cell: the tint, no glyph.
+            let gutter = grid.position(9, 1).expect("inside the grid");
+            assert_eq!(frame.at(gutter).content(), None);
+            assert_eq!(paint.at(gutter).character, ' ');
+            assert_eq!(paint.at(gutter).background, Some(output_tinted));
+
+            // The right root's own Number operands keep the Number colour on
+            // the Number tint rather than the left root's Output Portal.
+            for x in 12..16 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, theme.source_number, "operand at {x}");
+                assert_eq!(painted.background, Some(number_tinted), "operand at {x}");
+            }
+        }
     }
 
     ///
