@@ -1339,16 +1339,68 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
 const EGUI_MEMORY_KEY: &str = "egui";
 
 ///
+/// Saves what eframe saves on exit into `dir` through the native file codec:
+/// the console's own `App::save`, then egui memory under eframe's key.
+///
+/// A harness has no eframe integration, so this does eframe's save by hand.
+/// What the console decides is asserted: it leaves `App::persist_egui_memory`
+/// on, which is the condition eframe's save checks before it writes egui
+/// memory.
+///
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
+fn save_on_exit(harness: &mut Harness<'_, Console>, dir: &std::path::Path) {
+    use crate::persistence::RonFileStorage;
+
+    assert!(
+        eframe::App::persist_egui_memory(harness.state()),
+        "the console opted out of eframe saving egui memory"
+    );
+    let mut file = RonFileStorage::create(dir);
+    eframe::App::save(harness.state_mut(), &mut file);
+    harness
+        .ctx
+        .memory(|memory| eframe::set_value(&mut file, EGUI_MEMORY_KEY, memory));
+    eframe::Storage::flush(&mut file);
+}
+
+///
+/// Restores the egui memory `storage` holds into `ctx`, as eframe does
+/// before it builds the application.
+///
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
+fn restore_egui_memory(ctx: &egui::Context, storage: &dyn eframe::Storage) {
+    if let Some(memory) = eframe::get_value::<egui::Memory>(storage, EGUI_MEMORY_KEY) {
+        ctx.memory_mut(|restored| *restored = memory);
+    }
+}
+
+///
+/// A console started over `storage` the way eframe starts one: egui memory
+/// restored into the context first, then the console built with the storage
+/// in its creation context.
+///
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
+fn restarted_console(storage: &crate::persistence::RonFileStorage) -> Harness<'_, Console> {
+    Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| {
+            restore_egui_memory(&cc.egui_ctx, storage);
+            cc.storage = Some(storage);
+            start_console(
+                cc,
+                ThemeRegistry::built_in(),
+                crate::config::Config::default(),
+            )
+        })
+}
+
+///
 /// A zoom a viewer chose survives a save and a restart in a persistence
 /// build. The console stores nothing for it: egui memory holds the zoom
 /// factor, and eframe saves that memory beside `App::save` and restores it
-/// into the context before the console is built.
-///
-/// eframe's save and restore are done here by hand, through the native file
-/// codec, since a harness has no eframe integration to do them. What the
-/// console decides is asserted: it leaves `App::persist_egui_memory` on, which
-/// is the condition eframe's save checks before it writes egui memory, and
-/// building it on restored memory keeps the zoom rather than resetting it.
+/// into the context before the console is built, so building the console on
+/// restored memory has to keep the zoom rather than reset it.
 ///
 #[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
 #[tokio::test]
@@ -1369,34 +1421,11 @@ async fn a_zoom_survives_a_save_and_a_restart() {
             1.3,
             "three chords did not zoom to 1.3"
         );
-
-        assert!(
-            eframe::App::persist_egui_memory(harness.state()),
-            "the console opted out of eframe saving egui memory, and the zoom with it"
-        );
-        let mut file = RonFileStorage::create(dir.path());
-        eframe::App::save(harness.state_mut(), &mut file);
-        harness
-            .ctx
-            .memory(|memory| eframe::set_value(&mut file, EGUI_MEMORY_KEY, memory));
-        eframe::Storage::flush(&mut file);
+        save_on_exit(&mut harness, dir.path());
     }
 
     let storage = RonFileStorage::from_file(dir.path());
-    let mut restarted = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(|cc| {
-            if let Some(memory) = eframe::get_value::<egui::Memory>(&storage, EGUI_MEMORY_KEY) {
-                cc.egui_ctx.memory_mut(|restored| *restored = memory);
-            }
-            cc.storage = Some(&storage);
-            start_console(
-                cc,
-                ThemeRegistry::built_in(),
-                crate::config::Config::default(),
-            )
-        });
+    let mut restarted = restarted_console(&storage);
     restarted.run_steps(2);
     assert_eq!(
         restarted.ctx.zoom_factor(),
@@ -1407,6 +1436,77 @@ async fn a_zoom_survives_a_save_and_a_restart() {
         restarted.ctx.pixels_per_point(),
         1.3,
         "the restored zoom did not reach pixels_per_point"
+    );
+}
+
+///
+/// A mode a viewer chose survives a save and a restart in a persistence
+/// build. The mode is egui's `ThemePreference`, which eframe saves and
+/// restores with egui memory, so building the console on restored memory and
+/// running its first frame has to keep it rather than set one of its own.
+///
+/// Light is the mode chosen because neither start would produce it unaided:
+/// the harness opens on Dark and a fresh `Context` on System, so a restart
+/// that dropped the stored memory would show either and fail here.
+///
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn a_mode_survives_a_save_and_a_restart() {
+    use crate::persistence::{IsolatedRonDir, RonFileStorage};
+
+    let dir = IsolatedRonDir::new();
+    {
+        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        harness.run_steps(2);
+        choose_mode(&mut harness, "Light");
+        assert_eq!(
+            harness.ctx.options(|options| options.theme_preference),
+            egui::ThemePreference::Light,
+            "the Light button did not set the mode"
+        );
+        save_on_exit(&mut harness, dir.path());
+    }
+
+    // The restart is a bare `Context`, not a harness: `Harness::from_builder`
+    // sets the builder's theme on the context after the console is built,
+    // which would overwrite the restored mode before anything could read it.
+    // The frame is driven the way eframe's native integration drives one,
+    // `App::logic` then `App::ui` inside `Context::run_ui`, so a console that
+    // set a mode of its own on its first frame would fail the asserts below.
+    let storage = RonFileStorage::from_file(dir.path());
+    let ctx = egui::Context::default();
+    restore_egui_memory(&ctx, &storage);
+    let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    cc.storage = Some(&storage);
+    let mut console = start_console(
+        &cc,
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+    );
+    let mut frame = eframe::Frame::_new_kittest();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::from(DEFAULT_VIEW_SIZE),
+        )),
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(input, |ui| {
+        eframe::App::logic(&mut console, ui.ctx(), &mut frame);
+        eframe::App::ui(&mut console, ui, &mut frame);
+    });
+    // No renderer uploads the frame's textures, and an unapplied delta
+    // asserts when it drops.
+    output.textures_delta.clear();
+    assert_eq!(
+        ctx.options(|options| options.theme_preference),
+        egui::ThemePreference::Light,
+        "the restarted console did not open in the mode it was saved in"
+    );
+    assert_eq!(
+        ctx.theme(),
+        egui::Theme::Light,
+        "the restored mode did not resolve to the light appearance"
     );
 }
 
