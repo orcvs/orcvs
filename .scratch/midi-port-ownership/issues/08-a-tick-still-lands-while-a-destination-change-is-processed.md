@@ -28,3 +28,10 @@ includes arbitrarily slow installation, that requires a design decision, not jus
 `orcvs/tests/midi_selection_handle.rs:106` installs before playback starts. Existing reconnect
 tests at `orcvs/src/midi.rs:953,1032` prove eventual output and schedule clearing, not an exact
 deadline across a mid-run installation. Four selection integration tests passed in this audit.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Still open; no test asserts a Tick landing across a mid-run installation. References in the
+2026-09-29 comment moved: `orcvs/src/midi.rs:172-183` (`install_connection`, safety reset at
+`:174-178`), `:999` and `:1079`; `orcvs/tests/midi_selection_handle.rs:117`. `playback.rs:1514`
+holds. Pin the bounded fake-connection timing scenario before an agent picks this up.

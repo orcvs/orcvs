@@ -101,3 +101,9 @@ which asks whether the branch is dead code to delete or a guarantee to re-establ
 The line is not silently unticked. What this ticket delivered was correct at the time it was
 delivered, and a later ticket removed its cover — that sequence is the thing worth being able to
 read here.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The Correction's "unreachable" is superseded: `retune` also fails with `EngineUnavailable` once the
+Playback task has ended (`orcvs/src/playback.rs:549-553`), so `set_bpm`'s decline branch is live but
+untested. `08` carries both the zero-free type and the missing app-level test.

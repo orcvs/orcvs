@@ -17,3 +17,9 @@
 ## Comments
 
 **2026-09-24 — opened by the release-membership audit.** `01` stays resolved: its decision stands and only its state column is stale. Blocks `v1-release/03`.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The inventory column is still stale. Its named residual owners (sequence-values/06,
+spatial-tick-planning/02, midi-output-family/06) are resolved. The MIDI row should also record that
+the browser has a Web MIDI backend (#185, ADR 0059).

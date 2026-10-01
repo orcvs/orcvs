@@ -46,3 +46,9 @@ The web line stays unticked. What would close it: the merge tier's headless run 
 **2026-09-30 — the web line reworded, the automated half met.** The line asked that command `+` change egui's zoom factor on the web, the outcome ADR 0058 rejected: on the web the browser's page zoom is the one zoom. It now reads as spec story 16 does, one zoom and the browser's, and is split in two. The automated half is ticked: the merge tier's `Rust` workflow run [36681527909](https://github.com/orcvs/orcvs/actions/runs/36681527909) (`workflow_dispatch`, commit `00280c39`) passed its `wasm` job's headless Firefox suite, including `zoom::the_zoom_chords_leave_the_zoom_to_the_browser` and `zoom::the_view_menu_offers_no_zoom_over_the_browsers` (18 passed, 0 failed). The manual half stays open: no run has observed the browser's page zoom itself, so the remaining line is a check for a person in a real browser, and the Status is `ready-for-human` until it is done.
 
 **2026-09-30 — merged in #182 (f9009103).** The merge-group Rust run [36694833837](https://github.com/orcvs/orcvs/actions/runs/36694833837) on f9009103 passed its `wasm` job, including `zoom::the_zoom_chords_leave_the_zoom_to_the_browser` and `zoom::the_view_menu_offers_no_zoom_over_the_browsers` (18 passed, 0 failed). Only the manual browser check remains: command `+` zooms the page once, command `0` restores it, and Diagnostics' "Pixels per point" follows the browser's zoom (it is egui's factor, held at 1.0, times the browser's native scale).
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Every automated criterion is met on main. Only the manual browser check is open: command `+` zooms
+the page once, command `0` restores it, and Diagnostics' Pixels per point follows. `02` has since
+removed the Source View's own zoom (b58d5d18), so "until `02` deletes it" is history.

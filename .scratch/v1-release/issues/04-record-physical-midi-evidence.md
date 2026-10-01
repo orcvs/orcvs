@@ -22,3 +22,11 @@ contract.
 - [ ] Link the deterministic fake-adapter results that prove exact bytes, ordering, zero cases,
       scheduling, ownership, and failure cleanup.
 - [ ] Hardware evidence supplements rather than replaces automated protocol and lifecycle tests.
+
+## Comments
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The shipped safety action is all-notes-off, CC 121 and a centred bend on every channel
+(`orcvs/src/midi.rs:226-237`). The mid-run destination-change line cites midi-port-ownership/08,
+which is untagged and outside the Gate closure, so nothing guarantees it lands first.

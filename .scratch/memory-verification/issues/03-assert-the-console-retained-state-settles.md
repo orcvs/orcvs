@@ -3,7 +3,7 @@
 **What to build:** Running the real Console for a long sequence of frames leaves its retained state
 flat, so a leak that only shows up after an hour of live coding fails a pull request in seconds.
 
-**Blocked by:** 01 — Count allocations on the Tick and Render Frame paths; console-testing/04 — Drive the console input path through the real App.
+**Blocked by:** 01 — Count allocations on the Tick and Render Frame paths.
 
 **Status:** ready-for-agent
 
@@ -41,3 +41,10 @@ resolved. If only the harness is needed here, drop `04` from the `Blocked by:` l
 
 No settle or steady-state assertion exists in `console/` yet, and `console` has no counting
 allocator, so every criterion is still open.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Dropped `console-testing/04` from `Blocked by:`. Its open criteria are input coverage; the harness
+this ticket needs is on main (`console/src/console/kittest_tests.rs:124-135`). No criterion met:
+no retained-state assertion exists in `console/src`. #184's `release-capture` feature enables
+`egui_kittest/snapshot` and `wgpu` opt-in only; the plain dev-dependency stays eframe-only.

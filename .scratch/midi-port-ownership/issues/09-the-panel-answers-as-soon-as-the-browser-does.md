@@ -32,3 +32,11 @@ Evidence:
 - `console/tests/wasm.rs` also asserts the headless browser's pending answer is the pending kind.
 
 Left open: *settling the access request wakes the Panel*. The wake compiles for `wasm32` but only a browser shows that a frame runs with no input. Manual steps 3, 4 and 7 of `midi-port-ownership/06` check it: after allowing access, the port is listed and selected without moving the mouse; after denying it in site settings and reloading, `None` shows with no status.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+The "Today…" paragraph describes the code before #185. The web entry point now sends the access
+request before the console starts (`console/src/main.rs:90`, `request_access_within`). The ticked
+lines hold: `MidiError::pending` (`orcvs/src/midi.rs:68-76`), the retry in `observe_frame`
+(`console/src/midi.rs:164-184`) and the wake (`console/src/console/repaint.rs:36-44`). Only the
+manual line remains, checked by 06's steps 3, 4 and 7.

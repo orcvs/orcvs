@@ -90,11 +90,23 @@ it.* That needs a browser, a MIDI device and a person listening. Manual steps:
    without a click.
 
 8. On Windows, open the device's port exclusively in another application (a DAW or MIDI-OX),
-   then pick it in the Output list while another port is playing. The status should read "waiting
-   for the browser to open the MIDI destination" and then the browser's refusal, and the port that
+   then pick it in the Output list while another port is playing. The status should read "Opening
+   <port name>…" and then "the browser could not open the MIDI destination: <reason>", and the port that
    was playing should keep sounding without a pause. Close the other application and pick the port
    again: it should be selected once the browser opens it, with no Scan.
 
 **2026-09-30 — known gap, not fixed.** A port reselected while the browser is still closing it
 can be installed before it has really opened, and a refusal from Web MIDI's implicit reopen then
 reaches no status line. Tracked in `midi-port-ownership/11`.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+#185 renamed the module: read `console::native_midi::NativeMidiBackend` in the 2026-09-29 comment as
+`console::console_midi::ConsoleMidiBackend`, and `native_midi::silent::tests` as
+`console_midi::silent::tests`; `console/src/native_midi.rs` no longer exists. Step 8 is corrected in
+place: the pending status is `Opening <port name>…` (`console/src/midi.rs:267`) and a refusal is
+prefixed "the browser could not open the MIDI destination" (`console/src/web_midi.rs:163`). The
+"Already landed" paragraph predates the backend. Steps 3, 4 and 7 also exercise 09's open line, and
+10's manual steps can run in the same browser session. The audible check needs a browser and a real
+or virtual port; `v1-release/definition-of-done.md` names only the native physical smoke, so this
+browser check has no line there yet.

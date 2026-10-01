@@ -80,7 +80,7 @@ This restores the boundary ADR 0022 already drew: MIDI device selection belongs 
 23. As a maintainer, I want the tooling check that enforces that contract to catch the class of dependency rather than an enumerated list, so that the next platform binding does not slip through it.
 24. As a maintainer, I want the console to hold no state whose only purpose is guessing whether its own request was answered, so that the menu has no flag that can be left set.
 25. As a maintainer, I want the browser target to use the same shape as the native target, so that one description of MIDI selection covers both platforms.
-26. As a maintainer, I want the existing MIDI fakes to keep working unchanged, so that the redesign is tested through the seam the suite already uses.
+26. As a maintainer, I want the existing MIDI fakes to keep working with only their `connect` answering `Ready`, so that the redesign is tested through the seam the suite already uses.
 27. As a maintainer, I want the selection handle's request path to answer unavailability on the same terms as its read paths, so that a caller cannot receive success for a request nothing will dequeue.
 28. As a maintainer, I want an output-only Playback Engine to reject a MIDI adapter at compile time on every constructor, so that silently dead MIDI output is not reachable through a public path.
 
@@ -108,7 +108,8 @@ This restores the boundary ADR 0022 already drew: MIDI device selection belongs 
   only. The console's frame reads it without blocking, as now.
 - Queue acceptance remains distinct from a successful connection, but the failure it can no longer
   hide is a refused port: the port is opened before the request is sent, so a refusal is returned to
-  the caller synchronously and a queued request always carries a connection that opened.
+  the caller, synchronously on native and through the owned request's `poll` on the browser, and a
+  queued request always carries a connection that opened.
 - A delivery refusal on an installed connection remains an ordered Playback diagnostic, unchanged.
 - The platform dispatch bridge is deleted: the cross-thread call, its timeout, its slot, its poll
   loop, its main-thread test, and the platform dispatch dependency and its unsafe thread query.
@@ -176,7 +177,8 @@ wrong.
 - Changing the Source/Playback seam or anything in the language.
 - Making discovery asynchronous or incremental; it is a synchronous call on the thread that owns
   the run loop.
-- Hot-plug notification. Discovery remains something the performer asks for.
+- Hot-plug notification. Discovery remains something the performer asks for, apart from the
+  browser's retry while MIDI access is pending (ADR 0059).
 - Adding MIDI device selection to a platform that has no MIDI service.
 - Retaining the cross-thread bridge behind a feature flag or as a fallback path.
 - Restructuring the crate split, or moving Playback or MIDI output out of the toolkit-free crate.

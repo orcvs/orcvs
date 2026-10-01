@@ -1,4 +1,4 @@
-# 10 — Name the Grid's two edge answers apart
+# 11 — Name the Grid's two edge answers apart
 
 **What to build:** Decide, and then spell, the difference between a Grid query that clamps at an
 edge and one that reports the edge. `down(pos)` returns a `Position` and clamps in the bottom row;
@@ -9,7 +9,7 @@ names must now fold in.
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** needs-triage
 
 - [ ] The clamping family and the reporting family are named so that a reader picks the one they
       meant without reading the doc comment.
@@ -84,3 +84,10 @@ easier.
 - The rest still holds: `below` (`grid.rs:291`) returns `Option`, `down` (`:337`) clamps, `up`,
   `left` and `right` (`:322`, `:345`, `:358`) clamp, and the two pairing tests are at `grid.rs:911`
   and `:1337`. No criterion is met.
+
+### Issue audit against d3fd1b27 — 2026-10-01
+
+Renumbered from `10`, which the resolved `10-own-tick-local-execution-transitions.md` already
+holds; `property-testing/02`'s references follow. Status set to `needs-triage`: the body leaves the
+naming shape undecided (clamp, `below`, and `displaced`/`offset_in_row` on the public Grid API), so
+an agent cannot start until that is chosen. Citations hold: `orcvs/src/grid.rs:259,291,311,337`.
