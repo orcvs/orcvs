@@ -1,26 +1,24 @@
 # 10 — Load a custom Theme file
 
-**What to build:** Load a custom Theme authored as a file outside Orcvs. It inherits from exactly one built-in Theme and states only the values it changes. On native its file is read at startup; on WASM its imported document is retained with persistence. It is selected by identity in `~/.orcvs/config.toml` (`theme.dark` / `theme.light`), exactly as a built-in Theme is; there are no in-app pickers and no in-app Theme editor.
+**What to build:** Load a custom Theme authored as a file outside Orcvs. It inherits from exactly one built-in Theme and states only the values it changes. On native its file is read at startup. It is selected by identity in `~/.orcvs/config.toml` (`theme.dark` / `theme.light`), exactly as a built-in Theme is; there are no in-app pickers and no in-app Theme editor.
 
 **Blocked by:** 06 — Paint the Source from a named Theme; 07 — Load versioned Orcvs Theme files; 08 — Validate a Theme’s composited contrast; 17 — Prove the transparent fills and Grids a custom Theme can load.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-**Scope for v1:** the web Theme import is disabled (`.scratch/menu-structure/issues/04`), so the WASM clauses below — imported documents, web reimport, the web parser path and stored web documents — are deferred past v1. v1 is the native file path; the web has the built-ins alone.
+**Scope:** the native file path. The web Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`), and its clauses — imported documents, web reimport, the web parser path and stored web documents — moved to `19`. The web has the built-ins alone.
 
-- [x] A custom Theme references one built-in Theme identity as its parent, and holds a display name and only the named properties it sets; its appearance is inherited from its parent. Everything else resolves from its parent. On both targets, its filename stem is its identity, following `07`; the display name is not a settings reference.
+- [x] A custom Theme references one built-in Theme identity as its parent, and holds a display name and only the named properties it sets; its appearance is inherited from its parent. Everything else resolves from its parent. Its filename stem is its identity, following `07`; the display name is not a settings reference.
 - [x] A custom Theme inherits its built-in parent's dark/light appearance. An omitted appearance resolves from the parent; an explicit conflicting declaration rejects the document with an error identifying the mismatch. A light custom Theme must start from a light built-in, and a dark custom Theme from a dark built-in. Tests cover omitted appearance, matching explicit appearance and a rejected conflicting declaration on the native loading path.
-- [ ] *(Deferred past v1 — web import.)* The same omitted, matching and conflicting appearance tests cover the web loading path.
-- [x] A custom Theme can never be a parent. A loaded or stored custom Theme naming another, or naming an unknown parent, is refused whole and reported.
+- [x] A custom Theme can never be a parent. A loaded custom Theme naming another, or naming an unknown parent, is refused whole and reported.
 - [x] The versioned Orcvs format (`format = "orcvs-theme"`, `version = 1`, `name`, `inherits`, `style`) is documented with a complete example a viewer can edit in a file outside Orcvs, including colour alpha, role backgrounds, Grid and Cell colours, borders and border widths. Width values are finite display-point numbers: 0–1 inclusive for Grid/Cell borders and seams, 0–2 inclusive for chrome borders; zero hides the stroke. The parser validates the documented types, units and ranges; omitted values inherit from the built-in parent. Unknown appearance keys and out-of-range widths reject the whole document with an error identifying the setting, as in `07`; there is no silent ignoring or clamping. Font choice and custom font assets are not part of the planned format; do not add speculative font-loading support.
-- [x] Custom documents use `07`'s loading entry points: files discovered in `~/.orcvs/themes/` at native startup, file imports on WASM, with a successful reimport of the same filename identity updating the stored document. Both use `07`'s single document parser and `06`'s inheritance resolver; this issue does not introduce another parser.
+- [x] Custom documents use `07`'s loading entry: files discovered in `~/.orcvs/themes/` at native startup. It uses `07`'s single document parser and `06`'s inheritance resolver; this issue does not introduce another parser.
 - [x] A named property omitted from the document resolves from the parent. An explicit transparent colour remains distinct from omission.
 - [x] Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key. Use the `"none"` explicit-clear spelling in `../schema.md` and test omission, clear and transparent values through the native parser. Reject a nonopaque `window.background`; this key is the opaque backdrop, not an optional fill.
-- [ ] *(Deferred past v1 — web import.)* Omission, clear and transparent optional Cursor fill values are tested through the web parser path.
 - [x] A custom Theme inherits its parent's resolved named properties and replaces only properties explicitly supplied by the document. Omitted properties remain unchanged; no palette-slot recalculation exists. Tests show that changing one Source property leaves inherited chrome properties unchanged, and that transparent explicit values replace inherited colours.
-- [x] Custom Themes use the same document-loading mechanism as `07`: authoritative files on native, imported documents on WASM, separate from settings.
+- [x] Custom Themes use the same document-loading mechanism as `07`: authoritative files on native, separate from settings.
 - [x] On native, custom Theme files are read at each startup, and an external edit is reflected only on the next launch without re-importing. There is no file watcher or reload action in this release. Application storage never restores a stale copy of a native Theme file. Built-in identities are reserved as in `07`. Duplicate native filename stems follow `07`'s conflict rule, across all Orcvs Theme files.
 - [x] `~/.orcvs/config.toml`'s `theme.dark` and `theme.light` hold Theme references (`console/src/config.rs:158-159`), not application storage. A reference naming a custom Theme resolves it from the freshly read native file.
 - [x] A missing or malformed selected custom Theme follows `07`'s startup fallback: use the default built-in Theme of that appearance, show the file error, and leave the selection in `config.toml` untouched. Restoring or fixing the file restores the selected custom Theme on the next launch.
@@ -134,3 +132,5 @@ Gates, run with `PROPTEST_CASES=32`; `check_wasm`'s commands were run directly f
 
 The status stays `ready-for-agent` and is not `resolved`: the two web halves remain open here until
 they move to a follow-up ticket for the web Theme import.
+
+**2026-10-01 — web halves moved to `19`; resolved.** The user chose to move the deferred web work to a follow-up ticket. `19` holds the two web-path test clauses this ticket left unticked and the web halves of its ticked lines (imported documents, reimport, stored web documents), and records the open question of how the web selects a custom Theme. Every remaining criterion here is native and ticked, so this ticket is resolved.
