@@ -1442,8 +1442,8 @@ async fn a_zoom_survives_a_save_and_a_restart() {
 ///
 /// A mode a viewer chose survives a save and a restart in a persistence
 /// build. The mode is egui's `ThemePreference`, which eframe saves and
-/// restores with egui memory, so building the console on restored memory has
-/// to keep it rather than set one of its own.
+/// restores with egui memory, so building the console on restored memory and
+/// running its first frame has to keep it rather than set one of its own.
 ///
 /// Light is the mode chosen because neither start would produce it unaided:
 /// the harness opens on Dark and a fresh `Context` on System, so a restart
@@ -1470,16 +1470,34 @@ async fn a_mode_survives_a_save_and_a_restart() {
     // The restart is a bare `Context`, not a harness: `Harness::from_builder`
     // sets the builder's theme on the context after the console is built,
     // which would overwrite the restored mode before anything could read it.
+    // The frame is driven the way eframe's native integration drives one,
+    // `App::logic` then `App::ui` inside `Context::run_ui`, so a console that
+    // set a mode of its own on its first frame would fail the asserts below.
     let storage = RonFileStorage::from_file(dir.path());
     let ctx = egui::Context::default();
     restore_egui_memory(&ctx, &storage);
     let mut cc = eframe::CreationContext::_new_kittest(ctx.clone());
     cc.storage = Some(&storage);
-    let _console = start_console(
+    let mut console = start_console(
         &cc,
         ThemeRegistry::built_in(),
         crate::config::Config::default(),
     );
+    let mut frame = eframe::Frame::_new_kittest();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::from(DEFAULT_VIEW_SIZE),
+        )),
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(input, |ui| {
+        eframe::App::logic(&mut console, ui.ctx(), &mut frame);
+        eframe::App::ui(&mut console, ui, &mut frame);
+    });
+    // No renderer uploads the frame's textures, and an unapplied delta
+    // asserts when it drops.
+    output.textures_delta.clear();
     assert_eq!(
         ctx.options(|options| options.theme_preference),
         egui::ThemePreference::Light,
