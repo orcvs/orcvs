@@ -11,19 +11,21 @@
 **Scope for v1:** the web Theme import is disabled (`.scratch/menu-structure/issues/04`), so the WASM clauses below — imported documents, web reimport, the web parser path and stored web documents — are deferred past v1. v1 is the native file path; the web has the built-ins alone.
 
 - [x] A custom Theme references one built-in Theme identity as its parent, and holds a display name and only the named properties it sets; its appearance is inherited from its parent. Everything else resolves from its parent. On both targets, its filename stem is its identity, following `07`; the display name is not a settings reference.
-- [ ] A custom Theme inherits its built-in parent's dark/light appearance. An omitted appearance resolves from the parent; an explicit conflicting declaration rejects the document with an error identifying the mismatch. A light custom Theme must start from a light built-in, and a dark custom Theme from a dark built-in. Tests cover omitted appearance, matching explicit appearance and a rejected conflicting declaration on both loading paths.
+- [x] A custom Theme inherits its built-in parent's dark/light appearance. An omitted appearance resolves from the parent; an explicit conflicting declaration rejects the document with an error identifying the mismatch. A light custom Theme must start from a light built-in, and a dark custom Theme from a dark built-in. Tests cover omitted appearance, matching explicit appearance and a rejected conflicting declaration on the native loading path.
+- [ ] *(Deferred past v1 — web import.)* The same omitted, matching and conflicting appearance tests cover the web loading path.
 - [x] A custom Theme can never be a parent. A loaded or stored custom Theme naming another, or naming an unknown parent, is refused whole and reported.
 - [x] The versioned Orcvs format (`format = "orcvs-theme"`, `version = 1`, `name`, `inherits`, `style`) is documented with a complete example a viewer can edit in a file outside Orcvs, including colour alpha, role backgrounds, Grid and Cell colours, borders and border widths. Width values are finite display-point numbers: 0–1 inclusive for Grid/Cell borders and seams, 0–2 inclusive for chrome borders; zero hides the stroke. The parser validates the documented types, units and ranges; omitted values inherit from the built-in parent. Unknown appearance keys and out-of-range widths reject the whole document with an error identifying the setting, as in `07`; there is no silent ignoring or clamping. Font choice and custom font assets are not part of the planned format; do not add speculative font-loading support.
 - [x] Custom documents use `07`'s loading entry points: files discovered in `~/.orcvs/themes/` at native startup, file imports on WASM, with a successful reimport of the same filename identity updating the stored document. Both use `07`'s single document parser and `06`'s inheritance resolver; this issue does not introduce another parser.
 - [x] A named property omitted from the document resolves from the parent. An explicit transparent colour remains distinct from omission.
-- [ ] Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key. Use the `"none"` explicit-clear spelling in `../schema.md` and test omission, clear and transparent values through both native and web parsers. Reject a nonopaque `window.background`; this key is the opaque backdrop, not an optional fill.
+- [x] Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key. Use the `"none"` explicit-clear spelling in `../schema.md` and test omission, clear and transparent values through the native parser. Reject a nonopaque `window.background`; this key is the opaque backdrop, not an optional fill.
+- [ ] *(Deferred past v1 — web import.)* Omission, clear and transparent optional Cursor fill values are tested through the web parser path.
 - [x] A custom Theme inherits its parent's resolved named properties and replaces only properties explicitly supplied by the document. Omitted properties remain unchanged; no palette-slot recalculation exists. Tests show that changing one Source property leaves inherited chrome properties unchanged, and that transparent explicit values replace inherited colours.
 - [x] Custom Themes use the same document-loading mechanism as `07`: authoritative files on native, imported documents on WASM, separate from settings.
 - [x] On native, custom Theme files are read at each startup, and an external edit is reflected only on the next launch without re-importing. There is no file watcher or reload action in this release. Application storage never restores a stale copy of a native Theme file. Built-in identities are reserved as in `07`. Duplicate native filename stems follow `07`'s conflict rule, across all Orcvs Theme files.
 - [x] `~/.orcvs/config.toml`'s `theme.dark` and `theme.light` hold Theme references (`console/src/config.rs:158-159`), not application storage. A reference naming a custom Theme resolves it from the freshly read native file.
 - [x] A missing or malformed selected custom Theme follows `07`'s startup fallback: use the default built-in Theme of that appearance, show the file error, and leave the selection in `config.toml` untouched. Restoring or fixing the file restores the selected custom Theme on the next launch.
 - [x] `08`'s report is shown when the custom Theme is loaded.
-- [ ] `cargo nextest run --package console --locked`, the `--no-default-features` arm, and `mise run check_wasm` pass.
+- [x] `cargo nextest run --package console --locked`, the `--no-default-features` arm, and `mise run check_wasm` pass.
 
 ## Comments
 
@@ -98,3 +100,37 @@ stays `ready-for-agent`: the appearance box (no test resolves a document that om
 alone cannot tick it) and the gates box remain open.
 
 **2026-09-30 — correction: a test does resolve an omitted `appearance`.** The two 2026-09-29 comments above say no test resolves a document that omits `appearance`. That is wrong. `omitted_properties_inherit_from_the_parent` (`console/src/theme.rs:1574`) resolves `child("okabe-ito")`, whose `ThemeDocument::default()` leaves `appearance` as `None` (`:987-995`, `child` at `:1206`), and asserts `Appearance::Dark` (`:1583`). The native half of the appearance box is therefore complete: omitted (`:1574`), matching (`:1731`) and conflicting (`:1712`, and the light-parent mismatch at `:1548`). The native half of the optional Cursor fills box now runs through the document parser too: `paint::tests::an_explicit_transparent_region_cursor_fill_suppresses_the_cursor_fill_fallback` (`console/src/paint.rs:778`, #181) decodes `region.cursor.background` omitted, `"none"` and `"#FFFFFF00"` with `theme_document::decode` and paints each. Both boxes stay unticked only because their web halves are deferred past v1.
+
+**2026-10-01 — v1 scope complete; web halves split out and deferred.** Re-verified on `d3fd1b27`
+(main after #185). The appearance and optional Cursor fills boxes are each split into a ticked
+native half and an unticked web half marked deferred, so the web requirements stay recorded while
+v1 status reads plainly. Every v1 (native) requirement is now ticked.
+
+Native appearance evidence: omitted (`omitted_properties_inherit_from_the_parent`,
+`console/src/theme.rs:1574`), matching (`matching_declared_appearance_is_accepted`, `:1731`) and
+conflicting (`appearance_mismatch_is_rejected`, `:1712`; light parent,
+`a_document_inheriting_the_light_built_in_resolves_light`, `:1537`) at the resolver, and the
+decoder's `appearance_is_dark_or_light` (`console/src/theme_document.rs:919`). Those resolver tests
+build their documents by hand, so `a_theme_files_appearance_is_its_parents`
+(`console/src/theme_registry.rs:586`) now drives all three cases for both built-in parents through
+`ThemeRegistry::load`, the native file path's decode-then-resolve, and checks the refusal names the
+file and both appearances.
+
+Native optional-fill evidence: the decoder distinguishes omitted, `"none"` and `"#12345600"` for
+both keys (`optional_fills_are_omitted_cleared_or_a_supplied_transparent_colour`,
+`console/src/theme_document.rs:677`); the resolver inherits, clears and keeps a transparent value
+(`console/src/theme.rs:1888`, `:1903`, `:1927`); Paint decodes `region.cursor.background` omitted,
+`"none"` and `"#FFFFFF00"` with `theme_document::decode` and paints the fallback for each
+(`console/src/paint.rs:778`); a nonopaque `window.background` is refused (`theme.rs:1757`).
+
+Gates, run with `PROPTEST_CASES=32`; `check_wasm`'s commands were run directly from `mise.toml`:
+
+- `cargo fmt --all -- --check` — passed
+- `cargo clippy --package console --all-targets --locked -- -D warnings` — passed
+- `cargo nextest run --package console --locked` — passed, 521 tests
+- `cargo nextest run --workspace --tests --no-default-features --locked` — passed, 1473 tests
+- `cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings` — passed
+- `trunk build --locked` and `trunk build --no-default-features --locked` in `console/` — passed
+
+The status stays `ready-for-agent` and is not `resolved`: the two web halves remain open here until
+they move to a follow-up ticket for the web Theme import.
