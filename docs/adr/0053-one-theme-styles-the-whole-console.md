@@ -1,6 +1,6 @@
 # One Theme styles the whole console
 
-Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow.
+Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception.
 
 **Every part of the console's presentation is themeable, and one Theme styles all of it.** ADR 0051 scoped theming to the Source Grid and left the page, panels, widgets, selection, Cell grid lines and Sector Seams to egui's dark/light `Visuals`: two fixed palettes, compiled in, with nothing a viewer can choose or load. That was never the requirement. The Source Grid and the console around it are never themed separately, so loading an Orcvs Theme restyles the menus as well as the Grid.
 
@@ -64,9 +64,11 @@ intentional correction to the existing frequency-only scheduling rule.
 
 **Contrast validation measures painted text states.** Validate the resolved Theme's effective foreground against the actual composited background, including role backgrounds, selection, Cursor and Region fills, and console text on panel and input backgrounds. Follow the same fixed composition rules as painting and identify each result by role and state. A transparent fact foreground leaves the underlying Token visible; validate the resulting glyph, not the disabled channel. Text/background contrast does not assess whether two Token colours are distinguishable, nor does it constitute a complete accessibility assessment.
 
-**Contrast acceptance preserves Okabe–Ito's Sequence colour.** Sequence remains `#0072B2` on `#000000`, approximately 4.05:1 against the 4.5:1 floor. Preserving the decided appearance takes precedence over making this one measurement pass. The validator still reports it as a failure, annotated as an accepted exception. Tests over shipped Themes reject additional unrecorded failures; this acceptance neither lowers the floor nor exempts other roles, Themes or newly measured failing states. Additional failures discovered by composited-state validation need explicit review.
+*Superseded on 2026-10-01 by the amendment below; kept as the decision's record.* **Contrast acceptance preserves Okabe–Ito's Sequence colour.** Sequence remains `#0072B2` on `#000000`, approximately 4.05:1 against the 4.5:1 floor. Preserving the decided appearance takes precedence over making this one measurement pass. The validator still reports it as a failure, annotated as an accepted exception. Tests over shipped Themes reject additional unrecorded failures; this acceptance neither lowers the floor nor exempts other roles, Themes or newly measured failing states. Additional failures discovered by composited-state validation need explicit review.
 
 ### Known dark failures awaiting acceptance
+
+*Superseded on 2026-10-01 by the amendment below; kept as the decision's record.*
 
 The following reachable invalid-operand states are known below-floor results,
 not accepted exceptions. Opaque Diagnostic foreground overlays the declared role
@@ -84,6 +86,36 @@ Theme acceptance test until these failures are explicitly accepted; retain the
 failures and do not silently whitelist them, lower the floor or retune colours.
 The existing Sequence exception remains the only accepted exception. The table
 is not an exhaustive claim: newly discovered failures still require review.
+
+## Amendment, 2026-10-01: no shipped Theme carries a contrast exception
+
+The Sequence accepted exception and the "Known dark failures awaiting acceptance"
+table above are superseded. Every shipped Theme clears the 4.5:1 floor in every
+reachable painted text state, and both built-ins' accepted-exception lists are
+empty.
+
+- **The two invalid-operand failures are cleared.** The 2026-09-22 retune set
+  every tinted role background to the role's own foreground at 10% opacity.
+  Through the shipped composition, `diagnostic.foreground` `#D55E00` measures
+  4.89:1 on the Number tint (`#091218`) and 4.66:1 on the Note tint
+  (`#181707`). Atom, Invalid, at 4.59:1, is Okabe–Ito's lowest state.
+- **Sequence's exception has nothing to accept.** No reachable state draws a
+  glyph in `source.sequence`: a Sequence operand never binds, a Pending Cell
+  draws no glyph, and an Invalid one draws `diagnostic.foreground`, which
+  measures 5.12:1 on the Sequence tint. `#0072B2` on `#000000` is not a painted
+  text state, so the validator never measures it. Sequence keeps its colour for
+  its tint, as the exception set out to preserve.
+- **Both lists are empty.** `contrast::accepted_failures` returns an empty list
+  for `okabe-ito` and for `orcvs-light`. `contrast::tests::shipped_theme_gate`
+  fails on any below-floor state of either built-in that is not an accepted
+  exception, so with both lists empty it fails on any below-floor state at all.
+  `sequence_has_no_reachable_failing_state` and `orcvs_light_has_nothing_to_except`
+  pin that each list is empty because nothing fails.
+
+The floor is unchanged. A failure a later change introduces is not covered by
+the superseded paragraph: it needs explicit review and an entry in the
+accepted-exception list at the exact colour pair it was accepted at.
+`console/src/theme.md` records every measured figure.
 
 ## Rejected alternatives
 

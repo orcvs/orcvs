@@ -4,9 +4,11 @@ This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
 change, not drift.
 
-Under ADR 0053 every value on this page belongs to the Okabe–Ito built-in
-Theme, the dark Theme the console ships with. Each one maps to a named property,
-recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
+Under ADR 0053 the page records both built-in Themes: Okabe–Ito, the dark
+Theme and the console's default, and Orcvs Light, the light one. A value belongs
+to Okabe–Ito unless it sits under **The Orcvs Light built-in Theme** or names
+Orcvs Light; the values above the Themes section are Okabe–Ito's. Each one maps
+to a named property, recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
 Source Grid, its borders and the Cursor Effect's colours paint from the
 resolved Theme (`console/src/theme.rs`). Since `03`, the rest of the chrome —
 `egui::Visuals`, including inherited toolkit colours such as weak text,
@@ -297,8 +299,9 @@ and its Comment is the palette's neutral gray, and neither transfers to a
 near-white page. They are the near-white page's ink, which the chrome proposal
 set, and a muted form of it decided here, since the proposal has no Comment.
 
-Five of the seven moved only as far as this ground forced them, and Sequence not
-at all. Diagnostic and Output Portal moved further, and the reason is
+Four of the seven — Number, Note, Function and Bang — moved only as far as the
+contrast floor on this ground forced them, and Sequence not at all. Diagnostic
+and Output Portal moved further, as far as the colour-vision floor required, and the reason is
 structural rather than aesthetic: on a near-white ground the contrast floor is a
 *ceiling* on lightness, and it compresses every glyph into a band about 0.02
 wide in OKLCh L. Okabe–Ito separates its yellow, its orange and its vermillion
@@ -359,9 +362,11 @@ clears the 4.5:1 floor. There are no deliberate exceptions**
 because nothing fails, not because a failure was accepted. The lowest measured
 state is 4.78:1, Bang inside a Region.
 
-Five of the seven glyph hues were darkened exactly until this held and no
-further — the **What moved** table above names which state bound each one — and
-the other two were darkened past it for the colour-vision reason recorded below.
+Four of the seven glyph hues — Number, Note, Function and Bang — were darkened
+exactly until this held and no further, and the **What moved** table above names
+which state bound each one. Sequence was not darkened: no reachable state draws
+a glyph in it. The other two, Diagnostic and Output Portal, were darkened past
+the floor for the colour-vision reason recorded below.
 No floor was lowered and no state was special-cased.
 
 Representative measurements, `plain` placement unless stated:
@@ -728,9 +733,38 @@ cursor_colour`'s "the Cursor's own fill wins outright on its Cell." A Region
 Cell, by contrast, only falls back to the Region fill when the role's own
 background left nothing painted at all (alpha exactly `0`) — a role
 background with any nonzero alpha, translucent or opaque, keeps winning
-there. Both differ from `plain` only for a Theme whose Cursor/Region fills are
-actually set; Okabe–Ito's are unset, so its own Cursor/Region states happen to
-repeat `plain`'s figures without exercising either rule.
+there.
+
+Okabe–Ito exercises both rules. Its `cursor.background` and
+`region.cursor.background` are none, so the Cursor's own Cell, alone or inside
+a Region, takes no fill: a tinted role there loses its 10% tint and is measured
+against the bare `#000000` Source background, and a transparent role repeats
+its `plain` figure. Its `region.background` is set, `#FFFFFF2B` (white at 17%),
+so a Region Cell whose role background is transparent (Ordinary, Comment and
+Bang) is measured against `#2B2B2B`. A tinted role keeps its own tint inside a
+Region and repeats its `plain` figure, and so does an Output Portal Cell, whose
+Portal tint is not transparent. Okabe–Ito's Region, Cursor and
+Portal-over-role figures, read from `contrast::validate`:
+
+| State | Foreground | Background | Ratio |
+|---|---|---|---:|
+| Ordinary, Region | `#EAEBE5` | `#2B2B2B` | 11.81:1 |
+| Comment, Region | `#999999` | `#2B2B2B` | 4.97:1 |
+| Bang, Region | `#CC79A7` | `#2B2B2B` | 4.63:1 |
+| Function, Cursor or Region's Cursor Cell | `#009E73` | `#000000` | 6.14:1 |
+| Number, Valid, Cursor or Region's Cursor Cell | `#56B4E9` | `#000000` | 9.10:1 |
+| Note, Valid, Cursor or Region's Cursor Cell | `#F0E442` | `#000000` | 15.88:1 |
+| Any Invalid operand, Cursor or Region's Cursor Cell | `#D55E00` | `#000000` | 5.43:1 |
+| Output Portal over Number, Valid or Invalid | `#E69F00` | `#1F2016` | 7.30:1 |
+| Output Portal over Note, Valid or Invalid | `#E69F00` | `#2D2506` | 6.76:1 |
+| Output Portal over Atom, Invalid | `#E69F00` | `#2D2615` | 6.66:1 |
+| Output Portal over Sequence, Invalid | `#E69F00` | `#171B10` | 7.77:1 |
+| Bang, Output Portal | `#CC79A7` | `#171000` | 6.18:1 |
+| Output Portal, Cursor or Region's Cursor Cell | `#E69F00` | `#000000` | 9.32:1 |
+
+Every one clears the floor. Bang, 4.63:1, is the lowest figure the Region wash
+sets. Okabe–Ito's lowest state overall is Atom, Invalid, at 4.59:1 on its own
+tint, in `plain` and inside a Region alike.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
