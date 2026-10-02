@@ -6,7 +6,7 @@ semantics; this decides whether it is the rule the language keeps.
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -52,20 +52,20 @@ Writing a Bang at each destination Span and letting them overlap. That spells `*
 already reads `***` as one Bang plus one invalid `*` — `map.bangs().count()` is 1. Which Cell becomes
 litter follows the parse, not the collision. `****` is the spelling that means two whole Bangs.
 
-- [ ] ADR 0006 states the collision rule outright, rather than leaving it to be derived from the
+- [x] ADR 0006 states the collision rule outright, rather than leaving it to be derived from the
       refusal sentence and the schedule. A reader should not have to run the Grid to learn what two
       movers do.
-- [ ] The decision covers the one-Cell overlap of an odd gap and not only the flush pair. The two
+- [x] The decision covers the one-Cell overlap of an odd gap and not only the flush pair. The two
       cases differ in how many Cells are contested, and the shipping rule gives one a survivor and
       the other none.
-- [ ] The decision covers three or more movers converging. Today they resolve in Source order with
+- [x] The decision covers three or more movers converging. Today they resolve in Source order with
       no cycle from mover-to-mover contact, because those contact dependencies are omitted and
       ready Turns are chosen by Source position:
       `">>>>  <<    "` gives `"** >><<     "` and then `"   ****     "`.
-- [ ] The decision covers a Directional Bang emission that contests Cells with a mover. An emission
+- [x] The decision covers a Directional Bang emission that contests Cells with a mover. An emission
       never vacates its own Span, so "both are consumed" has no meaning for it, and any rule that
       consumes both needs an answer for the pair that is not symmetric.
-- [ ] The decision states what a mover blocked by a static Cell does. That case keeps the current
+- [x] The decision states what a mover blocked by a static Cell does. That case keeps the current
       refusal under either answer, so choosing the alternative leaves the language with two refusal
       rules and a reader needs to know which applies when.
 - [x] *(Not applicable: the rule is kept.)* If the rule changes, ADR 0006's "replaces its current Span with `**`" is amended rather than
@@ -107,3 +107,9 @@ Corrected the scheduler explanation: `orcvs/src/source/tick.rs:1083-1089` skips
 contact dependencies to intrinsically active owners without comparing Source positions.
 `tick.rs:1128-1142` orders ready nodes by anchor. The kept collision decision and remaining
 ADR/regression work are unchanged. This audit did not execute the example grids.
+
+### Resolved — 2026-10-02
+
+ADR 0006 now states the kept rule for every case above, and `orcvs/src/source/tick.rs` pins each one: `an_odd_gap_leaves_the_earlier_mover_the_cell_and_the_later_one_bangs`, `converging_movers_resolve_pairwise_in_source_order`, `an_emission_and_a_mover_wanting_one_cell_follow_source_order`, `a_mover_flush_against_an_emitter_bangs_rather_than_costing_the_tick` and `an_emission_waits_for_no_mover_that_would_vacate_its_destination`, beside the existing even-gap and static-Cell tests.
+
+Writing the emission test found a defect under the kept rule. A mover flush against a Directional Bang Function, standing in its destination (`*><<`, `>>*<`, `*v` over `^^`), made a same-Tick dependency cycle: the emitter's reservation ordered it before the mover, and the mover's contact ordered it before the emitter. The whole Grid's Tick was rejected every Tick, even with the emitter inert. `order_turns` now drops the emitter's edge for exactly that mutual pair, as it already drops the edge between two flush movers. The emitter's edge to an occupant that can vacate stays: removing it lets `^^` leave first and the emission write over an executed computation, rejecting the Tick.

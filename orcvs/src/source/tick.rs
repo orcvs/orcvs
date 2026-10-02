@@ -885,6 +885,31 @@ fn advances(function: Function) -> bool {
     )
 }
 
+fn emits(function: Function) -> bool {
+    matches!(
+        function.source_effect(),
+        Some(SourceEffect {
+            bundle: SourceBundle::Emit,
+            ..
+        })
+    )
+}
+
+/// Whether any reservation `writer`'s Portals make covers the Function `target`.
+fn reserves_over(lookup: &Lookup, writer: usize, target: usize) -> bool {
+    lookup.nodes()[writer]
+        .portal_access
+        .write_sites()
+        .iter()
+        .filter_map(|output| output.as_ref().ok())
+        .filter_map(|output| lookup.reserved_at(writer, *output))
+        .any(|relationships| {
+            relationships
+                .functions()
+                .any(|contact| contact.index == target)
+        })
+}
+
 /// The complete subtree a locking Function's Portal names.
 fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
     match &lookup.locks[locker] {
@@ -1067,6 +1092,22 @@ fn order_turns(
                 edges.insert((index, consumer));
             };
             for contact in relationships.functions() {
+                // An emission is admitted only into empty Cells and its
+                // producer never vacates, so a mover standing in the
+                // destination and moving back into the producer is blocked by
+                // it and cannot leave: the emission is refused whichever Turn
+                // comes first. Ordering the producer first as well as after
+                // the mover's contact makes the pair a cycle that costs the
+                // whole Grid its Tick. Every other occupant keeps this edge,
+                // because one that vacates before the producer's Turn would
+                // leave the emission writing over a computation that has
+                // already executed.
+                if emits(node.function)
+                    && advances(nodes[contact.index].function)
+                    && reserves_over(&lookup, contact.index, index)
+                {
+                    continue;
+                }
                 // A move is admitted only where the Cells it enters are empty,
                 // so a Source-writing Function's Portal never writes
                 // over the Language Unit it contacts: the contact blocks the
@@ -1497,9 +1538,8 @@ mod test {
     fn two_moves_that_want_the_same_cells_each_bang_in_their_own_span() {
         // Two movers approaching each other close the gap by two Cells a Tick,
         // so its parity never changes and there are two cases. An odd gap ends
-        // at one Cell: the first Turn takes it and the second is blocked, which
-        // is `a_self_banging_function_moves_once_per_tick_and_bangs_where_it_
-        // stops` with a second mover supplying the obstacle. An even gap ends
+        // at one Cell and is `an_odd_gap_leaves_the_earlier_mover_the_cell_and_
+        // the_later_one_bangs`. An even gap ends
         // flush, and that is this test — each wants the two Cells the other
         // stands in, and each takes the refusal a mover blocked by anything
         // else takes: it replaces its current Span with `**`.
@@ -1533,6 +1573,109 @@ mod test {
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
+    }
+
+    #[test]
+    fn an_odd_gap_leaves_the_earlier_mover_the_cell_and_the_later_one_bangs() {
+        // One Cell of overlap between two movers, and Source order decides who
+        // has it. `>>` takes the earlier Turn and enters the empty Cell; `<<`
+        // then finds `>` where it would enter and replaces its own Span with
+        // `**`. The survivor goes on moving once the display is cleared.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">> <<   "], 3);
+
+        assert_eq!(grids[0], [" >>**   "]);
+        assert_eq!(grids[1], ["  >>    "]);
+        assert_eq!(grids[2], ["   >>   "]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn converging_movers_resolve_pairwise_in_source_order() {
+        // Three movers settle as the two-mover rule applied Turn by Turn,
+        // with no cycle among them. `>>` at Cell 0 is blocked by `>>` at Cell
+        // 2, which takes the free Cell and meets `<<` flush on the next Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 1), &[">>>>  <<    "], 3);
+
+        assert_eq!(grids[0], ["** >><<     "]);
+        assert_eq!(grids[1], ["   ****     "]);
+        assert_eq!(grids[2], ["            "]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn an_emission_and_a_mover_wanting_one_cell_follow_source_order() {
+        // `*>` emits into Cells 4 and 5 and `<<` wants Cell 5. The emitter
+        // holds the earlier Turn, so it emits, and the mover takes a blocked
+        // mover's refusal. The two refusals differ because the two bundles
+        // differ: the mover vacates its Span and bangs there, the emitter
+        // stands still and would diagnose.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  *>  <<"], 1);
+
+        assert_eq!(grids[0], [".=0101    ", "***>>>**  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_mover_flush_against_an_emitter_bangs_rather_than_costing_the_tick() {
+        // The mover stands in the emission's destination and moves back into
+        // the emitter, which never vacates. The mover is blocked whichever
+        // Turn comes first, so the emission is refused whichever Turn comes
+        // first: nothing is contested, and the Addition beside them answers.
+        // Its contact delivers Bang, so the emitter diagnoses even with no
+        // other Bang to activate it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &["  *><<  .+0102", ""], 1);
+        assert_eq!(grids[0], ["  *>**  .+0102", "        03    "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*> has no empty destination inside the Grid for >>"]
+        );
+
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &["  >>*<  "], 1);
+        assert_eq!(grids[0], ["  ***<  "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*< has no empty destination inside the Grid for <<"]
+        );
+
+        // The vertical pair, and the Tick after: the Bang display is cleared,
+        // the destination is empty, and the emitter emits.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &[".=0101", "  *v", "  ^^"], 2);
+        assert_eq!(grids[0], [".=0101  ", "***v    ", "  **    "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*v has no empty destination inside the Grid for vv"]
+        );
+        assert_eq!(grids[1], [".=0101  ", "***v    ", "  vv    "]);
+        assert!(
+            plans[1].diagnostics.is_empty(),
+            "{:?}",
+            plans[1].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_emission_waits_for_no_mover_that_would_vacate_its_destination() {
+        // `^^` stands in the destination of `*^` and moves away from it, so
+        // the two do not block each other. The emitter still takes the
+        // earlier Turn and is refused: a mover leaving first would have the
+        // emission write over a computation that has already executed.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(10, 3), &["", "  ^^.=0101", "  *^"], 1);
+
+        assert_eq!(grids[0], ["  ^^      ", "    .=0101", "  *^**    "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*^ has no empty destination inside the Grid for ^^"]
+        );
     }
 
     #[test]
