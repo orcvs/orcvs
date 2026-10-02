@@ -31,8 +31,8 @@ slice below. Release membership follows this inventory, not mere appearance in `
 “partial” and “missing” remain implementation work even where syntax or a legacy approximation
 already exists.
 
-One member is still short of the release: the Self-Banging Functions' collision rule, owned by
-`spatial-tick-planning/07`. See [Members still short of the release](#members-still-short-of-the-release).
+Members whose Current state is still short of the release are listed under
+[Members still short of the release](#members-still-short-of-the-release).
 
 ### Values and Source forms
 
@@ -116,9 +116,9 @@ chains over complete aligned Language Units, atomic writes, deterministic effect
 diagnostics. Jump does not transport a Sequence or partial Language Unit. ADR 0032 replaced
 Source-order root turns with dependency order, where Position only breaks ties.
 
-All are satisfied (`spatial-tick-planning/01`–`06` and `08`, all resolved) except the collision
-rule's statement, which `spatial-tick-planning/07` owns. Bang routing and expiry are the Bang row
-above; Activation movement is the Self-Banging row.
+All are satisfied (`spatial-tick-planning/01`–`06` and `08`, all resolved) except mover collision,
+which is the Self-Banging row's gap. Bang routing and expiry are the Bang row above; Activation
+movement and collision are the Self-Banging row.
 
 | Member | Current state | Evidence |
 | --- | --- | --- |
@@ -126,7 +126,7 @@ above; Activation movement is the Self-Banging row.
 | `*!` | Satisfied: an active Halt locks the complete root one row south before it runs, once per Tick; a suppressed Halt does not lock | `orcvs/src/source/tick.rs` `test::an_active_halt_locks_the_complete_root_one_row_south`, `test::an_inert_halt_does_not_lock_and_the_south_root_runs`, `test::a_suppressed_halt_does_not_lock_its_own_target`, `test::halt_is_interpreted_once_per_tick`, `test::an_occupied_non_root_halt_target_diagnoses`, `test::an_active_halt_withholds_a_terminal_root`, `test::multiple_halts_and_activations_follow_dependency_order`; `lang/src/interpreter.rs` `test::halt_locks_at_its_output_portal` |
 | `&^`, `&v`, `&<`, `&>` | Satisfied: each relays one complete aligned Language Unit, chains compose, a relayed Bang activates a root, and a Sequence or partial unit is not transported | `orcvs/src/source/tick.rs` `test::each_jump_direction_relays_one_aligned_language_unit`, `test::consecutive_jumps_compose_through_overlapping_portals`, `test::a_jump_does_not_transport_a_sequence`, `test::a_jump_does_not_transport_an_incomplete_language_unit`, `test::a_partial_jump_input_diagnoses_and_writes_nothing`, `test::an_out_of_grid_jump_destination_diagnoses_and_writes_nothing`, `test::a_relayed_bang_activates_a_root`, `test::a_jump_below_its_consumer_reaches_it_the_same_tick`, `test::a_jump_that_closes_a_same_tick_cycle_rejects_the_tick`; `lang/src/functions/jump.rs` `test::a_portal_that_is_not_one_two_cell_unit_diagnoses` |
 | Dependency-ordered turns, later-root same-Tick activation | Satisfied (ADR 0032) | `orcvs/src/source/tick.rs` `test::the_schedule_orders_a_move_ahead_of_the_computation_it_would_land_on`, `test::fixed_upward_portals_schedule_note_and_bang_before_midi`, `test::live_cycles_reject_independent_effects_and_self_dependency`; `orcvs/src/source/model.rs` `test::a_later_calculation_reads_an_operand_written_this_tick` |
-| Atomic writes, conflicts, effect ordering | Satisfied: a write that leaves the Grid emits no partial write, later effects win each Cell independently, and commands and diagnostics keep producer order. Mover collisions: see `spatial-tick-planning/07` | `orcvs/src/source/tick.rs` `test::test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write`, `test::test_later_effects_win_cell_conflicts_independently`, `test::test_play_commands_and_diagnostics_keep_producer_and_emission_order`, `property::a_tick_plan_gives_each_cell_to_the_last_admitted_write_covering_it`; `orcvs/src/source/model.rs` `test::test_writes_play_commands_and_diagnostics_follow_one_producer_order` |
+| Atomic writes, conflicts, effect ordering | Satisfied: a write that leaves the Grid emits no partial write, later effects win each Cell independently, and commands and diagnostics keep producer order. Mover collisions: see the Self-Banging row | `orcvs/src/source/tick.rs` `test::test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write`, `test::test_later_effects_win_cell_conflicts_independently`, `test::test_play_commands_and_diagnostics_keep_producer_and_emission_order`, `property::a_tick_plan_gives_each_cell_to_the_last_admitted_write_covering_it`; `orcvs/src/source/model.rs` `test::test_writes_play_commands_and_diagnostics_follow_one_producer_order` |
 
 ### MIDI terminal-output family
 
@@ -154,19 +154,22 @@ it holds, and opens a port asynchronously before installing it.
 | `!c`, `!b` | Satisfied: data bytes reach the wire unaltered, LSB before MSB | `lang/src/functions/mod.rs` `test::every_data_byte_reaches_a_control_change_or_pitch_bend_command_unaltered`, `test::control_change_and_pitch_bend_reject_a_note_in_every_operand_position`; `orcvs/src/midi.rs` `tests::submits_control_change_and_pitch_bend_as_their_wire_bytes`; `orcvs/src/playback/schedule.rs` `tests::control_change_and_pitch_bend_are_delivered_unresolved_and_in_tick_plan_order`; `orcvs/src/source/model.rs` `test::test_root_control_change_and_pitch_bend_emit_the_command_their_operands_name` |
 | Sequence operands | Satisfied | `lang/src/stack.rs` `test::a_sequence_at_any_operand_position_answers_one_command_per_element_in_order`, `test::a_control_change_and_a_bend_widen_at_every_data_byte_position`; `orcvs/src/playback/schedule.rs` `tests::a_chord_of_timed_plays_stops_each_element_at_its_own_length` |
 | Safety action and device lifecycle | Satisfied: CC 123, CC 121 and a centred bend on every channel at stop, delivery failure and destination change; silencing clears the note schedule | `orcvs/src/midi.rs` `tests::the_safety_action_clears_notes_controllers_and_bend_on_every_channel`, `tests::delivery_failure_attempts_the_safety_action_and_reselection_reconnects`, `tests::a_destination_change_sends_the_safety_action_to_the_destination_it_leaves`; `orcvs/src/playback.rs` `tests::every_lifecycle_action_that_silences_output_clears_the_note_schedule` |
-| Browser Web MIDI backend | Satisfied in automated tests (#185, ADR 0059): pending, granted and unavailable access; exact bytes to the opened output; failed and abandoned opens. Manual browser checks remain open in `midi-port-ownership/06`, `09` and `10` | `console/src/web_midi.rs` `tests::a_pending_request_answers_that_access_is_awaited`, `tests::granted_access_lists_the_connected_outputs`, `tests::a_browser_without_midi_access_offers_an_empty_list_rather_than_an_error`, `tests::the_frame_after_the_browser_answers_catches_up_without_a_scan`, `tests::playback_delivers_exact_bytes_to_the_output_the_console_opened`, `tests::an_output_that_fails_to_open_leaves_the_playing_destination`, `tests::an_abandoned_open_releases_its_output`; `console/tests/wasm.rs` `web_midi_answers_discovery_and_connect_without_waiting`, `midi_output::the_browser_output_control_is_enabled_and_offers_scan` |
+| Browser Web MIDI backend | Satisfied in automated tests (#185, ADR 0059): pending, granted and unavailable access; exact bytes to the opened output; failed and abandoned opens. Manual browser checks remain open in `midi-port-ownership/06`, `09` and `10`. A port reselected while its close is in flight may be installed before the browser has opened it, a gap `midi-port-ownership/11` (`release/v1`) owns | `console/src/web_midi.rs` `tests::a_pending_request_answers_that_access_is_awaited`, `tests::granted_access_lists_the_connected_outputs`, `tests::a_browser_without_midi_access_offers_an_empty_list_rather_than_an_error`, `tests::the_frame_after_the_browser_answers_catches_up_without_a_scan`, `tests::playback_delivers_exact_bytes_to_the_output_the_console_opened`, `tests::an_output_that_fails_to_open_leaves_the_playing_destination`, `tests::an_abandoned_open_releases_its_output`; `console/tests/wasm.rs` `web_midi_answers_discovery_and_connect_without_waiting`, `midi_output::the_browser_output_control_is_enabled_and_offers_scan` |
 
 ### Members still short of the release
 
-- **Self-Banging collision rule** — `spatial-tick-planning/07` (`Status: ready-for-agent`,
-  `release/v1`). The behaviour ships and the rule was kept on 2026-09-24. ADR 0006 must state it,
-  and tests must cover the odd gap (`">> <<"`), three or more converging movers, and a Directional
-  Bang emission contesting a mover.
+- **Self-Banging collision rule** — `spatial-tick-planning/07` (`release/v1`). The behaviour ships
+  and the rule was kept on 2026-09-24. ADR 0006 must state it, and tests must cover the odd gap
+  (`">> <<"`), three or more converging movers, and a Directional Bang emission contesting a mover.
+- **Browser Web MIDI port reselection** — `midi-port-ownership/11` (`release/v1`). The gap is
+  unconfirmed: it needs a browser that settles `close()` or `open()` before the device is released
+  or acquired. A clean manual run resolves it as `wontfix`.
 
-Every other member's Current state is satisfied. Release proof that is not a member's state stays
-with its own owners: native physical MIDI evidence with `v1-release/04`, the browser MIDI manual
-checks with `midi-port-ownership/06`, `09` and `10` (each `ready-for-human`, `release/v1`), and the
-candidate-wide evidence run with `v1-release/03`.
+Every other member's Current state is satisfied, except that the Browser Web MIDI backend is
+satisfied in automated tests only. Release proof that is not a member's state stays with its own
+owners: native physical MIDI evidence with `v1-release/04`, the browser MIDI manual checks with
+`midi-port-ownership/06`, `09` and `10` (each `release/v1`), and the candidate-wide evidence run
+with `v1-release/03`.
 
 ### Explicit deferrals and omissions
 
