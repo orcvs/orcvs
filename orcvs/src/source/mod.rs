@@ -188,8 +188,16 @@ impl SourceRevision {
             return start..end;
         }
         let mut fitted = end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH);
+        // A blank at either offset of a pair ends the run. A blank first Cell
+        // leaves the pair out; a blank later Cell ends the run inside the
+        // pair, which is then taken whole.
         while fitted < end && self.written(fitted) {
-            fitted = end.min(fitted + SCALAR_WIDTH);
+            let pair_end = end.min(fitted + SCALAR_WIDTH);
+            let whole = (fitted + 1..pair_end).all(|index| self.written(index));
+            fitted = pair_end;
+            if !whole {
+                break;
+            }
         }
         start..fitted
     }
@@ -699,6 +707,18 @@ mod tests {
             // right column's Expression at column 11 is left alone.
             let straddled = revision(grid, &[":-0104", "010203040  .+0304"]);
             assert_eq!(row(&straddled, grid, 1), "##########..........");
+        }
+
+        #[test]
+        fn a_blank_second_cell_of_a_pair_stops_the_highlight() {
+            // A one-column gutter an odd written run reaches into: column 8
+            // is written and the blank at column 9 is the second Cell of its
+            // pair. That blank ends the answer, the pair is completed, and
+            // the right column's Expression from column 10 is left alone.
+            let grid = Grid::with_shape(20, 2);
+            let odd = revision(grid, &[":-0104", "010203040 .+0304"]);
+
+            assert_eq!(row(&odd, grid, 1), "##########..........");
         }
 
         #[test]

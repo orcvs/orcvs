@@ -78,12 +78,14 @@ impl RenderCell {
     ///
     /// `true` covers the Cell pair from the Output Portal for a Function that
     /// can only answer a scalar. A Function that can answer a Sequence covers
-    /// the highlight `SourceRevision::output_portal_highlight` fits to the
-    /// answer it holds, not the whole Reservation the Tick scheduler reserves.
-    /// A nested Function, a Terminal Output Function, Halt, and a
-    /// Source-writing Function (including an Advance's cleared anchor) never
-    /// set it, and neither does a scalar destination the row edge leaves no
-    /// room for.
+    /// at least four Cells from the Output Portal, written or not, then the
+    /// run of written Cells that follows, stopping at the first blank Cell
+    /// and completing the Cell pair the run stops inside. The highlight is
+    /// clipped to the Reservation the Tick scheduler reserves, which runs to
+    /// the end of the row. A nested Function, a Terminal Output Function,
+    /// Halt, and a Source-writing Function (including an Advance's cleared
+    /// anchor) never set it, and neither does a scalar destination the row
+    /// edge leaves no room for.
     ///
     pub fn output_portal(&self) -> bool {
         self.output_portal
