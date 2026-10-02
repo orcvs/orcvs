@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790903663756,
+  "lastUpdate": 1790903678461,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -69254,6 +69254,145 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/98bd5d0d76f745548a601168f138ad034df3d414"
         },
         "date": 1790842791183,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 2,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang turn Concatenate of two 64-member Sequences blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang turn Concatenate of two 64-member Sequences bytes",
+            "value": 256,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled blocks",
+            "value": 30657,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled bytes",
+            "value": 9980120,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled blocks",
+            "value": 30657,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled bytes",
+            "value": 9980120,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3405,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 10,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 4560,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3533,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 20,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 12301,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 3789,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 36,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 27074,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0fa20c135f4a1e30c77d639d07984c8dffbeca39",
+          "message": "Merge pull request #191 from orcvs/fix/output-portal-blank-second-cell\n\nStop the Output Portal highlight at a blank second Cell",
+          "timestamp": "2026-10-02T01:00:44Z",
+          "tree_id": "d7198116090bfaa3c23eb32db5a71c7ac337f03a",
+          "url": "https://github.com/orcvs/orcvs/commit/0fa20c135f4a1e30c77d639d07984c8dffbeca39"
+        },
+        "date": 1790903678407,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
