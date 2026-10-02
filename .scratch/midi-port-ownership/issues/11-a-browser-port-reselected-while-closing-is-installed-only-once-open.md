@@ -7,7 +7,9 @@ request always carries a connection that opened".
 
 **Blocked by:** None — the Web MIDI backend from 06 is in place.
 
-**Status:** needs-triage
+**Status:** ready-for-human
+
+**Tags:** release/v1
 
 ## The gap
 
@@ -38,3 +40,9 @@ the gap outlives 06. Not tagged `release/v1`: whether it blocks the release is f
 The gap is still present: the browser `open` resolves on the Promise alone
 (`console/src/web_midi.rs:357-369`). Triage needs only a `release/v1` yes or no; either way the
 next step is 06's step 8 with a quick reselect, run by a human.
+
+### Triaged into `release/v1` — 2026-10-02
+
+A silent output failure in a shipped backend blocks the release until a browser run settles it. The
+first step is human: run `midi-port-ownership/06` manual step 8 with a reselect straight after the
+port was left. A clean run in every supported browser resolves this as `wontfix`.

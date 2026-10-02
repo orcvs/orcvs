@@ -62,6 +62,10 @@ evidence-backed, and ready for implementation sessions to execute.
   wait on a representation prototype; Directional Bang emission is two Cells outside the emitter's
   Span; `midi-output-family/01` is resolved; `native-midi/02` records the WASM feature matrix.
   See [07 — Correct the ticket statements flagged in review](issues/07-correct-ticket-statements-flagged-in-review.md).
+- The inventory's Current state is refreshed against `98bd5d0d` (2026-10-01). Each member links
+  the tests that prove it, and `01` lists the
+  [members still short of the release](issues/01-name-the-shipped-language-inventory.md#members-still-short-of-the-release). See
+  [08 — Refresh the inventory's Current state against the code](issues/08-refresh-the-inventorys-current-state.md).
 
 ## Out of scope
 
