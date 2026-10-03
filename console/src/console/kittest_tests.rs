@@ -174,6 +174,30 @@ fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
     )
 }
 
+/// The Source's actual input rectangle, excluding the controls in the bars.
+fn source_rect(harness: &Harness<'_, Console>) -> egui::Rect {
+    let panel = |name| {
+        egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new(name))
+            .expect("the console's bars are present")
+            .outer_rect
+    };
+    let top = panel("top_panel");
+    let bottom = panel("bottom_panel");
+    let rectangles: Vec<_> = harness.ctx.viewport(|viewport| {
+        viewport
+            .prev_pass
+            .widgets
+            .layers()
+            .flat_map(|(_, widgets)| widgets)
+            .filter(|widget| widget.sense == (egui::Sense::CLICK | egui::Sense::DRAG))
+            .map(|widget| widget.rect)
+            .filter(|rect| !top.contains_rect(*rect) && !bottom.contains_rect(*rect))
+            .collect()
+    });
+    assert_eq!(rectangles.len(), 1, "the Source has one input rectangle");
+    rectangles[0]
+}
+
 ///
 /// The centre of a Cell as the console is presenting it right now.
 ///
@@ -205,25 +229,29 @@ fn click_at(harness: &mut Harness<'_, Console>, point: Pos2) {
 /// An ordinary control, found by the name a viewer reads rather than by a
 /// position a test computed.
 ///
-/// The View menu holds one checkbox and it owns `Console::diagnostics_open`,
-/// which is presentation state: opening the window changes what the console
-/// shows and nothing about the Source. Asserting on the field alone would pass
-/// against a checkbox bound to it that no menu presents, so the window it opens
-/// is asserted too — by one of its own labels, which is a widget only the
-/// running Diagnostics window contributes to the tree.
+/// View → Diagnostics expands the fixed Panel without covering the Source.
+/// Its readouts sit below the playback controls, and closing it restores the
+/// space the Source had before it opened.
 ///
 #[tokio::test]
-async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
+async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_space() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
+    let panel_rect = |harness: &Harness<'_, Console>| {
+        egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("bottom_panel"))
+            .expect("the bottom Panel is present")
+            .outer_rect
+    };
+    let compact = panel_rect(&harness);
+    let compact_source = source_rect(&harness);
 
     assert!(
         !harness.state().diagnostics_open,
-        "a fresh console opened with the Diagnostics window already showing"
+        "a fresh console opened with Diagnostics already showing"
     );
     assert!(
         harness.query_by_label("Visible Source region").is_none(),
-        "the Diagnostics window was in the tree before anything opened it"
+        "Diagnostics were in the tree before anything opened them"
     );
 
     harness.get_by_label("View").click();
@@ -240,8 +268,156 @@ async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
     );
     assert!(
         harness.query_by_label("Visible Source region").is_some(),
-        "the console holds diagnostics_open but presented no Diagnostics window"
+        "the console holds diagnostics_open but presented no Diagnostics"
     );
+    let expanded = panel_rect(&harness);
+    assert!(expanded.height() > compact.height());
+    assert_eq!(expanded.bottom(), compact.bottom());
+    assert_eq!(source_rect(&harness).bottom(), expanded.top());
+    assert!(source_rect(&harness).height() < compact_source.height());
+    let playback_bottom = harness.get_by_label("B").rect().bottom();
+    for label in [
+        "FPS",
+        "Frame time",
+        "CPU time",
+        "Cell size",
+        "Visible Source region",
+        "Pixels per point",
+    ] {
+        let rect = harness.get_by_label(label).rect();
+        assert!(expanded.contains_rect(rect), "{label} is outside the Panel");
+        assert!(rect.top() > playback_bottom, "{label} overlaps playback");
+    }
+    assert!(harness.query_by_label("egui inspection").is_none());
+    let diagnostics_top = harness.get_by_label("FPS").rect().top();
+    assert!(
+        harness.output().shapes.iter().any(|clipped| matches!(
+            &clipped.shape,
+            egui::Shape::LineSegment { points, .. }
+                if points[0].y == points[1].y
+                    && points[0].y > playback_bottom
+                    && points[0].y < diagnostics_top
+                    && (points[1].x - points[0].x).abs() > expanded.width() * 0.5
+        )),
+        "a horizontal separator divides playback from Diagnostics"
+    );
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.get_by_label("Diagnostics").click();
+    harness.run_steps(3);
+    assert!(!harness.state().diagnostics_open);
+    assert!(harness.query_by_label("FPS").is_none());
+    assert_eq!(panel_rect(&harness), compact);
+    assert_eq!(source_rect(&harness), compact_source);
+}
+
+/// Labels keep their full text at both the default and a narrow window width.
+#[tokio::test]
+async fn docked_diagnostics_labels_are_not_truncated() {
+    fn find_label<'a>(shape: &'a egui::Shape, label: &str) -> Option<&'a egui::epaint::TextShape> {
+        match shape {
+            egui::Shape::Text(text) if text.galley.text() == label => Some(text),
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find_label(shape, label)),
+            _ => None,
+        }
+    }
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.state_mut().diagnostics_open = true;
+    for size in [Vec2::from(DEFAULT_VIEW_SIZE), Vec2::new(320.0, 500.0)] {
+        harness.set_size(size);
+        harness.run_steps(2);
+        for label in [
+            "FPS",
+            "Frame time",
+            "CPU time",
+            "Cell size",
+            "Visible Source region",
+            "Pixels per point",
+        ] {
+            let text = harness
+                .output()
+                .shapes
+                .iter()
+                .find_map(|clipped| find_label(&clipped.shape, label))
+                .unwrap_or_else(|| panic!("{label} was not painted"));
+            assert!(!text.galley.elided, "{label} was truncated at {size:?}");
+            assert_eq!(text.galley.rows.len(), 1, "{label} wrapped at {size:?}");
+        }
+        if size == Vec2::from(DEFAULT_VIEW_SIZE) {
+            let label_left = harness.get_by_label("Cell size").rect().left();
+            let value_left = harness.get_by_label("16.0 pt").rect().left();
+            assert!(
+                value_left - label_left > size.x * 0.3,
+                "the label column does not use the available window width"
+            );
+            let region =
+                source_rect(&harness).translate(-harness.state().source_view.origin.to_vec2());
+            let value = format!("{region:.1?}");
+            let text = harness
+                .output()
+                .shapes
+                .iter()
+                .find_map(|clipped| find_label(&clipped.shape, &value))
+                .expect("the Source region value is painted");
+            assert!(
+                !text.galley.elided,
+                "the default width truncates the Source region value"
+            );
+        }
+    }
+}
+
+/// The region readout uses the Source's geometry from this frame, including
+/// a changed Panel height, a resize, a Pan, and whole-UI zoom.
+#[tokio::test]
+async fn docked_diagnostics_report_the_current_source_region_after_view_changes() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let assert_region = |harness: &Harness<'_, Console>| {
+        let region = source_rect(harness).translate(-harness.state().source_view.origin.to_vec2());
+        assert!(
+            harness.query_by_label(&format!("{region:.1?}")).is_some(),
+            "Diagnostics do not show this frame's Source region: {region:?}"
+        );
+    };
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.get_by_label("Diagnostics").click();
+    harness.step();
+    assert_region(&harness);
+
+    harness.set_size(Vec2::new(800.0, 500.0));
+    harness.step();
+    assert_region(&harness);
+
+    let origin = harness.state().source_view.origin;
+    let start = source_rect(&harness).center();
+    let end = start - Vec2::new(64.0, 48.0);
+    harness.event(Event::PointerMoved(start));
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Middle,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.step();
+    harness.event(Event::PointerMoved(end));
+    harness.step();
+    assert_ne!(harness.state().source_view.origin, origin);
+    assert_region(&harness);
+    harness.event(Event::PointerButton {
+        pos: end,
+        button: PointerButton::Middle,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.step();
+
+    harness.ctx.set_zoom_factor(1.25);
+    harness.step();
+    assert_region(&harness);
 }
 
 ///
@@ -704,7 +880,7 @@ async fn the_mode_switches_source_and_chrome_together() {
 /// The frame a mode is chosen in is presented in the appearance it began
 /// in — chrome and Source both — and the change reaches the next frame.
 ///
-/// The Diagnostics window is open because it is chrome egui styles when it
+/// Diagnostics are open because they are chrome egui styles when it
 /// is shown, after the menu bar: a change applied the moment it was clicked
 /// would style it from the new Theme within the old frame.
 ///
@@ -1620,10 +1796,7 @@ async fn an_open_leaves_every_setting_standing() {
     harness.state_mut().diagnostics_open = true;
     harness.run_steps(2);
 
-    // The Diagnostics window opens over the menu bar's left end, so a pointer
-    // click at the Help button can land on the window. AccessKit's own click
-    // is the one that reaches the button beneath it.
-    harness.get_by_label("Help").click_accesskit();
+    harness.get_by_label("Help").click();
     harness.step();
     harness.run_steps(1);
     harness.get_by_label("Function Reference").click();

@@ -5,16 +5,16 @@
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays out;
-//! `repaint` schedules the next timed Render Frame; `diagnostics_window` shows
-//! the Diagnostics window; `files` asks its discard question and titles the
-//! window; `input` latches the keyboard owner; and a View menu appearance
+//! `repaint` schedules the next timed Render Frame; `diagnostics_panel` fills
+//! the Panel's Diagnostics readouts; `files` asks its discard question and
+//! titles the window; `input` latches the keyboard owner; and a View menu appearance
 //! change applies last, once every widget of the frame has been styled.
 
 use std::time::Duration;
 
 use egui::FontId;
 
-mod diagnostics_window;
+mod diagnostics_panel;
 mod files;
 mod glyphs;
 mod input;
@@ -24,7 +24,7 @@ mod repaint;
 mod shapes;
 mod source_view;
 
-use self::diagnostics_window::show_diagnostics;
+use self::diagnostics_panel::show_diagnostics;
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
 use self::panel::BOTTOM_PANEL_HEIGHT;
@@ -413,7 +413,7 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        self.show_panel(root, &observation, sampled_run_clock);
+        let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
         let source = self.show_source_panel(root, &frame, appearance, cursor_effect);
 
         let cursor_delay = source
@@ -429,10 +429,9 @@ impl eframe::App for Console {
             cursor_delay,
         );
 
-        if self.diagnostics_open {
+        if let Some(mut diagnostics) = diagnostics {
             show_diagnostics(
-                &ctx,
-                &mut self.diagnostics_open,
+                &mut diagnostics,
                 eframe,
                 self.source_view.origin,
                 source.console,
