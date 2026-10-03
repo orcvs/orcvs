@@ -53,3 +53,20 @@ issue 03. Parent issue 01 is a scope reference, not a prerequisite.
 The shared admission change precedes emission scheduling. The mixed overwrite cases are explicit
 language consequences: occupancy admission does not grant protection from a later ordinary write.
 No separate prefactor is required.
+
+### 2026-10-03 — Implemented; verification on PR 195
+
+[PR 195](https://github.com/orcvs/orcvs/pull/195) records ADR 0060, removes the stale
+Snapshot-owner guard from successful placement, and adds nine behavior-level regressions,
+including the mover property. Emission scheduling and its existing expectations remain for 03.
+
+`PROPTEST_CASES=32 cargo nextest run --package orcvs --locked -E 'test(placement_)'`
+against the pre-fix implementation selected 23 tests: 19 passed and four failed as expected
+(west train, north train, convergence, and the generated mover property). The property shrank
+to two offset northbound movers; its seed is retained. The first sandboxed attempt failed in
+sccache, and the escalated retry completed after a long compilation.
+
+`cargo fmt --all -- --check`, `node --test scripts/tests/roadmap.test.ts`,
+`node scripts/roadmap.ts > /dev/null`, and `git diff --check` passed locally.
+The user requested post-fix verification through CI instead of further local compilation.
+The issue remains claimed until the PR checks verify the implementation.

@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 6cc1f538f56ffd555c535ff195303e7c0ba531517e809d6337cd41001b0212a1 # shrinks to (cols, rows, source) = (2, 3, ".|>>  ")
+cc b30cfa3162a7e17f56f19f3141b66086bcd8761b909ad4b377af26feac1e9cb8 # shrinks to rows = [[], [" ", "^^"], ["^^"], []]
