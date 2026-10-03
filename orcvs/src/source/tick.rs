@@ -17,7 +17,7 @@ use std::sync::{Arc, OnceLock};
 
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, SequenceCapability, Span, may_answer_a_sequence};
-pub(super) use super::portal::{Occupancy, PortalError, PortalUnit, occupancy_of};
+pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
@@ -898,7 +898,7 @@ fn advances(function: Function) -> bool {
 /// [`advances`], the bundle check is exact: `source_effect().is_some()` would
 /// also admit every Self-Banging Function.
 ///
-fn emits(function: Function) -> bool {
+fn emits_without_vacating(function: Function) -> bool {
     matches!(
         function.source_effect(),
         Some(SourceEffect {
@@ -1101,7 +1101,7 @@ fn order_turns(
                 // Other occupants keep emitter-before-occupant ordering until
                 // .scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md
                 // delivers Turn-local emission scheduling.
-                if emits(node.function)
+                if emits_without_vacating(node.function)
                     && advances(nodes[contact.index].function)
                     && reserves_over(&lookup, contact.index, index)
                 {
@@ -1575,7 +1575,32 @@ mod test {
     }
 
     #[test]
-    fn placement_west_train_vacates_before_followers_and_preserves_other_effects() {
+    fn a_mover_contacts_the_whole_mover_that_entered_vacated_cells() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &["", "  <<<<", "   ^^"], 1);
+        assert_eq!(grids[0], ["        ", " <<<<   ", "   **   "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_mover_still_diagnoses_partial_contact_with_a_moved_mover() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &["", "  <<<<", "  ^^"], 1);
+        assert_eq!(grids[0], ["        ", " <<<<   ", "  **    "]);
+        assert_eq!(messages(&plans[0]), ["^^ contacts part of a Language Unit"]);
+    }
+
+    #[test]
+    fn a_mover_diagnoses_partial_contact_with_a_blocked_movers_bang() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 2), &["<<", " ^^"], 1);
+        assert_eq!(grids[0], ["**  ", " ** "]);
+        assert_eq!(messages(&plans[0]), ["^^ contacts part of a Language Unit"]);
+    }
+
+    #[test]
+    fn a_west_train_vacates_before_followers_and_preserves_other_effects() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &["  <<<<  .+0102", ""], 3);
         assert_eq!(grids[0], [" <<<<   .+0102", "        03    "]);
         assert_eq!(grids[1], ["<<<<    .+0102", "        03    "]);
@@ -1586,29 +1611,40 @@ mod test {
     }
 
     #[test]
-    fn placement_north_train_vacates_before_followers_and_bangs_at_edge() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(2, 4), &["", "", "^^", "^^"], 3);
-        assert_eq!(grids[0], ["  ", "^^", "^^", "  "]);
-        assert_eq!(grids[1], ["^^", "^^", "  ", "  "]);
-        assert_eq!(grids[2], ["**", "**", "  ", "  "]);
+    fn a_north_train_vacates_before_followers_and_bangs_at_edge() {
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(10, 4), &["    .+0102", "", "^^", "^^"], 3);
+        assert_eq!(
+            grids[0],
+            ["    .+0102", "^^  03    ", "^^        ", "          "]
+        );
+        assert_eq!(
+            grids[1],
+            ["^^  .+0102", "^^  03    ", "          ", "          "]
+        );
+        assert_eq!(
+            grids[2],
+            ["**  .+0102", "**  03    ", "          ", "          "]
+        );
         for plan in plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
     }
 
     #[test]
-    fn placement_converging_west_train_closes_then_bangs() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 1), &["    >>  <<<<"], 3);
-        assert_eq!(grids[0], ["     >><<<< "]);
-        assert_eq!(grids[1], ["     ****** "]);
-        assert_eq!(grids[2], ["            "]);
+    fn a_converging_west_train_closes_then_bangs() {
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(20, 2), &["    >>  <<<<  .+0102", ""], 3);
+        assert_eq!(grids[0], ["     >><<<<   .+0102", "              03    "]);
+        assert_eq!(grids[1], ["     ******   .+0102", "              03    "]);
+        assert_eq!(grids[2], ["              .+0102", "              03    "]);
         for plan in plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
     }
 
     #[test]
-    fn placement_south_train_follower_is_blocked_before_leader_leaves() {
+    fn a_south_train_follower_is_blocked_before_its_leader_leaves() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(2, 5), &["vv", "vv", "", "", ""], 3);
         assert_eq!(grids[0], ["**", "  ", "vv", "  ", "  "]);
         assert_eq!(grids[1], ["  ", "  ", "  ", "vv", "  "]);
@@ -1619,7 +1655,7 @@ mod test {
     }
 
     #[test]
-    fn placement_is_blocked_by_an_earlier_overwrite() {
+    fn a_mover_is_blocked_by_an_earlier_overwrite() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "  <<", ""], 1);
         assert_eq!(grids[0], [".+0102  ", "03**    ", "        "]);
         assert!(
@@ -1630,7 +1666,7 @@ mod test {
     }
 
     #[test]
-    fn placement_new_cells_can_be_overwritten_after_the_mover_finishes() {
+    fn a_movers_new_cells_can_be_overwritten_after_its_turn() {
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(8, 5),
             &["  vv", "", "  &^", ".+0300", ""],
@@ -1648,7 +1684,7 @@ mod test {
     }
 
     #[test]
-    fn placement_supplies_a_claimed_operand_before_its_consumer() {
+    fn a_mover_supplies_a_claimed_operand_before_its_consumer() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+  01", "  ^^", ""], 1);
         assert_eq!(grids[0], [".+^^01  ", "        ", "        "]);
         assert_eq!(plans[0].diagnostics.len(), 1);
@@ -1660,7 +1696,7 @@ mod test {
     }
 
     #[test]
-    fn placement_supplies_an_input_portal_before_its_consumer() {
+    fn a_mover_supplies_an_input_portal_before_its_consumer() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 4), &["", "&^", "", "^^"], 1);
         assert_eq!(grids[0], ["^^  ", "&^  ", "^^  ", "    "]);
         assert!(
@@ -1670,6 +1706,7 @@ mod test {
         );
     }
 
+    // These invariants are platform-independent; proptest is a native-only dependency.
     #[cfg(not(target_arch = "wasm32"))]
     mod placement_property {
         use super::{Grid, messages, tick_by_tick};
@@ -1678,7 +1715,7 @@ mod test {
 
         proptest! {
             #[test]
-            fn placement_movers_never_reject_a_tick(
+            fn movers_never_reject_a_tick(
                 rows in prop::collection::vec(
                     prop::collection::vec(select(vec![" ", "  ", "^^", "vv", "<<", ">>"]), 0..=6),
                     4,

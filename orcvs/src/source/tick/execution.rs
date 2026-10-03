@@ -14,7 +14,7 @@ use lang::{
 use super::{
     Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Occupancy, Portal,
     PortalError, PortalUnit, Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan,
-    diagnose, occupancy_of, resolve, tick_inputs,
+    diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::{Cells, WorkingCells};
 
@@ -151,6 +151,11 @@ struct Execution<'a> {
     /// Admitted Sequence write ranges, recorded as each write is applied.
     /// Jump-input membership asks this rather than [`super::Reserved::Row`].
     sequence_writes: Vec<std::ops::Range<usize>>,
+    /// Intact Functions and Bang displays placed this Tick. Neither has a pending Turn.
+    placed_units: Vec<std::ops::Range<usize>>,
+    /// Source-effect writes obscure Snapshot ownership even if a later value
+    /// write replaces the generated Function. Neither creates a new computation.
+    source_writes: Vec<std::ops::Range<usize>>,
 }
 
 impl<'a> Execution<'a> {
@@ -197,6 +202,8 @@ impl<'a> Execution<'a> {
                 .collect(),
             effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
             sequence_writes: Vec::new(),
+            placed_units: Vec::new(),
+            source_writes: Vec::new(),
         };
         // Source content rather than an answer, so it is stated here rather than
         // rendered: a Bang occupies two Cells and clearing it writes two spaces.
@@ -608,6 +615,9 @@ impl<'a> Execution<'a> {
     /// `**`. An `Emit` emits: the complete initial destination must be empty
     /// and inside the Grid, or the producer diagnoses and emits nothing.
     ///
+    /// Unlike a value projected through multiple Portals, Advance writes different
+    /// content at each Portal: spaces at its origin and its spelling at its destination.
+    ///
     /// The precondition is one rule and the refusal is two, which is why the
     /// groups share this path rather than each having one. What a refusal costs
     /// follows from whether the bundle plans the producer's own Span: a
@@ -692,9 +702,13 @@ impl<'a> Execution<'a> {
                     let clear = Portal::at(self.grid, anchor)
                         .admit(&cleared)
                         .expect("a Function standing in the Source fits its own Span");
+                    self.source_writes.push(clear.span().range());
                     self.write(clear);
                 }
+                let placed = write.span().range();
+                self.source_writes.push(placed.clone());
                 self.write(write);
+                self.placed_units.push(placed);
             }
             // Refused: out of the Grid, past the row edge, or blocked by Cells
             // that are not empty. No partial write is admitted, so the whole
@@ -710,12 +724,13 @@ impl<'a> Execution<'a> {
                 let display = Portal::at(self.grid, anchor)
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
+                let placed = display.span().range();
+                self.source_writes.push(placed.clone());
                 self.write(display);
-                match occupancy_of(self.map, &entered, |anchor| self.lookup.root_at(anchor)) {
-                    // Complete aligned root contact also directly delivers Bang
-                    // activation. The schedule ordered this producer ahead of
-                    // every root its Portal could reach, so the contacted
-                    // root's Turn is still ahead of it.
+                self.placed_units.push(placed);
+                match self.contact_occupancy(&entered) {
+                    // Only a surviving Snapshot root can receive activation.
+                    // A placed unit has no pending computation this Tick.
                     Occupancy::Root(root) => self.states[root].activated = true,
                     Occupancy::Partial => self.effects.push(Effect::Diagnose(diagnose(
                         node,
@@ -745,6 +760,42 @@ impl<'a> Execution<'a> {
             ))),
         }
         Continue(())
+    }
+
+    /// Contact follows intact placements and the Snapshot Cells they have not
+    /// obscured. Source writes establish unit geometry without reparsing or
+    /// admitting generated computations into this Tick's schedule.
+    fn contact_occupancy(&self, cells: &[usize]) -> Occupancy {
+        let mut partial = false;
+        for placed in &self.placed_units {
+            if cells.iter().any(|cell| placed.contains(cell)) {
+                if cells.iter().all(|cell| placed.contains(cell)) {
+                    return Occupancy::NonRoot;
+                }
+                partial = true;
+            }
+        }
+        for unit in self.map.units() {
+            let span = unit.span().range();
+            let covers = |cell: &usize| {
+                span.contains(cell) && !self.source_writes.iter().any(|write| write.contains(cell))
+            };
+            if !cells.iter().any(covers) {
+                continue;
+            }
+            if cells.iter().all(covers) {
+                return self
+                    .lookup
+                    .root_at(unit.anchor())
+                    .map_or(Occupancy::NonRoot, Occupancy::Root);
+            }
+            partial = true;
+        }
+        if partial {
+            Occupancy::Partial
+        } else {
+            Occupancy::Empty
+        }
     }
 
     /// Whether `cells` sit entirely inside an admitted Sequence write.
@@ -801,6 +852,9 @@ impl<'a> Execution<'a> {
     /// Applying a write and recording its Effect are one operation, including
     /// the cleanup of prior Bang display before any Turn is attempted.
     fn write(&mut self, write: SpanWrite) {
+        let written = write.span().range();
+        self.placed_units
+            .retain(|placed| written.end <= placed.start || placed.end <= written.start);
         for (cell, content) in write.cells() {
             self.working.write(cell, content);
         }

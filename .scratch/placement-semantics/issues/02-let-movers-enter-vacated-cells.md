@@ -70,3 +70,62 @@ sccache, and the escalated retry completed after a long compilation.
 `node scripts/roadmap.ts > /dev/null`, and `git diff --check` passed locally.
 The user requested post-fix verification through CI instead of further local compilation.
 The issue remains claimed until the PR checks verify the implementation.
+
+
+### 2026-10-03 — CI verified; contact review follow-up
+
+The user-requested CI verification passed on `ba72330b`:
+[Rust full gate, WASM and aggregate CI](https://github.com/orcvs/orcvs/actions/runs/37106846523)
+and [benchmarks](https://github.com/orcvs/orcvs/actions/runs/37106846513).
+This replaces the pending-CI statement above; it does not claim a local post-fix run.
+The contact review below closes the newly identified stale classification when a mover blocks
+against another mover that entered vacated Cells earlier in the Tick. Final review CI is recorded
+on PR 195; this ticket remains claimed until that verification completes.
+
+### 2026-10-03 — Address-code-review evidence
+
+Changed: collision contact follows intact moved/emitted Function and blocked Bang spans, while
+Source-effect writes mask their former Snapshot ownership. Every later write invalidates any
+overlapping placed span. This preserves the fixed parse and gives generated units no new Turn.
+Ordinary generated value contents are not reparsed into new Language Units between Turns.
+
+Tests added or updated: whole moved-mover contact, partial moved-mover contact, partial contact
+with a blocked mover's Bang, and unrelated Addition assertions in north/converging train tests.
+The original 8-by-3 case failed first with `^^ contacts part of a Language Unit`; the additional
+Bang case caught an intermediate fix losing that diagnostic (`left: []`). Both now pass.
+
+Review ledger (user-supplied findings; R1 major, remaining actionable findings minor):
+
+| ID | Outcome | Evidence |
+| --- | --- | --- |
+| R1 stale contact diagnostic | Fixed | `a_mover_contacts_the_whole_mover_that_entered_vacated_cells`, `a_mover_still_diagnoses_partial_contact_with_a_moved_mover`, and `a_mover_diagnoses_partial_contact_with_a_blocked_movers_bang` in `orcvs/src/source/tick.rs`; red evidence above. |
+| R2 verification evidence | Fixed | Prior CI links above replace pending evidence. Omitting broad local recompilation was explicitly requested by the user; focused red/green now ran locally. |
+| R3 unrelated effects | Fixed | North and converging trains assert Addition output each Tick. Coverage enhancement; no behavioral defect to regress. |
+| R4 pair exception scope | Refuted | The accepted delivery split explicitly leaves emission scheduling and exception removal to issue 03. |
+| R5 shared guard removal scope | Refuted | This ticket explicitly owns shared Advance/Emit admission; issue 03 owns scheduling. |
+| R6 stale resolution lines | Refuted | Issue 07's resolution already cites test names. Line references belong to dated historical audit comments. |
+| R7 commit evidence | Fixed traceability | The corrective commit records why the shared guard was removed. CLAUDE requires completion evidence, not commit headings; existing pushed history is retained. No behavior to regress. |
+| R8 Advance rationale | Fixed | Restored the reason its two Portals write different content. No behavior to regress. |
+| R9 predicate duplication | Refuted | Two exact bundle predicates answer different scheduling questions; a general dispatch helper adds no shared behavior. |
+| R10 emitter predicate name | Fixed | `emits_without_vacating` states the relevant property. No behavior to regress. |
+| R11 test names | Fixed | Sentence-style names match neighbouring tests; historical executed commands remain exact. No behavior to regress. |
+| R12 native property explanation | Fixed | Native-only proptest dependency is stated beside the cfg. No behavior to regress. |
+| R13 issue 07 complete | Verified; no defect | ADR 0006 collision cases retain their corresponding named regressions. |
+| R14 no hard standards violations | Verified; no defect | No shipped test-only seam, lint suppression, unsafe or dependency changes. |
+
+Commands run:
+
+- `PROPTEST_CASES=32 cargo nextest run --package orcvs --locked -E 'test(mover) | test(emission) | test(self_banging) | test(directional_bang)'` — failed red as described above; final run passed all 31 tests.
+- `PROPTEST_CASES=32 target/debug/deps/orcvs-7273e44efb8dddf8 source::tick::test::` — passed all 185 Tick tests against the freshly compiled test binary, including 32 property cases.
+- `cargo fmt --all -- --check` — passed.
+- `node --test scripts/tests/roadmap.test.ts` — passed all 10 tests.
+- `node scripts/roadmap.ts > /dev/null` — passed.
+- `git diff --check` — passed.
+
+Not run locally: workspace Clippy, workspace nextest, doctests and WASM — delegated to PR CI at
+the user's request. macOS, browser tests, full property count and benchmark comparisons —
+deferred to CI under repository policy.
+
+Risks: no public API, unsafe, dependency, feature or concurrency change. Contact metadata adds
+Tick-local span storage and scans; no performance improvement is claimed. Emission scheduling
+remains issue 03 work.
