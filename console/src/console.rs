@@ -81,16 +81,18 @@ fn prefers_reduced_motion() -> bool {
 }
 
 ///
-/// How many Cells the default window shows at egui's zoom factor of 1.0,
-/// margin included. The Grid is larger, so the rest of it is a Pan away.
+/// The Source View dimensions in Cells used to size the default window with
+/// the compact Panel at egui's zoom factor of 1.0, margin included.
 ///
 const DEFAULT_VIEW_COLUMNS: usize = 64;
 const DEFAULT_VIEW_ROWS: usize = 40;
 
 ///
-/// The window size that presents `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS`
-/// Cells at egui's zoom factor of 1.0: the Source's own points, and the chrome
-/// above and below the console. Both are private, so neither is linked here.
+/// The window size for `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS` Cells at
+/// egui's zoom factor of 1.0, plus the top bar and compact bottom Panel.
+/// Diagnostics expand the Panel within this size and reduce the visible rows;
+/// they are enabled by default. Both dimensions are private, so neither is
+/// linked here.
 ///
 /// A larger window shows more of the Grid rather than larger Cells; a smaller
 /// one shows less of it.
@@ -258,7 +260,7 @@ impl Console {
             midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view: SourceView::default(),
-            diagnostics_open: false,
+            diagnostics_open: true,
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,

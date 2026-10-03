@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [x] Diagnostics are hidden in a fresh console and remain toggleable through View → Diagnostics.
+- [x] Diagnostics are enabled in a fresh console and remain toggleable through View → Diagnostics.
 - [x] Enabling Diagnostics makes the bottom Panel taller, preserves its playback controls above a horizontal separator, and displays label/value rows beneath it.
 - [x] All six readouts remain available: FPS, Frame time, CPU time, Cell size, Visible Source region, and Pixels per point.
 - [x] The diagnostic table uses the Panel's full width, with a generous label column and the remaining space for values. Labels display their full text; long values in narrow windows can truncate with the full value available on hover.
@@ -23,7 +23,7 @@
 The agreed layout is a playback-control row, a horizontal separator, and six diagnostic label/value rows. This is a reversible presentation change and does not warrant an ADR. Diagnostics here means rendering readouts, not language or Playback failure messages.
 
 
-Implementation uses the Panel's full width: the label column has a minimum of one third of the available width, labels retain their full text, and values use the remaining space. The Panel reserves the Diagnostics area before Source layout and fills it from the current frame's geometry afterward.
+Implementation uses the Panel's full width: the label column has a minimum of one sixth of the available width, labels retain their full text, and values use the remaining space. The Panel reserves the Diagnostics area before Source layout and fills it from the current frame's geometry afterward.
 
 Validation:
 
@@ -46,3 +46,7 @@ Not run:
 - Headless browser suite, macOS checks, and full-count proptest — deferred to CI.
 
 Risks: presentation and layout only. No public API, unsafe, dependency, feature, concurrency, or performance-claim changes. No ADR is needed.
+
+Follow-up: Diagnostics open by default. The label column is half its initial width (one sixth of the Panel width). Release captures read the Source area from actual UI geometry so their coverage excludes the expanded Panel.
+
+Follow-up validation: `PROPTEST_CASES=32 cargo test --package console --locked` passed (525 tests). `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, and `cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings` passed. `cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings` passed, compiling the updated capture helper. Both roadmap checks passed. The previously recorded unavailable checks and CI deferrals still apply.

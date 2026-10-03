@@ -41,7 +41,7 @@ pub(super) fn show_diagnostics(
     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
     egui::Grid::new("orcvs-diagnostics-summary")
         .num_columns(2)
-        .min_col_width(ui.available_width() / 3.0)
+        .min_col_width(ui.available_width() / 6.0)
         .min_row_height(row_height(ui))
         .show(ui, |ui| {
             ui.add(egui::Label::new("FPS").extend());

@@ -242,17 +242,25 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
             .expect("the bottom Panel is present")
             .outer_rect
     };
+    assert!(
+        harness.state().diagnostics_open,
+        "a fresh console did not open with Diagnostics showing"
+    );
+    assert!(
+        harness.query_by_label("Visible Source region").is_some(),
+        "Diagnostics are missing from the fresh console"
+    );
+    let initial_expanded = panel_rect(&harness);
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.get_by_label("Diagnostics").click();
+    harness.run_steps(3);
+    assert!(!harness.state().diagnostics_open);
+    assert!(harness.query_by_label("FPS").is_none());
     let compact = panel_rect(&harness);
     let compact_source = source_rect(&harness);
-
-    assert!(
-        !harness.state().diagnostics_open,
-        "a fresh console opened with Diagnostics already showing"
-    );
-    assert!(
-        harness.query_by_label("Visible Source region").is_none(),
-        "Diagnostics were in the tree before anything opened them"
-    );
+    assert!(compact.height() < initial_expanded.height());
 
     harness.get_by_label("View").click();
     harness.step();
@@ -271,6 +279,7 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
         "the console holds diagnostics_open but presented no Diagnostics"
     );
     let expanded = panel_rect(&harness);
+    assert_eq!(expanded, initial_expanded);
     assert!(expanded.height() > compact.height());
     assert_eq!(expanded.bottom(), compact.bottom());
     assert_eq!(source_rect(&harness).bottom(), expanded.top());
@@ -348,8 +357,8 @@ async fn docked_diagnostics_labels_are_not_truncated() {
             let label_left = harness.get_by_label("Cell size").rect().left();
             let value_left = harness.get_by_label("16.0 pt").rect().left();
             assert!(
-                value_left - label_left > size.x * 0.3,
-                "the label column does not use the available window width"
+                value_left - label_left > size.x * 0.15 && value_left - label_left < size.x * 0.2,
+                "the label column is not about one sixth of the window width"
             );
             let region =
                 source_rect(&harness).translate(-harness.state().source_view.origin.to_vec2());
@@ -381,6 +390,13 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
             "Diagnostics do not show this frame's Source region: {region:?}"
         );
     };
+
+    assert_region(&harness);
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.get_by_label("Diagnostics").click();
+    harness.step();
+    assert!(!harness.state().diagnostics_open);
 
     harness.get_by_label("View").click();
     harness.step();
@@ -2026,7 +2042,7 @@ async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer()
     // Smaller than the Source on both axes, so the Pan stage below has
     // somewhere to go — the default window is an exact fit at egui's zoom
     // factor of 1.0 and leaves no room to Pan at all.
-    harness.set_size(Vec2::new(320.0, 300.0));
+    harness.set_size(Vec2::new(320.0, 500.0));
     harness.run_steps(2);
 
     assert_eq!(
@@ -2108,7 +2124,7 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
     // leaves no room to Pan at all, the same reason
     // `a_resized_and_panned_console_still_selects_the_cell_under_the_pointer`
     // resizes before its own middle-drag Pan.
-    harness.set_size(Vec2::new(320.0, 300.0));
+    harness.set_size(Vec2::new(320.0, 500.0));
     harness.run_steps(2);
 
     let pan_before = harness.state().source_view.pan;

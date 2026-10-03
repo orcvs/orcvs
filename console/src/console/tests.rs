@@ -1093,8 +1093,8 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         panel.outer_rect
     );
     assert!(
-        (panel.outer_rect.height() - BOTTOM_PANEL_HEIGHT).abs() < 0.5,
-        "the Panel is not {BOTTOM_PANEL_HEIGHT} tall: {:?}",
+        panel.outer_rect.height() > BOTTOM_PANEL_HEIGHT,
+        "the default Panel has no room for Diagnostics: {:?}",
         panel.outer_rect
     );
 }
@@ -2039,15 +2039,16 @@ async fn the_default_window_presents_the_grid_at_its_own_scale() {
 }
 
 ///
-/// The default window size holds back exactly the height the top bar and
-/// the bottom Panel take, so the rest reaches the Source. A whole console
+/// With Diagnostics hidden, the window holds back exactly the height the top
+/// bar and the compact bottom Panel take, so the rest reaches the Source. A whole console
 /// pass lays the panels out, so a menu, a control or a Readout that makes
 /// either bar taller than its minimum, or a frame that eats into the
 /// Source's area, fails here.
 ///
 #[tokio::test]
-async fn the_bars_take_the_height_the_default_window_holds_back_and_the_source_the_rest() {
+async fn the_compact_bars_take_their_height_and_the_source_the_rest() {
     let (ctx, mut console, mut host) = fresh_console();
+    console.diagnostics_open = false;
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
