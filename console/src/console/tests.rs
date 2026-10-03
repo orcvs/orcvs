@@ -11,7 +11,7 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
-use super::diagnostics_panel::{frames_per_second, visible_source_region};
+use super::diagnostics_panel::{format_cpu_budget_delta, frames_per_second, visible_source_region};
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
@@ -214,6 +214,14 @@ fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
             "{unpresentable:?} reached the diagnostics"
         );
     }
+}
+
+#[test]
+fn cpu_budget_delta_is_signed_against_the_sixty_fps_budget() {
+    assert_eq!(format_cpu_budget_delta(Some(0.02)), "+3.33 ms");
+    assert_eq!(format_cpu_budget_delta(Some(0.005)), "-11.67 ms");
+    assert_eq!(format_cpu_budget_delta(Some(0.0)), "-16.67 ms");
+    assert_eq!(format_cpu_budget_delta(None), "—");
 }
 
 ///

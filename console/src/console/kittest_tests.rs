@@ -289,14 +289,31 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
         "FPS",
         "Frame time",
         "CPU time",
-        "Cell size",
+        "Frame budget",
+        "CPU budget delta",
+        "Display",
         "Visible Source region",
-        "Pixels per point",
     ] {
         let rect = harness.get_by_label(label).rect();
         assert!(expanded.contains_rect(rect), "{label} is outside the Panel");
         assert!(rect.top() > playback_bottom, "{label} overlaps playback");
     }
+    assert!(
+        harness
+            .query_by_label("16.0 pt/cell · 1.00 px/pt")
+            .is_some()
+    );
+    assert!(harness.query_by_label("Cell size").is_none());
+    assert!(harness.query_by_label("Pixels per point").is_none());
+    assert!(harness.query_by_label("16.67 ms (60 FPS)").is_some());
+    let delta = harness.get_by_label("CPU budget delta").rect();
+    assert!(
+        harness.query_all_by_label("—").any(|node| {
+            let rect = node.rect();
+            rect.left() > delta.right() && (rect.center().y - delta.center().y).abs() < 1.0
+        }),
+        "CPU budget delta is unavailable when the host has no CPU timing"
+    );
     assert!(harness.query_by_label("egui inspection").is_none());
     let diagnostics_top = harness.get_by_label("FPS").rect().top();
     assert!(
@@ -340,9 +357,10 @@ async fn docked_diagnostics_labels_are_not_truncated() {
             "FPS",
             "Frame time",
             "CPU time",
-            "Cell size",
+            "Frame budget",
+            "CPU budget delta",
+            "Display",
             "Visible Source region",
-            "Pixels per point",
         ] {
             let text = harness
                 .output()
@@ -354,8 +372,11 @@ async fn docked_diagnostics_labels_are_not_truncated() {
             assert_eq!(text.galley.rows.len(), 1, "{label} wrapped at {size:?}");
         }
         if size == Vec2::from(DEFAULT_VIEW_SIZE) {
-            let label_left = harness.get_by_label("Cell size").rect().left();
-            let value_left = harness.get_by_label("16.0 pt").rect().left();
+            let label_left = harness.get_by_label("Display").rect().left();
+            let value_left = harness
+                .get_by_label("16.0 pt/cell · 1.00 px/pt")
+                .rect()
+                .left();
             assert!(
                 value_left - label_left > size.x * 0.15 && value_left - label_left < size.x * 0.2,
                 "the label column is not about one sixth of the window width"
@@ -434,6 +455,11 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     harness.ctx.set_zoom_factor(1.25);
     harness.step();
     assert_region(&harness);
+    assert!(
+        harness
+            .query_by_label("16.0 pt/cell · 1.25 px/pt")
+            .is_some()
+    );
 }
 
 ///
@@ -2372,7 +2398,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
     harness.run_steps(2);
 
     harness.state_mut().reduced_motion = true;
-    harness.set_size(Vec2::new(200.0, 300.0));
+    harness.set_size(Vec2::new(200.0, 500.0));
     harness.run_steps(2);
 
     assert_eq!(

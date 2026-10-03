@@ -8,7 +8,8 @@
 
 - [x] Diagnostics are enabled in a fresh console and remain toggleable through View → Diagnostics.
 - [x] Enabling Diagnostics makes the bottom Panel taller, preserves its playback controls above a horizontal separator, and displays label/value rows beneath it.
-- [x] All six readouts remain available: FPS, Frame time, CPU time, Cell size, Visible Source region, and Pixels per point.
+- [x] All original diagnostic information remains available: FPS, Frame time, CPU time, Visible Source region, and a combined Display readout for Cell size and Pixels per point.
+- [x] Frame budget displays the fixed 60 FPS target as 16.67 ms. CPU budget delta displays CPU rendering time minus that budget, with a positive sign meaning over budget and a dash when CPU timing is unavailable.
 - [x] The diagnostic table uses the Panel's full width, with a generous label column and the remaining space for values. Labels display their full text; long values in narrow windows can truncate with the full value available on hover.
 - [x] Diagnostics are fixed within the Panel, with no floating window, drag interaction, or resize handle.
 - [x] The expanded Panel consumes layout space and reduces the Source View's height without overlaying it.
@@ -20,7 +21,7 @@
 
 ## Comments
 
-The agreed layout is a playback-control row, a horizontal separator, and six diagnostic label/value rows. This is a reversible presentation change and does not warrant an ADR. Diagnostics here means rendering readouts, not language or Playback failure messages.
+The agreed layout is a playback-control row, a horizontal separator, and seven diagnostic label/value rows. This is a reversible presentation change and does not warrant an ADR. Diagnostics here means rendering readouts, not language or Playback failure messages.
 
 
 Implementation uses the Panel's full width: the label column has a minimum of one sixth of the available width, labels retain their full text, and values use the remaining space. The Panel reserves the Diagnostics area before Source layout and fills it from the current frame's geometry afterward.
@@ -50,3 +51,11 @@ Risks: presentation and layout only. No public API, unsafe, dependency, feature,
 Follow-up: Diagnostics open by default. The label column is half its initial width (one sixth of the Panel width). Release captures read the Source area from actual UI geometry so their coverage excludes the expanded Panel.
 
 Follow-up validation: `PROPTEST_CASES=32 cargo test --package console --locked` passed (525 tests). `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, and `cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings` passed. `cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings` passed, compiling the updated capture helper. Both roadmap checks passed. The previously recorded unavailable checks and CI deferrals still apply.
+
+Frame-budget follow-up: the target is explicitly 60 FPS, not a measured monitor refresh rate or a BPM Tick period. The delta uses eframe CPU timing, which excludes vsync waiting. The original frame-interval and CPU-time readouts remain available. The Panel reserves two additional rows. Tests cover signed over/under-budget results, unavailable timing, and the new rows in the shipped console.
+
+Budget validation: the shipped-console regression first failed because the Frame budget row was absent, then passed with both new readouts. `PROPTEST_CASES=32 cargo test --package console --locked` passed (526 tests). `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings`, and `cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings` passed. The reduced-motion click test retains its narrow width with enough height for the taller Panel. Previously recorded unavailable checks and CI deferrals still apply; risks remain presentation only.
+
+Display follow-up: Cell size and Pixels per point share one row labelled Display, formatted as `16.0 pt/cell · 1.25 px/pt`. The values retain their units and track the current Cell size and display scaling. The Panel reserves seven rows. Regression coverage checks the combined value at default scaling and after zoom, and checks that the two separate labels are absent.
+
+Display validation: the shipped-console regression first failed on the missing Display label, then passed with the combined row. `PROPTEST_CASES=32 cargo test --workspace --lib --tests --locked` passed (1,502 tests; one existing ignored test). `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings`, `cargo test --workspace --doc --locked`, and `cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings` passed. Previously recorded unavailable checks and CI deferrals still apply; risks remain presentation only.

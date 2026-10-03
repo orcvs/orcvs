@@ -2,8 +2,18 @@
 
 use egui::{Pos2, Rect};
 
+const TARGET_FPS: f32 = 60.0;
+const FRAME_BUDGET_SECONDS: f32 = 1.0 / TARGET_FPS;
+
 pub(super) fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
+}
+
+/// Signed CPU time minus the 60 FPS budget: positive means over budget.
+pub(super) fn format_cpu_budget_delta(cpu_usage: Option<f32>) -> String {
+    cpu_usage
+        .map(|seconds| format!("{:+.2} ms", (seconds - FRAME_BUDGET_SECONDS) * 1_000.0))
+        .unwrap_or_else(|| "—".to_owned())
 }
 
 ///
@@ -23,9 +33,9 @@ fn row_height(ui: &egui::Ui) -> f32 {
         .max(ui.text_style_height(&egui::TextStyle::Monospace))
 }
 
-/// Space for six single-line readouts and the five gaps between them.
+/// Space for seven single-line readouts and the six gaps between them.
 pub(super) fn summary_height(ui: &egui::Ui) -> f32 {
-    6.0 * row_height(ui) + 5.0 * ui.spacing().item_spacing.y
+    7.0 * row_height(ui) + 6.0 * ui.spacing().item_spacing.y
 }
 
 /// Fills the space the Panel reserved, after the Source View has laid out this
@@ -38,6 +48,7 @@ pub(super) fn show_diagnostics(
     cell_size: f32,
 ) {
     let frame_time = ui.input(|input| input.stable_dt);
+    let cpu_usage = frame.info().cpu_usage;
     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
     egui::Grid::new("orcvs-diagnostics-summary")
         .num_columns(2)
@@ -58,24 +69,32 @@ pub(super) fn show_diagnostics(
 
             ui.add(egui::Label::new("CPU time").extend());
             ui.monospace(
-                frame
-                    .info()
-                    .cpu_usage
+                cpu_usage
                     .map(|seconds| format!("{:.2} ms", seconds * 1_000.0))
                     .unwrap_or_else(|| "—".to_owned()),
             );
             ui.end_row();
 
-            ui.add(egui::Label::new("Cell size").extend());
-            ui.monospace(format!("{cell_size:.1} pt"));
+            ui.add(egui::Label::new("Frame budget").extend());
+            ui.monospace(format!(
+                "{:.2} ms ({TARGET_FPS:.0} FPS)",
+                FRAME_BUDGET_SECONDS * 1_000.0
+            ));
+            ui.end_row();
+
+            ui.add(egui::Label::new("CPU budget delta").extend());
+            ui.monospace(format_cpu_budget_delta(cpu_usage));
+            ui.end_row();
+
+            ui.add(egui::Label::new("Display").extend());
+            ui.monospace(format!(
+                "{cell_size:.1} pt/cell · {:.2} px/pt",
+                ui.ctx().pixels_per_point()
+            ));
             ui.end_row();
 
             ui.add(egui::Label::new("Visible Source region").extend());
             ui.monospace(format!("{:.1?}", visible_source_region(console, origin)));
-            ui.end_row();
-
-            ui.add(egui::Label::new("Pixels per point").extend());
-            ui.monospace(format!("{:.2}", ui.ctx().pixels_per_point()));
             ui.end_row();
         });
 }
