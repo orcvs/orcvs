@@ -77,7 +77,7 @@ A named Orcvs language operation evaluated within an Expression. A Function may 
 _Avoid_: Operator, command
 
 **Source Function**:
-A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond its Output Portal. Its reads observe current-Tick values supplied by its scheduled dependencies, and its writes pass through Portals.
+A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond its Output Portal. Its value reads wait for current-Tick suppliers to settle. Placement tests occupancy in working Source at its Turn without waiting for a vacancy; its writes pass through Portals (ADR 0060).
 _Avoid_: Spatial operator, grid function
 
 **Bang**:

@@ -1,5 +1,7 @@
 # Execute against live typed expressions
 
+Placement admission and its relationship to value readiness and overwrite ordering are amended by [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md).
+
 Status: accepted. Production acceptance and verification are recorded in the [delivery evidence](../../.scratch/live-typed-execution/evidence.md).
 
 The Parser's output is the typed expression structure used by rendering and Tick execution. Source locations belong to that output; a separately interpreted Language Map is unnecessary. Parse operates on Source only. During a Tick, execution order threads earlier Function outputs into later Functions' parameters at their grid positions; Source parsing is not an intermediate execution stage.
@@ -8,7 +10,7 @@ The Parser's output is the typed expression structure used by rendering and Tick
 
 - At Tick T: parse Source, execute Functions in dependency order while threading execution outputs through the call tree, then render the resulting state as Source for Tick T + 1. Source parsing does not run between Function executions.
 - Order Function execution by output dependencies, and have scheduled entries refer to the live expression structure.
-- If Function B outputs over or at Function A, B must execute before A. An output reaching an already-executed Function is a bug in the ordering, not a supported case requiring re-execution or delayed propagation.
+- If Function B ordinarily overwrites Function A's Snapshot Cells, B must execute before A. An ordinary overwrite reaching an already-attempted Snapshot computation is a bug in ordering, not a supported case requiring re-execution or delayed propagation. ADR 0060 distinguishes successful empty-only placement into vacated Cells and later overwrites of newly placed Source content from overwrites of Snapshot computations.
 - Nested Function results pass typed values to their consumers. Spatial outputs always act as literal Source encodings, including when they cover a whole parameter. The receiving operand interprets the resulting characters according to its declared literal type. A Note output spelled `C5` reaching an Addition operand therefore becomes Number `C5` (hexadecimal, decimal 197); the same Note returned by a nested Function remains a Note and is rejected by Addition. This is contextual interpretation of an encoding, not conversion to the Note's underlying MIDI number. Operand decoding does not rerun Source partitioning between executions.
 - A Function can have both a typed result for nesting and a spatial output through a Portal. It computes once, passes its typed result to its parent, and emits its spatial output during that same execution. Both consumers depend on that computation. This decision does not introduce a Function spelling.
 - A self-dependency or dependency cycle prevents publication of all execution effects for that Tick, including those from independent computations. Report the cycle; do not publish partial execution or silently delay dependencies to another Tick.
