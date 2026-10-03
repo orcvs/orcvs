@@ -614,19 +614,11 @@ impl<'a> Execution<'a> {
     /// producer that was leaving those Cells reports in them, and a producer
     /// that is staying has nothing of its own to report in.
     ///
-    /// It is not [`Execution::deliver_value`] with a different destination.
-    /// That path delivers one encoding through every Portal a computation
-    /// resolved; an `Advance` writes different Cells at each of its two, and
-    /// what it writes at the second decides what it writes at the first. The
-    /// rules they do share — the executed-computation rejection and one write
-    /// admitted whole or not at all — are asked here over the Cells this bundle
-    /// covers.
-    ///
-    /// The producer's own Span is excepted from the contact rule of an
-    /// `Advance`, because that bundle covers it by design: clearing the Cells
-    /// it stands in is the first half of moving out of them. `order_turns`
-    /// excepts the same producer from the self-edge that would otherwise reject
-    /// every Tick one of these takes a Turn in.
+    /// Admission is atomic, as for ordinary value output, but empty-only
+    /// placement cannot overwrite a standing Function. Snapshot ownership of
+    /// vacated Cells therefore imposes no executed-computation guard here.
+    /// An advancing bundle also clears its own Span; the schedule excludes
+    /// that producer from its own overwrite dependency.
     ///
     /// The displacement is the Interpreter's answer and the destination
     /// `computations` reserved is the same declaration read before the Turn.
@@ -688,26 +680,10 @@ impl<'a> Execution<'a> {
 
         match admitted {
             Ok(write) if empty => {
-                let relationships = self.lookup.written_over(&write);
-                if relationships.functions().any(|contact| {
-                    contact
-                        .subtree
-                        .filter(|descendant| *descendant != index)
-                        .any(|descendant| self.states[descendant].attempted)
-                }) {
-                    return Break(diagnose(
-                        node,
-                        "spatial output reached an executed computation; Tick effects rejected",
-                    ));
-                }
-                // Nothing is suppressed here, and the absence is the rule
-                // rather than an omission: a move is admitted only where the
-                // Cells it enters are empty, so no Language Unit stands in them
-                // to have been scheduled. A literal operand covering them is
-                // untouched, as it is by every spatial write: the receiving
-                // operand decodes what is in Source when it consumes it, and
-                // the edge above is what makes it read this producer's Cells
-                // rather than the ones it replaced.
+                // Placement observes current vacancy, not Snapshot ownership.
+                // No standing Function is overwritten or suppressed. A claimed
+                // operand still waits for this supplier and decodes these Cells
+                // when its consumer executes.
                 if advancing {
                     // Stated rather than built, for the reason `Execution::new`
                     // states it. It clears `own`, which is always two Cells

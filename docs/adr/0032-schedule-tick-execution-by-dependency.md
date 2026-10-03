@@ -1,5 +1,7 @@
 # Schedule Tick execution by dependency
 
+Placement admission and its relationship to value readiness and overwrite ordering are amended by [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md).
+
 Status: accepted, partially superseded by [ADR 0034](0034-execute-against-live-typed-expressions.md) for partial and competing writes, failed spatial suppliers, nested delivery, and original-anchor replacement, and by [ADR 0036](0036-reserve-result-cells-before-their-width-exists.md) for variable-width Sequence projection. Supersedes ADR 0031 and the row-major execution, snapshot-only operand reads, and stored-Bang activation clauses of ADRs 0003, 0004, 0006, 0009, 0012, 0014, and 0020.
 
 When Functions supply a Note and a neighboring Bang to MIDI during Tick T, that Note must play during T, including when a producer appears below its consumer. Parse the program, establish data and activation dependencies, order the operations, execute each scheduled root at most once, and publish the Tick outcome. Grid position breaks ties between independent operations; it does not override a dependency. A fixed upward Portal is an ordinary dependency, not delayed feedback.
