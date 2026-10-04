@@ -188,15 +188,12 @@ macro_rules! style_catalogue {
                 SourceNote(source_note) => "source.note",
                 SourceFunction(source_function) => "source.function",
                 SourceBang(source_bang) => "source.bang",
-                SourceSequence(source_sequence) => "source.sequence",
                 SourceOrdinaryBackground(source_ordinary_background) => "source.ordinary.background",
                 SourceCommentBackground(source_comment_background) => "source.comment.background",
                 SourceNumberBackground(source_number_background) => "source.number.background",
                 SourceNoteBackground(source_note_background) => "source.note.background",
                 SourceFunctionBackground(source_function_background) => "source.function.background",
                 SourceBangBackground(source_bang_background) => "source.bang.background",
-                SourceAtomBackground(source_atom_background) => "source.atom.background",
-                SourceSequenceBackground(source_sequence_background) => "source.sequence.background",
                 DiagnosticForeground(diagnostic_foreground) => "diagnostic.foreground",
                 DiagnosticBackground(diagnostic_background) => "diagnostic.background",
                 DiagnosticBorder(diagnostic_border) => "diagnostic.border",
@@ -301,15 +298,12 @@ pub(crate) enum ColorKey {
     SourceNote,
     SourceFunction,
     SourceBang,
-    SourceSequence,
     SourceOrdinaryBackground,
     SourceCommentBackground,
     SourceNumberBackground,
     SourceNoteBackground,
     SourceFunctionBackground,
     SourceBangBackground,
-    SourceAtomBackground,
-    SourceSequenceBackground,
     DiagnosticForeground,
     DiagnosticBackground,
     DiagnosticBorder,
@@ -419,15 +413,12 @@ pub struct Theme {
     pub(crate) source_note: Color32,
     pub(crate) source_function: Color32,
     pub(crate) source_bang: Color32,
-    pub(crate) source_sequence: Color32,
     pub(crate) source_ordinary_background: Color32,
     pub(crate) source_comment_background: Color32,
     pub(crate) source_number_background: Color32,
     pub(crate) source_note_background: Color32,
     pub(crate) source_function_background: Color32,
     pub(crate) source_bang_background: Color32,
-    pub(crate) source_atom_background: Color32,
-    pub(crate) source_sequence_background: Color32,
 
     pub(crate) diagnostic_foreground: Color32,
     pub(crate) diagnostic_background: Color32,
@@ -506,15 +497,12 @@ impl Theme {
             ColorKey::SourceNote => &mut self.source_note,
             ColorKey::SourceFunction => &mut self.source_function,
             ColorKey::SourceBang => &mut self.source_bang,
-            ColorKey::SourceSequence => &mut self.source_sequence,
             ColorKey::SourceOrdinaryBackground => &mut self.source_ordinary_background,
             ColorKey::SourceCommentBackground => &mut self.source_comment_background,
             ColorKey::SourceNumberBackground => &mut self.source_number_background,
             ColorKey::SourceNoteBackground => &mut self.source_note_background,
             ColorKey::SourceFunctionBackground => &mut self.source_function_background,
             ColorKey::SourceBangBackground => &mut self.source_bang_background,
-            ColorKey::SourceAtomBackground => &mut self.source_atom_background,
-            ColorKey::SourceSequenceBackground => &mut self.source_sequence_background,
             ColorKey::DiagnosticForeground => &mut self.diagnostic_foreground,
             ColorKey::DiagnosticBackground => &mut self.diagnostic_background,
             ColorKey::DiagnosticBorder => &mut self.diagnostic_border,
@@ -594,15 +582,12 @@ impl Theme {
             ColorKey::SourceNote => &self.source_note,
             ColorKey::SourceFunction => &self.source_function,
             ColorKey::SourceBang => &self.source_bang,
-            ColorKey::SourceSequence => &self.source_sequence,
             ColorKey::SourceOrdinaryBackground => &self.source_ordinary_background,
             ColorKey::SourceCommentBackground => &self.source_comment_background,
             ColorKey::SourceNumberBackground => &self.source_number_background,
             ColorKey::SourceNoteBackground => &self.source_note_background,
             ColorKey::SourceFunctionBackground => &self.source_function_background,
             ColorKey::SourceBangBackground => &self.source_bang_background,
-            ColorKey::SourceAtomBackground => &self.source_atom_background,
-            ColorKey::SourceSequenceBackground => &self.source_sequence_background,
             ColorKey::DiagnosticForeground => &self.diagnostic_foreground,
             ColorKey::DiagnosticBackground => &self.diagnostic_background,
             ColorKey::DiagnosticBorder => &self.diagnostic_border,
@@ -790,15 +775,12 @@ pub fn okabe_ito() -> Theme {
         source_note: straight_rgba(0xF0_E4_42_FF),
         source_function: straight_rgba(0x00_9E_73_FF),
         source_bang: straight_rgba(0xCC_79_A7_FF),
-        source_sequence: straight_rgba(0x00_72_B2_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
         source_number_background: straight_rgba(0x56_B4_E9_1A),
         source_note_background: straight_rgba(0xF0_E4_42_1A),
         source_function_background: straight_rgba(0x00_9E_73_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
-        source_atom_background: straight_rgba(0xEA_EB_E5_1A),
-        source_sequence_background: straight_rgba(0x00_72_B2_1A),
 
         diagnostic_foreground: straight_rgba(0xD5_5E_00_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
@@ -868,16 +850,15 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("
 ///
 /// The Source glyph hues are the Okabe–Ito palette under the role-to-hue
 /// assignment the dark built-in uses (Number sky blue, Note yellow, Function
-/// bluish green, Bang reddish purple, Sequence blue, Diagnostic vermillion,
-/// Output Portal orange). Each keeps its hue exactly — the OKLCh hue angle is
+/// bluish green, Bang reddish purple, Diagnostic vermillion, Output Portal
+/// orange). Each keeps its hue exactly — the OKLCh hue angle is
 /// held to within 0.7° — and moves lightness alone: as far as a near-white
 /// ground requires and, for Diagnostic and Output Portal, further still, so
 /// that a red–green colour-blind reader tells every pair of glyph roles
 /// apart. Do not pick a glyph hue outside that assignment: [`okabe_ito`]
 /// keeps its roles apart under protanopia and deuteranopia by construction,
 /// and a hand-picked hue can land two roles on what those readers see as one
-/// colour. Sequence is `#0072B2` unchanged: no reachable state draws a glyph
-/// in it, so only its tint reaches the screen. `console/src/theme.md` records
+/// colour. `console/src/theme.md` records
 /// each value, its hue and lightness, the measured ratios and the
 /// colour-vision separations.
 ///
@@ -909,15 +890,12 @@ pub fn orcvs_light() -> Theme {
         source_note: straight_rgba(0x70_69_00_FF),
         source_function: straight_rgba(0x00_75_55_FF),
         source_bang: straight_rgba(0x90_42_6F_FF),
-        source_sequence: straight_rgba(0x00_72_B2_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
         source_number_background: straight_rgba(0x00_6D_9B_1A),
         source_note_background: straight_rgba(0x70_69_00_1A),
         source_function_background: straight_rgba(0x00_75_55_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
-        source_atom_background: straight_rgba(0x30_3F_3B_1A),
-        source_sequence_background: straight_rgba(0x00_72_B2_1A),
 
         diagnostic_foreground: straight_rgba(0x65_28_00_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
@@ -1237,7 +1215,6 @@ mod tests {
         assert_eq!(theme.source_note, straight_rgba(0xF0_E4_42_FF));
         assert_eq!(theme.source_function, straight_rgba(0x00_9E_73_FF));
         assert_eq!(theme.source_bang, straight_rgba(0xCC_79_A7_FF));
-        assert_eq!(theme.source_sequence, straight_rgba(0x00_72_B2_FF));
         assert_eq!(
             theme.source_ordinary_background,
             straight_rgba(0x00_00_00_00)
@@ -1253,11 +1230,6 @@ mod tests {
             straight_rgba(0x00_9E_73_1A)
         );
         assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
-        assert_eq!(theme.source_atom_background, straight_rgba(0xEA_EB_E5_1A));
-        assert_eq!(
-            theme.source_sequence_background,
-            straight_rgba(0x00_72_B2_1A)
-        );
 
         assert_eq!(theme.diagnostic_foreground, straight_rgba(0xD5_5E_00_FF));
         assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
@@ -1337,7 +1309,6 @@ mod tests {
             ("Note", dark.source_note, light.source_note),
             ("Function", dark.source_function, light.source_function),
             ("Bang", dark.source_bang, light.source_bang),
-            ("Sequence", dark.source_sequence, light.source_sequence),
             (
                 "Diagnostic",
                 dark.diagnostic_foreground,
@@ -1388,7 +1359,6 @@ mod tests {
         assert_eq!(theme.source_note, straight_rgba(0x70_69_00_FF));
         assert_eq!(theme.source_function, straight_rgba(0x00_75_55_FF));
         assert_eq!(theme.source_bang, straight_rgba(0x90_42_6F_FF));
-        assert_eq!(theme.source_sequence, straight_rgba(0x00_72_B2_FF));
         assert_eq!(
             theme.source_ordinary_background,
             straight_rgba(0x00_00_00_00)
@@ -1404,11 +1374,6 @@ mod tests {
             straight_rgba(0x00_75_55_1A)
         );
         assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
-        assert_eq!(theme.source_atom_background, straight_rgba(0x30_3F_3B_1A));
-        assert_eq!(
-            theme.source_sequence_background,
-            straight_rgba(0x00_72_B2_1A)
-        );
 
         assert_eq!(theme.diagnostic_foreground, straight_rgba(0x65_28_00_FF));
         assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
@@ -1466,15 +1431,6 @@ mod tests {
     /// and every glyph colour a near-white ground forced them to disagree
     /// on, and they declare opposite appearances.
     ///
-    /// `source.sequence` is deliberately absent from the list below, and is
-    /// asserted *equal* instead. Orcvs Light's glyph hues are the same
-    /// Okabe–Ito palette's, each darkened only as far as the near-white
-    /// ground requires; no reachable state
-    /// draws a glyph in Okabe–Ito's blue `#0072B2`, so no floor asked for any
-    /// darkening and the two built-ins share it exactly. That
-    /// shared value is the rule working, not the two Themes collapsing into
-    /// one — every other pair below still differs.
-    ///
     #[test]
     fn the_two_built_ins_are_distinct_themes_of_opposite_appearance() {
         let dark = okabe_ito();
@@ -1519,13 +1475,6 @@ mod tests {
                 "{name} must differ between the built-ins"
             );
         }
-
-        assert_eq!(
-            dark.source_sequence, light.source_sequence,
-            "source.sequence is the one glyph colour the near-white ground did not force to \
-             move; if this ever differs, theme.md's Orcvs Light table has drifted from its \
-             own 'unchanged' provenance"
-        );
     }
 
     ///
@@ -1996,15 +1945,12 @@ mod tests {
             ColorKey::SourceNote,
             ColorKey::SourceFunction,
             ColorKey::SourceBang,
-            ColorKey::SourceSequence,
             ColorKey::SourceOrdinaryBackground,
             ColorKey::SourceCommentBackground,
             ColorKey::SourceNumberBackground,
             ColorKey::SourceNoteBackground,
             ColorKey::SourceFunctionBackground,
             ColorKey::SourceBangBackground,
-            ColorKey::SourceAtomBackground,
-            ColorKey::SourceSequenceBackground,
             ColorKey::DiagnosticForeground,
             ColorKey::DiagnosticBackground,
             ColorKey::DiagnosticBorder,
@@ -2034,8 +1980,8 @@ mod tests {
         ];
         assert_eq!(
             keys.len(),
-            45,
-            "the catalogue has 45 non-optional colour keys"
+            42,
+            "the catalogue has 42 non-optional colour keys"
         );
 
         for &key in &keys {
@@ -2149,7 +2095,6 @@ mod tests {
             (ColorKey::SourceNote, "source.note"),
             (ColorKey::SourceFunction, "source.function"),
             (ColorKey::SourceBang, "source.bang"),
-            (ColorKey::SourceSequence, "source.sequence"),
             (
                 ColorKey::SourceOrdinaryBackground,
                 "source.ordinary.background",
@@ -2165,11 +2110,6 @@ mod tests {
                 "source.function.background",
             ),
             (ColorKey::SourceBangBackground, "source.bang.background"),
-            (ColorKey::SourceAtomBackground, "source.atom.background"),
-            (
-                ColorKey::SourceSequenceBackground,
-                "source.sequence.background",
-            ),
             (ColorKey::DiagnosticForeground, "diagnostic.foreground"),
             (ColorKey::DiagnosticBackground, "diagnostic.background"),
             (ColorKey::DiagnosticBorder, "diagnostic.border"),
@@ -2197,7 +2137,7 @@ mod tests {
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
         ];
-        assert_eq!(catalogue.len(), 45);
+        assert_eq!(catalogue.len(), 42);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }

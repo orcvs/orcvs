@@ -84,13 +84,7 @@ pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 /// which are not Source Grid facts. Each chrome role is named for the Theme
 /// key `crate::style::style` maps the painted foreground from.
 ///
-/// Number and Note admit Valid and Invalid. Atom and Sequence admit only
-/// Invalid: `Token::decode` refuses both outright, since neither has a
-/// literal reading, so the only thing that can satisfy either slot is a
-/// nested Function, which `take_language_unit`'s `is_function_next()`
-/// branch records under `Token::Function` instead — never under `Atom` or
-/// `Sequence`. Neither Token ever reaches a *Valid* state through any
-/// Source, only Invalid (written, unbound) or Pending (blank).
+/// Number and Note admit Valid and Invalid.
 ///
 /// Pending is not a role this validator measures at all: a Pending Cell
 /// draws no glyph (`paint::tests::every_pending_operand_token_draws_no_
@@ -109,8 +103,6 @@ pub(crate) enum Role {
     NumberInvalid,
     NoteValid,
     NoteInvalid,
-    AtomInvalid,
-    SequenceInvalid,
     Text,
     TextMuted,
     TextActive,
@@ -126,7 +118,7 @@ pub(crate) enum Role {
 impl Role {
     /// Every Source Grid role [`validate`] measures, in this enum's
     /// declaration order.
-    const SOURCE_ROLES: [Self; 10] = [
+    const SOURCE_ROLES: [Self; 8] = [
         Self::Ordinary,
         Self::Function,
         Self::Bang,
@@ -135,8 +127,6 @@ impl Role {
         Self::NumberInvalid,
         Self::NoteValid,
         Self::NoteInvalid,
-        Self::AtomInvalid,
-        Self::SequenceInvalid,
     ];
 
     /// The Source Paint fact this role reads, or `None` for a console-chrome
@@ -151,8 +141,6 @@ impl Role {
             Self::NumberInvalid => Some(operand(Token::Number, OperandState::Invalid)),
             Self::NoteValid => Some(operand(Token::Note, OperandState::Valid)),
             Self::NoteInvalid => Some(operand(Token::Note, OperandState::Invalid)),
-            Self::AtomInvalid => Some(operand(Token::Atom, OperandState::Invalid)),
-            Self::SequenceInvalid => Some(operand(Token::Sequence, OperandState::Invalid)),
             Self::Text
             | Self::TextMuted
             | Self::TextActive
@@ -179,8 +167,6 @@ impl fmt::Display for Role {
             Self::NumberInvalid => "Number, Invalid",
             Self::NoteValid => "Note, Valid",
             Self::NoteInvalid => "Note, Invalid",
-            Self::AtomInvalid => "Atom, Invalid",
-            Self::SequenceInvalid => "Sequence, Invalid",
             Self::Text => "text",
             Self::TextMuted => "text.muted",
             Self::TextActive => "text.active",
@@ -669,7 +655,7 @@ impl AcceptedFailure {
 /// The accepted exceptions for a shipped Theme, keyed by identity.
 ///
 /// Okabe–Ito's list is empty: it has no reachable painted failure
-/// (`tests::sequence_has_no_reachable_failing_state` pins Sequence's case).
+/// (`tests::okabe_ito_has_nothing_to_except` pins that).
 ///
 /// Called from [`measure`], which every [`validate`] result passes through —
 /// not test-only: `theme_registry` validates every Theme file it loads.
@@ -802,8 +788,8 @@ mod tests {
     fn validate_reports_one_result_per_role_cursor_placement_and_output_portal_plus_fifteen_chrome_states()
      {
         let report = validate(&okabe_ito());
-        // 10 Source Grid roles x 4 CursorPlacements x 2 output_portal states
-        // = 80, plus 15 chrome states: text on panel, input and the
+        // 8 Source Grid roles x 4 CursorPlacements x 2 output_portal states
+        // = 64, plus 15 chrome states: text on panel, input and the
         // inactive and open fills (4); text.muted on panel and input (2);
         // text.active on the hovered and active fills, framed and frameless
         // (4); selected text on selection.background over panel and input
@@ -811,7 +797,7 @@ mod tests {
         // rather than recomputed from the same lengths `validate` sizes its
         // `Vec` from, so a change to either count is caught by an
         // independent number.
-        assert_eq!(report.results.len(), 95);
+        assert_eq!(report.results.len(), 79);
     }
 
     ///
@@ -1413,21 +1399,16 @@ mod tests {
             output_portal: false,
         };
         let entry = AcceptedFailure {
-            role: Role::SequenceInvalid,
+            role: Role::NoteInvalid,
             state,
             foreground: Color32::from_rgb(1, 2, 3),
             background: Color32::from_rgb(4, 5, 6),
         };
 
-        assert!(entry.matches(
-            Role::SequenceInvalid,
-            state,
-            entry.foreground,
-            entry.background
-        ));
+        assert!(entry.matches(Role::NoteInvalid, state, entry.foreground, entry.background));
         assert!(
             !entry.matches(
-                Role::SequenceInvalid,
+                Role::NoteInvalid,
                 state,
                 Color32::from_rgb(9, 9, 9),
                 entry.background
@@ -1436,7 +1417,7 @@ mod tests {
         );
         assert!(
             !entry.matches(
-                Role::SequenceInvalid,
+                Role::NoteInvalid,
                 state,
                 entry.foreground,
                 Color32::from_rgb(9, 9, 9)
@@ -1445,43 +1426,28 @@ mod tests {
         );
     }
 
-    // === Sequence has no reachable failing state to except ===
-
     ///
-    /// `Role` has no Pending variant, and `Sequence, Invalid` — the only
-    /// Sequence role — passes the floor on its own:
-    /// `diagnostic.foreground` replaces Sequence's own colour outright once
-    /// it is Invalid. Okabe–Ito's accepted-exception list is therefore
-    /// empty, which this test pins as "no reachable painted failure".
+    /// Okabe–Ito's accepted-exception list is empty for the stronger of the
+    /// two possible reasons: nothing fails. This pins that premise separately
+    /// from `shipped_theme_gate`, which would also pass on a list full of
+    /// exceptions.
     ///
     #[test]
-    fn sequence_has_no_reachable_failing_state() {
+    fn okabe_ito_has_nothing_to_except() {
         let report = validate(&okabe_ito());
-
-        let sequence_results: Vec<_> = report
-            .results
-            .iter()
-            .filter(|result| result.role == Role::SequenceInvalid)
-            .collect();
-        assert!(
-            !sequence_results.is_empty(),
-            "Sequence, Invalid must still be reported"
-        );
-        for result in sequence_results {
-            assert!(
-                result.passes(),
-                "Sequence, Invalid / {} unexpectedly fails at {:.2}:1 — Sequence's accepted \
-                 exception is empty because it has no failing state, not because the \
-                 exception was withdrawn; if this fails, that premise no longer holds",
-                result.state,
-                result.ratio
-            );
-        }
 
         assert!(
             super::accepted_failures(&OKABE_ITO_IDENTITY).is_empty(),
-            "Okabe-Ito's accepted-exception list should be empty: nothing currently fails \
-             that this issue's comments record as accepted"
+            "Okabe-Ito ships with no accepted contrast exception"
+        );
+        let below_floor: Vec<_> = report
+            .results
+            .iter()
+            .filter(|result| !result.passes())
+            .collect();
+        assert!(
+            below_floor.is_empty(),
+            "Okabe-Ito must clear the floor unaided: {below_floor:?}"
         );
     }
 

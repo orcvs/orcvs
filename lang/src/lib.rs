@@ -6,7 +6,6 @@ mod interpreter;
 pub mod operand;
 mod parser;
 mod portal;
-mod sequence;
 mod stack;
 mod tick;
 
@@ -14,12 +13,11 @@ pub use atom::{
     Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
     ReplacementChange, Velocity, to_atom_note, to_atom_num,
 };
-pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
+pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
-pub use sequence::{Sequence, Value};
 pub(crate) use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};
 
@@ -104,75 +102,6 @@ pub enum PlayCommand {
     },
 }
 
-/// The ordered group of Play Commands one Terminal Output Function Expression
-/// performs.
-///
-/// The Terminal Output Functions extend pervasively over a Sequence operand,
-/// so one Expression can perform many times while still answering no value:
-/// ADR 0028 bounds the kind of answer an instruction gives, not how much of
-/// it, and a Play Command is never encoded into Cells, so the rules that make
-/// a Sequence expensive where a result becomes Source do not reach an effect.
-/// Order within the group is element index, because it is the only order the
-/// Source can read — the order the Cells would have if the same notes were
-/// written left to right as separate Expressions.
-///
-/// Two shapes rather than one, the way [`Value`] keeps `Atom` beside
-/// `Sequence`. A scalar Play is the common case, and answering a group of one
-/// for it would put a heap allocation on the path that has none.
-/// [`Performance::Many`] is legitimately empty: an empty Sequence operand is a
-/// real width of no elements, and an Expression of no elements performs no MIDI
-/// output rather than diagnosing.
-///
-/// Equality compares shapes, so `One(command)` and a `Many` holding that same
-/// one command are unequal even though [`Performance::commands`] reads them
-/// identically. That is sound because the shape is a fact about the Expression
-/// rather than an incidental choice of representation: `Stack::perform` answers
-/// `One` for an operation of Atoms alone and `Many` for one a Sequence operand
-/// widened, so comparing shapes is comparing values. The two are therefore not
-/// distinguished by count. A one-element Sequence operand widens an operation
-/// to width one and answers `Many` holding a single command, which is right —
-/// a Sequence of one is not an Atom, and the Expression that spelled it is not
-/// the Expression that spelled a scalar. What `One` says is that the operands
-/// were scalar, not that there is exactly one command.
-///
-/// The derive is deliberately not flattened to compare `commands()`, because
-/// that is what lets a test state that a scalar Play answers one command and
-/// not a group of one; a flattened equality would accept both.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Performance {
-    /// A scalar Expression, whose one command is answered without a group
-    /// around it.
-    One(PlayCommand),
-    /// A widened Expression, whose commands are ordered by element index.
-    Many(Vec<PlayCommand>),
-}
-
-impl Performance {
-    /// The commands in order.
-    ///
-    /// One shape reading, so a consumer delivering a Performance never learns
-    /// which of the two it was handed: `Playback` dispatches a Tick Plan's
-    /// commands as one list, and the distinction is about what evaluation
-    /// costs rather than about what delivery sees.
-    #[inline(always)]
-    pub fn commands(&self) -> &[PlayCommand] {
-        match self {
-            Self::One(command) => std::slice::from_ref(command),
-            Self::Many(commands) => commands,
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a Performance {
-    type Item = &'a PlayCommand;
-    type IntoIter = std::slice::Iter<'a, PlayCommand>;
-
-    #[inline(always)]
-    fn into_iter(self) -> Self::IntoIter {
-        self.commands().iter()
-    }
-}
-
 /// One Source-writing effect a Function performs, stated relative to the
 /// producer's own anchor.
 ///
@@ -181,7 +110,7 @@ impl<'a> IntoIterator for &'a Performance {
 /// the seam between the two: `lang` answers what to write and how far from the
 /// producer to write it, and `orcvs` turns that into Positions, refuses a
 /// destination the Grid does not hold, and orders the writes. It is the
-/// Source-writing counterpart of [`Performance`], which crosses the same seam
+/// Source-writing counterpart of [`PlayCommand`], which crosses the same seam
 /// for the Terminal Output family.
 ///
 /// The displacement is a whole-Cell offset and not a named direction: ADR 0006
@@ -339,11 +268,11 @@ fn interpret_source(source: &str) -> Result<Interpretation, Error> {
     let Some((Atom::Function(function), literals)) = atoms.split_first() else {
         panic!("{source:?} does not start with a Function");
     };
-    let operands: Vec<Value> = literals
+    let operands: Vec<Atom> = literals
         .iter()
         .map(|literal| match literal {
             Atom::Function(nested) => panic!("{source:?} nests {nested}; a Turn resolves it first"),
-            literal => Value::Atom(*literal),
+            literal => *literal,
         })
         .collect();
     Interpreter::execute_function(
@@ -355,51 +284,7 @@ fn interpret_source(source: &str) -> Result<Interpretation, Error> {
 
 #[cfg(test)]
 mod test {
-    use super::{
-        Atom, MidiChannel, Note, Performance, PlayCommand, Velocity, midi_note_to_number,
-        midi_number_to_note, str_to_num,
-    };
-
-    fn raw(note: u8) -> PlayCommand {
-        PlayCommand::Raw {
-            channel: MidiChannel::try_from(0).unwrap(),
-            velocity: Velocity::try_from(0x7F).unwrap(),
-            note: Note::try_from(note).unwrap(),
-        }
-    }
-
-    #[test]
-    fn both_performance_shapes_read_back_as_one_ordered_list_of_commands() {
-        // The two shapes exist for what evaluation costs, not for what delivery
-        // sees: Playback dispatches a Tick Plan's commands as one list, so a
-        // consumer must never have to ask which shape it was handed. A scalar
-        // Expression reads back as exactly one command — not as a group of one —
-        // and a widened one reads back in element index order.
-        assert_eq!(Performance::One(raw(60)).commands(), &[raw(60)]);
-        assert_eq!(
-            Performance::Many(vec![raw(60), raw(64), raw(67)]).commands(),
-            &[raw(60), raw(64), raw(67)]
-        );
-
-        // Iteration is the accessor's order, so the seam that flattens a group
-        // into a Tick Plan cannot reorder it.
-        assert_eq!(
-            Performance::Many(vec![raw(60), raw(64)])
-                .into_iter()
-                .copied()
-                .collect::<Vec<_>>(),
-            vec![raw(60), raw(64)]
-        );
-
-        // An empty group is a legitimate answer rather than an absent one: an
-        // empty Sequence operand is a real width of no elements.
-        assert!(Performance::Many(Vec::new()).commands().is_empty());
-
-        // The shapes are not interchangeable, which is what the derived
-        // equality is for: a scalar Expression answers `One`, and a test that
-        // says so must be able to fail when a group of one is answered instead.
-        assert_ne!(Performance::One(raw(60)), Performance::Many(vec![raw(60)]));
-    }
+    use super::{Atom, Note, midi_note_to_number, midi_number_to_note, str_to_num};
 
     #[test]
     // The figures are pointer-width dependent, and the prose below explains
@@ -412,12 +297,12 @@ mod test {
         // import carries exactly the gate its only use carries: at a pointer
         // width this test is compiled out at, an import up there is unused,
         // and `-D warnings` refuses the `wasm32` build over it.
-        use super::Interpretation;
+        use super::{Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
-        // floor was measured against it. `Performance` is a 24-byte enum that
-        // spends the `Vec` pointer's niche on its own tag, so `Interpretation`
-        // needs a discriminant of its own and reads 32.
+        // floor was measured against it. The widest answer is a Source
+        // effect, whose spelling is a 16-byte `Option<&str>`, so
+        // `Interpretation` reads 24.
         //
         // A failure here is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take again. That
@@ -425,8 +310,8 @@ mod test {
         // what the `target_pointer_width` gate above says — `wasm32` builds the
         // library and runs its regressions in the `console` crate, so the gate
         // excludes nothing that runs.
-        assert_eq!(size_of::<Performance>(), 24);
-        assert_eq!(size_of::<Interpretation>(), 32);
+        assert_eq!(size_of::<PlayCommand>(), 5);
+        assert_eq!(size_of::<Interpretation>(), 24);
     }
 
     #[test]

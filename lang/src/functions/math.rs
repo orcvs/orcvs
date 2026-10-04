@@ -1,19 +1,14 @@
 use crate::{
-    Atom, Error, InterpretationError, Value,
+    Atom, Error, InterpretationError,
     atom::operands::{
         AbsoluteDifference, Add, Divide, Equality, Maximum, Minimum, Modulo, Multiply, Subtract,
     },
     interpreter::Context,
 };
 
-// Every Function here is declared Pervasive in `define_functions!`, so each
-// body states what its operation is for one element and says nothing about
-// Sequences: `Stack::apply` decides the one shape the operands make, hands out
-// the operands for each element, and assembles the answers, and
-// `Stack::predicate` does the same for the one Function that answers about all
-// of them at once. A body that mapped over a Sequence itself would be a second
-// broadcast mechanism, free to disagree with the first about lengths, about
-// ordering, and about what a partial failure leaves behind.
+// Each body states what its operation is for the operands `Stack::apply` or
+// `Stack::predicate` binds, and nothing about checking them: every operand has
+// passed its type check before a body runs.
 //
 // The operand struct is named twice in each body — once as the pattern that
 // binds the roles, once as the type that tells the compiler which Function the
@@ -28,7 +23,7 @@ use crate::{
 /// from `.-` rather than a spelling of it: `abs_diff` is symmetric and has no
 /// borrow to wrap.
 #[inline(always)]
-pub fn absolute_difference(ctx: &mut Context) -> Result<Value, Error> {
+pub fn absolute_difference(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|AbsoluteDifference { left, right }: AbsoluteDifference| {
             Ok(Atom::Number(left.abs_diff(right)))
@@ -36,13 +31,13 @@ pub fn absolute_difference(ctx: &mut Context) -> Result<Value, Error> {
 }
 
 #[inline(always)]
-pub fn add(ctx: &mut Context) -> Result<Value, Error> {
+pub fn add(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Add { left, right }: Add| Ok(Atom::Number(left.wrapping_add(right))))
 }
 
 #[inline(always)]
-pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
+pub fn divide(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Divide { left, right }: Divide| match right {
             0 => Err(InterpretationError::DivisionByZero.into()),
@@ -52,34 +47,27 @@ pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
 
 /// Equality: `.= left right`.
 ///
-/// A whole-value predicate that answers a pulse rather than a truth value:
+/// A predicate that answers a pulse rather than a truth value:
 /// equal operands produce one Bang, and unequal operands produce `Atom::Empty`,
 /// which is the Interpreter's "no result write" signal. Answering a
 /// Number for the unequal case would put a Cell meaning "false" into the
 /// Source, where the next Tick would read it as an ordinary operand.
-///
-/// That holds for a comparison over Sequences too: this uses ordinary
-/// pervasive extension to find its pairs and still answers exactly one Atom
-/// about all of them, so it goes through `predicate` rather than `apply`. A map
-/// would have to write an absent element where a pair disagreed, and Sequence
-/// has no such member; the aggregations that do want positions belong to
-/// Functions of their own.
 #[inline(always)]
-pub fn equality(ctx: &mut Context) -> Result<Value, Error> {
+pub fn equality(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .predicate(|Equality { left, right }: Equality| left == right)
 }
 
 /// Maximum: `.> left right`.
 #[inline(always)]
-pub fn maximum(ctx: &mut Context) -> Result<Value, Error> {
+pub fn maximum(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Maximum { left, right }: Maximum| Ok(Atom::Number(left.max(right))))
 }
 
 /// Minimum: `.< left right`.
 #[inline(always)]
-pub fn minimum(ctx: &mut Context) -> Result<Value, Error> {
+pub fn minimum(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Minimum { left, right }: Minimum| Ok(Atom::Number(left.min(right))))
 }
@@ -90,7 +78,7 @@ pub fn minimum(ctx: &mut Context) -> Result<Value, Error> {
 /// Atom rather than inventing one, exactly as Division does. The diagnostic is
 /// its own so the Source learns which Function it wrote.
 #[inline(always)]
-pub fn modulo(ctx: &mut Context) -> Result<Value, Error> {
+pub fn modulo(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Modulo { left, right }: Modulo| match right {
             0 => Err(InterpretationError::ModuloByZero.into()),
@@ -99,13 +87,13 @@ pub fn modulo(ctx: &mut Context) -> Result<Value, Error> {
 }
 
 #[inline(always)]
-pub fn multiply(ctx: &mut Context) -> Result<Value, Error> {
+pub fn multiply(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Multiply { left, right }: Multiply| Ok(Atom::Number(left.wrapping_mul(right))))
 }
 
 #[inline(always)]
-pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
+pub fn subtract(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
         .apply(|Subtract { left, right }: Subtract| Ok(Atom::Number(left.wrapping_sub(right))))
 }
@@ -113,129 +101,49 @@ pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
 #[cfg(test)]
 mod test {
     use crate::{
-        Anchor, Atom, Error, Function, Interpretation, InterpretationError, Interpreter, Sequence,
-        SequenceError, Tick, TickInputs, Value,
+        Anchor, Atom, Error, Function, Interpretation, InterpretationError, Interpreter, Tick,
+        TickInputs,
     };
 
     /// What a Function should answer for one operand pair, in signature order.
     type Reference = fn(u8, u8) -> Result<Atom, InterpretationError>;
 
     /// Exercises Function dispatch with resolved operands in signature order.
-    fn evaluate(
-        function: Function,
-        left: impl Into<Value>,
-        right: impl Into<Value>,
-    ) -> Result<Interpretation, Error> {
+    fn evaluate(function: Function, left: Atom, right: Atom) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            [left.into(), right.into()],
+            [left, right],
             TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }
 
-    fn numbers(values: impl IntoIterator<Item = u8>) -> Sequence {
-        Sequence::new(values.into_iter().map(Atom::Number)).unwrap()
-    }
-
     #[test]
-    fn arithmetic_evaluation_broadcasts_and_rejects_partial_answers() {
+    fn arithmetic_evaluation_is_wired_to_each_function() {
         // The stack seam is tested where it lives; this is the claim that the
         // Functions the Source can write are actually wired to it, which a test
         // of `Stack::apply` alone cannot make.
         assert_eq!(
-            evaluate(Function::Add, Atom::Number(0x10), numbers([1, 2, 3])).unwrap(),
-            Interpretation::Sequence(numbers([0x11, 0x12, 0x13]))
+            evaluate(Function::Add, Atom::Number(0x10), Atom::Number(2)).unwrap(),
+            Interpretation::Cell(Atom::Number(0x12))
         );
-
-        // And that an evaluation fault at an element other than the first still
-        // discards the elements that answered.
         assert!(matches!(
-            evaluate(Function::Divide, Atom::Number(0x10), numbers([1, 1, 0])),
+            evaluate(Function::Divide, Atom::Number(0x10), Atom::Number(0)),
             Err(Error::Interpretation(InterpretationError::DivisionByZero))
         ));
     }
 
     #[test]
-    fn equality_answers_one_bang_only_when_every_broadcast_pair_is_equal() {
-        // `.=` is a whole-value predicate: it uses ordinary
-        // broadcasting to find its pairs and then answers one Atom about all of
-        // them. Each case below has a shape an element-wise Function would
-        // answer a Sequence for, so a map written by accident fails here rather
-        // than only where the Source encodes it.
-        for (left, right) in [
-            (Value::from(Atom::Number(1)), Value::from(Atom::Number(1))),
-            (Atom::Number(1).into(), numbers([1, 1, 1]).into()),
-            (numbers([1, 1, 1]).into(), Atom::Number(1).into()),
-            (numbers([1, 2, 3]).into(), numbers([1, 2, 3]).into()),
-        ] {
-            assert_eq!(
-                evaluate(Function::Equality, left.clone(), right.clone()).unwrap(),
-                Interpretation::Cell(Atom::Bang),
-                "{left:?} against {right:?}"
-            );
-        }
-
-        // One unequal pair is enough, wherever it stands, and the answer is the
-        // absence marker rather than a Sequence with a hole in it.
-        for (left, right) in [
-            (Value::from(Atom::Number(1)), Value::from(Atom::Number(2))),
-            (Atom::Number(1).into(), numbers([1, 1, 2]).into()),
-            (numbers([2, 1, 1]).into(), Atom::Number(1).into()),
-            (numbers([1, 2, 3]).into(), numbers([1, 2, 4]).into()),
-        ] {
-            assert_eq!(
-                evaluate(Function::Equality, left.clone(), right.clone()).unwrap(),
-                Interpretation::Cell(Atom::Empty),
-                "{left:?} against {right:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_comparison_with_no_pairs_is_vacuously_all_equal() {
-        // An empty Sequence operand makes an operation of no elements, and a
-        // predicate over nothing holds. The distinction matters because the
-        // same shape makes an arithmetic Function answer the empty Sequence:
-        // `.=` answers about the comparison, not about the operand.
-        for (left, right) in [
-            (
-                Value::from(Sequence::empty()),
-                Value::from(Sequence::empty()),
-            ),
-            (Atom::Number(1).into(), Sequence::empty().into()),
-            (Sequence::empty().into(), Atom::Number(1).into()),
-        ] {
-            assert_eq!(
-                evaluate(Function::Equality, left.clone(), right.clone()).unwrap(),
-                Interpretation::Cell(Atom::Bang),
-                "{left:?} against {right:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn equality_diagnoses_two_non_scalar_operands_of_different_lengths() {
-        // Including empty against non-empty, which is a length disagreement
-        // rather than the vacuous case above: an empty Sequence repeats across
-        // nothing, so there is no pairing to be vacuous about.
-        for (left, right, lengths) in [
-            (
-                Value::from(numbers([1, 2])),
-                Value::from(numbers([1, 2, 3])),
-                (2, 3),
-            ),
-            (Sequence::empty().into(), numbers([1, 2]).into(), (0, 2)),
-            (numbers([1, 2]).into(), Sequence::empty().into(), (2, 0)),
-        ] {
-            assert!(
-                matches!(
-                    evaluate(Function::Equality, left.clone(), right.clone()),
-                    Err(Error::Sequence(SequenceError::IncompatibleLengths { left: l, right: r }))
-                        if (l, r) == lengths
-                ),
-                "{left:?} against {right:?}"
-            );
-        }
+    fn equality_answers_a_bang_or_the_absence_marker() {
+        // The unequal answer is the absence marker rather than a Number, so the
+        // Source never gains a Cell meaning "false".
+        assert_eq!(
+            evaluate(Function::Equality, Atom::Number(1), Atom::Number(1)).unwrap(),
+            Interpretation::Cell(Atom::Bang)
+        );
+        assert_eq!(
+            evaluate(Function::Equality, Atom::Number(1), Atom::Number(2)).unwrap(),
+            Interpretation::Cell(Atom::Empty)
+        );
     }
 
     #[test]

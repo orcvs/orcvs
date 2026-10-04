@@ -8,7 +8,7 @@ use std::ops::ControlFlow::{self, Break, Continue};
 
 use lang::{
     Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalCoords, PortalInput,
-    PortalSource, SourceBundle, SourceEffect, Tick, Value,
+    PortalSource, SourceBundle, SourceEffect, Tick,
 };
 
 use super::{
@@ -67,7 +67,7 @@ pub(super) fn execute(
 /// Keeping them together does not turn them into an exclusive lifecycle enum.
 pub(in crate::source) struct ComputationState {
     function: Function,
-    result: Option<Value>,
+    result: Option<Atom>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
@@ -148,9 +148,6 @@ struct Execution<'a> {
     lookup: &'a Lookup,
     states: Vec<ComputationState>,
     effects: Vec<Effect>,
-    /// Admitted Sequence write ranges, recorded as each write is applied.
-    /// Jump-input membership asks this rather than [`super::Reserved::Row`].
-    sequence_writes: Vec<std::ops::Range<usize>>,
     /// Intact Functions and Bang displays placed this Tick. Neither has a pending Turn.
     placed_units: Vec<std::ops::Range<usize>>,
     /// Source-effect writes obscure Snapshot ownership even if a later value
@@ -201,7 +198,6 @@ impl<'a> Execution<'a> {
                 })
                 .collect(),
             effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
-            sequence_writes: Vec::new(),
             placed_units: Vec::new(),
             source_writes: Vec::new(),
         };
@@ -303,11 +299,8 @@ impl<'a> Execution<'a> {
         });
         match result {
             Err(message) => self.effects.push(Effect::Diagnose(diagnose(node, message))),
-            Ok(Interpretation::Play(performance)) => self.effects.push(Effect::Play(performance)),
-            Ok(Interpretation::Cell(atom)) => return self.deliver_value(index, Value::Atom(atom)),
-            Ok(Interpretation::Sequence(sequence)) => {
-                return self.deliver_value(index, Value::Sequence(sequence));
-            }
+            Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
+            Ok(Interpretation::Cell(atom)) => return self.deliver_value(index, atom),
             Ok(Interpretation::Source(effect)) => {
                 return self.deliver_source_effect(index, effect);
             }
@@ -363,16 +356,11 @@ impl<'a> Execution<'a> {
 
     /// The Cells a Jump reads, when they are one complete aligned unit.
     ///
-    /// Invalid, partial, and Sequence input stay absent so the Interpreter
-    /// diagnoses rather than answering an Atom that was never a Language Unit.
+    /// Invalid and partial input stay absent so the Interpreter diagnoses
+    /// rather than answering an Atom that was never a Language Unit.
     fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
         let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
-        match portal.language_unit(
-            self.working.cells(),
-            self.map,
-            super::SCALAR_WIDTH,
-            |range| self.sequence_covers(range),
-        ) {
+        match portal.language_unit(self.working.cells(), self.map, super::SCALAR_WIDTH) {
             PortalUnit::Invalid => None,
             PortalUnit::Empty | PortalUnit::Bang | PortalUnit::Unit => {
                 let span = portal
@@ -385,14 +373,13 @@ impl<'a> Execution<'a> {
 
     /// The operands of `node`'s Turn, in signature order.
     ///
-    /// A surviving nested child's answer is moved out of its state rather than
-    /// copied: the child's one consumer is this Turn, so a Sequence answer
-    /// reaches the Interpreter without its members being duplicated.
+    /// A surviving nested child's answer is taken out of its state: the
+    /// child's one consumer is this Turn.
     fn operands(
         &mut self,
         node: &Computation,
         signature: lang::Tokens,
-    ) -> Result<Vec<Value>, String> {
+    ) -> Result<Vec<Atom>, String> {
         node.operands
             .iter()
             .zip(signature)
@@ -413,24 +400,20 @@ impl<'a> Execution<'a> {
                 // Spatial delivery leaves characters pending until consumption;
                 // a surviving nested child instead supplies an already typed value.
                 let spelling = self.working.text(operand.cells.clone());
-                token
-                    .decode(spelling)
-                    .map(Value::from)
-                    .map_err(|error| error.to_string())
+                token.decode(spelling).map_err(|error| error.to_string())
             })
             .collect()
     }
 
-    fn deliver_value(&mut self, index: usize, value: Value) -> ControlFlow<Diagnostic> {
-        let flow = self.project_value(index, &value);
+    fn deliver_value(&mut self, index: usize, atom: Atom) -> ControlFlow<Diagnostic> {
+        let flow = self.project_value(index, atom);
         // A successful nested answer survives every refusal to project it.
-        // Projection only borrows it, so it is stored afterwards, by move.
-        self.states[index].result = Some(value);
+        self.states[index].result = Some(atom);
         flow
     }
 
     /// Plans the Cell writes, activation, or clear one typed answer makes.
-    fn project_value(&mut self, index: usize, value: &Value) -> ControlFlow<Diagnostic> {
+    fn project_value(&mut self, index: usize, atom: Atom) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
         // Every arm below plans or diagnoses a write at an Output Portal, so an
         // answer with none to write, which only its consumer reads, is not
@@ -440,21 +423,18 @@ impl<'a> Execution<'a> {
             return Continue(());
         }
         // Whether this answer can be Cells at all is a question about the
-        // value, settled before any destination is asked: the two values that
-        // plan no write answer `Nothing`, and a rendering a Cell cannot hold
-        // refuses whole. A Sequence needs nothing of its own here, which is
-        // the point — `Portal::admit` refuses an encoding wider than its row
-        // entire and `SpanWrite::cells` fans one admitted write out Cell-wise,
-        // so the complete-fit rule and Cell-wise conflict resolution are
-        // inherited rather than restated for a second width.
-        let encoding = match Encoding::render(value) {
+        // value, settled before any destination is asked: the Absence Marker
+        // plans no write and answers `Nothing`, and a rendering a Cell cannot
+        // hold refuses whole. Every other Atom renders as the Cell pair the
+        // schedule reserved.
+        let encoding = match Encoding::render(atom) {
             Ok(Rendered::Nothing) => {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
                 if self.states[index].function.copies_language_unit() {
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     for output in node.portal_access.write_sites() {
-                        self.deliver_output(index, &Value::Atom(Atom::Empty), &cleared, *output)?;
+                        self.deliver_output(index, Atom::Empty, &cleared, *output)?;
                     }
                 }
                 return Continue(());
@@ -466,18 +446,8 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        // Scheduling reserved one Cell pair for a computation whose answer
-        // could not be a Sequence, so any other width from one would write
-        // Cells no dependency edge names.
-        if !self.lookup.reserved(index).admits_width(encoding.len()) {
-            self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                "result is not a scalar Cell pair",
-            )));
-            return Continue(());
-        }
         for output in node.portal_access.write_sites() {
-            self.deliver_output(index, value, &encoding, *output)?;
+            self.deliver_output(index, atom, &encoding, *output)?;
         }
         Continue(())
     }
@@ -485,7 +455,7 @@ impl<'a> Execution<'a> {
     fn deliver_output(
         &mut self,
         index: usize,
-        value: &Value,
+        atom: Atom,
         encoding: &Encoding,
         output: Result<Position, PortalError>,
     ) -> ControlFlow<Diagnostic> {
@@ -500,7 +470,7 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        if *value == Value::Atom(Atom::Bang) && self.states[index].function.copies_language_unit() {
+        if atom == Atom::Bang && self.states[index].function.copies_language_unit() {
             if let Some(root) = self.lookup.root_at(destination) {
                 self.states[root].activated = true;
                 return Continue(());
@@ -526,21 +496,14 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        // The Cells this write actually covers, not the Cells scheduling
-        // reserved for it: `Lookup::written_over` says why.
+        // The Cells this write actually covers: `Lookup::written_over`.
         let relationships = self.lookup.written_over(&write);
-        // Both rules below read `value` rather than the Cells, and both are
-        // therefore untouched by the width of the write: `Atom::Bang` and
-        // `Atom::Function` are single Atoms by construction, so a Sequence
-        // answer never satisfies either pattern. A Sequence carrying a Function
-        // spelling writes those two Cells as ordinary Source content — the
-        // next Tick's parse reads a Function there, this one replaces nothing.
-        if *value == Value::Atom(Atom::Bang) {
+        if atom == Atom::Bang {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
             }
         }
-        if let Value::Atom(Atom::Function(replacement)) = value
+        if let Atom::Function(replacement) = atom
             && let Some(change) = relationships.functions().find_map(|contact| {
                 if !contact.at_anchor {
                     return None;
@@ -557,8 +520,7 @@ impl<'a> Execution<'a> {
                 // parsed and the running Function agreeing on every fact it
                 // compares.
                 let running = self.states[contact.index].function;
-                self.lookup
-                    .replacement_change(contact.index, *replacement, running)
+                replacement.replacing(running)
             })
         {
             // The fact that differed, not the list of facts that could have.
@@ -581,25 +543,20 @@ impl<'a> Execution<'a> {
                 "spatial output reached an executed computation; Tick effects rejected",
             ));
         }
-        // The one rule of the three that a wide write genuinely changes: a
-        // Sequence can cover several Expressions along its row, and each of
-        // them is suppressed for the same reason a scalar suppresses the one it
-        // covers — its spelling is no longer the one that was scheduled.
+        // A covered Expression is suppressed: its spelling is no longer the
+        // one that was scheduled.
         for contact in relationships.functions() {
             let target = contact.index;
             if contact.at_anchor
                 && !self.states[target].suppressed
-                && let Value::Atom(Atom::Function(replacement)) = value
+                && let Atom::Function(replacement) = atom
             {
-                self.states[target].function = *replacement;
+                self.states[target].function = replacement;
                 continue;
             }
             for descendant in contact.subtree {
                 self.states[descendant].suppressed = true;
             }
-        }
-        if matches!(value, Value::Sequence(_)) {
-            self.sequence_writes.push(write.span().range());
         }
         self.write(write);
         Continue(())
@@ -799,17 +756,6 @@ impl<'a> Execution<'a> {
         } else {
             Occupancy::Empty
         }
-    }
-
-    /// Whether `cells` sit entirely inside an admitted Sequence write.
-    ///
-    /// Membership is the write, not the reservation: [`super::Reserved::Row`]
-    /// runs to the end of the destination row, and a short encoding leaves the
-    /// tail empty of Sequence members.
-    fn sequence_covers(&self, cells: std::ops::Range<usize>) -> bool {
-        self.sequence_writes
-            .iter()
-            .any(|written| written.start <= cells.start && cells.end <= written.end)
     }
 
     ///

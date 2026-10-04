@@ -372,18 +372,16 @@ const NESTED_ROWS: usize = 16;
 
 ///
 /// A Source whose every row is one Expression nested as deep as the row
-/// allows: Adds, each in its parent's first operand, around a Number Range,
-/// so every Function in it may answer a Sequence and the whole row is its
-/// root's Output Portal Reservation.
+/// allows: Adds, each in its parent's first operand.
 ///
-/// One Expression holding many positioned entries is the shape the
-/// Sequence-capability derivation is linear or not over. The ordinary fixtures
-/// hold short Expressions, where a scan of every entry for each entry is too
-/// small to see.
+/// One Expression holding many positioned entries is the shape a per-entry
+/// derivation is linear or not over. The ordinary fixtures hold short
+/// Expressions, where a scan of every entry for each entry is too small to
+/// see.
 ///
 fn nested_source_text(cols: usize, rows: usize) -> String {
-    let depth = (cols - ":-0102".len()) / 4;
-    let row = format!("{}:-0102{}", ".+".repeat(depth), "01".repeat(depth));
+    let depth = (cols - "01".len()) / 4;
+    let row = format!("{}01{}", ".+".repeat(depth), "01".repeat(depth));
     let mut text = String::with_capacity(cols * rows);
     for _ in 0..rows {
         text.push_str(&row);
@@ -396,11 +394,11 @@ fn nested_source_text(cols: usize, rows: usize) -> String {
 /// Measures one Render Frame over deeply nested Expressions, across
 /// `NESTED_COLUMNS`.
 ///
-/// The frame derives every root's Output Portal Reservation, which derives
-/// each Expression's Sequence-capability over its positioned entries. The rest
-/// of a frame is a walk over the Cells, so a frame whose cost grows linearly
-/// with the columns is one whose derivation grows linearly with the entries;
-/// a derivation quadratic in them shows as faster growth at the wide end.
+/// The frame derives every root's Output Portal Reservation and each
+/// Expression's claims over its positioned entries. The rest of a frame is a walk over the Cells, so a
+/// frame whose cost grows linearly with the columns is one whose derivation
+/// grows linearly with the entries; a derivation quadratic in them shows as
+/// faster growth at the wide end.
 ///
 fn render_frame_nested(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_render_frame_nested");

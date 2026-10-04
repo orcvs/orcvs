@@ -797,6 +797,31 @@ mod test {
     }
 
     #[test]
+    fn no_function_is_spelled_in_the_colon_family() {
+        // The `:` family names no Function: every two-Cell spelling that
+        // starts with `:` is unknown, and a whole Expression written with
+        // one does not parse.
+        assert!(
+            Function::ALL
+                .iter()
+                .all(|function| !function.spelling().starts_with(':')),
+            "a Function is spelled in the colon family"
+        );
+        for spelling in [":-", ":#", ":<", ":&", ":?", ":="] {
+            assert_eq!(Function::from_spelling(spelling), None, "{spelling}");
+            for source in [spelling.to_owned(), format!("{spelling}0104")] {
+                assert!(
+                    matches!(
+                        try_parse(&source),
+                        Err(Error::Syntax(SyntaxError::UnknownFunction(ref found))) if found == spelling
+                    ),
+                    "{source:?} parsed or failed for another reason"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn numeric_conversion_spellings_parse_without_language_unit_collisions() {
         assert_eq!(
             try_parse(".vC4").unwrap().as_slice(),
@@ -1066,14 +1091,6 @@ mod test {
         // absent because no signature declares it, so no Source spells one.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
-            if signature
-                .iter()
-                .any(|token| matches!(token, Token::Atom | Token::Sequence))
-            {
-                // Atom and Sequence operands round-trip through nested Functions
-                // rather than Operand Literals; see `sequence.rs`.
-                continue;
-            }
             for (slot, token) in signature.iter().copied().enumerate() {
                 for atom in every_atom_of(token) {
                     let operands: String = signature
@@ -1216,25 +1233,10 @@ mod property {
         .boxed()
     }
 
-    /// Functions whose operands are all literal-decodable. Atom and Sequence
-    /// operands bind only through nested Functions, not as Operand Literals.
-    fn literal_complete_functions() -> Vec<Function> {
-        Function::ALL
-            .iter()
-            .copied()
-            .filter(|function| {
-                function
-                    .signature()
-                    .iter()
-                    .all(|token| !matches!(token, Token::Atom | Token::Sequence))
-            })
-            .collect()
-    }
-
     /// One Function spelled with a literal in each operand position its
     /// signature declares: the shape strict parsing accepts whole.
     fn complete_expression() -> BoxedStrategy<String> {
-        select(literal_complete_functions())
+        select(Function::ALL.to_vec())
             .prop_flat_map(|function| {
                 let operands: Vec<BoxedStrategy<String>> = function
                     .signature()

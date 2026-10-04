@@ -436,17 +436,17 @@ mod tests {
     }
 
     #[test]
-    fn a_chord_of_timed_plays_stops_each_element_at_its_own_length() {
-        // `!~` widens over a Sequence, so one Expression hands the schedule
-        // several Timed Play commands at once, in element index order.
-        // Ownership is keyed by channel and note and each command carries its
-        // own length, so the group needs nothing of its own — this states
-        // that, rather than assuming it.
+    fn a_chord_of_timed_plays_stops_each_note_at_its_own_length() {
+        // Several Timed Play roots one Bang activates hand the schedule several
+        // Timed Play commands at once, in producer order. Ownership is keyed
+        // by channel and note and each command carries its own length, so the
+        // chord needs nothing of its own — this states that, rather than
+        // assuming it.
         //
         // Three notes with three different lengths in one delivery: a schedule
-        // that read one length for the whole group, or that let a later
-        // element's claim displace an earlier one, stops the wrong notes at the
-        // wrong Ticks.
+        // that read one length for the whole chord, or that let a later note's
+        // claim displace an earlier one, stops the wrong notes at the wrong
+        // Ticks.
         let mut schedule = OwnedNotes::default();
 
         let started = plan(
@@ -459,8 +459,8 @@ mod tests {
             ],
         );
 
-        // Delivery is in slice order, which is the element index order the Tick
-        // Plan carried across the seam.
+        // Delivery is in slice order, which is the producer order the Tick Plan
+        // carried across the seam.
         assert_eq!(
             started,
             vec![

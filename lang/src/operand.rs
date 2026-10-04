@@ -69,7 +69,7 @@
 //! never a value. [`NumericValue`] is the one value type, the payload a
 //! [`Numeric`] operand binds.
 
-use crate::{Error, SequenceError, Token, TypeError, Value};
+use crate::{Error, Token, TypeError};
 
 /// What a Parser token is at evaluation: the [`Token`] a literal in the slot
 /// is read as, and the payload one operand yields once checked against it.
@@ -81,25 +81,7 @@ pub trait TokenKind {
     type Payload;
 
     /// Checks one Atom, answering the payload it carries.
-    ///
-    /// This is the element reading: a pervasive Function reads each member of
-    /// a Sequence operand here, one element at a time.
     fn from_atom(atom: crate::Atom) -> Result<Self::Payload, Error>;
-
-    /// Checks one whole value, answering the payload it carries.
-    ///
-    /// This is the whole-value reading a Function that consumes its operands
-    /// intact binds through. A Sequence satisfies no Atom-shaped token, so it
-    /// diagnoses unless the token overrides this to consume one.
-    #[inline(always)]
-    fn from_value(value: Value) -> Result<Self::Payload, Error> {
-        match value {
-            Value::Atom(atom) => Self::from_atom(atom),
-            Value::Sequence(sequence) => {
-                Err(SequenceError::ExpectedAtom(sequence.to_string()).into())
-            }
-        }
-    }
 }
 
 /// One operand type a Function table row may declare.
@@ -187,107 +169,12 @@ impl Operand for Note {
     }
 }
 
-/// Any Atom: the replacement of Replace, which may differ in type from the
-/// member it displaces.
-///
-/// It declares no type, so no Atom fails it. Every Atom with no place at an
-/// operand position is refused by a rule stated elsewhere: an Atom that cannot
-/// be a Sequence member by [`crate::Sequence::new`], and an effect Function by
-/// the Interpreter's nesting guard. Restating either here would give that rule
-/// a second place to disagree from.
-pub enum Atom {}
-
-impl TokenKind for Atom {
-    const TOKEN: Token = Token::Atom;
-    type Payload = crate::Atom;
-
-    #[inline(always)]
-    fn from_atom(atom: crate::Atom) -> Result<crate::Atom, Error> {
-        Ok(atom)
-    }
-}
-
-impl Operand for Atom {
-    type Token = Self;
-    type Bound = crate::Atom;
-
-    #[inline(always)]
-    fn bind(atom: crate::Atom) -> Result<crate::Atom, Error> {
-        Ok(atom)
-    }
-}
-
-/// A whole Sequence, consumed intact.
-///
-/// No Atom satisfies it and none is promoted: promotion is a Function's
-/// decision, which [`AtomOrSequence`] declares, so an Atom here diagnoses
-/// rather than widening into a singleton.
-pub enum Sequence {}
-
-impl TokenKind for Sequence {
-    const TOKEN: Token = Token::Sequence;
-    type Payload = crate::Sequence;
-
-    #[inline(always)]
-    fn from_atom(atom: crate::Atom) -> Result<crate::Sequence, Error> {
-        Err(SequenceError::ExpectedSequence(atom.into()).into())
-    }
-
-    #[inline(always)]
-    fn from_value(value: Value) -> Result<crate::Sequence, Error> {
-        crate::Sequence::try_from(value)
-    }
-}
-
-impl Operand for Sequence {
-    type Token = Self;
-    type Bound = crate::Sequence;
-
-    #[inline(always)]
-    fn bind(sequence: crate::Sequence) -> Result<crate::Sequence, Error> {
-        Ok(sequence)
-    }
-}
-
-/// A Sequence, or an Atom promoted to the Sequence of that one member.
-///
-/// Read as an Atom by the Parser, because a literal in this slot is one Atom.
-pub enum AtomOrSequence {}
-
-impl TokenKind for AtomOrSequence {
-    const TOKEN: Token = Token::Atom;
-    type Payload = crate::Sequence;
-
-    #[inline(always)]
-    fn from_atom(atom: crate::Atom) -> Result<crate::Sequence, Error> {
-        crate::Sequence::promote(atom)
-    }
-
-    #[inline(always)]
-    fn from_value(value: Value) -> Result<crate::Sequence, Error> {
-        match value {
-            Value::Sequence(sequence) => Ok(sequence),
-            Value::Atom(atom) => Self::from_atom(atom),
-        }
-    }
-}
-
-impl Operand for AtomOrSequence {
-    type Token = Self;
-    type Bound = crate::Sequence;
-
-    #[inline(always)]
-    fn bind(sequence: crate::Sequence) -> Result<crate::Sequence, Error> {
-        Ok(sequence)
-    }
-}
-
 /// A Number or a Note, whichever arrives, with its literal read as `L`.
 ///
 /// Each numeric conversion has a monomorphic literal signature and an
 /// evaluation that is idempotent over its own result type, so a value
-/// already converted, arriving from nested evaluation or a Sequence, is
-/// accepted rather than refused. `L` is the literal reading; the payload is
+/// already converted, arriving from nested evaluation, is accepted rather
+/// than refused. `L` is the literal reading; the payload is
 /// either numeric type.
 pub struct Numeric<L>(core::marker::PhantomData<L>, core::convert::Infallible);
 
@@ -367,43 +254,14 @@ impl Operand for Length {
     }
 }
 
-/// Checks every Atom `operand` holds against `O`'s token, in member order.
-///
-/// A Sequence operand is walked member by member, because an element reading
-/// broadcasts across it.
+/// Checks one operand Atom against `O`'s token.
 #[inline(always)]
-pub(crate) fn check<O: Operand>(operand: &Value) -> Result<(), Error> {
-    match operand {
-        Value::Atom(atom) => O::Token::from_atom(*atom).map(drop),
-        Value::Sequence(sequence) => {
-            for atom in sequence {
-                O::Token::from_atom(*atom)?;
-            }
-            Ok(())
-        }
-    }
+pub(crate) fn check<O: Operand>(atom: crate::Atom) -> Result<(), Error> {
+    O::Token::from_atom(atom).map(drop)
 }
 
-/// Checks a scalar operand against `O`'s domain, where no element binds it.
-///
-/// A Sequence operand answers nothing here: at the width this is asked at, it
-/// is empty.
-#[inline(always)]
-pub(crate) fn check_scalar_domain<O: Operand>(operand: &Value) -> Result<(), Error> {
-    match operand {
-        Value::Atom(atom) => bind_atom::<O>(*atom).map(drop),
-        Value::Sequence(_) => Ok(()),
-    }
-}
-
-/// Binds one element Atom to `O`.
+/// Binds one operand Atom to `O`.
 #[inline(always)]
 pub(crate) fn bind_atom<O: Operand>(atom: crate::Atom) -> Result<O::Bound, Error> {
     O::bind(O::Token::from_atom(atom)?)
-}
-
-/// Binds one whole value to `O`.
-#[inline(always)]
-pub(crate) fn bind_value<O: Operand>(value: Value) -> Result<O::Bound, Error> {
-    O::bind(O::Token::from_value(value)?)
 }

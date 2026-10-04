@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, InterpretationError, Value,
+    Atom, Error, Function, InterpretationError,
     atom::operands::{Clock, Delay, Euclidean, Increment, Interpolation, Random},
     interpreter::Context,
 };
@@ -10,17 +10,8 @@ use rand_chacha::rand_core::{Rng, SeedableRng};
 // interpretation `Context` and nothing else: no clock, no static, no counter of
 // its own. That is what makes the same Source Snapshot at the same Tick answer
 // the same way, and it is why the Tick is lifted out of `ctx` once here rather
-// than reached for inside each element's closure — the element answer is about
-// one pair of Numbers at one Tick, exactly as `math::add` is about one pair of
-// Numbers, and the Tick is shared by the whole operation because an Expression
-// is evaluated at one Tick.
-//
-// Delay, Euclidean, Increment and Interpolation are declared Scalar and bind
-// through `Stack::extract`, the scalar seam, so none of their bodies checks
-// for a Sequence operand. Clock and Random each answer a Number and
-// broadcast like every other Atomic Function; Random uses
-// `Stack::apply_indexed` so Sequence index participates in each element's
-// stream.
+// than reached for inside the answering closure: an Expression is evaluated at
+// one Tick.
 //
 // Every formula is evaluated in `u64`. The Tick is already one, and the two
 // operands are Numbers whose product is a cycle length rather than a value the
@@ -49,9 +40,9 @@ fn zero_cycle(function: Function, role: &'static str) -> Error {
 /// the same two zeroes, and refusing them in one place is what keeps the two
 /// diagnostics saying the same thing about the same fault. The rate is answered
 /// before the modulus because that is signature order, which is the order every
-/// other operand fault in the language is reported in — `Stack::checked` walks
-/// operands in it and `Operands::from_operands` binds in it — so a Source that
-/// wrote two zeroes is told about the earlier Cell pair.
+/// other operand fault in the language is reported in — `Stack::extract` checks
+/// and binds operands in it — so a Source that wrote two zeroes is told about
+/// the earlier Cell pair.
 ///
 #[inline(always)]
 fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64), Error> {
@@ -75,20 +66,17 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
 /// the Source for the next Tick to read as an operand.
 ///
 #[inline(always)]
-fn pulse(banged: bool) -> Value {
-    if banged { Atom::Bang } else { Atom::Empty }.into()
+fn pulse(banged: bool) -> Atom {
+    if banged { Atom::Bang } else { Atom::Empty }
 }
 
 /// Clock: `~. rate modulus`.
 ///
 /// The step a cycle of `rate * modulus` Ticks is at, as a Number: `rate` Ticks
 /// to a step and `modulus` steps to the cycle, so the answer counts `00`,
-/// `01`, … up to `modulus - 1` and begins again. It answers a Number, so it is
-/// pervasive: it broadcasts through `Stack::apply` and a Sequence operand
-/// answers a Sequence of steps, because every element has a step to
-/// contribute.
+/// `01`, … up to `modulus - 1` and begins again.
 #[inline(always)]
-pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
+pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
     let tick = ctx.inputs.tick().get();
 
     ctx.stack.apply(move |Clock { rate, modulus }: Clock| {
@@ -115,11 +103,8 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
 /// therefore a Bang once per `rate` Ticks and not one every Tick, which is what
 /// makes the two operands a rate and a step count rather than two names for the
 /// same period.
-///
-/// It is declared Scalar, so the one pair `Stack::extract` binds is the whole
-/// operation.
 #[inline(always)]
-pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
+pub fn delay(ctx: &mut Context) -> Result<Atom, Error> {
     let tick = ctx.inputs.tick().get();
     let Delay { rate, modulus } = ctx.stack.extract::<Delay>()?;
     let (rate, modulus) = cycle_factors(Function::Delay, rate, modulus)?;
@@ -147,11 +132,8 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 /// reducing first is exactly equivalent because every term after it is taken
 /// modulo `steps` anyway. What the counter itself does at its end is decided
 /// by [`crate::Tick::next`], which saturates rather than wraps.
-///
-/// It is declared Scalar, so the one pair `Stack::extract` binds is the whole
-/// operation.
 #[inline(always)]
-pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
+pub fn euclidean(ctx: &mut Context) -> Result<Atom, Error> {
     let tick = ctx.inputs.tick().get();
     let Euclidean { hits, steps } = ctx.stack.extract::<Euclidean>()?;
 
@@ -188,11 +170,10 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
 /// `FF + 02` is 257 rather than a wrapped `01` that would then take the
 /// modulus of the wrong total.
 ///
-/// It is declared Scalar, so a Sequence at either operand is refused by cell
-/// operand binding before the Portal input is decoded. Both bindings must
-/// succeed before the formula runs.
+/// The operands bind before the Portal input is decoded, and both bindings
+/// must succeed before the formula runs.
 #[inline(always)]
-pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
+pub fn increment(ctx: &mut Context) -> Result<Atom, Error> {
     let (Increment { step, modulus }, previous) =
         crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portal_source())?;
     let previous = previous.number();
@@ -211,7 +192,7 @@ pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
         value: step,
     })?;
 
-    Ok(Atom::Number(step).into())
+    Ok(Atom::Number(step))
 }
 
 /// Interpolation: `~> rate target`.
@@ -223,9 +204,9 @@ pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
 /// subtraction is taken in `u64` before the answer becomes a Number. Rate
 /// `00` holds because a step of nothing is still a step of at most `rate`.
 ///
-/// It is declared Scalar and binds as Increment does.
+/// It binds as Increment does.
 #[inline(always)]
-pub fn interpolation(ctx: &mut Context) -> Result<Value, Error> {
+pub fn interpolation(ctx: &mut Context) -> Result<Atom, Error> {
     let (Interpolation { rate, target }, previous) =
         crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portal_source())?;
     let previous = previous.number();
@@ -255,29 +236,23 @@ pub fn interpolation(ctx: &mut Context) -> Result<Value, Error> {
         value: next,
     })?;
 
-    Ok(Atom::Number(next).into())
+    Ok(Atom::Number(next))
 }
 
 /// Random: `~? seed minimum maximum`.
 ///
 /// A Number selected inclusively between normalized bounds. Each result
-/// derives from the explicit seed, the absolute Tick, this Function's
-/// own Position, and the zero-based Sequence index, rather than from
-/// activation history: the same Source Snapshot at the same Tick answers the
+/// derives from the explicit seed, the absolute Tick, and this Function's
+/// own Position, rather than from activation history: the same Source Snapshot at the same Tick answers the
 /// same Number, a skipped activation skips that sample, and two Randoms at
 /// different Positions have independent reproducible streams.
 ///
-/// The stream is a fresh ChaCha8 seeded from those four facts for every
-/// scalar result. Reversed bounds describe the same range; equal bounds
+/// The stream is a fresh ChaCha8 seeded from those three facts for every
+/// result. Reversed bounds describe the same range; equal bounds
 /// return that value without asking the generator. The mapping widens the
 /// inclusive width so `00`–`FF` is 256 values rather than a wrapping 0.
-///
-/// It answers a Number, so it is pervasive like Clock: it broadcasts through
-/// `Stack::apply_indexed` and a Sequence operand answers a Sequence of
-/// draws. Sequence index participates per element so two equal bounds at
-/// different positions do not share a stream.
 #[inline(always)]
-pub fn random(ctx: &mut Context) -> Result<Value, Error> {
+pub fn random(ctx: &mut Context) -> Result<Atom, Error> {
     let tick = ctx.inputs.tick().get();
     let anchor = ctx.inputs.anchor();
     // ADR 0013 writes the coordinates as little-endian i64. The Grid mints
@@ -286,16 +261,14 @@ pub fn random(ctx: &mut Context) -> Result<Value, Error> {
     let column = anchor.column() as i64;
     let row = anchor.row() as i64;
 
-    ctx.stack.apply_indexed(
+    ctx.stack.apply(
         move |Random {
                   seed,
                   minimum,
                   maximum,
-              }: Random,
-              index| {
-            let sequence = index as u32;
+              }: Random| {
             Ok(Atom::Number(draw(
-                seed, tick, column, row, sequence, minimum, maximum,
+                seed, tick, column, row, minimum, maximum,
             )))
         },
     )
@@ -310,7 +283,7 @@ pub fn random(ctx: &mut Context) -> Result<Value, Error> {
 /// swap so the width is taken from the ordered pair, which is what makes
 /// `10 00` the same range as `00 10`.
 ///
-fn draw(seed: u8, tick: u64, column: i64, row: i64, sequence: u32, minimum: u8, maximum: u8) -> u8 {
+fn draw(seed: u8, tick: u64, column: i64, row: i64, minimum: u8, maximum: u8) -> u8 {
     let (low, high) = if minimum <= maximum {
         (minimum, maximum)
     } else {
@@ -320,7 +293,7 @@ fn draw(seed: u8, tick: u64, column: i64, row: i64, sequence: u32, minimum: u8, 
         return low;
     }
 
-    let word = chacha_word(seed, tick, column, row, sequence);
+    let word = chacha_word(seed, tick, column, row);
     let width = u16::from(high) - u16::from(low) + 1;
     let selected = u16::from(low) + (word % u64::from(width)) as u16;
     // `width` is at most 256 and `low + (word % width)` is at most 255.
@@ -332,17 +305,14 @@ fn draw(seed: u8, tick: u64, column: i64, row: i64, sequence: u32, minimum: u8, 
 ///
 /// The 32-byte seed is zero-initialized. Byte `0` is the explicit seed;
 /// `[1, 9)` is the Tick as little-endian `u64`; `[9, 17)` and `[17, 25)` are
-/// the Function column and row as little-endian `i64`; `[25, 29)` is the
-/// Sequence index as little-endian `u32`; `[29, 32)` stay zero. A scalar
-/// call uses Sequence index `0`.
+/// the Function column and row as little-endian `i64`; `[25, 32)` stay zero.
 ///
-fn chacha_word(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> u64 {
+fn chacha_word(seed: u8, tick: u64, column: i64, row: i64) -> u64 {
     let mut bytes = [0u8; 32];
     bytes[0] = seed;
     bytes[1..9].copy_from_slice(&tick.to_le_bytes());
     bytes[9..17].copy_from_slice(&column.to_le_bytes());
     bytes[17..25].copy_from_slice(&row.to_le_bytes());
-    bytes[25..29].copy_from_slice(&sequence.to_le_bytes());
     ChaCha8Rng::from_seed(bytes).next_u64()
 }
 
@@ -350,7 +320,7 @@ fn chacha_word(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> u64
 mod test {
     use crate::{
         Anchor, Atom, Error, Function, FunctionInputs, Interpretation, Interpreter, Note,
-        PortalSource, Sequence, SequenceError, Tick, TickInputs, TypeError, Value,
+        PortalSource, Tick, TickInputs, TypeError,
     };
     use rand_chacha::ChaCha8Rng;
     use rand_chacha::rand_core::{Rng, SeedableRng};
@@ -365,8 +335,8 @@ mod test {
     fn evaluate(
         function: Function,
         tick: u64,
-        left: impl Into<Value>,
-        right: impl Into<Value>,
+        left: Atom,
+        right: Atom,
     ) -> Result<Interpretation, Error> {
         evaluate_previous(function, tick, left, right, "  ")
     }
@@ -375,13 +345,13 @@ mod test {
     fn evaluate_previous(
         function: Function,
         tick: u64,
-        left: impl Into<Value>,
-        right: impl Into<Value>,
+        left: Atom,
+        right: Atom,
         previous: &str,
     ) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            [left.into(), right.into()],
+            [left, right],
             FunctionInputs::with_portal_source(
                 TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
                 PortalSource::from_cells(Some(previous)),
@@ -405,10 +375,6 @@ mod test {
             Ok(Atom::Empty) => false,
             other => panic!("{function:?}({left:02X}, {right:02X}) at {tick} answered {other:?}"),
         }
-    }
-
-    fn numbers(values: impl IntoIterator<Item = u8>) -> Sequence {
-        Sequence::new(values.into_iter().map(Atom::Number)).unwrap()
     }
 
     #[test]
@@ -804,156 +770,6 @@ mod test {
         }
     }
 
-    #[test]
-    fn a_clock_broadcasts_one_step_per_element() {
-        // Clock answers a Number, so ADR 0039 leaves it pervasive and it
-        // extends element-wise like any other Atomic Function: a scalar operand
-        // repeats and equal lengths pair.
-        assert_eq!(
-            evaluate(Function::Clock, 7, Atom::Number(0x02), numbers([2, 4, 8])).unwrap(),
-            Interpretation::Sequence(numbers([1, 3, 3])),
-        );
-
-        assert_eq!(
-            evaluate(Function::Clock, 7, numbers([1, 2, 4]), numbers([4, 4, 4])).unwrap(),
-            Interpretation::Sequence(numbers([3, 3, 1])),
-        );
-
-        // An empty Sequence operand is a width of no elements rather than a
-        // scalar, so the answer is the empty Sequence: Clock answers per
-        // element, where the pulses refuse the operand.
-        for (left, right) in [
-            (
-                Value::from(Atom::Number(0x02)),
-                Value::from(Sequence::empty()),
-            ),
-            (Sequence::empty().into(), Atom::Number(0x02).into()),
-            (Sequence::empty().into(), Sequence::empty().into()),
-        ] {
-            assert_eq!(
-                evaluate(Function::Clock, 7, left.clone(), right.clone()).unwrap(),
-                Interpretation::Sequence(Sequence::empty()),
-                "~. {left:?} {right:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_clock_element_fault_diagnoses_the_complete_operation() {
-        // The all-or-nothing rule, on a Tick-reading Function that broadcasts.
-        // A zero modulus at the last element refuses the whole answer rather
-        // than leaving a Sequence of the steps that did count, and the fault is
-        // raised at whichever element holds it.
-        for (left, right, message) in [
-            (
-                Value::from(Atom::Number(0x02)),
-                Value::from(numbers([4, 8, 0])),
-                "~. cannot count a cycle with a zero modulus",
-            ),
-            (
-                numbers([1, 0]).into(),
-                Atom::Number(0x04).into(),
-                "~. cannot count a cycle with a zero rate",
-            ),
-        ] {
-            let error = evaluate(Function::Clock, 7, left, right).unwrap_err();
-            assert_eq!(error.to_string(), message);
-        }
-    }
-
-    #[test]
-    fn a_clock_diagnoses_two_non_scalar_operands_of_different_lengths() {
-        // Ordinary shape rules, including an empty Sequence against a
-        // non-empty one: a shape fault is settled before any element is read,
-        // so it precedes every diagnostic the formula could raise. The pulses
-        // refuse the first Sequence they see and never compare two lengths;
-        // Random's case is below.
-        for (left, right, lengths) in [
-            (
-                Value::from(numbers([1, 2])),
-                Value::from(numbers([1, 2, 3])),
-                (2, 3),
-            ),
-            (Sequence::empty().into(), numbers([1, 2]).into(), (0, 2)),
-            (numbers([1, 2]).into(), Sequence::empty().into(), (2, 0)),
-        ] {
-            assert!(
-                matches!(
-                    evaluate(Function::Clock, 5, left.clone(), right.clone()),
-                    Err(Error::Sequence(SequenceError::IncompatibleLengths { left: l, right: r }))
-                        if (l, r) == lengths
-                ),
-                "~. {left:?} {right:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_pulse_refuses_a_sequence_at_either_operand_position() {
-        // Delay and Euclidean are declared Scalar. The refusal is the
-        // declaration's, not a check in either body, so it is claimed at both
-        // operand positions of both Functions — including the empty Sequence,
-        // which a body checking for members to walk would let through as an
-        // operation of nothing.
-        for function in [Function::Delay, Function::Euclidean] {
-            for (left, right, found) in [
-                (
-                    Value::from(numbers([2, 3])),
-                    Value::from(Atom::Number(0x04)),
-                    "0203",
-                ),
-                (Atom::Number(0x04).into(), numbers([2, 3]).into(), "0203"),
-                (numbers([2, 3]).into(), numbers([4, 8]).into(), "0203"),
-                (Sequence::empty().into(), Atom::Number(0x04).into(), ""),
-                (Atom::Number(0x04).into(), Sequence::empty().into(), ""),
-            ] {
-                assert!(
-                    matches!(
-                        evaluate(function, 12, left.clone(), right.clone()),
-                        Err(Error::Sequence(SequenceError::ExpectedAtom(ref rendered)))
-                            if rendered == found
-                    ),
-                    "{function:?}({left:?}, {right:?})"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_pulse_refuses_a_sequence_before_it_reads_the_numbers_inside_it() {
-        // The refusal is settled in `Stack::broadcast`, which runs before any
-        // element binds, so a Sequence carrying operands the formula would also
-        // refuse is answered as the shape fault it is. A body that walked the
-        // members first would report the zero and leave the Source believing a
-        // Sequence operand is admissible once its members are fixed.
-        let error = evaluate(Function::Delay, 0, numbers([1, 0]), Atom::Number(0x04)).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            r#"expected an Atom, found the Sequence "0100""#
-        );
-
-        let error = evaluate(
-            Function::Euclidean,
-            0,
-            Atom::Number(0x02),
-            numbers([4, 8, 0]),
-        )
-        .unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            r#"expected an Atom, found the Sequence "040800""#
-        );
-
-        // And two Sequences of different lengths, which is the other shape
-        // fault: the pervasion answer precedes the length comparison, so the
-        // first Sequence in signature order is the one the Source is shown.
-        let error = evaluate(Function::Delay, 0, numbers([1, 2]), numbers([1, 2, 3])).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            r#"expected an Atom, found the Sequence "0102""#
-        );
-    }
-
     /// The Atom `function` answers for one pair of Numbers at a stated previous.
     fn feedback(function: Function, previous: &str, left: u8, right: u8) -> Result<Atom, Error> {
         match evaluate_previous(
@@ -1150,73 +966,7 @@ mod test {
                     Err(Error::Type(TypeError::Number(_)))
                 ));
             }
-            for (left, right) in [
-                (Value::from(numbers([1, 2])), Value::from(Atom::Number(4))),
-                (Atom::Number(1).into(), numbers([3, 4]).into()),
-            ] {
-                assert!(matches!(
-                    evaluate_previous(function, 0, left, right, "G4"),
-                    Err(Error::Sequence(SequenceError::ExpectedAtom(_)))
-                ));
-            }
         }
-    }
-
-    #[test]
-    fn a_feedback_function_refuses_a_sequence_at_either_operand_position() {
-        // Increment and Interpolation are declared Scalar, so the operand is
-        // refused by the declaration before either body runs — including the
-        // empty Sequence, which a body checking for members to walk would let
-        // through as an operation of nothing.
-        for function in [Function::Increment, Function::Interpolation] {
-            for (left, right, found) in [
-                (
-                    Value::from(numbers([2, 3])),
-                    Value::from(Atom::Number(0x04)),
-                    "0203",
-                ),
-                (Atom::Number(0x04).into(), numbers([2, 3]).into(), "0203"),
-                (numbers([2, 3]).into(), numbers([4, 8]).into(), "0203"),
-                (Sequence::empty().into(), Atom::Number(0x04).into(), ""),
-                (Atom::Number(0x04).into(), Sequence::empty().into(), ""),
-            ] {
-                assert!(
-                    matches!(
-                        evaluate(function, 0, left.clone(), right.clone()),
-                        Err(Error::Sequence(SequenceError::ExpectedAtom(ref rendered)))
-                            if rendered == found
-                    ),
-                    "{function:?}({left:?}, {right:?})"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_feedback_function_refuses_a_sequence_before_it_reads_the_numbers_inside_it() {
-        // The refusal is settled in `Stack::broadcast`, which runs before any
-        // element binds, so a Sequence carrying a zero modulus is answered as
-        // the shape fault it is. A body that walked the members first would
-        // report the wrap and leave the Source believing a Sequence operand
-        // is admissible once its members are fixed.
-        let error =
-            evaluate(Function::Increment, 0, numbers([1, 0]), Atom::Number(0x04)).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            r#"expected an Atom, found the Sequence "0100""#
-        );
-
-        let error = evaluate(
-            Function::Interpolation,
-            0,
-            Atom::Number(0x02),
-            numbers([4, 8, 0]),
-        )
-        .unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            r#"expected an Atom, found the Sequence "040800""#
-        );
     }
 
     /// Evaluates Random at a stated Tick and anchor.
@@ -1227,13 +977,13 @@ mod test {
         tick: u64,
         column: usize,
         row: usize,
-        seed: impl Into<Value>,
-        minimum: impl Into<Value>,
-        maximum: impl Into<Value>,
+        seed: Atom,
+        minimum: Atom,
+        maximum: Atom,
     ) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             Function::Random,
-            [seed.into(), minimum.into(), maximum.into()],
+            [seed, minimum, maximum],
             TickInputs::new(Tick::new(tick), Anchor::new(column, row)).into(),
         )
     }
@@ -1262,13 +1012,12 @@ mod test {
 
     /// ADR 0013's 32-byte ChaCha seed, assembled here from the stated layout
     /// rather than from the Function body.
-    fn adr_seed(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> [u8; 32] {
+    fn adr_seed(seed: u8, tick: u64, column: i64, row: i64) -> [u8; 32] {
         let mut bytes = [0u8; 32];
         bytes[0] = seed;
         bytes[1..9].copy_from_slice(&tick.to_le_bytes());
         bytes[9..17].copy_from_slice(&column.to_le_bytes());
         bytes[17..25].copy_from_slice(&row.to_le_bytes());
-        bytes[25..29].copy_from_slice(&sequence.to_le_bytes());
         bytes
     }
 
@@ -1301,7 +1050,7 @@ mod test {
         // Tick into the column slot, fails a literal rather than agreeing
         // with itself.
         //
-        // Origin: seed `01`, Tick `0`, column `0`, row `0`, Sequence `0`.
+        // Origin: seed `01`, Tick `0`, column `0`, row `0`.
         const ORIGIN_SEED: [u8; 32] = [
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1309,7 +1058,7 @@ mod test {
         ];
         const ORIGIN_WORD: u64 = 0x61a9_4a49_a0e9_5ecf;
 
-        assert_eq!(adr_seed(0x01, 0, 0, 0, 0), ORIGIN_SEED);
+        assert_eq!(adr_seed(0x01, 0, 0, 0), ORIGIN_SEED);
         assert_eq!(
             ChaCha8Rng::from_seed(ORIGIN_SEED).next_u64(),
             ORIGIN_WORD,
@@ -1339,41 +1088,11 @@ mod test {
         ];
         const OFFSET_WORD: u64 = 0x9142_5add_444f_79fb;
 
-        assert_eq!(adr_seed(0x01, 7, 3, 5, 0), OFFSET_SEED);
+        assert_eq!(adr_seed(0x01, 7, 3, 5), OFFSET_SEED);
         assert_eq!(ChaCha8Rng::from_seed(OFFSET_SEED).next_u64(), OFFSET_WORD);
         assert_eq!(
             random_answer(7, 3, 5, 0x01, 0x00, 0xFF).unwrap(),
             Atom::Number(0xFB)
-        );
-    }
-
-    #[test]
-    fn random_sequence_index_distinguishes_broadcast_elements() {
-        // Sequence index occupies bytes `[25, 29)`. Two elements with the
-        // same bounds at the same Position would share a stream if the
-        // index were left at `0` for every one.
-        const SEQ1_SEED: [u8; 32] = [
-            0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
-        const SEQ1_WORD: u64 = 0x2487_bf0e_d164_dbd0;
-
-        assert_eq!(adr_seed(0x01, 7, 3, 5, 1), SEQ1_SEED);
-        assert_eq!(ChaCha8Rng::from_seed(SEQ1_SEED).next_u64(), SEQ1_WORD);
-        assert_ne!(SEQ1_WORD, 0x9142_5add_444f_79fb);
-
-        assert_eq!(
-            evaluate_random(
-                0,
-                0,
-                0,
-                Atom::Number(0x01),
-                numbers([0, 0, 0]),
-                numbers([0x10, 0x10, 0x10])
-            )
-            .unwrap(),
-            Interpretation::Sequence(numbers([0x02, 0x0B, 0x07])),
         );
     }
 
@@ -1412,66 +1131,5 @@ mod test {
                 "~?({seed:?}, {minimum:?}, {maximum:?}) gave {error:?}"
             );
         }
-    }
-
-    #[test]
-    fn a_random_broadcasts_one_draw_per_element() {
-        // Random answers a Number, so it extends element-wise like Clock: a
-        // scalar operand repeats and equal lengths pair. Sequence index is
-        // what keeps the three draws from collapsing to one stream.
-        assert_eq!(
-            evaluate_random(
-                0,
-                0,
-                0,
-                Atom::Number(0x01),
-                Atom::Number(0x00),
-                numbers([0x10, 0x10, 0x10])
-            )
-            .unwrap(),
-            Interpretation::Sequence(numbers([0x02, 0x0B, 0x07])),
-        );
-
-        for (seed, minimum, maximum) in [
-            (
-                Value::from(Atom::Number(0x01)),
-                Value::from(Atom::Number(0x00)),
-                Value::from(Sequence::empty()),
-            ),
-            (
-                Sequence::empty().into(),
-                Atom::Number(0x00).into(),
-                Atom::Number(0x10).into(),
-            ),
-            (
-                Sequence::empty().into(),
-                Sequence::empty().into(),
-                Sequence::empty().into(),
-            ),
-        ] {
-            assert_eq!(
-                evaluate_random(0, 0, 0, seed.clone(), minimum.clone(), maximum.clone()).unwrap(),
-                Interpretation::Sequence(Sequence::empty()),
-                "~? {seed:?} {minimum:?} {maximum:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_random_diagnoses_two_non_scalar_operands_of_different_lengths() {
-        assert!(matches!(
-            evaluate_random(
-                5,
-                0,
-                0,
-                Atom::Number(0x01),
-                numbers([1, 2]),
-                numbers([1, 2, 3]),
-            ),
-            Err(Error::Sequence(SequenceError::IncompatibleLengths {
-                left: 2,
-                right: 3
-            }))
-        ));
     }
 }

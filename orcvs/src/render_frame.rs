@@ -57,18 +57,16 @@ impl RenderCell {
             Token::Function if claim.atom.is_some() => SourcePaint::Function,
             Token::Function => SourcePaint::Unclaimed,
             Token::Char => unreachable!("the Parser never creates a positioned Char claim"),
-            token @ (Token::Number | Token::Note | Token::Atom | Token::Sequence) => {
-                SourcePaint::Operand {
-                    token,
-                    state: if claim.atom.is_some() {
-                        OperandState::Valid
-                    } else if claim.written {
-                        OperandState::Invalid
-                    } else {
-                        OperandState::Pending
-                    },
-                }
-            }
+            token @ (Token::Number | Token::Note) => SourcePaint::Operand {
+                token,
+                state: if claim.atom.is_some() {
+                    OperandState::Valid
+                } else if claim.written {
+                    OperandState::Invalid
+                } else {
+                    OperandState::Pending
+                },
+            },
         }
     }
 
@@ -76,13 +74,9 @@ impl RenderCell {
     /// Whether this Cell draws as a root Function's Output Portal, derived
     /// from the current Source revision alone and known before any Tick runs.
     ///
-    /// `true` covers the Cell pair from the Output Portal for a Function that
-    /// can only answer a scalar. A Function that can answer a Sequence covers
-    /// at least four Cells from the Output Portal, written or not, then the
-    /// run of written Cells that follows, stopping at the first blank Cell
-    /// and completing the Cell pair the run stops inside. The highlight is
-    /// clipped to the Reservation the Tick scheduler reserves, which runs to
-    /// the end of the row. A nested Function, a Terminal Output Function,
+    /// `true` covers the Cell pair from the Output Portal, the Reservation the
+    /// Tick scheduler reserves for the root's answer. A nested Function, a
+    /// Terminal Output Function,
     /// Halt, and a Source-writing Function (including an Advance's cleared
     /// anchor) never set it, and neither does a scalar destination the row
     /// edge leaves no room for.

@@ -128,19 +128,16 @@ reproduces the values on this page:
 |---|---|---|
 | `grid.background` Source background | `#000000` | Source colours → Source background |
 | `source.comment` Comment | `#999999` | Source colours → Comment |
-| `source.ordinary` Ordinary, Char, Atom | `#EAEBE5` | Source colours → Ordinary |
+| `source.ordinary` Ordinary, Char | `#EAEBE5` | Source colours → Ordinary |
 | `source.number` Number | `#56B4E9` | Source colours → Number |
 | `source.note` Note | `#F0E442` | Source colours → Note |
 | `source.function` Function | `#009E73` | Source colours → Function |
 | `source.bang` Bang | `#CC79A7` | Source colours → Bang |
-| `source.sequence` Sequence | `#0072B2` | Source colours → Sequence |
 | `source.ordinary.background` | `#00000000` | No current role fill |
 | `source.comment.background`, `source.bang.background` | `#00000000` | No current role fill |
 | `source.function.background` | `#009E731A` | Function's own colour at 10% opacity |
 | `source.number.background` | `#56B4E91A` | Number's own colour at 10% opacity |
 | `source.note.background` | `#F0E4421A` | Note's own colour at 10% opacity |
-| `source.atom.background` | `#EAEBE51A` | Atom has a fill despite sharing Ordinary foreground; Ordinary's own colour at 10% opacity |
-| `source.sequence.background` | `#0072B21A` | Sequence's own colour at 10% opacity |
 | `diagnostic.foreground` | `#D55E00` | Source colours → Diagnostic |
 | `output_portal.foreground` | `#E69F00` | Source colours → Output Portal |
 | `output_portal.background` | `#E69F001A` | Output Portal's own colour at 10% opacity |
@@ -198,7 +195,7 @@ and including ADR 0053's border-width keys. It declares itself light.
 Its **chrome** colours start from the hand-tuned `LIGHT_PALETTE` on the
 `feat/egui-theming` branch, mapped onto the named keys as `04`'s 2026-09-21
 comment directs. That palette predates the named-key format: it says nothing
-about Comment, Sequence, Diagnostic or Output Portal, and its `marker`,
+about Comment, Diagnostic or Output Portal, and its `marker`,
 `highlight` and four `bloom_*` pairs name tokens this console retired (the
 Marker and Highlight Glyphs went with `retired-glyph-vocabulary`; the four
 bloom rings became the Cursor Effect's single `cursor.area` field).
@@ -224,7 +221,7 @@ the same role-to-hue assignment the dark built-in already uses. Each hue is kept
 exactly — the OKLCh hue angle moves by at most 0.7°, which is rounding into
 8-bit sRGB rather than a change of hue — and only lightness moves, as far as a
 near-white ground requires, and for Diagnostic and Output Portal as far as the
-colour-vision floor requires on top of that. `source.sequence` moves not at all.
+colour-vision floor requires on top of that.
 
 The **Provenance** column below says, for every property, whether the value is
 the chrome proposal's, an adjustment of it, an Okabe–Ito hue at a new lightness,
@@ -236,20 +233,17 @@ or decided here.
 | `panel.background` | `#EFF4F2` | proposal `page` |
 | `grid.background` | `#FAFCFB` | proposal `source` |
 | `cell.background` | `#00000000` | shared with Okabe–Ito, recorded explicitly |
-| `source.ordinary` | `#303F3B` | proposal `ordinary` (also Char and Atom) |
+| `source.ordinary` | `#303F3B` | proposal `ordinary` (also Char) |
 | `source.comment` | `#4E5A56` | decided here; the proposal has no Comment |
 | `source.number` | `#006D9B` | Okabe–Ito sky blue `#56B4E9`, darkened |
 | `source.note` | `#706900` | Okabe–Ito yellow `#F0E442`, darkened |
 | `source.function` | `#007555` | Okabe–Ito bluish green `#009E73`, darkened |
 | `source.bang` | `#90426F` | Okabe–Ito reddish purple `#CC79A7`, darkened |
-| `source.sequence` | `#0072B2` | Okabe–Ito blue, **unchanged** |
 | `source.ordinary.background` | `#00000000` | no role fill, as in Okabe–Ito |
 | `source.comment.background`, `source.bang.background` | `#00000000` | no role fill |
 | `source.number.background` | `#006D9B1A` | Number's own colour at 10% opacity |
 | `source.note.background` | `#7069001A` | Note's own colour at 10% opacity |
 | `source.function.background` | `#0075551A` | Function's own colour at 10% opacity |
-| `source.atom.background` | `#303F3B1A` | Ordinary's own colour at 10% opacity |
-| `source.sequence.background` | `#0072B21A` | Sequence's own colour at 10% opacity |
 | `diagnostic.foreground` | `#652800` | Okabe–Ito vermillion `#D55E00`, darkened past the contrast floor |
 | `diagnostic.background`, `diagnostic.border` | `#00000000` | shared with Okabe–Ito |
 | `output_portal.foreground` | `#6F4A00` | Okabe–Ito orange `#E69F00`, darkened past the contrast floor |
@@ -289,7 +283,6 @@ where "the same hue, darker" is a single coordinate:
 | Note | `#F0E442` | 105.04° | 0.902 | `#706900` | 105.03° | 0.511 | the contrast floor, on its own 10% tint |
 | Function | `#009E73` | 165.46° | 0.620 | `#007555` | 165.97° | 0.499 | the contrast floor, on its own 10% tint |
 | Bang | `#CC79A7` | 346.32° | 0.679 | `#90426F` | 346.62° | 0.494 | the contrast floor, on the Region wash |
-| Sequence | `#0072B2` | 244.05° | 0.532 | `#0072B2` | 244.05° | 0.532 | nothing: no reachable state draws a glyph in it, so no floor measures it; it is kept at Okabe–Ito's value for its tint |
 | Diagnostic | `#D55E00` | 47.51° | 0.621 | `#652800` | 46.92° | 0.360 | the colour-vision floor, against Output Portal |
 | Output Portal | `#E69F00` | 76.77° | 0.753 | `#6F4A00` | 76.07° | 0.440 | the colour-vision floor, against Note and Diagnostic |
 
@@ -299,8 +292,8 @@ and its Comment is the palette's neutral gray, and neither transfers to a
 near-white page. They are the near-white page's ink, which the chrome proposal
 set, and a muted form of it decided here, since the proposal has no Comment.
 
-Four of the seven — Number, Note, Function and Bang — moved only as far as the
-contrast floor on this ground forced them, and Sequence not at all. Diagnostic
+Four of the six — Number, Note, Function and Bang — moved only as far as the
+contrast floor on this ground forced them. Diagnostic
 and Output Portal moved further, as far as the colour-vision floor required, and the reason is
 structural rather than aesthetic: on a near-white ground the contrast floor is a
 *ceiling* on lightness, and it compresses every glyph into a band about 0.02
@@ -362,10 +355,9 @@ clears the 4.5:1 floor. There are no deliberate exceptions**
 because nothing fails, not because a failure was accepted. The lowest measured
 state is 4.78:1, Bang inside a Region.
 
-Four of the seven glyph hues — Number, Note, Function and Bang — were darkened
+Four of the six glyph hues — Number, Note, Function and Bang — were darkened
 exactly until this held and no further, and the **What moved** table above names
-which state bound each one. Sequence was not darkened: no reachable state draws
-a glyph in it. The other two, Diagnostic and Output Portal, were darkened past
+which state bound each one. The other two, Diagnostic and Output Portal, were darkened past
 the floor for the colour-vision reason recorded below.
 No floor was lowered and no state was special-cased.
 
@@ -384,10 +376,7 @@ Representative measurements, `plain` placement unless stated:
 | Note, Valid | `#706900` | `#ECEDE1` | 4.79:1 |
 | Number, Invalid | `#652800` | `#E1EDF1` | 9.47:1 |
 | Note, Invalid | `#652800` | `#ECEDE1` | 9.57:1 |
-| Atom, Invalid | `#652800` | `#E6E8E7` | 9.19:1 |
-| Sequence, Invalid | `#652800` | `#E1EEF3` | 9.55:1 |
 | Ordinary, Output Portal | `#6F4A00` | `#ECEAE1` | 6.56:1 |
-| Sequence, Invalid, Output Portal | `#6F4A00` | `#D5DFDB` | 5.80:1 |
 | `text` vs `panel.background` | `#303F3B` | `#EFF4F2` | 9.94:1 |
 | `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
 | `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
@@ -469,14 +458,10 @@ so lightness is what separates colours a dichromacy would otherwise merge.
 Two things this measurement does not cover, stated rather than implied:
 
 - **Background tints against each other.** A Pending operand Cell draws no
-  glyph, so its declared Token shows only as a 10% wash on a near-white ground.
-  Those washes are within ΔE00 0.54 of each other to *normal* vision (Number
-  `#E1EDF1` against Sequence `#E1EEF3`); the dark built-in's are within 1.73.
-  Neither built-in tells a blank Pending Number from a blank Pending Sequence by
-  colour, and no colour-vision simulation makes that worse than it already is.
-  Both built-ins keep the 10% figure decided on this page; a custom Theme can
-  set `source.number.background` and `source.sequence.background`
-  independently, and raising the built-ins' figure is a separate decision.
+  glyph, so its declared Token shows only as a 10% wash. Both built-ins keep the
+  10% figure decided on this page; a custom Theme can set
+  `source.number.background` and `source.note.background` independently, and
+  raising the built-ins' figure is a separate decision.
 - **Anomalous trichromacy** (protanomaly, deuteranomaly, tritanomaly), a
   continuum whose severe end is the dichromacy simulated here.
 
@@ -541,9 +526,9 @@ the contrast floor; such a Theme still loads and can be selected.
 ## Source colours
 
 Each Source Paint role paints its foreground and background from the resolved
-Theme: `source.ordinary` (also Char and Atom), `source.comment`,
+Theme: `source.ordinary` (also Char), `source.comment`,
 `source.function`, `source.bang`, `source.number`, `source.note`,
-`source.sequence`, `diagnostic.*` and `output_portal.*`, each with its own
+`diagnostic.*` and `output_portal.*`, each with its own
 `.background`. `Theme → Source colours`, its Fill tint slider and its "Reset to
 theme defaults" are gone, and the old `source_paint` storage key is left
 unread.
@@ -558,8 +543,7 @@ one) rather than a precomputed opaque mix over black. There is no
 background, and the 10% figure is baked into each stored value rather than a
 shared scalar applied at paint time. Every recognized Function Cell — nested
 Functions included — and
-every Operand Cell (its declared Token: Number, Note, Atom, or Sequence,
-whether the operand is still Pending, Valid, or Invalid) paints its role
+every Operand Cell (its declared Token: Number or Note, whether the operand is still Pending, Valid, or Invalid) paints its role
 background. Comment, Bang, an empty unclaimed Cell, and a Leftover Char have a
 transparent one. A refused Function spelling takes none either (see
 Diagnostic, below) — only a Function entry the Parser recognized does. Role
@@ -594,17 +578,11 @@ diagnostics are out of scope: they are Tick outcomes, not Source facts.
 `syntax-highlighting/06` adds a Function's written value as a further input
 to the same one decision: whether a Cell draws as a root Function's Output
 Portal (`RenderCell::output_portal()`, `.scratch/syntax-
-highlighting/issues/05`, `10` and `12`'s Answers) — the Cell pair one row
-south of a scalar-only Function's anchor, or, for a Sequence-capable one, the
-highlight fitted to its answer: at least four Cells from the Output Portal,
-written or not, then the run of written Cells that follows, a Cell pair at a
-time, stopping at the first blank Cell and never reaching past the root's
-Reservation, which still runs to the end of that row. Four is the minimum
-because a Function that never wrote more than two Cells would be declared
-scalar, so it is what tells a Sequence-capable root from a scalar one on
-sight. All of it is known from the current Source revision alone and so lit
-before any Tick runs. Parsing is unchanged and unaware of it (`05`'s
-Answer): a written scalar or Sequence answer re-parses exactly as ordinary
+highlighting/issues/05`, `10` and `12`'s Answers) — the Cell pair the
+root's Reservation covers at its Output Portal. All of it is known from the
+current Source revision alone and so lit before any Tick runs. Parsing is
+unchanged and unaware of it (`05`'s Answer): a written answer re-parses
+exactly as ordinary
 Source would (a `07` left south of `.+0304` is two unknown one-Cell
 Functions, diagnostics included), and the Output Portal fact is what tells
 that written value apart from the Expression that produced it. Such a Cell
@@ -622,8 +600,8 @@ it": a Cell that is itself a bound Function's own two-Cell spelling keeps its
 Function paint outright, root or nested alike, because every Function's own
 spelling already carries `Token::Function` regardless of nesting and telling
 a root's spelling from a nested one would need the Expression this decision
-does not read. Every other overlapping Cell — another root's own Number,
-Note, Atom or Sequence operand among them — takes the Output Portal colour
+does not read. Every other overlapping Cell — another root's own Number or
+Note operand among them — takes the Output Portal colour
 and background instead of its own declared role, because the root's answer
 is what a viewer reads there. The Cursor's own fill still wins outright over
 everything above, on its own Cell.
@@ -638,13 +616,12 @@ in the Source Paint prototype
 exposed as a setting before it had a painter; it has one now.
 
 - Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
-- Ordinary, Char, and Atom: `#EAEBE5` (`rgb(234, 235, 229)`) — not a named Okabe–Ito swatch but the Cursor frame's off-white, so plain Source text and the frame drawn over it read as one white; a fixed default that copies that colour rather than following the Cursor setting (`syntax-highlighting/07`, which moved it from the prototype's `#FFFFFF`)
+- Ordinary and Char: `#EAEBE5` (`rgb(234, 235, 229)`) — not a named Okabe–Ito swatch but the Cursor frame's off-white, so plain Source text and the frame drawn over it read as one white; a fixed default that copies that colour rather than following the Cursor setting (`syntax-highlighting/07`, which moved it from the prototype's `#FFFFFF`)
 - Comment: `#999999` (`rgb(153, 153, 153)`) — Okabe–Ito gray
 - Function: `#009E73` (`rgb(0, 158, 115)`) — Okabe–Ito bluish green
 - Bang: `#CC79A7` (`rgb(204, 121, 167)`) — Okabe–Ito reddish purple
 - Number: `#56B4E9` (`rgb(86, 180, 233)`) — Okabe–Ito sky blue
 - Note: `#F0E442` (`rgb(240, 228, 66)`) — Okabe–Ito yellow
-- Sequence: `#0072B2` (`rgb(0, 114, 178)`) — Okabe–Ito blue
 - Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, an unbound entry's glyph colour since `syntax-highlighting/04`
 - Output Portal: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, a Function's written value since `syntax-highlighting/06`
 
@@ -681,8 +658,7 @@ measured for colour vision. It measures glyphs only: never background tints
 against each other, and never anomalous trichromacy.
 
 A Pending operand Cell draws no glyph, so `validate` has no Pending role to
-measure — `Role` (Number, Note, Atom, Sequence) carries Valid and Invalid
-only, and Atom/Sequence carry Invalid alone since neither ever binds.
+measure — `Role` (Number, Note) carries Valid and Invalid only.
 
 Okabe–Ito's `plain`-placement measurements, after the user's 2026-09-22 retune
 of every tinted role background to a uniform 10% opacity: Ordinary 17.51:1,
@@ -697,9 +673,8 @@ Unclaimed Cell's own background is transparent); `text` 15.88:1 against
 6.19:1 against `panel.background` and 6.29:1 against `input.background` —
 none of these five changed, since the retune touched only the tinted role
 backgrounds. Every invalid-operand Diagnostic state now clears the floor
-too: Number 4.89:1, Note 4.66:1 and Atom 4.59:1, each `diagnostic.foreground`
-(`#D55E00`) against that Token's own 10% tint; Sequence's own role,
-`Sequence, Invalid`, measures 5.12:1. `contrast::tests::shipped_theme_gate`
+too: Number 4.89:1 and Note 4.66:1, each `diagnostic.foreground`
+(`#D55E00`) against that Token's own 10% tint. `contrast::tests::shipped_theme_gate`
 runs as a real, non-`#[ignore]`d test: every reachable state clears 4.5:1,
 so `accepted_failures` for `okabe-ito` is empty — there is nothing left to
 except.
@@ -757,14 +732,11 @@ Portal-over-role figures, read from `contrast::validate`:
 | Any Invalid operand, Cursor or Region's Cursor Cell | `#D55E00` | `#000000` | 5.43:1 |
 | Output Portal over Number, Valid or Invalid | `#E69F00` | `#1F2016` | 7.30:1 |
 | Output Portal over Note, Valid or Invalid | `#E69F00` | `#2D2506` | 6.76:1 |
-| Output Portal over Atom, Invalid | `#E69F00` | `#2D2615` | 6.66:1 |
-| Output Portal over Sequence, Invalid | `#E69F00` | `#171B10` | 7.77:1 |
 | Bang, Output Portal | `#CC79A7` | `#171000` | 6.18:1 |
 | Output Portal, Cursor or Region's Cursor Cell | `#E69F00` | `#000000` | 9.32:1 |
 
 Every one clears the floor. Bang, 4.63:1, is the lowest figure the Region wash
-sets. Okabe–Ito's lowest state overall is Atom, Invalid, at 4.59:1 on its own
-tint, in `plain` and inside a Region alike.
+sets.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward

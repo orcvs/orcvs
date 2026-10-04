@@ -22,7 +22,7 @@
 //! which is why a value has nowhere to keep its type once it is written and
 //! why ADR 0034 has the receiving operand decide the reading.
 
-use lang::{Atom, Value};
+use lang::Atom;
 
 use super::CellContent;
 
@@ -31,7 +31,7 @@ use super::CellContent;
 ///
 /// Non-emptiness and printable content are properties of the type rather than
 /// checks a caller repeats: [`Encoding::render`] answers [`Rendered::Nothing`]
-/// for the two values that plan no write at all, so an `Encoding` that exists
+/// for the value that plans no write at all, so an `Encoding` that exists
 /// places at least one Cell. [`super::portal::Portal`] relies on that, and it
 /// is held here, where the invariant is established.
 ///
@@ -41,13 +41,9 @@ pub(super) struct Encoding(Vec<CellContent>);
 ///
 /// What one answered value becomes at a Portal.
 ///
-/// The two values that plan no Cell write are answered here rather than by a
-/// caller matching on them, because they are the same rule stated twice in
-/// CONTEXT.md: the Absence Marker "is not a language value ... an Expression
-/// answering it plans no Cell write", and the empty Sequence is a value
-/// holding no Atoms rather than the absence of a value, and plans none either.
-/// They differ in kind and agree on effect, which is exactly what one variant
-/// with two arms says.
+/// The Absence Marker is answered here rather than by a caller matching on it:
+/// CONTEXT.md says it "is not a language value ... an Expression answering it
+/// plans no Cell write".
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Rendered {
@@ -85,19 +81,11 @@ impl Encoding {
     /// that cannot be Cells yields nothing to write half of — the same
     /// whole-destination shape [`super::portal::Portal`] has one step later.
     ///
-    /// A Sequence renders the way a scalar does. Per ADR 0007 it encodes
-    /// horizontally as ordinary Atoms "without a privileged literal-Sequence
-    /// interpretation", so the only difference reaching this module is how
-    /// many Cells come back.
-    ///
-    pub(super) fn render(value: &Value) -> Result<Rendered, RenderError> {
-        let rendering = match value {
-            Value::Atom(Atom::Empty) => return Ok(Rendered::Nothing),
-            Value::Sequence(sequence) if sequence.is_empty() => return Ok(Rendered::Nothing),
-            Value::Atom(atom) => atom.to_string(),
-            Value::Sequence(sequence) => sequence.to_string(),
-        };
-        Self::literal(&rendering).map(Rendered::Cells)
+    pub(super) fn render(atom: Atom) -> Result<Rendered, RenderError> {
+        if atom == Atom::Empty {
+            return Ok(Rendered::Nothing);
+        }
+        Self::literal(&atom.to_string()).map(Rendered::Cells)
     }
 
     ///
@@ -145,54 +133,18 @@ impl std::fmt::Display for Encoding {
 #[cfg(test)]
 mod test {
     use super::{Encoding, RenderError, Rendered};
-    use lang::{Atom, Function, Note, Sequence, Value};
-
-    fn sequence(atoms: impl IntoIterator<Item = Atom>) -> Value {
-        Value::Sequence(Sequence::new(atoms).expect("stated members"))
-    }
+    use lang::{Atom, Function, Note};
 
     #[test]
-    fn the_two_values_that_plan_no_write_render_to_nothing() {
-        assert_eq!(
-            Encoding::render(&Value::Atom(Atom::Empty)),
-            Ok(Rendered::Nothing)
-        );
-        assert_eq!(
-            Encoding::render(&Value::Sequence(Sequence::empty())),
-            Ok(Rendered::Nothing)
-        );
-    }
-
-    #[test]
-    fn a_scalar_and_a_sequence_reach_the_same_arm() {
-        // A Sequence encodes horizontally as ordinary Atoms with no
-        // privileged literal-Sequence reading, so the only thing that differs
-        // between the two widths by the time a destination is asked is how
-        // many Cells came back.
-        let scalar = Encoding::render(&Value::Atom(Atom::Number(0x0A)));
-        let Ok(Rendered::Cells(scalar)) = scalar else {
-            panic!("a Number places Cells");
-        };
-        assert_eq!(scalar.len(), 2);
-        assert_eq!(scalar.to_string(), "0A");
-
-        let wide = Encoding::render(&sequence([
-            Atom::Number(0x0A),
-            Atom::Number(0x0B),
-            Atom::Number(0x0C),
-        ]));
-        let Ok(Rendered::Cells(wide)) = wide else {
-            panic!("a Sequence places Cells");
-        };
-        assert_eq!(wide.len(), 6);
-        assert_eq!(wide.to_string(), "0A0B0C");
+    fn the_absence_marker_renders_to_nothing() {
+        assert_eq!(Encoding::render(Atom::Empty), Ok(Rendered::Nothing));
     }
 
     #[test]
     fn every_value_the_language_holds_renders_to_cells() {
         // What leaves `render`'s refusal unreachable from a value: every Atom
-        // a Sequence admits, and so every Sequence, spells itself in printable
-        // ASCII.
+        // a value Function can answer spells itself as two printable ASCII
+        // Cells.
         let mut atoms: Vec<Atom> = vec![Atom::Bang];
         atoms.extend((u8::MIN..=u8::MAX).map(Atom::Number));
         atoms.extend((0..=0x7F).map(|note| Atom::Note(Note::try_from(note).unwrap())));
@@ -204,19 +156,15 @@ mod test {
                 .map(Atom::Function),
         );
 
-        for atom in &atoms {
+        for atom in atoms {
             assert!(
                 matches!(
-                    Encoding::render(&Value::Atom(*atom)),
-                    Ok(Rendered::Cells(_))
+                    Encoding::render(atom),
+                    Ok(Rendered::Cells(cells)) if cells.len() == 2
                 ),
-                "{atom:?} did not become Source Cells",
+                "{atom:?} did not become two Source Cells",
             );
         }
-        assert!(matches!(
-            Encoding::render(&sequence(atoms)),
-            Ok(Rendered::Cells(_))
-        ));
     }
 
     #[test]

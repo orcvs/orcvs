@@ -107,14 +107,12 @@ pub struct CellWrite {
 }
 
 /// One interpreted MIDI instruction emitted by an active Terminal Output
-/// Function, and the ordered group of them one Expression performs. Tick
-/// planning decides which terminal roots are active and in what order their
-/// commands appear; the output adapter turns each one into MIDI. One
-/// Expression can perform many commands, ordered by element index, so a
-/// Performance crosses the seam and a Tick Plan holds the flattened list.
+/// Function. Tick planning decides which terminal roots are active and in
+/// what order their commands appear; the output adapter turns each one into
+/// MIDI. A chord is several roots one Bang activates, each contributing one
+/// command to the Tick Plan's ordered list.
 pub use lang::{
-    BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, Performance,
-    PlayCommand, Velocity,
+    BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand, Velocity,
 };
 
 /// The publishable outcome of one Tick: Cell writes, Play Commands, diagnostics,
@@ -491,7 +489,7 @@ impl fmt::Display for Source {
 #[cfg(test)]
 mod test {
 
-    use lang::{Atom, Function, Interpretation, Sequence, Value};
+    use lang::{Atom, Function, Interpretation};
     use std::ops::{Deref, DerefMut};
     use std::sync::Arc;
 
@@ -881,15 +879,14 @@ mod test {
     ///
     /// Supply an evaluation answer at the seam production delivers one
     /// through: encode it, admit the whole encoding through the ordinary
-    /// result Portal, and resolve the Effect. A Sequence is stated here rather
-    /// than spelled in Source; what it exercises is the Portal and the commit,
-    /// both of which are the same ones a Tick uses. Commit remains Source's.
+    /// result Portal, and resolve the Effect. What it exercises is the Portal
+    /// and the commit, both of which are the same ones a Tick uses. Commit
+    /// remains Source's.
     ///
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
-        let value = match result {
+        let atom = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
-            Interpretation::Cell(atom) => Value::from(atom),
-            Interpretation::Sequence(sequence) => Value::from(sequence),
+            Interpretation::Cell(atom) => atom,
             // A Source effect is not an answer this seam delivers. It writes
             // its own Cells at Portals it resolves, so there is no value to
             // encode and no default Portal to admit one through;
@@ -908,7 +905,7 @@ mod test {
         // The rule for what an answer becomes in Cells is production's, called
         // here rather than restated: these tests state an answer, and what
         // they exercise is the commit, not a second encoding.
-        let rendered = Encoding::render(&value).expect("these answers are stated as Source Cells");
+        let rendered = Encoding::render(atom).expect("these answers are stated as Source Cells");
         let Rendered::Cells(encoding) = rendered else {
             return resolve(Vec::new());
         };
@@ -916,10 +913,6 @@ mod test {
             .and_then(|portal| portal.admit(&encoding))
             .expect("these answers are stated to fit their destination");
         resolve(vec![Effect::Write(write)])
-    }
-
-    fn numbers(values: &[u8]) -> Interpretation {
-        Interpretation::Sequence(Sequence::new(values.iter().copied().map(Atom::Number)).unwrap())
     }
 
     #[test]
@@ -2648,48 +2641,45 @@ mod test {
     }
 
     #[test]
-    fn a_shorter_result_leaves_the_earlier_results_tail_standing() {
-        // ADR 0007: an ordinary result "writes exactly its current encoding and
-        // never infers or clears Cells beyond that Span from an earlier, longer
-        // result". Three Atoms at one Tick and one Atom at the next is the case
-        // that catches the two ways that goes wrong — clearing the destination
-        // row before writing, or remembering how wide the last result was — and
-        // a same-width pair of results catches neither. The Cells the shorter
-        // result does not reach still hold the earlier Sequence's characters,
-        // not spaces.
+    fn a_result_leaves_the_cells_past_its_own_pair_standing() {
+        // An ordinary result writes exactly its current encoding and never
+        // infers or clears Cells beyond that Span. Content already written
+        // past the destination pair is the case that catches clearing the
+        // destination row before writing. The Cells the result does not
+        // reach still hold their characters, not spaces.
         //
-        // The results are planned through the Portal an evaluated Function's
+        // The result is planned through the Portal an evaluated Function's
         // answer passes through, and committed by the Source's own commit, so
-        // what is read back is what two Ticks of a Playback run would leave.
+        // what is read back is what a Tick of a Playback run would leave.
         let mut src = source();
         let grid = src.grid;
+        let at = src.cells();
+        src.write(at(10), "0A0B0C");
         let root = grid.position(0, 0).expect("inside the Grid");
 
-        src.commit_tick(&plan_result(grid, root, numbers(&[0x0A, 0x0B, 0x0C])));
-        let shorter = plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0D)));
-        src.commit_tick(&shorter);
+        let result = plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0D)));
+        src.commit_tick(&result);
 
-        assert_eq!(shorter.writes.len(), 2, "a result plans only its own Cells");
+        assert_eq!(result.writes.len(), 2, "a result plans only its own Cells");
         assert_eq!(src.row(1), "0D0B0C    ");
     }
 
     #[test]
-    fn cells_generated_by_a_sequence_result_are_read_as_ordinary_source() {
-        // ADR 0007: successfully encoded Cells become ordinary Source content
-        // under the same parsing, diagnostic, and generated-code rules as a
-        // single Atom, "without a privileged literal-Sequence interpretation".
-        // The way to state that is a comparison rather than a list of expected
-        // Glyphs: a Source that was written by a Sequence result and a Source
-        // the same characters were typed into are indistinguishable afterwards,
-        // Cell for Cell, Glyph for Glyph, and diagnostic for diagnostic.
+    fn cells_generated_by_a_result_are_read_as_ordinary_source() {
+        // Successfully encoded Cells become ordinary Source content under the
+        // same parsing, diagnostic, and generated-code rules as Source typed
+        // by hand. The way to state that is a comparison rather
+        // than a list of expected Glyphs: a Source that was written by a
+        // result and a Source the same characters were typed into are
+        // indistinguishable afterwards, Cell for Cell, Glyph for Glyph, and
+        // diagnostic for diagnostic.
         //
-        // Three adjacent Numbers read as one Expression whose head is an
-        // unknown Function, so this pair shares a syntax diagnostic. That is
-        // the point rather than a flaw in the case: ADR 0020 says the Source a
+        // A Number alone reads as an Expression whose head is an unknown
+        // Function, so this pair shares a syntax diagnostic. That is the
+        // point rather than a flaw in the case: ADR 0020 says the Source a
         // Tick writes "may intentionally contain an alignment or syntax
         // diagnostic on the next Tick", and a result that suppressed it would
-        // be the privileged interpretation ADR 0007 rules out. A case whose
-        // characters happened to parse cleanly could not tell the two apart.
+        // be a privileged interpretation of generated Cells.
         //
         // Diagnostics are compared as their Cells and their message because a
         // Diagnostic carries the Grid that minted its Span, and these two
@@ -2697,68 +2687,65 @@ mod test {
         let mut generated = source();
         let grid = generated.grid;
         let root = grid.position(0, 0).expect("inside the Grid");
-        generated.commit_tick(&plan_result(grid, root, numbers(&[0x0A, 0x0B, 0x0C])));
+        generated.commit_tick(&plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Number(0x0A)),
+        ));
 
         let mut typed = source();
         let at = typed.cells();
-        typed.write(at(10), "0A0B0C");
+        typed.write(at(10), "0A");
 
         assert_eq!(generated.snapshot(), typed.snapshot());
         assert_eq!(tokens(&generated), tokens(&typed));
         assert_eq!(reported(&generated), reported(&typed));
-        // Six diagnostics rather than one: the walk resumes one Cell after a
-        // refused spelling, so each Cell of the run is refused on its own and
-        // says so. The last is the row's final Cell, where no spelling can be
-        // read at all.
-        assert_eq!(
-            reported(&generated),
-            vec![
-                (10, 10, "unknown function \"0A\"".to_string()),
-                (11, 11, "unknown function \"A0\"".to_string()),
-                (12, 12, "unknown function \"0B\"".to_string()),
-                (13, 13, "unknown function \"B0\"".to_string()),
-                (14, 14, "unknown function \"0C\"".to_string()),
-                (15, 15, "unknown function \"C \"".to_string()),
-            ]
+        assert!(
+            !reported(&generated).is_empty(),
+            "a lone Number reads as an unknown Function on the next Tick"
         );
     }
 
     #[test]
-    fn a_committed_number_sequence_plans_nothing_of_its_own_on_the_next_tick() {
-        // The other half of ADR 0007's generated-code rule, and the half a
+    fn a_committed_number_result_plans_nothing_of_its_own_on_the_next_tick() {
+        // The other half of the generated-code rule, and the half a
         // comparison cannot make: what a Tick does when it meets the Cells an
-        // earlier one wrote. These Number encodings contain no Function, so
-        // the next Tick plans no writes or commands. A Sequence containing a
-        // Function spelling can compute, as the adjacent test demonstrates.
+        // earlier one wrote. A Number encoding contains no Function, so the
+        // next Tick plans no writes or commands.
         let mut src = source();
         let grid = src.grid;
         let root = grid.position(0, 0).expect("inside the Grid");
-        src.commit_tick(&plan_result(grid, root, numbers(&[0x0A, 0x0B, 0x0C])));
+        src.commit_tick(&plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Number(0x0A)),
+        ));
 
         let tick = src.execute();
 
         assert!(tick.writes.is_empty());
         assert!(tick.play_commands.is_empty());
-        assert_eq!(src.row(1), "0A0B0C    ");
+        assert_eq!(src.row(1), "0A        ");
         for row in 2..src.row_count() {
             assert_eq!(src.row(row), "          ", "row {row} is untouched");
         }
     }
 
     #[test]
-    fn a_generated_function_sequence_computes_on_the_next_tick() {
+    fn a_generated_function_computes_on_the_next_tick() {
+        // A Function answer written in front of operands already in Source
+        // completes an Expression the next Tick evaluates exactly as it would
+        // the same characters typed by hand.
         let mut generated = source();
         let grid = generated.grid;
+        let at = generated.cells();
+        generated.write(at(12), "0102");
         let root = grid.position(0, 0).unwrap();
-        let result = Interpretation::Sequence(
-            Sequence::new([
-                Atom::Function(Function::Add),
-                Atom::Number(1),
-                Atom::Number(2),
-            ])
-            .unwrap(),
-        );
-        generated.commit_tick(&plan_result(grid, root, result));
+        generated.commit_tick(&plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Function(Function::Add)),
+        ));
         assert_eq!(generated.row(1), ".+0102    ");
         assert_eq!(generated.row(2), "          ");
 
@@ -2778,12 +2765,12 @@ mod test {
     }
 
     #[test]
-    fn an_empty_sequence_needs_no_destination_and_preserves_source() {
+    fn the_absence_marker_needs_no_destination_and_preserves_source() {
         let mut src = source();
         let grid = src.grid;
         let root = grid.position(0, src.row_count() - 1).unwrap();
         let before = src.snapshot();
-        let plan = plan_result(grid, root, Interpretation::Sequence(Sequence::empty()));
+        let plan = plan_result(grid, root, Interpretation::Cell(Atom::Empty));
         src.commit_tick(&plan);
         assert_eq!(src.snapshot(), before);
         assert!(plan.writes.is_empty());

@@ -11,8 +11,6 @@ pub use lang::Token;
 // dependency on `lang`.
 pub use lang::Atom;
 pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
-use language_map::{OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation};
-use portal::SCALAR_WIDTH;
 mod model;
 mod planning;
 mod portal;
@@ -23,7 +21,7 @@ pub use error::SourceError;
 pub use lang::Tick;
 pub use model::{
     BendLsb, BendMsb, CellWrite, ControlValue, Controller, Diagnostic, Length, MidiChannel, Note,
-    Performance, PlayCommand, RevisionId, Source, TickPlan, Velocity,
+    PlayCommand, RevisionId, Source, TickPlan, Velocity,
 };
 use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -128,91 +126,18 @@ impl SourceRevision {
 
     ///
     /// Whether each Cell of this revision draws as a root Function's Output
-    /// Portal, in the Grid's row-major order.
-    ///
-    /// The highlight, not the Reservation. Tick scheduling reserves a
-    /// Sequence-capable root the rest of its destination row, and
-    /// [`LanguageMap::output_portal_reservations`] answers exactly that; this
-    /// narrows the Sequence-capable ones to the answer they hold. Do not
-    /// highlight the whole Reservation: in a two-column layout a whole-row
-    /// highlight runs under the neighbouring column's Expressions.
-    ///
-    /// The fit lives here because it needs both inputs at once: the
-    /// Reservations, which only the Language Map derives, and the Cell
-    /// contents of this revision, which the Language Map deliberately does not
-    /// retain. A Source revision is the one value that holds both.
-    ///
-    /// A scalar root keeps its Cell pair untouched. A Sequence-capable root
-    /// takes at least [`OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH`] Cells, written
-    /// or not — a Function that never answered more than two Cells would be
-    /// declared scalar, so the minimum is what tells the two apart before any
-    /// Tick. Past the minimum it follows the run of written Cells, one Cell
-    /// pair at a time, and stops at the first blank Cell. Every step is
-    /// clipped to the Reservation, so a root whose row edge leaves fewer Cells
-    /// than the minimum takes the Cells that are there and no more.
-    ///
-    /// **Written** is [`Self::content_at`]'s question, so a Cell holding
-    /// [`CellContent::SPACE`] is blank: a space reads back identically to a
-    /// Cell never written, and the highlight has no other fact to tell them
-    /// apart. The run is what the extension follows, and the pair it stops
-    /// inside is taken whole: stopping mid-pair would draw a written Cell
-    /// outside the highlight that covers the answer it belongs to.
-    ///
-    /// A run can end mid-pair because the Cell, not the Atom, is the unit
-    /// here. Every Atom spells exactly two Cells, so an answer is pair-aligned
-    /// from the Portal, but the Cells past it are whatever the Source holds,
-    /// and a single written Cell there ends the run inside a pair.
-    ///
-    /// A **blank Cell**, not a wholly blank pair, is what ends the run. Do not
-    /// count a pair as written by either of its Cells: across a gutter
-    /// narrower than an aligned blank pair, the neighbouring column's first
-    /// glyph writes the far Cell of the pair the gutter falls in, the
-    /// extension resumes through that column's Expression, and the fit
-    /// degenerates to the whole-row tint this derivation exists to remove. One
-    /// blank Cell ends the answer, however the columns happen to be aligned.
+    /// Portal, in the Grid's row-major order: the Cell pair each root's
+    /// Reservation covers, which [`LanguageMap::output_portal_reservations`]
+    /// answers.
     ///
     pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
         for reservation in self.language_map.output_portal_reservations() {
-            for index in self.fitted(&reservation) {
+            for index in reservation.range {
                 covered[index] = true;
             }
         }
         covered
-    }
-
-    /// [`Self::output_portal_highlight`]'s rule for one Reservation.
-    fn fitted(&self, reservation: &OutputPortalReservation) -> std::ops::Range<usize> {
-        let std::ops::Range { start, end } = reservation.range;
-        if !reservation.sequence_capable {
-            return start..end;
-        }
-        let mut fitted = end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH);
-        // A blank at either offset of a pair ends the run. A blank first Cell
-        // leaves the pair out; a blank later Cell ends the run inside the
-        // pair, which is then taken whole.
-        while fitted < end && self.written(fitted) {
-            let pair_end = end.min(fitted + SCALAR_WIDTH);
-            let whole = (fitted + 1..pair_end).all(|index| self.written(index));
-            fitted = pair_end;
-            if !whole {
-                break;
-            }
-        }
-        start..fitted
-    }
-
-    ///
-    /// Whether the Cell at `index` holds content: [`Self::content_at`]'s own
-    /// question, asked of the Position that index names, so there is no second
-    /// space test to drift from it. Every index reaching here comes from this
-    /// revision's own Reservations; one outside the Grid is answered `false`
-    /// rather than panicked on.
-    ///
-    fn written(&self, index: usize) -> bool {
-        self.grid
-            .cell_index(index)
-            .is_some_and(|cell| self.content_at(self.grid.position_at(cell)).is_some())
     }
 }
 
@@ -575,13 +500,8 @@ mod tests {
     }
 
     ///
-    /// The Output Portal highlight fitted to the answer a Sequence-capable root
-    /// holds.
-    ///
-    /// Every case is written straight into Source with no Tick, because the
-    /// highlight reads the current revision alone. The Reservation these are
-    /// fitted inside stays whole, and `LanguageMap::output_portal_cells`'s own
-    /// tests pin it.
+    /// The Output Portal highlight, written straight into Source with no Tick
+    /// because the highlight reads the current revision alone.
     ///
     mod output_portal_highlight {
         use super::{Grid, SourceCommander};
@@ -627,123 +547,22 @@ mod tests {
         }
 
         #[test]
-        fn a_sequence_answer_of_four_cells_or_more_is_covered_exactly() {
-            // Four worked examples, each answer written south of the root
-            // that would produce it.
-            let wide = Grid::with_shape(10, 2);
-            let range = revision(wide, &[":-0104", "01020304"]);
-            assert_eq!(row(&range, wide, 1), "########..");
-
-            let notes = revision(wide, &[":#C4D4", "C4c4D4"]);
-            assert_eq!(row(&notes, wide, 1), "######....");
-
-            let reversed = revision(wide, &[":<:-0104", "04030201"]);
-            assert_eq!(row(&reversed, wide, 1), "########..");
-
-            let widest = Grid::with_shape(16, 2);
-            let concatenated = revision(widest, &[":&.+0001:-0203", "010203"]);
-            assert_eq!(row(&concatenated, widest, 1), "######..........");
-        }
-
-        #[test]
-        fn an_empty_sequence_capable_output_portal_shows_four_cells() {
-            // Before any Tick, with nothing written south of it at all: the
-            // four-Cell minimum is what tells a Sequence-capable root from a
-            // scalar one on sight.
-            let grid = Grid::with_shape(10, 2);
-            let empty = revision(grid, &[":-0104"]);
-
-            assert_eq!(row(&empty, grid, 1), "####......");
-        }
-
-        #[test]
-        fn a_one_atom_answer_shows_four_cells() {
-            // The answer is narrower than the minimum, and the minimum wins:
-            // the two Cells past it are covered although they are blank.
-            let grid = Grid::with_shape(10, 2);
-            let one_atom = revision(grid, &[":-0101", "01"]);
-
-            assert_eq!(row(&one_atom, grid, 1), "####......");
-        }
-
-        #[test]
-        fn the_highlight_stops_at_the_first_blank_cell_past_the_minimum() {
-            // Six written Cells, a blank pair, then four more written Cells
-            // the highlight never reaches: the first blank Cell ends it,
-            // whatever lies beyond.
-            let grid = Grid::with_shape(12, 2);
-            let gapped = revision(grid, &[":-0104", "010203  0405"]);
-
-            assert_eq!(row(&gapped, grid, 1), "######......");
-        }
-
-        #[test]
-        fn the_pair_the_written_run_stops_inside_is_covered_whole() {
-            // The run reaches column 4 and ends there. Stopping mid-pair
-            // would draw column 4's glyph outside the highlight that covers
-            // the Atom it belongs to, so the pair it stopped inside is taken
-            // whole.
-            let grid = Grid::with_shape(10, 2);
-            let half = revision(grid, &[":-0104", "01020"]);
-
-            assert_eq!(row(&half, grid, 1), "######....");
-        }
-
-        #[test]
-        fn a_blank_gutter_cell_stops_the_highlight_whatever_follows_it() {
-            // A neighbouring column's Expression is not this root's answer,
-            // however narrow the gutter between them. One blank Cell is
-            // enough to end the answer, even where completing the pair the
-            // run stopped inside covers the gutter's own first Cell.
-            let grid = Grid::with_shape(20, 2);
-
-            // A one-column gutter: `.` at column 9 is the right column's
-            // Expression, and the blank at column 8 ends the answer.
-            let narrow = revision(grid, &[":-0104", "01020304 .+0304"]);
-            assert_eq!(row(&narrow, grid, 1), "########............");
-
-            // A two-column gutter an odd written run reaches into: the run
-            // ends at column 9, the pair it stopped in is completed, and the
-            // right column's Expression at column 11 is left alone.
-            let straddled = revision(grid, &[":-0104", "010203040  .+0304"]);
-            assert_eq!(row(&straddled, grid, 1), "##########..........");
-        }
-
-        #[test]
-        fn a_blank_second_cell_of_a_pair_stops_the_highlight() {
-            // A one-column gutter an odd written run reaches into: column 8
-            // is written and the blank at column 9 is the second Cell of its
-            // pair. That blank ends the answer, the pair is completed, and
-            // the right column's Expression from column 10 is left alone.
-            let grid = Grid::with_shape(20, 2);
-            let odd = revision(grid, &[":-0104", "010203040 .+0304"]);
-
-            assert_eq!(row(&odd, grid, 1), "##########..........");
-        }
-
-        #[test]
-        fn the_highlight_is_clipped_to_a_reservation_the_row_edge_cuts_short() {
-            // `:-` with no operands is still a Function candidate, so it
-            // reserves. Anchored at column 5 of an 8-wide row, its Reservation
-            // is the three Cells to the row's end, and the four-Cell minimum
-            // does not reach past them.
-            let grid = Grid::with_shape(8, 2);
-            let clipped = revision(grid, &["     :-", "     01"]);
-
-            assert_eq!(row(&clipped, grid, 1), ".....###");
-        }
-
-        #[test]
-        fn a_scalar_root_keeps_its_cell_pair() {
-            // Neither widened to the minimum nor extended by the written
-            // Cells that follow: the fit applies to Sequence-capable roots
-            // alone.
+        fn a_root_keeps_its_cell_pair() {
+            // Not extended by the written Cells that follow: every root
+            // reserves one Atom's Cell pair.
             let grid = Grid::with_shape(10, 2);
             let scalar = revision(grid, &[".+0304", "07"]);
             assert_eq!(row(&scalar, grid, 1), "##........");
 
             let trailed = revision(grid, &[".+0304", "0708090A"]);
             assert_eq!(row(&trailed, grid, 1), "##........");
+        }
+
+        #[test]
+        fn a_retired_colon_spelling_highlights_nothing() {
+            let grid = Grid::with_shape(10, 2);
+            let retired = revision(grid, &[":-0104", "01020304"]);
+            assert_eq!(row(&retired, grid, 1), "..........");
         }
     }
 }

@@ -431,20 +431,10 @@ impl Role {
     /// comparing two states that share a channel would measure a distinction
     /// the console never intended to draw.
     ///
-    /// `source.sequence` is absent from [`GlyphChannel`] for a different
-    /// reason: no reachable state paints a glyph in it. `Token::Sequence`
-    /// never binds, so its only role here is `Sequence, Invalid`, which
-    /// draws Diagnostic — Sequence's own colour reaches the screen as the
-    /// `source.sequence.background` tint alone, which is a background and
-    /// therefore outside this module's scope.
-    ///
     /// A fact channel whose foreground is exactly transparent paints nothing
     /// over the glyph — `style::blend_channel` leaves the Token's colour
     /// showing, which is how a Theme carries a fact on the background
-    /// alone — so the glyph is measured as the channel it reveals. An
-    /// Invalid Sequence then reveals `source.sequence`, which is not a
-    /// [`GlyphChannel`], and is left out. An Invalid Atom reveals
-    /// `source.ordinary`, the colour `style::role` draws an Atom operand in.
+    /// alone — so the glyph is measured as the channel it reveals.
     ///
     fn glyph_channel(self, output_portal: bool, theme: &Theme) -> Option<GlyphChannel> {
         let portal = output_portal && theme.output_portal_foreground != Color32::TRANSPARENT;
@@ -463,16 +453,11 @@ impl Role {
             | Self::Warning
             | Self::Link => None,
             _ if portal => Some(GlyphChannel::OutputPortal),
-            Self::NumberInvalid | Self::NoteInvalid | Self::AtomInvalid | Self::SequenceInvalid
-                if diagnostic =>
-            {
-                Some(GlyphChannel::Diagnostic)
-            }
-            Self::Ordinary | Self::AtomInvalid => Some(GlyphChannel::Ordinary),
+            Self::NumberInvalid | Self::NoteInvalid if diagnostic => Some(GlyphChannel::Diagnostic),
+            Self::Ordinary => Some(GlyphChannel::Ordinary),
             Self::Comment => Some(GlyphChannel::Comment),
             Self::NumberValid | Self::NumberInvalid => Some(GlyphChannel::Number),
             Self::NoteValid | Self::NoteInvalid => Some(GlyphChannel::Note),
-            Self::SequenceInvalid => None,
         }
     }
 }
@@ -812,13 +797,12 @@ mod tests {
     fn rejected_light_glyphs() -> Theme {
         let tint =
             |[red, green, blue]: [u8; 3]| Color32::from_rgba_unmultiplied(red, green, blue, 0x1A);
-        let ([number, note, function, bang, sequence, diagnostic, portal], base) = (
+        let ([number, note, function, bang, diagnostic, portal], base) = (
             [
                 [0x35, 0x64, 0xA0],
                 [0x75, 0x53, 0xA2],
                 [0x07, 0x70, 0x55],
                 [0xAD, 0x2A, 0x3B],
-                [0x12, 0x38, 0x6B],
                 [0xA3, 0x4A, 0x00],
                 [0x7A, 0x52, 0x00],
             ],
@@ -833,8 +817,6 @@ mod tests {
             source_function: opaque(function),
             source_function_background: tint(function),
             source_bang: opaque(bang),
-            source_sequence: opaque(sequence),
-            source_sequence_background: tint(sequence),
             diagnostic_foreground: opaque(diagnostic),
             output_portal_foreground: opaque(portal),
             output_portal_background: tint(portal),

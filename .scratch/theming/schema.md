@@ -42,8 +42,7 @@ including dots, which are literal characters rather than nested object access.
 All colour values use straight RGB/RGBA hex. Six digits mean opaque. `none` is a
 string accepted only for the two optional Cursor fills; it is not a null value.
 
-`source.ordinary` supplies Ordinary, Char and Atom foregrounds. Atom background
-is separate because the existing declared Atom operand has a fill. Char has no
+`source.ordinary` supplies Ordinary and Char foregrounds. Char has no
 independent paint fact and uses the ordinary background; no unused Char-only
 property or production test seam is introduced.
 
@@ -59,15 +58,12 @@ property or production test seam is introduced.
 | `source.note` | `#F0E442` |
 | `source.function` | `#009E73` |
 | `source.bang` | `#CC79A7` |
-| `source.sequence` | `#0072B2` |
 | `source.ordinary.background` | `#00000000` |
 | `source.comment.background` | `#00000000` |
 | `source.number.background` | `#56B4E91A` |
 | `source.note.background` | `#F0E4421A` |
 | `source.function.background` | `#009E731A` |
 | `source.bang.background` | `#00000000` |
-| `source.atom.background` | `#EAEBE51A` |
-| `source.sequence.background` | `#0072B21A` |
 | `diagnostic.foreground` | `#D55E00` |
 | `diagnostic.background` | `#00000000` |
 | `diagnostic.border` | `#00000000` |
@@ -173,7 +169,7 @@ added explicitly to this catalogue, never silently left as a second palette.
    missing parents and conflicting appearance declarations are errors.
 2. Composite panel/Grid surfaces over the opaque root. Composite uniform
    `cell.background` over the Grid inside every Cell; it is not a fact fill.
-3. Select Source role from existing paint facts. Declared Number/Note/Atom/Sequence
+3. Select Source role from existing paint facts. Declared Number/Note
    operands retain their role background in Pending, Valid and Invalid states.
    Invalid foreground uses the Diagnostic channel over the declared role; a
    transparent Diagnostic channel reveals the declared role. Pending glyphs stay
