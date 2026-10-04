@@ -1,5 +1,7 @@
 # General arithmetic wraps over bytes
 
+Status: the broadcasting clauses are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), which removes the Sequence value. The arithmetic stands.
+
 General Orcvs Addition `.+ left right`, Subtraction `.- left right`, and Multiplication `.x left right` take two Numbers, return one Number, and wrap the mathematical result modulo 256 across the full `00`–`FF` range instead of saturating at its boundaries. Subtraction is ordered `left - right`; symmetric Absolute Difference `.| left right` returns `abs(left - right)`. Division `./ left right` returns the unsigned integer quotient `floor(left / right)`. Division by zero has no cyclic interpretation, so it produces a diagnostic and no result rather than inventing a Number.
 
 General arithmetic does not accept a Note or infer a result type from its operands. Numeric Conversion Functions `.v` and `.^` make movement between Number and Note explicit under ADR 0021. Musical operations over Notes belong to a future musical Function family, where the family prefix can disambiguate reused operation glyphs without changing numeric arithmetic.

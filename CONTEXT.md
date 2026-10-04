@@ -49,8 +49,16 @@ Two Source Cells interpreted as an Atom according to the typed operand position 
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Spatial Output**:
-A Function output delivered through a Portal as literal Source encoding, interpreted in the receiving operand's context. It is distinct from a nested Function result, which retains its value's type.
+A Function output delivered through a Portal as literal Source encoding, interpreted in the receiving operand's context. A Return reaches its operand the same way.
 _Avoid_: Implicit numeric conversion, typed spatial argument
+
+**Return**:
+The two-Cell encoding a nested Function hands to the inline Input Portal it occupies, decoded by that portal's declared literal type exactly as a Spatial Output would be. It is delivered in addition to the nested Function's own Output Portal write, never instead of it, and a Function that cannot answer one two-Cell encoding cannot nest.
+_Avoid_: Typed nested result, zeroth portal, capture
+
+**Blank Operand**:
+An inline Input Portal whose Cells are all empty. It is ordinary content rather than an error: the Function does nothing that Tick and nothing is diagnosed, whereas a partly empty operand is malformed.
+_Avoid_: Missing operand, empty value, null operand
 
 **Pending Operand Encoding**:
 The current characters of a spatially updated operand, awaiting interpretation when its receiving Function executes. They may be invalid for that operand's literal type and are not yet a decoded value.
@@ -145,8 +153,20 @@ The Atom an Expression answers when it leaves no value. It displays as `_` but h
 _Avoid_: Null, nil, empty value, empty Sequence, void
 
 **Sequence**:
-A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. Both refusals are in force, and a Self-Banging Function is refused by the first of them rather than by one of its own: `FunctionKind` distinguishes value from effect, with Terminal Output carried as one effect kind rather than being the definition of effect, so each effect Function declared later is refused there by its own definition. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. Both refusals are in force, and a Self-Banging Function is refused by the first of them rather than by one of its own: `FunctionKind` distinguishes value from effect, with Terminal Output carried as one effect kind rather than being the definition of effect, so each effect Function declared later is refused there by its own definition. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself. ADR 0063 retires this value in favour of the List.
 _Avoid_: Pattern, Cell batch, write list, string
+
+**List**:
+A horizontal series of two-Cell items inside one Function's claim, whose length is a literal count operand of that Function. Each item is a two-Cell encoding or blank. A List is Source rather than a value: it is never a Return, never passes between Functions, and is typed only by the portal that receives one of its items.
+_Avoid_: Sequence, Run, Pattern, array
+
+**Item**:
+One two-Cell position of a List, holding an encoding or blank. A blank item keeps its position, so a List of Notes can hold rests.
+_Avoid_: Entry, element, member, step
+
+**Track Function**:
+The List Function `@t index count`, followed by its List, which answers the item at `index % count` every Tick. A blank item is answered as a blank.
+_Avoid_: Select Function, sequencer, lookup
 
 **Atomic Function**:
 A stateless Function whose operands and result are single Atoms and which therefore extends pervasively across a Sequence operand. ADR 0007 calls this pervasive extension and ADRs 0011 through 0013 call it broadcasting; both names are current and name the same behaviour. An operation whose operands are all Atoms evaluates once and returns an ordinary Atom; an Atom operand repeats across every element of a Sequence operand; equal-length Sequence operands pair element-wise in order; and two non-scalar operands of different lengths diagnose as incompatible, including an empty Sequence against a non-empty one, rather than being padded or resized to fit. An empty Sequence operand is a legitimate width of no elements, so the result is the empty Sequence, and a scalar operand beside it is still checked because it is part of the operation whether or not any element repeats it. A shape, type, or evaluation failure diagnoses the complete operation and returns no partial Sequence, whichever element raises it. Every Function declares whether it extends or stays scalar, so an exception is stated rather than inherited: Delay `~*` and Euclidean `~%` stay scalar under ADR 0039, Increment `~+` and Interpolation `~>` stay scalar under ADR 0012 because element identity across Ticks would need hidden state, and the Terminal Output Functions extend under ADR 0030 even though they answer an effect rather than a value, because ADR 0028 bounds the kind of answer an instruction gives and not how much of it. Pervasion is therefore a property each Function declares and not one its family confers. Equality `.=` extends to find its comparison pairs and still returns one scalar under ADR 0011, which defers element-wise match positions and other comparison aggregations to Functions of their own. That whole-value answer is Equality's own and not a rule for every Function answering a pulse: a comparison is intrinsically a question about the whole set, whereas Delay `~*` and Euclidean `~%` refuse a Sequence operand altogether under ADR 0039, because an element that does not Bang has nothing to put at its position and every reduction of the elements to one answer would fix a meaning for layered rhythms that could not be relaxed later.
@@ -166,7 +186,7 @@ _Avoid_: Join Function, nested Sequence, append mutation
 
 **Select Function**:
 The Sequence Function `:?`. It uses a zero-based Number index modulo the length of a non-empty Sequence and returns the selected Atom with its type and encoding preserved. An empty Sequence or non-Number index diagnoses.
-_Avoid_: Track Function, subsequence, broadcast selection
+_Avoid_: subsequence, broadcast selection
 
 **Replace Function**:
 The Sequence Function `:=`. It uses a zero-based Number index modulo the length of a non-empty Sequence and returns a new same-length Sequence with that Atom replaced. The replacement is one Atom and may have a different type. The input Sequence remains unchanged.
@@ -181,7 +201,7 @@ The Portal through which a Function acts on the Source, as an offset from its an
 _Avoid_: Result Cell, output Cell, destination
 
 **Input Portal**:
-The Portal a Function declares it reads a Source input through, as an offset from its anchor. A Jump reads at the Portal opposite its Output Portal; Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source. Most Functions declare none and take every input as an operand.
+A site a Function reads one input through. Its inline Input Portals are its operands, each placed at the next unclaimed Cells of its Expression in signature order, so a nested Function in one of them moves the rest east. A fixed Input Portal sits at a declared offset from its anchor: a Jump reads at the site opposite its Output Portal, and Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source.
 _Avoid_: Input Cell, source Cell, feedback register
 
 **Comment**:

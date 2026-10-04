@@ -1,5 +1,7 @@
 # Map Orca capabilities onto Orcvs language families
 
+Status: the canonical-form column is revised by [ADR 0064](0064-a-function-spelling-starts-with-punctuation.md), and the Sequence mappings by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The capability audit stands.
+
 Orcvs preserves Orca's performative capabilities without preserving its one-letter Operator encoding or its uppercase/lowercase scheduling convention. Capabilities are expressed through two-character, behavior-first Function families over the character Source and derived Language Map; the detailed contracts remain in the focused ADRs linked below, while this ADR is the authoritative audit index. Tick-wide effect ordering is defined by ADR 0020.
 
 | Capability | Orca | Orcvs decision | Canonical Orcvs form | Detail |

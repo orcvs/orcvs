@@ -1,6 +1,6 @@
 # Reserve result Cells before their width exists
 
-Status: accepted. Lifts the "variable-width Sequence projection" deferral of [ADR 0032](0032-schedule-tick-execution-by-dependency.md).
+Status: accepted. Lifts the "variable-width Sequence projection" deferral of [ADR 0032](0032-schedule-tick-execution-by-dependency.md). The Sequence-width reservation is superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), and the rule that a nested Function reserves nothing by [ADR 0061](0061-a-nested-function-returns-to-the-slot-it-occupies.md).
 
 A dependency edge must name every Cell a write touches, and [ADR 0032](0032-schedule-tick-execution-by-dependency.md) fixes the schedule before any Function evaluates. A Sequence has no width until it is evaluated, which is why the executor refused one outright and planned no write at all. Tick scheduling therefore reserves the Cells a result *can* reach, derived from what its Functions declare, and execution delivers a Sequence through the same Portal a scalar uses.
 

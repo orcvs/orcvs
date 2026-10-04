@@ -7,7 +7,7 @@ Status: needs-triage
 A performer writes a row of notes in Source, drives a selection through those
 Cells with a Clock, and hears the selected note on each trigger. Editing one
 step changes that step on its next read. Empty steps keep their place in the
-cycle and can be used as rests. The Source File contains the complete pattern.
+cycle and are rests. The Source File contains the complete pattern.
 
 This is the interaction requested from the
 [Learn Orca tracker example](https://metasyn.srht.site/learn-orca/sections.html#sequencing).
@@ -15,112 +15,99 @@ The target is editable musical data in the Grid. Playing the same pitches from
 an expression assembled out of singleton Ranges demonstrates selection and
 MIDI, but does not meet this goal.
 
+## Decisions
+
+The language design this effort needed is accepted in four ADRs:
+
+- [ADR 0061](../../docs/adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md):
+  a Function's operands are inline input portals, claimed greedily. A nested
+  Function hands its two-Cell encoding (its Return) to the portal it occupies,
+  decoded by that portal's type, and still writes through its own Output Portal.
+- [ADR 0062](../../docs/adr/0062-a-blank-operand-has-no-effect.md): a blank
+  operand makes its Function do nothing, without a diagnostic.
+- [ADR 0063](../../docs/adr/0063-a-list-is-cells-in-a-claim-not-a-value.md):
+  the Sequence value is retired. A List is a horizontal series of two-Cell items
+  in one Function's claim with a literal count. Track `@t index count` answers
+  item `index % count` every Tick, and a blank item is a rest.
+- [ADR 0064](../../docs/adr/0064-a-function-spelling-starts-with-punctuation.md):
+  the spelling rule. Its renaming sweep is a separate effort, after this one.
+
+The tracker, in current spellings:
+
+```
+~*0101  ~.0108
+**    @t0208C4D4E4  G4C5  E4
+!~0064E404
+```
+
+Delay bangs Timed Play every Tick. Clock writes `00`–`07` into Track's index
+operand. Track copies the selected item south into Timed Play's note operand. A
+blank item reaches Timed Play as a blank operand, so nothing plays and the
+previous note does not repeat.
+
+These decisions settle the questions the first breakdown of this effort left
+open: an indexed read, not a region read into a Sequence; items owned by the
+Parser as part of Track's claim; rests as blank items; and a footprint fixed by
+the Source text, so the dependency graph is built before execution.
+
 ## Current evidence
 
-- Clock `~.`, Delay `~*`, Select `:?`, and Timed Play `!~` exist in
-  `lang/src/atom.rs`. Select accepts a Sequence; it does not read an arbitrary
-  Source region.
-- ADR 0017 maps Track to Select and Query to Source Read. It reserves `@<` and
-  `@>` without making them parseable Functions. The implementation table has
-  neither. ADR 0049 settles Positions as column/row Numbers and describes
-  future absolute Address Functions under `&`; issue 01 must reconcile that
-  wording with the Source family before choosing spellings.
-- Jump can read one aligned Language Unit at a fixed neighboring Portal. It
-  does not select a clock-indexed step from a row or transport a Sequence.
-- Operand Literals acquire a type from their declared operand position.
-  Unclaimed note-like characters do not automatically form Notes. Reading a
-  row cannot silently confer a new literal grammar on it.
-- ADR 0007 gives Sequences no privileged literal encoding. Absence is not a
-  Sequence member, and an absent result preserves old destination characters.
-  Therefore a blank step needs an explicit contract for both storage and
-  activation; treating a blank as absence and leaving MIDI active can replay
-  the preceding note.
-- ADRs 0032, 0034 and 0036 establish dependencies before execution and deliver
-  current-Tick values. A read whose address or extent depends on a calculation
-  must fit that model or explicitly revise it.
-
-The local `examples/tracker.orcvs` experiment and its test exercise a constructed
-Sequence, not this interaction. They are evidence for the reusable pieces, not
-acceptance evidence for this effort, and are not prerequisites of these tickets.
-
-## Decisions that remain open
-
-1. Read a declared region into a Sequence and apply Select, or read one indexed
-   step directly. Prefer evaluating the existing Source Read plus Select
-   composition first, but accept it only if it preserves blank step positions
-   and supports editing without duplicated note literals.
-2. How a region gets its Note interpretation and Parser ownership, including
-   whether a declaration makes the data row inert. A read alone must not become
-   an independent parser that bypasses the Language Map.
-3. Whether empty Cells mean a rest, and what representation preserves its slot.
-   Admitting Absence into a Sequence would revise ADR 0007 and the current Atom
-   contract; an indexed read or separate activation representation has other
-   consequences. No choice is made by this breakdown.
-4. How dynamic read geometry enters a dependency graph built before execution.
-   Address spelling is settled; read length, orientation, stride, typing,
-   timing and validation are not.
-
-Issue 01 records the product and operation contract; issues 02 and 03 settle
-the representation and scheduling contracts before implementation begins.
-All tickets remain `needs-triage`; dependency links describe order, not an
-assertion that their language decisions have been accepted.
+- A nested Function writes no Portal (`PortalAccess::resolve` in
+  `orcvs/src/source/portal.rs`), so a nested Increment never advances. ADR 0034
+  said a Function "can have both" a nested result and a spatial output; the code
+  never did.
+- A nested effect Function is refused only during a Tick (`NestedEffectFunction`).
+- A blank operand inside a claim is invalid and diagnoses.
+- Clock `~.`, Delay `~*` and Timed Play `!~` exist. Select `:?` reads a nested
+  Sequence; nothing reads Source Cells by index.
+- The local `examples/tracker.orcvs` experiment exercises a constructed Sequence,
+  not this interaction. It is not acceptance evidence.
 
 ## Delivery order
 
 | Issue | Deliverable | Blocked by |
 | --- | --- | --- |
-| [01](issues/01-settle-the-tracker-contract.md) | Tracker interaction and operation contract | None |
-| [02](issues/02-define-note-cell-and-rest-representation.md) | Typed data, ownership, and rest representation | 01 |
-| [03](issues/03-settle-read-geometry-and-dependencies.md) | Read footprint and dependency semantics | 01, 02 |
-| [04](issues/04-bind-and-read-editable-note-cells.md) | Parser and typed read implementation | 02, 03 |
-| [05](issues/05-schedule-source-reads-in-the-current-tick.md) | Current-Tick read integration | 04 |
-| [06](issues/06-deliver-notes-and-rests-without-stale-replay.md) | Trigger and rest behavior through Playback | 05 |
-| [07](issues/07-verify-live-editing-in-the-console.md) | Real console editing and file workflows | 06 |
-| [08](issues/08-deliver-the-cell-tracker-example.md) | Usable Source File, guide and acceptance evidence | 07 |
+| [01](issues/01-a-nested-function-returns-and-writes.md) | Return, and the nested Output Portal write | None |
+| [02](issues/02-a-blank-operand-has-no-effect.md) | Blank operands do nothing | None |
+| [03](issues/03-retire-the-sequence-value.md) | Sequence value and its Functions removed | 01 |
+| [04](issues/04-track-reads-an-item-from-its-list.md) | Track and Lists | 01, 02 |
+| [05](issues/05-verify-live-editing-in-the-console.md) | Real console editing and file workflows | 04 |
+| [06](issues/06-deliver-the-cell-tracker-example.md) | Usable Source File, guide and acceptance evidence | 03, 05 |
 
 ## Definition of done
 
-- One editable two-Cell Note per occupied step; no singleton Range or duplicate
-  endpoint needed for each note. The enclosing declaration is decided in 02.
-- A clock cycles through a declared number of steps. Blank steps retain time;
-  they do not shorten the cycle or re-trigger the preceding note.
-- A complete live edit affects the next eligible Source Snapshot. Intermediate
-  invalid edits have bounded, useful diagnostics and emit no spurious notes.
-- Current-Tick writes to data are read in dependency order, even when the writer
-  appears later in Grid order. Cycles and failed writers follow accepted rules.
-- Open, Save, reopen and a new Playback run reproduce the written pattern and
-  reset the clock as the existing Playback contract specifies.
-- The example passes actual Source/Tick and Playback tests, a console input
-  test, and an audible MIDI smoke test with device/channel/BPM recorded.
+- One editable two-Cell Note per occupied step, in Track's own List.
+- A Clock cycles through a declared number of steps. Blank steps keep their
+  time, and they neither shorten the cycle nor re-trigger the preceding note.
+- A complete live edit affects the next Tick whose Source Snapshot has not been
+  taken. Intermediate invalid edits have bounded, useful diagnostics and emit
+  no spurious notes.
+- Open, Save, reopen and a new Playback run reproduce the written pattern.
+- The example passes Source/Tick and Playback tests, a console input test, and
+  an audible MIDI smoke test with device, channel and BPM recorded.
 
 ## Scope and risks
 
-This effort adds language capability. It is active pre-release language design,
-not public compatibility repair. An accepted decision must amend the affected
-ADRs, `CONTEXT.md`, Function declarations, and Function reference consistently.
-No new spelling or signature in these tickets is accepted syntax.
+Active pre-release language design, not public compatibility repair. Each
+ticket amends `CONTEXT.md`, the Function table and the Function reference in
+step with the behaviour it implements.
 
-General Source Write, arbitrary Function-valued reads, vertical/multi-track
-patterns, a piano roll, built-in audio, song arrangement and pattern chaining
-are follow-ups unless the contract demonstrates that one is necessary. A moving
-visual playhead is optional presentation; a visible selected index is sufficient.
-No release tag is assigned by this planning work.
+Follow-ups, not in this effort: the spelling sweep (ADR 0064) and the console
+presentation aids that go with it (family colour, hover signatures, typing a
+name to get its spelling, and a check of the console font's ligatures);
+addressed and vertical Lists; any other List Function.
 
-The main risks are Parser ownership, fixed dependency geometry, rest/activation
-interaction, and Source-equivalent live edits. No dependency, unsafe code,
-feature or performance change is prescribed. Keep reads bounded to their
-declared footprint; any performance claim needs a reproducible benchmark.
+Risks: Output Portal writes from nested Functions change layouts that stacked
+Expressions under nested ones; removing the Sequence value touches the
+evaluator, scheduler, Reservation and Function table at once. No dependency,
+unsafe code or feature change is prescribed. Any performance claim needs a
+reproducible benchmark.
 
 ## Verification
 
-Every implementation ticket follows `AGENTS.md` and the skills triggered by its
-actual changes. `lang` changes run scoped gates for `lang` and `orcvs`; `orcvs`
-changes run them for `orcvs` and `console`; console presentation and UI tests
-also use the egui skill. Use `PROPTEST_CASES=32` locally. Exercise additional
-features or targets only where the repository contract requires them.
-
-This planning change requires `node --test scripts/tests/roadmap.test.ts` and
-`node scripts/roadmap.ts` with output discarded, plus diff review. The full
-cross-platform, headless-browser, benchmark comparison and 256-case property
-passes remain with CI. Track physical MIDI verification separately from tests
-that assert commands through an in-memory output adapter.
+Each implementation ticket follows `AGENTS.md` and the skills its changes
+trigger: `lang` changes run the scoped gates for `lang` and `orcvs`, `orcvs`
+changes for `orcvs` and `console`, and console presentation also uses the egui
+skill. Use `PROPTEST_CASES=32` locally. This planning change requires
+`node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts` with
+output discarded, plus diff review.

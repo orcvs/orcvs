@@ -2,7 +2,7 @@
 
 ## Status
 
-Conceptual
+Conceptual. Superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), which removes the Sequence value altogether.
 
 Orcvs currently carries two runtime value shapes. An Atom is one value and a Sequence is many, and a wrapper type holds whichever a Function produced so the operand stack can carry both. The alternative recorded here removes the distinction: every language value is a Sequence, a scalar is a Sequence of one member, and the wrapper does not exist. Functions take and return Sequences, and the operand stack holds nothing else.
 

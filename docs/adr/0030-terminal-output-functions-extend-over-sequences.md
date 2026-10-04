@@ -1,5 +1,7 @@
 # Terminal Output Functions extend over Sequences
 
+Status: superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), which removes pervasive extension. A chord is several Play roots activated by one Bang.
+
 The Terminal Output Functions extend pervasively over a Sequence operand under ADR 0007's rules, exactly as the Atomic Functions do. `!> 00 7F :#C4E4` answers one Play Command per element and sounds a chord from one Expression. A scalar operand repeats across every element, equal-length Sequence operands pair element-wise, and incompatible non-scalar lengths diagnose. Pervasion stays a declared property of each Function rather than a property of the Terminal Output family, so a later output Function states its own answer in the same table column.
 
 ADR 0007 grants pervasive extension to the Atomic Functions, which answer values, and says nothing about Functions that answer effects. That silence was read once as a prohibition: the first implementation of pervasive extension declared `!>` and `!~` scalar and recorded in `CONTEXT.md` that the Terminal Output Functions take Atom operands only. No decision supported that sentence. This ADR replaces it, and the reason the silence is not a prohibition is that the two constraints which make a Sequence expensive elsewhere do not reach an effect.

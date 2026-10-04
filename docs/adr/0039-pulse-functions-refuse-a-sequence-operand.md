@@ -1,6 +1,6 @@
 # Pulse Functions refuse a Sequence operand
 
-Status: accepted. Revises the Sequence-broadcasting clause of [ADR 0012](0012-time-and-feedback-are-explicit-tick-inputs.md) for Delay `~*` and Euclidean `~%`; Clock `~.` broadcasts as that decision wrote it.
+Status: accepted. Revises the Sequence-broadcasting clause of [ADR 0012](0012-time-and-feedback-are-explicit-tick-inputs.md) for Delay `~*` and Euclidean `~%`; Clock `~.` broadcasts as that decision wrote it. Superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), which removes the Sequence operand this decision refuses.
 
 This decision was accepted as ADR 0036 and renumbered to 0039, so history written before the renumbering — commits, pull requests, and issue files that cannot be rewritten — cites it as "ADR 0036" and means this file rather than [ADR 0036](0036-reserve-result-cells-before-their-width-exists.md), which held the number first and kept it.
 
