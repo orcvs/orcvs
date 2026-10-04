@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mover Semantics</title>
+<style>
+  /* Layout: prior-art prototype stage — narrative panels, a Turn-level defect stepper, then a four-model comparison stepped Tick by Tick. */
+  :root{
+    --bg:#f4f7f8;--panel:#ffffff;--line:#d3dde2;--well:#eaf0f2;--cellline:#d9e2e6;
+    --fg:#1a252b;--muted:#5d6c74;--head:#0f181d;
+    --mover:#0a6f94;--mover-bg:#dcf1f9;--root:#167a5e;--root-bg:#dcf2ea;
+    --bang:#b3262f;--bang-bg:#fbe3e4;--lead:#b86b00;--hit-bg:#fdeed6;
+    --accent:#1d6b56;--accent-fg:#ffffff;--ok:#167a5e;--bad:#b3262f;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+    --bg:#101417;--panel:#182025;--line:#2d3a41;--well:#0b1013;--cellline:#1e292f;
+    --fg:#d9e2e8;--muted:#8d9ba2;--head:#f3f7f9;
+    --mover:#75d8ff;--mover-bg:#10232c;--root:#63d5b3;--root-bg:#11241f;
+    --bang:#ff8585;--bang-bg:#2a1719;--lead:#ffbf69;--hit-bg:#342518;
+    --accent:#397463;--accent-fg:#f1fff9;--ok:#63d5b3;--bad:#ff8585;color-scheme:dark}}
+  :root[data-theme="dark"]{
+    --bg:#101417;--panel:#182025;--line:#2d3a41;--well:#0b1013;--cellline:#1e292f;
+    --fg:#d9e2e8;--muted:#8d9ba2;--head:#f3f7f9;
+    --mover:#75d8ff;--mover-bg:#10232c;--root:#63d5b3;--root-bg:#11241f;
+    --bang:#ff8585;--bang-bg:#2a1719;--lead:#ffbf69;--hit-bg:#342518;
+    --accent:#397463;--accent-fg:#f1fff9;--ok:#63d5b3;--bad:#ff8585;color-scheme:dark}
+  body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--sans)}
+  .wrap{max-width:1080px;margin:auto;padding-inline:20px;padding-block:28px 60px}
+  h1,h2,h3{color:var(--head);text-wrap:balance;margin:.2em 0 .45em}
+  h1{font-size:1.75rem}h2{font-size:1.2rem}h3{font-size:1rem}
+  p,li{max-width:72ch}
+  code{font-family:var(--mono);font-size:.9em}
+  .tag{color:var(--root);font-weight:700;letter-spacing:.08em;font-size:.8rem}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:16px 18px;margin:16px 0}
+  .lede{font-size:1.02rem}
+  .stage{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:20px;align-items:start}
+  .gridbox{overflow-x:auto;max-width:100%}
+  .grid{display:grid;grid-auto-rows:26px;padding:4px;background:var(--well);border:1px solid var(--line);width:max-content}
+  .cell{display:grid;place-items:center;width:26px;box-sizing:border-box;border-right:1px solid var(--cellline);border-bottom:1px solid var(--cellline);font:14px/1 var(--mono);color:var(--muted)}
+  .cell.empty{opacity:.35}
+  .mv{color:var(--mover);background:var(--mover-bg)}
+  .rt{color:var(--root);background:var(--root-bg)}
+  .bg{color:var(--bang);background:var(--bang-bg)}
+  .lead{outline:2px solid var(--lead);outline-offset:-3px}
+  .ghost{background:var(--hit-bg)}
+  .frame-label{font:600 12.5px/1.4 var(--mono);color:var(--muted);margin-bottom:6px}
+  .diag{font-family:var(--mono);font-size:.82rem;padding:8px 10px;border-left:3px solid var(--ok);background:var(--well);white-space:pre-wrap;overflow-wrap:anywhere}
+  .diag.bad{border-left-color:var(--bad);color:var(--bad)}
+  .verdict{border-left:3px solid var(--root);padding:10px 12px;background:var(--well);margin:0}
+  .tabs{display:flex;flex-wrap:wrap;gap:6px}
+  button{font:inherit;font-size:.92rem;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 11px;cursor:pointer}
+  button.active,button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button:focus-visible{outline:2px solid var(--lead);outline-offset:2px}
+  button:disabled{opacity:.4;cursor:default}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+  .step{font:13px var(--mono);color:var(--muted)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.86rem}
+  .legend span::before{content:"■";margin-right:5px}
+  .l-mv::before{color:var(--mover)}.l-rt::before{color:var(--root)}.l-bg::before{color:var(--bang)}.l-lead::before{color:var(--lead)}.l-ghost::before{color:var(--hit-bg)}
+  .models{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px}
+  .model{border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0;display:flex;flex-direction:column;gap:8px}
+  .model h3{font-size:.95rem;margin:0}
+  .pill{font:700 10.5px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;border-radius:4px;align-self:flex-start}
+  .pill.run{background:var(--root-bg);color:var(--root)}
+  .pill.proto{background:var(--mover-bg);color:var(--mover)}
+  .pill.hypo{background:var(--hit-bg);color:var(--lead)}
+  .pill.none{background:var(--well);color:var(--muted)}
+  .note{font-size:.84rem;color:var(--muted);margin:0}
+  table{border-collapse:collapse;font-size:.9rem;width:100%}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--head)}
+  .tablebox{overflow-x:auto}
+  .ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.warn{color:var(--lead);font-weight:600}
+  pre.src{font:12.5px/1.5 var(--mono);background:var(--well);border:1px solid var(--line);border-radius:6px;padding:10px 12px;overflow-x:auto;margin:8px 0}
+  .timeline{list-style:none;padding:0;margin:0;display:grid;gap:0}
+  .timeline li{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:14px;padding:10px 0;border-bottom:1px solid var(--line);max-width:none}
+  .timeline .when{font:600 13px/1.5 var(--mono);color:var(--muted)}
+  .timeline .what strong{color:var(--head)}
+  .kinds{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .kind{border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
+  @media(max-width:900px){.models{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:620px){.stage,.kinds,.models{grid-template-columns:minmax(0,1fr)}.timeline li{grid-template-columns:minmax(0,1fr);gap:2px}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+</head>
+<body>
+<div class="wrap">
+  <div class="tag">DESIGN WALKTHROUGH · spatial-tick-planning/07</div>
+  <h1>Are movers sequential effects or dataflow?</h1>
+  <p class="panel lede">A train of movers heading west, <code>&lt;&lt;&lt;&lt;</code>, rejects the whole Grid's Tick on every Tick. The cause is two accepted decisions that were never reconciled. ADR&nbsp;0014 gave movers Orca's rule: a mover enters a Cell only if it is empty right now. ADR&nbsp;0032 and ADR&nbsp;0034 then scheduled every Tick from the starting Snapshot, and made any write onto a computation that has already run a scheduling bug. Movers satisfy the first and break the second. This page walks through the defect, how it arose, what the original Orca does, and the two models that would make the rules agree.</p>
+
+  <section class="panel" id="defect">
+    <h2>1. The defect, Turn by Turn</h2>
+    <p>Grids and diagnostics at each Tick boundary come from <code>Source::execute</code> on <code>main</code> and this branch. The Turn-level frames inside Tick&nbsp;0 are traced from <code>orcvs/src/source/tick/execution.rs</code>.</p>
+    <div class="controls"><button id="d-reset">Reset</button><button id="d-prev">Previous</button><button id="d-next" class="primary">Next step</button><span class="step" id="d-step"></span></div>
+    <div class="stage" style="margin-top:14px">
+      <div class="gridbox"><div class="frame-label" id="d-frame"></div><div class="grid" id="d-grid"></div></div>
+      <div style="min-width:0;display:grid;gap:10px"><div class="diag" id="d-diag"></div><p class="verdict" id="d-verdict"></p></div>
+    </div>
+    <div class="legend" style="margin-top:12px"><span class="l-mv">Self-Banging Function (mover)</span><span class="l-rt">Expression root</span><span class="l-bg">Bang</span><span class="l-lead">Cell this Turn enters</span><span class="l-ghost">Vacated this Tick, still the leader's in the Snapshot</span></div>
+    <h3 style="margin-top:16px">The two checks</h3>
+    <p>A move is admitted by two checks, and they read different Grids:</p>
+    <pre class="src">// execution.rs:687 — reads the working Grid, after earlier Turns this Tick
+let empty = entered.iter().all(|&amp;cell| self.working.is_empty_at(cell));
+// execution.rs:691 — reads Cell ownership from the Snapshot parse
+let relationships = self.lookup.written_over(&amp;write);
+if relationships.functions().any(|c| c.subtree.filter(|d| *d != index).any(|d| self.states[d].attempted)) {
+    return Break(diagnose(node, "spatial output reached an executed computation; Tick effects rejected"));
+}</pre>
+    <p>The leader's move empties Cell&nbsp;3 in the working Grid, but nothing updates the Snapshot's ownership map. The follower passes the first check and fails the second. <code>Break</code> discards the Tick, so the next Tick starts from the same Snapshot and fails the same way.</p>
+  </section>
+
+  <section class="panel" id="kinds">
+    <h2>2. Two kinds of write</h2>
+    <p>ADR&nbsp;0014 defines both kinds in the same document. They answer different questions, and the code runs both through the same guard.</p>
+    <div class="kinds">
+      <div class="kind">
+        <h3>Overwrite: dataflow</h3>
+        <p>Value results, Sequences, replacements, Jump relays. ADR&nbsp;0014: an ordinary Language Unit "atomically overwrites the complete two-Cell destination, including occupied Source". Its target is known from the Snapshot, so the scheduler orders it before whatever it covers (ADR&nbsp;0034: "If Function B outputs over or at Function A, B must execute before A"). Reaching a computation that has already run means the schedule was wrong, and rejecting the Tick is the right guard.</p>
+      </div>
+      <div class="kind">
+        <h3>Empty-only: a sequential effect</h3>
+        <p>Movers (<code>^^ vv &lt;&lt; &gt;&gt;</code>) and Directional Bang emissions (<code>*^ *v *&lt; *&gt;</code>). ADR&nbsp;0014: a move "tests only newly entered Cells… An empty destination emits spaces… A blocked or out-of-Grid move writes <code>**</code>". Whether it succeeds depends on who reached the Cells first this Tick, which the Snapshot cannot know. It is refused whenever something is still standing there, so it can never land on a standing Unit.</p>
+      </div>
+    </div>
+    <p>No ADR records that empty-only writes sit outside ADR&nbsp;0034's ordering rule. The code made that exception piecemeal: mover contact edges are skipped, emitter contact edges are not, and the executed-computation guard runs on both.</p>
+  </section>
+
+  <section class="panel" id="history">
+    <h2>3. How the conflict arose</h2>
+    <ol class="timeline">
+      <li><span class="when">2026-08-31</span><span class="what"><strong>ADR 0014</strong> (<code>30370e11</code>) adopts Orca's motion: test the newly entered Cells, move if empty, otherwise <code>**</code>. The implementation of that era read the pre-Tick Snapshot; ADR&nbsp;0031 later proposed row-major evaluation against working Source, where "empty" would mean "empty when this Turn comes", as in Orca.</span></li>
+      <li><span class="when">2026-09-06</span><span class="what"><strong>ADR 0032</strong> (<code>1dc6452b</code>) replaces row-major execution with a schedule built from the Snapshot's dependencies, so that a Note written below its MIDI consumer still plays in the same Tick. It supersedes ADR&nbsp;0014's row-major clauses, but does not say what an empty-destination check means under a dependency schedule.</span></li>
+      <li><span class="when">2026-09-08</span><span class="what"><strong>ADR 0034</strong> (<code>7c7554d5</code>) adds the guard: "An output reaching an already-executed Function is a bug in the ordering, not a supported case." That holds for overwrites. It was written before movers existed.</span></li>
+      <li><span class="when">2026-09-11</span><span class="what"><strong><code>e5155c16</code></strong> adds the movers. Their bundle covers their own Span, so it needs "two exceptions, both keyed on the declaration": no self-edge, and no executed-computation rejection for the mover's own computation.</span></li>
+      <li><span class="when">2026-09-11</span><span class="what"><strong><code>3a676bcd</code></strong>: <code>&gt;&gt;&lt;&lt;</code> forms a cycle that rejects the Tick. Fixed by skipping mover contact edges to intrinsically active roots, because "a move is admitted only into empty Cells, so a contact never writes".</span></li>
+      <li><span class="when">2026-09-11</span><span class="what"><strong><code>3d39fde5</code></strong> adds the Directional Bang Functions and the <code>Advance</code>/<code>Emit</code> bundle declaration. Emitters get no contact-edge exception, which leaves the <code>*&gt;&lt;&lt;</code> cycle.</span></li>
+      <li><span class="when">2026-10-01</span><span class="what"><strong>This branch</strong> (<code>0ef9e84b</code>) adds a fourth exception for the emitter pair. It keeps the emitter's other edges, because removing them hits the same stale guard on <code>^^</code> above <code>*^</code>.</span></li>
+    </ol>
+    <p>Each exception was argued in a commit message, and none was recorded in an ADR. Each patched one shape of the conflict and left the rest.</p>
+  </section>
+
+  <section class="panel" id="orca">
+    <h2>4. What the original Orca does</h2>
+    <p>The Orca results below come from running Orca's unmodified JavaScript core (<code>operator.js</code>, <code>library.js</code>, <code>orca.js</code> at hundredrabbits/Orca <code>223e45c</code>) headlessly in node. The C port (Orca-c <code>9df9786</code>, <code>sim.c:216-229</code>) has the same movement code; it was read, not run.</p>
+    <pre class="src">// operator.js:81-90 — the whole movement rule, used by E, W, N and S (library.js)
+if (!orca.inBounds(offset.x, offset.y)) { this.explode(); return }
+if (orca.glyphAt(offset.x, offset.y) !== '.') { this.explode(); return }
+this.erase(); this.x += x; this.y += y; this.replace(this.glyph); this.lock()</pre>
+    <ul>
+      <li><strong>Order.</strong> Each frame, <code>parse()</code> lists operators top-left to bottom-right (<code>orca.js:60-70</code>). <code>operate()</code> runs them in that order against the live grid (<code>orca.js:72-80</code>).</li>
+      <li><strong>Emptiness reads the live grid.</strong> <code>glyphAt</code> sees every earlier operator's writes this frame. Orca keeps no frame-start copy and no ownership map.</li>
+      <li><strong>The only guard is the lock.</strong> <code>move()</code> locks the Cell it enters, so a moved operator never runs twice in one frame. Nothing in Orca ever aborts a frame. Every conflict ends locally, in <code>*</code> or a no-op.</li>
+      <li><strong>Trains depend on direction.</strong> <code>W</code> and <code>N</code> run against the evaluation order: the leader goes first and vacates, and the train moves as a unit. <code>E</code> and <code>S</code> run with it: the follower finds the leader still there and becomes <code>*</code>.</li>
+      <li><strong>Written operators wait a frame.</strong> Orca has no emitter. A writer such as <code>X</code> placing an <code>E</code> leaves it unmoved until the next frame, because a written glyph has no operator object this frame.</li>
+    </ul>
+    <p class="verdict">Orca is a sequential-effects model: effects apply in evaluation order against the mutated grid, and order decides. Orcvs already follows it for <code>&gt;&gt;&gt;&gt;</code>, the odd gap and the even gap. It departs only where the Snapshot guard fires.</p>
+  </section>
+
+  <section class="panel" id="compare">
+    <h2>5. Four models on the same Grids</h2>
+    <p>Each case is stepped Tick by Tick. Orcvs movers are two Cells wide and Orca operators are one, so the Orca column uses the one-Cell equivalent. Every column is labelled with where its frames come from.</p>
+    <div class="tablebox"><table>
+      <thead><tr><th>Column</th><th>Rule</th><th>Source of frames</th></tr></thead>
+      <tbody>
+        <tr><td>Orca</td><td>Sequential against the live grid; lock stops double moves</td><td><span class="pill run">run</span> Orca JS core in node</td></tr>
+        <tr><td>Orcvs today</td><td>Emptiness from the working Grid; executed guard from the Snapshot</td><td><span class="pill run">run</span> <code>Source::execute</code> on <code>main</code> and this branch</td></tr>
+        <tr><td>Model 1: sequential effects</td><td>Empty-only writes are judged by working-Grid emptiness alone. No Snapshot guard and no overwrite edges for them; the guard and edges stay for overwrites.</td><td><span class="pill proto">prototype run</span> where marked, otherwise traced</td></tr>
+        <tr><td>Model 2: dataflow</td><td>A move or emission is admitted only into Cells empty in the Snapshot that no other bundle enters this Tick. A contested Cell refuses every contender. Turn order never matters.</td><td><span class="pill hypo">hypothetical</span> traced by hand</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tabs" id="c-tabs" role="tablist" style="margin-top:14px"></div>
+    <p id="c-desc"></p>
+    <div class="controls"><button id="c-reset">Reset</button><button id="c-prev">Previous Tick</button><button id="c-next" class="primary">Next Tick</button><span class="step" id="c-step"></span></div>
+    <div class="models" id="c-models"></div>
+    <p class="verdict" id="c-verdict" style="margin-top:12px"></p>
+  </section>
+
+  <section class="panel" id="scorecard">
+    <h2>6. Scorecard</h2>
+    <div class="tablebox"><table>
+      <thead><tr><th>Case</th><th>Orca</th><th>Orcvs today</th><th>Model 1</th><th>Model 2</th></tr></thead>
+      <tbody>
+        <tr><td>West or north train</td><td>moves as a unit</td><td class="bad">Tick rejected</td><td class="ok">moves as a unit</td><td class="warn">rear bangs</td></tr>
+        <tr><td>East or south train</td><td>rear bangs</td><td class="ok">rear bangs</td><td class="ok">rear bangs</td><td class="ok">rear bangs</td></tr>
+        <tr><td>Odd gap</td><td>earlier one passes</td><td class="ok">earlier one passes</td><td class="ok">earlier one passes</td><td class="warn">both bang</td></tr>
+        <tr><td>Even gap, flush</td><td>both bang</td><td class="ok">both bang</td><td class="ok">both bang</td><td class="ok">both bang</td></tr>
+        <tr><td>Converging into a west train</td><td>all bang</td><td class="bad">Tick rejected</td><td class="ok">all bang</td><td class="warn">rear stays behind</td></tr>
+        <tr><td>Flush emitter pair <code>*&gt;&lt;&lt;</code></td><td>no equivalent</td><td class="bad">Tick rejected on <code>main</code></td><td class="ok">emission refused, Grid runs</td><td class="ok">emission refused, Grid runs</td></tr>
+        <tr><td>Emitter, mover leaving</td><td>no equivalent</td><td>emission refused</td><td>emission lands</td><td>emission refused</td></tr>
+        <tr><td>Depends on direction?</td><td>yes</td><td>yes, and rejects</td><td>yes, as Orca</td><td>no</td></tr>
+        <tr><td>Can reject a Tick?</td><td>never</td><td class="bad">yes</td><td class="ok">no, for these Functions</td><td class="ok">no, for these Functions</td></tr>
+      </tbody>
+    </table></div>
+    <p>One divergence from Orca remains under every Orcvs model and is outside this question. In Orca a <code>*</code> survives until its own turn, so the odd-gap survivor runs into it next frame (<code>.E*</code> becomes <code>.*.</code>). ADR&nbsp;0032 discards Bang display before evaluation, so the Orcvs survivor carries on (<code> &gt;&gt;**</code> becomes <code>  &gt;&gt;</code>).</p>
+  </section>
+
+  <section class="panel" id="decision">
+    <h2>7. The decision to record</h2>
+    <p>Write the missing ADR before writing code. It amends ADR&nbsp;0014, ADR&nbsp;0032 and ADR&nbsp;0034, and the questions it has to answer are:</p>
+    <ul>
+      <li><strong>Which model do movers and emissions follow?</strong> Model&nbsp;1 matches Orca, matches ADR&nbsp;0006's existing "Turn order decides who finds the Cells empty", and keeps every Orcvs result that already agrees with Orca. Model&nbsp;2 makes outcomes independent of direction and Source order, at the cost of Orca parity on west and north trains and the odd gap, and ADR&nbsp;0006's collision rule would have to be redone.</li>
+      <li><strong>Where does the guard apply?</strong> Under either model, ADR&nbsp;0034's executed-computation rule is about overwrites only. The ADR should say so, and say which ordering edges an empty-only writer still owes: a mover's Bang on contact, and a literal operand it fills.</li>
+      <li><strong>Where is the kind declared?</strong> The <code>Advance</code>/<code>Emit</code> bundle already says which writes are empty-only. The scheduler and the executor should both derive their behaviour from that one declaration rather than from exceptions in each.</li>
+    </ul>
+    <p>The <code>codebase-design</code> proposals (type-driven and testable) both implement Model&nbsp;1 from that declaration. The testable prototype deleted the Snapshot guard on the empty-only path and the emitter's contact edges, and all 684 existing <code>orcvs</code> tests still passed. A property test, "no arrangement of movers and Directional Bang Functions rejects a Tick", fails on <code>main</code> and passes on the prototype.</p>
+  </section>
+</div>
+
+<script>
+const R="spatial output reached an executed computation; Tick effects rejected";
+const OK="(no diagnostic)";
+const at=(r,c)=>r+","+c;
+const m=pairs=>Object.fromEntries(pairs.map(([r,c,k])=>[at(r,c),k]));
+
+// Auto-mark: movers, roots, bangs from glyphs, so case data stays as plain rows.
+const MOVER=new Set(["<",">","^","v","W","E","N","S"]);
+function autoMarks(rows){
+  const out={};
+  rows.forEach((row,r)=>[...row].forEach((ch,c)=>{
+    if(ch==="*"){const nxt=row[c+1],prv=row[c-1];
+      if(nxt&&"<>^v".includes(nxt))out[at(r,c)]="rt";
+      else if(prv==="*"||nxt==="*"||row.length<=3||!(nxt&&"<>^v".includes(nxt)))out[at(r,c)]="bg";}
+    else if(MOVER.has(ch)){const prv=row[c-1];out[at(r,c)]=(prv==="*"&&"<>^v".includes(ch))?"rt":"mv";}
+    else if(ch==="."&&row[c+1]&&"=+".includes(row[c+1]))out[at(r,c)]="rt";
+    else if("=+".includes(ch)&&row[c-1]===".")out[at(r,c)]="rt";
+  }));
+  return out;
+}
+
+function renderGrid(el,rows,marks,emptyChars){
+  const w=Math.max(...rows.map(r=>r.length));
+  el.style.gridTemplateColumns=`repeat(${w},26px)`;
+  el.replaceChildren();
+  rows.forEach((row,r)=>{for(let c=0;c<w;c++){
+    const ch=row[c]??" ";const d=document.createElement("div");
+    const empty=emptyChars.includes(ch);
+    d.className="cell "+(marks[at(r,c)]||"")+(empty?" empty":"");
+    d.textContent=ch===" "?"·":ch;
+    d.setAttribute("aria-label",`row ${r} column ${c}: ${empty?"empty":ch}`);
+    el.append(d);
+  }});
+}
+
+/* ---------- Section 1: Turn-level defect stepper ---------- */
+const defect=[
+  {label:"Snapshot · Tick 0",rows:["  <<<<  "],marks:m([[0,2,"mv"],[0,3,"mv"],[0,4,"mv"],[0,5,"mv"]]),diag:OK,bad:false,
+   v:"Two movers heading west. Turn order is Source order, because mover-to-mover contact edges are skipped (3a676bcd). The leader at Cell 2 goes first."},
+  {label:"Tick 0 · Turn 1 · leader <<",rows:[" << <<  "],marks:m([[0,1,"mv lead"],[0,2,"mv"],[0,3,"ghost"],[0,4,"mv"],[0,5,"mv"]]),diag:OK,bad:false,
+   v:"The leader enters Cell 1, which is empty, and moves. In the working Grid Cell 3 is now empty. In the Snapshot's ownership map Cell 3 is still the leader's, and the leader is marked as having run."},
+  {label:"Tick 0 · Turn 2 · follower <<",rows:[" << <<  "],marks:m([[0,1,"mv"],[0,2,"mv"],[0,3,"ghost lead"],[0,4,"mv"],[0,5,"mv"]]),diag:R,bad:true,
+   v:"The follower enters Cell 3. The emptiness check reads the working Grid: empty, so admitted. The executed-computation check reads the Snapshot: Cell 3 belongs to a computation that has run. Break."},
+  {label:"Tick 0 · result",rows:["  <<<<  "],marks:m([[0,2,"mv"],[0,3,"mv"],[0,4,"mv"],[0,5,"mv"]]),diag:R,bad:true,
+   v:"Break discards every effect in the Grid, including the leader's legitimate move and any unrelated Function's answer. Tick 1 starts from the same Snapshot and fails the same way, every Tick."},
+];
+let dStep=0;
+function renderDefect(){
+  const f=defect[dStep];
+  document.getElementById("d-frame").textContent=f.label;
+  renderGrid(document.getElementById("d-grid"),f.rows,f.marks," ");
+  const dg=document.getElementById("d-diag");dg.textContent=f.diag;dg.className="diag"+(f.bad?" bad":"");
+  document.getElementById("d-verdict").textContent=f.v;
+  document.getElementById("d-step").textContent=`step ${dStep+1} of ${defect.length}`;
+  document.getElementById("d-prev").disabled=dStep===0;
+  document.getElementById("d-next").disabled=dStep===defect.length-1;
+}
+document.getElementById("d-reset").onclick=()=>{dStep=0;renderDefect()};
+document.getElementById("d-prev").onclick=()=>{if(dStep>0){dStep--;renderDefect()}};
+document.getElementById("d-next").onclick=()=>{if(dStep<defect.length-1){dStep++;renderDefect()}};
+
+/* ---------- Section 5: comparison ---------- */
+// Each column: {src:'run'|'proto'|'hypo'|'none', note, frames:[{rows, diag}]}. frames[0] is the Snapshot.
+const F=(rows,diag)=>({rows,diag:diag||OK});
+const RJ=rows=>({rows,diag:R});
+const cases=[
+  {name:"West train",desc:"Two movers heading west, leader in front. Grid 8×1; Orca 6×1.",
+   verdict:"Orca and Model 1 move the train as a unit, because the leader takes the first Turn and vacates before the follower looks. Orcvs today rejects. Model 2 judges the follower against the Snapshot, where the leader still stands, so the rear bangs.",
+   orca:{src:"run",frames:[F(["..WW.."]),F([".WW..."]),F(["WW...."]),F(["**...."])]},
+   today:{src:"run",frames:[F(["  <<<<  "]),RJ(["  <<<<  "]),RJ(["  <<<<  "]),RJ(["  <<<<  "])]},
+   m1:{src:"proto",note:"Ticks 1–2 prototype run; Tick 3 traced",frames:[F(["  <<<<  "]),F([" <<<<   "]),F(["<<<<    "]),F(["****    "])]},
+   m2:{src:"hypo",frames:[F(["  <<<<  "]),F([" << **  "]),F(["<<      "]),F(["**      "])]}},
+  {name:"East train",desc:"Two movers heading east, rear first in Source order. Grid 8×1; Orca 6×1.",
+   verdict:"All four agree. The follower's Turn comes first and the leader is still standing there, so the follower bangs and the leader carries on.",
+   orca:{src:"run",frames:[F(["EE...."]),F(["*.E..."]),F(["...E.."]),F(["....E."])]},
+   today:{src:"run",frames:[F([">>>>    "]),F(["** >>   "]),F(["    >>  "]),F(["     >> "])]},
+   m1:{src:"proto",note:"unchanged from today; prototype run",frames:[F([">>>>    "]),F(["** >>   "]),F(["    >>  "]),F(["     >> "])]},
+   m2:{src:"hypo",frames:[F([">>>>    "]),F(["** >>   "]),F(["    >>  "]),F(["     >> "])]}},
+  {name:"North train",desc:"^^ above ^^. Grid 2×4; Orca N above N in a 1×4 column. Row-major order puts the leader first.",
+   verdict:"The vertical form of the west train. Orca and Model 1 move both up together, and both bang at the top edge. Orcvs today rejects every Tick.",
+   orca:{src:"run",frames:[F([".",".","N","N"]),F([".","N","N","."]),F(["N","N",".","."]),F(["*","*",".","."])]},
+   today:{src:"run",frames:[F(["  ","  ","^^","^^"]),RJ(["  ","  ","^^","^^"]),RJ(["  ","  ","^^","^^"]),RJ(["  ","  ","^^","^^"])]},
+   m1:{src:"proto",note:"Ticks 1–2 prototype run; Tick 3 traced",frames:[F(["  ","  ","^^","^^"]),F(["  ","^^","^^","  "]),F(["^^","^^","  ","  "]),F(["**","**","  ","  "])]},
+   m2:{src:"hypo",frames:[F(["  ","  ","^^","^^"]),F(["  ","^^","  ","**"]),F(["^^","  ","  ","  "]),F(["**","  ","  ","  "])]}},
+  {name:"South train",desc:"vv above vv. Grid 2×5; Orca S above S. The follower is first in Source order.",
+   verdict:"All four agree: the follower bangs and the leader carries on, as in the east train.",
+   orca:{src:"run",frames:[F(["S","S",".",".","."]),F(["*",".","S",".","."]),F([".",".",".","S","."]),F([".",".",".",".","S"])]},
+   today:{src:"run",frames:[F(["vv","vv","  ","  ","  "]),F(["**","  ","vv","  ","  "]),F(["  ","  ","  ","vv","  "]),F(["  ","  ","  ","  ","vv"])]},
+   m1:{src:"proto",note:"unchanged from today",frames:[F(["vv","vv","  ","  ","  "]),F(["**","  ","vv","  ","  "]),F(["  ","  ","  ","vv","  "]),F(["  ","  ","  ","  ","vv"])]},
+   m2:{src:"hypo",frames:[F(["vv","vv","  ","  ","  "]),F(["**","  ","vv","  ","  "]),F(["  ","  ","  ","vv","  "]),F(["  ","  ","  ","  ","vv"])]}},
+  {name:"Odd gap",desc:">> <<, one free Cell between them. Grid 8×1; Orca E.W.",
+   verdict:"Orca, today and Model 1 let the earlier Turn take the free Cell, as ADR 0006 says. Model 2 refuses a contested Cell to both. Tick 2 shows the Bang-lifetime divergence: Orca's * survives to block E, while Orcvs clears Bang display before evaluating.",
+   orca:{src:"run",frames:[F(["E.W"]),F([".E*"]),F([".*."]),F(["..."])]},
+   today:{src:"run",frames:[F([">> <<   "]),F([" >>**   "]),F(["  >>    "]),F(["   >>   "])]},
+   m1:{src:"proto",note:"unchanged from today",frames:[F([">> <<   "]),F([" >>**   "]),F(["  >>    "]),F(["   >>   "])]},
+   m2:{src:"hypo",frames:[F([">> <<   "]),F(["** **   "]),F(["        "]),F(["        "])]}},
+  {name:"Even gap",desc:">>  <<, two free Cells. Grid 8×1; Orca E..W.",
+   verdict:"All four agree: the gap closes flush, then both bang.",
+   orca:{src:"run",frames:[F(["E..W"]),F([".EW."]),F([".**."]),F(["...."])]},
+   today:{src:"run",frames:[F([">>  <<  "]),F([" >><<   "]),F([" ****   "]),F(["        "])]},
+   m1:{src:"proto",note:"unchanged from today",frames:[F([">>  <<  "]),F([" >><<   "]),F([" ****   "]),F(["        "])]},
+   m2:{src:"hypo",frames:[F([">>  <<  "]),F([" >><<   "]),F([" ****   "]),F(["        "])]}},
+  {name:"Converging",desc:">> approaching a west train. Grid 12×1; Orca ..E..WW.",
+   verdict:"Orca and Model 1: the train closes up behind its leader, then all three bang. Orcvs today rejects. Model 2 leaves the rear mover banging a Tick early, separate from the meeting.",
+   orca:{src:"run",frames:[F(["..E..WW"]),F(["...EWW."]),F(["...***."]),F([".......".slice(0,7)])]},
+   today:{src:"run",frames:[F(["    >>  <<<<"]),RJ(["    >>  <<<<"]),RJ(["    >>  <<<<"]),RJ(["    >>  <<<<"])]},
+   m1:{src:"proto",note:"Ticks 1–2 prototype run",frames:[F(["    >>  <<<<"]),F(["     >><<<< "]),F(["     ****** "]),F(["            "])]},
+   m2:{src:"hypo",frames:[F(["    >>  <<<<"]),F(["     >><< **"]),F(["     ****   "]),F(["            "])]}},
+  {name:"Emitter, mover leaving",desc:"^^ stands in *^'s destination and moves away; .=0101 bangs *^. Grid 10×3.",
+   verdict:"Today the emission is refused because the scheduler orders *^ first to protect the Snapshot guard. Under Model 1, ^^ takes the earlier Turn by Source order and leaves, and the emission lands in Cells that are now empty: Turn order decides. Model 2 judges the destination against the Snapshot and refuses.",
+   orca:{src:"none",note:"Orca has no emitter. A writer such as X placing an E leaves it unmoved until the next frame.",frames:null},
+   today:{src:"run",frames:[F(["          ","  ^^.=0101","  *^      "]),F(["  ^^      ","    .=0101","  *^**    "],"*^ has no empty destination inside the Grid for ^^"),F(["  **      ","  ^^.=0101","  *^**    "]),F(["  ^^      ","    .=0101","  *^**    "],"*^ has no empty destination inside the Grid for ^^")]},
+   m1:{src:"proto",note:"Tick 1 prototype run; later Ticks not shown",frames:[F(["          ","  ^^.=0101","  *^      "]),F(["  ^^      ","  ^^.=0101","  *^**    "])]},
+   m2:{src:"hypo",note:"same refusal as today at Tick 1",frames:[F(["          ","  ^^.=0101","  *^      "]),F(["  ^^      ","    .=0101","  *^**    "],"*^ has no empty destination inside the Grid for ^^")]}},
+  {name:"Flush emitter pair",desc:"<< stands in *>'s destination and moves back into it, beside an unrelated .+0102. Grid 14×2.",
+   verdict:"On main the two ordering edges form a cycle and the whole Tick is rejected, so the Addition never answers. Model 1 drops the emitter's overwrite edge: the mover is blocked whatever the order, the emission is refused, and the Addition answers 03. Model 2 reaches the same result from the Snapshot.",
+   orca:{src:"none",note:"No equivalent: Orca has no emitter.",frames:null},
+   today:{src:"run",note:"main; the branch's workaround gives the Model 1 result",frames:[F(["  *><<  .+0102","              "]),{rows:["  *><<  .+0102","              "],diag:"same-Tick dependency cycle"}]},
+   m1:{src:"proto",note:"prototype run",frames:[F(["  *><<  .+0102","              "]),F(["  *>**  .+0102","        03    "],"*> has no empty destination inside the Grid for >>")]},
+   m2:{src:"hypo",frames:[F(["  *><<  .+0102","              "]),F(["  *>**  .+0102","        03    "],"*> has no empty destination inside the Grid for >>")]}},
+];
+const COLS=[["orca","Orca"],["today","Orcvs today"],["m1","Model 1 · sequential"],["m2","Model 2 · dataflow"]];
+const PILL={run:"run",proto:"prototype run",hypo:"hypothetical",none:"no equivalent"};
+let cIdx=0,tick=0;
+const maxTicks=cs=>Math.max(...COLS.map(([k])=>cs[k].frames?cs[k].frames.length:0));
+
+function renderCompare(){
+  const cs=cases[cIdx],n=maxTicks(cs);
+  document.getElementById("c-desc").textContent=cs.desc;
+  document.getElementById("c-verdict").textContent=cs.verdict;
+  document.getElementById("c-step").textContent=tick===0?"Snapshot":`after Tick ${tick-1}`;
+  document.getElementById("c-prev").disabled=tick===0;
+  document.getElementById("c-next").disabled=tick>=n-1;
+  [...document.getElementById("c-tabs").children].forEach((b,i)=>{b.classList.toggle("active",i===cIdx);b.setAttribute("aria-selected",i===cIdx)});
+  const host=document.getElementById("c-models");host.replaceChildren();
+  COLS.forEach(([k,title])=>{
+    const col=cs[k];const box=document.createElement("div");box.className="model";
+    const h=document.createElement("h3");h.textContent=title;
+    const pill=document.createElement("span");pill.className="pill "+col.src;pill.textContent=PILL[col.src];
+    box.append(h,pill);
+    if(!col.frames){const p=document.createElement("p");p.className="note";p.textContent=col.note;box.append(p);host.append(box);return;}
+    const f=col.frames[Math.min(tick,col.frames.length-1)];
+    const stale=tick>col.frames.length-1;
+    const gb=document.createElement("div");gb.className="gridbox";const g=document.createElement("div");g.className="grid";gb.append(g);
+    renderGrid(g,f.rows,autoMarks(f.rows),k==="orca"?".":" ");
+    const dg=document.createElement("div");dg.className="diag"+((f.diag===R||f.diag==="same-Tick dependency cycle")?" bad":"");dg.textContent=stale?"(frame not captured for this Tick)":f.diag;
+    box.append(gb,dg);
+    if(col.note){const p=document.createElement("p");p.className="note";p.textContent=col.note;box.append(p);}
+    host.append(box);
+  });
+}
+cases.forEach((cs,i)=>{const b=document.createElement("button");b.textContent=cs.name;b.id="c-case-"+i;b.setAttribute("role","tab");
+  b.onclick=()=>{cIdx=i;tick=0;renderCompare()};document.getElementById("c-tabs").append(b);});
+document.getElementById("c-reset").onclick=()=>{tick=0;renderCompare()};
+document.getElementById("c-prev").onclick=()=>{if(tick>0){tick--;renderCompare()}};
+document.getElementById("c-next").onclick=()=>{if(tick<maxTicks(cases[cIdx])-1){tick++;renderCompare()}};
+
+renderDefect();renderCompare();
+</script>
+</body>
+</html>

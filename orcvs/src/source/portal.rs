@@ -363,7 +363,7 @@ impl Portal {
 }
 
 ///
-/// Occupancy of arbitrary Cells, as a blocked move's newly entered Cells.
+/// Occupancy of arbitrary Cells, as a Portal destination's Cells along its row.
 ///
 /// ADR 0006 classifies contact against every Language Unit rather than
 /// against the computations alone: a Comment and a standalone Bang each
