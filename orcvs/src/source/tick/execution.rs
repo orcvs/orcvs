@@ -63,7 +63,7 @@ pub(super) fn execute(
 /// Keeping them together does not turn them into an exclusive lifecycle enum.
 pub(in crate::source) struct ComputationState {
     function: Function,
-    result: Option<Atom>,
+    result: Option<Answer>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
@@ -129,6 +129,27 @@ impl ComputationState {
     pub(in crate::source) fn interpretations(&self) -> usize {
         self.interpretations
     }
+
+    ///
+    /// Whether this computation gave the Blank Answer and no consumer has
+    /// taken it.
+    ///
+    pub(in crate::source) fn answered_blank(&self) -> bool {
+        self.result == Some(Answer::Blank)
+    }
+}
+
+/// What a value computation answered, for the parent that consumes it.
+///
+/// The Blank Answer is not an Atom. It is what a value Function gives when
+/// one of its inline operands is blank: it writes two spaces through its
+/// Output Portal and returns those blank Cells, so its consumer is blank in
+/// turn. The Absence Marker is an Atom with no Source encoding: it plans no
+/// write, and a parent that receives it has no Return to decode.
+#[derive(Clone, Copy, PartialEq)]
+enum Answer {
+    Atom(Atom),
+    Blank,
 }
 
 struct Execution<'a> {
@@ -274,20 +295,27 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
-        let result = self.operands(node, signature).and_then(|operands| {
-            // Recorded beside the call rather than before it: a Turn whose
-            // operands would not resolve is one the Interpreter never ran for,
-            // and the record says which of the two happened.
-            #[cfg(test)]
-            {
-                self.states[index].interpreted = Some(tick);
-                self.states[index].interpretations += 1;
+        let result = match self.operands(node, signature) {
+            Ok(Some(operands)) => {
+                // Recorded beside the call rather than before it: a Turn whose
+                // operands would not resolve, or were blank, is one the
+                // Interpreter never ran for, and the record says whether it
+                // ran.
+                #[cfg(test)]
+                {
+                    self.states[index].interpreted = Some(tick);
+                    self.states[index].interpretations += 1;
+                }
+                let inputs =
+                    FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
+                Interpreter::execute_function(function, operands, inputs)
+                    .map_err(|error| error.to_string())
             }
-            let inputs =
-                FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
-            Interpreter::execute_function(function, operands, inputs)
-                .map_err(|error| error.to_string())
-        });
+            // A blank operand is deliberate content, not a failure: the
+            // Function gives the Blank Answer without evaluating.
+            Ok(None) => return self.deliver_blank(index),
+            Err(message) => Err(message),
+        };
         match result {
             Err(message) => self.effects.push(Effect::Diagnose(diagnose(node, message))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
@@ -359,7 +387,8 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// The operands of `node`'s Turn, in signature order.
+    /// The operands of `node`'s Turn, in signature order, or `None` where
+    /// one of them is blank.
     ///
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
@@ -368,12 +397,18 @@ impl<'a> Execution<'a> {
     /// child's one consumer. The child's Atom type does not cross: a Note
     /// returned into a Number operand is read as the Number it spells, exactly
     /// as the same characters written there by a Portal would be.
+    ///
+    /// An operand is blank when its Cells are all spaces or its child gave
+    /// the Blank Answer, which is the same two spaces returned. A malformed
+    /// operand still refuses the Turn even beside a blank one, so a fault is
+    /// never hidden behind deliberate silence.
     fn operands(
         &mut self,
         node: &Computation,
         signature: lang::Tokens,
-    ) -> Result<Vec<Atom>, String> {
-        node.operands
+    ) -> Result<Option<Vec<Atom>>, String> {
+        let operands = node
+            .operands
             .iter()
             .zip(signature)
             .map(|(operand, token)| {
@@ -382,33 +417,71 @@ impl<'a> Execution<'a> {
                     .filter(|child| !self.states[*child].suppressed)
                 {
                     let anchor = self.lookup.nodes()[child].anchor;
-                    let returned = match self.states[child].result.take().map(Encoding::render) {
-                        Some(Ok(Rendered::Cells(encoding))) => encoding,
-                        Some(Ok(Rendered::Nothing)) | None => {
-                            return Err(format!(
-                                "nested computation at column {}, row {} returned nothing",
-                                anchor.x(),
-                                anchor.y()
-                            ));
-                        }
-                        // A rendering a Cell cannot hold is its own fault, not
-                        // an absent answer.
-                        Some(Err(reason)) => return Err(render_message(reason)),
+                    let returned = match self.states[child].result.take() {
+                        Some(Answer::Blank) => return Ok(None),
+                        Some(Answer::Atom(atom)) => match Encoding::render(atom) {
+                            Ok(Rendered::Cells(encoding)) => encoding,
+                            Ok(Rendered::Nothing) => return Err(returned_nothing(anchor)),
+                            // A rendering a Cell cannot hold is its own fault,
+                            // not an absent answer.
+                            Err(reason) => return Err(render_message(reason)),
+                        },
+                        None => return Err(returned_nothing(anchor)),
                     };
                     return token
                         .decode(&returned.to_string())
+                        .map(Some)
                         .map_err(|error| error.to_string());
                 }
                 let spelling = self.working.text(operand.cells.clone());
-                token.decode(spelling).map_err(|error| error.to_string())
+                if token.is_blank(spelling) {
+                    return Ok(None);
+                }
+                token
+                    .decode(spelling)
+                    .map(Some)
+                    .map_err(|error| error.to_string())
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(operands.into_iter().collect())
+    }
+
+    ///
+    /// Gives the Blank Answer for a computation with a blank operand.
+    ///
+    /// A value Function writes two spaces through its Output Portal and
+    /// returns them to its parent. The write is what keeps a consumer fed
+    /// through that Portal from reading a stale value: a Timed Play whose note
+    /// slot is cleared emits nothing rather than replaying its previous Note,
+    /// and an Increment or Interpolation whose output is also its feedback
+    /// input restarts from `00`. A Function that answers no value has nothing
+    /// to clear, so a Terminal Output Function emits no command.
+    ///
+    fn deliver_blank(&mut self, index: usize) {
+        if !self.states[index].function.answers_value() {
+            return;
+        }
+        self.states[index].result = Some(Answer::Blank);
+        let node = &self.lookup.nodes()[index];
+        if !node.portal_access.writes_cells() {
+            return;
+        }
+        let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
+        for output in node.portal_access.write_sites() {
+            self.deliver_output(index, Answer::Blank, &cleared, *output);
+        }
     }
 
     fn deliver_value(&mut self, index: usize, atom: Atom) {
+        // A Jump answers Empty when its input is two spaces. It copied a
+        // blank, which is the Blank Answer and not the Absence Marker.
+        if atom == Atom::Empty && self.states[index].function.copies_language_unit() {
+            self.deliver_blank(index);
+            return;
+        }
         self.project_value(index, atom);
         // A successful nested answer survives every refusal to project it.
-        self.states[index].result = Some(atom);
+        self.states[index].result = Some(Answer::Atom(atom));
     }
 
     /// Plans the Cell writes, activation, or clear one answer makes, whether
@@ -428,17 +501,7 @@ impl<'a> Execution<'a> {
         // hold refuses whole. Every other Atom renders as the Cell pair the
         // schedule reserved.
         let encoding = match Encoding::render(atom) {
-            Ok(Rendered::Nothing) => {
-                // A Jump answers Empty when its input is two spaces. That is a
-                // clear of the reserved output Portal, not an omitted write.
-                if self.states[index].function.copies_language_unit() {
-                    let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
-                    for output in node.portal_access.write_sites() {
-                        self.deliver_output(index, Atom::Empty, &cleared, *output);
-                    }
-                }
-                return;
-            }
+            Ok(Rendered::Nothing) => return,
             Ok(Rendered::Cells(encoding)) => encoding,
             Err(reason) => {
                 self.effects
@@ -447,14 +510,14 @@ impl<'a> Execution<'a> {
             }
         };
         for output in node.portal_access.write_sites() {
-            self.deliver_output(index, atom, &encoding, *output);
+            self.deliver_output(index, Answer::Atom(atom), &encoding, *output);
         }
     }
 
     fn deliver_output(
         &mut self,
         index: usize,
-        atom: Atom,
+        answer: Answer,
         encoding: &Encoding,
         output: Result<Position, PortalError>,
     ) {
@@ -469,7 +532,8 @@ impl<'a> Execution<'a> {
                 return;
             }
         };
-        if atom == Atom::Bang && self.states[index].function.copies_language_unit() {
+        if answer == Answer::Atom(Atom::Bang) && self.states[index].function.copies_language_unit()
+        {
             if let Some(root) = self.lookup.root_at(destination) {
                 self.states[root].activated = true;
                 return;
@@ -495,12 +559,12 @@ impl<'a> Execution<'a> {
         };
         // The Cells this write actually covers: `Lookup::written_over`.
         let relationships = self.lookup.written_over(&write);
-        if atom == Atom::Bang {
+        if answer == Answer::Atom(Atom::Bang) {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
             }
         }
-        if let Atom::Function(replacement) = atom
+        if let Answer::Atom(Atom::Function(replacement)) = answer
             && let Some(change) = relationships.functions().find_map(|contact| {
                 if !contact.at_anchor {
                     return None;
@@ -549,7 +613,7 @@ impl<'a> Execution<'a> {
             let target = contact.index;
             if contact.at_anchor
                 && !self.states[target].suppressed
-                && let Atom::Function(replacement) = atom
+                && let Answer::Atom(Atom::Function(replacement)) = answer
             {
                 self.states[target].function = replacement;
                 continue;
@@ -822,6 +886,16 @@ fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
         PortalError::OutsideGrid => format!("result {encoding:?} falls outside the Grid"),
         PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
     }
+}
+
+/// A nested child whose answer had no Source encoding left its parent nothing
+/// to decode: it answered the Absence Marker, or never answered at all.
+fn returned_nothing(anchor: Position) -> String {
+    format!(
+        "nested computation at column {}, row {} returned nothing",
+        anchor.x(),
+        anchor.y()
+    )
 }
 
 /// A value that could not become Cells names what it rendered to, which is the

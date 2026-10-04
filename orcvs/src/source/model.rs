@@ -1307,12 +1307,16 @@ mod test {
 
         let at = src.cells();
 
-        // The half-typed Function remains visible and is diagnosed
-        // immediately. Its Span is six Cells rather than four: an Addition
-        // claims two operands whether or not anyone has written into them, so
-        // the diagnostic covers the Cells the Function is asking for.
+        // An operand nobody has written into yet is blank, which is complete
+        // Source rather than a fault, so the Function is not diagnosed.
         src.write(at(0), ".+01");
         assert_eq!(src.row(0), ".+01      ");
+        assert!(diagnostics(&src).is_empty());
+
+        // A half-typed operand remains visible and is diagnosed immediately.
+        // The Span is six Cells: an Addition claims two operands, so the
+        // diagnostic covers the Cells the Function is asking for.
+        src.write(at(4), "0");
         assert_eq!(diagnostics(&src).len(), 1);
         assert_eq!(diagnostics(&src)[0].start(), 0);
         assert_eq!(diagnostics(&src)[0].end(), 5);
@@ -1685,9 +1689,10 @@ mod test {
         // beneath it takes no turn. The claim is arity, one derivation, so
         // every reading of this Cell agrees that it is a slot.
         //
-        // The `**` it writes is characters in a Number operand, not a Bang, so
+        // The `**` it writes is characters in a Note operand, not a Bang, so
         // the Source is not refused silently: the parse of the written Source
-        // reports that operand at the Play's anchor.
+        // reports that operand at the Play's anchor. The blank velocity
+        // before it is complete Source and reports nothing.
         let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
         let at = src.cells();
         src.write(at(6), ".=0101");
@@ -1715,7 +1720,7 @@ mod test {
             src.language_map()
                 .diagnostics()
                 .any(|diagnostic| diagnostic.start() == 16
-                    && diagnostic.message.contains("expected a number")),
+                    && diagnostic.message.contains("expected a note")),
             "the Bang in the operand slot was not reported",
         );
     }
@@ -2528,16 +2533,16 @@ mod test {
     fn test_incomplete_expression_is_not_evaluated_and_suppresses_only_its_own_result() {
         trace();
 
-        // Wide enough to hold both, because `.+` with no operands still claims
-        // the six Cells its arity declares. The second Addition begins after
-        // them, so the two are unrelated — which is the whole of what this
-        // test is about, and a fact about arity rather than about the space
-        // between them.
+        // Wide enough to hold both, because `.+0` with a half-typed operand
+        // still claims the six Cells its arity declares. The second Addition
+        // begins after them, so the two are unrelated — which is the whole of
+        // what this test is about, and a fact about arity rather than about
+        // the space between them.
         let mut src = SourceUnderTest::new(Grid::with_shape(16, 2));
 
         let at = src.cells();
 
-        src.write(at(0), ".+");
+        src.write(at(0), ".+0");
         src.write(at(6), ".+0102");
 
         let tick = src.execute();
@@ -2631,7 +2636,7 @@ mod test {
     fn a_failed_spatial_supplier_preserves_original_operand_cells() {
         let mut src = SourceUnderTest::new(Grid::with_shape(8, 3));
         let at = src.cells();
-        src.write(at(2), ".+01");
+        src.write(at(2), ".+010");
         src.write(at(8), ".+0502");
         let tick = src.execute();
         assert_eq!(&src.snapshot()[16..18], "07");

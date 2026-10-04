@@ -23,6 +23,11 @@ pub struct PositionedEntry {
     pub parent: Option<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
+    /// Whether this is an operand slot whose Cells are all spaces. Such a slot
+    /// is complete Source holding no Atom, which is what tells it apart from
+    /// a slot the Parser refused: both record `atom: None`, and only the
+    /// refusal is an error.
+    blank: bool,
 }
 
 type Record = PositionedEntry;
@@ -75,7 +80,29 @@ impl Expression {
             parent,
             token,
             atom,
+            blank: false,
         });
+    }
+
+    /// Records an operand slot whose Cells are all spaces.
+    pub(crate) fn add_blank(
+        &mut self,
+        token: Token,
+        cells: std::ops::Range<usize>,
+        parent: Option<usize>,
+    ) {
+        self.records.push(PositionedEntry {
+            cells,
+            parent,
+            token,
+            atom: None,
+            blank: true,
+        });
+    }
+
+    /// Whether any operand slot of this Expression is blank.
+    pub fn has_blank_operand(&self) -> bool {
+        self.records.iter().any(PositionedEntry::is_blank)
     }
 
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
@@ -109,6 +136,12 @@ impl Expression {
 }
 
 impl PositionedEntry {
+    /// Whether this is an operand slot whose Cells are all spaces: complete
+    /// Source that holds no Atom, so its Function gives the Blank Answer.
+    pub fn is_blank(&self) -> bool {
+        self.blank
+    }
+
     fn entry(&self) -> Option<(Token, Atom)> {
         self.atom.map(|atom| (self.token, atom))
     }
@@ -150,6 +183,14 @@ impl Token {
             // no Atom to decode to.
             Self::Char => Err(crate::SyntaxError::ExpectedToken.into()),
         }
+    }
+
+    /// Whether `spelling` fills this Token's whole width with spaces: an
+    /// operand slot or Portal input that holds no Language Unit at all. A
+    /// spelling only partly spaces is not blank; it decodes, and is refused,
+    /// like any other malformed spelling.
+    pub fn is_blank(self, spelling: &str) -> bool {
+        spelling.len() == self.len() && spelling.bytes().all(|cell| cell == b' ')
     }
 
     /// The Cells this Token's spelling occupies where a slot declares it.
