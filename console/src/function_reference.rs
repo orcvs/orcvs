@@ -273,6 +273,7 @@ mod tests {
             result(0, 23, "05"), // .>0305
             result(0, 26, "**"), // .=0505 (equal)
             result(0, 29, "  "), // .=0506 (not equal: no Cell write)
+            result(0, 32, "  "), // .+  01 (blank operand: the Blank Answer writes two spaces)
             // Conversion (column 16)
             result(16, 2, "C4"), // .^3C (Number to Note)
             result(16, 5, "3C"), // .vC4 (Note to Number)
@@ -330,6 +331,12 @@ mod tests {
     /// Interpolation's. Every other result row's checked-in text is what
     /// Tick 0 writes.
     const RESULTS_READING_THEIR_PREVIOUS: [(usize, usize); 2] = [(32, 11), (32, 14)];
+
+    /// The `(column, row)` of each result row whose example has a blank
+    /// operand. The Blank Answer writes two spaces there, which is what tells
+    /// it apart from the Absence Marker of an unequal Equality, which writes
+    /// nothing, and from a failed computation, which diagnoses.
+    const RESULTS_WRITTEN_BLANK: [(usize, usize); 1] = [(0, 32)];
 
     /// Reads the `width` Cells east of `(column, row)`, a space for each empty
     /// one.
@@ -393,7 +400,7 @@ mod tests {
                 .map(|offset| cell_index(grid, column + offset, row))
                 .collect();
 
-            if expected.trim().is_empty() {
+            if expected.trim().is_empty() && !RESULTS_WRITTEN_BLANK.contains(&(column, row)) {
                 for &cell in &cells {
                     assert!(
                         !plan.writes.iter().any(|write| write.cell == cell),

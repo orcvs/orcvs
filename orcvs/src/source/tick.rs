@@ -769,7 +769,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 None
             };
             if let Some(parent) = parent {
-                nodes[parent].syntax_valid &= entry.atom.is_some();
+                nodes[parent].syntax_valid &= entry.atom.is_some() || entry.is_blank();
                 nodes[parent].operands.push(Operand {
                     cells: entry.cells.clone(),
                     child,
@@ -2327,6 +2327,229 @@ mod test {
         );
     }
 
+    ///
+    /// Clears the two Cells of the operand slot starting at `start`, as a
+    /// performer deleting an operand does.
+    ///
+    fn blank_operand(grid: Grid, source: &mut crate::source::Source, start: usize) {
+        for index in start..start + 2 {
+            source.set(cell(grid, index), " ").unwrap();
+        }
+    }
+
+    #[test]
+    fn a_blank_operand_clears_the_output_portal_without_a_diagnostic() {
+        // A Number operand and a Note operand. Each root writes its answer on
+        // Tick 0; once its operand is blanked it writes two spaces over that
+        // answer, and neither the Parser nor the Tick diagnoses.
+        for (rows, operand, answer, blank) in [
+            ([".+0201", ""], 2, "03    ", ".+  01"),
+            ([".vC4", ""], 2, "3C    ", ".v    "),
+        ] {
+            let grid = Grid::with_shape(6, 2);
+            let mut source = seeded_source(grid, &rows);
+            source.execute(Tick::new(0));
+            assert_eq!(rows_of(grid, &source)[1], answer, "{rows:?}");
+            blank_operand(grid, &mut source, operand);
+            // The answer left on row 1 is stale Source the Map reports on its
+            // own row; the root's Expression reports nothing.
+            let parsed: Vec<_> = source
+                .language_map()
+                .expression_diagnostics()
+                .filter(|diagnostic| diagnostic.anchor().y() == 0)
+                .collect();
+            assert!(parsed.is_empty(), "{rows:?}: {parsed:?}");
+            let plan = source.execute(Tick::new(1));
+            assert_eq!(rows_of(grid, &source), [blank, "      "], "{rows:?}");
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+
+        // The root gives the Blank Answer without reaching the Interpreter.
+        let grid = Grid::with_shape(6, 2);
+        let bytes = snapshot(grid, &[".+  01", ""]);
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let (_, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        assert!(states[0].answered_blank());
+        assert_eq!(states[0].interpretations(), 0);
+    }
+
+    #[test]
+    fn a_nested_blank_return_clears_both_output_portals_without_a_diagnostic() {
+        // The nested Function with the blank operand clears its own south
+        // Cells and returns blank, so its parent clears its own in turn. The
+        // Number context is a nested Addition, and the Note context a nested
+        // Conversion to Number whose Note operand is blank. Both Expressions
+        // keep their spelling.
+        for (rows, operand, answers, blank) in [
+            ([".+.+020101", ""], 4, "0403      ", ".+.+  0101"),
+            ([".+.vC401", ""], 4, "3D3C    ", ".+.v  01"),
+        ] {
+            let grid = Grid::with_shape(rows[0].len(), 2);
+            let mut source = seeded_source(grid, &rows);
+            let plan = source.execute(Tick::new(0));
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+            assert_eq!(rows_of(grid, &source)[1], answers, "{rows:?}");
+            blank_operand(grid, &mut source, operand);
+            let plan = source.execute(Tick::new(1));
+            assert_eq!(
+                rows_of(grid, &source),
+                [blank.to_owned(), " ".repeat(blank.len())],
+                "{rows:?}"
+            );
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn a_partly_blank_operand_is_malformed_and_writes_nothing() {
+        // One Cell of the operand is a space and the other is not, so the
+        // literal rules refuse it. The Parser reports it, the Turn is
+        // blocked, and the Cells south of the root keep what they held.
+        for row in [".+0 01", ".+ 001", ".v C4", ".vC   "] {
+            let grid = Grid::with_shape(6, 2);
+            let mut source = seeded_source(grid, &[row, "  0505"]);
+            let plan = source.execute(Tick::new(0));
+            assert!(plan.writes.is_empty(), "{row:?}: {:?}", plan.writes);
+            assert!(
+                plan.diagnostics.is_empty(),
+                "{row:?}: {:?}",
+                plan.diagnostics
+            );
+            assert!(
+                source
+                    .language_map()
+                    .expression_diagnostics()
+                    .any(|diagnostic| diagnostic.anchor().y() == 0
+                        && diagnostic.message.starts_with("expected a ")),
+                "{row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absence_marker_is_not_a_blank_answer() {
+        // Unequal Equality answers the Absence Marker: a root writes nothing,
+        // so the Cells south of it keep what they held.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".=0102", "  0505"], 1);
+        assert!(plans[0].writes.is_empty(), "{:?}", plans[0].writes);
+        assert_eq!(grids[0][1], "  0505");
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // Nested, it has no Return, and the parent diagnoses the missing one
+        // rather than answering blank.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".+.=010201", "0505"], 1);
+        assert_eq!(grids[0][1], "0505      ");
+        assert_eq!(
+            messages(&plans[0]),
+            ["nested computation at column 2, row 0 returned nothing"]
+        );
+    }
+
+    #[test]
+    fn a_nested_jump_that_copies_a_blank_returns_blank() {
+        // A nested North Jump reads the Cells south of it and writes north.
+        // Once those Cells are blank it copies two spaces: it clears its own
+        // Output Portal and returns blank, and its parent clears its own.
+        let grid = Grid::with_shape(6, 3);
+        let mut source = seeded_source(grid, &["", ".+&^01", "  05"]);
+        source.execute(Tick::new(0));
+        assert_eq!(rows_of(grid, &source), ["  05  ", ".+&^01", "0605  "]);
+        blank_operand(grid, &mut source, 14);
+        let plan = source.execute(Tick::new(1));
+        assert_eq!(rows_of(grid, &source), ["      ", ".+&^01", "      "]);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn an_activated_terminal_output_with_a_blank_operand_emits_nothing() {
+        // Equality's Bang lands west of each Play root and activates it. With
+        // every operand present the root plays; with a blank Note or a blank
+        // velocity it emits no command and the Tick reports nothing.
+        for (play, expected) in [
+            ("  !>007FC4", vec![raw(0, 0x7F, 60)]),
+            ("  !>007F  ", vec![]),
+            ("  !>00  C4", vec![]),
+            ("  !~0064C404", vec![timed(0, 0x64, 60, 4)]),
+            ("  !~0064  04", vec![]),
+        ] {
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 2), &[".=0101", play], 1);
+            assert!(grids[0][1].starts_with("**"), "{play:?} was not activated");
+            assert_eq!(plans[0].play_commands, expected, "{play:?}");
+            assert!(
+                plans[0].diagnostics.is_empty(),
+                "{play:?}: {:?}",
+                plans[0].diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn a_blank_answer_through_a_portal_clears_timed_plays_note_rather_than_replaying_it() {
+        // The value root's Output Portal is Timed Play's note slot, which
+        // holds the Note `E4` a previous Tick wrote. A root that answers C4
+        // replaces it and Timed Play plays C4. A root that answers blank
+        // clears the slot, so the Timed Play its Bang activates emits nothing
+        // rather than replaying `E4`.
+        //
+        // The second pair feeds the slot from a root whose answer is a nested
+        // Return. The nested Addition writes its own answer into the length
+        // slot, so with a blank operand both slots are cleared.
+        for (value, written, expected) in [
+            ("  .^3C  ", "C404", vec![timed(0, 0x64, 60, 4)]),
+            ("  .^    ", "  04", vec![]),
+            ("  .^.+3C00", "C43C", vec![timed(0, 0x64, 60, 0x3C)]),
+            ("  .^.+  00", "    ", vec![]),
+        ] {
+            let rows = [format!(".=0101{value}"), "  !~0064E404".to_owned()];
+            let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(16, 2), &rows, 1);
+            assert_eq!(grids[0][1], format!("**!~0064{written}    "), "{value:?}");
+            assert_eq!(plans[0].play_commands, expected, "{value:?}");
+            assert!(
+                plans[0].diagnostics.is_empty(),
+                "{value:?}: {:?}",
+                plans[0].diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn a_blank_operand_restarts_increment_and_interpolation_from_their_initial_value() {
+        // Each Function's Output Portal is also its feedback input. A blank
+        // operand clears it, and the next valid evaluation reads the cleared
+        // Cells as the initial `00`. Root and nested Functions alike.
+        for (rows, operand, counted, restarted) in [
+            (["~+0104", "02"], 2, "03    ", "01    "),
+            (["~>0210", "06"], 2, "08    ", "02    "),
+            ([".+~+010400", "0303"], 4, "0000      ", "0101      "),
+        ] {
+            let grid = Grid::with_shape(rows[0].len(), 2);
+            let mut source = seeded_source(grid, &rows);
+            source.execute(Tick::new(0));
+            assert_eq!(rows_of(grid, &source)[1], counted, "{rows:?}");
+            let restore: Vec<String> = (operand..operand + 2)
+                .map(|index| source.get(cell(grid, index)).expect("a written operand"))
+                .collect();
+            blank_operand(grid, &mut source, operand);
+            let plan = source.execute(Tick::new(1));
+            assert_eq!(
+                rows_of(grid, &source)[1],
+                " ".repeat(rows[0].len()),
+                "{rows:?}"
+            );
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+            for (index, content) in (operand..).zip(&restore) {
+                source.set(cell(grid, index), content).unwrap();
+            }
+            source.execute(Tick::new(2));
+            assert_eq!(rows_of(grid, &source)[1], restarted, "{rows:?}");
+        }
+    }
+
     #[test]
     fn a_jump_that_closes_a_same_tick_cycle_is_diagnosed() {
         // Increment reads and writes one row south. A Jump that copies
@@ -3143,7 +3366,7 @@ mod test {
         // An Addition whose second operand is Source it cannot read: the Turn
         // is syntax-blocked, which settles it without a Tick diagnostic.
         let grid = Grid::with_shape(16, 2);
-        let rows = [".+02", ""];
+        let rows = [".+020", ""];
         let (plan, source) = stated_source(grid, &rows, &[(0, 16)], &[(0, Atom::Number(1))]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert!(plan.play_commands.is_empty());
@@ -4605,7 +4828,7 @@ mod test {
     fn an_activated_consumer_uses_surviving_cells_after_supplier_failure() {
         let (plan, source) = carried_source(
             Grid::with_shape(16, 4),
-            &["  .+", "!>007FC4", "", ".=0101"],
+            &["  .+0", "!>007FC4", "", ".=0101"],
             &[(48, 32)],
         );
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
@@ -4869,16 +5092,18 @@ mod test {
     #[test]
     fn a_previous_that_is_not_a_number_diagnoses_and_writes_nothing() {
         // G4 is a Note spelling that is not uppercase hex, so it cannot be
-        // read as a Number; `.+` is a Function; `0X` is invalid hex; `0 `
+        // read as a Number; `!>` is a Function; `0X` is invalid hex; `0 `
         // is a truncated pair. Each diagnoses rather than converting, and
-        // none of them writes.
+        // none of them writes. The Function is a Terminal Output root no
+        // Bang activates, so it takes no Turn of its own; the row is wide
+        // enough for the operands it claims.
         for (portal, _) in [
-            ("G4    ", "Note"),
-            (".+    ", "Function"),
-            ("0X    ", "invalid hex"),
-            ("0     ", "truncated pair"),
+            ("G4      ", "Note"),
+            ("!>      ", "Function"),
+            ("0X      ", "invalid hex"),
+            ("0       ", "truncated pair"),
         ] {
-            let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", portal], 1);
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["~+0104", portal], 1);
             assert_eq!(
                 messages(&plans[0]),
                 ["~+ cannot read a previous value that is not a Number"],
@@ -5198,6 +5423,18 @@ mod test {
             channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
             velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
             note: Note::try_from(note).expect("a MIDI note"),
+        }
+    }
+
+    ///
+    /// One Timed Play Command, stated as the four Numbers a Source writes.
+    ///
+    fn timed(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
+        PlayCommand::Timed {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
+            note: Note::try_from(note).expect("a MIDI note"),
+            length: crate::source::Length::from(length),
         }
     }
 
@@ -5705,9 +5942,11 @@ mod nested_property {
         let root = Function::try_from(&source[..2]).unwrap();
         if root.is_intrinsically_active() {
             prop_assert!(
+                // A root with a blank operand, or a blank Return, answers
+                // blank without reaching the Interpreter.
                 states
                     .first()
-                    .is_some_and(|root| root.interpreted().is_some())
+                    .is_some_and(|root| { root.interpreted().is_some() || root.answered_blank() })
                     || !tick.diagnostics.is_empty(),
                 "{source:?} left its active root unanswered and undiagnosed"
             );

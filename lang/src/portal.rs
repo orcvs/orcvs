@@ -137,7 +137,7 @@ impl PortalNumber {
             role: input.role(),
         };
         let cells = source.cells().ok_or_else(invalid)?;
-        if cells.len() == input.token().len() && cells.bytes().all(|cell| cell == b' ') {
+        if input.token().is_blank(cells) {
             return Ok(Self(0));
         }
         match input.token().decode(cells) {
