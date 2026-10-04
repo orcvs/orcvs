@@ -1,6 +1,6 @@
 # Portals resolve Tick Plan destinations
 
-Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force.
+Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). The Sequence clauses are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), which removes the Sequence value. Other decisions remain in force.
 
 A Portal is one internal Cell destination resolved during a Tick against working Source under [ADR 0032](0032-schedule-tick-execution-by-dependency.md), not a language value or persistent state. A Portal may resolve any Cell; future Cell-addressing models, including an infinite canvas, can therefore change destination resolution without changing Function evaluation or Tick Plan commit semantics. [ADR 0049](0049-a-position-is-two-numbers.md) later closed the infinite canvas: a Portal resolves a pair of Numbers to a Position or refuses it.
 

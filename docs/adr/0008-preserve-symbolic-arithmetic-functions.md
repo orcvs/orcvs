@@ -1,5 +1,7 @@
 # Put the behaviour family first in symbolic Function names
 
+Status: the `:` family is retired by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The family-first rule and the other families stand.
+
 Orcvs groups Functions by behaviour. A symbolic Function name puts its behaviour-family glyph first and its operation glyph second. Thus, related Functions share a visible prefix, and a reader can identify the evaluation family before the specific operation.
 
 The initial family prefixes are `.` for numeric behaviour, `~` for Tick and feedback behaviour, `*` for activation, `&` for addresses, `@` for Source read and write, `:` for Sequence structure, and `!` for terminal output. A second glyph selects the operation or direction within that family. The initial Address Functions are the four directional Jump Functions `&^`, `&v`, `&<`, and `&>`. More complex Cell-address forms remain deferred. Reversing an earlier suffix example does not make that spelling canonical.
