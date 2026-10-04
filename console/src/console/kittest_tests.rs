@@ -86,7 +86,7 @@ use orcvs::playback::PlaybackState;
 
 use super::source_view::SOURCE_MARGIN_CELLS;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
-use super::{Console, DEFAULT_VIEW_SIZE};
+use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::theme::{Appearance, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
@@ -174,7 +174,9 @@ fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
     )
 }
 
-/// The Source's actual input rectangle, excluding the controls in the bars.
+/// The Source's actual input rectangle: the one widget between the bars that
+/// senses a click and a drag. Readouts that Diagnostics scroll out of view
+/// lie below the bottom bar rather than between the bars.
 fn source_rect(harness: &Harness<'_, Console>) -> egui::Rect {
     let panel = |name| {
         egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new(name))
@@ -191,10 +193,14 @@ fn source_rect(harness: &Harness<'_, Console>) -> egui::Rect {
             .flat_map(|(_, widgets)| widgets)
             .filter(|widget| widget.sense == (egui::Sense::CLICK | egui::Sense::DRAG))
             .map(|widget| widget.rect)
-            .filter(|rect| !top.contains_rect(*rect) && !bottom.contains_rect(*rect))
+            .filter(|rect| rect.top() >= top.bottom() && rect.bottom() <= bottom.top())
             .collect()
     });
-    assert_eq!(rectangles.len(), 1, "the Source has one input rectangle");
+    assert_eq!(
+        rectangles.len(),
+        1,
+        "the Source has one input rectangle: {rectangles:?}"
+    );
     rectangles[0]
 }
 
@@ -336,6 +342,29 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
     assert!(harness.query_by_label("FPS").is_none());
     assert_eq!(panel_rect(&harness), compact);
     assert_eq!(source_rect(&harness), compact_source);
+}
+
+///
+/// A fresh console shrunk to the smallest window it allows still shows the
+/// Source: the docked Diagnostics it opens with leave the Grid room for a
+/// whole row of Cells inside its margins.
+///
+#[tokio::test]
+async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE_MIN));
+    harness.run_steps(2);
+    assert!(
+        harness.state().diagnostics_open,
+        "a fresh console did not open with Diagnostics showing"
+    );
+
+    let source = source_rect(&harness);
+    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE;
+    assert!(
+        source.height() >= usable,
+        "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
+         and its margins take"
+    );
 }
 
 /// Labels keep their full text at both the default and a narrow window width.

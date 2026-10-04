@@ -102,6 +102,11 @@ pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
     DEFAULT_VIEW_ROWS as f32 * CELL_SIZE + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
 ];
 
+///
+/// The smallest window the native console lets itself be resized to.
+///
+pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
+
 /// Console wraps the running Orcvs with egui presentation concerns.
 ///
 pub struct Console {

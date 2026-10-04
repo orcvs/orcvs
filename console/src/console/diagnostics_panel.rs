@@ -39,7 +39,8 @@ pub(super) fn summary_height(ui: &egui::Ui) -> f32 {
 }
 
 /// Fills the space the Panel reserved, after the Source View has laid out this
-/// frame's geometry. Long values truncate within the Panel's clip rectangle.
+/// frame's geometry. Long values truncate within the Panel's clip rectangle,
+/// and the readouts scroll when the Panel reserved less than all of them.
 pub(super) fn show_diagnostics(
     ui: &mut egui::Ui,
     frame: &eframe::Frame,
@@ -50,6 +51,19 @@ pub(super) fn show_diagnostics(
     let frame_time = ui.input(|input| input.stable_dt);
     let cpu_usage = frame.info().cpu_usage;
     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        summary(ui, frame_time, cpu_usage, origin, console, cell_size)
+    });
+}
+
+fn summary(
+    ui: &mut egui::Ui,
+    frame_time: f32,
+    cpu_usage: Option<f32>,
+    origin: Pos2,
+    console: Rect,
+    cell_size: f32,
+) {
     egui::Grid::new("orcvs-diagnostics-summary")
         .num_columns(2)
         .min_col_width(ui.available_width() / 6.0)
