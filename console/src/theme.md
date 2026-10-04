@@ -544,7 +544,10 @@ background, and the 10% figure is baked into each stored value rather than a
 shared scalar applied at paint time. Every recognized Function Cell — nested
 Functions included — and
 every Operand Cell (its declared Token: Number or Note, whether the operand is still Pending, Valid, or Invalid) paints its role
-background. Comment, Bang, an empty unclaimed Cell, and a Leftover Char have a
+background. A List Item paints `source.ordinary` glyphs on
+`source.function.background`, the tint of the Function whose claim holds it,
+because an Item has no type until the operand that receives a copy decodes it.
+Comment, Bang, an empty unclaimed Cell, and a Leftover Char have a
 transparent one. A refused Function spelling takes none either (see
 Diagnostic, below) — only a Function entry the Parser recognized does. Role
 backgrounds composite over the uniform `cell.background`, which is transparent
@@ -557,7 +560,7 @@ ADR 0052 has each Render Cell carry the parser's shared Claim, which answers
 whether its slot is written as it is built for the frame.
 `RenderCell::source_paint` combines the Claim's Token, atom and written answer
 into the Source Paint fact: Function, Pending Operand, Valid Operand, Invalid
-Operand, Bang, Comment, or Unclaimed. Every Operand fact independently carries
+Operand, Bang, Comment, Item, or Unclaimed. Every Operand fact independently carries
 the Token its Function signature declared. The console reads that fact and
 never interprets the Claim's Span. Text that spells no Function — `hi`, both
 Cells of a written `07`, a lone `|`, the trailing `<` of `<<<` — is Unclaimed

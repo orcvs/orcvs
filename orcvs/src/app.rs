@@ -1623,6 +1623,7 @@ mod test {
             SourcePaint::Function => Some(Token::Function),
             SourcePaint::Bang => Some(Token::Bang),
             SourcePaint::Comment => Some(Token::Comment),
+            SourcePaint::Item => Some(Token::Item),
             SourcePaint::Operand { token, .. } => Some(token),
         };
         (cell.content(), token)

@@ -54,6 +54,7 @@ impl RenderCell {
         match claim.token {
             Token::Bang => SourcePaint::Bang,
             Token::Comment => SourcePaint::Comment,
+            Token::Item => SourcePaint::Item,
             Token::Function if claim.atom.is_some() => SourcePaint::Function,
             Token::Function => SourcePaint::Unclaimed,
             Token::Char => unreachable!("the Parser never creates a positioned Char claim"),
@@ -728,6 +729,32 @@ mod tests {
                 "column {column}"
             );
         }
+    }
+
+    #[test]
+    fn each_track_item_is_its_own_item_claim_whatever_it_spells() {
+        // Track's Items are Source in its claim: each is one claim painted as
+        // an Item, a blank one and one spelling a Function alike, and the
+        // count before them stays an operand.
+        let grid = Grid::with_shape(12, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "@t0003C4  .+");
+        let frame = derive_frame(&source, grid.origin());
+
+        for (start, column) in [(6, 6), (6, 7), (8, 8), (10, 11)] {
+            let cell = frame.at(grid.position(column, 0).unwrap());
+            let claim = cell.claim().expect("an Item");
+            assert_eq!(claim.cells, start..start + 2, "column {column}");
+            assert_eq!(claim.token, Token::Item, "column {column}");
+            assert_eq!(cell.source_paint(), SourcePaint::Item, "column {column}");
+        }
+        assert!(matches!(
+            frame.at(grid.position(4, 0).unwrap()).source_paint(),
+            SourcePaint::Operand {
+                token: Token::Number,
+                state: OperandState::Valid,
+            }
+        ));
     }
 
     #[test]

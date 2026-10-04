@@ -21,12 +21,15 @@
 //! that Comment and silently stop being parsed and run. All six headers
 //! therefore sit on row 0, and every group's own examples start on row 1. A
 //! group that stacks a second header inside its own band follows the same
-//! rule: that header's row must hold no Expression east of it either.
+//! rule: that header's row must hold no Expression east of it either. The
+//! Lists header on row 23 of the Conversion band is one: the Arithmetic
+//! result west of it is the only other Source on that row, and no mover
+//! travels through it.
 //!
 //! | Columns   | Group                                                       |
 //! |-----------|--------------------------------------------------------------|
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                   |
+//! | `16..32`  | Numeric Conversion: `.v .^`; from row 23, Lists: `@t`         |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
 //! | `48..64`  | Jumps and Halt: `&^ &v &< &>`, `*!`                           |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
@@ -284,6 +287,10 @@ mod tests {
             // A nested `.^` writes its own `C4` under its anchor and returns
             // the same Cells, which Addition's Number operand reads as `C4`.
             result(16, 8, "C5C4"), // .+.^3C01
+            // Lists (column 16, from row 23). Track copies the Item its
+            // index selects; a blank Item is the Blank Answer, two spaces.
+            result(16, 25, "D4"), // @t0103C4D4E4
+            result(16, 28, "  "), // @t0103C4  E4
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously

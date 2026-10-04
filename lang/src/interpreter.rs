@@ -9,6 +9,13 @@ pub struct Interpreter {}
 pub enum Interpretation {
     /// The one Atom a value Function answers.
     Cell(Atom),
+    /// The Item a List Function selects, as its position in the List the
+    /// Parser claimed, counted from zero.
+    ///
+    /// The Item is Source rather than a value, so the Interpreter answers
+    /// which one and `orcvs` reads its characters, as it resolves a
+    /// [`SourceEffect`]'s displacement.
+    Item(u8),
     /// The one Play Command an active Terminal Output Function root performs.
     ///
     /// A chord is several Terminal Output roots that one Bang activates, each
@@ -144,6 +151,9 @@ impl Interpreter {
             }
             Function::TimedPlay => {
                 return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
+            }
+            Function::Track => {
+                return Ok(Interpretation::Item(functions::list::track(&mut ctx)?));
             }
             Function::Halt
             | Function::DirectionalBangEast
@@ -644,6 +654,12 @@ mod test {
             if function.input_portal().is_some() {
                 // Portal-read answers are exercised on their own paths rather
                 // than through this operand sweep.
+                continue;
+            }
+            if function.reads_list() {
+                // A List Function answers which Item, never an Atom. The
+                // characters `orcvs` copies from that Item activate no root in
+                // the Tick they are copied, so nothing schedules on them.
                 continue;
             }
 

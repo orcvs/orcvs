@@ -894,6 +894,11 @@ mod test {
             Interpretation::Source(effect) => {
                 panic!("{effect:?} is a Source effect and not a stated answer")
             }
+            // An Item position names Cells of a List claim, which only a Turn
+            // can read; the Tick tests drive Track.
+            Interpretation::Item(item) => {
+                panic!("Item {item} is a List selection and not a stated answer")
+            }
             Interpretation::Lock => {
                 return resolve(
                     Portal::below(grid, root)

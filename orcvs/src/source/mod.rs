@@ -48,7 +48,13 @@ pub enum SourcePaint {
     Function,
     Bang,
     Comment,
-    Operand { token: Token, state: OperandState },
+    /// A List Item: Source inside a List Function's claim that the Parser
+    /// never decodes, whatever its characters spell.
+    Item,
+    Operand {
+        token: Token,
+        state: OperandState,
+    },
 }
 
 /// Whether a declared operand slot is waiting, valid, or contains content

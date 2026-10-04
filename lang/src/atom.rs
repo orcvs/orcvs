@@ -705,6 +705,7 @@ define_functions! {
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
     Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Track => ("@t", Value, Intrinsic, false, [index: Number, count: Number]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -727,7 +728,7 @@ macro_rules! define_replacement_changes {
         /// reserves a result's Cells from the Function found at each anchor, so
         /// a replacement is admitted only where the incoming Function agrees
         /// with the running one on every fact those derivations read. This type
-        /// names the four so that a refusal states which one differed, and so
+        /// names the five so that a refusal states which one differed, and so
         /// that a test can tell the terms apart.
         ///
         /// Declaration order is the order the comparison applies. A replacement
@@ -798,6 +799,14 @@ define_replacement_changes! {
     /// compared rather than its fields because every field of it is read at the
     /// Turn: the offsets resolve the Portal and the bundle decides how many.
     Write => "the Source write it declares",
+    /// Whether the Function reads a List, whose Items the Parser claimed for
+    /// the Function it found.
+    ///
+    /// Every Item of that claim is a read the schedule ordered its producers
+    /// before. A replacement that read a List where the Parser claimed none
+    /// would have no Items to select from, and one that read none would leave
+    /// those Cells claimed by nothing that reads them.
+    List => "whether it reads a List",
 }
 
 /// One fact a Function declares, beside the comparison that answers whether a
@@ -809,7 +818,7 @@ define_replacement_changes! {
 type DeclaredChange = (ReplacementChange, fn(Function, Function) -> bool);
 
 impl Function {
-    /// The four facts a declaration states, each beside the comparison that
+    /// The five facts a declaration states, each beside the comparison that
     /// answers whether a replacement changes it, in the order the guard applies
     /// them.
     ///
@@ -832,7 +841,20 @@ impl Function {
                 || replacement.output_portal() != running.output_portal()
                 || replacement.input_portal() != running.input_portal()
         }),
+        (ReplacementChange::List, |replacement, running| {
+            replacement.reads_list() != running.reads_list()
+        }),
     ];
+
+    /// Whether this Function reads a List: the Items its claim holds east of
+    /// its operands, as many as its count operand states.
+    ///
+    /// The count is the last operand a List Function declares, and the Parser
+    /// reads it as a literal Number because the claim's extent depends on it
+    /// before any Function evaluates. A nested Function cannot supply it.
+    pub const fn reads_list(self) -> bool {
+        matches!(self, Self::Track)
+    }
 
     /// The Output Portal this Function names, or `None` when it names none.
     ///
@@ -901,7 +923,7 @@ impl Function {
     /// The first difference under the table's order rather than every
     /// difference: a replacement is refused once and names one fact. `None` is
     /// an admitted replacement: every value Function reserves the same one
-    /// Atom's Cell pair, so no fact beyond these four can separate two
+    /// Atom's Cell pair, so no fact beyond these five can separate two
     /// Functions a schedule has already ordered.
     pub fn replacing(self, running: Self) -> Option<ReplacementChange> {
         Self::DECLARED_CHANGES
@@ -1064,7 +1086,7 @@ mod test {
             );
         }
 
-        // The weaker set: only these two facts are ever the *sole* difference
+        // The weaker set: only these three facts are ever the *sole* difference
         // between a pair. A pair differing on the answer kind differs on
         // activation or on the write as well, and a pair differing on
         // activation differs on one of the others, so a fixture naming either
@@ -1080,8 +1102,12 @@ mod test {
             .collect::<Vec<_>>();
         assert_eq!(
             sole,
-            vec![ReplacementChange::BangEmission, ReplacementChange::Write],
-            "the facts a pair can differ on alone are no longer the two expected",
+            vec![
+                ReplacementChange::BangEmission,
+                ReplacementChange::Write,
+                ReplacementChange::List,
+            ],
+            "the facts a pair can differ on alone are no longer the three expected",
         );
     }
 
@@ -1514,7 +1540,8 @@ mod test {
                 | Function::Modulo
                 | Function::Multiply
                 | Function::Random
-                | Function::Subtract => (true, false, true),
+                | Function::Subtract
+                | Function::Track => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend

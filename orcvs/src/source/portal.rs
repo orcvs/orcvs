@@ -292,6 +292,7 @@ impl Portal {
                 LanguageUnitKind::Comment => PortalUnit::Invalid,
                 LanguageUnitKind::Bang
                 | LanguageUnitKind::Function(_)
+                | LanguageUnitKind::Item
                 | LanguageUnitKind::OperandLiteral => PortalUnit::Unit,
             },
             [] => PortalUnit::Unit,
