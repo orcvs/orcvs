@@ -615,8 +615,11 @@ impl<'a> Execution<'a> {
     /// `**`. An `Emit` emits: the complete initial destination must be empty
     /// and inside the Grid, or the producer diagnoses and emits nothing.
     ///
-    /// Unlike a value projected through multiple Portals, Advance writes different
-    /// content at each Portal: spaces at its origin and its spelling at its destination.
+    /// It is not [`Execution::deliver_value`] with a different destination. That
+    /// path delivers one encoding through every Portal a computation resolved;
+    /// an `Advance` writes different Cells at each of its two, and what it
+    /// writes at the second decides what it writes at the first: spaces at its
+    /// origin when the destination admits its spelling, `**` when it does not.
     ///
     /// The precondition is one rule and the refusal is two, which is why the
     /// groups share this path rather than each having one. What a refusal costs

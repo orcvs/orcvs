@@ -1706,7 +1706,8 @@ mod test {
         );
     }
 
-    // These invariants are platform-independent; proptest is a native-only dependency.
+    // The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+    // table that declares proptest, so a WASM build never sees the dependency.
     #[cfg(not(target_arch = "wasm32"))]
     mod placement_property {
         use super::{Grid, messages, tick_by_tick};

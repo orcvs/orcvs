@@ -59,3 +59,14 @@ exist only to defend the stale guard. Bang suppliers above and below the contend
 why Source position alone cannot predict the winner. The generated property's emitter coverage
 is intentionally limited to collision activation; value-produced activation remains separately
 tested and its operand feedback cycle has an explicit owner.
+
+### 2026-10-04 — Unpinned contact case inherited from issue 02
+
+Review of issue 02 found one contact classification no test pins. `Execution::write` drops a
+placed unit when any later write overlaps it, but only move and emission writes join
+`source_writes`. If an ordinary value write replaces part of a placement made earlier in the
+Tick, a blocked mover touching the remaining Cells sees them through neither record and
+classifies them as `Empty`, so it gets no partial-contact diagnostic. Value writes were not
+tracked before issue 02 either, and no Grid reproducing the turn order has been constructed, so
+the case may be unreachable. When this slice changes emission contact, either pin the case
+through `Source::execute` or record why the ordering cannot arise.
