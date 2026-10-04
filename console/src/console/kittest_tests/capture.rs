@@ -51,16 +51,14 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use eframe::egui_wgpu::{self, RenderState};
-use egui::{Key, Modifiers, Rect, Vec2, pos2};
+use egui::{Key, Modifiers, Rect, Vec2};
 use egui_kittest::Harness;
 use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state, default_wgpu_setup};
 use orcvs::render_frame::RenderFrame;
 use orcvs::source::{OperandState, Source, SourceCommander, SourcePaint, Token, file};
 
-use super::super::menu_bar::TOP_PANEL_HEIGHT;
-use super::super::panel::BOTTOM_PANEL_HEIGHT;
 use super::super::tests::start_console;
-use super::{Console, presented_source};
+use super::{Console, presented_source, source_rect};
 use crate::config::{CONFIG_FILE, Config};
 use crate::persistence::{IsolatedRonDir, RonFileStorage};
 use crate::theme::{Appearance, Theme, okabe_ito, orcvs_light};
@@ -310,18 +308,6 @@ fn raise_region(harness: &mut Harness<'_, Console>) {
 }
 
 ///
-/// The part of the screen the Source Grid is drawn in: below the menu bar and
-/// above the Panel.
-///
-fn source_area(ctx: &egui::Context) -> Rect {
-    let screen = ctx.content_rect();
-    Rect::from_min_max(
-        pos2(screen.left(), screen.top() + TOP_PANEL_HEIGHT),
-        pos2(screen.right(), screen.bottom() - BOTTOM_PANEL_HEIGHT),
-    )
-}
-
-///
 /// Which checklist states the Cells the console draws in `area` show, read
 /// from the Render Frame and the Paint derived from it with `theme`.
 ///
@@ -463,7 +449,7 @@ fn assert_capturable(harness: &Harness<'_, Console>, mode: egui::Theme, theme: &
     );
 
     let frame = console.orcvs.render_frame();
-    let drawn = states_drawn(&frame, harness, source_area(&harness.ctx), theme);
+    let drawn = states_drawn(&frame, harness, source_rect(harness), theme);
     let missing: Vec<&str> = CHECKLIST
         .into_iter()
         .filter(|state| !drawn.contains(state))

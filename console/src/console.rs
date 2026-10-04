@@ -5,16 +5,16 @@
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays out;
-//! `repaint` schedules the next timed Render Frame; `diagnostics_window` shows
-//! the Diagnostics window; `files` asks its discard question and titles the
-//! window; `input` latches the keyboard owner; and a View menu appearance
+//! `repaint` schedules the next timed Render Frame; `diagnostics_panel` fills
+//! the Panel's Diagnostics readouts; `files` asks its discard question and
+//! titles the window; `input` latches the keyboard owner; and a View menu appearance
 //! change applies last, once every widget of the frame has been styled.
 
 use std::time::Duration;
 
 use egui::FontId;
 
-mod diagnostics_window;
+mod diagnostics_panel;
 mod files;
 mod glyphs;
 mod input;
@@ -24,7 +24,7 @@ mod repaint;
 mod shapes;
 mod source_view;
 
-use self::diagnostics_window::show_diagnostics;
+use self::diagnostics_panel::show_diagnostics;
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
 use self::panel::BOTTOM_PANEL_HEIGHT;
@@ -81,16 +81,18 @@ fn prefers_reduced_motion() -> bool {
 }
 
 ///
-/// How many Cells the default window shows at egui's zoom factor of 1.0,
-/// margin included. The Grid is larger, so the rest of it is a Pan away.
+/// The Source View dimensions in Cells used to size the default window with
+/// the compact Panel at egui's zoom factor of 1.0, margin included.
 ///
 const DEFAULT_VIEW_COLUMNS: usize = 64;
 const DEFAULT_VIEW_ROWS: usize = 40;
 
 ///
-/// The window size that presents `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS`
-/// Cells at egui's zoom factor of 1.0: the Source's own points, and the chrome
-/// above and below the console. Both are private, so neither is linked here.
+/// The window size for `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS` Cells at
+/// egui's zoom factor of 1.0, plus the top bar and compact bottom Panel.
+/// Diagnostics expand the Panel within this size and reduce the visible rows;
+/// they are enabled by default. Both dimensions are private, so neither is
+/// linked here.
 ///
 /// A larger window shows more of the Grid rather than larger Cells; a smaller
 /// one shows less of it.
@@ -99,6 +101,11 @@ pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
     DEFAULT_VIEW_COLUMNS as f32 * CELL_SIZE,
     DEFAULT_VIEW_ROWS as f32 * CELL_SIZE + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
 ];
+
+///
+/// The smallest window the native console lets itself be resized to.
+///
+pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
 
 /// Console wraps the running Orcvs with egui presentation concerns.
 ///
@@ -258,7 +265,7 @@ impl Console {
             midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view: SourceView::default(),
-            diagnostics_open: false,
+            diagnostics_open: true,
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
@@ -413,7 +420,7 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        self.show_panel(root, &observation, sampled_run_clock);
+        let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
         let source = self.show_source_panel(root, &frame, appearance, cursor_effect);
 
         let cursor_delay = source
@@ -429,10 +436,9 @@ impl eframe::App for Console {
             cursor_delay,
         );
 
-        if self.diagnostics_open {
+        if let Some(mut diagnostics) = diagnostics {
             show_diagnostics(
-                &ctx,
-                &mut self.diagnostics_open,
+                &mut diagnostics,
                 eframe,
                 self.source_view.origin,
                 source.console,

@@ -1,5 +1,6 @@
 //! The bottom Panel: the typed BPM field, the beat marker, the Tick and Run
-//! Clock Readouts, and the MIDI Output destination and its status.
+//! Clock Readouts, the MIDI Output destination and its status, and optional
+//! Diagnostics beneath them.
 
 use std::time::Duration;
 
@@ -8,12 +9,24 @@ use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
+use super::diagnostics_panel::summary_height;
+use super::source_view::SOURCE_MARGIN_CELLS;
 use crate::console_midi;
+use crate::grid_viewport::{CELL_SIZE, snapped_cell_side};
 use crate::midi::destination_presentation;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
 pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
+
+///
+/// The height Diagnostics leave the Source: one Row of Cells, at the snapped
+/// side the Source draws them, between its margins above and below.
+///
+fn source_reserve(ui: &egui::Ui) -> f32 {
+    (2.0 * SOURCE_MARGIN_CELLS + 1.0) * snapped_cell_side(CELL_SIZE, ui.ctx().pixels_per_point())
+}
+
 /// Extra left inset on top of `Frame::side_top_panel`'s inner margin.
 pub(super) const BOTTOM_PANEL_LEFT_PAD: i8 = 10;
 
@@ -242,20 +255,35 @@ impl Console {
     /// Playback is stopped. Tick and Run Clock are the engine's published
     /// Readouts. Destination is chosen from the ComboBox; Scan asks the engine
     /// to discover again. There is no periodic polling.
+    /// Returns the reserved Diagnostics area to fill after Source layout.
+    /// Diagnostics take no more height than leaves the Source
+    /// `source_reserve`; the readouts scroll within what they get.
     ///
     pub(super) fn show_panel(
         &mut self,
         root: &mut egui::Ui,
         observation: &PlaybackObservation,
         run_clock: Duration,
-    ) {
+    ) -> Option<egui::Ui> {
+        let frame = bottom_panel_frame(root.style().as_ref());
+        let separation = 2.0 * root.spacing().item_spacing.y;
+        let diagnostics_room =
+            root.available_height() - BOTTOM_PANEL_HEIGHT - separation - source_reserve(root);
+        let diagnostics_height = self
+            .diagnostics_open
+            .then(|| summary_height(root).min(diagnostics_room.max(0.0)));
+        let extra_height = diagnostics_height.map_or(0.0, |height| height + separation);
+        let height = BOTTOM_PANEL_HEIGHT + extra_height;
         egui::Panel::bottom("bottom_panel")
             .resizable(false)
-            .min_size(BOTTOM_PANEL_HEIGHT)
-            .frame(bottom_panel_frame(root.style().as_ref()))
+            .exact_size(height)
+            .frame(frame)
             .show(root, |ui| {
                 ui.allocate_ui_with_layout(
-                    ui.available_size(),
+                    egui::vec2(
+                        ui.available_width(),
+                        (ui.available_height() - extra_height).max(0.0),
+                    ),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
                         let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
@@ -295,7 +323,18 @@ impl Console {
                         self.show_destination(ui);
                     },
                 );
-            });
+                diagnostics_height.map(|height| {
+                    ui.add(egui::Separator::default().horizontal().spacing(0.0));
+                    // Reserve the readouts before the Source takes its space;
+                    // fill them once that Source's current geometry is known.
+                    let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
+                    let mut diagnostics =
+                        ui.new_child(egui::UiBuilder::new().id_salt("diagnostics").max_rect(rect));
+                    diagnostics.set_clip_rect(diagnostics.clip_rect().intersect(rect));
+                    diagnostics
+                })
+            })
+            .inner
     }
 
     ///

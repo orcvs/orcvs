@@ -8,9 +8,7 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 
 #[cfg(not(target_arch = "wasm32"))]
-use console::console::DEFAULT_VIEW_SIZE;
-
-pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
+use console::console::{DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn trace() {

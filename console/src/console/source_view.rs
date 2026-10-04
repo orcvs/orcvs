@@ -211,7 +211,7 @@ fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
 ///
 /// The origin is the console's corner plus a Pan built from pointer input, and
 /// nothing else resets one that has gone bad. A non-finite origin would put
-/// every Cell, every click and the Diagnostics window's visible Source region
+/// every Cell, every click and Diagnostics' visible Source region
 /// at NaN.
 ///
 pub(super) fn is_presentable(origin: Pos2) -> bool {
@@ -495,7 +495,7 @@ pub(super) fn source_panel_frame(background: Color32) -> egui::Frame {
 
 ///
 /// What the Source panel presented in one Render Frame, for the frame's
-/// repaint schedule and the Diagnostics window.
+/// repaint schedule and the Diagnostics readouts.
 ///
 pub(super) struct ShownSource {
     /// The console area the Source was presented in.
