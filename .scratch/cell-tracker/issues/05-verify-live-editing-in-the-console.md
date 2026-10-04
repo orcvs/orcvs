@@ -1,23 +1,17 @@
-# 05 — Verify direct pattern editing in the console
+# 05 — Verify live editing in the console
 
-Status: needs-triage
+Status: ready-for-agent
 Blocked by: 04
 
-## Work
+**What to build:**
 
-Use the real console input and file paths to load the tracker Source, edit an
-item, clear it to a rest, and restore it. Reuse the existing Grid, Cursor,
-Region, Source Paint and diagnostic presentation. A dedicated tracker editor or
-moving playhead is not required.
+Use ordinary console input and file workflows to load a tracker, edit an
+Item, clear it to a rest and restore it while Playback runs.
 
-## Acceptance
+## Acceptance criteria
 
-- [ ] Typing or pasting a Note changes that item. A two-character edit may pass
-      through an invalid intermediate Source and recover without a spurious note.
-- [ ] Clearing an item makes a rest and leaves later items where they were.
-      Copy and paste preserve blank items.
-- [ ] Source Paint shows the List as Track's data and shows a malformed item's
-      diagnostic where it is played.
-- [ ] Open, Save, reopen and a new Playback run reproduce the pattern and reset
-      the clock as the Playback contract specifies.
-- [ ] Console tests drive real input; use the egui skill.
+- [ ] Typing or pasting a Note changes the next eligible Tick; a malformed intermediate edit recovers without spurious notes and with bounded useful diagnostics.
+- [ ] Clearing an Item preserves later Item positions; copy and paste retain blank Items.
+- [ ] Source Paint identifies the List as Track data and presents a malformed selected Item’s diagnostic where it is consumed.
+- [ ] Open, Save, reopen and a new Playback run reproduce the written pattern and reset the Clock according to the Playback contract.
+- [ ] Tests drive real console input and existing file workflows under the egui skill; no dedicated tracker editor or extra adapter is introduced.

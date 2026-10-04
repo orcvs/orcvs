@@ -1,6 +1,6 @@
 # Put the behaviour family first in symbolic Function names
 
-Status: operation glyphs revised by [ADR 0064](0064-a-function-spelling-starts-with-punctuation.md): the second Cell is a universal symbol or a lowercase mnemonic letter. The family-first rule stands, and [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md) retires the `:` family.
+Status: the `:` family is retired by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The family-first rule and the other families stand.
 
 Orcvs groups Functions by behaviour. A symbolic Function name puts its behaviour-family glyph first and its operation glyph second. Thus, related Functions share a visible prefix, and a reader can identify the evaluation family before the specific operation.
 

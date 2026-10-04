@@ -1,30 +1,27 @@
-# 04 — Track reads an item from its List
+# 04 — Track reads current-Tick Items from its List
 
-Status: needs-triage
-Blocked by: 01, 02
+Status: ready-for-agent
+Blocked by: 02, 03
 
-## Work
+**What to build:**
 
-Implement Track and Lists from
-[ADR 0063](../../../docs/adr/0063-a-list-is-cells-in-a-claim-not-a-value.md).
-`@t index count` claims `count` two-Cell items east of its operands, read from
-the Source at parse. Each Tick it answers item `index % count`: its two
-characters, or a blank.
+Implement ADR 0063’s Track from parsing through Source/Tick delivery and
+Source Paint. Establish List structure once per Tick, then select live Item
+characters after their suppliers settle. A performer can hear same-Tick edits
+made by other Functions and can nest Track without changing literal meaning.
 
-## Acceptance
+## Acceptance criteria
 
-- [ ] The Parser claims the List as part of Track's Expression; the Language
-      Map and Source Paint show its items as data owned by Track.
-- [ ] A Clock-driven Track answers the expected item at Tick 0, holds it for the
-      Clock's rate, wraps at `count`, and keeps cycling past Tick 255.
-- [ ] An index past `count` wraps; a count of `00` diagnoses.
-- [ ] A blank item writes spaces south, and Timed Play receiving it emits
-      nothing and raises no diagnostic.
-- [ ] A Portal write to the count changes the claim from the next Tick, not the
-      current one.
-- [ ] A writer that changes the index in the same Tick is read in dependency
-      order, whether it sits before or after Track in Grid order.
-- [ ] Track nests: `!~0064@t0208C4D4E4  G4C5  E404` plays the selected item.
-- [ ] Unit and property tests cover single-item and all-blank Lists, malformed
-      items (diagnosed where they are played), and claims at the row edge.
-- [ ] `CONTEXT.md`, the Function table and the Function reference include Track.
+- [ ] The Parser claims the literal count and every two-Cell Item as Track data; nested count Functions are refused and Item spellings never execute as Functions or open Comments inside the claim.
+- [ ] Clock-driven Track selects the expected Item at Tick zero, holds it for the Clock rate, wraps at the count and continues beyond Tick 255.
+- [ ] The parsed count governs claim ownership, modulo selection and zero validation for the whole Tick. A same-Tick count write takes effect for all three only on the next Tick.
+- [ ] Tests grow count from two to three while index is two, shrink it and set it to zero; assert current- and next-Tick selection and claim, and no read beyond the established claim.
+- [ ] The complete possible Item read extent participates in dependency discovery. Writers to the index and selected Item are observed in the same Tick whether they precede or follow Track in Grid order, including partial and competing writes and failed suppliers.
+- [ ] Partial and competing Item writes compose Cell-wise in dependency order. Absent and failed suppliers leave surviving Source characters available to Track.
+- [ ] Read/write cycles preserve atomic publication and publish no partial writes or Play Commands; cover overlap with declared Item reads.
+- [ ] Structural count edits produce the same observable result with reused scheduling and freshly derived scheduling.
+- [ ] Track copies a blank Item as two spaces south, clearing a previous Note. The receiving Timed Play emits no command or diagnostic. A nested parent with another value operand answers blank and clears its own Output Portal; it does not preserve that destination.
+- [ ] Nested Track supplies its selected encoding to the parent and also writes its own Output Portal. A blank Item clears Track’s south Cells while the parent answers blank and clears its own Output Portal.
+- [ ] Contrast blank Item delivery with the Absence Marker that ticket 03 keeps as a no-write result: no-write absence must not be used as the representation of an explicit clear.
+- [ ] Cover single-Item and all-blank Lists, malformed selected and unselected Items, partly empty Items, invalid counts and claims at the row edge. Malformed selected data diagnoses at its receiving operand.
+- [ ] Record frozen-count and live-Item-read semantics in ADR 0063; the glossary, Function table, Function reference and Source Paint agree with Track’s behavior.

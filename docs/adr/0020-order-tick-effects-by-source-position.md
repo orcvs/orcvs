@@ -1,6 +1,6 @@
 # Order Tick effects by Source Position
 
-Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force.
+Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). The Sequence clauses are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md), which removes the Sequence value. Other decisions remain in force.
 
 At the beginning of each executed Tick, the Playback Engine dispatches scheduled expiries due for that Tick before any new Play Commands from its Tick Plan. Those expiries are time-owned playback work rather than Language Units in the new Source Snapshot, so they do not inherit the original Play Function's Source Position.
 

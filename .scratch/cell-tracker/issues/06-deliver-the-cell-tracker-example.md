@@ -1,21 +1,19 @@
-# 06 — Deliver the editable-cell tracker and acceptance evidence
+# 06 — Deliver the cell tracker example
 
-Status: needs-triage
+Status: ready-for-agent
 Blocked by: 03, 05
 
-## Work
+**What to build:**
 
-Ship a small Source File and walkthrough that demonstrate the tracker: a
-Clock-indexed Track over a List of Notes with deliberate rests. Replace the local
-constructed-Sequence experiment, which 03 makes unparseable.
+Ship the first checked-in tracker Source File and guide, demonstrating an
+editable Clock-driven List with intentional rests through the normal console
+File > Open flow.
 
-## Acceptance
+## Acceptance criteria
 
-- [ ] The checked-in Source has one editable Note per occupied item and runs from
-      the ordinary console File > Open flow.
-- [ ] The guide explains the index, count, List, trigger, rests, BPM, MIDI
-      channel, velocity and length, with exact columns where alignment matters,
-      and distinguishes Orca's `T` from Track.
-- [ ] A test loads this exact Source File and checks at least two complete loops,
-      including rests, through Source/Tick and Playback.
-- [ ] An audible MIDI smoke test is recorded with device, channel and BPM.
+- [ ] The example has one editable Note per occupied Item and preserves deliberate rests in a repeating eight-Item List.
+- [ ] The guide explains index, literal count, current-Tick Item reads, next-Tick count changes, trigger, BPM, MIDI channel, velocity and length, with exact columns for spatial alignment.
+- [ ] The guide distinguishes Track from Orca’s Track and explains that a blank Item prevents a new trigger without cancelling an earlier Timed Play lifetime.
+- [ ] A test loads the exact shipped Source File and checks at least two complete loops through Source/Tick and Playback, including rests and expected Note Off behavior.
+- [ ] The example works after Sequence removal and through the console editing and file workflows verified by ticket 05.
+- [ ] Record an audible MIDI smoke test with device, channel and BPM; do not mark delivery complete on automated evidence alone.

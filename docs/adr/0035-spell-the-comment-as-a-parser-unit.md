@@ -1,6 +1,6 @@
 # Spell the Comment as a Parser unit
 
-Status: accepted. Supersedes the Comment clause of [ADR 0023](0023-use-distinct-range-functions-and-two-cell-comments.md) and the Comment paragraph of [ADR 0033](0033-partition-a-row-by-parse.md); corrects the Comment row of [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md). Every other decision in all three stands.
+Status: accepted. Supersedes the Comment clause of [ADR 0023](0023-use-distinct-range-functions-and-two-cell-comments.md) and the Comment paragraph of [ADR 0033](0033-partition-a-row-by-parse.md); corrects the Comment row of [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md). Every other decision in all three stands. The `:` Sequence sigil it lists is retired by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md).
 
 A Comment is a Language Unit the Parser establishes. It is spelled `||` and claims every remaining Cell of its row. This supersedes the Comment clause of [ADR 0023](0023-use-distinct-range-functions-and-two-cell-comments.md), which spelled it `##`, and replaces the Comment paragraph of [ADR 0033](0033-partition-a-row-by-parse.md), which held the rule as a byte pre-pass run ahead of the walk. One `|` alone is incomplete or invalid Source, exactly as one `#` was.
 
