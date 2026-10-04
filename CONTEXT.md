@@ -49,8 +49,12 @@ Two Source Cells interpreted as an Atom according to the typed operand position 
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Spatial Output**:
-A Function output delivered through a Portal as literal Source encoding, interpreted in the receiving operand's context. It is distinct from a nested Function result, which retains its value's type.
+A Function output delivered through a Portal as literal Source encoding, interpreted in the receiving operand's context. A nested Function's Return is the same encoding and the receiving operand interprets it the same way, so identical characters mean the same thing however they arrived.
 _Avoid_: Implicit numeric conversion, typed spatial argument
+
+**Return**:
+The two-Cell Source encoding a nested Function hands to the inline operand it stands in. Per ADR 0061 the receiving operand decodes it by its declared literal type, exactly as it decodes characters a Portal wrote there, so the child's Atom type does not cross: a Note `C5` returned into an Addition operand is the Number `C5`. A Return is an additional delivery rather than a redirection: the nested Function also writes the same encoding through its own Output Portal, so its feedback stays in Source and the row below a nested Expression traces every step. A refused Output Portal write does not withdraw the Return, and a parent's failure does not undo the child's write. An answer with no Source encoding, the Absence Marker, returns nothing and the parent diagnoses. A Function that answers no value has no Return, so the Parser refuses it wherever a value is required, from Source alone.
+_Avoid_: Typed nested result, nested value, pass-through
 
 **Pending Operand Encoding**:
 The current characters of a spatially updated operand, awaiting interpretation when its receiving Function executes. They may be invalid for that operand's literal type and are not yet a decoded value.
@@ -73,7 +77,7 @@ The stack of operand values one Function is evaluated against. It holds exactly 
 _Avoid_: Value stack, call stack, machine memory, register
 
 **Function**:
-A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility. Per ADR 0028 every Function declares whether it answers a value the surrounding Expression can consume or performs an effect and answers nothing, never both and never neither, and per ADR 0029 that declaration is what the nesting guard and the activation gate each read rather than a spelling or a family prefix. The declaration is a property of the definition, settled before any Tick runs, and is not the Effect a Producer contributes to a Tick Plan. Terminal Output is one effect a Function may declare rather than the definition of effect, so a rule about having no Cell destination reads that narrower declaration while a rule about nothing consuming the answer reads the wider one. Per ADR 0063 every value Function answers exactly one Atom, which is what lets a Tick reserve a result's Cells before any Function has evaluated, and no Function accepts or answers a series of values.
+A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility. Per ADR 0028 every Function declares whether it answers a value the surrounding Expression can consume or performs an effect and answers nothing, never both and never neither, and per ADR 0029 that declaration is what the Parser's nesting refusal and the activation gate each read rather than a spelling or a family prefix. The declaration is a property of the definition, settled before any Tick runs, and is not the Effect a Producer contributes to a Tick Plan. Terminal Output is one effect a Function may declare rather than the definition of effect, so a rule about having no Cell destination reads that narrower declaration while a rule about nothing consuming the answer reads the wider one. Per ADR 0063 every value Function answers exactly one Atom, which is what lets a Tick reserve a result's Cells before any Function has evaluated, and no Function accepts or answers a series of values.
 _Avoid_: Operator, command
 
 **Source Function**:
@@ -81,7 +85,7 @@ A Function whose result may depend on Cells outside its explicit operands or may
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
-A transient pulse Atom returned by a Function, whose output activates aligned neighboring roots during the same Tick. Alignment is measured from the result's own two-Cell Span: a horizontally aligned root anchors two columns away with its Span touching the result's, and a vertically aligned root shares the result's anchor column one row north or south. Its `**` spelling is a visual representation of that output, not an executable Function or a new activation on the following Tick. Manually entering `**` is a no-op. A `**` spelling rejected in a typed operand remains invalid syntax and cannot activate another root.
+A transient pulse Atom returned by a Function, whose output activates aligned neighboring roots during the same Tick. Alignment is measured from the result's own two-Cell Span: a horizontally aligned root anchors two columns away with its Span touching the result's, and a vertically aligned root shares the result's anchor column one row north or south. Its `**` spelling is a visual representation of that output, not an executable Function or a new activation on the following Tick. Manually entering `**` is a no-op. A `**` spelling rejected in a typed operand remains invalid syntax and cannot activate another root. A nested Function that answers Bang writes `**` through its own Output Portal and activates the roots aligned with that display, as a root does, and its Return is `**`.
 _Avoid_: Boolean, trigger flag
 
 **Directional Bang Function**:
@@ -109,7 +113,7 @@ A pitched Atom carrying one MIDI note value from `00` through `7F`. In a Note op
 _Avoid_: Number, note-shaped Number, intrinsically typed literal
 
 **Numeric Conversion Function**:
-One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Their Source literal signatures are monomorphic: `.v` consumes a Note literal and returns its underlying Number, while `.^` consumes a Number literal from `00` through `7F` and returns the corresponding Note, diagnosing `80` through `FF`. During evaluation, either Function also accepts an already-typed value of its result type as an identity; this supports composition without making an overlapping Operand Literal ambiguous.
+One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Their Source literal signatures are monomorphic: `.v` consumes a Note literal and returns its underlying Number, while `.^` consumes a Number literal from `00` through `7F` and returns the corresponding Note, diagnosing `80` through `FF`. Each reads its operand only as that declared literal type, whether the characters were typed, written by a Portal, or returned by a nested Function, so conversions compose in opposite directions — `.v.^3C` and `.^.vC4` — while `.v.vC4` and `.^.^3C` diagnose, and `.+.^3C01` reads the returned `C4` as Number `C4`. A conversion never passes a value of its result type through.
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Arithmetic Function**:
@@ -141,7 +145,7 @@ The Tick-family Function `~?`, which answers a Number selected inclusively betwe
 _Avoid_: StdRng, entropy, activation count, dice, noise, non-deterministic random, hidden state
 
 **Absence Marker**:
-The Atom an Expression answers when it leaves no value. It displays as `_` but has no Source encoding of its own, and it is not a language value: no Function takes it as an operand, and an Expression answering it plans no Cell write. Equality returns it for an unequal comparison, and Delay `~*` and Euclidean `~%` return it on every Tick they do not Bang.
+The Atom an Expression answers when it leaves no value. It displays as `_` but has no Source encoding of its own, and it is not a language value: no Function takes it as an operand, an Expression answering it plans no Cell write, and a nested Function answering it returns nothing to its parent. Equality returns it for an unequal comparison, and Delay `~*` and Euclidean `~%` return it on every Tick they do not Bang.
 _Avoid_: Null, nil, empty value, void
 
 **Atomic Function**:
@@ -153,11 +157,11 @@ One Cell destination resolved during a Tick. A Function may read through a Porta
 _Avoid_: Port, address value, output coordinate, ordinary result
 
 **Output Portal**:
-The Portal through which a Function acts on the Source, as an offset from its anchor: one row south unless the Function names another, as each Jump names its own direction. Every Function has one. A Function that answers a value writes that answer there; Halt locks the root there instead; a Terminal Output Function writes nothing there, and a Source-writing Function's writes are its declared Source effect rather than an answer.
+The Portal through which a Function acts on the Source, as an offset from its anchor: one row south unless the Function names another, as each Jump names its own direction. Every Function has one. A Function that answers a value writes that answer there, whether it is a root or nested; Halt locks the root there instead; a Terminal Output Function writes nothing there, and a Source-writing Function's writes are its declared Source effect rather than an answer.
 _Avoid_: Result Cell, output Cell, destination
 
 **Input Portal**:
-The Portal a Function declares it reads a Source input through, as an offset from its anchor. A Jump reads at the Portal opposite its Output Portal; Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source. Most Functions declare none and take every input as an operand.
+The Portal a Function declares it reads a Source input through, as an offset from its anchor. A Jump reads at the Portal opposite its Output Portal; Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source, nested or not. Most Functions declare none and take every input as an operand.
 _Avoid_: Input Cell, source Cell, feedback register
 
 **Comment**:
@@ -181,7 +185,7 @@ One original Producer's opportunity to emit Effects after its current-Tick data 
 _Avoid_: Pass, visit, step
 
 **Reservation**:
-The Cells one computation's result may reach, settled while a Tick is scheduled and before any Function has evaluated. Per ADR 0063 every value Function answers one Atom, so a root value Function reserves one Atom's Cell pair at each of its write Portals, and a Source-writing Function reserves the Spans its declared bundle names. A Reservation orders Turns and decides nothing else: the write a Portal admits is what decides whether a Cell was written, a computation suppressed, or a root activated.
+The Cells one computation's result may reach, settled while a Tick is scheduled and before any Function has evaluated. Per ADR 0063 every value Function answers one Atom, so every value Function, root or nested, reserves one Atom's Cell pair at each of its write Portals, and a Source-writing Function reserves the Spans its declared bundle names. A Reservation orders Turns and decides nothing else: the write a Portal admits is what decides whether a Cell was written, a computation suppressed, or a root activated.
 _Avoid_: Footprint, allocation, reserved Span, write window
 
 **Effect**:

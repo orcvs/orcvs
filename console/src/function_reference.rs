@@ -274,6 +274,9 @@ mod tests {
             // Conversion (column 16)
             result(16, 2, "C4"), // .^3C (Number to Note)
             result(16, 5, "3C"), // .vC4 (Note to Number)
+            // A nested `.^` writes its own `C4` under its anchor and returns
+            // the same Cells, which Addition's Number operand reads as `C4`.
+            result(16, 8, "C5C4"), // .+.^3C01
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously

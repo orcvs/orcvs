@@ -467,7 +467,7 @@ macro_rules! bind_declared {
 }
 
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:literal, [$($role:ident: $operand:ident $(<$literal:ident>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -623,7 +623,7 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<<crate::operand::$operand $(<crate::operand::$literal>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                        &[$(<<crate::operand::$operand as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
                     },)+
                 }
             }
@@ -640,7 +640,7 @@ macro_rules! define_functions {
         pub(crate) mod operands {
             $(operands! {
                 $variant,
-                [$($role: crate::operand::$operand $(<crate::operand::$literal>)?),*]
+                [$($role: crate::operand::$operand),*]
                 $(, $portal_role: $portal_type)?
             })+
         }
@@ -674,8 +674,8 @@ define_functions! {
     Add => (".+", Value, Intrinsic, false, [left: Number, right: Number]),
     Clock => ("~.", Value, Intrinsic, false, [rate: Number, modulus: Number]),
     ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Intrinsic, false, [value: Numeric<Number>]),
-    ConvertToNumber => (".v", Value, Intrinsic, false, [value: Numeric<Note>]),
+    ConvertToNote => (".^", Value, Intrinsic, false, [value: Number]),
+    ConvertToNumber => (".v", Value, Intrinsic, false, [value: Note]),
     Delay => ("~*", Value, Intrinsic, true, [rate: Number, modulus: Number]),
     DirectionalBangEast => ("*>", BangEast, Bang, false, []),
     DirectionalBangNorth => ("*^", BangNorth, Bang, false, []),

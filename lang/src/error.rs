@@ -138,14 +138,6 @@ pub enum InterpretationError {
         value: u64,
     },
 
-    /// ADR 0028 states that an instruction answers either a value or an
-    /// effect, so a Function answering an effect can stand only where nothing
-    /// consumes an answer. This names the rule rather than any one effect
-    /// family, so every effect Function raises it by its declared kind
-    /// alone.
-    #[error("a Function that answers an effect is valid only at the root of an Expression")]
-    NestedEffectFunction,
-
     #[error("MIDI channel {0:02X} is outside the range 00–0F")]
     MidiChannel(u8),
 
@@ -168,9 +160,6 @@ pub enum InterpretationError {
 
 #[derive(Error, Debug)]
 pub enum TypeError {
-    #[error("expected a number or note, found {0:?}")]
-    Numeric(String),
-
     #[error("expected a note, found {0:?}")]
     Note(String),
 
@@ -191,6 +180,14 @@ pub enum SyntaxError {
 
     #[error("unexpected trailing content {0:?}")]
     UnexpectedTrailingContent(String),
+
+    /// A nested Function returns one two-Cell answer to the operand it
+    /// stands in, so a Function that answers an effect can stand only where
+    /// nothing consumes an answer. This names the rule rather than any one
+    /// effect family, so every effect Function raises it by its declared
+    /// kind alone, and the Source shows it before any Tick runs.
+    #[error("a Function that answers an effect is valid only at the root of an Expression")]
+    NestedEffectFunction,
 
     /// A Comment where a value was required. A Comment is a complete
     /// Language Unit that is not a value: it records a Token and no

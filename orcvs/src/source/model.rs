@@ -1397,10 +1397,18 @@ mod test {
         src.write(at(0), ".+00");
         src.execute();
 
-        // `.+00.+0101` commits `02` across Cells 10 and 11. The stale Expression
-        // at Cell 4 would commit its own `02` over Cells 14 and 15, so the row
-        // is asserted whole: only the joined Expression's result may appear.
-        assert_eq!(src.row(1), "02        ");
+        // `.+00.+0101` commits `02` across Cells 10 and 11, and its nested
+        // Addition commits its own `02` under its anchor across Cells 14 and
+        // 15. The joined Expression is the only one the Map holds, so no
+        // stale Expression at Cell 4 takes a Turn of its own.
+        assert_eq!(src.row(1), "02  02    ");
+        assert_eq!(
+            src.language_map()
+                .expressions()
+                .filter_map(|expression| expression.root())
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1939,31 +1947,28 @@ mod test {
     }
 
     #[test]
-    fn test_nested_play_is_diagnosed_without_emitting_a_command() {
+    fn test_nested_play_is_refused_by_the_language_map_and_never_plays() {
         let mut src = SourceUnderTest::new(Grid::with_shape(12, 3));
         let at = src.cells();
         src.write(at(0), ".+!>007FC401");
+
+        // Refused from Source alone, before any Tick runs.
+        assert_eq!(
+            reported(&src),
+            [(0, 11, lang::SyntaxError::NestedEffectFunction.to_string())]
+        );
 
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
-        assert!(
-            tick.diagnostics
-                .iter()
-                .any(|d| d.message == lang::InterpretationError::NestedEffectFunction.to_string())
-        );
-        assert!(
-            tick.diagnostics
-                .iter()
-                .any(|d| d.message.contains("supplied no typed result"))
-        );
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
     }
 
     #[test]
-    fn every_effect_function_is_diagnosed_where_a_value_is_required() {
-        // The Turn asks the running Function's declared kind, not which effect
-        // it performs, so a Function declared with any effect is nested-invalid
+    fn every_effect_function_is_refused_where_a_value_is_required() {
+        // The Parser asks the Function's declared kind, not which effect it
+        // performs, so a Function declared with any effect is nested-invalid
         // the day it exists.
         for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
             let mut expression = format!(".+{function}");
@@ -1979,28 +1984,40 @@ mod test {
             let at = src.cells();
             src.write(at(0), &expression);
 
+            assert!(
+                reported(&src).iter().any(|(_, _, message)| *message
+                    == lang::SyntaxError::NestedEffectFunction.to_string()),
+                "{expression}: {:?}",
+                reported(&src)
+            );
+
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert!(
-                tick.diagnostics
-                    .iter()
-                    .any(|d| d.message
-                        == lang::InterpretationError::NestedEffectFunction.to_string()),
-                "{expression}: {:?}",
-                tick.diagnostics
-            );
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert!(tick.locks.is_empty(), "{expression}");
         }
     }
 
     #[test]
     fn test_nested_evaluation_cannot_change_play_operand_types() {
-        for (expression, expected) in [
-            ("!>.^007FC4", "expected a number, found \"C/\""),
-            ("!>00.^7FC4", "expected a number, found \"G9\""),
-            ("!>007F.vC4", "expected a note, found \"3C\""),
+        // The nested conversion writes its own answer under its anchor and
+        // returns the same characters, which Play's operand reads as its own
+        // declared type.
+        for (expression, written, expected) in [
+            (
+                "!>.^007FC4",
+                "  C/      ",
+                "expected a number, found \"C/\"",
+            ),
+            (
+                "!>00.^7FC4",
+                "    G9    ",
+                "expected a number, found \"G9\"",
+            ),
+            ("!>007F.vC4", "      3C  ", "expected a note, found \"3C\""),
         ] {
-            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 4));
             let at = src.cells();
             src.write(at(0), ".=0101");
             src.write(at(expression.len() * 2), expression);
@@ -2008,7 +2025,8 @@ mod test {
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert_only_bang_display(&tick, src.grid, &[expression.len()]);
+            assert_eq!(src.row(1), "**        ", "{expression}");
+            assert_eq!(src.row(3), written, "{expression}");
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, expected, "{expression}");
         }
@@ -2021,7 +2039,7 @@ mod test {
         // chain sums fifteen literals into the channel, leaving the sixteenth
         // as the velocity.
         let expression = format!("!>{}{}C4", ".+".repeat(14), "01".repeat(16));
-        let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+        let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 4));
         let at = src.cells();
         src.write(at(0), ".=0101");
         src.write(at(expression.len() * 2), &expression);
@@ -2195,30 +2213,60 @@ mod test {
     }
 
     #[test]
-    fn conversions_are_idempotent_through_nested_source_expressions() {
-        // A nested conversion hands its parent a typed answer, not text for
-        // the parent's declared operand type to re-read: converting a value
-        // already of the target type answers it unchanged.
-        for (expression, written) in [(".v.vC4", "3C"), (".v.^3C", "3C"), (".^.^3C", "C4")] {
+    fn nested_arithmetic_writes_each_answer_under_its_own_anchor_and_returns_it() {
+        // Each nested Addition writes its answer one row south of its own
+        // anchor and returns the same encoding to its parent, so the row
+        // below is a trace of every step: `01 + 01`, `02 + 02`, `04 x 03`.
+        let expression = ".x.+.+01010203";
+        let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
+        let at = src.cells();
+        src.write(at(0), expression);
+
+        let tick = src.execute();
+
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+        assert_eq!(src.row(1), "0C0402        ");
+        assert_eq!(src.row(0), expression);
+    }
+
+    #[test]
+    fn nested_conversions_compose_only_where_the_return_spells_the_receiving_type() {
+        // A nested conversion returns its answer's characters, which the
+        // parent's declared operand type reads. Opposite directions compose;
+        // the same direction reads the child's answer as the other type.
+        for (expression, row, diagnostics) in [
+            (".v.^3C", "3CC4  ", vec![]),
+            (".^.vC4", "C43C  ", vec![]),
+            (".v.vC4", "  3C  ", vec!["expected a note, found \"3C\""]),
+            (
+                ".^.^3C",
+                "  C4  ",
+                vec!["Number C4 cannot be converted to a Note"],
+            ),
+        ] {
             let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
             let at = src.cells();
             src.write(at(0), expression);
 
             let tick = src.execute();
 
-            assert!(
-                tick.diagnostics.is_empty(),
-                "{expression}: {:?}",
+            assert_eq!(
                 tick.diagnostics
+                    .iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>(),
+                diagnostics,
+                "{expression}"
             );
-            assert_eq!(&src.row(1)[..2], written, "{expression}");
+            assert_eq!(src.row(1), row, "{expression}");
         }
     }
 
     #[test]
     fn equality_composes_with_nested_arithmetic_on_both_answers() {
-        // Equality over a nested sum answers as it does over literals.
-        for (expression, row) in [(".=.+010203", "**        "), (".=.+010204", "          ")] {
+        // Equality over a nested sum answers as it does over literals, and
+        // the nested sum writes its own answer under its anchor.
+        for (expression, row) in [(".=.+010203", "**03      "), (".=.+010204", "  03      ")] {
             let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
             let at = src.cells();
             src.write(at(0), expression);
@@ -2233,13 +2281,27 @@ mod test {
             assert_eq!(src.row(1), row, "{expression}");
         }
 
-        // A nested unequal comparison's absent answer is still a typed Empty
-        // operand, so arithmetic over it names what it refused rather than
-        // reporting a missing result or reading the blank Cells as a Number.
-        for (expression, found) in [
-            (".+.=010203", "_"),
-            (".+03.=0102", "_"),
-            (".+.=010103", "**"),
+        // A nested unequal comparison answers the Absence Marker, which has
+        // no encoding to return, so its parent names the missing Return
+        // rather than reading the blank Cells as a Number. An equal one
+        // returns `**`, which the Number operand refuses after the child has
+        // written its display.
+        for (expression, row, message) in [
+            (
+                ".+.=010203",
+                "          ",
+                "nested computation at column 2, row 0 returned nothing",
+            ),
+            (
+                ".+03.=0102",
+                "          ",
+                "nested computation at column 4, row 0 returned nothing",
+            ),
+            (
+                ".+.=010103",
+                "  **      ",
+                "expected a number, found \"**\"",
+            ),
         ] {
             let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 3));
             let at = src.cells();
@@ -2247,13 +2309,13 @@ mod test {
 
             let tick = src.execute();
 
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_eq!(src.row(1), row, "{expression}");
             assert_eq!(
                 tick.diagnostics
                     .iter()
                     .map(|d| d.message.as_str())
                     .collect::<Vec<_>>(),
-                [format!("expected a number, found \"{found}\"")],
+                [message],
                 "{expression}"
             );
         }

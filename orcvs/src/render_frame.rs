@@ -71,15 +71,15 @@ impl RenderCell {
     }
 
     ///
-    /// Whether this Cell draws as a root Function's Output Portal, derived
+    /// Whether this Cell draws as a value Function's Output Portal, derived
     /// from the current Source revision alone and known before any Tick runs.
     ///
     /// `true` covers the Cell pair from the Output Portal, the Reservation the
-    /// Tick scheduler reserves for the root's answer. A nested Function, a
-    /// Terminal Output Function,
-    /// Halt, and a Source-writing Function (including an Advance's cleared
-    /// anchor) never set it, and neither does a scalar destination the row
-    /// edge leaves no room for.
+    /// Tick scheduler reserves for that Function's answer, whether it is a
+    /// root or nested. A Terminal Output Function, Halt, a Source-writing
+    /// Function (including an Advance's cleared anchor), and a nested
+    /// Function the Parser refuses never set it, and neither does a scalar
+    /// destination the row edge leaves no room for.
     ///
     pub fn output_portal(&self) -> bool {
         self.output_portal

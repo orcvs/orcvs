@@ -381,8 +381,8 @@ mod test {
             Function::Modulo,
         ] {
             for operand in [Atom::Bang, Atom::Empty] {
-                // Both slots, because a nested Function answers into either
-                // one: an unequal `.=` puts Empty wherever it is written.
+                // Both slots, because each declares a Number and refuses
+                // anything else in either position.
                 for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
                     assert!(
                         matches!(
@@ -476,26 +476,9 @@ mod test {
 
     #[test]
     fn explicit_numeric_conversions_have_fixed_result_types() {
-        // `.v` is the identity over Numbers across the whole byte domain, not
-        // only the MIDI part of it. A Number reaches this Function from nested
-        // evaluation rather than from its literal operand slot, and the arithmetic that produced it wraps over `00`–`FF`, so
-        // `80`–`FF` arrive as often as anything else. Folding them into the
-        // Note range would be the coercion ADR 0021 refuses, and diagnosing
-        // them would make `.v` reject values `.^` never had to accept.
-        for value in 0..=u8::MAX {
-            assert_eq!(
-                evaluate_cell(vec![
-                    Atom::Function(Function::ConvertToNumber),
-                    Atom::Number(value),
-                ])
-                .unwrap(),
-                Atom::Number(value),
-                "{value:02X}"
-            );
-        }
-
-        // The typed conversions themselves are defined over the MIDI range,
-        // which is every value a Note can hold.
+        // The conversions are defined over the MIDI range, which is every
+        // value a Note can hold, and each reads only its declared literal
+        // type.
         for value in 0..=0x7F {
             assert_eq!(
                 evaluate_cell(vec![
@@ -509,14 +492,6 @@ mod test {
                 evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Number(value),
-                ])
-                .unwrap(),
-                Atom::Note(crate::Note::try_from(value).unwrap())
-            );
-            assert_eq!(
-                evaluate_cell(vec![
-                    Atom::Function(Function::ConvertToNote),
-                    Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
                 .unwrap(),
                 Atom::Note(crate::Note::try_from(value).unwrap())

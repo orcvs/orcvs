@@ -10,7 +10,10 @@ reservation-based value ordering. ADR 0031's row-major evaluator remains superse
 **Rule 3a: value inputs wait for their suppliers.** Every applicable potential writer whose
 reservation covers a value input settles before its consumer executes. The consumer reads the
 surviving encoding under its current signature. A spatial supplier that fails or produces no write
-still settles; nested inputs still require typed answers. Input Portal read dependencies remain.
+still settles; a nested input waits for its child's Return, the two-Cell encoding the receiving
+operand decodes by its declared literal type exactly as it decodes a spatial write, as
+[ADR 0061](0061-a-nested-function-returns-to-the-slot-it-occupies.md) decides. A nested Function's
+own Output Portal write is a potential writer like any other. Input Portal read dependencies remain.
 
 **Rule 3b: placement tests occupancy at its Turn.** An Advance or Emit reads the working Grid
 at its scheduled Turn, after prior Bang cleanup and earlier admitted effects. It does not wait

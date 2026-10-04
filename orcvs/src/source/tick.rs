@@ -1,8 +1,9 @@
 //! Tick-local execution of Parser-owned expressions.
 //!
 //! Fixed Portal destinations and nested ownership determine the complete order
-//! before execution. Spatial writes remain character encodings until consumed;
-//! nested results are typed values. Only the final effects are published.
+//! before execution. Spatial writes remain character encodings until consumed,
+//! and a nested result returns to its parent as the same encoding, so the
+//! receiving operand decodes both. Only the final effects are published.
 
 pub(super) mod execution;
 #[cfg(test)]
@@ -513,8 +514,8 @@ impl ScheduleCache {
 /// without the planning path taking a parameter or a map lookup of its own.
 ///
 /// Writes that resolved as none stay none: [`PortalAccess::carry`] cannot
-/// attach a Portal to Terminal Output or to a nested Jump. Tests that need a
-/// write site name one on a Function that already demanded some.
+/// attach a Portal to Terminal Output or to a nested effect Function. Tests
+/// that need a write site name one on a Function that already demanded some.
 ///
 #[cfg(test)]
 fn carry(grid: Grid, nodes: &mut [Computation], destinations: &BTreeMap<CellIndex, Vec<Position>>) {
@@ -762,11 +763,10 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                         .expect("parsed Function inside Grid"),
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
-                // Nested computations write no Portal of their own. A nested
-                // Jump still reads its Input Portal. A root Terminal Output
-                // Function has no Cell destination at all: Play is an Effect,
-                // not a Portal. A locking root reserves its Output Portal
-                // and writes no Cell.
+                // A nested value Function writes its own Output Portal as a
+                // root does. A root Terminal Output Function has no Cell
+                // destination at all: Play is an Effect, not a Portal. A
+                // locking root reserves its Output Portal and writes no Cell.
                 let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {
                     anchor,
@@ -2019,12 +2019,160 @@ mod test {
 
     #[test]
     fn a_nested_jump_reads_a_same_tick_write_at_its_input_portal() {
-        // Nested `&^` writes no Cell, but it still reads the Portal one row
-        // south. The root Jump lands `01` there this Tick; without that read
-        // span the nested Jump would run first and add empty Source to `01`.
+        // Nested `&^` reads the Portal one row south and writes the unit it
+        // copies one row north. The root Jump lands `01` at its input this
+        // Tick; without that read span the nested Jump would run first and
+        // copy empty Source.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(6, 5),
+            &["", ".+&^01", "", "  &^", "  01"],
+            1,
+        );
+        assert_eq!(grids[0], ["  01  ", ".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // On the top row its output Portal leaves the Grid. That write is
+        // refused and diagnosed, and the Return still reaches the parent.
         let (plans, grids, _) =
             tick_by_tick(Grid::with_shape(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
         assert_eq!(grids[0], [".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert_eq!(
+            messages(&plans[0]),
+            ["result \"01\" falls outside the Grid"]
+        );
+    }
+
+    #[test]
+    fn a_return_and_a_portal_decode_the_same_characters_the_same_way() {
+        // `.^3C` answers Note `C4`. Returned into Addition's Number operand,
+        // and written there by a Portal, the same two characters are Number
+        // `C4` either way: both sums are `C5`. The nested `.^` also writes its
+        // own `C4` one row south of its anchor.
+        let (plans, returned, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+.^3C01", ""], 1);
+        assert_eq!(returned[0], [".+.^3C01", "C5C4    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        let (plans, written, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &["  .^3C", ".+0001", ""], 1);
+        assert_eq!(written[0], ["  .^3C  ", ".+C401  ", "C5      "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // The receiving operand decides the reading, so a conversion nested in
+        // one of the same direction reads its child's result as the other
+        // type and diagnoses, as the same characters written by a Portal do.
+        for (returned, child, written, message) in [
+            (
+                [".v.vC4", ""],
+                "  3C  ",
+                ["  .vC4", ".vC4", ""],
+                "expected a note, found \"3C\"",
+            ),
+            (
+                [".^.^3C", ""],
+                "  C4  ",
+                ["  .^3C", ".^3C", ""],
+                "Number C4 cannot be converted to a Note",
+            ),
+        ] {
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &returned, 1);
+            assert_eq!(messages(&plans[0]), [message], "{returned:?}");
+            assert_eq!(grids[0][1], child, "{returned:?}");
+            let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 3), &written, 1);
+            assert_eq!(messages(&plans[0]), [message], "{written:?}");
+        }
+
+        // Conversions in opposite directions compose through the Return.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".v.^3C", ""], 1);
+        assert_eq!(grids[0], [".v.^3C", "3CC4  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".^.vC4", ""], 1);
+        assert_eq!(grids[0], [".^.vC4", "C43C  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn nested_feedback_functions_keep_their_state_in_their_own_output_portals() {
+        // A nested Increment reads its previous value from the Cells its own
+        // Output Portal writes, so it advances every Tick and wraps at its
+        // modulus; its parent adds `00` and writes the same count beside it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".+~+010400", ""], 5);
+        let counted: Vec<&str> = grids.iter().map(|grid| grid[1].as_str()).collect();
+        assert_eq!(
+            counted,
+            [
+                "0101      ",
+                "0202      ",
+                "0303      ",
+                "0000      ",
+                "0101      "
+            ]
+        );
+        assert!(plans.iter().all(|plan| plan.diagnostics.is_empty()));
+
+        // A nested Interpolation moves toward its target by its rate each Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".+~>020500", ""], 4);
+        let moved: Vec<&str> = grids.iter().map(|grid| grid[1].as_str()).collect();
+        assert_eq!(
+            moved,
+            ["0202      ", "0404      ", "0505      ", "0505      "]
+        );
+        assert!(plans.iter().all(|plan| plan.diagnostics.is_empty()));
+    }
+
+    #[test]
+    fn a_nested_bang_writes_its_display_and_activates_its_aligned_roots() {
+        // Nested Equality answers Bang: it writes `**` one row south of its
+        // own anchor, which activates the Terminal Output root aligned east of
+        // that display. Its parent reads the returned `**` as a Number operand
+        // and diagnoses, which does not undo the child's write or activation.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(12, 3),
+            &[".+.=010101", "    !>007FC4", ""],
+            1,
+        );
+        assert_eq!(grids[0], [".+.=010101  ", "  **!>007FC4", "            "]);
+        assert_eq!(plans[0].play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn a_child_write_survives_its_parents_failure() {
+        // Divide refuses a zero divisor after the nested Multiply has written
+        // `0C` under its own anchor and returned it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &["./.x030400", ""], 1);
+        assert_eq!(grids[0], ["./.x030400", "  0C      "]);
+        assert_eq!(messages(&plans[0]), ["cannot divide by zero"]);
+    }
+
+    #[test]
+    fn a_nested_output_portal_orders_an_earlier_consumer_after_its_writer() {
+        // The nested North Jump copies `05` from below it into the second
+        // operand of the Addition on the row above. That Addition comes first
+        // in Grid order, so only the Jump's reservation orders it after the
+        // write; read in Grid order it would execute over `00` and the Jump's
+        // write would then reach a computation that had already run.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &[".+0000", "  .+&^01", "    05"], 1);
+        assert_eq!(grids[0], [".+0005  ", "05.+&^01", "  0605  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2206,18 +2354,21 @@ mod test {
     fn a_self_banging_function_is_not_scheduled_inside_another_expression() {
         // Root-only, enforced by the declared kind rather than by a check that
         // names these four spellings: `.+` declares two Number operands, `^^`
-        // answers an effect, and the nesting rule refuses it where a value is
-        // required. The refusal is the Expression's, so the Cells are
-        // left standing and nothing moves.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+^^01", ""], 1);
+        // answers an effect, and the Parser refuses it where a value is
+        // required. The refusal is the Expression's and is reported from the
+        // Source, so the Cells are left standing, nothing moves, and the
+        // Tick repeats nothing.
+        let (plans, grids, source) = tick_by_tick(Grid::with_shape(8, 2), &[".+^^01", ""], 1);
 
         assert_eq!(grids[0], [".+^^01  ", "        "]);
+        assert!(messages(&plans[0]).is_empty(), "{:?}", plans[0].diagnostics);
         assert_eq!(
-            messages(&plans[0]),
-            vec![
-                "a Function that answers an effect is valid only at the root of an Expression",
-                "nested computation at column 2, row 0 supplied no typed result",
-            ]
+            source
+                .language_map()
+                .diagnostics()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+            ["a Function that answers an effect is valid only at the root of an Expression"]
         );
     }
 
@@ -2816,28 +2967,19 @@ mod test {
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
 
-        // A Terminal Output Function standing inside an Expression: its Turn
-        // records the nesting refusal, and the Addition above it is
-        // left with no typed result to consume.
+        // A Terminal Output Function standing inside an Expression: the
+        // Parser refused it from the Source, so its Turn is blocked, and the
+        // Addition above it with it, without a Tick diagnostic.
         let rows = [".+01!>007FC4", ""];
         let (plan, source) = stated_source(grid, &rows, &[(0, 16)], &[(4, Atom::Number(1))]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert!(plan.play_commands.is_empty());
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics.iter().any(|d| d
-                .message
-                .contains("valid only at the root of an Expression")),
-            "{:?}",
-            plan.diagnostics
-        );
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("supplied no typed result")),
-            "{:?}",
-            plan.diagnostics
-        );
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(source.language_map().diagnostics().any(|d| {
+            d.message
+                .contains("valid only at the root of an Expression")
+        }),);
     }
 
     #[test]
@@ -2948,10 +3090,17 @@ mod test {
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
         let (plan, source) = carried_source(Grid::with_shape(width, 2), &[&text, ""], &[]);
-        // 50 / 25 = 2. Reversing the siblings instead produces zero.
+        // 50 / 25 = 2. Reversing the siblings instead produces zero. Each
+        // sibling's outermost Addition writes its own sum under its anchor.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
-        assert_eq!(source.snapshot(), snapshot(source.grid(), &[&text, "02"]));
+        let snapshot = source.snapshot();
+        let (expression, below) = snapshot.split_at(width);
+        assert_eq!(expression, text);
+        let denominator_anchor = 2 + numerator.len();
+        assert_eq!(&below[..2], "02");
+        assert_eq!(&below[2..4], "32");
+        assert_eq!(&below[denominator_anchor..denominator_anchor + 2], "19");
     }
 
     #[test]
@@ -2988,8 +3137,8 @@ mod test {
         // A writer can also repair the bad leaf before its reserved turn.
         let (repaired, source) = carried_source(
             Grid::with_shape(20, 3),
-            &[".+01.x02.+03??", ".+0004", ""],
-            &[(0, 40), (20, 12)],
+            &[".+01.x02.+03??", "          .+0004", ""],
+            &[(0, 40), (30, 12)],
         );
         assert!(
             repaired.diagnostics.is_empty(),
@@ -3481,7 +3630,7 @@ mod test {
     }
 
     #[test]
-    fn live_spatial_note_is_an_encoding_and_nested_note_stays_typed() {
+    fn live_spatial_and_returned_notes_are_both_encodings() {
         let (plan, source) = carried_source(
             Grid::with_shape(16, 3),
             &[".+0001", ".^48", ""],
@@ -3490,38 +3639,35 @@ mod test {
         assert_eq!(&source.snapshot()[..6], ".+C501");
         assert_eq!(&source.snapshot()[32..34], "C6");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        // Returned rather than written, Note `C5` is the same characters and
+        // the Number operand reads them the same way.
         let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".+.^4801", ""], &[(0, 16)]);
-        assert_eq!(&source.snapshot()[16..18], "  ");
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("expected a number")),
-            "{:?}",
-            plan.diagnostics
-        );
+        assert_eq!(&source.snapshot()[16..20], "C6C5");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(&source.snapshot()[..8], ".+.^4801");
     }
 
     #[test]
-    fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_typed_answer() {
-        // Nested `.x` is silent: it answers 0C to `./` and writes no Cell.
-        // Carry cannot mint a Portal onto it. The sibling `.+` is a root, so
-        // it still writes after the parent divides by zero.
+    fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_its_return() {
+        // Nested `.x` returns 0C to `./` and writes it into the sibling `.+`'s
+        // first operand. The parent divides by zero; the child's write stands
+        // and the sibling consumes it.
         let (plan, source) = carried_source(
             Grid::with_shape(16, 4),
             &["./.x030400", ".+0001", "", ""],
             &[(0, 48), (2, 18), (16, 52)],
         );
-        assert_eq!(&source.snapshot()[18..20], "00");
+        assert_eq!(&source.snapshot()[18..20], "0C");
         assert_eq!(&source.snapshot()[48..50], "  ");
-        assert_eq!(&source.snapshot()[52..54], "01");
+        assert_eq!(&source.snapshot()[52..54], "0D");
         assert!(
             plan.diagnostics
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
-        // The nested multiply still supplies 0C, so `.+` writes 0E. Naming a
-        // Cell for that nested Function does not create a row-edge write.
+        // The nested Multiply's Portal crosses the row edge, so its write is
+        // refused whole and diagnosed. Its Return still supplies 0C, so `.+`
+        // writes 0E.
         let (plan, source) = carried_source(
             Grid::with_shape(16, 2),
             &[".+02.x0304", ""],
@@ -3529,13 +3675,7 @@ mod test {
         );
         assert_eq!(&source.snapshot()[16..18], "0E");
         assert_eq!(&source.snapshot()[31..], " ");
-        assert!(
-            plan.diagnostics
-                .iter()
-                .all(|d| !d.message.contains("crosses the row edge")),
-            "{:?}",
-            plan.diagnostics
-        );
+        assert_eq!(messages(&plan), ["result \"0C\" crosses the row edge"]);
     }
 
     #[test]
@@ -3554,17 +3694,17 @@ mod test {
         );
         let (plan, source) =
             carried_source(Grid::with_shape(16, 2), &[".+02./0100", ""], &[(0, 16)]);
-        assert_eq!(&source.snapshot()[16..18], "  ");
+        assert_eq!(&source.snapshot()[16..22], "      ");
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|d| d.message.contains("supplied no typed result"))
+                .any(|d| d.message.contains("returned nothing"))
         );
         // A failed structural writer leaves the original computation connected.
         let (plan, source) = carried_source(
             Grid::with_shape(16, 3),
-            &[".+02.x0304", "./0100", ""],
-            &[(0, 32), (16, 4)],
+            &[".+02.x0304", "      ./0100", ""],
+            &[(0, 32), (22, 4)],
         );
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert_eq!(&source.snapshot()[32..34], "0E");
@@ -3577,8 +3717,10 @@ mod test {
 
     #[test]
     fn live_inactive_ownership_and_silent_terminal_output_are_independent() {
-        // Carrying a Cell onto `!>` cannot mint a Portal. Nested `.^80` still
-        // supplies no Note, so this Expression neither plays nor writes.
+        // Carrying a Cell onto `!>` cannot mint a Portal. The root is never
+        // activated, so its nested `.^80` takes no Turn and writes nothing
+        // through the Portal carried onto it, and this Expression neither
+        // plays nor writes.
         let (plan, interpreted, source) = carried_tick(
             Grid::with_shape(16, 3),
             &["!>007F.^80", "", ""],
@@ -3655,9 +3797,11 @@ mod test {
             &[(0, 48), (4, 34), (16, 0), (32, 52)],
             &[(16, lang::Function::Multiply)],
         );
+        // The nested `.x` keeps its place under the replacement and writes
+        // its `0C` into the third row's first operand.
         assert_eq!(&source.snapshot()[..10], ".x02.x0304");
         assert_eq!(&source.snapshot()[48..50], "18");
-        assert_eq!(&source.snapshot()[52..54], "01");
+        assert_eq!(&source.snapshot()[52..54], "0D");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         let (plan, source) = replaced_source(
             Grid::with_shape(16, 3),
@@ -3672,15 +3816,19 @@ mod test {
                 .iter()
                 .any(|d| d.message == "Number C4 cannot be converted to a Note")
         );
+        // The retained nested `.^` returns `C4`, which the replacement's
+        // Number operand reads as Number `C4`, outside the Note range. The
+        // child's own write under its anchor stands.
         let (plan, source) = replaced_source(
             Grid::with_shape(16, 3),
-            &[".v.^3C", ".+0000", ""],
-            &[(0, 32), (16, 0)],
-            &[(16, lang::Function::ConvertToNote)],
+            &[".v.^3C", "    .+0000", ""],
+            &[(0, 32), (20, 0)],
+            &[(20, lang::Function::ConvertToNote)],
         );
-        // The retained nested Note C4 remains typed; Numeric Conversion is idempotent.
-        assert_eq!(&source.snapshot()[32..34], "C4");
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(&source.snapshot()[..6], ".^.^3C");
+        assert_eq!(&source.snapshot()[18..20], "C4");
+        assert_eq!(&source.snapshot()[32..34], "  ");
+        assert_eq!(messages(&plan), ["Number C4 cannot be converted to a Note"]);
     }
 
     #[test]
@@ -3891,17 +4039,18 @@ mod test {
 
     #[test]
     fn nested_computation_returns_and_projects_once() {
-        // Nested `.x` answers 0C to `.+` and writes no Cell. Naming one for it
-        // cannot mint a Portal; the sibling `.+0101` keeps its own literals.
+        // Nested `.x` returns 0C to `.+` and writes the same 0C through its
+        // own Portal, into the sibling `.+`'s first operand, from one
+        // interpretation.
         let grid = Grid::with_shape(16, 4);
         let (plan, interpreted, source) = carried_tick(
             grid,
             &[".+02.x0304", ".+0101", "", ""],
             &[(0, 48), (4, 18), (16, 52)],
         );
-        assert_eq!(&source.snapshot()[18..20], "01");
+        assert_eq!(&source.snapshot()[18..20], "0C");
         assert_eq!(&source.snapshot()[48..50], "0E");
-        assert_eq!(&source.snapshot()[52..54], "02");
+        assert_eq!(&source.snapshot()[52..54], "0D");
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -4598,8 +4747,9 @@ mod test {
         // `.+~?010010~?010010` is the case that tells root granularity from
         // per-Function anchors. Each Random is its own Computation with its
         // own `node.anchor`: the left sits at column 2 and draws `0A`, the
-        // right at column 10 and draws `0F`. Their sum is `19`. Seeding both
-        // at the Add's origin would draw `02` twice and write `04`.
+        // right at column 10 and draws `0F`. Their sum is `19`, and each
+        // draw is written under its own anchor. Seeding both at the Add's
+        // origin would draw `02` twice and write `04`.
         let (plans, grids, _) =
             tick_by_tick(Grid::with_shape(18, 2), &[".+~?010010~?010010", ""], 1);
 
@@ -4608,8 +4758,7 @@ mod test {
             "{:?}",
             plans[0].diagnostics
         );
-        assert_eq!(grids[0], [".+~?010010~?010010", "19                "]);
-        assert_ne!(grids[0][1], "04                ");
+        assert_eq!(grids[0], [".+~?010010~?010010", "190A      0F      "]);
     }
 
     #[test]
@@ -5087,6 +5236,35 @@ mod output_portal_exclusion {
     #[test]
     fn a_directional_bangs_emit_is_excluded() {
         assert_excluded(Grid::with_shape(6, 1), "*>    ");
+    }
+
+    #[test]
+    fn the_map_reserves_what_the_scheduler_reserves_for_nested_value_functions() {
+        // The highlight the Map derives and the write reservations that order
+        // a Tick are the same Cells, root and nested alike.
+        let grid = Grid::with_shape(14, 2);
+        for row in [".x.+.+01010203", ".+.x0102.+0304", ".+!>007FC401  "] {
+            let source = format!("{row}{:14}", "");
+            let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
+            let (nodes, _diagnostics) = computations(grid, &map);
+            let lookup = Lookup::new(grid, nodes, &map);
+            let mut scheduled = vec![false; grid.count()];
+            for node in lookup.nodes() {
+                for output in node
+                    .portal_access
+                    .write_sites()
+                    .iter()
+                    .filter_map(|output| output.as_ref().ok())
+                {
+                    if let Some(span) = Portal::at(grid, *output).reservation() {
+                        for idx in span.range() {
+                            scheduled[idx] = true;
+                        }
+                    }
+                }
+            }
+            assert_eq!(map.output_portal_cells(), scheduled, "{row:?}");
+        }
     }
 }
 

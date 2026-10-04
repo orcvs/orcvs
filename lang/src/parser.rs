@@ -246,6 +246,15 @@ impl<'a> Parser<'a> {
                         parent,
                     );
                     if let Atom::Function(function) = atom {
+                        // A nested Function returns one two-Cell answer to the
+                        // operand it stands in, which a Function answering an
+                        // effect does not have. The refusal is the
+                        // Expression's, and the entry keeps its Function and
+                        // claims its operands, so the layout is the one its
+                        // signatures give whichever Function stands here.
+                        if parent.is_some() && !function.answers_value() {
+                            error.get_or_insert(SyntaxError::NestedEffectFunction.into());
+                        }
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
                         for token in function.signature().iter().rev() {
@@ -1619,5 +1628,55 @@ mod positioned_tests {
                 (48..48, Some(2))
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod nesting_tests {
+    use super::Parser;
+    use crate::{Atom, Error, Function, SyntaxError};
+
+    #[test]
+    fn a_nested_function_that_answers_no_value_is_refused_from_source_alone() {
+        // Every effect Function, nested where a value is required, is refused
+        // by its declared kind. The layout still claims its own operands, so
+        // the Expression keeps the extent its signatures give it.
+        for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
+            let operands: String = function
+                .signature()
+                .iter()
+                .map(|token| match token {
+                    crate::Token::Note => "C4",
+                    _ => "01",
+                })
+                .collect();
+            let source = format!(".+{function}{operands}01");
+            let analysis = Parser::from(&source).analyze();
+
+            assert!(
+                matches!(
+                    analysis.error(),
+                    Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source}: {:?}",
+                analysis.error()
+            );
+            assert_eq!(analysis.cells(), 0..source.len(), "{source}");
+            assert_eq!(
+                analysis
+                    .expression()
+                    .positioned()
+                    .nth(1)
+                    .and_then(|entry| entry.atom),
+                Some(Atom::Function(*function)),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_root_effect_function_and_a_nested_value_function_parse() {
+        assert!(Parser::from("!>007FC4").analyze().is_complete());
+        assert!(Parser::from(".+.x030401").analyze().is_complete());
     }
 }

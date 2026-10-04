@@ -63,7 +63,8 @@ pub(super) fn execute(
 }
 
 /// These facts are independent: an attempted Turn can be syntax-blocked, and
-/// a successful typed result can coexist with a rejected spatial delivery.
+/// a successful answer, returned to a parent, can coexist with a rejected
+/// spatial delivery.
 /// Keeping them together does not turn them into an exclusive lifecycle enum.
 pub(in crate::source) struct ComputationState {
     function: Function,
@@ -242,18 +243,14 @@ impl<'a> Execution<'a> {
         // Taking a Turn precedes syntax and evaluation checks. A later writer
         // must not reach a computation even when its attempted Turn failed.
         self.states[index].attempted = true;
-        // The Function this Turn will run, asked for here rather than below
-        // because the nesting rule is about the answer this computation is
-        // going to produce, which is the running Function's to declare.
         let function = self.states[index].function;
-        if node.parent.is_some() && !function.answers_value() {
-            self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                lang::InterpretationError::NestedEffectFunction.to_string(),
-            )));
-            return None;
-        }
-        if self.syntax_blocks(node, function) {
+        // A nested Function that answers no value has no Return for its
+        // parent. The Parser reports that against the Expression from Source
+        // alone, so the Turn is blocked as an unparsed operand's is, without
+        // repeating the report, and its parent is blocked in turn.
+        if self.syntax_blocks(node, function)
+            || (node.parent.is_some() && !function.answers_value())
+        {
             self.states[index].syntax_blocked = true;
             return None;
         }
@@ -373,8 +370,13 @@ impl<'a> Execution<'a> {
 
     /// The operands of `node`'s Turn, in signature order.
     ///
-    /// A surviving nested child's answer is taken out of its state: the
-    /// child's one consumer is this Turn.
+    /// Each operand is decoded by its declared Token, whichever way its
+    /// characters arrived. Spatial delivery leaves them pending in working
+    /// Source until consumption; a surviving nested child returns its answer's
+    /// two-Cell encoding, taken out of its state because this Turn is the
+    /// child's one consumer. The child's Atom type does not cross: a Note
+    /// returned into a Number operand is read as the Number it spells, exactly
+    /// as the same characters written there by a Portal would be.
     fn operands(
         &mut self,
         node: &Computation,
@@ -389,16 +391,24 @@ impl<'a> Execution<'a> {
                     .filter(|child| !self.states[*child].suppressed)
                 {
                     let anchor = self.lookup.nodes()[child].anchor;
-                    return self.states[child].result.take().ok_or_else(|| {
-                        format!(
-                            "nested computation at column {}, row {} supplied no typed result",
-                            anchor.x(),
-                            anchor.y()
-                        )
-                    });
+                    let returned = self.states[child]
+                        .result
+                        .take()
+                        .and_then(|atom| match Encoding::render(atom) {
+                            Ok(Rendered::Cells(encoding)) => Some(encoding),
+                            Ok(Rendered::Nothing) | Err(_) => None,
+                        })
+                        .ok_or_else(|| {
+                            format!(
+                                "nested computation at column {}, row {} returned nothing",
+                                anchor.x(),
+                                anchor.y()
+                            )
+                        })?;
+                    return token
+                        .decode(&returned.to_string())
+                        .map_err(|error| error.to_string());
                 }
-                // Spatial delivery leaves characters pending until consumption;
-                // a surviving nested child instead supplies an already typed value.
                 let spelling = self.working.text(operand.cells.clone());
                 token.decode(spelling).map_err(|error| error.to_string())
             })
@@ -412,7 +422,8 @@ impl<'a> Execution<'a> {
         flow
     }
 
-    /// Plans the Cell writes, activation, or clear one typed answer makes.
+    /// Plans the Cell writes, activation, or clear one answer makes, whether
+    /// its computation is a root or nested.
     fn project_value(&mut self, index: usize, atom: Atom) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
         // Every arm below plans or diagnoses a write at an Output Portal, so an

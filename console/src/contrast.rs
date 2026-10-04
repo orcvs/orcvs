@@ -217,7 +217,7 @@ impl fmt::Display for CursorPlacement {
 /// The reachable painted state a [`ContrastResult`] was measured in.
 ///
 /// [`Self::SourceGrid`] crosses [`CursorPlacement`] with whether the Cell
-/// also lies in a root Function's Output Portal Reservation: the two are
+/// also lies in a value Function's Output Portal Reservation: the two are
 /// independent — the Cursor can sit on a Cell an Output Portal covers, and a
 /// Region can span over one, per `.scratch/theming/schema.md`'s own Overlap
 /// rule ("covers every Cell of the Reservation whatever else claims it") and
@@ -1189,7 +1189,7 @@ mod tests {
     /// `Function` are identical — "A bound Function retains all its own
     /// paint inside a Portal" (`style::role_and_portal`'s own doc), the one
     /// named bypass the reused composition functions apply. This is a real
-    /// reachable state (a nested Function inside a root's Output Portal
+    /// reachable state (a Function standing inside another's Output Portal
     /// Reservation) whose *answer* happens to equal the non-Portal case,
     /// which is exactly what the bypass rule says should happen.
     ///

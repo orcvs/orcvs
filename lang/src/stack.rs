@@ -438,15 +438,13 @@ mod test {
     }
 
     #[test]
-    fn a_non_numeric_operand_diagnoses_where_a_numeric_conversion_pops_it() {
-        // `TypeError::Numeric` is reachable from Source as `.^.=0101`: equal
-        // operands make `.=` answer a Bang, which `.^` then pops.
+    fn a_non_number_operand_diagnoses_where_conversion_to_note_pops_it() {
         let mut stack = empty_stack();
         stack.push(Atom::Bang).unwrap();
 
         assert!(matches!(
             to_note(&mut stack),
-            Err(Error::Type(TypeError::Numeric(found))) if found == "**"
+            Err(Error::Type(TypeError::Number(found))) if found == "**"
         ));
     }
 

@@ -13,8 +13,8 @@ use super::{Cells, Diagnostic};
 const SPACE_BYTE: u8 = b' ';
 
 ///
-/// One root Function's Output Portal Reservation: the Cell pair reserved for
-/// its answer.
+/// One value Function's Output Portal Reservation, root or nested: the Cell
+/// pair reserved for its answer.
 ///
 pub(super) struct OutputPortalReservation {
     pub(super) range: std::ops::Range<usize>,
@@ -493,16 +493,19 @@ impl LanguageMap {
     }
 
     ///
-    /// Every root Function's Output Portal Reservation in this revision, in
-    /// Expression order.
+    /// Every Output Portal Reservation in this revision, in Expression order
+    /// and, within one Expression, in Parser preorder.
     ///
     /// Known before any Tick runs, derived from this revision alone rather
     /// than from what a Tick wrote. Eligibility matches the Tick scheduler's
-    /// `function_candidate()` selection — every root whose leading Cells
-    /// parse as a Function, whether or not its operands bind — rather than
-    /// [`ExpressionEntry::root`], which additionally requires them to. A
-    /// nested Function is never eligible: its answer goes to its parent's
-    /// operand, not to a Cell of its own.
+    /// `function_candidate()` selection — every Expression whose leading
+    /// Cells parse as a Function, whether or not its operands bind — rather
+    /// than [`ExpressionEntry::root`], which additionally requires them to.
+    /// Within such an Expression the root reserves, and so does every nested
+    /// Function that answers a value: it writes its own Output Portal as a
+    /// root does, besides returning its answer to its parent. A nested
+    /// Function that answers no value is refused by the Parser, never takes
+    /// a Turn, and reserves nothing.
     ///
     /// Coverage is the Reservation: [`Portal::reservation`] from the Output
     /// Portal [`lang::Function`] declares, the Cell pair one Atom occupies. A
@@ -512,30 +515,60 @@ impl LanguageMap {
     /// neither does a scalar destination the row edge leaves no room for a Cell
     /// pair.
     ///
-    /// Tick scheduling reserves the same Cells for the same root, through the
-    /// same [`Portal::named`] and [`Portal::reservation`].
+    /// Tick scheduling reserves the same Cells for the same computations,
+    /// through the same [`Portal::named`] and [`Portal::reservation`].
     ///
     /// Allocates the returned list, sized before the walk, and nothing per
     /// Expression or per entry.
     ///
     pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
-        let candidates = self
+        let candidates: usize = self
             .expressions()
-            .filter(|expression| expression.function_candidate().is_some())
-            .count();
+            .map(|expression| self.reserving_functions(expression).count())
+            .sum();
         let mut reservations = Vec::with_capacity(candidates);
         for expression in self.expressions() {
-            let Some((anchor, function)) = expression.function_candidate() else {
-                continue;
-            };
-            reservations.extend(self.output_portal_reservation(anchor, function));
+            for (anchor, function) in self.reserving_functions(expression) {
+                reservations.extend(self.output_portal_reservation(anchor, function));
+            }
         }
         reservations
     }
 
     ///
-    /// Whether each Cell of this revision lies in a root Function's Output
-    /// Portal Reservation, in the Grid's row-major order.
+    /// The Functions of `expression` that may reserve an Output Portal: its
+    /// leading Function when it is a Function candidate, and every nested
+    /// Function inside it that answers a value.
+    ///
+    fn reserving_functions<'a>(
+        &self,
+        expression: ExpressionEntry<'a>,
+    ) -> impl Iterator<Item = (Position, Function)> + 'a {
+        let grid = self.grid;
+        let root = expression.function_candidate();
+        let nested = root
+            .is_some()
+            .then(|| expression.positioned())
+            .into_iter()
+            .flatten()
+            .filter_map(move |entry| match entry.atom {
+                Some(Atom::Function(function))
+                    if entry.parent.is_some() && function.answers_value() =>
+                {
+                    let anchor = grid.position_at(
+                        grid.cell_index(entry.cells.start)
+                            .expect("a parsed Function lies inside its Grid"),
+                    );
+                    Some((anchor, function))
+                }
+                _ => None,
+            });
+        root.into_iter().chain(nested)
+    }
+
+    ///
+    /// Whether each Cell of this revision lies in an Output Portal
+    /// Reservation, in the Grid's row-major order.
     ///
     /// What the Tick scheduler reserves. The console reads the same Cells
     /// through `SourceRevision::output_portal_highlight`.
@@ -1524,19 +1557,29 @@ mod tests {
         }
 
         #[test]
-        fn a_nested_function_is_never_covered() {
-            // Add(Multiply(01, 02), 03): the root's own pair is covered: the
-            // nested Multiply's own would-be Output Portal, one row south of
-            // its own anchor, is not, because a nested Function's answer
-            // goes to its parent's operand rather than to a Cell of its own.
+        fn a_nested_value_function_reserves_its_own_output_portal() {
+            // Add(Multiply(01, 02), 03): the nested Multiply writes its answer
+            // one row south of its own anchor as well as returning it, so its
+            // pair is a Reservation beside the root's.
             let grid = Grid::with_shape(10, 2);
             let map = build(grid, &[".+.x010203"]);
 
             assert!(covered(&map, grid, 0, 1), "the root's own Reservation");
-            assert!(
-                !covered(&map, grid, 2, 1),
-                "the nested Multiply's anchor column is not a Reservation"
-            );
+            assert!(covered(&map, grid, 1, 1));
+            assert!(covered(&map, grid, 2, 1), "the nested Multiply's own");
+            assert!(covered(&map, grid, 3, 1));
+            assert!(!covered(&map, grid, 4, 1), "past the nested pair");
+        }
+
+        #[test]
+        fn a_refused_nested_effect_function_reserves_nothing() {
+            // `!>` cannot nest: it never takes a Turn, so nothing is reserved
+            // south of it, while the root it stands in keeps its own pair.
+            let grid = Grid::with_shape(12, 2);
+            let map = build(grid, &[".+!>007FC401"]);
+
+            assert!(covered(&map, grid, 0, 1), "the root's own Reservation");
+            assert!(!covered(&map, grid, 2, 1));
             assert!(!covered(&map, grid, 3, 1));
         }
 

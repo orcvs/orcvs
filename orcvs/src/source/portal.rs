@@ -413,8 +413,9 @@ impl SpanWrite {
 ///
 /// A Portal is one Cell. [`PortalOutput`] distinguishes a Cell write from
 /// a root lock, so a lock never supplies an Input Portal's characters. Reads
-/// are independent of that: a nested Jump writes nothing and still reads the
-/// opposite Portal, so a producer of those Cells is ordered first.
+/// are independent of that: a Jump reads the Portal opposite its output, so
+/// a producer of those Cells is ordered first, whether the Jump is a root or
+/// nested.
 ///
 /// Terminal Output answers Play, not a Cell, so its output is
 /// [`PortalOutput::None`]. Play stays an Effect; it is not a Portal.
@@ -443,23 +444,26 @@ impl PortalAccess {
     ///
     /// The output kind, destination sites and extra reads demanded at `anchor`.
     ///
-    /// Nested computations hand a typed value to a parent. Terminal Output
-    /// answers Play. Neither demands a write Portal. A locking root and every
-    /// other Value name their Output Portal on the Function; Jump and the
-    /// feedback Functions also name an Input Portal. A nested Jump still
-    /// reads that Input Portal. A Source write states its declared bundle.
+    /// A value Function names its Output Portal on the Function whether it is
+    /// a root or nested: a nested one writes there as a root would, and also
+    /// returns the same encoding to its parent. Jump and the feedback
+    /// Functions also name an Input Portal. Terminal Output answers Play and
+    /// demands no write Portal. A locking root names the root it locks, and a
+    /// Source write states its declared bundle. A nested Function that answers
+    /// no value is refused by the Parser and never takes a Turn, so it demands
+    /// no Portal at all.
     ///
     pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
+        if nested && !function.answers_value() {
+            return Self {
+                output: PortalOutput::None,
+                reads: Vec::new(),
+            };
+        }
         let reads = function
             .input_portal()
             .map(|coords| Self::portal_reads(grid, anchor, coords))
             .unwrap_or_default();
-        if nested {
-            return Self {
-                output: PortalOutput::None,
-                reads,
-            };
-        }
         if function.performs_terminal_output() {
             return Self {
                 output: PortalOutput::None,
@@ -534,7 +538,8 @@ impl PortalAccess {
     /// some.
     ///
     /// [`PortalOutput::None`] stays none. That is the whole of the helper: it
-    /// cannot attach a write to Terminal Output, a nested Jump, or a root lock.
+    /// cannot attach a write to Terminal Output, a nested effect Function, or
+    /// a root lock.
     ///
     #[cfg(test)]
     pub(super) fn carry(&mut self, grid: Grid, writes: &[Position]) {
@@ -785,22 +790,39 @@ mod test {
     }
 
     #[test]
-    fn a_nested_jump_keeps_its_input_portal_read_and_writes_no_cell() {
-        // Nested Jump answers a value to its parent and writes no Cell. The
-        // opposite Portal is still a read, so a producer of those Cells is
-        // ordered first. Carry cannot mint a write the resolve step refused.
-        let grid = Grid::with_shape(8, 2);
-        let anchor = grid.position(2, 0).expect("inside the Grid");
-        let input = grid.position(2, 1).expect("inside the Grid");
+    fn a_nested_jump_reads_its_input_portal_and_writes_its_output_portal() {
+        // A nested Jump writes its Output Portal as a root does, besides
+        // returning the unit to its parent, and still reads the opposite
+        // Portal, so a producer of those Cells is ordered first.
+        let grid = Grid::with_shape(8, 3);
+        let anchor = grid.position(2, 1).expect("inside the Grid");
+        let input = grid.position(2, 2).expect("inside the Grid");
+        let output = grid.position(2, 0).expect("inside the Grid");
         let expected = Portal::at(grid, input)
             .span(2)
             .expect("the input Portal fits the row")
             .range();
-        let mut access = PortalAccess::resolve(grid, anchor, lang::Function::JumpNorth, true);
-        access.carry(grid, &[input]);
-        assert!(!access.writes_cells());
-        assert!(access.write_sites().is_empty());
+        let access = PortalAccess::resolve(grid, anchor, lang::Function::JumpNorth, true);
+        assert!(access.writes_cells());
+        assert_eq!(access.write_sites(), &[Ok(output)]);
         assert_eq!(access.read_spans(), &[expected]);
+    }
+
+    #[test]
+    fn a_nested_effect_function_demands_no_portal_and_carry_cannot_mint_one() {
+        // The Parser refuses a nested effect Function and it never takes a
+        // Turn, so it neither writes, locks nor reads.
+        let grid = Grid::with_shape(8, 3);
+        let anchor = grid.position(2, 0).expect("inside the Grid");
+        let elsewhere = grid.position(2, 1).expect("inside the Grid");
+        for function in [lang::Function::RawPlay, lang::Function::Halt] {
+            let mut access = PortalAccess::resolve(grid, anchor, function, true);
+            access.carry(grid, &[elsewhere]);
+            assert!(!access.writes_cells(), "{function:?}");
+            assert!(access.write_sites().is_empty(), "{function:?}");
+            assert!(access.lock_site().is_none(), "{function:?}");
+            assert!(access.read_spans().is_empty(), "{function:?}");
+        }
     }
 
     #[test]

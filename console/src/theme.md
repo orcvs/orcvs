@@ -576,10 +576,12 @@ background shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time
 diagnostics are out of scope: they are Tick outcomes, not Source facts.
 
 `syntax-highlighting/06` adds a Function's written value as a further input
-to the same one decision: whether a Cell draws as a root Function's Output
+to the same one decision: whether a Cell draws as a value Function's Output
 Portal (`RenderCell::output_portal()`, `.scratch/syntax-
 highlighting/issues/05`, `10` and `12`'s Answers) — the Cell pair the
-root's Reservation covers at its Output Portal. All of it is known from the
+Function's Reservation covers at its Output Portal, for a root and for a
+nested Function alike, since a nested Function writes its own Output Portal
+as well as returning its answer. All of it is known from the
 current Source revision alone and so lit before any Tick runs. Parsing is
 unchanged and unaware of it (`05`'s Answer): a written answer re-parses
 exactly as ordinary

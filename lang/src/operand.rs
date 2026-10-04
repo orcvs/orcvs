@@ -66,8 +66,7 @@
 //! ```
 //!
 //! Every operand type here is uninhabited: it is a name for a declaration,
-//! never a value. [`NumericValue`] is the one value type, the payload a
-//! [`Numeric`] operand binds.
+//! never a value.
 
 use crate::{Error, Token, TypeError};
 
@@ -102,17 +101,6 @@ pub trait Operand {
     fn bind(payload: <Self::Token as TokenKind>::Payload) -> Result<Self::Bound, Error>;
 }
 
-/// A token an Operand Literal can be read as, so a [`Numeric`] operand can
-/// name the literal its slot reads.
-pub trait Literal: TokenKind {}
-
-/// Either numeric Atom, as a [`Numeric`] operand receives it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum NumericValue {
-    Note(crate::Note),
-    Number(u8),
-}
-
 /// A Number: `00`–`FF`.
 pub enum Number {}
 
@@ -128,8 +116,6 @@ impl TokenKind for Number {
         }
     }
 }
-
-impl Literal for Number {}
 
 impl Operand for Number {
     type Token = Self;
@@ -157,8 +143,6 @@ impl TokenKind for Note {
     }
 }
 
-impl Literal for Note {}
-
 impl Operand for Note {
     type Token = Self;
     type Bound = crate::Note;
@@ -166,39 +150,6 @@ impl Operand for Note {
     #[inline(always)]
     fn bind(note: crate::Note) -> Result<crate::Note, Error> {
         Ok(note)
-    }
-}
-
-/// A Number or a Note, whichever arrives, with its literal read as `L`.
-///
-/// Each numeric conversion has a monomorphic literal signature and an
-/// evaluation that is idempotent over its own result type, so a value
-/// already converted, arriving from nested evaluation, is accepted rather
-/// than refused. `L` is the literal reading; the payload is
-/// either numeric type.
-pub struct Numeric<L>(core::marker::PhantomData<L>, core::convert::Infallible);
-
-impl<L: Literal> TokenKind for Numeric<L> {
-    const TOKEN: Token = L::TOKEN;
-    type Payload = NumericValue;
-
-    #[inline(always)]
-    fn from_atom(atom: crate::Atom) -> Result<NumericValue, Error> {
-        match atom {
-            crate::Atom::Note(note) => Ok(NumericValue::Note(note)),
-            crate::Atom::Number(number) => Ok(NumericValue::Number(number)),
-            atom => Err(TypeError::Numeric(atom.into()).into()),
-        }
-    }
-}
-
-impl<L: Literal> Operand for Numeric<L> {
-    type Token = Self;
-    type Bound = NumericValue;
-
-    #[inline(always)]
-    fn bind(value: NumericValue) -> Result<NumericValue, Error> {
-        Ok(value)
     }
 }
 

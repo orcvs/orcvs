@@ -43,7 +43,7 @@ pub(crate) struct CellVisuals {
 /// `RenderCell::source_paint` answers from the shared Claim, including
 /// Pending, Valid, or Invalid for an Operand. `output_portal` is an
 /// independent fact: whether this Cell
-/// lies in a root Function's Output Portal Reservation
+/// lies in a value Function's Output Portal Reservation
 /// (`RenderCell::output_portal`), known from the current Source revision
 /// alone.
 ///
@@ -340,7 +340,7 @@ pub(crate) fn cell_background(
 
 ///
 /// Foreground and background together, from a Cell's finished Source Paint
-/// fact and whether it lies in a root Function's Output Portal Reservation,
+/// fact and whether it lies in a value Function's Output Portal Reservation,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below
 /// is a direct read of, never a per-Cell walk, match over a table, or hash.
 ///

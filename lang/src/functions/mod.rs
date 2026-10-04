@@ -723,17 +723,6 @@ mod test {
     }
 
     #[test]
-    fn a_non_numeric_value_diagnoses_where_a_numeric_conversion_consumes_it() {
-        // `TypeError::Numeric` is reachable from Source: `.=` answers a Bang
-        // for equal operands, and a Turn hands it to `.^`, which expects a
-        // Number or a Note.
-        assert!(matches!(
-            evaluate(Function::ConvertToNote, &[Atom::Bang]),
-            Err(Error::Type(crate::TypeError::Numeric(found))) if found == "**"
-        ));
-    }
-
-    #[test]
     fn an_out_of_domain_operand_produces_no_play_command_at_all() {
         // The domain conversion happens during extraction, so a Play that
         // diagnoses has never constructed a PlayCommand to be discarded. The

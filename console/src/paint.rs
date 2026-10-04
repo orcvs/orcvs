@@ -192,7 +192,7 @@ impl Paint {
     /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
     /// decides what to do with its answer, not what the answer is. It reads
     /// the finished language fact on the Cell (`RenderCell::source_paint`)
-    /// and whether the Cell lies in a root Function's Output Portal
+    /// and whether the Cell lies in a value Function's Output Portal
     /// Reservation (`RenderCell::output_portal`).
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
