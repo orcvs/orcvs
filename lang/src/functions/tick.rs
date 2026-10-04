@@ -243,9 +243,10 @@ pub fn interpolation(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// A Number selected inclusively between normalized bounds. Each result
 /// derives from the explicit seed, the absolute Tick, and this Function's
-/// own Position, rather than from activation history: the same Source Snapshot at the same Tick answers the
-/// same Number, a skipped activation skips that sample, and two Randoms at
-/// different Positions have independent reproducible streams.
+/// own Position, rather than from activation history: the same Source
+/// Snapshot at the same Tick answers the same Number, a skipped activation
+/// skips that sample, and two Randoms at different Positions have
+/// independent reproducible streams.
 ///
 /// The stream is a fresh ChaCha8 seeded from those three facts for every
 /// result. Reversed bounds describe the same range; equal bounds

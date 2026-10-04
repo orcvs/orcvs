@@ -10,10 +10,11 @@
 //!
 //! Only the Turn loop is reimplemented, because substituting one Turn is the
 //! one thing this does differently. It records each Turn's ordinal exactly as
-//! the production loop does. The starting state, the Bang cleanup it performs, the schedule, the rejection
-//! path, the resolution, and the Turn every other computation takes are all
-//! the production ones, reached through the same [`super::Execution::new`] that
-//! [`super::execute`] reaches them through.
+//! the production loop does. The starting state, the Bang cleanup it
+//! performs, the schedule, the rejection path, the resolution, and the Turn
+//! every other computation takes are all the production ones, reached through
+//! the same [`super::Execution::new`] that [`super::execute`] reaches them
+//! through.
 //!
 
 use lang::Tick;

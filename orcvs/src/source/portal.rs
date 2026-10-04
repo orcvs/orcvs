@@ -227,7 +227,8 @@ impl Portal {
     }
 
     ///
-    /// Language-Map occupancy of up to `width` Cells from this destination.
+    /// Language-Map occupancy of up to the Cell pair one Atom occupies from
+    /// this destination.
     ///
     /// A destination in the last column still answers the one Cell it holds,
     /// so occupancy is not refused at the row edge the way a two-Cell write
@@ -238,15 +239,14 @@ impl Portal {
     pub(super) fn occupancy(
         self,
         map: &LanguageMap,
-        width: usize,
         root_at: impl Fn(Position) -> Option<usize>,
     ) -> Occupancy {
-        occupancy_of(map, &self.cells_along_row(width), root_at)
+        occupancy_of(map, &self.cells_along_row(SCALAR_WIDTH), root_at)
     }
 
     ///
-    /// Whether any of `width` Cells from this destination holds a non-space
-    /// in working Source.
+    /// Whether either Cell of the pair one Atom occupies from this destination
+    /// holds a non-space in working Source.
     ///
     /// A span that cannot fit answers false: the write path refuses the row
     /// edge itself. Jump Bang asks this after a root at the destination has
@@ -254,8 +254,8 @@ impl Portal {
     /// Bang — empty in working Source, still a unit on the Map — writes
     /// rather than diagnosing.
     ///
-    pub(super) fn occupied_in(self, working: Cells<'_>, width: usize) -> bool {
-        self.span(width).ok().is_some_and(|span| {
+    pub(super) fn occupied_in(self, working: Cells<'_>) -> bool {
+        self.reservation().is_some_and(|span| {
             working
                 .slice(span.range())
                 .bytes()
@@ -265,15 +265,11 @@ impl Portal {
     }
 
     ///
-    /// The Language Unit Jump may copy from `width` Cells of working Source.
+    /// The Language Unit Jump may copy from the Cell pair one Atom occupies in
+    /// working Source.
     ///
-    pub(super) fn language_unit(
-        self,
-        working: Cells<'_>,
-        map: &LanguageMap,
-        width: usize,
-    ) -> PortalUnit {
-        let Ok(span) = self.span(width) else {
+    pub(super) fn language_unit(self, working: Cells<'_>, map: &LanguageMap) -> PortalUnit {
+        let Some(span) = self.reservation() else {
             return PortalUnit::Invalid;
         };
         let range = span.range();
@@ -598,7 +594,7 @@ mod test {
     }
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
-        portal.language_unit(Cells::of(working), map, 2)
+        portal.language_unit(Cells::of(working), map)
     }
 
     ///
@@ -830,7 +826,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Empty);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::Empty);
     }
 
     #[test]
@@ -838,7 +834,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::NonRoot);
     }
 
     #[test]
@@ -848,7 +844,7 @@ mod test {
         let root = grid.position(0, 0).unwrap();
         let portal = Portal::at(grid, root);
         assert_eq!(
-            portal.occupancy(&map, 2, |anchor| (anchor == root).then_some(0)),
+            portal.occupancy(&map, |anchor| (anchor == root).then_some(0)),
             Occupancy::Root(0)
         );
     }
@@ -858,7 +854,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Partial);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::Partial);
     }
 
     #[test]
@@ -882,7 +878,7 @@ mod test {
         let root = grid.position(2, 0).unwrap();
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(
-            portal.occupancy(&map, 2, |anchor| (anchor == root).then_some(0)),
+            portal.occupancy(&map, |anchor| (anchor == root).then_some(0)),
             Occupancy::Root(0)
         );
     }
@@ -891,11 +887,11 @@ mod test {
     fn occupied_in_answers_working_source_spaces() {
         let grid = Grid::with_shape(4, 1);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert!(!portal.occupied_in(Cells::of(b"    "), 2));
-        assert!(portal.occupied_in(Cells::of(b"x   "), 2));
-        assert!(portal.occupied_in(Cells::of(b" x  "), 2));
+        assert!(!portal.occupied_in(Cells::of(b"    ")));
+        assert!(portal.occupied_in(Cells::of(b"x   ")));
+        assert!(portal.occupied_in(Cells::of(b" x  ")));
         let last = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert!(!last.occupied_in(Cells::of(b"   x"), 2));
+        assert!(!last.occupied_in(Cells::of(b"   x")));
     }
 
     #[test]
@@ -913,7 +909,7 @@ mod test {
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**  "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::NonRoot);
         assert_eq!(unit(portal, b"    ", &map), PortalUnit::Empty);
     }
 

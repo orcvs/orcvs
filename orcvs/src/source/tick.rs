@@ -17,7 +17,7 @@ use std::sync::{Arc, OnceLock};
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
-use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
+use super::portal::{Portal, PortalAccess, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -253,7 +253,7 @@ impl Lookup {
                     // Snapshot occupancy survives prior Bang display cleanup.
                     let portal = Portal::at(grid, destination);
                     if matches!(
-                        portal.occupancy(map, SCALAR_WIDTH, |anchor| lookup.root_at(anchor)),
+                        portal.occupancy(map, |anchor| lookup.root_at(anchor)),
                         Occupancy::Empty
                     ) {
                         LockTarget::Empty
@@ -2152,6 +2152,43 @@ mod test {
         assert_eq!(grids[0], [".+.=010101  ", "  **!>007FC4", "            "]);
         assert_eq!(plans[0].play_commands, [raw(0, 0x7F, 60)]);
         assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn a_nested_bang_activates_the_root_aligned_south_of_its_display() {
+        // The display stands at the Equality's Output Portal, one row south of
+        // its anchor, so the root one row further south is aligned with it.
+        // The north anchor is the Equality's own, inside its parent
+        // Expression, so no root can stand there.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(10, 3),
+            &[".+.=010101", "", "  !>007FC4"],
+            1,
+        );
+        assert_eq!(grids[0], [".+.=010101", "  **      ", "  !>007FC4"]);
+        assert_eq!(plans[0].play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn a_nested_bang_activates_the_root_aligned_west_of_its_display() {
+        // A west root anchors two columns before the display, so only a
+        // two-Cell Expression leaves the display's Cells to it. The South
+        // Directional Bang there is inert until Bang activation, and the
+        // `vv` it emits is the trace that the display activated it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 3), &[".+.=010101", "*v", ""], 1);
+        assert_eq!(grids[0], [".+.=010101", "*v**      ", "vv        "]);
+        assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn an_unactivated_west_root_beside_a_nested_number_emits_nothing() {
+        // The control for the West test: the same root beside a nested Number
+        // rather than a Bang stays inert. The parent fails as it does there,
+        // so its own answer does not land on the root either.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 3), &["./.+010100", "*v", ""], 1);
+        assert_eq!(grids[0], ["./.+010100", "*v02      ", "          "]);
+        assert_eq!(messages(&plans[0]), ["cannot divide by zero"]);
     }
 
     #[test]

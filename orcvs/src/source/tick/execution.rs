@@ -357,11 +357,11 @@ impl<'a> Execution<'a> {
     /// rather than answering an Atom that was never a Language Unit.
     fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
         let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
-        match portal.language_unit(self.working.cells(), self.map, super::SCALAR_WIDTH) {
+        match portal.language_unit(self.working.cells(), self.map) {
             PortalUnit::Invalid => None,
             PortalUnit::Empty | PortalUnit::Bang | PortalUnit::Unit => {
                 let span = portal
-                    .span(super::SCALAR_WIDTH)
+                    .reservation()
                     .expect("an admitted unit fitted its row");
                 Some(self.working.text(span.range()))
             }
@@ -391,20 +391,19 @@ impl<'a> Execution<'a> {
                     .filter(|child| !self.states[*child].suppressed)
                 {
                     let anchor = self.lookup.nodes()[child].anchor;
-                    let returned = self.states[child]
-                        .result
-                        .take()
-                        .and_then(|atom| match Encoding::render(atom) {
-                            Ok(Rendered::Cells(encoding)) => Some(encoding),
-                            Ok(Rendered::Nothing) | Err(_) => None,
-                        })
-                        .ok_or_else(|| {
-                            format!(
+                    let returned = match self.states[child].result.take().map(Encoding::render) {
+                        Some(Ok(Rendered::Cells(encoding))) => encoding,
+                        Some(Ok(Rendered::Nothing)) | None => {
+                            return Err(format!(
                                 "nested computation at column {}, row {} returned nothing",
                                 anchor.x(),
                                 anchor.y()
-                            )
-                        })?;
+                            ));
+                        }
+                        // A rendering a Cell cannot hold is its own fault, not
+                        // an absent answer.
+                        Some(Err(reason)) => return Err(render_message(reason)),
+                    };
                     return token
                         .decode(&returned.to_string())
                         .map_err(|error| error.to_string());
@@ -486,9 +485,7 @@ impl<'a> Execution<'a> {
                 self.states[root].activated = true;
                 return Continue(());
             }
-            if Portal::at(self.grid, destination)
-                .occupied_in(self.working.cells(), super::SCALAR_WIDTH)
-            {
+            if Portal::at(self.grid, destination).occupied_in(self.working.cells()) {
                 let producer = self.states[index].function;
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,

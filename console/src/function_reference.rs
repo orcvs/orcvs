@@ -250,7 +250,9 @@ mod tests {
     /// leftmost ones.
     ///
     /// Shared by [`ticking_the_reference_once_writes_every_result_row_exactly_as_written`],
-    /// which proves these are actually written, and
+    /// which proves these are actually written,
+    /// [`the_checked_in_result_rows_hold_what_tick_zero_writes`], which proves
+    /// the checked-in text already holds them, and
     /// `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`,
     /// which excludes them from the pre-Tick diagnostic sweep.
     fn expected_results() -> Vec<ExpectedResult> {
@@ -321,6 +323,50 @@ mod tests {
             literal(64, 13, "00"), // *<'s blocker
             literal(70, 16, "00"), // *>'s blocker
         ]
+    }
+
+    /// The `(column, row)` of each result row that reads its own Cells as the
+    /// previous value before Tick 0 overwrites them: Increment's and
+    /// Interpolation's. Every other result row's checked-in text is what
+    /// Tick 0 writes.
+    const RESULTS_READING_THEIR_PREVIOUS: [(usize, usize); 2] = [(32, 11), (32, 14)];
+
+    /// Reads the `width` Cells east of `(column, row)`, a space for each empty
+    /// one.
+    fn read_row(source: &Source, column: usize, row: usize, width: usize) -> String {
+        let grid = source.grid();
+        (0..width)
+            .map(|offset| {
+                source
+                    .get(cell_index(grid, column + offset, row))
+                    .unwrap_or_else(|| " ".to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_checked_in_result_rows_hold_what_tick_zero_writes() {
+        let source = function_reference();
+
+        for ExpectedResult {
+            column,
+            row,
+            expected,
+        } in expected_results()
+        {
+            let checked_in = read_row(&source, column, row, expected.chars().count());
+            if RESULTS_READING_THEIR_PREVIOUS.contains(&(column, row)) {
+                assert_ne!(
+                    checked_in, expected,
+                    "row {row}, column {column} must hold a previous Tick 0 visibly changes"
+                );
+            } else {
+                assert_eq!(
+                    checked_in, expected,
+                    "row {row}, column {column}'s checked-in text is not what Tick 0 writes"
+                );
+            }
+        }
     }
 
     #[test]

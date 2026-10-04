@@ -395,10 +395,10 @@ fn nested_source_text(cols: usize, rows: usize) -> String {
 /// `NESTED_COLUMNS`.
 ///
 /// The frame derives every root's Output Portal Reservation and each
-/// Expression's claims over its positioned entries. The rest of a frame is a walk over the Cells, so a
-/// frame whose cost grows linearly with the columns is one whose derivation
-/// grows linearly with the entries; a derivation quadratic in them shows as
-/// faster growth at the wide end.
+/// Expression's claims over its positioned entries. The rest of a frame is a
+/// walk over the Cells, so a frame whose cost grows linearly with the columns
+/// is one whose derivation grows linearly with the entries; a derivation
+/// quadratic in them shows as faster growth at the wide end.
 ///
 fn render_frame_nested(c: &mut Criterion) {
     let mut group = c.benchmark_group("source_render_frame_nested");
