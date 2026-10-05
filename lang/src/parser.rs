@@ -1433,12 +1433,31 @@ mod property {
             } else {
                 prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
-                // read, and that record is what withholds the Atoms above.
-                prop_assert!(
-                    expression.atoms().is_none(),
-                    "{spelled:?} produced runtime Atoms for {:?}",
-                    analysis.error(),
-                );
+                // read, and that record is what withholds the Atoms above,
+                // except a nested effect Function. It reads every Token, so
+                // its Function and operands keep the layout its signatures
+                // give, and its error alone withholds the Expression from
+                // execution. Atoms beside an error therefore mean exactly
+                // that: the error is the nested effect refusal, and the
+                // Expression holds the effect Function it names, nested.
+                if expression.atoms().is_some() {
+                    prop_assert!(
+                        matches!(
+                            analysis.error(),
+                            Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                        ),
+                        "{spelled:?} produced runtime Atoms for {:?}",
+                        analysis.error(),
+                    );
+                    prop_assert!(
+                        expression.positioned().any(|entry| entry.parent.is_some()
+                            && matches!(
+                                entry.atom,
+                                Some(Atom::Function(function)) if !function.answers_value()
+                            )),
+                        "{spelled:?} refused a nested effect Function it does not hold",
+                    );
+                }
             }
 
             // Analysis reports a boundary rather than refusing what follows
