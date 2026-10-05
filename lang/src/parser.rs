@@ -1484,16 +1484,16 @@ mod property {
                     // Every other record still spells the Cells it was read
                     // from, and the blank ones are spaces.
                     None if expression.has_blank_operand() => {
-                        let rendered: String = expression
-                            .positioned()
-                            .map(|entry| match entry.atom {
-                                Some(atom) => atom.to_string(),
+                        let mut rendered = String::new();
+                        for entry in expression.positioned() {
+                            match entry.atom {
+                                Some(atom) => rendered.push_str(&atom.to_string()),
                                 None => {
-                                    assert!(entry.is_blank(), "{spelled:?} {entry:?}");
-                                    " ".repeat(entry.token.len())
+                                    prop_assert!(entry.is_blank(), "{spelled:?} {entry:?}");
+                                    rendered.push_str(&" ".repeat(entry.token.len()));
                                 }
-                            })
-                            .collect();
+                            }
+                        }
                         prop_assert_eq!(rendered, &spelled[..analysis.cells().end]);
                     }
                     None => {
@@ -1510,20 +1510,31 @@ mod property {
             } else {
                 prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
-                // read, and that record is what withholds the Atoms above. A
-                // nested effect Function is the one refusal that reads every
-                // Token: it keeps its Function and operands so the layout is
-                // the one its signatures give, and the error alone withholds
-                // the Expression from execution.
-                let nested_effect = matches!(
-                    analysis.error(),
-                    Some(Error::Syntax(SyntaxError::NestedEffectFunction))
-                );
-                prop_assert!(
-                    expression.atoms().is_none() || nested_effect,
-                    "{spelled:?} produced runtime Atoms for {:?}",
-                    analysis.error(),
-                );
+                // read, and that record is what withholds the Atoms above,
+                // except a nested effect Function. It reads every Token, so
+                // its Function and operands keep the layout its signatures
+                // give, and its error alone withholds the Expression from
+                // execution. Atoms beside an error therefore mean exactly
+                // that: the error is the nested effect refusal, and the
+                // Expression holds the effect Function it names, nested.
+                if expression.atoms().is_some() {
+                    prop_assert!(
+                        matches!(
+                            analysis.error(),
+                            Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                        ),
+                        "{spelled:?} produced runtime Atoms for {:?}",
+                        analysis.error(),
+                    );
+                    prop_assert!(
+                        expression.positioned().any(|entry| entry.parent.is_some()
+                            && matches!(
+                                entry.atom,
+                                Some(Atom::Function(function)) if !function.answers_value()
+                            )),
+                        "{spelled:?} refused a nested effect Function it does not hold",
+                    );
+                }
             }
 
             // Analysis reports a boundary rather than refusing what follows
