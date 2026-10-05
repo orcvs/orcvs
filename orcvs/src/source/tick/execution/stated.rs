@@ -11,18 +11,17 @@
 //! Only the Turn loop is reimplemented, because substituting one Turn is the
 //! one thing this does differently. It records each Turn's ordinal exactly as
 //! the production loop does. The starting state, the Bang cleanup it
-//! performs, the schedule, the rejection path, the resolution, and the Turn
-//! every other computation takes are all the production ones, reached through
-//! the same [`super::Execution::new`] that [`super::execute`] reaches them
-//! through.
+//! performs, the schedule, the resolution, and the Turn every other
+//! computation takes are all the production ones, reached through the same
+//! [`super::Execution::new`] that [`super::execute`] reaches them through.
 //!
 
 use lang::Tick;
 
 use super::super::{carry, computations, order_turns};
 use super::{
-    Atom, Break, ComputationState, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap,
-    Lookup, Position, Schedule, TickPlan, resolve,
+    Atom, ComputationState, Execution, Grid, LanguageMap, Lookup, Position, Schedule, TickPlan,
+    resolve,
 };
 use crate::grid::CellIndex;
 use crate::source::Cells;
@@ -44,11 +43,10 @@ pub(in crate::source::tick) fn plan_with_answers(
     carry(grid, &mut nodes, destinations);
     let lookup = Lookup::new(grid, nodes, map);
     // Every fixture error the schedule can be asked about is asked here,
-    // before an order exists. A Source with a cycle answers `Err` from
-    // `order_turns` and a plan carrying nothing but diagnostics, which is
-    // indistinguishable from the little a mistyped fixture makes happen —
-    // so a guard that ran after ordering would be the one guard a cyclic
-    // fixture switches off.
+    // before an order exists. A cycle leaves the computations it stops out
+    // of the order, which is indistinguishable from the little a mistyped
+    // fixture makes happen — so a guard that ran after ordering would be the
+    // one guard a cyclic fixture switches off.
     for (anchor, _) in answers {
         assert!(
             anchored(&lookup, grid, *anchor).is_some(),
@@ -75,25 +73,17 @@ pub(in crate::source::tick) fn plan_with_answers(
         // computation answers and nothing else, and the Turn it took is
         // the Turn it would have taken.
         execution.states[index].turn = Some(turn);
-        let outcome = match answers.iter().position(|(stated, _)| *stated == anchor) {
+        match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {
                 stated[position] = true;
-                execution.state_answer(index, answers[position].1)
+                execution.state_answer(index, answers[position].1);
             }
             None => execution.take_turn(index),
-        };
-        if let Break(diagnostic) = outcome {
-            // The order stops where a rejection found it, so the answers
-            // after that Turn are unstated for a reason the fixture chose.
-            return execution.reject(diagnostic);
         }
     }
-    // Reached only where an order existed and ran to its end. The two
-    // returns above skip it for reasons the fixture can see in the plan it
-    // gets back: a rejection stops the order where it found the defect, and
-    // a cycle admits no order at all and publishes diagnostics and nothing
-    // else. Neither can be mistaken for a stated answer whose computation
-    // the order never reached, which is the one thing this guard is for.
+    // Every order runs to its end, so an answer whose computation the order
+    // never reached was stated for a computation a cycle stops, and the
+    // fixture is told so here rather than handed a quiet Tick.
     //
     // Reaching the Turn is all it claims, and all it can claim: the flag
     // is set before `state_answer` runs, and a Turn `opens_turn` refuses
@@ -142,9 +132,9 @@ impl Execution<'_> {
     /// syntax-blocked, or refused for its arity — is settled here too, and
     /// the stated answer is never delivered.
     ///
-    fn state_answer(&mut self, index: usize, atom: Atom) -> ControlFlow<Diagnostic> {
+    fn state_answer(&mut self, index: usize, atom: Atom) {
         if self.opens_turn(index).is_none() {
-            return Continue(());
+            return;
         }
         // The one arm of the Turn that decides an answer's kind rather than
         // its content, and the only one left standing here: a Function
@@ -156,6 +146,6 @@ impl Execution<'_> {
             self.states[index].function.answers_value(),
             "a stated answer belongs to a computation that answers a value"
         );
-        self.deliver_value(index, atom)
+        self.deliver_value(index, atom);
     }
 }

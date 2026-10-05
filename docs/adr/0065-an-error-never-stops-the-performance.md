@@ -1,6 +1,6 @@
 # An error never stops the performance
 
-Status: accepted. Amends the cycle clauses of [ADR 0034](0034-execute-against-live-typed-expressions.md), [ADR 0014](0014-spatial-functions-preserve-performative-behaviour.md) and [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md), which reject every effect of a Tick that holds a same-Tick dependency cycle. Number 0064 is skipped: commits on `main` cite it for a decision that was withdrawn. Implemented for the Expressions a cycle stops; the diagnostic at each stopped Expression and the per-Turn handling of an ordering defect are not yet implemented.
+Status: accepted. Amends the cycle clauses of [ADR 0034](0034-execute-against-live-typed-expressions.md), [ADR 0014](0014-spatial-functions-preserve-performative-behaviour.md) and [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md), which reject every effect of a Tick that holds a same-Tick dependency cycle. Number 0064 is skipped: commits on `main` cite it for a decision that was withdrawn.
 
 **An error costs the Expressions it reaches, never the performance.** Orcvs is played live, and a performer makes mistakes while it plays. Every Tick publishes the effects of every Expression that does not depend on a fault, whatever else in the Grid is wrong. No error, in the Source or in Orcvs itself, rejects a whole Tick.
 

@@ -1211,7 +1211,7 @@ mod test {
 
     ///
     /// Which Turn each computation took during one Tick, or `None` for a
-    /// computation the Tick ended before reaching.
+    /// computation its order holds no Turn for.
     ///
     /// One entry per computation, in the order the schedule holds them — the
     /// order they were parsed, which is the order [`interpreted`] groups its
@@ -2771,8 +2771,9 @@ mod test {
         // target also cannot activate Halt under the cardinal geometry — the
         // default Portal is one row south, so a producer after the target
         // writes a Bang that cannot touch Halt. The lock that would reach an
-        // already-executed root is therefore inexpressible; the late-write
-        // reject path still holds.
+        // already-executed root is therefore inexpressible, and
+        // `a_late_halt_lock_is_refused_and_the_tick_continues` builds it at
+        // the execution seam instead.
         let (plans, grids, source) = tick_by_tick(
             Grid::with_shape(14, 4),
             &[
@@ -2813,6 +2814,41 @@ mod test {
         assert!(
             order[1] < order[2],
             "Halt's Turn precedes the south root: {order:?}"
+        );
+    }
+
+    #[test]
+    fn a_late_halt_lock_is_refused_and_the_tick_continues() {
+        // Supply a broken order at the execution seam: the Add takes its Turn
+        // before the Halt that locks it. Only the lock is refused, so the Add
+        // has already written `07` and the Bang that activated Halt stands.
+        let grid = Grid::with_shape(8, 4);
+        let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let mut schedule = super::schedule(grid, &map);
+        // Parser preorder: Equality, Halt, Add.
+        schedule.order = vec![0, 2, 1];
+        let (plan, states) = super::execution::execute(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &schedule,
+        );
+        assert_eq!(turns(&states), vec![Some(0), Some(2), Some(1)]);
+        let mut published = bytes.clone().into_bytes();
+        for write in &plan.writes {
+            published[write.cell.get()] = write.content.as_char() as u8;
+        }
+        let published: Vec<_> = published
+            .chunks(grid.columns())
+            .map(|row| std::str::from_utf8(row).unwrap())
+            .collect();
+        assert_eq!(published, [".=0101  ", "***!    ", "  .+0304", "  07    "]);
+        assert!(plan.locks.is_empty());
+        assert_eq!(
+            anchors(&plan),
+            [(2, 1, "spatial output reached an executed computation")]
         );
     }
 
