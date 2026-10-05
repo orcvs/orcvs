@@ -10,7 +10,7 @@ Most errors already behave this way. A type, domain or decode failure diagnoses 
 
 Nothing in a stopped Expression takes a Turn, so no part of the cycle executes and no order is chosen for it. Nothing is delayed to a later Tick. These are the two guarantees [ADR 0034](0034-execute-against-live-typed-expressions.md) gave by rejecting the whole Tick, and both still hold. What changes is that independent Expressions are no longer rejected with the cycle.
 
-**Every stopped Expression is diagnosed.** Each cycle is diagnosed once, at the first computation in Parser order that lies on it. Each stopped Expression that holds no computation on a cycle is diagnosed at its root as waiting on that cycle. A performer can therefore tell a cycle from what it starved, and nothing goes silent.
+**Every stopped Expression is diagnosed.** Each cycle is diagnosed once, at the first computation in Parser order that lies on it. Each stopped Expression that holds no computation on a cycle, and that activation can reach this Tick, is diagnosed at its root as waiting on that cycle; one nothing activates would take no Turn without the cycle either, so it has nothing to wait for. A performer can therefore tell a cycle from what it starved, and nothing goes silent.
 
 **An ordering defect stops one Turn, not the Tick.** When a write or a Halt lock would reach a computation that has already taken its Turn, the schedule was wrong. That Turn's write or lock is refused and diagnosed, and the Tick continues.
 

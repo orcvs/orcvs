@@ -971,9 +971,11 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
             }
         }
         // An Expression stopped only because it depends on a cycle says so at
-        // its root, so a performer can tell the cycle from what it starves.
+        // its root, so a performer can tell the cycle from what it starves. A
+        // root no activation can reach this Tick takes no Turn with or without
+        // the cycle, so it has nothing to wait for and stays quiet.
         for (index, node) in nodes.iter().enumerate() {
-            if node.parent.is_none() && stopped[index] && !holds_cycle[index] {
+            if node.parent.is_none() && stopped[index] && !holds_cycle[index] && active[index] {
                 diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
             }
         }
@@ -2102,6 +2104,15 @@ mod test {
         // The parent only waits on it, and is not where the cycle is.
         let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+&<01"], 1);
         assert_eq!(anchors(&plans[0]), [(2, 0, "same-Tick dependency cycle")]);
+    }
+
+    #[test]
+    fn an_inactive_root_a_cycle_writes_over_is_not_reported_as_waiting() {
+        // The cycle writes over the `00` the Note Function reads, but nothing
+        // activates the Note Function this Tick, so it would take no Turn
+        // with the cycle gone either, and has nothing to wait for.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(8, 3), &["  .+&<01", "!>007FC4", ""], 1);
+        assert_eq!(anchors(&plans[0]), [(4, 0, "same-Tick dependency cycle")]);
     }
 
     #[test]
