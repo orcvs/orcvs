@@ -165,9 +165,13 @@ impl Token {
             // rest of the Source, a Grid row rather than a fixed-width value,
             // and nothing asks it to decode one.
             Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
-            // An Item is copied whole and decoded by the operand that
-            // receives it, never as an Item.
-            Self::Item => Err(crate::SyntaxError::ExpectedToken.into()),
+            // Only `take_list` records Items, and it reads their Cells with
+            // `next_token` rather than `take_token`; no signature or Portal
+            // input declares one. An Item is copied whole and decoded by the
+            // operand that receives it, never as an Item.
+            Self::Item => unreachable!(
+                "an Item is recorded by take_list without decoding, and no signature or Portal input declares one"
+            ),
             // Leftover content is a Cell no Language Unit claims, so it has
             // no Atom to decode to.
             Self::Char => Err(crate::SyntaxError::ExpectedToken.into()),

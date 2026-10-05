@@ -429,7 +429,7 @@ impl<'a> Execution<'a> {
         function: Function,
         signature: lang::Tokens,
     ) -> Result<Vec<Atom>, String> {
-        let count = signature.len().checked_sub(1);
+        let count = function.list_count_slot();
         node.operands
             .iter()
             .zip(signature)
@@ -440,7 +440,6 @@ impl<'a> Execution<'a> {
                 // the count reaches the claim, the selection and the zero
                 // check together, on the next Tick.
                 if Some(position) == count
-                    && function.reads_list()
                     && let Some(count) = node.list_count()
                 {
                     return Ok(Atom::Number(count));
@@ -482,40 +481,33 @@ impl<'a> Execution<'a> {
     /// decoded: whatever receives them decodes them, so malformed data
     /// diagnoses where it is read rather than where it is written.
     ///
+    /// The copy is an ordinary Cell write, never an answered Bang or Function:
+    /// copied `**` activates no root, and over a root's anchor it covers the
+    /// spelling and suppresses that Expression, where a Jump's Bang would
+    /// activate the root. Copied Function characters over a running
+    /// Function's anchor suppress it rather than replacing the Function.
+    ///
     fn deliver_item(&mut self, index: usize, item: u8) {
-        let node = &self.lookup.nodes()[index];
-        let Some(cells) = node.items.get(usize::from(item)) else {
-            self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                format!(
-                    "{} selected Item {item:02X} outside its List",
-                    node.function
-                ),
-            )));
-            return;
-        };
+        let lookup = self.lookup;
+        let node = &lookup.nodes()[index];
+        // The Interpreter wraps the index at `list_count`, which is the number
+        // of Items the claim holds.
+        let cells = node
+            .items
+            .get(usize::from(item))
+            .expect("a selected Item is inside its List");
         let text = self.working.text(cells.clone());
         if text.bytes().all(|byte| byte == b' ') {
             self.deliver_value(index, Atom::Empty);
             return;
         }
-        let encoding = match Encoding::literal(text) {
-            Ok(encoding) => encoding,
-            Err(reason) => {
-                self.effects
-                    .push(Effect::Diagnose(diagnose(node, render_message(reason))));
-                return;
-            }
-        };
+        let encoding = Encoding::literal(text).expect("working Source Cells are printable ASCII");
         let answer = Answer::Copied(encoding.clone());
-        self.states[index].result = Some(answer.clone());
-        let node = &self.lookup.nodes()[index];
-        if !node.portal_access.writes_cells() {
-            return;
-        }
         for output in node.portal_access.write_sites() {
             self.deliver_output(index, &answer, &encoding, *output);
         }
+        // A copied answer survives every refusal to project it.
+        self.states[index].result = Some(answer);
     }
 
     fn deliver_value(&mut self, index: usize, atom: Atom) {
@@ -583,7 +575,8 @@ impl<'a> Execution<'a> {
                 return;
             }
         };
-        if *answer == Answer::Atom(Atom::Bang) && self.states[index].function.copies_language_unit()
+        if matches!(answer, Answer::Atom(Atom::Bang))
+            && self.states[index].function.copies_language_unit()
         {
             if let Some(root) = self.lookup.root_at(destination) {
                 self.states[root].activated = true;
@@ -610,12 +603,12 @@ impl<'a> Execution<'a> {
         };
         // The Cells this write actually covers: `Lookup::written_over`.
         let relationships = self.lookup.written_over(&write);
-        if *answer == Answer::Atom(Atom::Bang) {
+        if matches!(answer, Answer::Atom(Atom::Bang)) {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
             }
         }
-        if let Answer::Atom(Atom::Function(replacement)) = *answer
+        if let &Answer::Atom(Atom::Function(replacement)) = answer
             && let Some(change) = relationships.functions().find_map(|contact| {
                 if !contact.at_anchor {
                     return None;
@@ -664,7 +657,7 @@ impl<'a> Execution<'a> {
             let target = contact.index;
             if contact.at_anchor
                 && !self.states[target].suppressed
-                && let Answer::Atom(Atom::Function(replacement)) = *answer
+                && let &Answer::Atom(Atom::Function(replacement)) = answer
             {
                 self.states[target].function = replacement;
                 continue;

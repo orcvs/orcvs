@@ -802,13 +802,12 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             } else {
                 None
             };
-            if let Some(parent) = parent
-                && entry.token == lang::Token::Item
-            {
-                nodes[parent].items.push(entry.cells.clone());
+            let Some(parent) = parent else {
                 continue;
-            }
-            if let Some(parent) = parent {
+            };
+            if entry.token == lang::Token::Item {
+                nodes[parent].items.push(entry.cells.clone());
+            } else {
                 nodes[parent].syntax_valid &= entry.atom.is_some();
                 nodes[parent].operands.push(Operand {
                     cells: entry.cells.clone(),
@@ -5713,13 +5712,12 @@ mod nested_property {
     /// The operand strategies `function` declares, with a List Function's
     /// count and Items in place of its last operand.
     fn operand_sources(function: Function, depth: u32) -> Vec<BoxedStrategy<String>> {
-        let signature = Tokens::from(&function);
-        let count = signature.len().checked_sub(1);
-        signature
+        let count = function.list_count_slot();
+        Tokens::from(&function)
             .into_iter()
             .enumerate()
             .map(|(slot, token)| {
-                if function.reads_list() && Some(slot) == count {
+                if Some(slot) == count {
                     list_source()
                 } else {
                     operand_source(token, depth)
@@ -5860,14 +5858,14 @@ mod nested_property {
                     return None;
                 }
                 let first = signature.iter().position(|token| *token == Token::Number)?;
-                let count = signature.len() - 1;
+                let count = root.list_count_slot();
                 let operands: Vec<String> = signature
                     .iter()
                     .enumerate()
                     .map(|(slot, token)| {
                         if slot == first {
                             chain.clone()
-                        } else if root.reads_list() && slot == count {
+                        } else if Some(slot) == count {
                             // A literal count and the one Item it claims.
                             "01C4".to_owned()
                         } else {

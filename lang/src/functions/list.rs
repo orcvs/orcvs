@@ -1,4 +1,4 @@
-use crate::{Error, Function, InterpretationError, atom::operands::Track, interpreter::Context};
+use crate::{Error, atom::operands::Track, interpreter::Context};
 
 /// Track: `@t index count`, followed by its List.
 ///
@@ -6,25 +6,21 @@ use crate::{Error, Function, InterpretationError, atom::operands::Track, interpr
 /// Item's characters are Source in the claim the Parser established, so
 /// `orcvs` reads them from working Source; nothing here holds or decodes an
 /// Item. Wrapping lets any index drive a List of any length.
+///
+/// The count is never `00`: the Parser refuses that count, and a Turn hands
+/// Track the number of Items the established claim holds, which is at least
+/// one.
 #[inline(always)]
 pub fn track(ctx: &mut Context) -> Result<u8, Error> {
     let Track { index, count } = ctx.stack.extract::<Track>()?;
-    if count == 0 {
-        return Err(InterpretationError::ZeroWrap {
-            function: Function::Track,
-            role: "count",
-        }
-        .into());
-    }
-    Ok(index % count)
+    Ok(index
+        .checked_rem(count)
+        .expect("a List's count is the Items its claim holds, never 00"))
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        Anchor, Atom, Error, Function, Interpretation, InterpretationError, Interpreter, Tick,
-        TickInputs,
-    };
+    use crate::{Anchor, Atom, Error, Function, Interpretation, Interpreter, Tick, TickInputs};
 
     fn evaluate(index: u8, count: u8) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
@@ -43,16 +39,5 @@ mod test {
                 "{index:02X} of {count:02X}"
             );
         }
-    }
-
-    #[test]
-    fn track_refuses_a_zero_count() {
-        assert!(matches!(
-            evaluate(0, 0),
-            Err(Error::Interpretation(InterpretationError::ZeroWrap {
-                function: Function::Track,
-                role: "count",
-            }))
-        ));
     }
 }
