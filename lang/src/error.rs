@@ -84,11 +84,7 @@ pub enum InterpretationError {
     )]
     EuclideanOverfull { hits: u8, steps: u8 },
 
-    /// Increment or Track handed a zero where its wrap needs a length.
-    ///
-    /// Track wraps its index at its count. The Parser refuses a count of
-    /// `00` before any Turn, so evaluation raises this only for operands
-    /// handed to it directly.
+    /// Increment handed a zero where its wrap needs a length.
     ///
     /// Increment's `(previous + step) % modulus` has no wrap once the modulus
     /// is zero, so Increment diagnoses rather than inventing one. The variant

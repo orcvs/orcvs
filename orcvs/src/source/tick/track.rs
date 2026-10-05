@@ -266,6 +266,64 @@ fn partial_competing_failed_and_absent_item_writers_leave_track_the_surviving_ce
 }
 
 ///
+/// Index writes follow the same surviving-Source rules as Item writes, from
+/// either side of Track in Grid order. A value root above writes south and a
+/// North Jump below copies north; each partial write reaches the index's
+/// second Cell and the count's first, which the established claim ignores.
+/// Competing writers compose Cell-wise in Turn order, and a failed or absent
+/// supplier leaves the stored index `01`.
+///
+#[test]
+fn partial_competing_failed_and_absent_index_writers_leave_track_the_surviving_cells() {
+    for (case, rows, selected, diagnosed) in [
+        (
+            "partial before",
+            ["   .+1010", "@t0103C4D4E4", "", ""],
+            "E4",
+            vec![],
+        ),
+        (
+            "partial after",
+            ["", "@t0103C4D4E4", "   &^", "   20"],
+            "E4",
+            vec![],
+        ),
+        // The Addition writes `02`; the Jump, taking the later Turn, writes
+        // `00` from the index's second Cell on.
+        (
+            "competing",
+            ["  .+0101", "@t0103C4D4E4", "   &^", "   00"],
+            "C4",
+            vec![],
+        ),
+        (
+            "failed before",
+            ["  ./0100", "@t0103C4D4E4", "", ""],
+            "D4",
+            vec!["cannot divide by zero"],
+        ),
+        (
+            "failed after",
+            ["", "@t0103C4D4E4", "  &^", "  ##"],
+            "D4",
+            vec!["&^ has partial or invalid input"],
+        ),
+        (
+            "absent before",
+            ["  .=0102", "@t0103C4D4E4", "", ""],
+            "D4",
+            vec![],
+        ),
+    ] {
+        let grid = Grid::with_shape(16, 4);
+        let mut source = seeded(grid, &rows);
+        let plan = source.execute(Tick::new(0));
+        assert_eq!(messages(&plan), diagnosed, "{case}");
+        assert_eq!(&rows_of(&source)[2][..2], selected, "{case}");
+    }
+}
+
+///
 /// A cycle through Track's declared Item reads costs the whole Tick: nothing
 /// is written and no Play Command is published, though another root's write
 /// and an activated Play stand independent of it.
@@ -486,6 +544,63 @@ fn single_item_all_blank_and_function_like_lists() {
         // The Addition after the claim wrote its answer.
         assert_eq!(&rows[1][12..14], "03", "{index}");
     }
+}
+
+///
+/// Copied characters are an ordinary Cell write, never an answered Bang or
+/// Function. Copied `**` beside a Bang-activated root activates nothing in the
+/// Tick it is copied, where an answered Bang there activates the root, and
+/// the `**` it leaves is Bang display, which the next Tick does not read as an
+/// activation either. Over a root's anchor, where a Jump's copied Bang activates that root,
+/// Track's `**` covers the spelling and suppresses the Expression. A copied
+/// Function spelling over a running Function's anchor likewise suppresses it
+/// rather than replacing the Function, so the Addition writes nothing.
+///
+#[test]
+fn copied_characters_activate_and_replace_nothing_where_they_land() {
+    // Beside the root: an answered Bang activates it and copied `**` does not.
+    for (case, producer, expected) in [
+        ("answered Bang", ".=0101  ", vec![timed(60)]),
+        ("copied Bang", "@t0001**", vec![]),
+    ] {
+        let grid = Grid::with_shape(12, 2);
+        let mut source = seeded(grid, &[producer, "  !~0064C404"]);
+        let plan = source.execute(Tick::new(0));
+        assert_eq!(rows_of(&source)[1], "**!~0064C404", "{case}");
+        assert_eq!(plan.play_commands, expected, "{case}");
+        assert!(
+            plan.diagnostics.is_empty(),
+            "{case}: {:?}",
+            plan.diagnostics
+        );
+    }
+    let grid = Grid::with_shape(12, 2);
+    let mut source = seeded(grid, &["@t0001**", "**!~0064C404"]);
+    let plan = source.execute(Tick::new(1));
+    assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+
+    // Over the root's anchor: a Jump copying the Equality's Bang activates the
+    // root and writes nothing there; Track's `**` covers it.
+    let grid = Grid::with_shape(10, 4);
+    let mut source = seeded(grid, &[".=0101", "", "&v", "!~0064C404"]);
+    let plan = source.execute(Tick::new(0));
+    assert_eq!(rows_of(&source)[3], "!~0064C404");
+    assert_eq!(plan.play_commands, [timed(60)]);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+
+    let grid = Grid::with_shape(10, 2);
+    let mut source = seeded(grid, &["@t0001**", "!~0064C404"]);
+    let plan = source.execute(Tick::new(0));
+    assert_eq!(rows_of(&source)[1], "**0064C404");
+    assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+
+    // Over a Function's anchor: the Addition would write `03` south of itself.
+    let grid = Grid::with_shape(8, 3);
+    let mut source = seeded(grid, &["@t0001.-", ".+0102", ""]);
+    let plan = source.execute(Tick::new(0));
+    assert_eq!(rows_of(&source)[1..], [".-0102  ", "        "]);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
 }
 
 ///

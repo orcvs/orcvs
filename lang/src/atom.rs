@@ -848,12 +848,23 @@ impl Function {
 
     /// Whether this Function reads a List: the Items its claim holds east of
     /// its operands, as many as its count operand states.
-    ///
-    /// The count is the last operand a List Function declares, and the Parser
-    /// reads it as a literal Number because the claim's extent depends on it
-    /// before any Function evaluates. A nested Function cannot supply it.
     pub const fn reads_list(self) -> bool {
         matches!(self, Self::Track)
+    }
+
+    /// The position of a List Function's count among its operands, or `None`
+    /// for a Function that reads no List.
+    ///
+    /// The count is the last operand a List Function declares, so its Items
+    /// follow it directly. The Parser reads it as a literal Number because the
+    /// claim's extent depends on it before any Function evaluates, so a nested
+    /// Function cannot supply it.
+    pub const fn list_count_slot(self) -> Option<usize> {
+        if self.reads_list() {
+            self.signature().len().checked_sub(1)
+        } else {
+            None
+        }
     }
 
     /// The Output Portal this Function names, or `None` when it names none.

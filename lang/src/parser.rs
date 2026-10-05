@@ -291,7 +291,7 @@ impl<'a> Parser<'a> {
                         // and its Items follow every operand.
                         let signature = function.signature();
                         let slots = signature.iter().enumerate().map(|(position, token)| {
-                            if function.reads_list() && position + 1 == signature.len() {
+                            if function.list_count_slot() == Some(position) {
                                 Slot::Count
                             } else {
                                 Slot::Unit(*token)
@@ -1261,7 +1261,7 @@ mod test {
         // Source rather than Atoms and so render back as nothing.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
-            let count_slot = function.reads_list().then(|| signature.len() - 1);
+            let count_slot = function.list_count_slot();
             for (slot, token) in signature.iter().copied().enumerate() {
                 for atom in every_atom_of(token) {
                     if Some(slot) == count_slot && atom == Atom::Number(0) {
