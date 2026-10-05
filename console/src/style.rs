@@ -43,7 +43,7 @@ pub(crate) struct CellVisuals {
 /// `RenderCell::source_paint` answers from the shared Claim, including
 /// Pending, Valid, or Invalid for an Operand. `output_portal` is an
 /// independent fact: whether this Cell
-/// lies in a root Function's Output Portal Reservation
+/// lies in a value Function's Output Portal Reservation
 /// (`RenderCell::output_portal`), known from the current Source revision
 /// alone.
 ///
@@ -97,10 +97,10 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 /// index order: the four whole-Cell facts, then each declared operand Token
 /// in each [`OperandState`].
 ///
-const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
+const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
     use OperandState::{Invalid, Pending, Valid};
     use SourcePaint::{Bang, Comment, Function, Unclaimed};
-    use Token::{Atom, Note, Number, Sequence};
+    use Token::{Note, Number};
     const fn operand(token: Token, state: OperandState) -> SourcePaint {
         SourcePaint::Operand { token, state }
     }
@@ -115,12 +115,6 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
         operand(Note, Pending),
         operand(Note, Valid),
         operand(Note, Invalid),
-        operand(Atom, Pending),
-        operand(Atom, Valid),
-        operand(Atom, Invalid),
-        operand(Sequence, Pending),
-        operand(Sequence, Valid),
-        operand(Sequence, Invalid),
     ]
 };
 
@@ -131,19 +125,19 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
 ///
 /// An unselected Cell's visuals depend only on its Source Paint fact and its
 /// Output Portal flag (`selected`, `cursor_visible` and the Cursor fill are
-/// all inert when `selected` is false), so the 16 facts × 2 flags are every
+/// all inert when `selected` is false), so the 10 facts × 2 flags are every
 /// answer the walk can need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
 /// indexed load instead of the role match, the Diagnostic/Output Portal
 /// blends, the `cell.background` composite and the border priority match.
 ///
-/// Entries are filled on first ask rather than up front. Resolving all 32
-/// costs about 570 ns, which a full Grid amortises to nothing but a Paint of
-/// a scrolled-away or barely visible Grid — the console derives one per frame
-/// at whatever the viewport culls to — would pay in full for the handful of
-/// facts it reads; `paint_derive/empty` priced that at 16 ns eager against
-/// 587. A Cell that misses pays one branch and the resolution it would have
+/// Entries are filled on first ask rather than up front. Resolving every
+/// entry costs hundreds of nanoseconds, which a full Grid amortises to
+/// nothing but a Paint of a scrolled-away or barely visible Grid — the
+/// console derives one per frame at whatever the viewport culls to — would
+/// pay in full for the handful of facts it reads; `paint_derive/empty` is the
+/// benchmark that prices it. A Cell that misses pays one branch and the resolution it would have
 /// paid anyway, and the facts a Source actually carries are few, so the walk
 /// resolves each of them once whatever its size.
 ///
@@ -199,8 +193,6 @@ fn fact_index(paint: SourcePaint) -> usize {
             let token = match token {
                 Token::Number => 0,
                 Token::Note => 1,
-                Token::Atom => 2,
-                Token::Sequence => 3,
                 Token::Bang | Token::Comment | Token::Function | Token::Char => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
@@ -348,7 +340,7 @@ pub(crate) fn cell_background(
 
 ///
 /// Foreground and background together, from a Cell's finished Source Paint
-/// fact and whether it lies in a root Function's Output Portal Reservation,
+/// fact and whether it lies in a value Function's Output Portal Reservation,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below
 /// is a direct read of, never a per-Cell walk, match over a table, or hash.
 ///
@@ -394,7 +386,7 @@ pub(crate) fn cell_background(
 ///
 /// `output_portal` (`RenderCell::output_portal()`) is read first, because the
 /// Reservation it names covers every Cell of the Reservation whatever else
-/// claims it — a written scalar or Sequence answer, an
+/// claims it — a written answer, an
 /// empty Cell still waiting for one, or another Expression's operand slot the
 /// Reservation happens to land on. The one exception is a bound Function
 /// claim: a Cell that is itself a Function's own two-Cell spelling keeps its
@@ -420,8 +412,8 @@ pub(crate) fn cell_background(
 /// written `07`, a lone `|`) answers Ordinary, as an unclaimed Cell does:
 /// `RenderCell::source_paint` answers it as Unclaimed because the Parser's
 /// attempted Function classification is not a Paint distinction. Diagnostic
-/// belongs to an Invalid operand slot. Number, Note, Atom and Sequence
-/// Operand facts read [`operand_paint`].
+/// belongs to an Invalid operand slot. Number and Note Operand facts read
+/// [`operand_paint`].
 ///
 fn source_paint_visuals(
     paint: SourcePaint,
@@ -491,8 +483,6 @@ fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
             let (colour, background) = match token {
                 Token::Number => (theme.source_number, theme.source_number_background),
                 Token::Note => (theme.source_note, theme.source_note_background),
-                Token::Atom => (theme.source_ordinary, theme.source_atom_background),
-                Token::Sequence => (theme.source_sequence, theme.source_sequence_background),
                 Token::Bang | Token::Comment | Token::Function | Token::Char => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
@@ -504,14 +494,14 @@ fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
 
 ///
 /// An Operand Cell's foreground and raw background, from its declared
-/// `colour`/`background` (`Number`, `Note`, `Atom` or `Sequence`) and its
+/// `colour`/`background` (`Number` or `Note`) and its
 /// finished state.
 ///
 /// The Parser labels an operand slot with its signature's declared Token
 /// whether or not what stands there binds, so Valid, Pending, and Invalid all
 /// keep the declared role's own background — `.scratch/theming/schema.md`:
-/// "Declared Number/Note/Atom/Sequence operands retain their role background
-/// in Pending, Valid and Invalid states." The foreground differs: a Valid or
+/// "Declared Number/Note operands retain their role background in Pending,
+/// Valid and Invalid states." The foreground differs: a Valid or
 /// Pending slot draws `colour` outright, and an Invalid one — Cells whose
 /// written content failed to bind — blends the Diagnostic foreground channel
 /// over it, so a transparent `diagnostic.foreground` still reveals the
@@ -842,19 +832,8 @@ mod tests {
     /// rather than about this decision function, so the fixtures below state
     /// the pair they mean and
     /// `paint::tests::an_operand_cell_of_every_token_a_source_can_claim_is_
-    /// tinted_with_its_own_colour` drives `.+`, `:#C4D4`, `:&` and `:<XY`
-    /// through the Render Frame to prove those pairs are the real ones.
-    /// `Token::Atom` and `Token::Sequence` are "declarations no Cells spell"
-    /// (`lang/src/expression.rs`'s own words on `Token`): `Token::decode`
-    /// refuses both outright, so the only thing that can satisfy either slot
-    /// is a nested Function — and when one stands there,
-    /// `take_language_unit`'s `is_function_next()` branch records the entry
-    /// under `Token::Function` (`lang/src/parser.rs`), so nothing ever binds
-    /// in an `Atom` or `Sequence` slot that reaches this layer. Both are
-    /// therefore Pending where their Cells are blank and Invalid where they
-    /// are written, never Valid, which is why the fixtures below claim them
-    /// Pending and reach for Valid only where a Source can bind — `:#C4D4`
-    /// binds both Note slots, `.+0102` both Number ones.
+    /// tinted_with_its_own_colour` drives `.+` and `.v` through the Render
+    /// Frame to prove those pairs are the real ones.
     ///
     fn operand(token: Token, state: OperandState) -> SourcePaint {
         SourcePaint::Operand { token, state }
@@ -1455,14 +1434,6 @@ mod tests {
         let ordinary = painted(SourcePaint::Unclaimed, false, &theme);
         let bang = painted(SourcePaint::Bang, false, &theme);
         let comment = painted(SourcePaint::Comment, false, &theme);
-        // Atom and Sequence are Pending because that is the only shape a
-        // Source produces for them — see [`operand`]. Neither assertion
-        // turns on it: a Pending slot draws its declared colour.
-        let sequence = painted(
-            operand(Token::Sequence, OperandState::Pending),
-            false,
-            &theme,
-        );
 
         assert_eq!(function.foreground, theme.source_function);
         assert_eq!(number.foreground, theme.source_number);
@@ -1470,22 +1441,10 @@ mod tests {
         assert_eq!(ordinary.foreground, theme.source_ordinary);
         assert_eq!(bang.foreground, theme.source_bang);
         assert_eq!(comment.foreground, theme.source_comment);
-        assert_eq!(sequence.foreground, theme.source_sequence);
         assert_ne!(number.foreground, function.foreground);
         assert_ne!(number.foreground, note.foreground);
         assert_ne!(number.foreground, ordinary.foreground);
         assert_ne!(comment.foreground, ordinary.foreground);
-        // Atom follows Ordinary: a Cell painting no glyph of its own has
-        // nothing to colour differently.
-        assert_eq!(
-            painted(operand(Token::Atom, OperandState::Pending), false, &theme).foreground,
-            ordinary.foreground
-        );
-        // Sequence does not share Ordinary's colour: it has its own field
-        // and its own default, distinct from every other role including
-        // Ordinary.
-        assert_ne!(sequence.foreground, ordinary.foreground);
-        assert_ne!(sequence.foreground, comment.foreground);
 
         // A changed Theme reaches `cell_visuals_with_cursor_colour` on the
         // very next call — the Source Grid paints from the resolved Theme,
@@ -1737,18 +1696,12 @@ mod tests {
     }
 
     ///
-    /// An Operand Cell is tinted with its declared Token's colour: Number,
-    /// Note, Atom and Sequence. `Token::Char` is not one of them —
-    /// [`SourcePaint::Operand`] carries only a declared operand Token, which
-    /// is why `source_paint_visuals`'s `Char` arm is unreachable.
-    ///
-    /// Each Token is stated in a shape a Source can produce — Valid for
-    /// Number and Note, Pending for Atom and Sequence, per [`operand`] — so
-    /// this reads as four arms of `source_paint_visuals` rather than as a
-    /// rule for a pair the Parser never mints. The tint itself is indifferent
-    /// to the binding state by design (`operand_paint`: a Pending, Valid or
-    /// Invalid operand tints alike), which is why the distinction costs the
-    /// assertion nothing and is worth making anyway.
+    /// An Operand Cell is tinted with its declared Token's colour: Number or
+    /// Note. `Token::Char` is not one of them — [`SourcePaint::Operand`]
+    /// carries only a declared operand Token, which is why
+    /// `source_paint_visuals`'s `Char` arm is unreachable. The tint is
+    /// indifferent to the binding state by design (`operand_paint`: a
+    /// Pending, Valid or Invalid operand tints alike).
     /// `paint::tests::an_operand_cell_of_every_token_a_source_can_claim_is_
     /// tinted_with_its_own_colour` is the same rule from written Source.
     ///
@@ -1764,14 +1717,6 @@ mod tests {
             (
                 operand(Token::Note, OperandState::Valid),
                 theme.source_note_background,
-            ),
-            (
-                operand(Token::Atom, OperandState::Pending),
-                theme.source_atom_background,
-            ),
-            (
-                operand(Token::Sequence, OperandState::Pending),
-                theme.source_sequence_background,
             ),
         ] {
             let visuals = painted(paint, false, &theme);
@@ -1795,9 +1740,7 @@ mod tests {
     /// The Function arm is [`SourcePaint::Function`] and stays that: text
     /// that spells no Function is Unclaimed and answers `None` whatever the
     /// role's background, so it would pass this test for a reason that has
-    /// nothing to do with the Theme value under test. Atom and Sequence are
-    /// Pending because that is the only shape a Source produces for them
-    /// (see [`operand`]).
+    /// nothing to do with the Theme value under test.
     ///
     #[test]
     fn a_transparent_role_background_paints_no_tint() {
@@ -1805,8 +1748,6 @@ mod tests {
             source_function_background: Color32::TRANSPARENT,
             source_number_background: Color32::TRANSPARENT,
             source_note_background: Color32::TRANSPARENT,
-            source_atom_background: Color32::TRANSPARENT,
-            source_sequence_background: Color32::TRANSPARENT,
             ..okabe_ito()
         };
 
@@ -1814,8 +1755,6 @@ mod tests {
             SourcePaint::Function,
             operand(Token::Number, OperandState::Valid),
             operand(Token::Note, OperandState::Valid),
-            operand(Token::Atom, OperandState::Pending),
-            operand(Token::Sequence, OperandState::Pending),
         ] {
             let visuals = painted(paint, false, &transparent);
             assert_eq!(
@@ -1991,7 +1930,7 @@ mod tests {
     /// `output_portal` overrides an Unclaimed Cell and a Valid Operand
     /// alike: each draws the Output Portal colour on the Output Portal's own
     /// Fill tint instead of whatever its own fact would answer. A written
-    /// scalar or Sequence answer is not a third arm —
+    /// answer is not a third arm —
     /// `RenderCell::source_paint` answers the refused Function spelling it
     /// parses as with Unclaimed (pinned from written Source by
     /// `orcvs::render_frame`'s
@@ -2490,36 +2429,6 @@ mod tests {
                 background: Some([24, 23, 7, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [240, 228, 66, 255],
-            },
-            BaselineCase {
-                name: "atom_pending",
-                fact: operand(Token::Atom, OperandState::Pending),
-                output_portal: false,
-                selected: false,
-                cursor_visible: false,
-                background: Some([24, 24, 23, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [234, 235, 229, 255],
-            },
-            BaselineCase {
-                name: "sequence_pending",
-                fact: operand(Token::Sequence, OperandState::Pending),
-                output_portal: false,
-                selected: false,
-                cursor_visible: false,
-                background: Some([0, 12, 18, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [0, 114, 178, 255],
-            },
-            BaselineCase {
-                name: "sequence_invalid",
-                fact: operand(Token::Sequence, OperandState::Invalid),
-                output_portal: false,
-                selected: false,
-                cursor_visible: false,
-                background: Some([0, 12, 18, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [213, 94, 0, 255],
             },
             BaselineCase {
                 name: "unclaimed_portal",

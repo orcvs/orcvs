@@ -134,10 +134,9 @@ define_data_byte_roles! {
     Controller => "controller",
     /// The value a Control Change sends to the controller beside it.
     ///
-    /// Named for the control it belongs to because `Value` is the Sequence
-    /// value model's, and named for that rather than for MIDI because ADR 0016
-    /// defers OSC and UDP output and notes a type reads better named for its
-    /// domain than for its protocol: a control's value is what this is on any
+    /// Named for the control it belongs to rather than for MIDI because ADR
+    /// 0016 defers OSC and UDP output and notes a type reads better named for
+    /// its domain than for its protocol: a control's value is what this is on any
     /// wire, and `MidiValue` would have to be renamed the day a second one
     /// arrives.
     ControlValue => "value",
@@ -190,7 +189,7 @@ impl From<u8> for Length {
 }
 
 /// One parsed value or operation: what an Expression is made of and what a
-/// Sequence holds.
+/// value Function answers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
     Bang,
@@ -400,77 +399,6 @@ enum ActivationSource {
     Bang,
 }
 
-/// Whether a Function extends across a Sequence operand or requires a scalar
-/// one.
-///
-/// Pervasive extension is the rule for the Atomic Functions, and an exception
-/// that arrived by omission would be silent, so this is declared beside every
-/// other property of a Function rather than inferred from a family prefix,
-/// from answering a value, or from a signature: the Terminal Output Functions
-/// extend as the Atomic Functions do, and Clock `~.` and Delay `~*` share the
-/// Tick family and a signature of two Numbers while one broadcasts and the
-/// other refuses.
-///
-/// This is where each exception's reason is stated. `Stack::broadcast` reads
-/// the declaration and refuses a Sequence operand for every `Scalar` row that
-/// binds by element, so no Function body checks for one.
-#[derive(Clone, Copy)]
-enum Pervasion {
-    Pervasive,
-    /// No operand extends across a Sequence.
-    ///
-    /// Delay `~*` and Euclidean `~%` declare it because each answers a pulse:
-    /// a widened operation would need one answer per element, an element that
-    /// does not Bang has only the Absence Marker to offer, and ADR 0025 refuses
-    /// that as a Sequence member. Reducing the elements to one answer instead
-    /// would fix a meaning for layered rhythms that could not later be changed
-    /// without breaking Source, so ADR 0039 refuses the operand.
-    ///
-    /// Increment `~+` and Interpolation `~>` declare it because their previous
-    /// is one visible Atom at the ordinary result Portal, and element identity
-    /// across Ticks would need hidden state that Atom cannot hold (ADR 0012).
-    ///
-    /// The Structural Sequence Functions declare it because they consume a
-    /// Sequence operand whole, and the Range Functions because they take two
-    /// scalar bounds and answer a Sequence. Both bind whole values, so a
-    /// Sequence at an Atom-typed operand is refused by that operand's type. A
-    /// Function that declares no operand has nothing to widen over.
-    Scalar,
-}
-
-/// How wide an answer a Function gives: one Atom, as many Atoms as its operands
-/// carry, or a Sequence whatever they carry.
-///
-/// [`Pervasion`] above says whether a Sequence operand is admitted at all; this
-/// says what reaches the answer when one is. The two are independent, and
-/// Equality is why. It is a whole-value predicate: it broadcasts to find its
-/// comparison pairs, so it is `Pervasive`, and it still returns one scalar Bang
-/// or no value at all, so its answer is one Atom however wide its operands
-/// were. Deriving the width from the pervasion column would make Equality
-/// answer a Sequence it never returns, and deriving it from the family prefix
-/// would do the same to every `.`-spelled row.
-///
-/// Tick scheduling reads this to decide how many Cells one result can reach
-/// before any Function has evaluated. That is why the answer is declared
-/// rather than observed: a schedule is fixed before a width exists.
-#[derive(Clone, Copy)]
-enum Answer {
-    /// One Atom, whatever its operands carry. Equality declares this because
-    /// it answers once about every pair; every other row that declares it does
-    /// not pervade.
-    Atom,
-    /// One answer per element, so as wide as the widest operand: an Atom for
-    /// Atom operands and a Sequence of the same length for a Sequence one. This
-    /// is pervasive extension seen from the result, so a row
-    /// declaring it must also declare `Pervasion::Pervasive` — a Function that
-    /// refuses a Sequence operand can never widen over one — and a test below
-    /// holds the two columns to that.
-    Elementwise,
-    /// A Sequence, whatever its operands carry: the answer Concatenate, Note
-    /// Range, Number Range, Replace and Reverse declare.
-    Sequence,
-}
-
 // The declared type of a Portal input, mapped to the input it decodes. Number
 // is the one type a Portal input declares, so a row naming another type does
 // not match an arm and fails to compile.
@@ -495,43 +423,25 @@ macro_rules! operands {
 
         impl crate::stack::Operands for $variant {
             const FUNCTION: crate::Function = crate::Function::$variant;
-            type Binding = crate::stack::Binding<{ crate::Function::$variant.binds_whole_values() }>;
 
             #[inline(always)]
-            fn check(operands: &[crate::Value]) -> Result<(), crate::Error> {
+            fn check(operands: &[crate::Atom]) -> Result<(), crate::Error> {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
-                $(crate::operand::check::<$operand>($role)?;)+
-                Ok(())
-            }
-
-            #[inline(always)]
-            fn check_scalar_domains(operands: &[crate::Value]) -> Result<(), crate::Error> {
-                let [$($role),+] = operands else {
-                    return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
-                };
-                $(crate::operand::check_scalar_domain::<$operand>($role)?;)+
+                $(crate::operand::check::<$operand>(*$role)?;)+
                 Ok(())
             }
 
             // Field initialisers evaluate in signature order, so the first
             // operand outside its domain is the one that diagnoses.
             #[inline(always)]
-            fn from_atoms(operands: crate::stack::Extracted<'_>) -> Result<Self, crate::Error> {
-                let [$($role),+] = operands.operands() else {
-                    return Err(crate::stack::arity(Self::FUNCTION, operands.operands().len()));
+            fn bind(operands: &[crate::Atom]) -> Result<Self, crate::Error> {
+                let [$($role),+] = operands else {
+                    return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
                 Ok(Self {
-                    $($role: crate::operand::bind_atom::<$operand>(operands.atom($role))?,)+
-                })
-            }
-
-            #[inline(always)]
-            fn from_values(values: crate::stack::OperandValues) -> Result<Self, crate::Error> {
-                let [$($role),+] = crate::stack::take_values(values)?;
-                Ok(Self {
-                    $($role: crate::operand::bind_value::<$operand>($role)?,)+
+                    $($role: crate::operand::bind_atom::<$operand>(*$role)?,)+
                 })
             }
         }
@@ -542,10 +452,8 @@ macro_rules! operands {
     };
 }
 
-// Binds `values` through `$variant`'s operand struct by the reading its
-// extraction performs — `extract` checks then binds each Atom, `extract_values`
-// binds whole values — for the table sweep in the tests below. A row that
-// declares no operand has nothing to bind.
+// Checks and binds `values` through `$variant`'s operand struct, for the table
+// sweep in the tests below. A row that declares no operand has nothing to bind.
 #[cfg(test)]
 macro_rules! bind_declared {
     ($variant:ident, [], $values:expr) => {
@@ -553,18 +461,13 @@ macro_rules! bind_declared {
     };
     ($variant:ident, [$($role:ident),+], $values:expr) => {{
         use crate::stack::Operands as _;
-        let values: &[crate::Value] = $values;
-        if crate::Function::$variant.binds_whole_values() {
-            operands::$variant::from_values(values.iter().cloned().collect()).map(drop)
-        } else {
-            operands::$variant::check(values)
-                .and_then(|()| operands::$variant::check_scalar_domains(values))
-        }
+        let values: &[crate::Atom] = $values;
+        operands::$variant::check(values).and_then(|()| operands::$variant::bind(values).map(drop))
     }};
 }
 
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident $(<$literal:ident>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -619,27 +522,15 @@ macro_rules! define_functions {
                 }
             }
 
-            const fn pervasion(self) -> Pervasion {
-                match self {
-                    $(Self::$variant => Pervasion::$pervasion,)+
-                }
-            }
-
-            const fn answer(self) -> Answer {
-                match self {
-                    $(Self::$variant => Answer::$answer,)+
-                }
-            }
-
             /// Whether this Function answers a language value the surrounding
             /// Expression can consume, rather than performing an effect.
             ///
-            /// This is the one question the Interpreter's nesting guard, tick
-            /// planning's activation gate, and Sequence membership each ask, so
-            /// a Function declared with an effect kind joins all three by its
-            /// definition alone. None of them asks which effect: ADR 0029
-            /// records that they would each be borrowing a narrower question
-            /// that happens to coincide with the one they mean.
+            /// This is the one question the Interpreter's nesting guard and tick
+            /// planning's activation gate each ask, so a Function declared with
+            /// an effect kind joins both by its definition alone. Neither asks
+            /// which effect: ADR 0029 records that they would each be borrowing
+            /// a narrower question that happens to coincide with the one they
+            /// mean.
             #[inline(always)]
             pub const fn answers_value(self) -> bool {
                 self.kind().answers_value()
@@ -704,42 +595,6 @@ macro_rules! define_functions {
                 }
             }
 
-            /// Whether this Function extends pervasively across a Sequence
-            /// operand instead of requiring one Atom per position.
-            ///
-            /// The Operand Stack asks this before it decides the shape of an
-            /// operation, so broadcasting is something a Function declares
-            /// rather than something the shape of its operands decides for it.
-            #[inline(always)]
-            pub const fn is_pervasive(self) -> bool {
-                matches!(self.pervasion(), Pervasion::Pervasive)
-            }
-
-            /// Whether this Function answers a Sequence whatever its operands
-            /// carry.
-            ///
-            /// This is one of the two questions Tick scheduling asks to decide
-            /// how many Cells a result can reach, and it is the one that needs
-            /// no operand: a Range answers a Sequence from two Number bounds.
-            #[inline(always)]
-            pub const fn answers_sequence(self) -> bool {
-                matches!(self.answer(), Answer::Sequence)
-            }
-
-            /// Whether a Sequence operand widens this Function's answer into a
-            /// Sequence, rather than being consumed into one Atom.
-            ///
-            /// The other question Tick scheduling asks, and the one that
-            /// separates the Atomic Functions from Equality: each of them
-            /// broadcasts over a Sequence operand, and Equality alone answers
-            /// one Atom when it has. A Function that refuses a Sequence operand
-            /// outright answers `false` here as well, because there is no
-            /// operand to widen from.
-            #[inline(always)]
-            pub const fn widens_over_a_sequence_operand(self) -> bool {
-                matches!(self.answer(), Answer::Elementwise)
-            }
-
             /// Whether this Function declares no operand at all.
             ///
             /// One name for a question both crates ask: `signature()` is
@@ -768,7 +623,7 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<<crate::operand::$operand $(<crate::operand::$literal>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                        &[$(<<crate::operand::$operand as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
                     },)+
                 }
             }
@@ -785,7 +640,7 @@ macro_rules! define_functions {
         pub(crate) mod operands {
             $(operands! {
                 $variant,
-                [$($role: crate::operand::$operand $(<crate::operand::$literal>)?),*]
+                [$($role: crate::operand::$operand),*]
                 $(, $portal_role: $portal_type)?
             })+
         }
@@ -794,7 +649,7 @@ macro_rules! define_functions {
         impl Function {
             /// Checks and binds `values` as this Function's declared operands,
             /// through the reading its operand struct names.
-            fn bind_declared(self, values: &[crate::Value]) -> Result<(), Error> {
+            fn bind_declared(self, values: &[Atom]) -> Result<(), Error> {
                 match self {
                     $(Self::$variant => bind_declared!($variant, [$($role),*], values),)+
                 }
@@ -815,47 +670,41 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Add => (".+", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Clock => ("~.", Value, Intrinsic, Pervasive, Elementwise, false, [rate: Number, modulus: Number]),
-    Concatenate => (":&", Value, Intrinsic, Scalar, Sequence, false, [left: AtomOrSequence, right: AtomOrSequence]),
-    ControlChange => ("!c", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Intrinsic, Pervasive, Elementwise, false, [value: Numeric<Number>]),
-    ConvertToNumber => (".v", Value, Intrinsic, Pervasive, Elementwise, false, [value: Numeric<Note>]),
-    Delay => ("~*", Value, Intrinsic, Scalar, Atom, true, [rate: Number, modulus: Number]),
-    DirectionalBangEast => ("*>", BangEast, Bang, Scalar, Atom, false, []),
-    DirectionalBangNorth => ("*^", BangNorth, Bang, Scalar, Atom, false, []),
-    DirectionalBangSouth => ("*v", BangSouth, Bang, Scalar, Atom, false, []),
-    DirectionalBangWest => ("*<", BangWest, Bang, Scalar, Atom, false, []),
-    Divide => ("./", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Equality => (".=", Value, Intrinsic, Pervasive, Atom, true, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Intrinsic, Scalar, Atom, true, [hits: Number, steps: Number]),
-    Halt => ("*!", Halt, Bang, Scalar, Atom, false, []),
-    Increment => ("~+", Value, Intrinsic, Scalar, Atom, false, [step: Number, modulus: Number], portal: "previous value": Number),
-    Interpolation => ("~>", Value, Intrinsic, Scalar, Atom, false, [rate: Number, target: Number], portal: "previous value": Number),
-    JumpEast => ("&>", Value, Intrinsic, Scalar, Atom, true, []),
-    JumpNorth => ("&^", Value, Intrinsic, Scalar, Atom, true, []),
-    JumpSouth => ("&v", Value, Intrinsic, Scalar, Atom, true, []),
-    JumpWest => ("&<", Value, Intrinsic, Scalar, Atom, true, []),
-    Maximum => (".>", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Minimum => (".<", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Modulo => (".%", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Multiply => (".x", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    NoteRange => (":#", Value, Intrinsic, Scalar, Sequence, false, [lower: Note, upper: Note]),
-    NumberRange => (":-", Value, Intrinsic, Scalar, Sequence, false, [lower: Number, upper: Number]),
-    PitchBend => ("!b", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    Random => ("~?", Value, Intrinsic, Pervasive, Elementwise, false, [seed: Number, minimum: Number, maximum: Number]),
-    RawPlay => ("!>", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    Replace => (":=", Value, Intrinsic, Scalar, Sequence, false, [index: Number, replacement: Atom, sequence: Sequence]),
-    Reverse => (":<", Value, Intrinsic, Scalar, Sequence, false, [sequence: Sequence]),
-    SelfBangingEast => (">>", SelfBangEast, Intrinsic, Scalar, Atom, false, []),
-    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Scalar, Atom, false, []),
-    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Scalar, Atom, false, []),
-    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Scalar, Atom, false, []),
-    Select => (":?", Value, Intrinsic, Scalar, Atom, true, [index: Number, sequence: Sequence]),
-    Subtract => (".-", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    TimedPlay => ("!~", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    AbsoluteDifference => (".|", Value, Intrinsic, false, [left: Number, right: Number]),
+    Add => (".+", Value, Intrinsic, false, [left: Number, right: Number]),
+    Clock => ("~.", Value, Intrinsic, false, [rate: Number, modulus: Number]),
+    ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", Value, Intrinsic, false, [value: Number]),
+    ConvertToNumber => (".v", Value, Intrinsic, false, [value: Note]),
+    Delay => ("~*", Value, Intrinsic, true, [rate: Number, modulus: Number]),
+    DirectionalBangEast => ("*>", BangEast, Bang, false, []),
+    DirectionalBangNorth => ("*^", BangNorth, Bang, false, []),
+    DirectionalBangSouth => ("*v", BangSouth, Bang, false, []),
+    DirectionalBangWest => ("*<", BangWest, Bang, false, []),
+    Divide => ("./", Value, Intrinsic, false, [left: Number, right: Number]),
+    Equality => (".=", Value, Intrinsic, true, [left: Number, right: Number]),
+    Euclidean => ("~%", Value, Intrinsic, true, [hits: Number, steps: Number]),
+    Halt => ("*!", Halt, Bang, false, []),
+    Increment => ("~+", Value, Intrinsic, false, [step: Number, modulus: Number], portal: "previous value": Number),
+    Interpolation => ("~>", Value, Intrinsic, false, [rate: Number, target: Number], portal: "previous value": Number),
+    JumpEast => ("&>", Value, Intrinsic, true, []),
+    JumpNorth => ("&^", Value, Intrinsic, true, []),
+    JumpSouth => ("&v", Value, Intrinsic, true, []),
+    JumpWest => ("&<", Value, Intrinsic, true, []),
+    Maximum => (".>", Value, Intrinsic, false, [left: Number, right: Number]),
+    Minimum => (".<", Value, Intrinsic, false, [left: Number, right: Number]),
+    Modulo => (".%", Value, Intrinsic, false, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Multiply => (".x", Value, Intrinsic, false, [left: Number, right: Number]),
+    PitchBend => ("!b", TerminalOutput, Bang, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Random => ("~?", Value, Intrinsic, false, [seed: Number, minimum: Number, maximum: Number]),
+    RawPlay => ("!>", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    SelfBangingEast => (">>", SelfBangEast, Intrinsic, false, []),
+    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, false, []),
+    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, false, []),
+    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
+    Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
+    TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -875,11 +724,11 @@ macro_rules! define_replacement_changes {
         /// refused.
         ///
         /// ADR 0032 fixes a Tick's schedule before any Function evaluates and
-        /// ADR 0036 reserves a result's Cells from the Function found at each
-        /// anchor, so a replacement is admitted only where the incoming
-        /// Function agrees with the running one on every fact those two
-        /// derivations read. This type names the five so that a refusal states
-        /// which one differed, and so that a test can tell the terms apart.
+        /// reserves a result's Cells from the Function found at each anchor, so
+        /// a replacement is admitted only where the incoming Function agrees
+        /// with the running one on every fact those derivations read. This type
+        /// names the four so that a refusal states which one differed, and so
+        /// that a test can tell the terms apart.
         ///
         /// Declaration order is the order the comparison applies. A replacement
         /// differing on several facts reports the first.
@@ -912,8 +761,8 @@ define_replacement_changes! {
     /// Whether the Function answers a value the surrounding Expression can
     /// consume, rather than performing an effect.
     ///
-    /// The value-or-effect distinction, and the one Sequence membership, the
-    /// Interpreter's nesting guard and tick planning all read. The schedule was
+    /// The value-or-effect distinction, and the one the Interpreter's nesting
+    /// guard and tick planning both read. The schedule was
     /// derived from the answer the Function found here gave, so a replacement
     /// that changed it would leave Turns ordered from edges that no longer
     /// describe what runs.
@@ -943,32 +792,12 @@ define_replacement_changes! {
     /// any Turn. The Portal it declares is therefore read twice: once by
     /// scheduling, which reserves the Cells it resolves to, and once at the
     /// Turn, which writes through it. A replacement that moves the offset
-    /// separates the two, so the write lands at Cells no dependency edge names
-    /// — the same defect [`ReplacementChange::Width`] refuses, stated about
-    /// direction rather than extent. `^^` and `>>` agree on every other fact,
+    /// separates the two, so the write lands at Cells no dependency edge names.
+    /// `^^` and `>>` agree on every other fact,
     /// so this is the only one that tells them apart. The whole effect is
     /// compared rather than its fields because every field of it is read at the
     /// Turn: the offsets resolve the Portal and the bundle decides how many.
     Write => "the Source write it declares",
-    /// How wide a result the Function reserves.
-    ///
-    /// A schedule reserves Cells from the Function it found at each anchor, so
-    /// a replacement that would widen or narrow that reservation is refused
-    /// with the ones that change activation or answer kind. What it is compared
-    /// against stays the settled reservation, because the Turns were ordered
-    /// from that one and this same guard is what keeps every admitted
-    /// replacement inside it.
-    ///
-    /// The one fact this crate cannot answer: a reservation is derived from the
-    /// schedule and from the widths a computation's children settled, and
-    /// `lang` holds neither. `orcvs` composes this comparison onto
-    /// [`Function::replacing`], appended last, which is where the order this
-    /// enum states is completed. The variant is stated with the other four so
-    /// that one type names all five facts. Whether a pair reaches it is
-    /// asserted where a schedule can hold two widths that differ:
-    /// `exactly_the_sequence_answering_functions_declare_a_sequence_answer` in
-    /// this crate and the Range reservation tests in `orcvs`.
-    Width => "how wide a result it reserves",
 }
 
 /// One fact a Function declares, beside the comparison that answers whether a
@@ -988,8 +817,6 @@ impl Function {
     /// byte-identical duplicate as a dead arm Rust does not warn about, while a
     /// table is a value a test can count, which is what
     /// `each_named_change_is_compared_exactly_once` does.
-    /// [`ReplacementChange::Width`] is absent because it is not a fact a
-    /// declaration states; `orcvs` appends that comparison after these.
     const DECLARED_CHANGES: &'static [DeclaredChange] = &[
         (ReplacementChange::AnswerKind, |replacement, running| {
             replacement.answers_value() != running.answers_value()
@@ -1006,40 +833,6 @@ impl Function {
                 || replacement.input_portal() != running.input_portal()
         }),
     ];
-
-    /// Whether this Function binds operands from whole [`crate::Value`]s rather
-    /// than one element at a time.
-    ///
-    /// A pervasive Function never does: it reads its operands element by
-    /// element. A scalar Function does when it answers a Sequence, because its
-    /// operands are consumed into that Sequence whatever tokens they declare,
-    /// or when it declares an Atom or Sequence operand, which no element
-    /// reading can carry. Every other scalar Function binds by element. A
-    /// Function that declares no operand has no operand struct, so its answer
-    /// binds nothing. It is read from the declaration, and each Function's
-    /// operand struct names the extraction it answers, so a body cannot
-    /// extract its operands through the other one.
-    pub const fn binds_whole_values(self) -> bool {
-        if self.is_pervasive() {
-            return false;
-        }
-        if self.answers_sequence() {
-            return true;
-        }
-
-        let signature = self.signature();
-        let mut index = 0;
-        while index < signature.len() {
-            if matches!(
-                signature[index],
-                crate::Token::Atom | crate::Token::Sequence
-            ) {
-                return true;
-            }
-            index += 1;
-        }
-        false
-    }
 
     /// The Output Portal this Function names, or `None` when it names none.
     ///
@@ -1107,8 +900,9 @@ impl Function {
     ///
     /// The first difference under the table's order rather than every
     /// difference: a replacement is refused once and names one fact. `None` is
-    /// not yet an admitted replacement — `orcvs` asks its own width comparison
-    /// after this one, which is the fifth fact and the last.
+    /// an admitted replacement: every value Function reserves the same one
+    /// Atom's Cell pair, so no fact beyond these four can separate two
+    /// Functions a schedule has already ordered.
     pub fn replacing(self, running: Self) -> Option<ReplacementChange> {
         Self::DECLARED_CHANGES
             .iter()
@@ -1211,33 +1005,11 @@ mod test {
 
     /// The lowest value a literal of `token` carries, as the operand the
     /// Parser would hand a signature position declared as that token.
-    fn lowest(token: crate::Token) -> crate::Value {
+    fn lowest(token: crate::Token) -> Atom {
         match token {
-            crate::Token::Number | crate::Token::Atom => Atom::Number(0).into(),
-            crate::Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")).into(),
-            crate::Token::Sequence => crate::Sequence::new([Atom::Number(0)])
-                .expect("a Number is a Sequence member")
-                .into(),
+            crate::Token::Number => Atom::Number(0),
+            crate::Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
             other => panic!("no operand is declared as {other:?}"),
-        }
-    }
-
-    #[test]
-    fn whole_values_bind_for_exactly_the_structural_range_and_select_functions() {
-        // Pins which rows the declaration-derived rule selects, so a row whose
-        // pervasion, answer or operand tokens change its binding shows here.
-        for function in Function::ALL.iter().copied() {
-            let expected = matches!(
-                function,
-                Function::Concatenate
-                    | Function::NoteRange
-                    | Function::NumberRange
-                    | Function::Replace
-                    | Function::Reverse
-                    | Function::Select
-            );
-
-            assert_eq!(function.binds_whole_values(), expected, "{function:?}");
         }
     }
 
@@ -1251,8 +1023,7 @@ mod test {
         // lowest values finds that the day the row is declared; a domain that
         // excluded its minimum would need its own witness here.
         for function in Function::ALL.iter().copied() {
-            let values: Vec<crate::Value> =
-                function.signature().iter().copied().map(lowest).collect();
+            let values: Vec<Atom> = function.signature().iter().copied().map(lowest).collect();
 
             assert!(
                 function.bind_declared(&values).is_ok(),
@@ -1267,19 +1038,13 @@ mod test {
         // A chain of `||` terms has no value to count and a repeated term is
         // not a pattern Rust warns about. A table has both, so each fact is
         // compared once or the count says so.
-        //
-        // `Width` is expected zero times here because it is not a fact a
-        // declaration states. `orcvs` appends that one comparison to this
-        // table's answer, so across the two every variant is compared exactly
-        // once, and its absence here is the half of that this crate can hold.
         for change in ReplacementChange::ALL.iter().copied() {
             let compared = Function::DECLARED_CHANGES
                 .iter()
                 .filter(|(named, _)| *named == change)
                 .count();
             assert_eq!(
-                compared,
-                usize::from(change != ReplacementChange::Width),
+                compared, 1,
                 "{change:?} is compared {compared} times by the declaration table",
             );
         }
@@ -1293,17 +1058,6 @@ mod test {
         for change in ReplacementChange::ALL.iter().copied() {
             let reached = replacement_pairs()
                 .any(|(replacement, running)| replacement.replacing(running) == Some(change));
-            if change == ReplacementChange::Width {
-                // `DECLARED_CHANGES` holds no `Width` row, so `replacing` would
-                // answer `None` whatever pair it were handed. The fifth fact is
-                // appended in `orcvs` after these four, and the Range reservation
-                // tests there hold the pairs that reach it.
-                assert!(
-                    !reached,
-                    "the declaration table answered a fact it does not compare",
-                );
-                continue;
-            }
             assert!(
                 reached,
                 "no pair reports {change:?} as its first difference"
@@ -1328,29 +1082,6 @@ mod test {
             sole,
             vec![ReplacementChange::BangEmission, ReplacementChange::Write],
             "the facts a pair can differ on alone are no longer the two expected",
-        );
-    }
-
-    #[test]
-    fn exactly_the_sequence_answering_functions_declare_a_sequence_answer() {
-        // A reservation derives from declarations, so a result is wider than a
-        // Cell pair only where a Function answers a Sequence or widens over an
-        // operand that is one. The five rows that answer a Sequence outright
-        // are declared here rather than inferred, so a sixth Function added
-        // later has to be named in this list.
-        assert_eq!(
-            Function::ALL
-                .iter()
-                .copied()
-                .filter(|function| function.answers_sequence())
-                .collect::<Vec<_>>(),
-            vec![
-                Function::Concatenate,
-                Function::NoteRange,
-                Function::NumberRange,
-                Function::Replace,
-                Function::Reverse,
-            ]
         );
     }
 
@@ -1411,17 +1142,15 @@ mod test {
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
-        // result. Select answers one Atom and may return a Bang member
-        // unchanged, and a Jump copies a Bang from its Input Portal. Tick
+        // result, and a Jump copies a Bang from its Input Portal. Tick
         // scheduling trusts the declaration to decide which roots can supply
         // activation, so the list is stated whole — a Function that began
         // returning Bang without declaring it would build no activation edge,
         // and the neighbouring terminal root would fall silent with no
         // diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
-        // other half for Atom-only Functions; Select and the Jumps are
-        // exercised on their own paths, because Select's operands bind as whole
-        // values and a Jump reads its Portal.
+        // other half for operand-reading Functions; the Jumps are exercised on
+        // their own path, because a Jump reads its Portal.
         assert_eq!(
             Function::ALL
                 .iter()
@@ -1436,7 +1165,6 @@ mod test {
                 Function::JumpNorth,
                 Function::JumpSouth,
                 Function::JumpWest,
-                Function::Select,
             ]
         );
     }
@@ -1751,8 +1479,8 @@ mod test {
         // spellings would be a second place to keep in step with the
         // definitions, and reading the `!` family prefix would classify the
         // effect Functions spelled `*^` or `*!` as answering a value. So this
-        // match is exhaustive over `Function` with no wildcard, the way
-        // pervasion's is below: a Function added later has to be classified
+        // match is exhaustive over `Function` with no wildcard: a Function
+        // added later has to be classified
         // here as well as in the table, and a copied row that answers the wrong
         // kind fails here rather than standing where an operand belongs.
         for function in Function::ALL.iter().copied() {
@@ -1769,7 +1497,6 @@ mod test {
                 Function::AbsoluteDifference
                 | Function::Add
                 | Function::Clock
-                | Function::Concatenate
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
                 | Function::Delay
@@ -1786,12 +1513,7 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
-                | Function::NoteRange
-                | Function::NumberRange
                 | Function::Random
-                | Function::Replace
-                | Function::Reverse
-                | Function::Select
                 | Function::Subtract => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
@@ -1829,169 +1551,6 @@ mod test {
                 function.is_intrinsically_active(),
                 intrinsically_active,
                 "{function:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn every_function_declares_whether_it_extends_over_a_sequence() {
-        // Pervasion cannot be read off a family prefix, off answering a value,
-        // or off a signature, which `Pervasion` states. It is declared per
-        // Function instead, and this match is exhaustive over `Function` with
-        // no wildcard: a Function added later has to be classified here as well
-        // as in the table, so neither an omission nor a copied row can make it
-        // broadcast by accident.
-        for function in Function::ALL.iter().copied() {
-            let expected = match function {
-                Function::AbsoluteDifference
-                | Function::Add
-                | Function::Clock
-                | Function::ControlChange
-                | Function::ConvertToNote
-                | Function::ConvertToNumber
-                | Function::Divide
-                | Function::Equality
-                | Function::Maximum
-                | Function::Minimum
-                | Function::Modulo
-                | Function::MonophonicPlay
-                | Function::Multiply
-                | Function::PitchBend
-                | Function::Random
-                | Function::RawPlay
-                | Function::Subtract
-                | Function::TimedPlay => true,
-                // Functions that declare no operand have nothing for pervasion
-                // to widen over. They are `Scalar` for the reason the two
-                // pulses are not: those refuse a Sequence they could have been
-                // handed, while these are never handed anything.
-                Function::DirectionalBangEast
-                | Function::DirectionalBangNorth
-                | Function::DirectionalBangSouth
-                | Function::DirectionalBangWest
-                | Function::Halt
-                | Function::JumpEast
-                | Function::JumpNorth
-                | Function::JumpSouth
-                | Function::JumpWest
-                | Function::SelfBangingEast
-                | Function::SelfBangingNorth
-                | Function::SelfBangingSouth
-                | Function::SelfBangingWest => false,
-                Function::Concatenate
-                | Function::Delay
-                | Function::Euclidean
-                | Function::Increment
-                | Function::Interpolation
-                | Function::NoteRange
-                | Function::NumberRange
-                | Function::Replace
-                | Function::Reverse
-                | Function::Select => false,
-            };
-
-            assert_eq!(function.is_pervasive(), expected, "{function:?}");
-        }
-    }
-
-    #[test]
-    fn every_function_declares_how_wide_an_answer_it_gives() {
-        // Scheduling reserves a result's Cells before any Function evaluates,
-        // so the width of an answer is declared rather than observed. Equality
-        // is the row that makes this a column of its own: it is a whole-value
-        // predicate that broadcasts to find its comparison pairs and still
-        // answers one scalar, so it is `Pervasive` like the other ten
-        // `.`-spelled rows and is the only one of them whose answer stays one
-        // Atom. Neither the family prefix nor the pervasion column can tell it
-        // apart, which is why this match is exhaustive with no wildcard.
-        //
-        // That exhaustiveness also keeps the Sequence-answering rows named: a
-        // row added to the table has to be given an arm here, so a Function
-        // that answers a Sequence cannot reach scheduling unnoticed.
-        //
-        // The `!`-spelled rows widen too: one Expression answers an ordered
-        // group of Play Commands over a Sequence operand, and that widening
-        // reaches the Playback Engine rather than a Cell. Scheduling reads
-        // their declaration all the same — `reserved_for` asks every node it
-        // derives a reservation for, Terminal Output included, without first
-        // asking what kind of answer its Function gives. What that reservation
-        // cannot do is reach a Cell: a Terminal Output Function is given no
-        // Portal, so it has no destination for a reservation to be measured
-        // from and no write for one to order. They declare the column because
-        // it says how wide an answer is, not how wide a write is.
-        for function in Function::ALL.iter().copied() {
-            let (sequence, widens) = match function {
-                Function::Equality => (false, false),
-                // These answer one Atom as well, for a different reason than
-                // Equality's. Equality broadcasts to find its comparison pairs
-                // and reduces them; the pulses and the feedback Functions
-                // refuse a Sequence operand outright and the Jumps declare
-                // none, so there is no width to reduce from. They are what the
-                // assertion below is about — an answer that does not widen,
-                // declared beside the pervasion that cannot widen.
-                Function::Delay
-                | Function::Euclidean
-                | Function::Increment
-                | Function::Interpolation
-                | Function::JumpEast
-                | Function::JumpNorth
-                | Function::JumpSouth
-                | Function::JumpWest => (false, false),
-                Function::Select => (false, false),
-                Function::Concatenate
-                | Function::NoteRange
-                | Function::NumberRange
-                | Function::Replace
-                | Function::Reverse => (true, false),
-                // A Source-writing or locking Function answers an effect, so it
-                // answers no Sequence and widens over nothing. It declares the
-                // column all the same, because the column says how wide an
-                // answer is and scheduling reads it before any Function has
-                // evaluated.
-                Function::DirectionalBangEast
-                | Function::DirectionalBangNorth
-                | Function::DirectionalBangSouth
-                | Function::DirectionalBangWest
-                | Function::Halt
-                | Function::SelfBangingEast
-                | Function::SelfBangingNorth
-                | Function::SelfBangingSouth
-                | Function::SelfBangingWest => (false, false),
-                Function::AbsoluteDifference
-                | Function::Add
-                | Function::Clock
-                | Function::ControlChange
-                | Function::ConvertToNote
-                | Function::ConvertToNumber
-                | Function::Divide
-                | Function::Maximum
-                | Function::Minimum
-                | Function::Modulo
-                | Function::MonophonicPlay
-                | Function::Multiply
-                | Function::PitchBend
-                | Function::Random
-                | Function::RawPlay
-                | Function::Subtract
-                | Function::TimedPlay => (false, true),
-            };
-
-            assert_eq!(function.answers_sequence(), sequence, "{function:?}");
-            assert_eq!(
-                function.widens_over_a_sequence_operand(),
-                widens,
-                "{function:?}"
-            );
-
-            // The two columns are independent but not free of each other: a
-            // Function that refuses a Sequence operand has none to widen from,
-            // so `Elementwise` beside `Pervasion::Scalar` would declare a
-            // widening that can never happen. Increment and Interpolation are
-            // the rows that could have broken this, and they fail here rather
-            // than reserve Cells for a Sequence they refuse.
-            assert!(
-                !function.widens_over_a_sequence_operand() || function.is_pervasive(),
-                "{function:?} widens over an operand it refuses",
             );
         }
     }

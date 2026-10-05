@@ -109,7 +109,7 @@ const REGION_ROWS: std::ops::Range<usize> = REGION_ANCHOR.1..REGION_ANCHOR.1 + 2
 /// Every state the release checklist names that a Render Frame can show, in
 /// the checklist's order.
 ///
-const CHECKLIST: [&str; 13] = [
+const CHECKLIST: [&str; 12] = [
     "occupied Cell",
     "empty Cell",
     "Function",
@@ -117,8 +117,7 @@ const CHECKLIST: [&str; 13] = [
     "Note",
     "Bang",
     "Comment",
-    "Sequence",
-    "fitted Output Portal",
+    "Output Portal",
     "invalid operand's diagnostic",
     "Region",
     "Sector Seam",
@@ -347,9 +346,6 @@ fn states_drawn(
                     (Token::Note, OperandState::Valid) => {
                         drawn.insert("Note");
                     }
-                    (Token::Sequence, _) => {
-                        drawn.insert("Sequence");
-                    }
                     _ => {}
                 }
                 if state == OperandState::Invalid && frame.diagnostic_covers(position) {
@@ -359,7 +355,7 @@ fn states_drawn(
             SourcePaint::Unclaimed => {}
         }
         if cell.output_portal() {
-            drawn.insert("fitted Output Portal");
+            drawn.insert("Output Portal");
         }
         if painted.sector_left.is_some() || painted.sector_top.is_some() {
             drawn.insert("Sector Seam");

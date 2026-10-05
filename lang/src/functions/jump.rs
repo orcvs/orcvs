@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, InterpretationError, Value,
+    Atom, Error, Function, InterpretationError,
     atom::{note_atom_from_spelling, number_atom_from_spelling},
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
@@ -9,12 +9,12 @@ use crate::{
 ///
 /// The Turn supplies Cells only after the Portal has classified them as one
 /// complete aligned unit. Empty and Bang are values; any other admitted
-/// two-Cell unit is the Atom those Cells spell. Alignment, Sequence
-/// membership, and partial Spans never reach here. A missing or invalid
+/// two-Cell unit is the Atom those Cells spell. Alignment and partial Spans
+/// never reach here. A missing or invalid
 /// spelling, or Cells that are not exactly one two-Cell unit, is diagnosed
 /// rather than delivered as a write: blank Cells of another width are not an
 /// Empty unit.
-pub fn jump(ctx: &mut Context, function: Function) -> Result<Value, Error> {
+pub fn jump(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
     let cells = ctx
         .inputs
         .portal_source()
@@ -22,14 +22,12 @@ pub fn jump(ctx: &mut Context, function: Function) -> Result<Value, Error> {
         .filter(|cells| cells.len() == DEFAULT_TOKEN_LEN)
         .ok_or(InterpretationError::JumpInput { function })?;
     if cells.bytes().all(|cell| cell == b' ') {
-        return Ok(Atom::Empty.into());
+        return Ok(Atom::Empty);
     }
     if cells == "**" {
-        return Ok(Atom::Bang.into());
+        return Ok(Atom::Bang);
     }
-    Ok(copied_atom(cells)
-        .ok_or(InterpretationError::JumpInput { function })?
-        .into())
+    Ok(copied_atom(cells).ok_or(InterpretationError::JumpInput { function })?)
 }
 
 /// The Atom two Cells spell, read as a Function, then a Number, then a Note.
@@ -52,9 +50,9 @@ mod test {
         TickInputs, interpreter::Context,
     };
 
-    // Decode admitted Portal Cells. Alignment, Sequence membership, and
-    // partial Spans are classified at the Portal, not here.
-    fn evaluate(function: Function, cells: Option<&str>) -> Result<crate::Value, crate::Error> {
+    // Decode admitted Portal Cells. Alignment and partial Spans are
+    // classified at the Portal, not here.
+    fn evaluate(function: Function, cells: Option<&str>) -> Result<Atom, crate::Error> {
         let mut ctx = Context::new(
             FunctionInputs::with_portal_source(
                 TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
@@ -69,7 +67,7 @@ mod test {
     fn empty_input_answers_the_absence_marker() {
         assert_eq!(
             evaluate(Function::JumpEast, Some("  ")).unwrap(),
-            Atom::Empty.into()
+            Atom::Empty
         );
     }
 
@@ -77,7 +75,7 @@ mod test {
     fn bang_input_answers_bang() {
         assert_eq!(
             evaluate(Function::JumpNorth, Some("**")).unwrap(),
-            Atom::Bang.into()
+            Atom::Bang
         );
     }
 
@@ -85,7 +83,7 @@ mod test {
     fn a_number_unit_answers_that_number() {
         assert_eq!(
             evaluate(Function::JumpWest, Some("01")).unwrap(),
-            Atom::Number(1).into()
+            Atom::Number(1)
         );
     }
 

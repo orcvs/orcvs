@@ -36,10 +36,9 @@ type Record = PositionedEntry;
 /// equally what a signature requires at that position. The two readings
 /// coincide for the literal
 /// operands — a Number position holds two hexadecimal Cells and an entry
-/// holding them is labelled `Number` — and they come apart at both ends.
-/// `Bang`, `Comment`, and `Function` are labels the Parser applies to Cells no
-/// signature declares, and `Atom` and `Sequence` below are declarations no
-/// Cells spell.
+/// holding them is labelled `Number` — and come apart for the rest: `Bang`,
+/// `Comment`, and `Function` are labels the Parser applies to Cells no
+/// signature declares.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
     Bang,
@@ -55,14 +54,6 @@ pub enum Token {
     /// Unit. The Parser never labels an entry with it; `orcvs` answers it for
     /// such a Cell so its presentation can tell written Cells from blank ones.
     Char,
-    /// An operand a Function declares over every Atom rather than over one
-    /// type: the replacement of Replace, which may differ in type from the
-    /// member it displaces.
-    Atom,
-    /// An operand a Function consumes as one whole Sequence rather than
-    /// extending across element by element: the Sequence operand of Reverse,
-    /// Select, and Replace.
-    Sequence,
 }
 
 impl Expression {
@@ -146,30 +137,6 @@ impl Token {
         match self {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
-            // A generic Atom operand has no literal reading, and the refusal is
-            // the decision rather than a gap left for later. CONTEXT.md defines
-            // an Operand Literal as two Cells "interpreted as an Atom according
-            // to the typed operand position of the Function that consumes
-            // them", and a position declared over every Atom supplies no type
-            // for them to be interpreted against: `07` would have to read as a
-            // Number here and as something else there with nothing in the
-            // declaration to say which. Choosing one would mint exactly the
-            // intrinsic type that entry denies.
-            //
-            // Replace's replacement declares this operand, and so does
-            // Concatenate's Atom-or-Sequence operand. Neither reads a literal,
-            // so the only thing that can stand at the position is a nested
-            // Function's typed answer, exactly as for a Sequence below.
-            Self::Atom => Err(crate::SyntaxError::ExpectedToken.into()),
-            // A Sequence has no literal spelling at all, and this refusal is
-            // settled rather than deferred. ADR 0007 encodes a Sequence result
-            // into Source as ordinary Atoms "without a privileged
-            // literal-Sequence interpretation", so nothing reads Cells back as
-            // one: a Sequence "exists only between Functions", and a Sequence
-            // operand can only ever be a nested Function's answer. A reading
-            // invented here would be the privileged interpretation that ADR
-            // rules out.
-            Self::Sequence => Err(crate::SyntaxError::ExpectedToken.into()),
             // The Parser fills these two positions structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
             // recognises `**` or a Function spelling, and labels the entry with
@@ -203,24 +170,10 @@ impl Token {
             // Every Atom spelling is two Cells wide, and a nested Function —
             // the only other thing that can stand at an operand position — is
             // exactly two by the compile-time assertion `define_functions!`
-            // holds every spelling to. `Atom` and `Sequence` refuse their
-            // literal decode above, so this width fixes only how far a refused
-            // operand advances and how wide the Span its diagnostic covers is,
-            // and two Cells is the operand width every signature reserves.
-            //
-            // Zero is the tempting reading for `Sequence` — a value that is
-            // never spelled occupies no Source — and it is wrong twice. The
-            // Cells are occupied, by the nested Function that is the only thing
-            // able to fill the position; and `Token::is_empty` is `len() == 0`,
-            // so a zero-width operand would claim an operand position that holds
-            // nothing and hand the Parser a slot it advances no Cells past.
-            Token::Bang
-            | Token::Comment
-            | Token::Function
-            | Token::Note
-            | Token::Number
-            | Token::Atom
-            | Token::Sequence => DEFAULT_TOKEN_LEN,
+            // holds every spelling to.
+            Token::Bang | Token::Comment | Token::Function | Token::Note | Token::Number => {
+                DEFAULT_TOKEN_LEN
+            }
         }
     }
 

@@ -37,12 +37,10 @@ pub(super) const SCALAR_WIDTH: usize = 2;
 ///
 /// One Cell destination resolved while interpreting a Source Snapshot.
 ///
-/// A Portal names where a result begins, not how wide it is: an ordinary Atom
-/// and an intact Sequence pass through the same one, and the encoding decides
-/// how many Cells follow along the row. That is why resolution and fit are
-/// separate steps here — a destination exists or it does not, independently of
-/// what any particular result would spell there — and why the Sequence case
-/// needs no destination rule of its own.
+/// A Portal names where a result begins, not how wide it is: the encoding
+/// decides how many Cells follow along the row. That is why resolution and fit
+/// are separate steps here — a destination exists or it does not,
+/// independently of what any particular result would spell there.
 ///
 /// ADR 0009 also lets a Source Function resolve several Portals as one effect
 /// bundle, validated complete before any of its writes is admitted. Every
@@ -83,10 +81,9 @@ pub(super) enum Occupancy {
 /// The Language Unit occupying a Portal's two Cells, as Jump copies it.
 ///
 /// Occupancy is the Snapshot Map. This is working Source at the Portal,
-/// aligned against that Map and against admitted Sequence writes: Empty and
-/// Bang are values even when the Map still names a cleaned unit; a complete
-/// aligned unit is one too; a partial pair, a slice across two units, a
-/// Comment, or a Sequence member is not. Decoding the admitted spelling is
+/// aligned against that Map: Empty and Bang are values even when the Map still
+/// names a cleaned unit; a complete aligned unit is one too; a partial pair, a
+/// slice across two units, or a Comment is not. Decoding the admitted spelling is
 /// the Interpreter's.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,34 +217,18 @@ impl Portal {
     }
 
     ///
-    /// All Cells from this destination through the end of its own row.
-    /// A resolved destination always has at least its own Cell remaining.
-    pub(super) fn remaining_span(self) -> Span {
-        self.span(self.grid.columns() - self.destination.x())
-            .expect("the remaining Cells of a resolved Portal fit its row")
+    /// The Cells reserved from this destination for one answer: the Cell pair
+    /// one Atom occupies. `None` where the row edge leaves no room for the
+    /// pair, because a pair whose second Cell is in the next row is not a
+    /// Span.
+    ///
+    pub(super) fn reservation(self) -> Option<Span> {
+        self.span(SCALAR_WIDTH).ok()
     }
 
     ///
-    /// The Cells ADR 0036 reserves from this destination for one answer: the
-    /// Cell pair one Atom occupies, or every Cell through the end of the row
-    /// for an answer that may be a Sequence. `None` where the row edge leaves
-    /// no room for the pair, because a pair whose second Cell is in the next
-    /// row is not a Span.
-    ///
-    /// A Sequence's width is not known before it is answered, and no Span
-    /// reaches past the row it begins in, so the rest of the row is the
-    /// smallest reservation that names every Cell such an answer might reach.
-    ///
-    pub(super) fn reservation(self, may_be_a_sequence: bool) -> Option<Span> {
-        if may_be_a_sequence {
-            Some(self.remaining_span())
-        } else {
-            self.span(SCALAR_WIDTH).ok()
-        }
-    }
-
-    ///
-    /// Language-Map occupancy of up to `width` Cells from this destination.
+    /// Language-Map occupancy of up to the Cell pair one Atom occupies from
+    /// this destination.
     ///
     /// A destination in the last column still answers the one Cell it holds,
     /// so occupancy is not refused at the row edge the way a two-Cell write
@@ -258,15 +239,14 @@ impl Portal {
     pub(super) fn occupancy(
         self,
         map: &LanguageMap,
-        width: usize,
         root_at: impl Fn(Position) -> Option<usize>,
     ) -> Occupancy {
-        occupancy_of(map, &self.cells_along_row(width), root_at)
+        occupancy_of(map, &self.cells_along_row(SCALAR_WIDTH), root_at)
     }
 
     ///
-    /// Whether any of `width` Cells from this destination holds a non-space
-    /// in working Source.
+    /// Whether either Cell of the pair one Atom occupies from this destination
+    /// holds a non-space in working Source.
     ///
     /// A span that cannot fit answers false: the write path refuses the row
     /// edge itself. Jump Bang asks this after a root at the destination has
@@ -274,8 +254,8 @@ impl Portal {
     /// Bang — empty in working Source, still a unit on the Map — writes
     /// rather than diagnosing.
     ///
-    pub(super) fn occupied_in(self, working: Cells<'_>, width: usize) -> bool {
-        self.span(width).ok().is_some_and(|span| {
+    pub(super) fn occupied_in(self, working: Cells<'_>) -> bool {
+        self.reservation().is_some_and(|span| {
             working
                 .slice(span.range())
                 .bytes()
@@ -285,20 +265,11 @@ impl Portal {
     }
 
     ///
-    /// The Language Unit Jump may copy from `width` Cells of working Source.
+    /// The Language Unit Jump may copy from the Cell pair one Atom occupies in
+    /// working Source.
     ///
-    /// `sequence_covers` is the Tick's admitted Sequence writes: membership
-    /// is the write, not the reservation. A same-Tick scalar that lands in a
-    /// reserved tail is a unit of its own; a Sequence member is not.
-    ///
-    pub(super) fn language_unit(
-        self,
-        working: Cells<'_>,
-        map: &LanguageMap,
-        width: usize,
-        sequence_covers: impl Fn(std::ops::Range<usize>) -> bool,
-    ) -> PortalUnit {
-        let Ok(span) = self.span(width) else {
+    pub(super) fn language_unit(self, working: Cells<'_>, map: &LanguageMap) -> PortalUnit {
+        let Some(span) = self.reservation() else {
             return PortalUnit::Invalid;
         };
         let range = span.range();
@@ -309,7 +280,7 @@ impl Portal {
         if cells == b"**" {
             return PortalUnit::Bang;
         }
-        if cells.contains(&b' ') || sequence_covers(range.clone()) {
+        if cells.contains(&b' ') {
             return PortalUnit::Invalid;
         }
         let covering: Vec<_> = map
@@ -423,9 +394,9 @@ impl SpanWrite {
     /// Each Cell this write covers, paired with what it receives.
     ///
     /// One encoding fans out into Cells here and nowhere earlier, which is
-    /// what keeps ADR 0020's conflict resolution per Cell: an intact Sequence
-    /// is one validated write until the Tick Plan resolves, and then it is as
-    /// many independently contested Cells as it has characters.
+    /// what keeps ADR 0020's conflict resolution per Cell: a write is one
+    /// validated unit until the Tick Plan resolves, and then it is as many
+    /// independently contested Cells as it has characters.
     ///
     pub(super) fn cells(&self) -> impl Iterator<Item = (CellIndex, CellContent)> + '_ {
         self.span.indices().zip(self.content.iter().copied())
@@ -438,8 +409,9 @@ impl SpanWrite {
 ///
 /// A Portal is one Cell. [`PortalOutput`] distinguishes a Cell write from
 /// a root lock, so a lock never supplies an Input Portal's characters. Reads
-/// are independent of that: a nested Jump writes nothing and still reads the
-/// opposite Portal, so a producer of those Cells is ordered first.
+/// are independent of that: a Jump reads the Portal opposite its output, so
+/// a producer of those Cells is ordered first, whether the Jump is a root or
+/// nested.
 ///
 /// Terminal Output answers Play, not a Cell, so its output is
 /// [`PortalOutput::None`]. Play stays an Effect; it is not a Portal.
@@ -468,23 +440,26 @@ impl PortalAccess {
     ///
     /// The output kind, destination sites and extra reads demanded at `anchor`.
     ///
-    /// Nested computations hand a typed value to a parent. Terminal Output
-    /// answers Play. Neither demands a write Portal. A locking root and every
-    /// other Value name their Output Portal on the Function; Jump and the
-    /// feedback Functions also name an Input Portal. A nested Jump still
-    /// reads that Input Portal. A Source write states its declared bundle.
+    /// A value Function names its Output Portal on the Function whether it is
+    /// a root or nested: a nested one writes there as a root would, and also
+    /// returns the same encoding to its parent. Jump and the feedback
+    /// Functions also name an Input Portal. Terminal Output answers Play and
+    /// demands no write Portal. A locking root names the root it locks, and a
+    /// Source write states its declared bundle. A nested Function that answers
+    /// no value is refused by the Parser and never takes a Turn, so it demands
+    /// no Portal at all.
     ///
     pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
+        if nested && !function.answers_value() {
+            return Self {
+                output: PortalOutput::None,
+                reads: Vec::new(),
+            };
+        }
         let reads = function
             .input_portal()
             .map(|coords| Self::portal_reads(grid, anchor, coords))
             .unwrap_or_default();
-        if nested {
-            return Self {
-                output: PortalOutput::None,
-                reads,
-            };
-        }
         if function.performs_terminal_output() {
             return Self {
                 output: PortalOutput::None,
@@ -559,7 +534,8 @@ impl PortalAccess {
     /// some.
     ///
     /// [`PortalOutput::None`] stays none. That is the whole of the helper: it
-    /// cannot attach a write to Terminal Output, a nested Jump, or a root lock.
+    /// cannot attach a write to Terminal Output, a nested effect Function, or
+    /// a root lock.
     ///
     #[cfg(test)]
     pub(super) fn carry(&mut self, grid: Grid, writes: &[Position]) {
@@ -580,19 +556,6 @@ impl PortalAccess {
 
 #[cfg(test)]
 mod test {
-    #[test]
-    fn remaining_portal_coverage_stops_at_its_own_row_end() {
-        for (columns, column, first, last) in
-            [(5, 0, 5, 9), (5, 2, 7, 9), (5, 4, 9, 9), (1, 0, 1, 1)]
-        {
-            let grid = Grid::with_shape(columns, 3);
-            let portal = Portal::at(grid, grid.position(column, 1).unwrap());
-            let span = portal.remaining_span();
-            assert_eq!(span.start(), cell(grid, first));
-            assert_eq!(span.end(), cell(grid, last));
-        }
-    }
-
     #[test]
     fn portal_coverage_fits_the_complete_width_or_refuses_it() {
         let grid = Grid::with_shape(5, 3);
@@ -630,8 +593,8 @@ mod test {
         grid.cell_index(idx).expect("inside the Grid")
     }
 
-    fn unit(portal: Portal, working: &[u8], map: &LanguageMap, sequence: bool) -> PortalUnit {
-        portal.language_unit(Cells::of(working), map, 2, |_| sequence)
+    fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
+        portal.language_unit(Cells::of(working), map)
     }
 
     ///
@@ -766,11 +729,11 @@ mod test {
     }
 
     #[test]
-    fn a_whole_sequence_encoding_passes_through_one_portal_as_one_write() {
-        // ADR 0007: an intact Sequence passes through one Portal, not a batch
-        // of Cell writes. A six-Cell encoding is therefore admitted by the
-        // same call a two-Cell Atom uses, and lands on six consecutive Cells
-        // of the destination row in encoding order.
+    fn a_wide_encoding_passes_through_one_portal_as_one_write() {
+        // A Portal names where a write begins, not how wide it is: a six-Cell
+        // encoding is admitted by the same call a two-Cell Atom uses, and
+        // lands on six consecutive Cells of the destination row in encoding
+        // order.
         let grid = Grid::with_shape(10, 3);
         let root = grid.position(0, 0).expect("inside the Grid");
         let portal = Portal::below(grid, root).expect("a row below the root");
@@ -789,12 +752,10 @@ mod test {
     }
 
     #[test]
-    fn a_sequence_too_wide_for_its_destination_row_admits_nothing() {
-        // The complete-fit rule ADR 0007 states for Sequences is the rule
-        // ADR 0004 already states for any write, which is why a Sequence needs
-        // no fit check of its own. Five Atoms need ten Cells; the destination
-        // row has eight left, and the refusal costs the whole Sequence rather
-        // than its first four Atoms.
+    fn an_encoding_too_wide_for_its_destination_row_admits_nothing() {
+        // ADR 0004's complete-fit rule: ten Cells against a destination row
+        // with eight left, and the refusal costs the whole write rather than
+        // its first eight Cells.
         let grid = Grid::with_shape(10, 3);
         let root = grid.position(2, 0).expect("inside the Grid");
         let portal = Portal::below(grid, root).expect("a row below the root");
@@ -825,22 +786,39 @@ mod test {
     }
 
     #[test]
-    fn a_nested_jump_keeps_its_input_portal_read_and_writes_no_cell() {
-        // Nested Jump answers a value to its parent and writes no Cell. The
-        // opposite Portal is still a read, so a producer of those Cells is
-        // ordered first. Carry cannot mint a write the resolve step refused.
-        let grid = Grid::with_shape(8, 2);
-        let anchor = grid.position(2, 0).expect("inside the Grid");
-        let input = grid.position(2, 1).expect("inside the Grid");
+    fn a_nested_jump_reads_its_input_portal_and_writes_its_output_portal() {
+        // A nested Jump writes its Output Portal as a root does, besides
+        // returning the unit to its parent, and still reads the opposite
+        // Portal, so a producer of those Cells is ordered first.
+        let grid = Grid::with_shape(8, 3);
+        let anchor = grid.position(2, 1).expect("inside the Grid");
+        let input = grid.position(2, 2).expect("inside the Grid");
+        let output = grid.position(2, 0).expect("inside the Grid");
         let expected = Portal::at(grid, input)
             .span(2)
             .expect("the input Portal fits the row")
             .range();
-        let mut access = PortalAccess::resolve(grid, anchor, lang::Function::JumpNorth, true);
-        access.carry(grid, &[input]);
-        assert!(!access.writes_cells());
-        assert!(access.write_sites().is_empty());
+        let access = PortalAccess::resolve(grid, anchor, lang::Function::JumpNorth, true);
+        assert!(access.writes_cells());
+        assert_eq!(access.write_sites(), &[Ok(output)]);
         assert_eq!(access.read_spans(), &[expected]);
+    }
+
+    #[test]
+    fn a_nested_effect_function_demands_no_portal_and_carry_cannot_mint_one() {
+        // The Parser refuses a nested effect Function and it never takes a
+        // Turn, so it neither writes, locks nor reads.
+        let grid = Grid::with_shape(8, 3);
+        let anchor = grid.position(2, 0).expect("inside the Grid");
+        let elsewhere = grid.position(2, 1).expect("inside the Grid");
+        for function in [lang::Function::RawPlay, lang::Function::Halt] {
+            let mut access = PortalAccess::resolve(grid, anchor, function, true);
+            access.carry(grid, &[elsewhere]);
+            assert!(!access.writes_cells(), "{function:?}");
+            assert!(access.write_sites().is_empty(), "{function:?}");
+            assert!(access.lock_site().is_none(), "{function:?}");
+            assert!(access.read_spans().is_empty(), "{function:?}");
+        }
     }
 
     #[test]
@@ -848,7 +826,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Empty);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::Empty);
     }
 
     #[test]
@@ -856,7 +834,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::NonRoot);
     }
 
     #[test]
@@ -866,7 +844,7 @@ mod test {
         let root = grid.position(0, 0).unwrap();
         let portal = Portal::at(grid, root);
         assert_eq!(
-            portal.occupancy(&map, 2, |anchor| (anchor == root).then_some(0)),
+            portal.occupancy(&map, |anchor| (anchor == root).then_some(0)),
             Occupancy::Root(0)
         );
     }
@@ -876,7 +854,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Partial);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::Partial);
     }
 
     #[test]
@@ -900,7 +878,7 @@ mod test {
         let root = grid.position(2, 0).unwrap();
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(
-            portal.occupancy(&map, 2, |anchor| (anchor == root).then_some(0)),
+            portal.occupancy(&map, |anchor| (anchor == root).then_some(0)),
             Occupancy::Root(0)
         );
     }
@@ -909,11 +887,11 @@ mod test {
     fn occupied_in_answers_working_source_spaces() {
         let grid = Grid::with_shape(4, 1);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert!(!portal.occupied_in(Cells::of(b"    "), 2));
-        assert!(portal.occupied_in(Cells::of(b"x   "), 2));
-        assert!(portal.occupied_in(Cells::of(b" x  "), 2));
+        assert!(!portal.occupied_in(Cells::of(b"    ")));
+        assert!(portal.occupied_in(Cells::of(b"x   ")));
+        assert!(portal.occupied_in(Cells::of(b" x  ")));
         let last = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert!(!last.occupied_in(Cells::of(b"   x"), 2));
+        assert!(!last.occupied_in(Cells::of(b"   x")));
     }
 
     #[test]
@@ -921,7 +899,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(6, 0).unwrap());
-        assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Empty);
+        assert_eq!(unit(portal, b".+0102  ", &map), PortalUnit::Empty);
     }
 
     #[test]
@@ -931,8 +909,8 @@ mod test {
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**  "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
-        assert_eq!(unit(portal, b"    ", &map, false), PortalUnit::Empty);
+        assert_eq!(portal.occupancy(&map, |_| None), Occupancy::NonRoot);
+        assert_eq!(unit(portal, b"    ", &map), PortalUnit::Empty);
     }
 
     #[test]
@@ -940,7 +918,7 @@ mod test {
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**  "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(unit(portal, b"**  ", &map, false), PortalUnit::Bang);
+        assert_eq!(unit(portal, b"**  ", &map), PortalUnit::Bang);
     }
 
     #[test]
@@ -948,7 +926,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(2, 0).unwrap());
-        assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Unit);
+        assert_eq!(unit(portal, b".+0102  ", &map), PortalUnit::Unit);
     }
 
     #[test]
@@ -956,7 +934,7 @@ mod test {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Invalid);
+        assert_eq!(unit(portal, b".+0102  ", &map), PortalUnit::Invalid);
     }
 
     #[test]
@@ -964,25 +942,17 @@ mod test {
         let grid = Grid::with_shape(6, 1);
         let map = LanguageMap::build(grid, Cells::of(b"0 &>xx"));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(unit(portal, b"0 &>xx", &map, false), PortalUnit::Invalid);
+        assert_eq!(unit(portal, b"0 &>xx", &map), PortalUnit::Invalid);
     }
 
     #[test]
-    fn language_unit_inside_a_sequence_write_is_invalid() {
-        let grid = Grid::with_shape(8, 1);
-        let map = LanguageMap::build(grid, Cells::of(b"        "));
-        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(unit(portal, b"0001    ", &map, true), PortalUnit::Invalid);
-    }
-
-    #[test]
-    fn language_unit_past_a_sequence_write_is_the_working_cells() {
+    fn language_unit_reads_the_working_cells_at_its_destination() {
         let grid = Grid::with_shape(8, 1);
         let map = LanguageMap::build(grid, Cells::of(b"        "));
         let empty = Portal::at(grid, grid.position(4, 0).unwrap());
-        assert_eq!(unit(empty, b"0001    ", &map, false), PortalUnit::Empty);
+        assert_eq!(unit(empty, b"0001    ", &map), PortalUnit::Empty);
         let number = Portal::at(grid, grid.position(4, 0).unwrap());
-        assert_eq!(unit(number, b"000101  ", &map, false), PortalUnit::Unit);
+        assert_eq!(unit(number, b"000101  ", &map), PortalUnit::Unit);
     }
 
     #[test]
@@ -990,7 +960,7 @@ mod test {
         let grid = Grid::with_shape(2, 1);
         let map = LanguageMap::build(grid, Cells::of(b"||"));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(unit(portal, b"||", &map, false), PortalUnit::Invalid);
+        assert_eq!(unit(portal, b"||", &map), PortalUnit::Invalid);
     }
 
     #[test]
@@ -1000,7 +970,7 @@ mod test {
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"    "));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(unit(portal, b"xx  ", &map, false), PortalUnit::Unit);
+        assert_eq!(unit(portal, b"xx  ", &map), PortalUnit::Unit);
     }
 
     #[test]
@@ -1008,6 +978,6 @@ mod test {
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"   x"));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert_eq!(unit(portal, b"   x", &map, false), PortalUnit::Invalid);
+        assert_eq!(unit(portal, b"   x", &map), PortalUnit::Invalid);
     }
 }

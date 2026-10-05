@@ -12,53 +12,7 @@ pub enum Error {
     Type(#[from] TypeError),
 
     #[error(transparent)]
-    Sequence(#[from] SequenceError),
-
-    #[error(transparent)]
     Interpretation(#[from] InterpretationError),
-}
-
-/// Problems with the shape of a language value rather than the type of an
-/// Operand Literal.
-///
-/// These live apart from [`TypeError`] because `TypeError` answers "these two
-/// Source Cells do not read as the type this operand position requires", which
-/// is a question about text. A Sequence is never spelled in Source: it exists
-/// only between Functions, so every diagnostic here is about a value one
-/// Function handed another — whether it was one Atom or many, whether an Atom
-/// may be a member at all, and whether two operands have compatible lengths.
-#[derive(Error, Debug)]
-pub enum SequenceError {
-    /// A Sequence where a Function that does not pervade requires an Atom: at
-    /// any operand of an element-binding Function such as Delay `~*` or
-    /// Increment `~+`, or at an Atom-typed operand of a whole-value Function
-    /// such as a Range bound or Select's index.
-    #[error("expected an Atom, found the Sequence {0:?}")]
-    ExpectedAtom(String),
-
-    #[error("expected a Sequence, found {0:?}")]
-    ExpectedSequence(String),
-
-    /// An Atom with no place in a Sequence: a Self-Banging Function, which is
-    /// a root-only Source effect; the absence marker, which has no Source
-    /// encoding of its own; or a Function that answers an effect rather than a
-    /// value, which ADR 0029 refuses by its declared kind.
-    #[error("{0:?} cannot be a Sequence member")]
-    Member(String),
-
-    /// Two non-scalar operands of unequal length, named in signature order.
-    /// Equal-length Sequences pair element-wise and everything else
-    /// diagnoses, including an empty Sequence against a non-empty one:
-    /// an empty operand is a length rather than a scalar that repeats. The
-    /// shape of an operation is settled before any of its elements is read, so
-    /// this precedes every diagnostic about one element.
-    #[error("incompatible Sequence lengths {left} and {right}")]
-    IncompatibleLengths { left: usize, right: usize },
-
-    /// An empty Sequence where indexing needs a member to reach. Select and
-    /// Replace raise this.
-    #[error("expected a non-empty Sequence")]
-    EmptyNotAllowed,
 }
 
 #[derive(Error, Debug)]
@@ -164,8 +118,8 @@ pub enum InterpretationError {
 
     /// A Jump's input Portal did not hold one complete aligned Language Unit.
     ///
-    /// Empty and Bang are legal inputs; a partial pair, a slice across two
-    /// units, or a Sequence member is not. `function` is the Jump the Source
+    /// Empty and Bang are legal inputs; a partial pair or a slice across two
+    /// units is not. `function` is the Jump the Source
     /// wrote so the message names those Cells.
     #[error("{function} has partial or invalid input")]
     JumpInput { function: crate::Function },
@@ -183,14 +137,6 @@ pub enum InterpretationError {
         function: crate::Function,
         value: u64,
     },
-
-    /// ADR 0028 states that an instruction answers either a value or an
-    /// effect, so a Function answering an effect can stand only where nothing
-    /// consumes an answer. This names the rule rather than any one effect
-    /// family, so every effect Function raises it by its declared kind
-    /// alone.
-    #[error("a Function that answers an effect is valid only at the root of an Expression")]
-    NestedEffectFunction,
 
     #[error("MIDI channel {0:02X} is outside the range 00–0F")]
     MidiChannel(u8),
@@ -214,9 +160,6 @@ pub enum InterpretationError {
 
 #[derive(Error, Debug)]
 pub enum TypeError {
-    #[error("expected a number or note, found {0:?}")]
-    Numeric(String),
-
     #[error("expected a note, found {0:?}")]
     Note(String),
 
@@ -237,6 +180,14 @@ pub enum SyntaxError {
 
     #[error("unexpected trailing content {0:?}")]
     UnexpectedTrailingContent(String),
+
+    /// A nested Function returns one two-Cell answer to the operand it
+    /// stands in, so a Function that answers an effect can stand only where
+    /// nothing consumes an answer. This names the rule rather than any one
+    /// effect family, so every effect Function raises it by its declared
+    /// kind alone, and the Source shows it before any Tick runs.
+    #[error("a Function that answers an effect is valid only at the root of an Expression")]
+    NestedEffectFunction,
 
     /// A Comment where a value was required. A Comment is a complete
     /// Language Unit that is not a value: it records a Token and no

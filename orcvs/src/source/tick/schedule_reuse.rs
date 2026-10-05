@@ -82,19 +82,14 @@ fn stale_tick(source: &Source, earlier: &LanguageMap, tick: u64) -> TickPlan {
     let grid = source.grid();
     let bytes = source.snapshot();
     let current = source.shared_language_map();
-    match earlier.schedule_cache().schedule(grid, earlier) {
-        Ok(schedule) => {
-            execution::execute(
-                grid,
-                Cells::of(bytes.as_bytes()),
-                &current,
-                Tick::new(tick),
-                schedule,
-            )
-            .0
-        }
-        Err(diagnostics) => super::unscheduled(diagnostics.clone()).0,
-    }
+    execution::execute(
+        grid,
+        Cells::of(bytes.as_bytes()),
+        &current,
+        Tick::new(tick),
+        earlier.schedule_cache().schedule(grid, earlier),
+    )
+    .0
 }
 
 /// Writes `text` from Column `x` of Row `y` onward, for each edit, as one

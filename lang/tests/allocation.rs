@@ -83,7 +83,7 @@
 
 use lang::{
     Anchor, Atom, Error, Function, FunctionInputs, InterpretationError, Interpreter, Parser,
-    PortalSource, Sequence, Tick, TickInputs, Value,
+    PortalSource, Tick, TickInputs,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -250,7 +250,7 @@ fn rows(source: &[&str], empty_rows: usize) -> Vec<String> {
 }
 
 /// One call a Turn makes: a Function and the operands it resolved.
-type Call = (Function, Vec<Value>);
+type Call = (Function, Vec<Atom>);
 
 /// The calls a Source's Expressions make once their operands are resolved.
 /// Rows that hold no Expression, and rows the Parser refuses, contribute
@@ -268,7 +268,7 @@ fn calls(rows: &[String]) -> Vec<Call> {
                 .iter()
                 .map(|literal| match literal {
                     Atom::Function(_) => None,
-                    literal => Some(Value::Atom(*literal)),
+                    literal => Some(*literal),
                 })
                 .collect::<Option<Vec<_>>>()?;
             Some((*function, operands))
@@ -284,7 +284,7 @@ fn evaluate(calls: &[Call], inputs: TickInputs) -> usize {
         evaluated += usize::from(
             Interpreter::execute_function(
                 black_box(*function),
-                black_box(operands).iter().cloned(),
+                black_box(operands).iter().copied(),
                 black_box(inputs).into(),
             )
             .is_ok(),
@@ -312,8 +312,8 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
 
     // A call over Atom operands allocates nothing. `Interpreter::execute_function`
     // holds its Operand Stack inline, sized to the widest operand list the
-    // Function table declares, and no Function in the fixture answers a
-    // Sequence, so neither the stack nor the answer asks the allocator for a
+    // Function table declares, and every answer is one Atom or one Play
+    // Command, so neither the stack nor the answer asks the allocator for a
     // block. Zero, for one pass and for four, rather than a ceiling per call:
     // a ceiling of one block per call would admit exactly the heap-backed
     // stack this rules out.
@@ -461,21 +461,16 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     );
 }
 
-/// A Sequence of `length` Numbers, built outside every measured span.
-fn numbers(length: usize) -> Sequence {
-    Sequence::new((0..length).map(|index| Atom::Number(index as u8))).expect("Numbers are members")
-}
-
 /// One Turn through [`Interpreter::execute_function`], and what it allocated.
 ///
 /// The answer is dropped outside the span, so only what the Turn asked for is
 /// counted; the operands are built by the caller, outside it too.
-fn turn<const N: usize>(function: Function, operands: [Value; N]) -> Allocations {
+fn turn<const N: usize>(function: Function, operands: [Atom; N]) -> Allocations {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     // Warm up, for the reason the call test gives.
     black_box(Interpreter::execute_function(
         function,
-        operands.clone(),
+        operands,
         inputs.into(),
     ))
     .expect("the warm-up Turn answers");
@@ -491,80 +486,9 @@ fn a_turn_over_atoms_allocates_nothing() {
     // The Operand Stack is inline and the answer is one Atom, so the Turn asks
     // the allocator for nothing. Asserted rather than published, for the
     // reason the call test gives.
-    let add = turn(
-        Function::Add,
-        [Atom::Number(1).into(), Atom::Number(2).into()],
-    );
+    let add = turn(Function::Add, [Atom::Number(1), Atom::Number(2)]);
 
     assert_eq!(add, Allocations::default(), "`.+0102` allocated");
-}
-
-#[test]
-fn a_sequence_operand_is_consumed_without_copying_its_members() {
-    // Reverse, Replace and Select answer from the Sequence they are handed:
-    // the answer reuses its members' storage or is one Atom of it, and the
-    // Operand Stack is inline. A Turn over them therefore allocates nothing at
-    // any length — a copy of the members anywhere between the caller and the
-    // Function body would be a block sized by the length.
-    for length in [16, 64] {
-        let reverse = turn(Function::Reverse, [numbers(length).into()]);
-        let replace = turn(
-            Function::Replace,
-            [
-                Atom::Number(3).into(),
-                Atom::Number(7).into(),
-                numbers(length).into(),
-            ],
-        );
-        let select = turn(
-            Function::Select,
-            [Atom::Number(3).into(), numbers(length).into()],
-        );
-
-        for (name, allocations) in [
-            ("Reverse", reverse),
-            ("Replace", replace),
-            ("Select", select),
-        ] {
-            assert_eq!(
-                allocations,
-                Allocations::default(),
-                "{name} over {length} members allocated"
-            );
-        }
-    }
-}
-
-#[test]
-fn a_turn_that_builds_a_sequence_allocates_only_that_answer() {
-    // A broadcast answer and a concatenation are Sequences no operand holds,
-    // so each is one block of its own. That block is the answer: the Operand
-    // Stack is inline, and the operands are consumed where they stand rather
-    // than copied on the way to it.
-    let length = 64;
-    let atom = size_of::<Atom>();
-
-    let subtract = turn(
-        Function::Subtract,
-        [numbers(length).into(), Atom::Number(1).into()],
-    );
-    assert!(
-        subtract.blocks <= 1 && subtract.bytes <= length * atom,
-        "Subtract over {length} members took {subtract:?}"
-    );
-
-    let concatenate = turn(
-        Function::Concatenate,
-        [numbers(length).into(), numbers(length).into()],
-    );
-    publish(
-        "lang turn Concatenate of two 64-member Sequences",
-        concatenate,
-    );
-    assert!(
-        concatenate.blocks <= 1 && concatenate.bytes <= 2 * length * atom,
-        "Concatenate of two {length}-member Sequences took {concatenate:?}"
-    );
 }
 
 #[test]

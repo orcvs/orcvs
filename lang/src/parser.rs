@@ -246,6 +246,15 @@ impl<'a> Parser<'a> {
                         parent,
                     );
                     if let Atom::Function(function) = atom {
+                        // A nested Function returns one two-Cell answer to the
+                        // operand it stands in, which a Function answering an
+                        // effect does not have. The refusal is the
+                        // Expression's, and the entry keeps its Function and
+                        // claims its operands, so the layout is the one its
+                        // signatures give whichever Function stands here.
+                        if parent.is_some() && !function.answers_value() {
+                            error.get_or_insert(SyntaxError::NestedEffectFunction.into());
+                        }
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
                         for token in function.signature().iter().rev() {
@@ -797,6 +806,31 @@ mod test {
     }
 
     #[test]
+    fn no_function_is_spelled_in_the_colon_family() {
+        // The `:` family names no Function: every two-Cell spelling that
+        // starts with `:` is unknown, and a whole Expression written with
+        // one does not parse.
+        assert!(
+            Function::ALL
+                .iter()
+                .all(|function| !function.spelling().starts_with(':')),
+            "a Function is spelled in the colon family"
+        );
+        for spelling in [":-", ":#", ":<", ":&", ":?", ":="] {
+            assert_eq!(Function::from_spelling(spelling), None, "{spelling}");
+            for source in [spelling.to_owned(), format!("{spelling}0104")] {
+                assert!(
+                    matches!(
+                        try_parse(&source),
+                        Err(Error::Syntax(SyntaxError::UnknownFunction(ref found))) if found == spelling
+                    ),
+                    "{source:?} parsed or failed for another reason"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn numeric_conversion_spellings_parse_without_language_unit_collisions() {
         assert_eq!(
             try_parse(".vC4").unwrap().as_slice(),
@@ -1066,14 +1100,6 @@ mod test {
         // absent because no signature declares it, so no Source spells one.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
-            if signature
-                .iter()
-                .any(|token| matches!(token, Token::Atom | Token::Sequence))
-            {
-                // Atom and Sequence operands round-trip through nested Functions
-                // rather than Operand Literals; see `sequence.rs`.
-                continue;
-            }
             for (slot, token) in signature.iter().copied().enumerate() {
                 for atom in every_atom_of(token) {
                     let operands: String = signature
@@ -1216,25 +1242,10 @@ mod property {
         .boxed()
     }
 
-    /// Functions whose operands are all literal-decodable. Atom and Sequence
-    /// operands bind only through nested Functions, not as Operand Literals.
-    fn literal_complete_functions() -> Vec<Function> {
-        Function::ALL
-            .iter()
-            .copied()
-            .filter(|function| {
-                function
-                    .signature()
-                    .iter()
-                    .all(|token| !matches!(token, Token::Atom | Token::Sequence))
-            })
-            .collect()
-    }
-
     /// One Function spelled with a literal in each operand position its
     /// signature declares: the shape strict parsing accepts whole.
     fn complete_expression() -> BoxedStrategy<String> {
-        select(literal_complete_functions())
+        select(Function::ALL.to_vec())
             .prop_flat_map(|function| {
                 let operands: Vec<BoxedStrategy<String>> = function
                     .signature()
@@ -1617,5 +1628,55 @@ mod positioned_tests {
                 (48..48, Some(2))
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod nesting_tests {
+    use super::Parser;
+    use crate::{Atom, Error, Function, SyntaxError};
+
+    #[test]
+    fn a_nested_function_that_answers_no_value_is_refused_from_source_alone() {
+        // Every effect Function, nested where a value is required, is refused
+        // by its declared kind. The layout still claims its own operands, so
+        // the Expression keeps the extent its signatures give it.
+        for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
+            let operands: String = function
+                .signature()
+                .iter()
+                .map(|token| match token {
+                    crate::Token::Note => "C4",
+                    _ => "01",
+                })
+                .collect();
+            let source = format!(".+{function}{operands}01");
+            let analysis = Parser::from(&source).analyze();
+
+            assert!(
+                matches!(
+                    analysis.error(),
+                    Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source}: {:?}",
+                analysis.error()
+            );
+            assert_eq!(analysis.cells(), 0..source.len(), "{source}");
+            assert_eq!(
+                analysis
+                    .expression()
+                    .positioned()
+                    .nth(1)
+                    .and_then(|entry| entry.atom),
+                Some(Atom::Function(*function)),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_root_effect_function_and_a_nested_value_function_parse() {
+        assert!(Parser::from("!>007FC4").analyze().is_complete());
+        assert!(Parser::from(".+.x030401").analyze().is_complete());
     }
 }

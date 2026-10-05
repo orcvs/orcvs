@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, FunctionInputs, Performance, Sequence, SourceEffect, Stack, Value,
+    Atom, Error, Function, FunctionInputs, PlayCommand, SourceEffect, Stack,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -7,26 +7,13 @@ pub struct Interpreter {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Interpretation {
+    /// The one Atom a value Function answers.
     Cell(Atom),
-    /// A Sequence value leaving evaluation intact.
+    /// The one Play Command an active Terminal Output Function root performs.
     ///
-    /// The Atomic Functions broadcast over a Sequence operand and answer one,
-    /// Structural and Range Functions reach this variant from Source text.
-    /// It exists because the whole point of the Sequence value is that it can
-    /// cross Function evaluation and leave it without first becoming Source
-    /// writes.
-    Sequence(Sequence),
-    /// The ordered group of Play Commands one active Terminal Output Function
-    /// root performs.
-    ///
-    /// A Sequence operand widens every Terminal Output Function, so one
-    /// Expression answers many commands, ordered by element index, while still
-    /// answering no value. It carries a [`Performance`] rather than one command
-    /// because this is the seam `lang` publishes to `orcvs`, and a consumer
-    /// written against a single command could not deliver a widened one. A
-    /// Play over scalar operands answers the scalar shape
-    /// [`Performance::One`].
-    Play(Performance),
+    /// A chord is several Terminal Output roots that one Bang activates, each
+    /// answering its own command.
+    Play(PlayCommand),
     /// The lock one active locking Function root places on the Expression
     /// root at its Output Portal.
     ///
@@ -70,7 +57,7 @@ impl<'a> Context<'a> {
 impl Interpreter {
     /// Evaluates one Function with already resolved, typed inputs. Literal
     /// decoding and nested ownership belong to the caller; evaluation applies
-    /// the Function's declared type, domain, absence and Sequence rules.
+    /// the Function's declared type, domain and absence rules.
     /// [`FunctionInputs::portal_source`] borrows working Source when the
     /// Function declares a Portal input. Functions without one ignore it.
     ///
@@ -78,20 +65,15 @@ impl Interpreter {
     /// clock, static, or thread-local is read, so the same Function over the
     /// same operands and inputs answers the same way every time.
     ///
-    /// The operands are taken by value, in signature order. Each moves onto
-    /// the Operand Stack and from there into the role that binds it, so a
-    /// Sequence operand's members are not copied on the way to the Function
-    /// that consumes them.
+    /// The operands are taken in signature order, one Atom each.
     ///
     /// ```
-    /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Sequence, Tick, TickInputs, Value};
-    /// let sequence = Sequence::new([Atom::Number(5), Atom::Number(9)]).unwrap();
+    /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs};
     /// let answer = Interpreter::execute_function(
-    ///     Function::Subtract, [Value::Sequence(sequence), Value::Atom(Atom::Number(2))],
+    ///     Function::Subtract, [Atom::Number(9), Atom::Number(2)],
     ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
     /// ).unwrap();
-    /// assert_eq!(answer, Interpretation::Sequence(
-    ///     Sequence::new([Atom::Number(3), Atom::Number(7)]).unwrap()));
+    /// assert_eq!(answer, Interpretation::Cell(Atom::Number(7)));
     /// ```
     pub fn execute_function<I>(
         function: Function,
@@ -99,7 +81,7 @@ impl Interpreter {
         inputs: FunctionInputs<'_>,
     ) -> Result<Interpretation, Error>
     where
-        I: IntoIterator<Item = Value>,
+        I: IntoIterator<Item = Atom>,
         I::IntoIter: ExactSizeIterator + DoubleEndedIterator,
     {
         let operands = operands.into_iter();
@@ -127,10 +109,7 @@ impl Interpreter {
             stack: Stack::with_operands(operands)?,
             inputs,
         };
-        // Every Function answers a language Value, so a Function that returns
-        // a Sequence needs an arm here and nothing else: the match below
-        // already carries whichever shape the Value holds.
-        let value = match function {
+        let atom = match function {
             Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
             Function::Add => math::add(&mut ctx)?,
             Function::Clock => tick::clock(&mut ctx)?,
@@ -146,12 +125,6 @@ impl Interpreter {
                 functions::jump::jump(&mut ctx, function)?
             }
             Function::Random => tick::random(&mut ctx)?,
-            Function::Concatenate => functions::sequence::concatenate(&mut ctx)?,
-            Function::NoteRange => functions::sequence::note_range(&mut ctx)?,
-            Function::NumberRange => functions::sequence::number_range(&mut ctx)?,
-            Function::Replace => functions::sequence::replace(&mut ctx)?,
-            Function::Reverse => functions::sequence::reverse(&mut ctx)?,
-            Function::Select => functions::sequence::select(&mut ctx)?,
             Function::Maximum => math::maximum(&mut ctx)?,
             Function::Minimum => math::minimum(&mut ctx)?,
             Function::Modulo => math::modulo(&mut ctx)?,
@@ -184,10 +157,7 @@ impl Interpreter {
                 unreachable!("{function} returns as a lock or Source write before dispatch")
             }
         };
-        Ok(match value {
-            Value::Atom(atom) => Interpretation::Cell(atom),
-            Value::Sequence(sequence) => Interpretation::Sequence(sequence),
-        })
+        Ok(Interpretation::Cell(atom))
     }
 }
 
@@ -196,7 +166,7 @@ mod test {
 
     use crate::{
         Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError, Note,
-        Tick, TickInputs, Token, TypeError, Value, interpreter::Interpreter, trace,
+        Tick, TickInputs, Token, TypeError, interpreter::Interpreter, trace,
     };
 
     ///
@@ -210,7 +180,7 @@ mod test {
     /// Evaluates one Function over literal operands, the way a Turn hands
     /// them over once it has resolved them.
     fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
-        let operands = operands.iter().copied().map(Value::Atom);
+        let operands = operands.iter().copied();
         Interpreter::execute_function(function, operands, inputs().into())
     }
 
@@ -411,8 +381,8 @@ mod test {
             Function::Modulo,
         ] {
             for operand in [Atom::Bang, Atom::Empty] {
-                // Both slots, because a nested Function answers into either
-                // one: an unequal `.=` puts Empty wherever it is written.
+                // Both slots, because each declares a Number and refuses
+                // anything else in either position.
                 for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
                     assert!(
                         matches!(
@@ -506,27 +476,9 @@ mod test {
 
     #[test]
     fn explicit_numeric_conversions_have_fixed_result_types() {
-        // `.v` is the identity over Numbers across the whole byte domain, not
-        // only the MIDI part of it. A Number reaches this Function from nested
-        // evaluation or from broadcasting rather than from its literal operand
-        // slot, and the arithmetic that produced it wraps over `00`–`FF`, so
-        // `80`–`FF` arrive as often as anything else. Folding them into the
-        // Note range would be the coercion ADR 0021 refuses, and diagnosing
-        // them would make `.v` reject values `.^` never had to accept.
-        for value in 0..=u8::MAX {
-            assert_eq!(
-                evaluate_cell(vec![
-                    Atom::Function(Function::ConvertToNumber),
-                    Atom::Number(value),
-                ])
-                .unwrap(),
-                Atom::Number(value),
-                "{value:02X}"
-            );
-        }
-
-        // The typed conversions themselves are defined over the MIDI range,
-        // which is every value a Note can hold.
+        // The conversions are defined over the MIDI range, which is every
+        // value a Note can hold, and each reads only its declared literal
+        // type.
         for value in 0..=0x7F {
             assert_eq!(
                 evaluate_cell(vec![
@@ -540,14 +492,6 @@ mod test {
                 evaluate_cell(vec![
                     Atom::Function(Function::ConvertToNote),
                     Atom::Number(value),
-                ])
-                .unwrap(),
-                Atom::Note(crate::Note::try_from(value).unwrap())
-            );
-            assert_eq!(
-                evaluate_cell(vec![
-                    Atom::Function(Function::ConvertToNote),
-                    Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
                 .unwrap(),
                 Atom::Note(crate::Note::try_from(value).unwrap())
@@ -697,16 +641,9 @@ mod test {
             if !function.answers_value() {
                 continue;
             }
-            if function.answers_sequence()
-                || function.input_portal().is_some()
-                || function
-                    .signature()
-                    .iter()
-                    .any(|token| matches!(token, Token::Atom | Token::Sequence))
-            {
-                // Sequence answers, Portal-read answers, and Atom/Sequence
-                // operands are exercised on their own paths rather than
-                // through this Atom-only sweep.
+            if function.input_portal().is_some() {
+                // Portal-read answers are exercised on their own paths rather
+                // than through this operand sweep.
                 continue;
             }
 

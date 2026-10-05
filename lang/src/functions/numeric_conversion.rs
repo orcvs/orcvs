@@ -1,45 +1,31 @@
 use crate::{
-    Atom, Error, Note, Value,
+    Atom, Error, Note,
     atom::operands::{ConvertToNote, ConvertToNumber},
     interpreter::Context,
-    operand::NumericValue,
 };
 
-/// Convert to Number: `.v value`.
+/// Convert to Number: `.v note`.
 ///
-/// One expression per element, and `Stack::apply` decides whether that
-/// element is the whole operation or one member of a Sequence. Idempotence
-/// over the result type is what makes the Number arm not a coercion: a value
-/// that is already a Number arrives from nested evaluation or from
-/// broadcasting, never from this Function's own literal operand slot, which
-/// the parser reads as a Note.
+/// The operand is a Note, however its characters arrived: a nested Function's
+/// Return is decoded by this operand's declared type, so a value that is
+/// already a Number is read as a Note spelling or refused.
 #[inline]
-pub fn to_number(ctx: &mut Context) -> Result<Value, Error> {
+pub fn to_number(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
-        .apply(|ConvertToNumber { value }: ConvertToNumber| {
-            Ok(Atom::Number(match value {
-                NumericValue::Note(value) => value.value(),
-                NumericValue::Number(value) => value,
-            }))
-        })
+        .apply(|ConvertToNumber { value }: ConvertToNumber| Ok(Atom::Number(value.value())))
 }
 
-/// Convert to Note: `.^ value`.
+/// Convert to Note: `.^ number`.
 ///
 /// `80` through `FF` name no MIDI Note, so they diagnose rather than being
-/// folded into the range. Over a Sequence that is a diagnostic about the
-/// complete operation: `apply` assembles nothing until every element has
-/// answered, so one unconvertible member leaves no partial Sequence of the
-/// members that did convert.
+/// folded into the range.
 #[inline]
-pub fn to_note(ctx: &mut Context) -> Result<Value, Error> {
-    ctx.stack
-        .apply(|ConvertToNote { value }: ConvertToNote| match value {
-            NumericValue::Note(value) => Ok(Atom::Note(value)),
-            // `Note`'s own conversion is the one range check, and its refusal
-            // is the diagnostic.
-            NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
-        })
+pub fn to_note(ctx: &mut Context) -> Result<Atom, Error> {
+    ctx.stack.apply(|ConvertToNote { value }: ConvertToNote| {
+        // `Note`'s own conversion is the one range check, and its refusal
+        // is the diagnostic.
+        Ok(Atom::Note(Note::try_from(value)?))
+    })
 }
 
 #[cfg(test)]
@@ -47,7 +33,7 @@ mod test {
     use super::{to_note, to_number};
     use crate::{
         Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError,
-        Interpreter, Note, Sequence, Tick, TickInputs, TypeError, Value, interpreter::Context,
+        Interpreter, Note, Tick, TickInputs, TypeError, interpreter::Context,
     };
 
     /// The Tick inputs for a test about operands rather than about time.
@@ -63,7 +49,7 @@ mod test {
 
     /// A conversion body, called directly so a claim about its own arity
     /// demand is not answered by `execute_function`'s guard in front of it.
-    type Body = fn(&mut Context) -> Result<Value, Error>;
+    type Body = fn(&mut Context) -> Result<Atom, Error>;
 
     const BODIES: [(Function, Body); 2] = [
         (Function::ConvertToNote, to_note),
@@ -71,39 +57,31 @@ mod test {
     ];
 
     /// Exercises conversion dispatch with one resolved language value.
-    fn evaluate(function: Function, value: impl Into<Value>) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, [value.into()], inputs().into())
+    fn evaluate(function: Function, value: Atom) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(function, [value], inputs().into())
     }
 
-    /// Evaluates `outer` over the answer of the flat Source text `inner`, as
-    /// the Turn nesting it does: `lang` evaluates one Function per Turn, and
-    /// the inner Turn's answer is the outer Turn's operand.
+    /// Evaluates `outer` over the Return of the flat Source text `inner`, as
+    /// the Turn nesting it does: `lang` evaluates one Function per Turn, the
+    /// inner Turn returns its answer's two-Cell encoding, and the outer
+    /// Turn's operand is that encoding decoded by the outer signature.
     fn nested(outer: Function, inner: &str) -> Result<Interpretation, Error> {
-        let operand = match interpret(inner).expect("the inner Turn answers a value") {
-            Interpretation::Cell(atom) => Value::Atom(atom),
-            Interpretation::Sequence(sequence) => Value::Sequence(sequence),
-            other => panic!("{inner:?} answers {other:?}, which no Turn passes on"),
+        let returned = match interpret(inner).expect("the inner Turn answers a value") {
+            Interpretation::Cell(atom) => atom.to_string(),
+            other => panic!("{inner:?} answers {other:?}, which no Turn returns"),
         };
-        evaluate(outer, operand)
+        let [token] = outer.signature() else {
+            panic!("{outer:?} declares one operand");
+        };
+        evaluate(outer, token.decode(&returned)?)
     }
 
     fn note(value: u8) -> Atom {
         Atom::Note(Note::try_from(value).unwrap())
     }
 
-    fn notes(values: impl IntoIterator<Item = u8>) -> Sequence {
-        Sequence::new(values.into_iter().map(note)).unwrap()
-    }
-
-    fn numbers(values: impl IntoIterator<Item = u8>) -> Sequence {
-        Sequence::new(values.into_iter().map(Atom::Number)).unwrap()
-    }
-
     #[test]
     fn a_conversion_over_one_atom_answers_one_atom() {
-        // Broadcasting must leave the scalar spelling the Source already writes
-        // exactly as it was: a singleton Sequence would encode the same and
-        // reach tick planning through a different arm.
         for value in 0x00..=0x7F {
             assert_eq!(
                 evaluate(Function::ConvertToNumber, note(value)).unwrap(),
@@ -117,23 +95,8 @@ mod test {
     }
 
     #[test]
-    fn conversion_to_note_is_the_identity_over_every_note_and_refuses_every_number_above_the_range()
-    {
-        // `.^` has a monomorphic literal signature and an
-        // evaluation-time identity, and the two together are what the whole
-        // domain is enumerated for. Every Note is left exactly as it is —
-        // a value arriving from nested evaluation or from broadcasting, never
-        // from the Function's own operand slot, which the parser reads as a
-        // Number.
-        for value in 0x00..=0x7F {
-            assert_eq!(
-                evaluate(Function::ConvertToNote, note(value)).unwrap(),
-                Interpretation::Cell(note(value)),
-                "{value:02X}"
-            );
-        }
-
-        // And every Number above the range diagnoses and produces no result at
+    fn conversion_to_note_refuses_every_number_above_the_range() {
+        // Every Number above the range diagnoses and produces no result at
         // all. Not `Atom::Empty`, which is the Interpreter's silent "no result
         // write", and not a value folded into the range: `80`–`FF` name no
         // pitch, so the Source is told rather than answered.
@@ -150,174 +113,44 @@ mod test {
     }
 
     #[test]
-    fn a_conversion_extends_atom_wise_and_preserves_order() {
-        // Members that are not in ascending order, so a conversion that sorted
-        // or reversed its Sequence answers a different value rather than the
-        // same one.
-        assert_eq!(
-            evaluate(Function::ConvertToNumber, notes([0x3C, 0x00, 0x7F])).unwrap(),
-            Interpretation::Sequence(numbers([0x3C, 0x00, 0x7F]))
-        );
-        assert_eq!(
-            evaluate(Function::ConvertToNote, numbers([0x3C, 0x00, 0x7F])).unwrap(),
-            Interpretation::Sequence(notes([0x3C, 0x00, 0x7F]))
-        );
-
-        // An empty Sequence converts to the empty Sequence, and a singleton
-        // stays a Sequence rather than collapsing to the Atom it holds.
-        assert_eq!(
-            evaluate(Function::ConvertToNote, Sequence::empty()).unwrap(),
-            Interpretation::Sequence(Sequence::empty())
-        );
-        assert_eq!(
-            evaluate(Function::ConvertToNumber, notes([0x3C])).unwrap(),
-            Interpretation::Sequence(numbers([0x3C]))
-        );
-    }
-
-    #[test]
-    fn evaluation_time_idempotence_survives_broadcasting() {
-        // Each conversion is an identity over its own result type
-        // for values that arrive from nested evaluation or from a Sequence.
-        // Without it a broadcast conversion could not compose with another one
-        // over the same Sequence.
-        assert_eq!(
-            evaluate(Function::ConvertToNumber, numbers([0x3C, 0x7F])).unwrap(),
-            Interpretation::Sequence(numbers([0x3C, 0x7F]))
-        );
-        assert_eq!(
-            evaluate(Function::ConvertToNote, notes([0x3C, 0x7F])).unwrap(),
-            Interpretation::Sequence(notes([0x3C, 0x7F]))
-        );
-    }
-
-    #[test]
-    fn a_member_outside_the_midi_range_diagnoses_the_complete_conversion() {
-        // The unconvertible member is the last one, so the two that already
-        // converted are discarded rather than answered as a shorter Sequence.
-        for value in 0x80..=u8::MAX {
-            assert!(
-                matches!(
-                    evaluate(Function::ConvertToNote, numbers([0x00, 0x3C, value])),
-                    Err(Error::Interpretation(InterpretationError::NoteConversion(found)))
-                        if found == value
-                ),
-                "{value:02X}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_non_numeric_member_diagnoses_before_any_member_converts() {
-        // A Bang is a legitimate Sequence member and is not a numeric value, so
-        // it is the type layer that refuses it. It stands after a member that
-        // would itself fail to convert, which is what makes the ordering
-        // observable rather than incidental.
-        assert!(matches!(
-            evaluate(Function::ConvertToNote, Sequence::new([Atom::Number(0x80), Atom::Bang]).unwrap()),
-            Err(Error::Type(TypeError::Numeric(found))) if found == "**"
-        ));
-    }
-
-    #[test]
-    fn both_conversions_accept_both_numeric_types_as_one_atom() {
-        // Idempotence, at the scalar shape: each conversion leaves a
-        // value already of its result type unchanged, and converts the other.
+    fn each_conversion_refuses_a_value_of_the_type_it_answers() {
+        // The operand is the declared literal type and nothing else: a value
+        // already of the result type is not passed through.
         for value in 0x00..=0x7F {
-            assert_eq!(
-                evaluate(Function::ConvertToNumber, Atom::Number(value)).unwrap(),
-                Interpretation::Cell(Atom::Number(value)),
-                "{value:02X}"
-            );
-            assert_eq!(
-                evaluate(Function::ConvertToNumber, note(value)).unwrap(),
-                Interpretation::Cell(Atom::Number(value)),
-                "{value:02X}"
-            );
-            assert_eq!(
-                evaluate(Function::ConvertToNote, note(value)).unwrap(),
-                Interpretation::Cell(note(value)),
-                "{value:02X}"
-            );
-            assert_eq!(
-                evaluate(Function::ConvertToNote, Atom::Number(value)).unwrap(),
-                Interpretation::Cell(note(value)),
-                "{value:02X}"
-            );
-        }
-
-        // `.v` has no range to refuse: every Number is its own identity.
-        for value in 0x80..=u8::MAX {
-            assert_eq!(
-                evaluate(Function::ConvertToNumber, Atom::Number(value)).unwrap(),
-                Interpretation::Cell(Atom::Number(value)),
-                "{value:02X}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_sequence_of_both_numeric_types_converts_member_by_member() {
-        let mixed = Sequence::new([Atom::Number(0x3C), note(0x40), Atom::Number(0x7F)]).unwrap();
-
-        assert_eq!(
-            evaluate(Function::ConvertToNote, mixed.clone()).unwrap(),
-            Interpretation::Sequence(notes([0x3C, 0x40, 0x7F]))
-        );
-        assert_eq!(
-            evaluate(Function::ConvertToNumber, mixed).unwrap(),
-            Interpretation::Sequence(numbers([0x3C, 0x40, 0x7F]))
-        );
-    }
-
-    #[test]
-    fn both_conversions_answer_the_empty_sequence_for_the_empty_sequence() {
-        for (function, _) in BODIES {
-            assert_eq!(
-                evaluate(function, Sequence::empty()).unwrap(),
-                Interpretation::Sequence(Sequence::empty()),
-                "{function:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_non_numeric_operand_diagnoses_as_non_numeric_for_both_conversions() {
-        for (function, _) in BODIES {
             assert!(
                 matches!(
-                    evaluate(function, Atom::Bang),
-                    Err(Error::Type(TypeError::Numeric(found))) if found == "**"
+                    evaluate(Function::ConvertToNumber, Atom::Number(value)),
+                    Err(Error::Type(TypeError::Note(_)))
                 ),
-                "{function:?}"
+                "{value:02X}"
             );
             assert!(
                 matches!(
-                    evaluate(function, Atom::Function(Function::Add)),
-                    Err(Error::Type(TypeError::Numeric(found))) if found == ".+"
+                    evaluate(Function::ConvertToNote, note(value)),
+                    Err(Error::Type(TypeError::Number(_)))
                 ),
-                "{function:?}"
+                "{value:02X}"
             );
         }
     }
 
     #[test]
-    fn the_first_non_numeric_member_in_order_diagnoses_the_complete_conversion() {
-        // Two faulty members, so the one reported is observably the earlier.
-        let sequence = Sequence::new([
-            Atom::Number(0x01),
-            Atom::Bang,
-            Atom::Function(Function::Add),
-        ])
-        .unwrap();
-
-        for (function, _) in BODIES {
+    fn a_non_numeric_operand_diagnoses_as_the_declared_literal_type() {
+        for value in [Atom::Bang, Atom::Function(Function::Add)] {
+            let spelling = value.to_string();
             assert!(
                 matches!(
-                    evaluate(function, sequence.clone()),
-                    Err(Error::Type(TypeError::Numeric(found))) if found == "**"
+                    evaluate(Function::ConvertToNumber, value),
+                    Err(Error::Type(TypeError::Note(found))) if found == spelling
                 ),
-                "{function:?}"
+                "{spelling}"
+            );
+            assert!(
+                matches!(
+                    evaluate(Function::ConvertToNote, value),
+                    Err(Error::Type(TypeError::Number(found))) if found == spelling
+                ),
+                "{spelling}"
             );
         }
     }
@@ -342,13 +175,14 @@ mod test {
 
     #[test]
     fn a_conversion_reads_only_its_own_operand_from_a_deeper_stack() {
-        for (function, body) in BODIES {
+        for ((function, body), operand) in BODIES.into_iter().zip([Atom::Number(0x3C), note(0x3C)])
+        {
             let mut ctx = Context::new(inputs().into(), 4);
             ctx.stack.push(Atom::Bang).unwrap();
-            ctx.stack.push(Atom::Number(0x3C)).unwrap();
+            ctx.stack.push(operand).unwrap();
 
             assert!(body(&mut ctx).is_ok(), "{function:?}");
-            assert_eq!(ctx.stack.pop_value(), Some(Value::Atom(Atom::Bang)));
+            assert_eq!(ctx.stack.pop_value(), Some(Atom::Bang));
         }
     }
 
@@ -370,7 +204,9 @@ mod test {
     }
 
     #[test]
-    fn nested_conversions_compose_and_stay_idempotent() {
+    fn nested_conversions_compose_and_read_their_return_by_the_receiving_operand() {
+        // Opposite directions compose: each Return spells the type the outer
+        // conversion declares.
         assert_eq!(
             nested(Function::ConvertToNumber, ".^3C").unwrap(),
             Interpretation::Cell(Atom::Number(0x3C))
@@ -379,45 +215,32 @@ mod test {
             nested(Function::ConvertToNote, ".vC4").unwrap(),
             Interpretation::Cell(note(0x3C))
         );
-        assert_eq!(
-            nested(Function::ConvertToNote, ".^3C").unwrap(),
-            Interpretation::Cell(note(0x3C))
-        );
-        assert_eq!(
-            nested(Function::ConvertToNumber, ".vC4").unwrap(),
-            Interpretation::Cell(Atom::Number(0x3C))
-        );
-    }
-
-    #[test]
-    fn a_nested_non_numeric_answer_diagnoses_where_the_conversion_pops_it() {
-        // Equal operands make `.=` answer a Bang, which each conversion pops.
-        for function in [Function::ConvertToNote, Function::ConvertToNumber] {
-            assert!(
-                matches!(
-                    nested(function, ".=0101"),
-                    Err(Error::Type(TypeError::Numeric(found))) if found == "**"
-                ),
-                "{function:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_nested_sequence_converts_elementwise_and_assembles_nothing_on_failure() {
-        assert_eq!(
-            nested(Function::ConvertToNote, ":-7E7F").unwrap(),
-            Interpretation::Sequence(notes([0x7E, 0x7F]))
-        );
+        // The same direction does not pass the child's type through. `.^3C`
+        // returns `C4`, which `.^` reads as Number `C4`, outside the Note
+        // range; `.vC4` returns `3C`, which is not a Note spelling.
         assert!(matches!(
-            nested(Function::ConvertToNote, ":-7F80"),
+            nested(Function::ConvertToNote, ".^3C"),
             Err(Error::Interpretation(InterpretationError::NoteConversion(
-                0x80
+                0xC4
             )))
         ));
-        assert_eq!(
-            nested(Function::ConvertToNumber, ":#C4D4").unwrap(),
-            Interpretation::Sequence(numbers([0x3C, 0x3D, 0x3E]))
-        );
+        assert!(matches!(
+            nested(Function::ConvertToNumber, ".vC4"),
+            Err(Error::Type(TypeError::Note(found))) if found == "3C"
+        ));
+    }
+
+    #[test]
+    fn a_nested_bang_return_diagnoses_as_the_receiving_literal_type() {
+        // Equal operands make `.=` answer a Bang, whose Return `**` spells
+        // neither a Note nor a Number.
+        assert!(matches!(
+            nested(Function::ConvertToNumber, ".=0101"),
+            Err(Error::Type(TypeError::Note(found))) if found == "**"
+        ));
+        assert!(matches!(
+            nested(Function::ConvertToNote, ".=0101"),
+            Err(Error::Type(TypeError::Number(found))) if found == "**"
+        ));
     }
 }

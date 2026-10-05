@@ -1,6 +1,6 @@
 # Value inputs wait; placement tests occupancy at its Turn
 
-Status: accepted. Delivery is split between the [mover](../../.scratch/placement-semantics/issues/02-let-movers-enter-vacated-cells.md) and [emission](../../.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md) slices; emission scheduling remains pending after the mover slice.
+Status: accepted. Delivery is split between the [mover](../../.scratch/placement-semantics/issues/02-let-movers-enter-vacated-cells.md) and [emission](../../.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md) slices; emission scheduling remains pending after the mover slice. The cycle clause is amended by [ADR 0065](0065-an-error-never-stops-the-performance.md).
 
 Orcvs keeps one dependency-ordered Tick against working Source. Snapshot ownership identifies
 computations; it does not reserve their original Cells after they move. This amends the placement
@@ -10,7 +10,10 @@ reservation-based value ordering. ADR 0031's row-major evaluator remains superse
 **Rule 3a: value inputs wait for their suppliers.** Every applicable potential writer whose
 reservation covers a value input settles before its consumer executes. The consumer reads the
 surviving encoding under its current signature. A spatial supplier that fails or produces no write
-still settles; nested inputs still require typed answers. Input Portal read dependencies remain.
+still settles; a nested input waits for its child's Return, the two-Cell encoding the receiving
+operand decodes by its declared literal type exactly as it decodes a spatial write, as
+[ADR 0061](0061-a-nested-function-returns-to-the-slot-it-occupies.md) decides. A nested Function's
+own Output Portal write is a potential writer like any other. Input Portal read dependencies remain.
 
 **Rule 3b: placement tests occupancy at its Turn.** An Advance or Emit reads the working Grid
 at its scheduled Turn, after prior Bang cleanup and earlier admitted effects. It does not wait
@@ -44,5 +47,5 @@ one execution order. Snapshot-only admission would forbid following into newly v
 simultaneous vacancy solving would require additional contest, swap, and cycle rules. Neither is
 adopted, and matching Orca is not a compatibility requirement.
 
-Genuine dependency cycles still reject the whole Tick atomically. The activation/operand cycle
+Genuine dependency cycles still stop every Expression they reach, and no other. The activation/operand cycle
 where an emission reserves its Bang supplier's literal input is a [separate investigation](../../.scratch/placement-semantics/issues/04-investigate-emission-activation-operand-cycles.md), not permission to drop input-readiness edges. Bang lifetime, bounded original-anchor replacement, and Source/Playback separation are unchanged.

@@ -1,31 +1,22 @@
 pub(crate) mod jump;
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
-pub(crate) mod sequence;
 pub(crate) mod tick;
-use crate::{Error, Performance, PlayCommand, atom::operands, interpreter::Context};
+use crate::{Error, PlayCommand, atom::operands, interpreter::Context};
 
-// Every Function here is declared Pervasive in `define_functions!`, so each
-// body states one Play Command for one element and says nothing about
-// Sequences, exactly as an Atomic Function body states one Atom. They extend
-// under the Atomic Functions' broadcast rules rather than under rules of their
-// own:
-// `Stack::perform` decides the one shape the operands make, hands out each
-// element's operands, and answers the ordered group. A body that walked a
-// Sequence itself would be a second broadcast mechanism, free to disagree with
-// the first about lengths, about ordering, and about what a partial failure
-// leaves sounding.
+// Each body states one Play Command for the operands `Stack::perform` binds.
+// A chord is several of these roots activated by one Bang, each answering its
+// own command, so no body here knows about more than one note.
 
 /// Raw Play: `!> channel velocity note`.
 ///
 /// There is no validation call here. Each operand's domain is declared beside
-/// its role in `define_functions!` and converted as each element binds, so a
-/// Function that diagnoses has produced no Play Command at all — at any width,
-/// because nothing is answered until every element has bound — and a new MIDI
+/// its role in `define_functions!` and converted as each operand binds, so a
+/// Function that diagnoses has produced no Play Command at all, and a new MIDI
 /// terminal Function inherits its validation from its declaration rather than
 /// from a body that remembers to ask for it.
 #[inline(always)]
-pub fn raw_play(ctx: &mut Context) -> Result<Performance, Error> {
+pub fn raw_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
     ctx.stack.perform(
         |operands::RawPlay {
              channel,
@@ -47,13 +38,8 @@ pub fn raw_play(ctx: &mut Context) -> Result<Performance, Error> {
 /// requires it even where it changes nothing — velocity `00` stops the note
 /// whatever length accompanies it — so the operand is extracted here and what
 /// it means is decided by the Playback Engine that owns the Ticks it counts.
-///
-/// One length per element follows from stating the command per element: each
-/// element of a widened `!~` gets its own Note Off at its own length, and the
-/// Playback Engine keys ownership by channel and note, so neither side needs a
-/// case for it.
 #[inline(always)]
-pub fn timed_play(ctx: &mut Context) -> Result<Performance, Error> {
+pub fn timed_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
     ctx.stack.perform(
         |operands::TimedPlay {
              channel,
@@ -78,15 +64,8 @@ pub fn timed_play(ctx: &mut Context) -> Result<Performance, Error> {
 /// the Playback Engine that counts Ticks is what knows the difference. A body
 /// that tried to say so here would be interpreting musical intent inside a
 /// Tick Plan, which is the seam ADR 0001 draws.
-///
-/// Widening is the same seam again. This states one command per
-/// element and nothing about Sequences, so a widened `!%` answers an ordered
-/// group whose elements all name the one channel-keyed voice; that the last of
-/// them is what the channel is left sounding is the Playback Engine's rule,
-/// arrived at by the ordinary replacement it performs, and not a case
-/// this body knows about.
 #[inline(always)]
-pub fn monophonic_play(ctx: &mut Context) -> Result<Performance, Error> {
+pub fn monophonic_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
     ctx.stack.perform(
         |operands::MonophonicPlay {
              channel,
@@ -111,15 +90,8 @@ pub fn monophonic_play(ctx: &mut Context) -> Result<Performance, Error> {
 /// operand legal is declared beside its role in `define_functions!`. The two
 /// data bytes share a domain and differ in type, so this body cannot hand one
 /// role's operand to the other even by writing the fields out of order.
-///
-/// One command per element, like every other terminal spelling: `!c` widens
-/// under the ordinary broadcast rules, so a Sequence in the controller
-/// position sweeps a bank of controllers from one Expression and a Sequence in
-/// the value position sends one controller a series. Nothing about that is
-/// stated here, because `Stack::perform` owns the width and this body owns the
-/// command.
 #[inline(always)]
-pub fn control_change(ctx: &mut Context) -> Result<Performance, Error> {
+pub fn control_change(ctx: &mut Context) -> Result<PlayCommand, Error> {
     ctx.stack.perform(
         |operands::ControlChange {
              channel,
@@ -141,13 +113,8 @@ pub fn control_change(ctx: &mut Context) -> Result<Performance, Error> {
 /// takes them. Combining them into a fourteen-bit bend here would be a
 /// scaling decision ADR 0016 refuses and would leave the adapter splitting
 /// apart what this had just joined.
-///
-/// Widening changes none of that. Each element gets its own bend,
-/// and because the halves stay two operands rather than one assembled number,
-/// a Sequence in the LSB position sweeps the fine half against a held MSB
-/// exactly as the wire would take it.
 #[inline(always)]
-pub fn pitch_bend(ctx: &mut Context) -> Result<Performance, Error> {
+pub fn pitch_bend(ctx: &mut Context) -> Result<PlayCommand, Error> {
     ctx.stack.perform(
         |operands::PitchBend { channel, lsb, msb }: operands::PitchBend| {
             Ok(PlayCommand::PitchBend { channel, lsb, msb })
@@ -160,8 +127,8 @@ mod test {
     use super::{control_change, monophonic_play, pitch_bend, raw_play, timed_play};
     use crate::{
         Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
-        Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, Performance,
-        PlayCommand, Sequence, Tick, TickInputs, Value, Velocity, interpreter::Context,
+        Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, PlayCommand,
+        Tick, TickInputs, Velocity, interpreter::Context,
     };
 
     ///
@@ -179,18 +146,18 @@ mod test {
 
     /// A lifetime Play's operands with the Number `3C` where the Note stands:
     /// what `.vC4` answers there.
-    fn midi_play_with_a_number_note() -> [Value; 4] {
-        [0x00, 0x7F, 0x3C, 0x01].map(|number| Value::Atom(Atom::Number(number)))
+    fn midi_play_with_a_number_note() -> [Atom; 4] {
+        [0x00, 0x7F, 0x3C, 0x01].map(Atom::Number)
     }
 
     /// Exercises Function dispatch with resolved operands in signature order.
-    fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
+    fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
         Interpreter::execute_function(function, operands.to_vec(), inputs().into())
     }
 
     /// A terminal body, so the two spellings that share a claim can be stated
     /// once and asserted over rather than written out for each.
-    type Terminal = fn(&mut Context) -> Result<Performance, Error>;
+    type Terminal = fn(&mut Context) -> Result<PlayCommand, Error>;
 
     /// Calls a shipped body with `operands` on the stack in signature order.
     ///
@@ -198,129 +165,12 @@ mod test {
     /// before it dispatches, so an arity claim made through `evaluate` observes
     /// that guard rather than the Function it names. The bodies own their
     /// arity demand, so the tests that pin it reach them here.
-    fn call_body(body: Terminal, operands: &[Value]) -> Result<Performance, Error> {
+    fn call_body(body: Terminal, operands: &[Atom]) -> Result<PlayCommand, Error> {
         let mut ctx = Context::new(inputs().into(), 4);
         for operand in operands.iter().rev() {
-            ctx.stack.push(operand.clone()).unwrap();
+            ctx.stack.push(*operand).unwrap();
         }
         body(&mut ctx)
-    }
-
-    /// A Sequence of Notes, for the operand position a chord is spelled in.
-    fn note_sequence(values: impl IntoIterator<Item = u8>) -> Sequence {
-        Sequence::new(
-            values
-                .into_iter()
-                .map(|value| Atom::Note(Note::try_from(value).unwrap())),
-        )
-        .unwrap()
-    }
-
-    /// One Raw Play Command, from the bytes a Source would have written.
-    fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
-        PlayCommand::Raw {
-            channel: MidiChannel::try_from(channel).unwrap(),
-            velocity: Velocity::try_from(velocity).unwrap(),
-            note: Note::try_from(note).unwrap(),
-        }
-    }
-
-    /// One Timed Play Command, from the bytes a Source would have written.
-    fn timed(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
-        PlayCommand::Timed {
-            channel: MidiChannel::try_from(channel).unwrap(),
-            velocity: Velocity::try_from(velocity).unwrap(),
-            note: Note::try_from(note).unwrap(),
-            length: Length::from(length),
-        }
-    }
-
-    #[test]
-    fn play_evaluation_broadcasts_a_sequence_operand() {
-        // Pervasion is decided in two places, and the declaration table is only
-        // one of them: a body that bound through `Stack::extract` would refuse
-        // the Sequence below with `ExpectedAtom` while `RawPlay` still declared
-        // `Pervasive`, and every broadcast test written against a test-local
-        // restatement of the body would stay green. These exercise the shipped
-        // Functions through the same Evaluator interface as Tick execution.
-        //
-        // One channel and one velocity against three distinct notes: a chord
-        // the Source writes with no spelling of its own, and distinct notes so
-        // a group assembled in reverse is a different answer rather than the
-        // same one.
-        let operands = [
-            Atom::Number(0x01).into(),
-            Atom::Number(0x7F).into(),
-            note_sequence([60, 64, 67]).into(),
-        ];
-
-        assert_eq!(
-            evaluate(Function::RawPlay, &operands).unwrap(),
-            Interpretation::Play(Performance::Many(vec![
-                raw(0x01, 0x7F, 60),
-                raw(0x01, 0x7F, 64),
-                raw(0x01, 0x7F, 67),
-            ]))
-        );
-
-        // And the four-operand Function, whose extra scalar repeats across
-        // every element exactly as the other two do.
-        let operands = [
-            Atom::Number(0x02).into(),
-            Atom::Number(0x40).into(),
-            note_sequence([60, 64, 67]).into(),
-            Atom::Number(0x08).into(),
-        ];
-
-        assert_eq!(
-            evaluate(Function::TimedPlay, &operands).unwrap(),
-            Interpretation::Play(Performance::Many(vec![
-                timed(0x02, 0x40, 60, 0x08),
-                timed(0x02, 0x40, 64, 0x08),
-                timed(0x02, 0x40, 67, 0x08),
-            ]))
-        );
-    }
-
-    #[test]
-    fn a_domain_fault_mid_sequence_leaves_play_evaluation_with_no_command() {
-        // The all-or-nothing rule through the Functions that actually ship,
-        // rather than through a restatement of them. The out-of-domain velocity
-        // is the second of three, so a body that handed each command on as it
-        // bound the element would already have sounded the first note. Nothing
-        // is answered at all, which is the only thing that keeps a partly
-        // sounded chord from reaching the Playback Engine.
-        let operands = [
-            Atom::Number(0x01).into(),
-            Sequence::new([Atom::Number(0x40), Atom::Number(0x80), Atom::Number(0x50)])
-                .unwrap()
-                .into(),
-            note_sequence([60, 64, 67]).into(),
-        ];
-
-        assert!(matches!(
-            evaluate(Function::RawPlay, &operands),
-            Err(Error::Interpretation(InterpretationError::MidiDataByte {
-                role: "velocity",
-                value: 0x80
-            }))
-        ));
-
-        let operands = [
-            Sequence::new([Atom::Number(0x00), Atom::Number(0x10), Atom::Number(0x02)])
-                .unwrap()
-                .into(),
-            Atom::Number(0x7F).into(),
-            note_sequence([60, 64, 67]).into(),
-            Atom::Number(0x08).into(),
-        ];
-
-        assert!(matches!(
-            evaluate(Function::TimedPlay, &operands),
-            Err(Error::Interpretation(InterpretationError::MidiChannel(
-                0x10
-            )))
-        ));
     }
 
     /// This internal test observes Stack consumption, which the Evaluator
@@ -341,15 +191,15 @@ mod test {
 
         assert_eq!(
             result,
-            Performance::One(PlayCommand::Raw {
+            PlayCommand::Raw {
                 channel: MidiChannel::try_from(0).unwrap(),
                 velocity: Velocity::try_from(0x7F).unwrap(),
                 note: Note::try_from(60).unwrap(),
-            })
+            }
         );
 
         // Exactly three arguments were consumed
-        assert_eq!(ctx.stack.pop_value(), Some(Value::Atom(Atom::Bang)));
+        assert_eq!(ctx.stack.pop_value(), Some(Atom::Bang));
         assert_eq!(ctx.stack.pop_value(), None);
     }
 
@@ -362,9 +212,9 @@ mod test {
         // transposed one, which is why this test cannot be replaced by the
         // domain types it sits beside.
         let operands = [
-            Atom::Number(0x01).into(),
-            Atom::Number(0x02).into(),
-            Atom::Note(Note::try_from(60).unwrap()).into(),
+            Atom::Number(0x01),
+            Atom::Number(0x02),
+            Atom::Note(Note::try_from(60).unwrap()),
         ];
 
         let expected = PlayCommand::Raw {
@@ -375,7 +225,7 @@ mod test {
 
         assert_eq!(
             evaluate(Function::RawPlay, &operands).unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
 
         // The same claim from Source text, which adds the parse and the
@@ -383,7 +233,7 @@ mod test {
         // `!>` reads channel, then velocity, then note, left to right.
         assert_eq!(
             interpret("!>0102C4").unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
     }
 
@@ -396,10 +246,10 @@ mod test {
         // Channel and length are the exposed pair here — `01` and `04` are
         // legal in both domains — which is why they are the two furthest apart.
         let operands = [
-            Atom::Number(0x01).into(),
-            Atom::Number(0x02).into(),
-            Atom::Note(Note::try_from(60).unwrap()).into(),
-            Atom::Number(0x04).into(),
+            Atom::Number(0x01),
+            Atom::Number(0x02),
+            Atom::Note(Note::try_from(60).unwrap()),
+            Atom::Number(0x04),
         ];
 
         let expected = PlayCommand::Timed {
@@ -411,7 +261,7 @@ mod test {
 
         assert_eq!(
             evaluate(Function::TimedPlay, &operands).unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
 
         // And the same claim from Source text, which adds the parse and the
@@ -419,7 +269,7 @@ mod test {
         // left to right in the Cells.
         assert_eq!(
             interpret("!~0102C404").unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
     }
 
@@ -430,10 +280,10 @@ mod test {
         // declaration compiles and only values that differ separate it from
         // the declaration meant.
         let operands = [
-            Atom::Number(0x01).into(),
-            Atom::Number(0x02).into(),
-            Atom::Note(Note::try_from(60).unwrap()).into(),
-            Atom::Number(0x04).into(),
+            Atom::Number(0x01),
+            Atom::Number(0x02),
+            Atom::Note(Note::try_from(60).unwrap()),
+            Atom::Number(0x04),
         ];
 
         let expected = PlayCommand::Mono {
@@ -445,14 +295,14 @@ mod test {
 
         assert_eq!(
             evaluate(Function::MonophonicPlay, &operands).unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
 
         // And the same claim from Source text: `!%` reads channel, velocity,
         // note, then length, left to right in the Cells.
         assert_eq!(
             interpret("!%0102C404").unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
     }
 
@@ -466,8 +316,7 @@ mod test {
             Atom::Number(0x02),
             Atom::Note(crate::Note::try_from(60).unwrap()),
             Atom::Number(0x04),
-        ]
-        .map(Value::from);
+        ];
 
         for found in 0..4 {
             let error = call_body(monophonic_play, &operands[..found]).unwrap_err();
@@ -512,12 +361,12 @@ mod test {
         for length in 0..=u8::MAX {
             assert_eq!(
                 interpret(&format!("!%007FC4{length:02X}")).unwrap(),
-                Interpretation::Play(Performance::One(PlayCommand::Mono {
+                Interpretation::Play(PlayCommand::Mono {
                     channel: MidiChannel::try_from(0).unwrap(),
                     velocity: Velocity::try_from(0x7F).unwrap(),
                     note: Note::try_from(60).unwrap(),
                     length: Length::from(length),
-                })),
+                }),
                 "length {length:02X}"
             );
         }
@@ -534,8 +383,7 @@ mod test {
             Atom::Number(0x02),
             Atom::Note(crate::Note::try_from(60).unwrap()),
             Atom::Number(0x04),
-        ]
-        .map(Value::from);
+        ];
 
         for found in 0..4 {
             let error = call_body(timed_play, &operands[..found]).unwrap_err();
@@ -581,12 +429,12 @@ mod test {
         for length in 0..=u8::MAX {
             assert_eq!(
                 interpret(&format!("!~007FC4{length:02X}")).unwrap(),
-                Interpretation::Play(Performance::One(PlayCommand::Timed {
+                Interpretation::Play(PlayCommand::Timed {
                     channel: MidiChannel::try_from(0).unwrap(),
                     velocity: Velocity::try_from(0x7F).unwrap(),
                     note: Note::try_from(60).unwrap(),
                     length: Length::from(length),
-                })),
+                }),
                 "length {length:02X}"
             );
         }
@@ -602,11 +450,7 @@ mod test {
         // command, and cannot see a transposition of the declaration itself.
         // `01`, `02`, and `03` are legal in all three positions, so nothing
         // but the values separates the declaration meant from its transposition.
-        let operands = [
-            Atom::Number(0x01).into(),
-            Atom::Number(0x02).into(),
-            Atom::Number(0x03).into(),
-        ];
+        let operands = [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)];
 
         let expected = PlayCommand::ControlChange {
             channel: MidiChannel::try_from(0x01).unwrap(),
@@ -616,7 +460,7 @@ mod test {
 
         assert_eq!(
             evaluate(Function::ControlChange, &operands).unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
 
         // The same claim from Source text, which adds the parse and the
@@ -624,7 +468,7 @@ mod test {
         // `!c` reads channel, then controller, then value, left to right.
         assert_eq!(
             interpret("!c010203").unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
     }
 
@@ -634,11 +478,7 @@ mod test {
         // value are in the test above: one shared data-byte domain, two roles,
         // and a wire order that a transposition would silently reverse into a
         // bend of an entirely different pitch.
-        let operands = [
-            Atom::Number(0x01).into(),
-            Atom::Number(0x02).into(),
-            Atom::Number(0x03).into(),
-        ];
+        let operands = [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)];
 
         let expected = PlayCommand::PitchBend {
             channel: MidiChannel::try_from(0x01).unwrap(),
@@ -648,14 +488,14 @@ mod test {
 
         assert_eq!(
             evaluate(Function::PitchBend, &operands).unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
 
         // And from Source text: `!b` reads channel, then LSB, then MSB, left
         // to right in the Cells, which is also the order they go out on.
         assert_eq!(
             interpret("!b010203").unwrap(),
-            Interpretation::Play(Performance::One(expected))
+            Interpretation::Play(expected)
         );
     }
 
@@ -671,8 +511,7 @@ mod test {
         // count rather than a type: an arity diagnostic must precede every
         // other one, and only a correctly typed prefix can prove it does.
         // That ordering is the body's, so the bodies are what this drives.
-        let operands =
-            [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)].map(Value::from);
+        let operands = [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)];
         for body in [control_change as Terminal, pitch_bend as Terminal] {
             for found in 0..3 {
                 let error = call_body(body, &operands[..found]).unwrap_err();
@@ -701,10 +540,7 @@ mod test {
                 arguments[mistyped] = Atom::Note(crate::Note::try_from(0x03).unwrap());
 
                 assert!(
-                    matches!(
-                        evaluate(function, &arguments.map(Value::from)),
-                        Err(Error::Type(_))
-                    ),
+                    matches!(evaluate(function, &arguments), Err(Error::Type(_))),
                     "a Note in operand {mistyped} was accepted",
                 );
             }
@@ -805,7 +641,7 @@ mod test {
 
                 assert_eq!(
                     interpret(&expression).unwrap(),
-                    Interpretation::Play(Performance::One(expected(channel, byte))),
+                    Interpretation::Play(expected(channel, byte)),
                     "{expression}"
                 );
             }
@@ -814,7 +650,7 @@ mod test {
 
     #[test]
     fn test_raw_play_requires_three_arguments() {
-        let operands = [Atom::Number(1); 3].map(Value::from);
+        let operands = [Atom::Number(1); 3];
         for found in 0..3 {
             let error = call_body(raw_play, &operands[..found]).unwrap_err();
 
@@ -844,7 +680,7 @@ mod test {
             [Atom::Number(0), Atom::Number(0x7F), Atom::Number(60)],
         ] {
             assert!(matches!(
-                evaluate(Function::RawPlay, &arguments.map(Value::from)),
+                evaluate(Function::RawPlay, &arguments),
                 Err(Error::Type(_))
             ));
         }
@@ -857,8 +693,7 @@ mod test {
                 Atom::Number(channel),
                 Atom::Number(0x7F),
                 Atom::Note(crate::Note::try_from(60).unwrap()),
-            ]
-            .map(Value::from);
+            ];
 
             assert!(matches!(
                 evaluate(Function::RawPlay, &operands),
@@ -875,8 +710,7 @@ mod test {
                 Atom::Number(0),
                 Atom::Number(velocity),
                 Atom::Note(crate::Note::try_from(60).unwrap()),
-            ]
-            .map(Value::from);
+            ];
 
             assert!(matches!(
                 evaluate(Function::RawPlay, &operands),
@@ -886,17 +720,6 @@ mod test {
                 })) if value == velocity
             ));
         }
-    }
-
-    #[test]
-    fn a_non_numeric_value_diagnoses_where_a_numeric_conversion_consumes_it() {
-        // `TypeError::Numeric` is reachable from Source: `.=` answers a Bang
-        // for equal operands, and a Turn hands it to `.^`, which expects a
-        // Number or a Note.
-        assert!(matches!(
-            evaluate(Function::ConvertToNote, &[Value::Atom(Atom::Bang)]),
-            Err(Error::Type(crate::TypeError::Numeric(found))) if found == "**"
-        ));
     }
 
     #[test]

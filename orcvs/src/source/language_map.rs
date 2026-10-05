@@ -6,36 +6,18 @@ use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
-use super::portal::{Portal, SCALAR_WIDTH};
+use super::portal::Portal;
 use super::tick::ScheduleCache;
 use super::{Cells, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
 
 ///
-/// The fewest Cells a Sequence-capable root's Output Portal highlight covers.
-///
-/// Four, because a Function that never wrote more than two Cells would be
-/// declared scalar: being Sequence-capable only shows in an answer longer than
-/// a pair, so four is the narrowest highlight that tells a Sequence-capable
-/// root from a scalar one before any Tick. It bounds the highlight only, never
-/// the Reservation.
-///
-pub(super) const OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH: usize = 2 * SCALAR_WIDTH;
-
-///
-/// One root Function's Output Portal Reservation: the Cells reserved for its
-/// answer, and whether that root may answer a Sequence.
-///
-/// The flag is carried rather than recovered from the range's length. A
-/// Sequence-capable root at the row edge can reserve two Cells or fewer, and
-/// `SourceRevision::output_portal_highlight` must not widen such a root to its
-/// four-Cell minimum by mistaking it for a scalar — nor narrow a scalar to a
-/// Cell pair it already is.
+/// One value Function's Output Portal Reservation, root or nested: the Cell
+/// pair reserved for its answer.
 ///
 pub(super) struct OutputPortalReservation {
     pub(super) range: std::ops::Range<usize>,
-    pub(super) sequence_capable: bool,
 }
 
 static NEXT_LANGUAGE_MAP_ID: AtomicU64 = AtomicU64::new(1);
@@ -511,61 +493,85 @@ impl LanguageMap {
     }
 
     ///
-    /// Every root Function's Output Portal Reservation in this revision, in
-    /// Expression order.
+    /// Every Output Portal Reservation in this revision, in Expression order
+    /// and, within one Expression, in Parser preorder.
     ///
     /// Known before any Tick runs, derived from this revision alone rather
     /// than from what a Tick wrote. Eligibility matches the Tick scheduler's
-    /// `function_candidate()` selection — every root whose leading Cells
-    /// parse as a Function, whether or not its operands bind — rather than
-    /// [`ExpressionEntry::root`], which additionally requires them to. A
-    /// nested Function is never eligible: its answer goes to its parent's
-    /// operand, not to a Cell of its own.
+    /// `function_candidate()` selection — every Expression whose leading
+    /// Cells parse as a Function, whether or not its operands bind — rather
+    /// than [`ExpressionEntry::root`], which additionally requires them to.
+    /// Within such an Expression the root reserves, and so does every nested
+    /// Function that answers a value: it writes its own Output Portal as a
+    /// root does, besides returning its answer to its parent. A nested
+    /// Function that answers no value is refused by the Parser, never takes
+    /// a Turn, and reserves nothing.
     ///
     /// Coverage is the Reservation: [`Portal::reservation`] from the Output
-    /// Portal [`lang::Function`] declares, as wide as [`SequenceCapability`]
-    /// says the root's answer may be. A Terminal Output Function, Halt, and a
+    /// Portal [`lang::Function`] declares, the Cell pair one Atom occupies. A
+    /// Terminal Output Function, Halt, and a
     /// Source-writing Function (including an Advance's cleared anchor) cover no
     /// Cell, because none of them writes an answer through its Output Portal;
     /// neither does a scalar destination the row edge leaves no room for a Cell
     /// pair.
     ///
-    /// Tick scheduling reserves the same Cells for the same root, through the
-    /// same [`Portal::named`] and [`Portal::reservation`].
-    /// `SourceRevision::output_portal_highlight` narrows each Sequence-capable
-    /// Reservation to the answer it holds.
+    /// Tick scheduling reserves the same Cells for the same computations,
+    /// through the same [`Portal::named`] and [`Portal::reservation`].
     ///
-    /// Allocates the returned list and one [`SequenceCapability`], each sized
-    /// before the walk, and nothing per Expression or per entry.
+    /// Allocates the returned list, sized before the walk, and nothing per
+    /// Expression or per entry.
     ///
     pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
-        let candidates = self
+        let candidates: usize = self
             .expressions()
-            .filter(|expression| expression.function_candidate().is_some())
-            .count();
+            .map(|expression| self.reserving_functions(expression).count())
+            .sum();
         let mut reservations = Vec::with_capacity(candidates);
-        let mut capability = SequenceCapability::for_map(self);
         for expression in self.expressions() {
-            let Some((anchor, function)) = expression.function_candidate() else {
-                continue;
-            };
-            reservations.extend(self.output_portal_reservation(
-                expression,
-                anchor,
-                function,
-                &mut capability,
-            ));
+            for (anchor, function) in self.reserving_functions(expression) {
+                reservations.extend(self.output_portal_reservation(anchor, function));
+            }
         }
         reservations
     }
 
     ///
-    /// Whether each Cell of this revision lies in a root Function's Output
-    /// Portal Reservation, in the Grid's row-major order.
+    /// The Functions of `expression` that may reserve an Output Portal: its
+    /// leading Function when it is a Function candidate, and every nested
+    /// Function inside it that answers a value.
     ///
-    /// The Reservation, not the fitted highlight: it is what the Tick
-    /// scheduler reserves. The console reads
-    /// `SourceRevision::output_portal_highlight` instead.
+    fn reserving_functions<'a>(
+        &self,
+        expression: ExpressionEntry<'a>,
+    ) -> impl Iterator<Item = (Position, Function)> + 'a {
+        let grid = self.grid;
+        let root = expression.function_candidate();
+        let nested = root
+            .is_some()
+            .then(|| expression.positioned())
+            .into_iter()
+            .flatten()
+            .filter_map(move |entry| match entry.atom {
+                Some(Atom::Function(function))
+                    if entry.parent.is_some() && function.answers_value() =>
+                {
+                    let anchor = grid.position_at(
+                        grid.cell_index(entry.cells.start)
+                            .expect("a parsed Function lies inside its Grid"),
+                    );
+                    Some((anchor, function))
+                }
+                _ => None,
+            });
+        root.into_iter().chain(nested)
+    }
+
+    ///
+    /// Whether each Cell of this revision lies in an Output Portal
+    /// Reservation, in the Grid's row-major order.
+    ///
+    /// What the Tick scheduler reserves. The console reads the same Cells
+    /// through `SourceRevision::output_portal_highlight`.
     ///
     #[cfg(test)]
     pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
@@ -592,27 +598,16 @@ impl LanguageMap {
     ///
     fn output_portal_reservation(
         &self,
-        expression: ExpressionEntry<'_>,
         anchor: Position,
         function: Function,
-        capability: &mut SequenceCapability,
     ) -> Option<OutputPortalReservation> {
         if function.locks_root() {
             return None;
         }
         let coords = function.output_portal()?;
         let portal = Portal::named(self.grid, anchor, coords).ok()?;
-        // The root is the first entry in preorder.
-        let sequence_capable = capability
-            .derive(expression)
-            .first()
-            .copied()
-            .unwrap_or(false);
-        let range = portal.reservation(sequence_capable)?.range();
-        Some(OutputPortalReservation {
-            range,
-            sequence_capable,
-        })
+        let range = portal.reservation()?.range();
+        Some(OutputPortalReservation { range })
     }
 
     ///
@@ -633,86 +628,6 @@ impl LanguageMap {
         let derived = expression.derived;
         let row = derived.span.start().get() / self.grid.columns();
         &self.rows[row].units[derived.units.clone()]
-    }
-}
-
-///
-/// Whether `function` may answer a Sequence, given whether any of its direct
-/// operands may: the rule for one Function, which every Sequence-capability
-/// question in this crate asks.
-///
-/// Sequence-capability is derivable before any Function evaluates because a
-/// Sequence can only reach a Function from a nested child: ADR 0034 makes a
-/// spatial write literal characters that the receiving operand decodes by its
-/// declared literal type, and ADR 0007 gives a Sequence no literal spelling to
-/// decode. So the two declared columns decide it — a Function that answers a
-/// Sequence outright, or one that widens over an operand that is itself one.
-///
-pub(super) fn may_answer_a_sequence(function: Function, an_operand_may: bool) -> bool {
-    function.answers_sequence() || (an_operand_may && function.widens_over_a_sequence_operand())
-}
-
-///
-/// Which entries of an Expression may answer a Sequence: the one derivation of
-/// Sequence-capability. The Output Portal Reservations read the root's answer
-/// from it, and Tick scheduling reads every computation's reservation width
-/// from it.
-///
-/// It owns its scratch storage, one flag per entry, so a caller deriving many
-/// Expressions reuses one buffer: sized by [`Self::for_map`] for the widest
-/// Function candidate, deriving any candidate of that revision allocates
-/// nothing.
-///
-pub(super) struct SequenceCapability {
-    capable: Vec<bool>,
-}
-
-impl SequenceCapability {
-    /// Scratch sized for the widest Function candidate in `map`.
-    pub(super) fn for_map(map: &LanguageMap) -> Self {
-        let widest = map
-            .expressions()
-            .filter(|expression| expression.function_candidate().is_some())
-            .map(|expression| expression.derived.expression.len())
-            .max()
-            .unwrap_or(0);
-        Self {
-            capable: Vec::with_capacity(widest),
-        }
-    }
-
-    ///
-    /// Per entry of `expression`'s [`ExpressionEntry::positioned`], in the
-    /// same order, whether it may answer a Sequence: [`may_answer_a_sequence`]
-    /// applied to each Function entry, where a direct operand is an entry
-    /// whose `parent` names it. An entry whose Atom is not a Function,
-    /// including a missing or invalid operand, never answers one.
-    ///
-    /// One reverse pass visits each entry once. Preorder puts every operand
-    /// child at a higher index than the Function that owns it, so a child is
-    /// settled before its parent, and a child that may answer a Sequence marks
-    /// its parent's slot before the parent is reached. Each slot therefore
-    /// holds "some operand may" until its own entry overwrites it with the
-    /// entry's answer.
-    ///
-    pub(super) fn derive(&mut self, expression: ExpressionEntry<'_>) -> &[bool] {
-        let entries = expression.derived.expression.len();
-        self.capable.clear();
-        self.capable.resize(entries, false);
-        for (index, entry) in (0..entries).rev().zip(expression.positioned().rev()) {
-            let capable = match entry.atom {
-                Some(Atom::Function(function)) => {
-                    may_answer_a_sequence(function, self.capable[index])
-                }
-                _ => false,
-            };
-            self.capable[index] = capable;
-            if let (true, Some(parent)) = (capable, entry.parent) {
-                debug_assert!(parent < index, "preorder puts a parent first");
-                self.capable[parent] = true;
-            }
-        }
-        &self.capable
     }
 }
 
@@ -1588,7 +1503,6 @@ mod tests {
     ///
     mod output_portal {
         use super::{Cells, Function, Grid, LanguageMap};
-        use crate::source::language_map::SequenceCapability;
 
         /// One `LanguageMap` built from `rows`, each padded to `grid`'s width
         /// with blank Cells, matching how every other row-based fixture in
@@ -1643,118 +1557,58 @@ mod tests {
         }
 
         #[test]
-        fn a_nested_function_is_never_covered() {
-            // Add(Multiply(01, 02), 03): the root's own pair is covered: the
-            // nested Multiply's own would-be Output Portal, one row south of
-            // its own anchor, is not, because a nested Function's answer
-            // goes to its parent's operand rather than to a Cell of its own.
+        fn a_nested_value_function_reserves_its_own_output_portal() {
+            // Add(Multiply(01, 02), 03): the nested Multiply writes its answer
+            // one row south of its own anchor as well as returning it, so its
+            // pair is a Reservation beside the root's.
             let grid = Grid::with_shape(10, 2);
             let map = build(grid, &[".+.x010203"]);
 
             assert!(covered(&map, grid, 0, 1), "the root's own Reservation");
-            assert!(
-                !covered(&map, grid, 2, 1),
-                "the nested Multiply's anchor column is not a Reservation"
-            );
+            assert!(covered(&map, grid, 1, 1));
+            assert!(covered(&map, grid, 2, 1), "the nested Multiply's own");
+            assert!(covered(&map, grid, 3, 1));
+            assert!(!covered(&map, grid, 4, 1), "past the nested pair");
+        }
+
+        #[test]
+        fn a_refused_nested_effect_function_reserves_nothing() {
+            // `!>` cannot nest: it never takes a Turn, so nothing is reserved
+            // south of it, while the root it stands in keeps its own pair.
+            let grid = Grid::with_shape(12, 2);
+            let map = build(grid, &[".+!>007FC401"]);
+
+            assert!(covered(&map, grid, 0, 1), "the root's own Reservation");
+            assert!(!covered(&map, grid, 2, 1));
             assert!(!covered(&map, grid, 3, 1));
         }
 
         #[test]
-        fn a_sequence_capable_root_covers_its_row_to_the_end() {
-            // `:-0102` is NumberRange: it answers a Sequence outright.
+        fn a_retired_colon_spelling_reserves_nothing() {
+            // `:-` names no Function, so `:-0102` is no Function candidate and
+            // reserves no Cell anywhere.
             let grid = Grid::with_shape(8, 2);
             let map = build(grid, &[":-0102"]);
 
+            assert!(map.expressions().all(|e| e.function_candidate().is_none()));
             for x in 0..grid.columns() {
-                assert!(covered(&map, grid, x, 1), "column {x}");
+                assert!(!covered(&map, grid, x, 1), "column {x}");
             }
         }
 
-        #[test]
-        fn a_root_widened_by_a_nested_sequence_operand_covers_its_row_to_the_end() {
-            // Add(NumberRange(01, 02), 03): Add answers Elementwise, so it
-            // widens over an operand a nested Function answers a Sequence
-            // to, even though NumberRange stands in a Number-typed operand
-            // position.
-            let grid = Grid::with_shape(10, 2);
-            let map = build(grid, &[".+:-010203"]);
-            assert_eq!(
-                map.expressions()
-                    .next()
-                    .unwrap()
-                    .function_candidate()
-                    .map(|(_, function)| function),
-                Some(Function::Add)
-            );
-
-            for x in 0..grid.columns() {
-                assert!(covered(&map, grid, x, 1), "column {x}");
-            }
-        }
-
-        #[test]
-        fn sequence_capability_answers_every_entry_in_preorder() {
-            // Add(NumberRange(01, 02), 03): NumberRange answers a Sequence,
-            // Add widens over it, and no literal operand is a Function.
-            let grid = Grid::with_shape(10, 1);
-            let map = build(grid, &[".+:-010203"]);
-            let expression = map.expressions().next().expect("one Expression");
-
-            assert_eq!(
-                SequenceCapability::for_map(&map).derive(expression),
-                [true, true, false, false, false]
-            );
-        }
-
-        /// `depth` Adds, each nested in its parent's first operand, around a
-        /// NumberRange: every Function in it may answer a Sequence.
+        /// `depth` Adds, each nested in its parent's first operand. Gated as
+        /// its one caller, the native allocation test below, is.
+        #[cfg(not(target_arch = "wasm32"))]
         fn nested(depth: usize) -> String {
-            format!("{}:-0102{}", ".+".repeat(depth), "01".repeat(depth))
-        }
-
-        #[test]
-        fn sequence_capability_widens_every_ancestor_of_a_deep_sequence() {
-            let depth = 30;
-            let row = nested(depth);
-            let grid = Grid::with_shape(row.len(), 1);
-            let map = build(grid, &[&row]);
-            let expression = map.expressions().next().expect("one Expression");
-            let capable = SequenceCapability::for_map(&map)
-                .derive(expression)
-                .to_vec();
-
-            // Preorder: the Adds outermost first, NumberRange and its two
-            // operands, then each Add's second operand.
-            let mut expected = vec![true; depth + 1];
-            expected.extend([false; 2]);
-            expected.extend(vec![false; depth]);
-            assert_eq!(capable, expected);
-        }
-
-        #[test]
-        fn one_scratch_buffer_serves_every_expression_it_derives() {
-            // A shallow scalar root after a deep Sequence-capable one: the
-            // buffer the deep one filled is reset, not carried over.
-            let deep = nested(4);
-            let grid = Grid::with_shape(deep.len(), 2);
-            let map = build(grid, &[&deep, ".x0203"]);
-            let mut capability = SequenceCapability::for_map(&map);
-            let answers: Vec<Vec<bool>> = map
-                .expressions()
-                .map(|expression| capability.derive(expression).to_vec())
-                .collect();
-
-            assert_eq!(answers.len(), 2);
-            assert!(answers[0].iter().take(5).all(|&capable| capable));
-            assert_eq!(answers[1], [false, false, false]);
+            format!("{}01{}", ".+".repeat(depth), "01".repeat(depth))
         }
 
         ///
         /// Pins what one call allocates, in the harness's shapes: the same
         /// count whatever the number of Expressions or the depth of their
         /// nesting, since a block per Expression or per entry would move it
-        /// with the shape; and a ceiling of the list it answers plus one
-        /// scratch buffer, so a cheaper call still passes.
+        /// with the shape; and a ceiling of the list it answers, so a cheaper
+        /// call still passes.
         ///
         #[cfg(not(target_arch = "wasm32"))]
         #[test]
@@ -1765,7 +1619,7 @@ mod tests {
             let shapes: [Vec<&str>; 4] = [
                 vec![".+0102"],
                 vec![&deep],
-                vec![".+0102", "", ".x0203", "", ":-0102"],
+                vec![".+0102", "", ".x0203", "", ".-0102"],
                 vec![&deep, &blank, &deep, &blank, &deep, &blank, &deep],
             ];
             let counts: Vec<usize> = shapes
@@ -1776,10 +1630,7 @@ mod tests {
                     let (blocks, reservations) =
                         crate::allocation::blocks(|| map.output_portal_reservations());
                     assert!(!reservations.is_empty(), "{rows:?} reserves Cells");
-                    assert!(
-                        blocks <= 2,
-                        "{rows:?}: at most the list and one scratch buffer, got {blocks}"
-                    );
+                    assert!(blocks <= 1, "{rows:?}: at most the list, got {blocks}");
                     blocks
                 })
                 .collect();
@@ -1915,7 +1766,7 @@ mod tests {
             // JumpEast anchored at column 3 of a 6-wide row: the destination
             // column 5 exists, but the Cell pair it needs would run to
             // column 6, which does not — the same refusal
-            // `Reserved::cells_from` gives an ordinary scalar at the row's
+            // `Portal::reservation` gives an ordinary scalar at the row's
             // last two Cells, reached here through a Jump because an
             // ordinary Function's south Portal shares its own row's width
             // and so never meets this edge on its own.

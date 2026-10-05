@@ -1,31 +1,32 @@
 //! Tick-local execution of Parser-owned expressions.
 //!
 //! Fixed Portal destinations and nested ownership determine the complete order
-//! before execution. Spatial writes remain character encodings until consumed;
-//! nested results are typed values. Only the final effects are published.
+//! before execution. Spatial writes remain character encodings until consumed,
+//! and a nested result returns to its parent as the same encoding, so the
+//! receiving operand decodes both. Only the final effects are published.
 
 pub(super) mod execution;
 #[cfg(test)]
+mod nested_jump;
+#[cfg(test)]
 mod schedule_reuse;
 
-use lang::{
-    Anchor, Atom, Function, ReplacementChange, SourceBundle, SourceEffect, Tick, TickInputs,
-};
+use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use super::encoding::{Encoding, RenderError, Rendered};
-use super::language_map::{LanguageMap, SequenceCapability, Span, may_answer_a_sequence};
+use super::language_map::{LanguageMap, Span};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
-use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
-use super::{CellContent, CellWrite, Cells, Diagnostic, Performance, TickPlan};
+use super::portal::{Portal, PortalAccess, SpanWrite};
+use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
     Write(SpanWrite),
-    Play(Performance),
+    Play(PlayCommand),
     Diagnose(Diagnostic),
     /// Withholds the Expression root at this anchor. Not a Cell write.
     Lock(Position),
@@ -45,9 +46,6 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     portal_access: PortalAccess,
-    /// How wide this computation's result may be, and the one home that fact
-    /// has in a schedule. [`computations`] sets it.
-    reserved: Reserved,
 }
 
 struct Schedule {
@@ -92,8 +90,7 @@ impl Claims {
 /// Write reservations, bucketed by row.
 ///
 /// [`Claims`] requires disjoint ranges. Producer destinations do not: two
-/// Portals may name the same Cells, and a row reservation covers every Pair
-/// that lands in its tail. A Span never leaves its row, so each Input Portal
+/// Portals may name the same Cells. A Span never leaves its row, so each Input Portal
 /// read searches only the writes that share it — naming an Input Portal on
 /// every Increment must not scan every other root.
 struct WriteClaims {
@@ -157,86 +154,6 @@ enum LockTarget {
     Empty,
     Outside,
     Occupied,
-}
-
-/// How many Cells scheduling reserves for one computation's result.
-///
-/// A schedule is fixed before any Function evaluates, so this is derived from
-/// declarations rather than from a width that does not exist yet. It is an
-/// over-approximation on purpose: the reservation orders the Turns, and the
-/// admitted write — always a subset of it — decides what is actually written,
-/// suppressed, or activated.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Reserved {
-    /// The `SCALAR_WIDTH` Cells one Atom occupies, for every computation whose
-    /// answer cannot be a Sequence. Execution refuses any other width from
-    /// such a computation before it admits a write, which is the only reason
-    /// a scalar destination a Portal admits is always one this covers.
-    Pair,
-    /// Every Cell from the destination through the end of its row. A Sequence's
-    /// width is not known when the schedule is built, and no Span reaches past
-    /// the row it begins in, so the rest of the row is the smallest reservation
-    /// that can name every Cell such a write might reach.
-    Row,
-}
-
-impl Reserved {
-    /// The Cells this reservation covers from `output` along its row, or
-    /// `None` where a scalar pair cannot fit before the row edge — a Cell pair
-    /// whose second Cell is in the next row is not a Span at all.
-    ///
-    /// This is [`Portal::reservation`], the width rule the Output Portal
-    /// Reservations measure with, which is why the callers ask for the Cells
-    /// instead of matching on the variant and measuring them again.
-    fn cells_from(self, grid: Grid, output: Position) -> Option<Range<usize>> {
-        Portal::at(grid, output)
-            .reservation(self.may_be_a_sequence())
-            .map(Span::range)
-    }
-
-    /// Whether a result `width` Cells wide is one this reservation covers.
-    ///
-    /// A Cell pair covers exactly the pair: the reservation is what the row
-    /// fit was decided against, so a wider answer — a Sequence the Portal
-    /// admits mid-row — is a write the schedule never reserved. Every Atom
-    /// renders as a pair, so no answer is narrower; the equality states the
-    /// reservation rather than guarding a width that occurs.
-    fn admits_width(self, width: usize) -> bool {
-        match self {
-            Self::Pair => width == SCALAR_WIDTH,
-            Self::Row => true,
-        }
-    }
-
-    /// Whether an admitted write can leave Cells of this reservation
-    /// untouched, rather than covering it exactly.
-    ///
-    /// A Cell pair is exactly the write it orders, so the reservation covering
-    /// a computation and the write reaching it are one fact. A row reservation
-    /// runs to the row's end and the answer may stop columns short of it, so
-    /// the two are separate facts and only the admitted write settles the
-    /// second.
-    fn admits_a_narrower_write(self) -> bool {
-        match self {
-            Self::Pair => false,
-            Self::Row => true,
-        }
-    }
-
-    /// Whether a computation reserving this can answer a Sequence, which is
-    /// the question an owning Function asks of an operand child before it
-    /// decides whether it widens over one.
-    ///
-    /// It coincides with [`Reserved::admits_a_narrower_write`] because a row
-    /// is the only reservation wider than one Atom. They are separate
-    /// questions: this one is about what an answer can be, and that one about
-    /// what a write must cover.
-    fn may_be_a_sequence(self) -> bool {
-        match self {
-            Self::Pair => false,
-            Self::Row => true,
-        }
-    }
 }
 
 /// Relationships of one fixed Portal destination, and of the Cells following it
@@ -306,8 +223,11 @@ impl Lookup {
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
-                if let Some(cells) = node.reserved.cells_from(grid, *output) {
-                    writes.push(Claim { cells, node: index });
+                if let Some(span) = Portal::at(grid, *output).reservation() {
+                    writes.push(Claim {
+                        cells: span.range(),
+                        node: index,
+                    });
                 }
             }
         }
@@ -335,7 +255,7 @@ impl Lookup {
                     // Snapshot occupancy survives prior Bang display cleanup.
                     let portal = Portal::at(grid, destination);
                     if matches!(
-                        portal.occupancy(map, SCALAR_WIDTH, |anchor| lookup.root_at(anchor)),
+                        portal.occupancy(map, |anchor| lookup.root_at(anchor)),
                         Occupancy::Empty
                     ) {
                         LockTarget::Empty
@@ -345,21 +265,6 @@ impl Lookup {
                 })
             })
             .collect();
-        // The widths were read from the Language Map's per-entry derivation,
-        // and `would_reserve` applies the same one-Function rule,
-        // `may_answer_a_sequence`, to this computation's settled children. The
-        // two agree only while the computations mirror the Expression's
-        // entries — every Function entry a computation, every operand child
-        // linked to the parent that owns it — which is what a replacement's
-        // width check relies on. It is cheap to hold in debug builds and silent
-        // everywhere else.
-        debug_assert!(
-            (0..lookup.nodes.len()).all(|index| {
-                lookup.would_reserve(index, lookup.nodes[index].function)
-                    == lookup.nodes[index].reserved
-            }),
-            "a computation reserves a width its own declaration does not derive"
-        );
         lookup
     }
 
@@ -378,59 +283,12 @@ impl Lookup {
             .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
     }
 
-    /// What scheduling reserved for `index`'s result.
-    fn reserved(&self, index: usize) -> Reserved {
-        self.nodes[index].reserved
-    }
-
-    /// What scheduling would have reserved for `index` had its Function been
-    /// `function`, which is a question about a Function that is not there
-    /// rather than a second way to read [`Lookup::reserved`].
-    ///
-    /// A spatial write can replace a Function at its original anchor after the
-    /// schedule is fixed, and a replacement that answers a wider result than
-    /// the one reserved for would write Cells no dependency edge names. This
-    /// is the question `deliver_output` asks before it admits such a
-    /// replacement; it reads its children's settled reservations, which the
-    /// same guard keeps stable.
-    ///
-    /// Asked with the computation's own Function it answers what that
-    /// computation already reserves, which `Lookup::new` asserts.
-    fn would_reserve(&self, index: usize, function: Function) -> Reserved {
-        reserved_for(&self.nodes, index, function)
-    }
-
-    /// Which of the five facts a Function replacement at `index` changes about
-    /// `running`, the Function that computation is running, or `None` where it
-    /// changes none of them and the replacement is admitted.
-    ///
-    /// `lang` answers the four a declaration states and this crate appends the
-    /// fifth, because a reservation is derived from the settled schedule and
-    /// from the widths this computation's children hold, and `lang` has
-    /// neither. Appending it puts the width last, so a replacement that differs
-    /// on a declared fact as well reports the declared fact.
-    ///
-    /// The width is compared against the settled reservation rather than
-    /// against a second derivation: the Turns were ordered from that one, and
-    /// this same guard is what keeps every admitted replacement inside it.
-    fn replacement_change(
-        &self,
-        index: usize,
-        replacement: Function,
-        running: Function,
-    ) -> Option<ReplacementChange> {
-        replacement.replacing(running).or_else(|| {
-            (self.would_reserve(index, replacement) != self.reserved(index))
-                .then_some(ReplacementChange::Width)
-        })
-    }
-
-    /// A fixed destination has relationships only if the Cells reserved for
-    /// `index` fit the row ([`Reserved::cells_from`]). Actual writes still go
+    /// A fixed destination has relationships only if the Cell pair reserved
+    /// from it fits the row ([`Portal::reservation`]). Actual writes still go
     /// through `Portal::admit`, which also validates their encoding and
     /// supplies the producer's diagnostic.
-    fn reserved_at(&self, index: usize, output: Position) -> Option<PortalRelationships<'_>> {
-        let cells = self.reserved(index).cells_from(self.grid, output)?;
+    fn reserved_at(&self, output: Position) -> Option<PortalRelationships<'_>> {
+        let cells = Portal::at(self.grid, output).reservation()?.range();
         Some(PortalRelationships {
             lookup: self,
             output,
@@ -446,27 +304,14 @@ impl Lookup {
             .write_sites()
             .iter()
             .filter_map(|output| output.as_ref().ok())
-            .filter_map(move |output| self.reserved_at(index, *output))
+            .filter_map(move |output| self.reserved_at(*output))
     }
 
     /// The relationships of the Cells an admitted write actually covers.
     ///
-    /// Execution asks this rather than [`Lookup::reserved_at`] because the
-    /// reservation is deliberately wider than most writes: a computation inside
-    /// a `Reserved::Row` reservation that the write stopped short of was
-    /// ordered after its producer and then not written over, so it must not be
-    /// suppressed. The write already holds its validated coverage, and those
-    /// Cells are always a subset of what
-    /// scheduling reserved: a Cell pair is exactly the scalar reservation, and
-    /// a Portal refuses any encoding that leaves the destination's row.
-    ///
-    /// That subset holds over the Cells, and so over the two relationships that
-    /// grow with them: [`PortalRelationships::functions`] and
-    /// [`PortalRelationships::literal_consumers`] each answer a subset of what
-    /// they answered for the reservation, so every contact execution acts on is
-    /// one a dependency edge already names. It does not carry to
-    /// [`PortalRelationships::bang_roots`], which is not monotonic in its
-    /// range; that method states why no producer can tell the two apart.
+    /// A value answer renders as one Atom's Cell pair, which is exactly the
+    /// reservation its schedule ordered, so every contact execution acts on
+    /// is one a dependency edge already names.
     fn written_over(&self, write: &SpanWrite) -> PortalRelationships<'_> {
         let span = write.span();
         PortalRelationships {
@@ -474,55 +319,6 @@ impl Lookup {
             output: self.grid.position_at(span.start()),
             cells: span.range(),
         }
-    }
-}
-
-///
-/// Widens every ancestor over a [`Reserved::Row`] a test stated, in one reverse
-/// pass.
-///
-/// Production never runs this: [`computations`] reads every width from the
-/// Language Map's derivation. A fixture that states a width no declaration
-/// derives runs it after stating one, so an ancestor that widens over a
-/// row-reserving operand widens over the stated one exactly as it does over a
-/// declared Sequence.
-///
-/// Preorder puts every operand child at a higher index than the Function that
-/// owns it, so one pass backwards is enough: a node's children are answered
-/// before its own turn comes.
-///
-/// A reservation already settled as [`Reserved::Row`] is left where it stands,
-/// and the guard that leaves it there is load-bearing rather than a shortcut.
-/// [`reserved_for`] is a pure function of the Function table and the children's
-/// settled reservations: it has no memory of what the computation already held,
-/// so for a stated `Row` it answers `Pair` and would narrow the statement away.
-///
-#[cfg(test)]
-fn derive_reservations(nodes: &mut [Computation]) {
-    for index in (0..nodes.len()).rev() {
-        if nodes[index].reserved == Reserved::Pair {
-            nodes[index].reserved = reserved_for(nodes, index, nodes[index].function);
-        }
-    }
-}
-
-/// Whether a computation's answer can be wider than one Atom had its Function
-/// been `function`, given the reservations already settled for its operand
-/// children: [`may_answer_a_sequence`], the rule the Language Map's derivation
-/// applies to every entry, asked of one computation.
-///
-/// The nodes are read rather than the [`Lookup`] because this also runs while
-/// that `Lookup` is being built.
-fn reserved_for(nodes: &[Computation], index: usize, function: Function) -> Reserved {
-    let an_operand_may = nodes[index].operands.iter().any(|operand| {
-        operand
-            .child
-            .is_some_and(|child| nodes[child].reserved.may_be_a_sequence())
-    });
-    if may_answer_a_sequence(function, an_operand_may) {
-        Reserved::Row
-    } else {
-        Reserved::Pair
     }
 }
 
@@ -570,16 +366,8 @@ impl PortalRelationships<'_> {
     /// any one anchor, so it decides the empty answer up front instead of
     /// filtering the four cardinal anchors one at a time.
     ///
-    /// "The whole destination" is whichever Cells the caller stated, which for
-    /// a [`Reserved::Row`] producer asked through [`Lookup::reserved_at`] is
-    /// the rest of the row: such a producer touches an operand almost wherever
-    /// it points and so answers no Bang root at all. Nothing reaches that:
-    /// every Function that can emit Bang declares an Atom answer, so it neither
-    /// answers nor widens into a Sequence and is reserved a Cell pair. Do not
-    /// let a Function that answers or widens into a Sequence emit Bang without
-    /// deciding what it asks here: alignment is a fact about a Bang's own two
-    /// Cells rather than about the Cells a wider answer might reach, so asking
-    /// with its whole reservation would silence every Bang it emits.
+    /// "The whole destination" is the Cell pair a Bang occupies: alignment is
+    /// a fact about a Bang's own two Cells.
     ///
     /// The four anchors are one geometric fact and are stated as one. The west
     /// arm answers a root only for a Function that declares no operand: a root
@@ -640,10 +428,13 @@ pub(super) fn plan(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match map.schedule_cache().schedule(grid, map) {
-        Ok(schedule) => execution::execute(grid, cells, map, tick, schedule),
-        Err(diagnostics) => unscheduled(diagnostics.clone()),
-    }
+    execution::execute(
+        grid,
+        cells,
+        map,
+        tick,
+        map.schedule_cache().schedule(grid, map),
+    )
 }
 
 ///
@@ -657,10 +448,7 @@ fn plan_unshared(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match schedule(grid, map) {
-        Ok(schedule) => execution::execute(grid, cells, map, tick, &schedule),
-        Err(diagnostics) => unscheduled(diagnostics),
-    }
+    execution::execute(grid, cells, map, tick, &schedule(grid, map))
 }
 
 ///
@@ -696,13 +484,13 @@ fn plan_unshared(
 /// can plan against it, from any thread.
 ///
 #[derive(Clone, Default)]
-pub(super) struct ScheduleCache(Arc<OnceLock<Result<Schedule, Vec<Diagnostic>>>>);
+pub(super) struct ScheduleCache(Arc<OnceLock<Schedule>>);
 
 impl ScheduleCache {
     /// The schedule `map` admits, ordered now if no Tick has asked for it.
     /// `map` is the Map this cache belongs to, or one holding the same
     /// scheduling inputs.
-    fn schedule(&self, grid: Grid, map: &LanguageMap) -> &Result<Schedule, Vec<Diagnostic>> {
+    fn schedule(&self, grid: Grid, map: &LanguageMap) -> &Schedule {
         self.0.get_or_init(|| schedule(grid, map))
     }
 
@@ -728,8 +516,8 @@ impl ScheduleCache {
 /// without the planning path taking a parameter or a map lookup of its own.
 ///
 /// Writes that resolved as none stay none: [`PortalAccess::carry`] cannot
-/// attach a Portal to Terminal Output or to a nested Jump. Tests that need a
-/// write site name one on a Function that already demanded some.
+/// attach a Portal to Terminal Output or to a nested effect Function. Tests
+/// that need a write site name one on a Function that already demanded some.
 ///
 #[cfg(test)]
 fn carry(grid: Grid, nodes: &mut [Computation], destinations: &BTreeMap<CellIndex, Vec<Position>>) {
@@ -750,7 +538,7 @@ fn schedule_carrying(
     grid: Grid,
     map: &LanguageMap,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
-) -> Result<Schedule, Vec<Diagnostic>> {
+) -> Schedule {
     let (mut nodes, diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, destinations);
     order_turns(Lookup::new(grid, nodes, map), diagnostics)
@@ -770,34 +558,17 @@ pub(super) fn plan_carrying(
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match schedule_carrying(grid, map, destinations) {
-        Ok(schedule) => execution::execute(grid, cells, map, tick, &schedule),
-        Err(diagnostics) => unscheduled(diagnostics),
-    }
+    execution::execute(
+        grid,
+        cells,
+        map,
+        tick,
+        &schedule_carrying(grid, map, destinations),
+    )
 }
 
 fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
     Diagnostic::for_expression(node.anchor, node.span, message.into())
-}
-
-///
-/// The Tick Plan of a Tick no order could be established for: its diagnostics
-/// are published and nothing else is, because nothing ran.
-///
-/// No computation took a Turn, so there is no execution state to report either:
-/// a Tick that never started is the one case where the empty plan and the empty
-/// states say the same thing.
-///
-fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::ComputationState>) {
-    (
-        TickPlan {
-            writes: vec![],
-            play_commands: vec![],
-            diagnostics,
-            locks: vec![],
-        },
-        vec![],
-    )
 }
 
 ///
@@ -937,13 +708,13 @@ fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
 }
 
 ///
-/// The order one revision's Turns are taken in, or the diagnostics that admit
-/// none.
+/// The order one revision's Turns are taken in, and the diagnostics its
+/// layout and cycles owe.
 ///
 /// Reads only the scheduling inputs [`ScheduleCache`] names, because every
 /// revision holding those inputs shares what this answers.
 ///
-fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
+fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
     let (nodes, diagnostics) = computations(grid, map);
     order_turns(Lookup::new(grid, nodes, map), diagnostics)
 }
@@ -953,22 +724,19 @@ fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> 
 /// diagnostics its layout owes before any of them is ordered.
 ///
 /// This is everything a schedule knows before a [`Lookup`] indexes it: which
-/// Cells each computation claims, how wide a result each reserves, how each
-/// interacts with Portals, and which Expressions the row edge cut short. The
-/// widths are the Language Map's [`SequenceCapability`], one per positioned
-/// entry, so scheduling and the Output Portal Reservations read one
-/// derivation.
+/// Cells each computation claims, how each interacts with Portals, and which
+/// Expressions the row edge cut short. Every value answer reserves one Atom's
+/// Cell pair at each write Portal, the same [`Portal::reservation`] the
+/// Output Portal Reservations read.
 ///
 fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnostic>) {
     let mut nodes: Vec<Computation> = Vec::new();
-    let mut capability = SequenceCapability::for_map(map);
     let mut diagnostics = Vec::new();
     for expression in map.expressions() {
         if expression.function_candidate().is_none() {
             continue;
         }
         let mut functions = BTreeMap::new();
-        let capable = capability.derive(expression);
         for (entry_index, entry) in expression.positioned().enumerate() {
             let parent = entry
                 .parent
@@ -980,11 +748,10 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                         .expect("parsed Function inside Grid"),
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
-                // Nested computations write no Portal of their own. A nested
-                // Jump still reads its Input Portal. A root Terminal Output
-                // Function has no Cell destination at all: Play is an Effect,
-                // not a Portal. A locking root reserves its Output Portal
-                // and writes no Cell.
+                // A nested value Function writes its own Output Portal as a
+                // root does. A root Terminal Output Function has no Cell
+                // destination at all: Play is an Effect, not a Portal. A
+                // locking root reserves its Output Portal and writes no Cell.
                 let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {
                     anchor,
@@ -995,11 +762,6 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                     operands: vec![],
                     syntax_valid: true,
                     portal_access,
-                    reserved: if capable[entry_index] {
-                        Reserved::Row
-                    } else {
-                        Reserved::Pair
-                    },
                 });
                 functions.insert(entry_index, index);
                 Some(index)
@@ -1038,12 +800,11 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 ///
 /// One Tick's execution order, from the reservations a [`Lookup`] has already
 /// derived: every dependency edge the reservations name, resolved into
-/// the order the Turns are taken in, or the cycle that admits no order at all.
+/// the order the Turns are taken in. A cycle admits no order for the
+/// Expressions it reaches, which take no Turn; every other Expression keeps
+/// its place.
 ///
-fn order_turns(
-    lookup: Lookup,
-    mut diagnostics: Vec<Diagnostic>,
-) -> Result<Schedule, Vec<Diagnostic>> {
+fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
     let grid = lookup.grid;
     let nodes = lookup.nodes();
     let active = active_roots(&lookup);
@@ -1061,28 +822,20 @@ fn order_turns(
         for relationships in lookup.reservations(index) {
             // A self-edge is an unsatisfiable indegree, so it is how a
             // computation that writes over its own Cells reports itself as a
-            // same-Tick cycle. That is exact for a `Reserved::Pair` producer,
-            // whose write is held to the `SCALAR_WIDTH` Cells it reserved: the
-            // reservation covering the producer and the write reaching it are
-            // the same fact, and `live_cycles_reject_independent_effects_and_
-            // self_dependency` holds that rule.
+            // same-Tick cycle: the reservation covering the producer and the
+            // Cell pair its write reaches are the same fact, and
+            // `live_cycles_stop_only_the_expressions_they_reach` holds that
+            // rule.
             //
-            // Do not order a `Reserved::Row` producer after itself: its
-            // reservation can cover its own Cells whatever the answer, and a
-            // reservation orders Turns and decides nothing else (ADR 0036), so
-            // the edge would reject the whole Grid's Tick for a write that may
-            // stop short of it. Whether the write reached the producer is left
-            // to execution, which asks `written_over` over the Cells covered.
-            let may_stop_short = lookup.reserved(index).admits_a_narrower_write();
-            // The third way a producer's own Cells are not a defect, and the
-            // only one a declaration states outright: an advancing bundle
-            // clears the Span it stands in, so its first Portal covers its own
-            // spelling by design. Ordering it after itself would reject every
-            // Tick one of these takes a Turn in. An emitting bundle plans
-            // nothing at its own Cells and needs no exception.
+            // The one way a producer's own Cells are not a defect is one a
+            // declaration states outright: an advancing bundle clears the
+            // Span it stands in, so its first Portal covers its own spelling
+            // by design. Ordering it after itself would stop it every Tick it
+            // takes a Turn in. An emitting bundle plans nothing at
+            // its own Cells and needs no exception.
             let clears_its_own_span = advances(node.function);
             let mut order_after = |consumer: usize| {
-                if (may_stop_short || clears_its_own_span) && consumer == index {
+                if clears_its_own_span && consumer == index {
                     return;
                 }
                 if lock_covers(&lookup, consumer, index) {
@@ -1097,7 +850,7 @@ fn order_turns(
                 // flush or offset by one, is blocked by it and cannot leave:
                 // the emission is refused whichever Turn comes first. Ordering
                 // the producer first as well as after the mover's contact
-                // makes the pair a cycle that costs the whole Grid its Tick.
+                // makes the pair a cycle that stops both Expressions.
                 // Other occupants keep emitter-before-occupant ordering until
                 // .scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md
                 // delivers Turn-local emission scheduling.
@@ -1119,8 +872,8 @@ fn order_turns(
                 // Without it two Functions whose Portals cover each other name
                 // each other in reservations neither can write through, and
                 // ordering each after the other makes that pair a cycle that
-                // costs the whole Grid its Tick, though two blocked moves are
-                // not a contested Cell.
+                // stops both, though two blocked moves are not a contested
+                // Cell.
                 if clears_its_own_span
                     && nodes[nodes[contact.index].owner]
                         .function
@@ -1182,18 +935,73 @@ fn order_turns(
         }
     }
     if order.len() != nodes.len() {
-        let index = indegree
-            .iter()
-            .position(|incoming| *incoming != 0)
-            .expect("cycle has a node");
-        diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
-        return Err(diagnostics);
+        // ADR 0065: a cycle stops every Expression it reaches, and no other.
+        let mut placed = vec![false; nodes.len()];
+        for &index in &order {
+            placed[index] = true;
+        }
+        let mut stopped = vec![false; nodes.len()];
+        let mut pending: Vec<_> = (0..nodes.len()).filter(|&index| !placed[index]).collect();
+        while let Some(index) = pending.pop() {
+            if std::mem::replace(&mut stopped[index], true) {
+                continue;
+            }
+            pending.extend(lookup.descendants(nodes[index].owner));
+            pending.extend_from_slice(&outgoing[index]);
+        }
+        order.retain(|&index| !stopped[index]);
+        // Each cycle is diagnosed once, at the first computation on it in
+        // Parser order: a computation still waiting may only be downstream of
+        // a cycle, and two computations that reach each other share one.
+        let on_cycle: Vec<_> = (0..nodes.len())
+            .map(|index| !placed[index] && reaches(&outgoing, index, index))
+            .collect();
+        let mut diagnosed = vec![false; nodes.len()];
+        let mut holds_cycle = vec![false; nodes.len()];
+        for index in (0..nodes.len()).filter(|&index| on_cycle[index]) {
+            holds_cycle[nodes[index].owner] = true;
+            if diagnosed[index] {
+                continue;
+            }
+            diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
+            for other in (index..nodes.len()).filter(|&other| on_cycle[other]) {
+                if reaches(&outgoing, index, other) && reaches(&outgoing, other, index) {
+                    diagnosed[other] = true;
+                }
+            }
+        }
+        // An Expression stopped only because it depends on a cycle says so at
+        // its root, so a performer can tell the cycle from what it starves. A
+        // root no activation can reach this Tick takes no Turn with or without
+        // the cycle, so it has nothing to wait for and stays quiet.
+        for (index, node) in nodes.iter().enumerate() {
+            if node.parent.is_none() && stopped[index] && !holds_cycle[index] && active[index] {
+                diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
+            }
+        }
     }
-    Ok(Schedule {
+    Schedule {
         lookup,
         order,
         diagnostics,
-    })
+    }
+}
+
+///
+/// Whether a path of at least one edge leads from `from` to `to`.
+///
+fn reaches(outgoing: &[Vec<usize>], from: usize, to: usize) -> bool {
+    let mut seen = vec![false; outgoing.len()];
+    let mut pending = outgoing[from].clone();
+    while let Some(index) = pending.pop() {
+        if index == to {
+            return true;
+        }
+        if !std::mem::replace(&mut seen[index], true) {
+            pending.extend_from_slice(&outgoing[index]);
+        }
+    }
+    false
 }
 
 ///
@@ -1219,11 +1027,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
                     writes.insert(cell, content);
                 }
             }
-            // Element order within one producer's group, producer order between
-            // groups: extending preserves both. Pushing the group as one item
-            // would make the Tick Plan carry a shape the Playback Engine does
-            // not deliver.
-            Effect::Play(performance) => play_commands.extend(&performance),
+            Effect::Play(command) => play_commands.push(command),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
             Effect::Lock(root) => locks.push(root),
         }
@@ -1258,7 +1062,7 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
 #[cfg(test)]
 mod test {
     use crate::source::Cells;
-    use lang::{Token, Value};
+    use lang::{Atom, Token};
 
     use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
 
@@ -1409,7 +1213,7 @@ mod test {
 
     ///
     /// Which Turn each computation took during one Tick, or `None` for a
-    /// computation the Tick ended before reaching.
+    /// computation its order holds no Turn for.
     ///
     /// One entry per computation, in the order the schedule holds them — the
     /// order they were parsed, which is the order [`interpreted`] groups its
@@ -1493,6 +1297,20 @@ mod test {
             .collect()
     }
 
+    ///
+    /// Where each of one Tick Plan's diagnostics sends a reader, with what it
+    /// says there.
+    ///
+    fn anchors(plan: &TickPlan) -> Vec<(usize, usize, &str)> {
+        plan.diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let anchor = diagnostic.anchor();
+                (anchor.x(), anchor.y(), diagnostic.message.as_str())
+            })
+            .collect()
+    }
+
     #[test]
     fn a_self_banging_function_advances_its_whole_span_by_one_cell() {
         // The move, in all four directions, each from the middle of a Grid that
@@ -1550,8 +1368,8 @@ mod test {
         //
         // What this pins is the schedule. Each mover reserves Cells the other
         // stands in, which is an edge each way and an order no sort satisfies.
-        // `order_turns` drops one of them: keeping both rejects the Tick, and
-        // the Grid never moves again.
+        // `order_turns` drops one of them: keeping both makes a cycle that
+        // stops both movers, and neither moves again.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">>  <<  "], 3);
 
         assert_eq!(grids[0], [" >><<   "]);
@@ -1716,7 +1534,7 @@ mod test {
 
         proptest! {
             #[test]
-            fn movers_never_reject_a_tick(
+            fn movers_never_meet_an_ordering_defect_or_a_cycle(
                 rows in prop::collection::vec(
                     prop::collection::vec(select(vec![" ", "  ", "^^", "vv", "<<", ">>"]), 0..=6),
                     4,
@@ -1728,7 +1546,7 @@ mod test {
                 let (plans, _, _) = tick_by_tick(Grid::with_shape(12, 4), &refs, 5);
                 for plan in plans {
                     for message in messages(&plan) {
-                        prop_assert!(!message.contains("Tick effects rejected"), "{rows:?}: {message}");
+                        prop_assert!(!message.contains("reached an executed computation"), "{rows:?}: {message}");
                         prop_assert!(!message.contains("same-Tick dependency cycle"), "{rows:?}: {message}");
                     }
                 }
@@ -1857,11 +1675,9 @@ mod test {
 
     #[test]
     fn a_blocked_pair_of_moves_leaves_the_rest_of_the_grid_running() {
-        // The cost of rejecting that Tick would not be local. A rejected
-        // schedule discards every write on the Grid, so an Addition sharing the
-        // Source with a facing pair would fall silent with nothing wrong with
-        // it and no diagnostic of its own. The pair reports in its own four
-        // Cells and the Addition answers `03` in the same Tick.
+        // A blocked pair costs only itself: the pair reports in its own four
+        // Cells and the Addition sharing the Source with it answers `03` in
+        // the same Tick.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(13, 2), &[" >><<  .+0102", ""], 1);
 
         assert_eq!(grids[0], [" ****  .+0102", "       03    "]);
@@ -2127,39 +1943,12 @@ mod test {
     }
 
     #[test]
-    fn a_jump_does_not_transport_a_sequence() {
-        // `:-0001` writes `0001` on the row below. The Jump's input is the
-        // first Atom of that Sequence, not a Language Unit of its own.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[":-0001", "    &>"], 1);
-        assert_eq!(grids[0][0], ":-0001  ");
-        assert_eq!(grids[0][1], "0001&>  ");
-        assert_eq!(messages(&plans[0]), vec!["&> has partial or invalid input"]);
-    }
-
-    #[test]
-    fn a_jump_treats_empty_cells_past_a_sequence_write_as_empty_input() {
-        // `:-0001` writes `0001` and reserves the rest of the destination row.
-        // The Jump's aligned input sits in that reserved tail — empty, past
-        // the admitted write — so it is ordinary empty input, not Sequence
-        // transport.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 2), &[":-0001", "      &>xx"], 1);
-        assert_eq!(grids[0][0], ":-0001      ");
-        assert_eq!(grids[0][1], "0001  &>    ");
-        assert!(
-            plans[0].diagnostics.is_empty(),
-            "{:?}",
-            plans[0].diagnostics
-        );
-    }
-
-    #[test]
-    fn a_jump_copies_a_language_unit_past_a_sequence_write() {
-        // `:-0001` writes `0001` and reserves the rest of the destination row.
-        // The Jump's input is the Number `01` sitting in that reserved tail,
-        // not a member of the Sequence the Range wrote.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 2), &[":-0001", "    01&>xx"], 1);
-        assert_eq!(grids[0][0], ":-0001      ");
-        assert_eq!(grids[0][1], "000101&>01  ");
+    fn a_jump_copies_a_same_tick_result_as_a_language_unit() {
+        // `.+0001` writes `01` on the row below this Tick, and the Jump reads
+        // that Cell pair as one aligned Language Unit and relays it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+0001", "  &>xx"], 1);
+        assert_eq!(grids[0][0], ".+0001  ");
+        assert_eq!(grids[0][1], "01&>01  ");
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2281,12 +2070,148 @@ mod test {
 
     #[test]
     fn a_nested_jump_reads_a_same_tick_write_at_its_input_portal() {
-        // Nested `&^` writes no Cell, but it still reads the Portal one row
-        // south. The root Jump lands `01` there this Tick; without that read
-        // span the nested Jump would run first and add empty Source to `01`.
+        // Nested `&^` reads the Portal one row south and writes the unit it
+        // copies one row north. The root Jump lands `01` at its input this
+        // Tick; without that read span the nested Jump would run first and
+        // copy empty Source.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(6, 5),
+            &["", ".+&^01", "", "  &^", "  01"],
+            1,
+        );
+        assert_eq!(grids[0], ["  01  ", ".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // On the top row its output Portal leaves the Grid. That write is
+        // refused and diagnosed, and the Return still reaches the parent.
         let (plans, grids, _) =
             tick_by_tick(Grid::with_shape(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
         assert_eq!(grids[0], [".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert_eq!(
+            messages(&plans[0]),
+            ["result \"01\" falls outside the Grid"]
+        );
+    }
+
+    #[test]
+    fn a_cycle_is_diagnosed_at_a_computation_on_it() {
+        // The nested `&<` writes over its parent's anchor, which covers the
+        // Jump itself, so the Jump is the computation the cycle runs through.
+        // The parent only waits on it, and is not where the cycle is.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+&<01"], 1);
+        assert_eq!(anchors(&plans[0]), [(2, 0, "same-Tick dependency cycle")]);
+    }
+
+    #[test]
+    fn an_inactive_root_a_cycle_writes_over_is_not_reported_as_waiting() {
+        // The cycle writes over the `00` the Note Function reads, but nothing
+        // activates the Note Function this Tick, so it would take no Turn
+        // with the cycle gone either, and has nothing to wait for.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(8, 3), &["  .+&<01", "!>007FC4", ""], 1);
+        assert_eq!(anchors(&plans[0]), [(4, 0, "same-Tick dependency cycle")]);
+    }
+
+    #[test]
+    fn each_separate_cycle_is_diagnosed_once() {
+        // Two Additions, each with a nested `&<` writing over it: neither
+        // cycle reaches the other, so each is diagnosed at its own Jump.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(14, 1), &[".+&<01  .+&<01"], 1);
+        assert_eq!(
+            anchors(&plans[0]),
+            [
+                (2, 0, "same-Tick dependency cycle"),
+                (10, 0, "same-Tick dependency cycle"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_cycle_leaves_an_independent_expression_publishing() {
+        // ADR 0065: the cycle stops its own Expression, and the Addition beside
+        // it, which depends on nothing there, writes `03` every Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &[".+&<01  .+0102"], 3);
+        for (plan, rows) in plans.iter().zip(&grids) {
+            assert_eq!(rows, &[".+&<01  .+0102", "        03    "]);
+            assert_eq!(messages(plan), ["same-Tick dependency cycle"]);
+        }
+    }
+
+    #[test]
+    fn an_expression_a_cycle_stops_is_diagnosed_at_its_root_as_waiting() {
+        // The lower Addition reads `00`, which the upper one writes over, so
+        // it waits on the cycle the `&<` runs through and holds no part of it.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &["  .+&<01", ".+0001", ""], 1);
+        assert_eq!(grids[0], ["  .+&<01", ".+0001  ", "        "]);
+        assert_eq!(
+            anchors(&plans[0]),
+            [
+                (4, 0, "same-Tick dependency cycle"),
+                (0, 1, "waiting on a same-Tick dependency cycle"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_return_and_a_portal_decode_the_same_characters_the_same_way() {
+        // `.^3C` answers Note `C4`. Returned into Addition's Number operand,
+        // and written there by a Portal, the same two characters are Number
+        // `C4` either way: both sums are `C5`. The nested `.^` also writes its
+        // own `C4` one row south of its anchor.
+        let (plans, returned, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+.^3C01", ""], 1);
+        assert_eq!(returned[0], [".+.^3C01", "C5C4    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        let (plans, written, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &["  .^3C", ".+0001", ""], 1);
+        assert_eq!(written[0], ["  .^3C  ", ".+C401  ", "C5      "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // The receiving operand decides the reading, so a conversion nested in
+        // one of the same direction reads its child's result as the other
+        // type and diagnoses, as the same characters written by a Portal do.
+        for (returned, child, written, message) in [
+            (
+                [".v.vC4", ""],
+                "  3C  ",
+                ["  .vC4", ".vC4", ""],
+                "expected a note, found \"3C\"",
+            ),
+            (
+                [".^.^3C", ""],
+                "  C4  ",
+                ["  .^3C", ".^3C", ""],
+                "Number C4 cannot be converted to a Note",
+            ),
+        ] {
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &returned, 1);
+            assert_eq!(messages(&plans[0]), [message], "{returned:?}");
+            assert_eq!(grids[0][1], child, "{returned:?}");
+            let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 3), &written, 1);
+            assert_eq!(messages(&plans[0]), [message], "{written:?}");
+        }
+
+        // Conversions in opposite directions compose through the Return.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".v.^3C", ""], 1);
+        assert_eq!(grids[0], [".v.^3C", "3CC4  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".^.vC4", ""], 1);
+        assert_eq!(grids[0], [".^.vC4", "C43C  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2295,7 +2220,115 @@ mod test {
     }
 
     #[test]
-    fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
+    fn nested_feedback_functions_keep_their_state_in_their_own_output_portals() {
+        // A nested Increment reads its previous value from the Cells its own
+        // Output Portal writes, so it advances every Tick and wraps at its
+        // modulus; its parent adds `00` and writes the same count beside it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".+~+010400", ""], 5);
+        let counted: Vec<&str> = grids.iter().map(|grid| grid[1].as_str()).collect();
+        assert_eq!(
+            counted,
+            [
+                "0101      ",
+                "0202      ",
+                "0303      ",
+                "0000      ",
+                "0101      "
+            ]
+        );
+        assert!(plans.iter().all(|plan| plan.diagnostics.is_empty()));
+
+        // A nested Interpolation moves toward its target by its rate each Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".+~>020500", ""], 4);
+        let moved: Vec<&str> = grids.iter().map(|grid| grid[1].as_str()).collect();
+        assert_eq!(
+            moved,
+            ["0202      ", "0404      ", "0505      ", "0505      "]
+        );
+        assert!(plans.iter().all(|plan| plan.diagnostics.is_empty()));
+    }
+
+    #[test]
+    fn a_nested_bang_writes_its_display_and_activates_its_aligned_roots() {
+        // Nested Equality answers Bang: it writes `**` one row south of its
+        // own anchor, which activates the Terminal Output root aligned east of
+        // that display. Its parent reads the returned `**` as a Number operand
+        // and diagnoses, which does not undo the child's write or activation.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(12, 3),
+            &[".+.=010101", "    !>007FC4", ""],
+            1,
+        );
+        assert_eq!(grids[0], [".+.=010101  ", "  **!>007FC4", "            "]);
+        assert_eq!(plans[0].play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn a_nested_bang_activates_the_root_aligned_south_of_its_display() {
+        // The display stands at the Equality's Output Portal, one row south of
+        // its anchor, so the root one row further south is aligned with it.
+        // The north anchor is the Equality's own, inside its parent
+        // Expression, so no root can stand there.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(10, 3),
+            &[".+.=010101", "", "  !>007FC4"],
+            1,
+        );
+        assert_eq!(grids[0], [".+.=010101", "  **      ", "  !>007FC4"]);
+        assert_eq!(plans[0].play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn a_nested_bang_activates_the_root_aligned_west_of_its_display() {
+        // A west root anchors two columns before the display, so only a
+        // two-Cell Expression leaves the display's Cells to it. The South
+        // Directional Bang there is inert until Bang activation, and the
+        // `vv` it emits is the trace that the display activated it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 3), &[".+.=010101", "*v", ""], 1);
+        assert_eq!(grids[0], [".+.=010101", "*v**      ", "vv        "]);
+        assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
+    }
+
+    #[test]
+    fn an_unactivated_west_root_beside_a_nested_number_emits_nothing() {
+        // The control for the West test: the same root beside a nested Number
+        // rather than a Bang stays inert. The parent fails as it does there,
+        // so its own answer does not land on the root either.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 3), &["./.+010100", "*v", ""], 1);
+        assert_eq!(grids[0], ["./.+010100", "*v02      ", "          "]);
+        assert_eq!(messages(&plans[0]), ["cannot divide by zero"]);
+    }
+
+    #[test]
+    fn a_child_write_survives_its_parents_failure() {
+        // Divide refuses a zero divisor after the nested Multiply has written
+        // `0C` under its own anchor and returned it.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &["./.x030400", ""], 1);
+        assert_eq!(grids[0], ["./.x030400", "  0C      "]);
+        assert_eq!(messages(&plans[0]), ["cannot divide by zero"]);
+    }
+
+    #[test]
+    fn a_nested_output_portal_orders_an_earlier_consumer_after_its_writer() {
+        // The nested North Jump copies `05` from below it into the second
+        // operand of the Addition on the row above. That Addition comes first
+        // in Grid order, so only the Jump's reservation orders it after the
+        // write; read in Grid order it would execute over `00` and the Jump's
+        // write would then reach a computation that had already run.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &[".+0000", "  .+&^01", "    05"], 1);
+        assert_eq!(grids[0], [".+0005  ", "05.+&^01", "  0605  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_jump_that_closes_a_same_tick_cycle_is_diagnosed() {
         // Increment reads and writes one row south. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", "&^"], 1);
@@ -2343,7 +2376,7 @@ mod test {
         // the other stands: a move is admitted only into empty Cells, so mutual
         // reservation describes two blocked moves rather than two writes
         // competing for one Cell. Ordering either after the other would make
-        // that pair a cycle and cost the whole Grid its Tick. Both are blocked
+        // that pair a cycle and stop both. Both are blocked
         // by complete root contact and both bang, which is what a blocked move
         // does whatever blocked it.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &[">><<  "], 1);
@@ -2452,8 +2485,8 @@ mod test {
         //
         // Without that edge `^^` could move first and `>>` would find the Cell
         // empty, planning a write over Cells a computation that had already
-        // run was scheduled at. That is a defect a Tick is rejected for, and
-        // this is the ordering that stops it arising.
+        // run was scheduled at. That write would be refused as an ordering
+        // defect, and this is the ordering that stops it arising.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["", ">>^^  "], 1);
 
         assert_eq!(grids[0], ["  ^^  ", "**    "]);
@@ -2468,18 +2501,21 @@ mod test {
     fn a_self_banging_function_is_not_scheduled_inside_another_expression() {
         // Root-only, enforced by the declared kind rather than by a check that
         // names these four spellings: `.+` declares two Number operands, `^^`
-        // answers an effect, and the nesting rule refuses it where a value is
-        // required. The refusal is the Expression's, so the Cells are
-        // left standing and nothing moves.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+^^01", ""], 1);
+        // answers an effect, and the Parser refuses it where a value is
+        // required. The refusal is the Expression's and is reported from the
+        // Source, so the Cells are left standing, nothing moves, and the
+        // Tick repeats nothing.
+        let (plans, grids, source) = tick_by_tick(Grid::with_shape(8, 2), &[".+^^01", ""], 1);
 
         assert_eq!(grids[0], [".+^^01  ", "        "]);
+        assert!(messages(&plans[0]).is_empty(), "{:?}", plans[0].diagnostics);
         assert_eq!(
-            messages(&plans[0]),
-            vec![
-                "a Function that answers an effect is valid only at the root of an Expression",
-                "nested computation at column 2, row 0 supplied no typed result",
-            ]
+            source
+                .language_map()
+                .diagnostics()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+            ["a Function that answers an effect is valid only at the root of an Expression"]
         );
     }
 
@@ -2744,8 +2780,9 @@ mod test {
         // target also cannot activate Halt under the cardinal geometry — the
         // default Portal is one row south, so a producer after the target
         // writes a Bang that cannot touch Halt. The lock that would reach an
-        // already-executed root is therefore inexpressible; the late-write
-        // reject path still holds.
+        // already-executed root is therefore inexpressible, and
+        // `a_late_halt_lock_is_refused_and_the_tick_continues` builds it at
+        // the execution seam instead.
         let (plans, grids, source) = tick_by_tick(
             Grid::with_shape(14, 4),
             &[
@@ -2786,6 +2823,41 @@ mod test {
         assert!(
             order[1] < order[2],
             "Halt's Turn precedes the south root: {order:?}"
+        );
+    }
+
+    #[test]
+    fn a_late_halt_lock_is_refused_and_the_tick_continues() {
+        // Supply a broken order at the execution seam: the Add takes its Turn
+        // before the Halt that locks it. Only the lock is refused, so the Add
+        // has already written `07` and the Bang that activated Halt stands.
+        let grid = Grid::with_shape(8, 4);
+        let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let mut schedule = super::schedule(grid, &map);
+        // Parser preorder: Equality, Halt, Add.
+        schedule.order = vec![0, 2, 1];
+        let (plan, states) = super::execution::execute(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &schedule,
+        );
+        assert_eq!(turns(&states), vec![Some(0), Some(2), Some(1)]);
+        let mut published = bytes.clone().into_bytes();
+        for write in &plan.writes {
+            published[write.cell.get()] = write.content.as_char() as u8;
+        }
+        let published: Vec<_> = published
+            .chunks(grid.columns())
+            .map(|row| std::str::from_utf8(row).unwrap())
+            .collect();
+        assert_eq!(published, [".=0101  ", "***!    ", "  .+0304", "  07    "]);
+        assert!(plan.locks.is_empty());
+        assert_eq!(
+            anchors(&plan),
+            [(2, 1, "spatial output reached an executed computation")]
         );
     }
 
@@ -2984,10 +3056,9 @@ mod test {
         grid: Grid,
         rows: &[&str],
         outputs: &[(usize, usize)],
-        reservations: &[(usize, super::Reserved)],
-        answers: &[(usize, Value)],
+        answers: &[(usize, Atom)],
     ) -> (TickPlan, crate::source::Source) {
-        let (plan, _, source) = stated_tick(grid, rows, outputs, reservations, answers);
+        let (plan, _, source) = stated_tick(grid, rows, outputs, answers);
         (plan, source)
     }
 
@@ -3004,17 +3075,12 @@ mod test {
         grid: Grid,
         rows: &[&str],
         outputs: &[(usize, usize)],
-        reservations: &[(usize, super::Reserved)],
-        answers: &[(usize, Value)],
+        answers: &[(usize, Atom)],
     ) -> (TickPlan, Vec<ComputationState>, crate::source::Source) {
         let mut source = seeded_source(grid, rows);
-        let reservations: Vec<_> = reservations
-            .iter()
-            .map(|(anchor, reserved)| (cell(grid, *anchor), *reserved))
-            .collect();
         let answers: Vec<_> = answers
             .iter()
-            .map(|(anchor, value)| (cell(grid, *anchor), value.clone()))
+            .map(|(anchor, atom)| (cell(grid, *anchor), *atom))
             .collect();
         let bytes = source.snapshot();
         let (plan, states) = super::execution::stated::plan_with_answers(
@@ -3023,7 +3089,6 @@ mod test {
             &source.shared_language_map(),
             Tick::ZERO,
             &carried_destinations(grid, outputs),
-            &reservations,
             &answers,
         );
         source.commit_tick(&plan);
@@ -3059,70 +3124,12 @@ mod test {
             grid,
             rows,
             outputs,
-            &[],
             &replacements
                 .iter()
-                .map(|(anchor, function)| (*anchor, Value::Atom(lang::Atom::Function(*function))))
+                .map(|(anchor, function)| (*anchor, Atom::Function(*function)))
                 .collect::<Vec<_>>(),
         );
         (plan, interpreted(&states), source)
-    }
-
-    ///
-    /// One Tick in which the computations at `answers` stand in for
-    /// Sequence-answering rows: each reserves the Cells such a row reserves —
-    /// its destination through the end of that row — and each answers the
-    /// Numbers stated for it.
-    ///
-    /// The two facts are stated together here, in one place, because a declared
-    /// Range row states both together too: what it answers is a fact of the
-    /// Tick and what it reserves is a fact of the schedule, and no fixture
-    /// below derives either from the other.
-    /// `a_declared_number_range_row_derives_its_own_reservation` proves that
-    /// derivation against a declared row.
-    ///
-    fn sequence_source(
-        grid: Grid,
-        rows: &[&str],
-        outputs: &[(usize, usize)],
-        answers: &[(usize, &[u8])],
-    ) -> (TickPlan, crate::source::Source) {
-        let (plan, _, source) = sequence_turns(grid, rows, outputs, answers);
-        (plan, source)
-    }
-
-    ///
-    /// [`sequence_source`], with the Turn each computation took. Split from it
-    /// for the reason [`carried_tick`] gives.
-    ///
-    fn sequence_turns(
-        grid: Grid,
-        rows: &[&str],
-        outputs: &[(usize, usize)],
-        answers: &[(usize, &[u8])],
-    ) -> (TickPlan, Vec<Option<usize>>, crate::source::Source) {
-        let (plan, states, source) = stated_tick(
-            grid,
-            rows,
-            outputs,
-            &answers
-                .iter()
-                .map(|(anchor, _)| (*anchor, super::Reserved::Row))
-                .collect::<Vec<_>>(),
-            &answers
-                .iter()
-                .map(|(anchor, values)| (*anchor, Value::Sequence(sequence(values))))
-                .collect::<Vec<_>>(),
-        );
-        (plan, turns(&states), source)
-    }
-
-    ///
-    /// One Sequence of Numbers, or the empty Sequence for no Numbers at all.
-    ///
-    fn sequence(values: &[u8]) -> lang::Sequence {
-        lang::Sequence::new(values.iter().copied().map(lang::Atom::Number))
-            .expect("a Number is a Sequence member")
     }
 
     #[test]
@@ -3137,148 +3144,25 @@ mod test {
         // is syntax-blocked, which settles it without a Tick diagnostic.
         let grid = Grid::with_shape(16, 2);
         let rows = [".+02", ""];
-        let (plan, source) = stated_source(
-            grid,
-            &rows,
-            &[(0, 16)],
-            &[],
-            &[(0, Value::Atom(lang::Atom::Number(1)))],
-        );
+        let (plan, source) = stated_source(grid, &rows, &[(0, 16)], &[(0, Atom::Number(1))]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert!(plan.play_commands.is_empty());
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
 
-        // A Terminal Output Function standing inside an Expression: its Turn
-        // records the nesting refusal, and the Addition above it is
-        // left with no typed result to consume.
+        // A Terminal Output Function standing inside an Expression: the
+        // Parser refused it from the Source, so its Turn is blocked, and the
+        // Addition above it with it, without a Tick diagnostic.
         let rows = [".+01!>007FC4", ""];
-        let (plan, source) = stated_source(
-            grid,
-            &rows,
-            &[(0, 16)],
-            &[],
-            &[(4, Value::Atom(lang::Atom::Number(1)))],
-        );
+        let (plan, source) = stated_source(grid, &rows, &[(0, 16)], &[(4, Atom::Number(1))]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert!(plan.play_commands.is_empty());
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics.iter().any(|d| d
-                .message
-                .contains("valid only at the root of an Expression")),
-            "{:?}",
-            plan.diagnostics
-        );
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("supplied no typed result")),
-            "{:?}",
-            plan.diagnostics
-        );
-    }
-
-    #[test]
-    fn a_stated_reservation_leaves_every_derived_reservation_consistent_with_it() {
-        // The seam's own regression, not the widening rule: what a
-        // fixture states is one computation's reservation, and every other
-        // reservation in the Grid still has to be the one production derives
-        // beside it. The nested `.-` at column 2 reserves a row here, so the
-        // pervasive `.+` that owns it reserves one too — and its own answer of
-        // three Atoms across six Cells is admitted rather than refused as a
-        // result that is not the Cell pair the schedule reserved.
-        //
-        // The rule that a Sequence-answering child widens its ancestor is not
-        // what this proves, because the child's width is stated rather than
-        // declared. `a_pervasive_parent_widens_over_a_declared_number_range_child`
-        // proves it against a Range row.
-        //
-        // The premise the width above rests on, pinned so it cannot go quiet:
-        // the root reserves a Row only by widening over its child. Were Add to
-        // declare a Sequence answer of its own, the six Cells below would still
-        // be written and this test would pass while exercising nothing.
-        assert!(
-            !lang::Function::Add.answers_sequence()
-                && lang::Function::Add.widens_over_a_sequence_operand(),
-            "the root's reservation can only have been derived from its child",
-        );
-
-        let grid = Grid::with_shape(16, 2);
-        let (plan, source) = stated_source(
-            grid,
-            &["                ", ".+.-000003"],
-            &[(16, 0)],
-            &[(18, super::Reserved::Row)],
-            &[(16, Value::Sequence(sequence(&[0x0A, 0x0B, 0x0C])))],
-        );
-
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 6);
-        assert_eq!(source.snapshot(), snapshot(grid, &["0A0B0C", ".+.-000003"]));
-    }
-
-    #[test]
-    fn a_reservation_agrees_with_the_width_its_own_declaration_derives() {
-        // The agreement `Lookup::would_reserve` is a hypothesis against: asked
-        // with the Function a computation actually declares, it answers the
-        // width that computation reserves. `Lookup::new` asserts it over every
-        // Source any test in this crate builds; this states it as the fact it
-        // is, and states the one width it is false of.
-        //
-        // A stated width is that one. It is not a declared one, so re-deriving
-        // it narrows it away — which is why `plan_with_answers` refuses to
-        // combine a stated reservation with a stated Function replacement. The
-        // ancestor widened over it is what gives this test its teeth: without
-        // it every reservation in the crate is a Cell pair and an agreement
-        // between two answers of `Pair` proves nothing. The pervasive `.+`
-        // reserves a Row derived from its stated child, and `would_reserve`
-        // has to answer `Row` for it.
-        let grid = Grid::with_shape(16, 2);
-        let mut source = crate::source::Source::new(grid);
-        for (index, byte) in snapshot(grid, &["                ", ".+.-000003"])
-            .bytes()
-            .enumerate()
-        {
-            source
-                .set(cell(grid, index), &char::from(byte).to_string())
-                .unwrap();
-        }
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let mut lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        // Parser preorder: the owning `.+` at column 0, then the `.-` nested
-        // in its first operand.
-        assert_eq!(lookup.nodes().len(), 2);
-        let (root, child) = (0, 1);
-        assert_eq!(lookup.nodes()[child].parent, Some(root));
-        for index in [root, child] {
-            assert_eq!(
-                lookup.would_reserve(index, lookup.nodes()[index].function),
-                lookup.reserved(index),
-                "computation {index} reserves a width its own declaration does not derive"
-            );
-            assert_eq!(lookup.reserved(index), super::Reserved::Pair);
-        }
-
-        lookup.nodes[child].reserved = super::Reserved::Row;
-        super::derive_reservations(&mut lookup.nodes);
-
-        assert_eq!(
-            lookup.reserved(root),
-            super::Reserved::Row,
-            "a pervasive Function widens over an operand that reserves a row"
-        );
-        assert_eq!(
-            lookup.would_reserve(root, lookup.nodes()[root].function),
-            lookup.reserved(root),
-            "the widened reservation is the one the root's own declaration derives"
-        );
-        assert_eq!(
-            lookup.would_reserve(child, lookup.nodes()[child].function),
-            super::Reserved::Pair,
-            "a stated width is not a declared one, and re-deriving it narrows it away"
-        );
+        assert!(source.language_map().diagnostics().any(|d| {
+            d.message
+                .contains("valid only at the root of an Expression")
+        }),);
     }
 
     #[test]
@@ -3320,191 +3204,6 @@ mod test {
     }
 
     #[test]
-    fn a_declared_number_range_row_derives_its_own_reservation() {
-        // The bottom-up pass reads a Function's own declaration first. Number
-        // Range answers a Sequence, so production derives `Reserved::Row` for
-        // it rather than a fixture stating it.
-        let grid = Grid::with_shape(16, 2);
-        let source = seeded_source(grid, &[":-0003", ""]);
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        assert_eq!(lookup.nodes().len(), 1);
-        assert_eq!(lookup.nodes()[0].function, lang::Function::NumberRange);
-        assert_eq!(lookup.reserved(0), super::Reserved::Row);
-        assert_eq!(
-            lookup.would_reserve(0, lang::Function::NumberRange),
-            super::Reserved::Row,
-            "the declared row reserves through the end of its destination row",
-        );
-    }
-
-    #[test]
-    fn a_pervasive_parent_widens_over_a_declared_number_range_child() {
-        assert!(
-            lang::Function::Add.widens_over_a_sequence_operand(),
-            "the widening rule needs at least one pervasive Function",
-        );
-
-        let grid = Grid::with_shape(16, 2);
-        let source = seeded_source(grid, &["                ", ".+:-0003"]);
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        assert_eq!(lookup.nodes().len(), 2);
-        let (root, child) = (0, 1);
-        assert_eq!(lookup.nodes()[child].function, lang::Function::NumberRange);
-        assert_eq!(lookup.reserved(child), super::Reserved::Row);
-        assert_eq!(
-            lookup.reserved(root),
-            super::Reserved::Row,
-            "a pervasive Function widens over an operand that reserves a row",
-        );
-        assert_eq!(
-            lookup.would_reserve(root, lang::Function::Add),
-            lookup.reserved(root),
-        );
-    }
-
-    #[test]
-    fn a_non_pervasive_parent_does_not_widen_over_a_declared_number_range_child() {
-        let grid = Grid::with_shape(16, 2);
-        let source = seeded_source(grid, &["                ", ".:?00:-0003"]);
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        assert_eq!(lookup.nodes().len(), 2);
-        let (root, child) = (0, 1);
-        assert_eq!(lookup.nodes()[root].function, lang::Function::Select);
-        assert_eq!(lookup.nodes()[child].function, lang::Function::NumberRange);
-        assert_eq!(lookup.reserved(child), super::Reserved::Row);
-        assert_eq!(
-            lookup.reserved(root),
-            super::Reserved::Pair,
-            "Select answers one Atom and does not widen over a Sequence operand",
-        );
-    }
-
-    #[test]
-    fn a_declared_note_range_row_derives_its_own_reservation() {
-        let grid = Grid::with_shape(16, 2);
-        let source = seeded_source(grid, &[":#C4C7", ""]);
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        assert_eq!(lookup.nodes().len(), 1);
-        assert_eq!(lookup.nodes()[0].function, lang::Function::NoteRange);
-        assert_eq!(lookup.reserved(0), super::Reserved::Row);
-        assert_eq!(
-            lookup.would_reserve(0, lang::Function::NoteRange),
-            super::Reserved::Row,
-            "Note Range reserves through the end of its destination row",
-        );
-    }
-
-    #[test]
-    fn live_a_declared_number_range_that_leaves_its_row_writes_no_cell_of_it() {
-        let grid = Grid::with_shape(16, 2);
-        let rows = [" :-000F        ", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("crosses the row edge")),
-            "{:?}",
-            plan.diagnostics
-        );
-    }
-
-    #[test]
-    fn live_a_declared_note_range_that_leaves_its_row_writes_no_cell_of_it() {
-        // Each Note encodes as two Cells, so nine chromatic steps need eighteen
-        // and do not fit a sixteen-Cell row even from column zero.
-        let grid = Grid::with_shape(16, 2);
-        let rows = [":#C0C8          ", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("crosses the row edge")),
-            "{:?}",
-            plan.diagnostics
-        );
-    }
-
-    #[test]
-    fn a_select_bang_activates_an_aligned_terminal_root() {
-        // Select may return a Bang member unchanged. Scheduling trusts
-        // `can_emit_bang` to build activation edges for scalar Bang results,
-        // the same way it does for Equality's pulse.
-        let grid = Grid::with_shape(24, 6);
-        let rows = ["", ":?00:<:=00.=0101:-0101", "", "!>007FC4", "", ""];
-        let bytes = rows
-            .iter()
-            .map(|row| format!("{row:24}"))
-            .collect::<String>();
-        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let destinations = [(
-            grid.index(grid.position(0, 1).unwrap()),
-            vec![grid.position(0, 2).unwrap()],
-        )]
-        .into_iter()
-        .collect();
-
-        let (plan, _) = super::plan_carrying(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            Tick::ZERO,
-            &destinations,
-        );
-
-        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    }
-
-    #[test]
-    fn replacing_a_cell_pair_function_with_number_range_changes_width() {
-        let grid = Grid::with_shape(16, 2);
-        let source = seeded_source(grid, &[".-000003", ""]);
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        assert_eq!(lookup.reserved(0), super::Reserved::Pair);
-        assert_eq!(
-            lookup.replacement_change(0, lang::Function::NumberRange, lang::Function::Subtract),
-            Some(lang::ReplacementChange::Width),
-        );
-    }
-
-    #[test]
-    fn a_scalar_computation_still_reserves_a_cell_pair() {
-        // A purely scalar schedule derives only Cell pairs, whatever Range
-        // rows the table declares.
-        let grid = Grid::with_shape(16, 2);
-        let source = seeded_source(grid, &["                ", ".+.-000003"]);
-        let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
-
-        assert_eq!(lookup.nodes().len(), 2);
-        let (root, child) = (0, 1);
-        assert_eq!(lookup.nodes()[child].parent, Some(root));
-        for index in [root, child] {
-            assert_eq!(
-                lookup.reserved(index),
-                super::Reserved::Pair,
-                "computation {index} settled a width wider than a Cell pair",
-            );
-        }
-    }
-
-    #[test]
     #[should_panic(expected = "a stated answer names a computation the schedule contains")]
     fn a_cyclic_source_does_not_excuse_a_fixture_error() {
         // A Source that admits no order publishes diagnostics and nothing
@@ -3514,13 +3213,7 @@ mod test {
         // and the answer names an operand Cell: both are wrong, and the one
         // the fixture author can fix is the one reported.
         let grid = Grid::with_shape(16, 2);
-        stated_source(
-            grid,
-            &[".+0102", ""],
-            &[(0, 2)],
-            &[],
-            &[(4, Value::Atom(lang::Atom::Number(1)))],
-        );
+        stated_source(grid, &[".+0102", ""], &[(0, 2)], &[(4, Atom::Number(1))]);
     }
 
     #[test]
@@ -3534,48 +3227,7 @@ mod test {
             grid,
             &[".+0203", ""],
             &[(0, 16)],
-            &[],
-            &[
-                (0, Value::Atom(lang::Atom::Number(1))),
-                (0, Value::Atom(lang::Atom::Number(2))),
-            ],
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "two are stated here for the same anchor")]
-    fn two_reservations_at_one_anchor_are_a_fixture_error() {
-        // One computation reserves one width. A second stated at the same
-        // anchor would silently replace the first, leaving the test asserting
-        // around a width it did not mean.
-        let grid = Grid::with_shape(16, 2);
-        stated_source(
-            grid,
-            &[".+0102", ""],
-            &[],
-            &[(0, super::Reserved::Row), (0, super::Reserved::Row)],
-            &[],
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "a stated reservation and a stated Function replacement cannot be combined"
-    )]
-    fn a_stated_reservation_and_function_replacement_are_a_fixture_error() {
-        // A replacement is checked against the width its producer declares,
-        // and a stated reservation is a width no declaration gave, so the two
-        // cannot be judged against each other in one Tick.
-        let grid = Grid::with_shape(16, 2);
-        stated_source(
-            grid,
-            &[".+0102  .+0304", ""],
-            &[],
-            &[(0, super::Reserved::Row)],
-            &[(
-                8,
-                Value::Atom(lang::Atom::Function(lang::Function::Subtract)),
-            )],
+            &[(0, Atom::Number(1)), (0, Atom::Number(2))],
         );
     }
 
@@ -3595,47 +3247,7 @@ mod test {
             grid,
             &[".=0101", "", "!>007FC4"],
             &[(0, 16)],
-            &[],
-            &[(32, Value::Atom(lang::Atom::Number(1)))],
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "a stated reservation names a computation the schedule contains")]
-    fn a_stated_reservation_at_no_computations_anchor_is_a_fixture_error() {
-        // The same fixture error as below, for the other half of what a
-        // Sequence-answering row states. A reservation stated at a Cell no
-        // computation is anchored at would leave the schedule deriving every
-        // width itself, and a Sequence answer would then be refused for a
-        // reason that has nothing to do with what the test is asking.
-        let grid = Grid::with_shape(16, 2);
-        stated_source(
-            grid,
-            &[".+0203", ""],
-            &[(0, 16)],
-            &[(2, super::Reserved::Row)],
-            &[],
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "a stated reservation is a width production would not derive")]
-    fn a_stated_pair_reservation_is_a_fixture_error() {
-        // The one fixture mistake the seam could answer silently. Stating a
-        // reservation is how a fixture says what production cannot derive, and
-        // `derive_reservations` re-derives every node still holding a
-        // `Reserved::Pair`, so a stated Pair is overwritten by the very pass
-        // that reads it. Here the
-        // pervasive `.+` at Cell 16 would widen over the row-reserving `.-` at
-        // Cell 18 and answer Row again, leaving a test that states the parent
-        // does not widen asserting the opposite of what it says and passing.
-        let grid = Grid::with_shape(16, 2);
-        stated_source(
-            grid,
-            &["                ", ".+.-000003"],
-            &[(16, 0)],
-            &[(18, super::Reserved::Row), (16, super::Reserved::Pair)],
-            &[(16, Value::Sequence(sequence(&[0x0A, 0x0B, 0x0C])))],
+            &[(32, Atom::Number(1))],
         );
     }
 
@@ -3648,13 +3260,7 @@ mod test {
         // whether little happened and being told that it did, which is what
         // this refuses to do quietly.
         let grid = Grid::with_shape(16, 2);
-        stated_source(
-            grid,
-            &[".+0203", ""],
-            &[(0, 16)],
-            &[],
-            &[(2, Value::Atom(lang::Atom::Number(1)))],
-        );
+        stated_source(grid, &[".+0203", ""], &[(0, 16)], &[(2, Atom::Number(1))]);
     }
 
     #[test]
@@ -3667,10 +3273,17 @@ mod test {
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
         let (plan, source) = carried_source(Grid::with_shape(width, 2), &[&text, ""], &[]);
-        // 50 / 25 = 2. Reversing the siblings instead produces zero.
+        // 50 / 25 = 2. Reversing the siblings instead produces zero. Each
+        // sibling's outermost Addition writes its own sum under its anchor.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
-        assert_eq!(source.snapshot(), snapshot(source.grid(), &[&text, "02"]));
+        let snapshot = source.snapshot();
+        let (expression, below) = snapshot.split_at(width);
+        assert_eq!(expression, text);
+        let denominator_anchor = 2 + numerator.len();
+        assert_eq!(&below[..2], "02");
+        assert_eq!(&below[2..4], "32");
+        assert_eq!(&below[denominator_anchor..denominator_anchor + 2], "19");
     }
 
     #[test]
@@ -3707,8 +3320,8 @@ mod test {
         // A writer can also repair the bad leaf before its reserved turn.
         let (repaired, source) = carried_source(
             Grid::with_shape(20, 3),
-            &[".+01.x02.+03??", ".+0004", ""],
-            &[(0, 40), (20, 12)],
+            &[".+01.x02.+03??", "          .+0004", ""],
+            &[(0, 40), (30, 12)],
         );
         assert!(
             repaired.diagnostics.is_empty(),
@@ -3716,38 +3329,6 @@ mod test {
             repaired.diagnostics
         );
         assert_eq!(&source.snapshot()[40..42], "0F");
-    }
-
-    #[test]
-    fn live_non_pair_scalar_projection_is_rejected_where_the_portal_admits_it() {
-        let grid = Grid::with_shape(16, 2);
-        let rows = [".+0203", ""];
-        // Four Cells inside one row: the Portal admits them and the schedule
-        // reserved only a pair, which is the pair of facts this rejection is
-        // about. Addition answers no Sequence from Atom operands, so the
-        // answer is stated.
-        let (plan, source) = stated_source(
-            grid,
-            &rows,
-            &[(0, 16)],
-            &[],
-            &[(
-                0,
-                Value::Sequence(
-                    lang::Sequence::new([lang::Atom::Number(7), lang::Atom::Number(8)]).unwrap(),
-                ),
-            )],
-        );
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(plan.writes.is_empty());
-        assert!(plan.play_commands.is_empty());
-        assert!(
-            plan.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("result is not a scalar Cell pair")),
-            "{:?}",
-            plan.diagnostics
-        );
     }
 
     #[test]
@@ -3818,49 +3399,6 @@ mod test {
                 Some(Token::Comment)
             );
         }
-    }
-
-    ///
-    /// A `##` that overlaps a Function's spelling holds no Comment.
-    ///
-    /// `:#` at Cells 3 and 4 with a `#` at Cell 5 presents `##` at Cells 4 and
-    /// 5 to a scan over overlapping byte pairs, which would cut the row in the
-    /// middle of a Function. One keystroke of a Live Edit reaches it.
-    ///
-    /// `#` spells nothing, so what this pins is that no Comment forms and the
-    /// row is read one Cell at a time: `:#` is recognised at Cells 3 and 4 as
-    /// Note Range and the trailing `#` alone is refused.
-    ///
-    #[test]
-    fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
-        let (plan, source) = carried_source(Grid::with_shape(8, 2), &["** :##", ""], &[]);
-
-        assert!(
-            !source
-                .language_map()
-                .units()
-                .any(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
-        );
-        assert_eq!(
-            source
-                .language_map()
-                .diagnostics()
-                .filter(|diagnostic| diagnostic.message.starts_with("invalid Language Unit"))
-                .map(|diagnostic| diagnostic.start())
-                .collect::<Vec<_>>(),
-            vec![5]
-        );
-        // The Bang before them is a whole Expression and still fires, which
-        // clears its own two Cells and writes nothing else. Nothing the row
-        // holds after it is Source anything reads, so nothing else can.
-        assert_eq!(&source.snapshot()[..2], "  ");
-        assert_eq!(
-            plan.writes
-                .iter()
-                .map(|write| write.cell.get())
-                .collect::<Vec<_>>(),
-            vec![0, 1]
-        );
     }
 
     #[test]
@@ -4150,450 +3688,19 @@ mod test {
     }
 
     #[test]
-    fn live_a_sequence_result_reaches_its_destination_cells() {
-        // An ordinary Sequence result, reached through a Tick rather than
-        // through the Portal on its own: the schedule holds the row this
-        // fixture reserves, execution encodes the answer, and the Source Grid
-        // the next Tick reads carries all six Cells. Three Atoms rather than
-        // one is what separates this from the scalar case it shares a path
-        // with — including the width guard, which refuses any answer that is
-        // not a Cell pair from a computation reserving one.
+    fn live_two_overlapping_results_resolve_cell_by_cell() {
+        // Cell-wise conflict resolution: one admitted write is one validated
+        // effect until the Tick Plan resolves, and then as many independently
+        // contested Cells as it has characters. Two roots aim at Cell pairs one
+        // Cell apart; the later producer wins the Cell they share and the
+        // earlier producer's first Cell stands, which a rule resolving whole
+        // writes would have replaced together.
         let grid = Grid::with_shape(16, 2);
-        let (plan, source) =
-            sequence_source(grid, &[".+0102", ""], &[], &[(0, &[0x0A, 0x0B, 0x0C])]);
+        let (plan, source) = carried_source(grid, &[".+000A.+000D", ""], &[(0, 16), (6, 17)]);
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert!(plan.play_commands.is_empty());
-        assert_eq!(plan.writes.len(), 6, "one Cell write per encoded Cell");
-        assert_eq!(source.snapshot(), snapshot(grid, &[".+0102", "0A0B0C"]));
-    }
-
-    #[test]
-    fn live_a_declared_number_range_result_reaches_its_destination_cells() {
-        // The same complete-fit path as the stated Sequence fixtures, but the
-        // row-wide reservation is derived from Number Range's own declaration
-        // rather than stated beside the answer.
-        let grid = Grid::with_shape(16, 2);
-        let rows = [":-0003", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert!(plan.play_commands.is_empty());
-        assert_eq!(plan.writes.len(), 8, "one Cell write per encoded Cell");
-        assert_eq!(source.snapshot(), snapshot(grid, &[":-0003", "00010203"]),);
-    }
-
-    #[test]
-    fn live_a_declared_number_range_reservation_orders_computations_it_covers() {
-        // The row reservation, observed as the ordering it buys, with a
-        // declared Range row rather than a stated Sequence answer.
-        let grid = Grid::with_shape(16, 2);
-        let rows = ["        .+0102", ":-0005"];
-        let mut source = seeded_source(grid, &rows);
-        let (plan, states) =
-            source.execute_carrying(Tick::ZERO, &carried_destinations(grid, &[(16, 0)]));
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(
-            turns(&states),
-            vec![Some(1), Some(0)],
-            "the Range producer in row 1 took the first Turn and the Expression \
-             it covers the second, which row-major order alone would reverse",
-        );
-        assert_eq!(plan.writes.len(), 12);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &["00010203040502", rows[1]]),
-            "the covered Expression neither executed nor kept its spelling",
-        );
-    }
-
-    #[test]
-    fn live_a_declared_note_range_result_reaches_its_destination_cells() {
-        // The Number Range happy path above, repeated for Note Range: each Note
-        // encodes as two Cells and the complete Sequence must fit the row.
-        // Bounds are chromatic by MIDI value, so C4–D4 is three semitones.
-        let grid = Grid::with_shape(16, 2);
-        let rows = [":#C4D4", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert!(plan.play_commands.is_empty());
-        assert_eq!(plan.writes.len(), 6, "one Cell write per encoded Cell");
-        assert_eq!(source.snapshot(), snapshot(grid, &[":#C4D4", "C4c4D4"]),);
-    }
-
-    #[test]
-    fn live_a_declared_note_range_reservation_orders_computations_it_covers() {
-        let grid = Grid::with_shape(16, 2);
-        let rows = ["        .+0102", ":#C4F4"];
-        let mut source = seeded_source(grid, &rows);
-        let (plan, states) =
-            source.execute_carrying(Tick::ZERO, &carried_destinations(grid, &[(16, 0)]));
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(
-            turns(&states),
-            vec![Some(1), Some(0)],
-            "Note Range reserves and orders the row the same way Number Range does",
-        );
-        assert_eq!(plan.writes.len(), 12);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &["C4c4D4d4E4F402", rows[1]]),
-            "the covered Expression neither executed nor kept its spelling",
-        );
-    }
-
-    #[test]
-    fn live_a_declared_reverse_result_reaches_its_destination_cells() {
-        let grid = Grid::with_shape(16, 2);
-        let rows = [":<:-0003", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 8);
-        assert_eq!(source.snapshot(), snapshot(grid, &[":<:-0003", "03020100"]),);
-    }
-
-    #[test]
-    fn live_a_declared_concatenate_result_reaches_its_destination_cells() {
-        let grid = Grid::with_shape(16, 2);
-        let rows = [":&:-0101:-0202", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 4);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &[":&:-0101:-0202", "0102"]),
-        );
-    }
-
-    #[test]
-    fn live_a_declared_replace_result_reaches_its_destination_cells() {
-        let grid = Grid::with_shape(16, 2);
-        let rows = [":=01.+0102:-0103", ""];
-        let (plan, source) = carried_source(grid, &rows, &[]);
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 6);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &[":=01.+0102:-0103", "010303"]),
-        );
-    }
-
-    #[test]
-    fn live_a_sequence_result_that_leaves_its_row_writes_no_cell_of_it() {
-        // The complete-fit rule, which the Portal enforces, for a Sequence
-        // exactly as for a scalar: no Span reaches past the row it
-        // begins in, so an encoding running past the row's end is refused
-        // entire. Four of the six Cells fit and none of them is written, which
-        // is the half of the rule a diagnostic alone would not hold.
-        //
-        // The destination sits in the middle row of three, so the row edge it
-        // overruns has another row after it: what is refused here is leaving
-        // the row, not approaching the end of the Grid. The Grid's own edges
-        // are the test below.
-        let grid = Grid::with_shape(16, 3);
-        let rows = [".+0102", "", ""];
-        let (plan, source) = sequence_source(grid, &rows, &[(0, 28)], &[(0, &[0x0A, 0x0B, 0x0C])]);
-
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("crosses the row edge")),
-            "{:?}",
-            plan.diagnostics
-        );
-    }
-
-    #[test]
-    fn live_a_sequence_result_at_a_grid_edge_writes_no_cell_of_it() {
-        // The two ways the Grid, rather than the row, refuses a Sequence. A
-        // root in the last row resolves no ordinary destination at all, so
-        // there is nothing to fit into; and the last row's final Cells are the
-        // Grid's final Cells, so an encoding past them leaves the Grid. The
-        // third case is the one that must still work: a Sequence ending exactly
-        // on the Grid's last Cell is admitted, so the refusals above are about
-        // leaving the Grid and not about being near its edge.
-        let grid = Grid::with_shape(16, 2);
-        let below = ["", ".+0102"];
-        let (plan, source) = sequence_source(grid, &below, &[], &[(16, &[0x0A, 0x0B])]);
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &below));
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("falls below the Source")),
-            "{:?}",
-            plan.diagnostics
-        );
-
-        let rows = [".+0102", ""];
-        let (plan, source) = sequence_source(grid, &rows, &[(0, 30)], &[(0, &[0x0A, 0x0B])]);
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("crosses the row edge")),
-            "{:?}",
-            plan.diagnostics
-        );
-
-        let (plan, source) = sequence_source(grid, &rows, &[(0, 30)], &[(0, &[0x0A])]);
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 2);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &[".+0102", "              0A"])
-        );
-    }
-
-    #[test]
-    fn live_two_overlapping_sequence_results_resolve_cell_by_cell() {
-        // Cell-wise conflict resolution, which a Sequence inherits
-        // rather than restates: one admitted write is one validated effect
-        // until the Tick Plan resolves, and then as many independently
-        // contested Cells as it has characters. The later producer wins the two
-        // Cells it overlaps and the earlier producer's first four Cells stand,
-        // which a rule resolving whole writes would have replaced together.
-        let grid = Grid::with_shape(16, 2);
-        let (plan, source) = sequence_source(
-            grid,
-            &[".+0000.+0000", ""],
-            &[(0, 16), (6, 20)],
-            &[(0, &[0x0A, 0x0B, 0x0C]), (6, &[0x0D, 0x0E])],
-        );
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(
-            plan.writes.len(),
-            8,
-            "six Cells and four Cells sharing two of them"
-        );
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &[".+0000.+0000", "0A0B0D0E"])
-        );
-    }
-
-    #[test]
-    fn live_an_empty_sequence_result_plans_no_write_and_no_diagnostic() {
-        // The empty Sequence is a value holding no Atoms rather than a refused
-        // one, so it plans no Cell write and reports nothing. It never reaches
-        // a Portal, which is what lets `Portal::admit` assert that a write
-        // places at least one Cell.
-        let grid = Grid::with_shape(16, 2);
-        let rows = [".+0102", ""];
-        let (plan, source) = sequence_source(grid, &rows, &[], &[(0, &[])]);
-
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert!(plan.play_commands.is_empty());
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-    }
-
-    #[test]
-    fn live_a_sequence_reservation_orders_every_computation_its_write_can_reach() {
-        // The row reservation, observed as the ordering it buys. The
-        // producer sits in row 1 and writes upward into row 0, so row-major
-        // order alone would run the Expression at column 8 first. A scalar
-        // reservation covers only columns 0 and 1 and names no edge to it; the
-        // Sequence's write then reaches an already-executed computation and
-        // the whole Tick is rejected. Reserving through the end of the
-        // destination row instead orders the producer first, and the
-        // Expression it covers is suppressed rather than executed against a
-        // spelling that is no longer there.
-        let grid = Grid::with_shape(16, 2);
-        let (plan, turns, source) = sequence_turns(
-            grid,
-            &["        .+0102", ".+0000"],
-            &[(16, 0)],
-            &[(16, &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F])],
-        );
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(
-            turns,
-            vec![Some(1), Some(0)],
-            "the producer in row 1 took the first Turn and the Expression it \
-             covers the second, which row-major order alone would reverse",
-        );
-        assert_eq!(plan.writes.len(), 12);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &["0A0B0C0D0E0F02", ".+0000"]),
-            "the covered Expression neither executed nor kept its spelling",
-        );
-    }
-
-    #[test]
-    fn live_a_reservation_the_sequence_stopped_short_of_suppresses_nothing() {
-        // The other half of the reservation rule: a reservation is deliberately
-        // wider than most of the writes it covers, and only the write decides
-        // what happened to a Cell. The Expression at column 8 is inside the
-        // reserved row and outside the four Cells the Sequence actually
-        // reached, so it is ordered after the producer and then executes
-        // normally, answering `03` into row 1. Suppressing everything the
-        // reservation names would leave that Cell pair empty.
-        let grid = Grid::with_shape(16, 2);
-        let (plan, turns, source) = sequence_turns(
-            grid,
-            &["        .+0102", ".+0000"],
-            &[(16, 0)],
-            &[(16, &[0x0A, 0x0B])],
-        );
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(
-            turns,
-            vec![Some(1), Some(0)],
-            "the reservation ordered the Expression after the producer, and \
-             then left it to execute",
-        );
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &["0A0B    .+0102", ".+0000  03"]),
-        );
-    }
-
-    #[test]
-    fn live_a_reservation_covering_its_own_producer_orders_nothing_against_it() {
-        // A Reservation orders Turns and decides nothing else, and a
-        // computation the admitted write stopped short of is left standing.
-        // The producer is one such computation whenever its destination lies
-        // in its own row at or left of its own Cells, because a
-        // `Reserved::Row` reservation runs from the destination through the
-        // end of that row and so covers the producer's spelling and literals
-        // along with everything else.
-        //
-        // Ordering a producer after itself is not a dependency, it is an
-        // artefact of measuring the reservation from the row rather than from
-        // the write: the four Cells this Sequence actually reaches stop at
-        // column 3 and never come near the Expression at column 8. A self-edge
-        // makes that Tick a cycle and discards every write and Play Command in
-        // the Grid — a cycle manufactured between computations that never
-        // touch.
-        let grid = Grid::with_shape(16, 2);
-        let (plan, source) = sequence_source(
-            grid,
-            &["        .+0102", ""],
-            &[(8, 0)],
-            &[(8, &[0x0A, 0x0B])],
-        );
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 4);
-        assert_eq!(source.snapshot(), snapshot(grid, &["0A0B    .+0102", ""]));
-    }
-
-    #[test]
-    fn live_a_sequence_that_writes_over_its_own_producer_rejects_the_tick() {
-        // The other half of the rule above. Dropping the self-edge for a
-        // `Reserved::Row` producer moves the question of writing over itself
-        // from the schedule to the admitted write; it does not answer it away.
-        // Twelve Cells from column 0 reach the `.+` at column 8, and the
-        // producer is an executed computation, which no output may reach, so
-        // the Tick is rejected entire and the Source is unchanged. The
-        // Expression that is left standing when the write stops short is the
-        // test above; this is what happens when it does not.
-        let grid = Grid::with_shape(16, 2);
-        let rows = ["        .+0102", ""];
-        let (plan, source) = sequence_source(
-            grid,
-            &rows,
-            &[(8, 0)],
-            &[(8, &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F])],
-        );
-
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics.iter().any(|d| {
-                d.message == "spatial output reached an executed computation; Tick effects rejected"
-            }),
-            "{:?}",
-            plan.diagnostics
-        );
-    }
-
-    #[test]
-    fn live_a_rejected_tick_records_no_turn_for_the_computations_it_never_reached() {
-        // The test above, with one more computation standing where the Tick
-        // never gets to. A rejection stops the order where the defect was
-        // found and keeps the states, so the Turn each computation took is the
-        // one record that tells how far the Tick got: the producer took the
-        // first Turn and the Tick was rejected in it, and the Addition in row 1
-        // — ordered after the producer by nothing but anchor order, since no
-        // reservation reaches row 1 — took no Turn at all.
-        //
-        // A sentinel ordinal, or an ordinal recorded when the order was built,
-        // would say the Addition was ordered second and leave the two cases
-        // indistinguishable. The Source cannot tell them apart either: a
-        // rejected Tick writes nothing, so a computation that ran and one that
-        // never did leave the same Cells behind.
-        let grid = Grid::with_shape(16, 3);
-        let rows = ["        .+0102", ".+0000", ""];
-        let (plan, turns, source) = sequence_turns(
-            grid,
-            &rows,
-            &[(8, 0)],
-            &[(8, &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F])],
-        );
-
-        assert_eq!(turns, vec![Some(0), None]);
-        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-        assert_eq!(source.snapshot(), snapshot(grid, &rows));
-        assert!(
-            plan.diagnostics.iter().any(|d| {
-                d.message == "spatial output reached an executed computation; Tick effects rejected"
-            }),
-            "{:?}",
-            plan.diagnostics
-        );
-    }
-
-    #[test]
-    fn live_a_row_reservation_names_no_computation_of_the_next_row() {
-        // A row reservation covers the rest of the destination's row, and "the
-        // rest" is counted from the destination's own column: a destination at
-        // column 8 of a sixteen-column Grid reserves eight Cells, not sixteen.
-        // Counting the row's full width instead reserves eight Cells of the
-        // row below as well, and a reservation names dependency edges over
-        // every Cell it covers — so the surplus would order Turns against
-        // computations no write from this destination can ever reach.
-        //
-        // Both producers point at column 8 of row 0 and neither one's spelling
-        // lies inside the other's reservation, so nothing orders them against
-        // each other and they take their Turns in anchor order. The Sequence
-        // is anchored last, takes the later Turn, and wins the two Cells the
-        // two writes contest. A reservation running on into row 1 would cover
-        // the Addition's spelling and its literals, order that Addition after
-        // the Sequence, and hand those two Cells to it instead.
-        let grid = Grid::with_shape(16, 3);
-        let (plan, turns, source) = sequence_turns(
-            grid,
-            &["", ".+0102", ".+0000"],
-            &[(16, 8), (32, 8)],
-            &[(32, &[0x0A, 0x0B])],
-        );
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(
-            turns,
-            vec![Some(0), Some(1)],
-            "the Addition took the first Turn and the Sequence the second",
-        );
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &["        0A0B", ".+0102", ".+0000"]),
-            "the Sequence took the later Turn and won the Cells it contests",
-        );
+        assert_eq!(plan.writes.len(), 3, "two Cell pairs sharing one Cell");
+        assert_eq!(source.snapshot(), snapshot(grid, &[".+000A.+000D", "00D"]));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -4706,7 +3813,7 @@ mod test {
     }
 
     #[test]
-    fn live_spatial_note_is_an_encoding_and_nested_note_stays_typed() {
+    fn live_spatial_and_returned_notes_are_both_encodings() {
         let (plan, source) = carried_source(
             Grid::with_shape(16, 3),
             &[".+0001", ".^48", ""],
@@ -4715,38 +3822,35 @@ mod test {
         assert_eq!(&source.snapshot()[..6], ".+C501");
         assert_eq!(&source.snapshot()[32..34], "C6");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        // Returned rather than written, Note `C5` is the same characters and
+        // the Number operand reads them the same way.
         let (plan, source) = carried_source(Grid::with_shape(16, 2), &[".+.^4801", ""], &[(0, 16)]);
-        assert_eq!(&source.snapshot()[16..18], "  ");
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message.contains("expected a number")),
-            "{:?}",
-            plan.diagnostics
-        );
+        assert_eq!(&source.snapshot()[16..20], "C6C5");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(&source.snapshot()[..8], ".+.^4801");
     }
 
     #[test]
-    fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_typed_answer() {
-        // Nested `.x` is silent: it answers 0C to `./` and writes no Cell.
-        // Carry cannot mint a Portal onto it. The sibling `.+` is a root, so
-        // it still writes after the parent divides by zero.
+    fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_its_return() {
+        // Nested `.x` returns 0C to `./` and writes it into the sibling `.+`'s
+        // first operand. The parent divides by zero; the child's write stands
+        // and the sibling consumes it.
         let (plan, source) = carried_source(
             Grid::with_shape(16, 4),
             &["./.x030400", ".+0001", "", ""],
             &[(0, 48), (2, 18), (16, 52)],
         );
-        assert_eq!(&source.snapshot()[18..20], "00");
+        assert_eq!(&source.snapshot()[18..20], "0C");
         assert_eq!(&source.snapshot()[48..50], "  ");
-        assert_eq!(&source.snapshot()[52..54], "01");
+        assert_eq!(&source.snapshot()[52..54], "0D");
         assert!(
             plan.diagnostics
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
-        // The nested multiply still supplies 0C, so `.+` writes 0E. Naming a
-        // Cell for that nested Function does not create a row-edge write.
+        // The nested Multiply's Portal crosses the row edge, so its write is
+        // refused whole and diagnosed. Its Return still supplies 0C, so `.+`
+        // writes 0E.
         let (plan, source) = carried_source(
             Grid::with_shape(16, 2),
             &[".+02.x0304", ""],
@@ -4754,13 +3858,7 @@ mod test {
         );
         assert_eq!(&source.snapshot()[16..18], "0E");
         assert_eq!(&source.snapshot()[31..], " ");
-        assert!(
-            plan.diagnostics
-                .iter()
-                .all(|d| !d.message.contains("crosses the row edge")),
-            "{:?}",
-            plan.diagnostics
-        );
+        assert_eq!(messages(&plan), ["result \"0C\" crosses the row edge"]);
     }
 
     #[test]
@@ -4779,17 +3877,17 @@ mod test {
         );
         let (plan, source) =
             carried_source(Grid::with_shape(16, 2), &[".+02./0100", ""], &[(0, 16)]);
-        assert_eq!(&source.snapshot()[16..18], "  ");
+        assert_eq!(&source.snapshot()[16..22], "      ");
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|d| d.message.contains("supplied no typed result"))
+                .any(|d| d.message.contains("returned nothing"))
         );
         // A failed structural writer leaves the original computation connected.
         let (plan, source) = carried_source(
             Grid::with_shape(16, 3),
-            &[".+02.x0304", "./0100", ""],
-            &[(0, 32), (16, 4)],
+            &[".+02.x0304", "      ./0100", ""],
+            &[(0, 32), (22, 4)],
         );
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert_eq!(&source.snapshot()[32..34], "0E");
@@ -4802,8 +3900,10 @@ mod test {
 
     #[test]
     fn live_inactive_ownership_and_silent_terminal_output_are_independent() {
-        // Carrying a Cell onto `!>` cannot mint a Portal. Nested `.^80` still
-        // supplies no Note, so this Expression neither plays nor writes.
+        // Carrying a Cell onto `!>` cannot mint a Portal. The root is never
+        // activated, so its nested `.^80` takes no Turn and writes nothing
+        // through the Portal carried onto it, and this Expression neither
+        // plays nor writes.
         let (plan, interpreted, source) = carried_tick(
             Grid::with_shape(16, 3),
             &["!>007F.^80", "", ""],
@@ -4880,9 +3980,11 @@ mod test {
             &[(0, 48), (4, 34), (16, 0), (32, 52)],
             &[(16, lang::Function::Multiply)],
         );
+        // The nested `.x` keeps its place under the replacement and writes
+        // its `0C` into the third row's first operand.
         assert_eq!(&source.snapshot()[..10], ".x02.x0304");
         assert_eq!(&source.snapshot()[48..50], "18");
-        assert_eq!(&source.snapshot()[52..54], "01");
+        assert_eq!(&source.snapshot()[52..54], "0D");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         let (plan, source) = replaced_source(
             Grid::with_shape(16, 3),
@@ -4897,15 +3999,19 @@ mod test {
                 .iter()
                 .any(|d| d.message == "Number C4 cannot be converted to a Note")
         );
+        // The retained nested `.^` returns `C4`, which the replacement's
+        // Number operand reads as Number `C4`, outside the Note range. The
+        // child's own write under its anchor stands.
         let (plan, source) = replaced_source(
             Grid::with_shape(16, 3),
-            &[".v.^3C", ".+0000", ""],
-            &[(0, 32), (16, 0)],
-            &[(16, lang::Function::ConvertToNote)],
+            &[".v.^3C", "    .+0000", ""],
+            &[(0, 32), (20, 0)],
+            &[(20, lang::Function::ConvertToNote)],
         );
-        // The retained nested Note C4 remains typed; Numeric Conversion is idempotent.
-        assert_eq!(&source.snapshot()[32..34], "C4");
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(&source.snapshot()[..6], ".^.^3C");
+        assert_eq!(&source.snapshot()[18..20], "C4");
+        assert_eq!(&source.snapshot()[32..34], "  ");
+        assert_eq!(messages(&plan), ["Number C4 cannot be converted to a Note"]);
     }
 
     #[test]
@@ -4959,70 +4065,56 @@ mod test {
     }
 
     #[test]
-    fn live_cycles_reject_independent_effects_and_self_dependency() {
-        for outputs in [
-            vec![(0, 18), (16, 2), (32, 48)],
-            vec![(0, 2), (16, 64), (32, 48)],
+    fn live_cycles_stop_only_the_expressions_they_reach() {
+        // ADR 0065. The first two rows form a cycle, then a self-dependency
+        // beside an Addition that writes over `!>`. Either way `.=` is
+        // independent: its Bang lands above `!>`, which plays only where no
+        // write covers it.
+        for (outputs, writes, plays) in [
+            (vec![(0, 18), (16, 2), (32, 48)], vec![(48, "**")], 1),
+            (
+                vec![(0, 2), (16, 64), (32, 48)],
+                vec![(48, "**"), (64, "01")],
+                0,
+            ),
         ] {
-            let (plan, interpreted, source) = carried_tick(
+            let (plan, _, source) = carried_tick(
                 Grid::with_shape(16, 5),
                 &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
                 &outputs,
             );
-            assert!(plan.writes.is_empty());
-            assert!(plan.play_commands.is_empty());
-            assert_eq!(interpreted.len(), 0);
-            assert_eq!(&source.snapshot()[48..50], "  ");
-            assert!(
-                plan.diagnostics
-                    .iter()
-                    .any(|d| d.message == "same-Tick dependency cycle")
-            );
+            for (start, spelling) in writes {
+                assert_eq!(&source.snapshot()[start..start + 2], spelling);
+            }
+            assert_eq!(&source.snapshot()[2..6], "0001");
+            assert_eq!(plan.play_commands.len(), plays);
+            assert_eq!(messages(&plan), ["same-Tick dependency cycle"]);
         }
+        // A nested computation on the cycle stops its whole Expression.
         let (plan, _) = carried_source(
             Grid::with_shape(16, 3),
             &[".+02.x0304", ".+0001", ""],
             &[(0, 18), (4, 18), (16, 6)],
         );
         assert!(plan.writes.is_empty());
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message == "same-Tick dependency cycle")
-        );
+        assert_eq!(messages(&plan), ["same-Tick dependency cycle"]);
     }
 
     #[test]
-    fn a_late_spatial_write_rejects_the_tick_even_when_the_earlier_turn_failed() {
+    fn a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_turn_failed() {
         for target in [".+0101", "./0100", ".+01??"] {
             let grid = Grid::with_shape(16, 11);
-            let bytes = snapshot(
-                grid,
-                &[
-                    "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "**", "",
-                    "",
-                ],
-            );
+            let rows = [
+                "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "**", "", "",
+            ];
+            let bytes = snapshot(grid, &rows);
             let map = LanguageMap::derive(grid, &bytes).unwrap();
             let carried =
                 carried_destinations(grid, &[(32, 0), (48, 160), (64, 96), (80, 64), (112, 160)]);
-            // A valid order delivers the writer before its target. Execute it
-            // once to prove that this fixture has writes and a Play Command
-            // which the defensive rejection below must discard.
-            let (plan, _) = super::plan_carrying(
-                grid,
-                Cells::of(bytes.as_bytes()),
-                &map,
-                Tick::ZERO,
-                &carried,
-            );
-            assert!(!plan.writes.is_empty());
-            assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
-
-            let mut schedule = super::schedule_carrying(grid, &map, &carried).unwrap();
+            let mut schedule = super::schedule_carrying(grid, &map, &carried);
             // Supply a broken order at the execution seam: the scheduler must
-            // never produce this, but execution promises to reject it rather
-            // than panic or publish the effects already accumulated.
+            // never produce this, but execution promises to refuse the one
+            // write it gets wrong rather than panic or drop the Tick.
             schedule.order = [32, 16, 48, 64, 80, 112]
                 .into_iter()
                 .map(|anchor| {
@@ -5034,36 +4126,50 @@ mod test {
                         .unwrap()
                 })
                 .collect();
-            let (rejected, states) = super::execution::execute(
+            let (plan, states) = super::execution::execute(
                 grid,
                 Cells::of(bytes.as_bytes()),
                 &map,
                 Tick::ZERO,
                 &schedule,
             );
-            assert!(rejected.writes.is_empty());
-            assert!(rejected.play_commands.is_empty());
-            // The broken order was walked as given, and stopped where it was
-            // rejected: the computation anchored at Cell 32 took the first Turn
-            // ahead of the one anchored at Cell 16, and the one anchored at
-            // Cell 112 never took a Turn at all. Read in parse order, which is
-            // anchor order here, so the entries name Cells 16, 32, 48, 64, 80
-            // and 112.
+            // The broken order was walked as given, and to its end: the
+            // computation anchored at Cell 32 took the first Turn ahead of the
+            // one anchored at Cell 16, and the one anchored at Cell 112 took
+            // the last. Read in parse order, which is anchor order here, so
+            // the entries name Cells 16, 32, 48, 64, 80 and 112.
             assert_eq!(
                 turns(&states),
-                vec![Some(1), Some(0), Some(2), Some(3), Some(4), None],
+                vec![Some(1), Some(0), Some(2), Some(3), Some(4), Some(5)],
             );
+            // Only the write onto Cell 64 is refused. The target keeps its
+            // spelling and its own answer, and every other effect publishes.
+            let mut published = bytes.clone().into_bytes();
+            for write in &plan.writes {
+                published[write.cell.get()] = write.content.as_char() as u8;
+            }
+            let published: Vec<_> = published
+                .chunks(grid.columns())
+                .map(|row| std::str::from_utf8(row).unwrap())
+                .collect();
+            let answer = if target == ".+0101" { "02" } else { "" };
+            assert_eq!(
+                published,
+                [
+                    "**", "!>007FC4", ".=0101", "./0100", target, ".+0203", answer, ".+0304", "",
+                    "", "07",
+                ]
+                .map(|row| format!("{row:16}")),
+                "{target}"
+            );
+            assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
             let mut expected = vec![(48, "cannot divide by zero")];
             if target == "./0100" {
                 expected.push((64, "cannot divide by zero"));
             }
-            expected.push((
-                80,
-                "spatial output reached an executed computation; Tick effects rejected",
-            ));
+            expected.push((80, "spatial output reached an executed computation"));
             assert_eq!(
-                rejected
-                    .diagnostics
+                plan.diagnostics
                     .iter()
                     .map(|diagnostic| {
                         (
@@ -5078,7 +4184,7 @@ mod test {
             // reaching it, although that Turn never calls the Evaluator.
             assert_eq!(
                 interpreted(&states).len(),
-                if target == ".+01??" { 4 } else { 5 }
+                if target == ".+01??" { 5 } else { 6 }
             );
         }
     }
@@ -5116,17 +4222,18 @@ mod test {
 
     #[test]
     fn nested_computation_returns_and_projects_once() {
-        // Nested `.x` answers 0C to `.+` and writes no Cell. Naming one for it
-        // cannot mint a Portal; the sibling `.+0101` keeps its own literals.
+        // Nested `.x` returns 0C to `.+` and writes the same 0C through its
+        // own Portal, into the sibling `.+`'s first operand, from one
+        // interpretation.
         let grid = Grid::with_shape(16, 4);
         let (plan, interpreted, source) = carried_tick(
             grid,
             &[".+02.x0304", ".+0101", "", ""],
             &[(0, 48), (4, 18), (16, 52)],
         );
-        assert_eq!(&source.snapshot()[18..20], "01");
+        assert_eq!(&source.snapshot()[18..20], "0C");
         assert_eq!(&source.snapshot()[48..50], "0E");
-        assert_eq!(&source.snapshot()[52..54], "02");
+        assert_eq!(&source.snapshot()[52..54], "0D");
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -5202,6 +4309,39 @@ mod test {
             "diagnostics: {:?}",
             plan.diagnostics
         );
+    }
+
+    #[test]
+    fn one_bang_activates_every_aligned_timed_play_root_as_one_chord() {
+        // A chord is several Timed Play roots that one Bang activates, each
+        // answering its own Play Command. Equality writes `**` below itself,
+        // and two Jumps relay it east to (8, 1), where its cardinal anchors
+        // hold three Timed Play roots: north (8, 0), east (10, 1) and south
+        // (8, 2). The roots take their Turns in anchor order once the Bang
+        // has settled, so the chord reads C4, E4, G4 on every Tick.
+        let grid = Grid::with_shape(20, 3);
+        let rows = [
+            ".=0101  !~017FC404",
+            "  &>  &>  !~017FE404",
+            "        !~017FG404",
+        ];
+        let timed = |note: u8| PlayCommand::Timed {
+            channel: MidiChannel::try_from(0x01).expect("a MIDI channel"),
+            velocity: Velocity::try_from(0x7F).expect("a MIDI data byte"),
+            note: Note::try_from(note).expect("a MIDI note"),
+            length: crate::source::Length::from(0x04),
+        };
+
+        let (plans, grids, _) = tick_by_tick(grid, &rows, 2);
+
+        assert_eq!(
+            grids[0][1], "**&>**&>**!~017FE404",
+            "the Bang was relayed to (8, 1)"
+        );
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+            assert_eq!(plan.play_commands, vec![timed(60), timed(64), timed(67)]);
+        }
     }
 
     #[test]
@@ -5790,8 +4930,9 @@ mod test {
         // `.+~?010010~?010010` is the case that tells root granularity from
         // per-Function anchors. Each Random is its own Computation with its
         // own `node.anchor`: the left sits at column 2 and draws `0A`, the
-        // right at column 10 and draws `0F`. Their sum is `19`. Seeding both
-        // at the Add's origin would draw `02` twice and write `04`.
+        // right at column 10 and draws `0F`. Their sum is `19`, and each
+        // draw is written under its own anchor. Seeding both at the Add's
+        // origin would draw `02` twice and write `04`.
         let (plans, grids, _) =
             tick_by_tick(Grid::with_shape(18, 2), &[".+~?010010~?010010", ""], 1);
 
@@ -5800,8 +4941,7 @@ mod test {
             "{:?}",
             plans[0].diagnostics
         );
-        assert_eq!(grids[0], [".+~?010010~?010010", "19                "]);
-        assert_ne!(grids[0][1], "04                ");
+        assert_eq!(grids[0], [".+~?010010~?010010", "190A      0F      "]);
     }
 
     #[test]
@@ -5959,7 +5099,7 @@ mod test {
     }
 
     #[test]
-    fn competing_writers_publish_but_dependency_cycles_abort_before_output() {
+    fn competing_writers_publish_but_a_dependency_cycle_writes_nothing() {
         let conflict_grid = Grid::with_shape(16, 2);
         let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
         let conflict_map = LanguageMap::build(conflict_grid, Cells::of(conflict_bytes.as_bytes()));
@@ -6003,15 +5143,16 @@ mod test {
             Tick::ZERO,
             &cycle_destinations,
         );
+        // One cycle runs through both Expressions, so it is diagnosed once, at
+        // the first in Parser order, and neither is reported as waiting.
         assert!(cycle.writes.is_empty());
-        assert_eq!(cycle.diagnostics.len(), 1);
-        assert_eq!(cycle.diagnostics[0].message, "same-Tick dependency cycle");
+        assert_eq!(anchors(&cycle), [(0, 0, "same-Tick dependency cycle")]);
     }
 
     use crate::{
         grid::{CellIndex, Grid},
         source::{
-            CellWrite, Diagnostic, MidiChannel, Note, Performance, PlayCommand, TickPlan, Velocity,
+            CellWrite, Diagnostic, MidiChannel, Note, PlayCommand, TickPlan, Velocity,
             language_map::LanguageMap,
         },
     };
@@ -6133,16 +5274,10 @@ mod test {
     fn test_play_commands_and_diagnostics_keep_producer_and_emission_order() {
         // Play Commands and diagnostics are ordered, never merged: unlike a
         // Cell, which one producer can take from another, each command and
-        // each diagnostic keeps the place its producer's turn gave it.
-        //
-        // The earlier producer performs a group of two, which is a widened
-        // Expression. Element index orders the commands inside one producer's
-        // Effect and producer order holds around it, so the Tick Plan reads as
-        // though the chord had been written left to right as separate
-        // Expressions. The three commands differ in every field that can be
-        // read back, so a group flattened in reverse, or a producer order that
-        // let the later Expression in first, is a different Tick Plan rather
-        // than the same one.
+        // each diagnostic keeps the place its producer's turn gave it. The
+        // three commands differ in every field that can be read back, so a
+        // producer order that let a later Expression in first is a different
+        // Tick Plan rather than the same one.
         let grid = Grid::with_shape(10, 3);
         let first = raw(0, 1, 60);
         let second = raw(0, 1, 64);
@@ -6151,10 +5286,11 @@ mod test {
         let later = diagnostic(grid, 20, 25, "later producer");
 
         let plan = resolve(vec![
-            Effect::Play(Performance::Many(vec![first, second])),
+            Effect::Play(first),
+            Effect::Play(second),
             earlier.clone(),
             write(grid, 10, "0"),
-            Effect::Play(Performance::One(third)),
+            Effect::Play(third),
             later.clone(),
         ]);
 
@@ -6176,16 +5312,12 @@ mod test {
     }
 
     #[test]
-    fn the_cells_of_two_overlapping_sequence_results_are_contested_one_by_one() {
+    fn the_cells_of_two_overlapping_writes_are_contested_one_by_one() {
         // Every admitted write participates Cell-wise in producer order. A
-        // Sequence is one validated write while it is being planned and as many
+        // write is one validated effect while it is being planned and as many
         // independently contested Cells as it has characters once it is
-        // resolved, so the later root takes only the four Cells the two
-        // encodings share and the earlier root's first two Cells still stand.
-        //
-        // A two-Cell Atom result never overlaps a neighbour's, and Sequence
-        // results overlap routinely. Each root's encoding is admitted through
-        // the Portal below it, which is where a Sequence answer arrives.
+        // resolved, so the later write takes only the four Cells the two
+        // encodings share and the earlier write's first two Cells still stand.
         let grid = Grid::with_shape(20, 3);
         let effects = vec![write(grid, 20, "0A0B0C"), write(grid, 22, "0D0E0F")];
 
@@ -6212,9 +5344,8 @@ mod test {
 /// Output Portal, so the scheduler reserves their Cells and
 /// `LanguageMap::output_portal_cells` does not cover them.
 ///
-/// Every other root reserves the same Cells in both: the same
-/// Sequence-capability derivation, the same `Portal::named` resolution and
-/// the same `Portal::reservation`. The gates in front of them differ —
+/// Every other root reserves the same Cells in both: the same `Portal::named`
+/// resolution and the same `Portal::reservation`. The gates in front of them differ —
 /// `PortalAccess::resolve` routes terminal output and a Source effect away
 /// before it reads `output_portal()`, the Language Map reads
 /// `output_portal()` alone — and agree only while no Function declares an
@@ -6231,7 +5362,7 @@ mod test {
 ///
 #[cfg(test)]
 mod output_portal_exclusion {
-    use super::{Cells, Lookup, computations};
+    use super::{Cells, Lookup, Portal, computations};
     use crate::grid::Grid;
     use crate::source::language_map::LanguageMap;
 
@@ -6244,7 +5375,7 @@ mod output_portal_exclusion {
         let (nodes, _diagnostics) = computations(grid, map);
         let lookup = Lookup::new(grid, nodes, map);
         let mut cells = vec![false; grid.count()];
-        for (index, node) in lookup.nodes().iter().enumerate() {
+        for node in lookup.nodes() {
             if node.function.source_effect().is_none() {
                 continue;
             }
@@ -6254,8 +5385,8 @@ mod output_portal_exclusion {
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
-                if let Some(range) = lookup.reserved(index).cells_from(grid, *output) {
-                    for idx in range {
+                if let Some(span) = Portal::at(grid, *output).reservation() {
+                    for idx in span.range() {
                         cells[idx] = true;
                     }
                 }
@@ -6289,6 +5420,35 @@ mod output_portal_exclusion {
     #[test]
     fn a_directional_bangs_emit_is_excluded() {
         assert_excluded(Grid::with_shape(6, 1), "*>    ");
+    }
+
+    #[test]
+    fn the_map_reserves_what_the_scheduler_reserves_for_nested_value_functions() {
+        // The highlight the Map derives and the write reservations that order
+        // a Tick are the same Cells, root and nested alike.
+        let grid = Grid::with_shape(14, 2);
+        for row in [".x.+.+01010203", ".+.x0102.+0304", ".+!>007FC401  "] {
+            let source = format!("{row}{:14}", "");
+            let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
+            let (nodes, _diagnostics) = computations(grid, &map);
+            let lookup = Lookup::new(grid, nodes, &map);
+            let mut scheduled = vec![false; grid.count()];
+            for node in lookup.nodes() {
+                for output in node
+                    .portal_access
+                    .write_sites()
+                    .iter()
+                    .filter_map(|output| output.as_ref().ok())
+                {
+                    if let Some(span) = Portal::at(grid, *output).reservation() {
+                        for idx in span.range() {
+                            scheduled[idx] = true;
+                        }
+                    }
+                }
+            }
+            assert_eq!(map.output_portal_cells(), scheduled, "{row:?}");
+        }
     }
 }
 
@@ -6457,9 +5617,6 @@ mod nested_property {
     }
 
     fn operand_source(token: Token, depth: u32) -> BoxedStrategy<String> {
-        if matches!(token, Token::Atom | Token::Sequence) {
-            return nested_source(depth.max(1));
-        }
         if depth == 0 {
             return literal_source(token);
         }
@@ -6548,7 +5705,6 @@ mod nested_property {
         let root = Function::try_from(&source[..2]).unwrap();
         if root.is_intrinsically_active() {
             prop_assert!(
-                // An unscheduled Tick holds no states and says why.
                 states
                     .first()
                     .is_some_and(|root| root.interpreted().is_some())
@@ -6597,8 +5753,8 @@ mod nested_property {
             .copied()
             .filter(|root| root.is_intrinsically_active())
             .filter_map(|root| {
-                // A Sequence or Atom operand has no literal spelling, so only
-                // roots over Numbers and Notes are stated here.
+                // Only roots whose operands are all Numbers and Notes are
+                // stated here.
                 let signature = Tokens::from(&root);
                 if !signature
                     .iter()

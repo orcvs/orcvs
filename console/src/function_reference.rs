@@ -18,7 +18,7 @@
 //! its own. That has no consequence — a Comment is never evaluated, and
 //! Source Paint colours the whole row as a Comment either way — provided the
 //! row holds nothing else: an Expression east of a header would fall inside
-//! that Comment and silently stop being parsed and run. All seven headers
+//! that Comment and silently stop being parsed and run. All six headers
 //! therefore sit on row 0, and every group's own examples start on row 1. A
 //! group that stacks a second header inside its own band follows the same
 //! rule: that header's row must hold no Expression east of it either.
@@ -27,11 +27,10 @@
 //! |-----------|--------------------------------------------------------------|
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
 //! | `16..32`  | Numeric Conversion: `.v .^`                                   |
-//! | `32..48`  | Sequence: `:- :# :< :& :? :=` (results up to 14 Cells)        |
-//! | `48..64`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
-//! | `64..80`  | Jumps and Halt: `&^ &v &< &>`, `*!`                           |
-//! | `80..96`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
-//! | `96..112` | MIDI: `!> !~ !% !c !b`                                        |
+//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
+//! | `48..64`  | Jumps and Halt: `&^ &v &< &>`, `*!`                           |
+//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
+//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                        |
 //!
 //! # Source Functions need an area, not just a row
 //!
@@ -96,8 +95,8 @@
 //! Bangs the same way Tick's own Delay and Euclidean examples do.
 //!
 //! Activation is vertical, the same alignment
-//! `orcvs::source::tick::a_select_bang_activates_an_aligned_terminal_root`
-//! proves for a Select-forwarded Bang: each Euclidean's Expression, its own
+//! `orcvs::source::tick::a_bang_activates_its_aligned_neighbours_and_no_further_root`
+//! proves for an Equality's Bang: each Euclidean's Expression, its own
 //! Bang-display Cells one row south, and the gated Terminal Output
 //! Function's root one row further south all share one column. A blank row
 //! then separates one example from the next, so each spans four rows
@@ -244,14 +243,16 @@ mod tests {
         expected: &'static str,
     }
 
-    /// Every result row the Arithmetic, Conversion, Sequence, and Tick
-    /// groups' examples write, where `column` is each group's own anchor
-    /// column (Arithmetic 0, Conversion 16, Sequence 32, Tick 48) since each
+    /// Every result row the Arithmetic, Conversion, and Tick groups' examples
+    /// write, where `column` is each group's own anchor column (Arithmetic 0,
+    /// Conversion 16, Tick 32) since each
     /// group's result rows are read back from its own Cells, not always the
     /// leftmost ones.
     ///
     /// Shared by [`ticking_the_reference_once_writes_every_result_row_exactly_as_written`],
-    /// which proves these are actually written, and
+    /// which proves these are actually written,
+    /// [`the_checked_in_result_rows_hold_what_tick_zero_writes`], which proves
+    /// the checked-in text already holds them, and
     /// `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`,
     /// which excludes them from the pre-Tick diagnostic sweep.
     fn expected_results() -> Vec<ExpectedResult> {
@@ -275,15 +276,10 @@ mod tests {
             // Conversion (column 16)
             result(16, 2, "C4"), // .^3C (Number to Note)
             result(16, 5, "3C"), // .vC4 (Note to Number)
-            // Sequence (column 32)
-            result(32, 2, "01020304"), // :-0104 (Number Range)
-            result(32, 5, "C4c4D4"),   // :#C4D4 (Note Range)
-            result(32, 8, "04030201"), // :<:-0104 (Reverse, over a nested Function operand)
-            result(32, 11, "010203"), // :&.+0001:-0203 (Concatenate, over a nested Function's Atom answer)
-            result(32, 14, "01"),     // :?00:-0103 (Select)
-            result(32, 17, "010303"), // :=01.+0102:-0103 (Replace, over nested Functions)
-            result(32, 20, "111213"), // .+10:-0103 (Add, pervasive over a Sequence)
-            // Tick (column 48). Clock, Delay, Euclidean, and Random depend
+            // A nested `.^` writes its own `C4` under its anchor and returns
+            // the same Cells, which Addition's Number operand reads as `C4`.
+            result(16, 8, "C5C4"), // .+.^3C01
+            // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
             // written Cell — so the checked-in result row already holds
@@ -295,12 +291,12 @@ mod tests {
             // to make the change visible (Increment's `03`, Interpolation's
             // `00`), and this table asserts the value Tick 0 overwrites it
             // with — the two are deliberately not the same string.
-            result(48, 2, "00"), // ~.0204 (Clock: step 0 of a 2-Tick, 4-step cycle)
-            result(48, 5, "**"), // ~*0302 (Delay: every cycle Bangs at Tick 0)
-            result(48, 8, "**"), // ~%0308 (Euclidean: 03-08's pattern Bangs its first step)
-            result(48, 11, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
-            result(48, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
-            result(48, 17, "07"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
+            result(32, 2, "00"), // ~.0204 (Clock: step 0 of a 2-Tick, 4-step cycle)
+            result(32, 5, "**"), // ~*0302 (Delay: every cycle Bangs at Tick 0)
+            result(32, 8, "**"), // ~%0308 (Euclidean: 03-08's pattern Bangs its first step)
+            result(32, 11, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
+            result(32, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
+            result(32, 17, "0F"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
         ]
     }
 
@@ -319,14 +315,58 @@ mod tests {
             expected,
         };
         vec![
-            literal(64, 3, "05"),  // &^'s input
-            literal(64, 5, "06"),  // &v's input
-            literal(68, 9, "07"),  // &<'s input
-            literal(64, 11, "08"), // &>'s input
-            literal(82, 10, "00"), // *v's blocker
-            literal(80, 13, "00"), // *<'s blocker
-            literal(86, 16, "00"), // *>'s blocker
+            literal(48, 3, "05"),  // &^'s input
+            literal(48, 5, "06"),  // &v's input
+            literal(52, 9, "07"),  // &<'s input
+            literal(48, 11, "08"), // &>'s input
+            literal(66, 10, "00"), // *v's blocker
+            literal(64, 13, "00"), // *<'s blocker
+            literal(70, 16, "00"), // *>'s blocker
         ]
+    }
+
+    /// The `(column, row)` of each result row that reads its own Cells as the
+    /// previous value before Tick 0 overwrites them: Increment's and
+    /// Interpolation's. Every other result row's checked-in text is what
+    /// Tick 0 writes.
+    const RESULTS_READING_THEIR_PREVIOUS: [(usize, usize); 2] = [(32, 11), (32, 14)];
+
+    /// Reads the `width` Cells east of `(column, row)`, a space for each empty
+    /// one.
+    fn read_row(source: &Source, column: usize, row: usize, width: usize) -> String {
+        let grid = source.grid();
+        (0..width)
+            .map(|offset| {
+                source
+                    .get(cell_index(grid, column + offset, row))
+                    .unwrap_or_else(|| " ".to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_checked_in_result_rows_hold_what_tick_zero_writes() {
+        let source = function_reference();
+
+        for ExpectedResult {
+            column,
+            row,
+            expected,
+        } in expected_results()
+        {
+            let checked_in = read_row(&source, column, row, expected.chars().count());
+            if RESULTS_READING_THEIR_PREVIOUS.contains(&(column, row)) {
+                assert_ne!(
+                    checked_in, expected,
+                    "row {row}, column {column} must hold a previous Tick 0 visibly changes"
+                );
+            } else {
+                assert_eq!(
+                    checked_in, expected,
+                    "row {row}, column {column}'s checked-in text is not what Tick 0 writes"
+                );
+            }
+        }
     }
 
     #[test]
@@ -440,62 +480,62 @@ mod tests {
     impl SourceFunctionAreas {
         fn new() -> Self {
             Self {
-                // Band 4 (64..80): Jumps and Halt. Each Jump is stable after
+                // Band 3 (48..64): Jumps and Halt. Each Jump is stable after
                 // Tick 0 (re-reading and re-writing the same input every
                 // Tick), and a locked Halt target never runs, but every
                 // example still gets its own area for the same reason the
                 // one-Tick test excludes this group as a whole.
                 jump_north: Area {
-                    columns: 64..66,
+                    columns: 48..50,
                     rows: 1..4,
                 }, // &^: output, jump, input
                 jump_south: Area {
-                    columns: 64..66,
+                    columns: 48..50,
                     rows: 5..8,
                 }, // &v: input, jump, output
                 jump_west: Area {
-                    columns: 64..70,
+                    columns: 48..54,
                     rows: 9..10,
                 }, // &<: output, jump, input, one row
                 jump_east: Area {
-                    columns: 64..70,
+                    columns: 48..54,
                     rows: 11..12,
                 }, // &>: input, jump, output, one row
                 halt: Area {
-                    columns: 64..72,
+                    columns: 48..56,
                     rows: 13..16,
                 }, // Halt: Equality, *!, locked root
-                // Band 5 (80..96): Directional Bangs and Self-Banging.
+                // Band 4 (64..80): Directional Bangs and Self-Banging.
                 directional_north: Area {
-                    columns: 80..90,
+                    columns: 64..74,
                     rows: 1..6,
                 }, // *^: Equality, Halt, target, Delay, *^
                 directional_south: Area {
-                    columns: 80..86,
+                    columns: 64..70,
                     rows: 7..11,
                 }, // *v: Delay, *v, emission, blocker (cannot be walled — see module doc)
                 directional_west: Area {
-                    columns: 80..92,
+                    columns: 64..76,
                     rows: 12..14,
                 }, // *<: blocker, *<, emission, Delay (cannot be walled)
                 directional_east: Area {
-                    columns: 80..88,
+                    columns: 64..72,
                     rows: 15..17,
                 }, // *>: Delay, *>, emission, blocker (cannot be walled)
                 self_banging_north: Area {
-                    columns: 80..86,
+                    columns: 64..70,
                     rows: 18..23,
                 }, // ^^: Equality, Halt, target, travel, start
                 self_banging_south: Area {
-                    columns: 80..86,
+                    columns: 64..70,
                     rows: 24..27,
                 }, // vv: Equality, Halt, vv (at rest from Tick 0)
                 self_banging_west: Area {
-                    columns: 80..86,
+                    columns: 64..70,
                     rows: 28..31,
                 }, // <<: Equality, Halt, << (at rest from Tick 0)
                 self_banging_east: Area {
-                    columns: 80..86,
+                    columns: 64..70,
                     rows: 32..35,
                 }, // >>: Equality, Halt, >> (at rest from Tick 0)
             }
@@ -533,15 +573,15 @@ mod tests {
             expected,
         };
         vec![
-            glyph(82, 3, "^^"),  // *^'s emitted ^^, settled south of its Halt
-            glyph(82, 20, "^^"), // standalone ^^, settled south of its Halt
-            glyph(82, 26, "vv"), // standalone vv, at rest from Tick 0
-            glyph(82, 30, "<<"), // standalone <<, at rest from Tick 0
-            glyph(82, 34, ">>"), // standalone >>, at rest from Tick 0
+            glyph(66, 3, "^^"),  // *^'s emitted ^^, settled south of its Halt
+            glyph(66, 20, "^^"), // standalone ^^, settled south of its Halt
+            glyph(66, 26, "vv"), // standalone vv, at rest from Tick 0
+            glyph(66, 30, "<<"), // standalone <<, at rest from Tick 0
+            glyph(66, 34, ">>"), // standalone >>, at rest from Tick 0
         ]
     }
 
-    /// The Tick group's own six dynamic result Cells (column 48), derived
+    /// The Tick group's own six dynamic result Cells (column 32), derived
     /// from [`expected_results`] rather than a second hand-kept coordinate
     /// list: Clock, Delay, Euclidean, and Random change with the absolute
     /// Tick, Increment and Interpolation with their own previous value, so
@@ -551,7 +591,7 @@ mod tests {
     fn tick_dynamic_result_areas() -> Vec<Area> {
         expected_results()
             .into_iter()
-            .filter(|result| result.column == 48)
+            .filter(|result| result.column == 32)
             .map(|result| Area {
                 columns: result.column..result.column + 2,
                 rows: result.row..result.row + 1,
@@ -560,10 +600,10 @@ mod tests {
     }
 
     /// The column the MIDI group's band starts at.
-    const MIDI_BAND_COLUMN: usize = 96;
+    const MIDI_BAND_COLUMN: usize = 80;
 
     /// The MIDI group's own five Bang-display Cells, one pair per Terminal
-    /// Output example — column `96..98`, one row south of that example's
+    /// Output example — column `80..82`, one row south of that example's
     /// Euclidean root, exactly the default output Portal every Value
     /// Function that can emit Bang uses. `~% 01 04` Bangs on the "X..."
     /// pattern (`euclidean_places_its_hits_where_the_adr_formula_does`
