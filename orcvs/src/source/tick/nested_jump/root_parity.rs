@@ -85,19 +85,25 @@ fn a_root_jump_relays_a_same_tick_bang_but_reads_a_typed_bang_as_empty() {
 }
 
 #[test]
-fn a_root_only_cycle_rejects_every_effect_of_every_tick() {
+fn a_root_only_cycle_stops_only_its_own_expressions() {
     // The Addition writes south over `&^`, so it goes before the Jump; the
     // Jump copies the empty Cells below it over the Addition's spelling, so it
-    // goes before the Addition. No order exists, and the Increment beside them
-    // never counts although nothing writes near it.
+    // goes before the Addition. No order exists for those two, and the
+    // Increment beside them, which depends on neither, counts every Tick.
     let rows = [".+0102", "&^    ~+0110", ""];
-    let frozen = || seen(14, &rows, &[(0, 0, "same-Tick dependency cycle")]);
+    let counting = |count: &str| {
+        seen(
+            14,
+            &[".+0102", "&^    ~+0110", &format!("      {count}")],
+            &[(0, 0, "same-Tick dependency cycle")],
+        )
+    };
     assert_eq!(
         observe(Grid::with_shape(14, 3), &rows, 3),
-        vec![frozen(), frozen(), frozen()]
+        vec![counting("01"), counting("02"), counting("03")]
     );
 
-    // Without the Jump the same Increment counts.
+    // Without the Jump the Addition publishes too.
     assert_eq!(
         observe(Grid::with_shape(14, 3), &[".+0102", "      ~+0110", ""], 3),
         vec![
@@ -164,21 +170,24 @@ fn a_nested_east_jump_agrees_with_its_spatial_equivalent_on_the_first_tick_only(
         // Tick 0 matches the nested form, with the spelling in the slot where
         // the nested form keeps `&>`. From Tick 1 the slot's spelling parses
         // as a nested Function whose south write covers `&^`, while `&^`
-        // covers that spelling: a cycle that freezes the witness.
+        // covers that spelling: a cycle that stops those Expressions while the
+        // witness counts on.
         let source = format!("  {parent}");
         let slot = format!("{parent}  01");
         let below = format!("    {parent}");
         let placed = format!("{parent}{parent}{parent}");
-        let spatial_rows = [
-            source.as_str(),
-            "  &v",
-            placed.as_str(),
-            "    &^",
-            below.as_str(),
-            "",
-            "~+0110",
-            "01",
-        ];
+        let spatial_rows = |count: &'static str| {
+            [
+                source.clone(),
+                "  &v".to_owned(),
+                placed.clone(),
+                "    &^".to_owned(),
+                below.clone(),
+                String::new(),
+                "~+0110".to_owned(),
+                count.to_owned(),
+            ]
+        };
         assert_eq!(
             observe(
                 Grid::with_shape(14, 8),
@@ -186,29 +195,48 @@ fn a_nested_east_jump_agrees_with_its_spatial_equivalent_on_the_first_tick_only(
                 3
             ),
             vec![
-                seen(14, &spatial_rows, &[(0, 2, &found)]),
-                seen(14, &spatial_rows, &[(4, 2, "same-Tick dependency cycle")]),
-                seen(14, &spatial_rows, &[(4, 2, "same-Tick dependency cycle")]),
+                seen(
+                    14,
+                    &spatial_rows("01").each_ref().map(String::as_str),
+                    &[(0, 2, &found)]
+                ),
+                seen(
+                    14,
+                    &spatial_rows("02").each_ref().map(String::as_str),
+                    &[(4, 2, "same-Tick dependency cycle")]
+                ),
+                seen(
+                    14,
+                    &spatial_rows("03").each_ref().map(String::as_str),
+                    &[(4, 2, "same-Tick dependency cycle")]
+                ),
             ]
         );
     }
 }
 
 #[test]
-fn a_nested_west_jump_is_a_cycle_where_its_spatial_equivalent_replaces_the_parent() {
+fn a_nested_west_jump_stops_its_expression_where_its_spatial_equivalent_replaces_the_parent() {
     // `&<` nested in a parent copies `01` west over the parent's own spelling
     // and Returns `01` to the first operand. A nested Function's write onto
-    // its own root is a same-Tick self-dependency, so every Tick is rejected,
-    // the witness never counts, and the diagnostic anchors at the Jump.
+    // its own root is a same-Tick self-dependency, so that Expression stops
+    // every Tick, diagnosed at the Jump, while the witness counts on.
     for parent in [".+", ".x"] {
         let nested = format!("{parent}&<01");
-        let frozen = ["", "", nested.as_str(), "", "~+0110", ""];
+        let stopped = |count: &'static str| {
+            seen(
+                14,
+                &["", "", nested.as_str(), "", "~+0110", count],
+                &[(2, 2, "same-Tick dependency cycle")],
+            )
+        };
         assert_eq!(
-            observe(Grid::with_shape(14, 6), &frozen, 2),
-            vec![
-                seen(14, &frozen, &[(2, 2, "same-Tick dependency cycle")]),
-                seen(14, &frozen, &[(2, 2, "same-Tick dependency cycle")]),
-            ]
+            observe(
+                Grid::with_shape(14, 6),
+                &["", "", nested.as_str(), "", "~+0110", ""],
+                2
+            ),
+            vec![stopped("01"), stopped("02")]
         );
 
         // Placed with roots, the same two deliveries replace the parent

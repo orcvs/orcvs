@@ -19,7 +19,7 @@
 
 use lang::Tick;
 
-use super::super::{carry, computations, order_turns, unscheduled};
+use super::super::{carry, computations, order_turns};
 use super::{
     Atom, Break, ComputationState, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap,
     Lookup, Position, Schedule, TickPlan, resolve,
@@ -65,10 +65,7 @@ pub(in crate::source::tick) fn plan_with_answers(
         lookup,
         order,
         diagnostics,
-    } = match order_turns(lookup, diagnostics) {
-        Ok(schedule) => schedule,
-        Err(diagnostics) => return unscheduled(diagnostics),
-    };
+    } = order_turns(lookup, diagnostics);
     let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &lookup, diagnostics);
     let mut stated = vec![false; answers.len()];
     for (turn, index) in order.into_iter().enumerate() {

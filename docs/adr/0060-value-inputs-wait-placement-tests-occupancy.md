@@ -1,6 +1,6 @@
 # Value inputs wait; placement tests occupancy at its Turn
 
-Status: accepted. Delivery is split between the [mover](../../.scratch/placement-semantics/issues/02-let-movers-enter-vacated-cells.md) and [emission](../../.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md) slices; emission scheduling remains pending after the mover slice.
+Status: accepted. Delivery is split between the [mover](../../.scratch/placement-semantics/issues/02-let-movers-enter-vacated-cells.md) and [emission](../../.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md) slices; emission scheduling remains pending after the mover slice. The cycle clause is amended by [ADR 0065](0065-an-error-never-stops-the-performance.md).
 
 Orcvs keeps one dependency-ordered Tick against working Source. Snapshot ownership identifies
 computations; it does not reserve their original Cells after they move. This amends the placement
@@ -47,5 +47,5 @@ one execution order. Snapshot-only admission would forbid following into newly v
 simultaneous vacancy solving would require additional contest, swap, and cycle rules. Neither is
 adopted, and matching Orca is not a compatibility requirement.
 
-Genuine dependency cycles still reject the whole Tick atomically. The activation/operand cycle
+Genuine dependency cycles still stop every Expression they reach, and no other. The activation/operand cycle
 where an emission reserves its Bang supplier's literal input is a [separate investigation](../../.scratch/placement-semantics/issues/04-investigate-emission-activation-operand-cycles.md), not permission to drop input-readiness edges. Bang lifetime, bounded original-anchor replacement, and Source/Playback separation are unchanged.

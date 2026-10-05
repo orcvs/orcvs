@@ -428,10 +428,13 @@ pub(super) fn plan(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match map.schedule_cache().schedule(grid, map) {
-        Ok(schedule) => execution::execute(grid, cells, map, tick, schedule),
-        Err(diagnostics) => unscheduled(diagnostics.clone()),
-    }
+    execution::execute(
+        grid,
+        cells,
+        map,
+        tick,
+        map.schedule_cache().schedule(grid, map),
+    )
 }
 
 ///
@@ -445,10 +448,7 @@ fn plan_unshared(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match schedule(grid, map) {
-        Ok(schedule) => execution::execute(grid, cells, map, tick, &schedule),
-        Err(diagnostics) => unscheduled(diagnostics),
-    }
+    execution::execute(grid, cells, map, tick, &schedule(grid, map))
 }
 
 ///
@@ -484,13 +484,13 @@ fn plan_unshared(
 /// can plan against it, from any thread.
 ///
 #[derive(Clone, Default)]
-pub(super) struct ScheduleCache(Arc<OnceLock<Result<Schedule, Vec<Diagnostic>>>>);
+pub(super) struct ScheduleCache(Arc<OnceLock<Schedule>>);
 
 impl ScheduleCache {
     /// The schedule `map` admits, ordered now if no Tick has asked for it.
     /// `map` is the Map this cache belongs to, or one holding the same
     /// scheduling inputs.
-    fn schedule(&self, grid: Grid, map: &LanguageMap) -> &Result<Schedule, Vec<Diagnostic>> {
+    fn schedule(&self, grid: Grid, map: &LanguageMap) -> &Schedule {
         self.0.get_or_init(|| schedule(grid, map))
     }
 
@@ -538,7 +538,7 @@ fn schedule_carrying(
     grid: Grid,
     map: &LanguageMap,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
-) -> Result<Schedule, Vec<Diagnostic>> {
+) -> Schedule {
     let (mut nodes, diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, destinations);
     order_turns(Lookup::new(grid, nodes, map), diagnostics)
@@ -558,34 +558,17 @@ pub(super) fn plan_carrying(
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    match schedule_carrying(grid, map, destinations) {
-        Ok(schedule) => execution::execute(grid, cells, map, tick, &schedule),
-        Err(diagnostics) => unscheduled(diagnostics),
-    }
+    execution::execute(
+        grid,
+        cells,
+        map,
+        tick,
+        &schedule_carrying(grid, map, destinations),
+    )
 }
 
 fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
     Diagnostic::for_expression(node.anchor, node.span, message.into())
-}
-
-///
-/// The Tick Plan of a Tick no order could be established for: its diagnostics
-/// are published and nothing else is, because nothing ran.
-///
-/// No computation took a Turn, so there is no execution state to report either:
-/// a Tick that never started is the one case where the empty plan and the empty
-/// states say the same thing.
-///
-fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::ComputationState>) {
-    (
-        TickPlan {
-            writes: vec![],
-            play_commands: vec![],
-            diagnostics,
-            locks: vec![],
-        },
-        vec![],
-    )
 }
 
 ///
@@ -725,13 +708,13 @@ fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
 }
 
 ///
-/// The order one revision's Turns are taken in, or the diagnostics that admit
-/// none.
+/// The order one revision's Turns are taken in, and the diagnostics its
+/// layout and cycles owe.
 ///
 /// Reads only the scheduling inputs [`ScheduleCache`] names, because every
 /// revision holding those inputs shares what this answers.
 ///
-fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
+fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
     let (nodes, diagnostics) = computations(grid, map);
     order_turns(Lookup::new(grid, nodes, map), diagnostics)
 }
@@ -817,12 +800,11 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 ///
 /// One Tick's execution order, from the reservations a [`Lookup`] has already
 /// derived: every dependency edge the reservations name, resolved into
-/// the order the Turns are taken in, or the cycle that admits no order at all.
+/// the order the Turns are taken in. A cycle admits no order for the
+/// Expressions it reaches, which take no Turn; every other Expression keeps
+/// its place.
 ///
-fn order_turns(
-    lookup: Lookup,
-    mut diagnostics: Vec<Diagnostic>,
-) -> Result<Schedule, Vec<Diagnostic>> {
+fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
     let grid = lookup.grid;
     let nodes = lookup.nodes();
     let active = active_roots(&lookup);
@@ -868,7 +850,7 @@ fn order_turns(
                 // flush or offset by one, is blocked by it and cannot leave:
                 // the emission is refused whichever Turn comes first. Ordering
                 // the producer first as well as after the mover's contact
-                // makes the pair a cycle that costs the whole Grid its Tick.
+                // makes the pair a cycle that stops both Expressions.
                 // Other occupants keep emitter-before-occupant ordering until
                 // .scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md
                 // delivers Turn-local emission scheduling.
@@ -890,8 +872,8 @@ fn order_turns(
                 // Without it two Functions whose Portals cover each other name
                 // each other in reservations neither can write through, and
                 // ordering each after the other makes that pair a cycle that
-                // costs the whole Grid its Tick, though two blocked moves are
-                // not a contested Cell.
+                // stops both, though two blocked moves are not a contested
+                // Cell.
                 if clears_its_own_span
                     && nodes[nodes[contact.index].owner]
                         .function
@@ -959,13 +941,27 @@ fn order_turns(
             .find(|&start| reaches(&outgoing, start, start))
             .expect("cycle has a node");
         diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
-        return Err(diagnostics);
+        // ADR 0065: the cycle stops every Expression it reaches, and no other.
+        let mut placed = vec![false; nodes.len()];
+        for &index in &order {
+            placed[index] = true;
+        }
+        let mut stopped = vec![false; nodes.len()];
+        let mut pending: Vec<_> = (0..nodes.len()).filter(|&index| !placed[index]).collect();
+        while let Some(index) = pending.pop() {
+            if std::mem::replace(&mut stopped[index], true) {
+                continue;
+            }
+            pending.extend(lookup.descendants(nodes[index].owner));
+            pending.extend_from_slice(&outgoing[index]);
+        }
+        order.retain(|&index| !stopped[index]);
     }
-    Ok(Schedule {
+    Schedule {
         lookup,
         order,
         diagnostics,
-    })
+    }
 }
 
 ///
@@ -1335,8 +1331,8 @@ mod test {
         //
         // What this pins is the schedule. Each mover reserves Cells the other
         // stands in, which is an edge each way and an order no sort satisfies.
-        // `order_turns` drops one of them: keeping both rejects the Tick, and
-        // the Grid never moves again.
+        // `order_turns` drops one of them: keeping both makes a cycle that
+        // stops both movers, and neither moves again.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">>  <<  "], 3);
 
         assert_eq!(grids[0], [" >><<   "]);
@@ -2081,6 +2077,17 @@ mod test {
             })
             .collect();
         assert_eq!(anchors, [(2, 0, "same-Tick dependency cycle")]);
+    }
+
+    #[test]
+    fn a_cycle_leaves_an_independent_expression_publishing() {
+        // ADR 0065: the cycle stops its own Expression, and the Addition beside
+        // it, which depends on nothing there, writes `03` every Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &[".+&<01  .+0102"], 3);
+        for (plan, rows) in plans.iter().zip(&grids) {
+            assert_eq!(rows, &[".+&<01  .+0102", "        03    "]);
+            assert_eq!(messages(plan), ["same-Tick dependency cycle"]);
+        }
     }
 
     #[test]
@@ -3956,37 +3963,39 @@ mod test {
     }
 
     #[test]
-    fn live_cycles_reject_independent_effects_and_self_dependency() {
-        for outputs in [
-            vec![(0, 18), (16, 2), (32, 48)],
-            vec![(0, 2), (16, 64), (32, 48)],
+    fn live_cycles_stop_only_the_expressions_they_reach() {
+        // ADR 0065. The first two rows form a cycle, then a self-dependency
+        // beside an Addition that writes over `!>`. Either way `.=` is
+        // independent: its Bang lands above `!>`, which plays only where no
+        // write covers it.
+        for (outputs, writes, plays) in [
+            (vec![(0, 18), (16, 2), (32, 48)], vec![(48, "**")], 1),
+            (
+                vec![(0, 2), (16, 64), (32, 48)],
+                vec![(48, "**"), (64, "01")],
+                0,
+            ),
         ] {
-            let (plan, interpreted, source) = carried_tick(
+            let (plan, _, source) = carried_tick(
                 Grid::with_shape(16, 5),
                 &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
                 &outputs,
             );
-            assert!(plan.writes.is_empty());
-            assert!(plan.play_commands.is_empty());
-            assert_eq!(interpreted.len(), 0);
-            assert_eq!(&source.snapshot()[48..50], "  ");
-            assert!(
-                plan.diagnostics
-                    .iter()
-                    .any(|d| d.message == "same-Tick dependency cycle")
-            );
+            for (start, spelling) in writes {
+                assert_eq!(&source.snapshot()[start..start + 2], spelling);
+            }
+            assert_eq!(&source.snapshot()[2..6], "0001");
+            assert_eq!(plan.play_commands.len(), plays);
+            assert_eq!(messages(&plan), ["same-Tick dependency cycle"]);
         }
+        // A nested computation on the cycle stops its whole Expression.
         let (plan, _) = carried_source(
             Grid::with_shape(16, 3),
             &[".+02.x0304", ".+0001", ""],
             &[(0, 18), (4, 18), (16, 6)],
         );
         assert!(plan.writes.is_empty());
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|d| d.message == "same-Tick dependency cycle")
-        );
+        assert_eq!(messages(&plan), ["same-Tick dependency cycle"]);
     }
 
     #[test]
@@ -4016,7 +4025,7 @@ mod test {
             assert!(!plan.writes.is_empty());
             assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
 
-            let mut schedule = super::schedule_carrying(grid, &map, &carried).unwrap();
+            let mut schedule = super::schedule_carrying(grid, &map, &carried);
             // Supply a broken order at the execution seam: the scheduler must
             // never produce this, but execution promises to reject it rather
             // than panic or publish the effects already accumulated.
@@ -5595,7 +5604,6 @@ mod nested_property {
         let root = Function::try_from(&source[..2]).unwrap();
         if root.is_intrinsically_active() {
             prop_assert!(
-                // An unscheduled Tick holds no states and says why.
                 states
                     .first()
                     .is_some_and(|root| root.interpreted().is_some())

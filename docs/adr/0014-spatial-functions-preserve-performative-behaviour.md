@@ -1,6 +1,6 @@
 # Directional Bang and Jump preserve performative spatial behaviour
 
-Placement admission and its relationship to value readiness and overwrite ordering are amended by [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md).
+Placement admission and its relationship to value readiness and overwrite ordering are amended by [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md). The cycle clause is amended by [ADR 0065](0065-an-error-never-stops-the-performance.md).
 
 Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force.
 
@@ -16,6 +16,6 @@ A completely empty aligned two-Cell input clears the aligned two-Cell destinatio
 
 A Jump relays Bang through its output Portal rather than applying ordinary overwrite. Bang landing on an Expression root activates it without changing its Source, and the schedule places that root after the Jump that relayed the Bang whatever their Positions are. Bang landing on a completely empty destination writes `**` with ADR 0032's dependency ordering and display lifetime. Bang landing on an occupied non-root or leaving the Grid diagnoses and writes nothing.
 
-Every Jump reads working Source at its scheduled evaluation under [ADR 0032](0032-schedule-tick-execution-by-dependency.md). A relayed Bang may activate another root, including another Jump, in the same Tick, and that root observes earlier admitted writes. Backward routing is ordinary rather than something to stop: a producer below its consumer reaches it during the same Tick, because dependency order and not Position decides what runs first. Every root executes at most once, and a same-Tick dependency cycle is a graph error the whole Tick is rejected for before any of its effects are published. Ordinary value writes become inputs immediately to dependent roots; generated Function code still waits until the next Tick. More complex Cell addressing remains deferred.
+Every Jump reads working Source at its scheduled evaluation under [ADR 0032](0032-schedule-tick-execution-by-dependency.md). A relayed Bang may activate another root, including another Jump, in the same Tick, and that root observes earlier admitted writes. Backward routing is ordinary rather than something to stop: a producer below its consumer reaches it during the same Tick, because dependency order and not Position decides what runs first. Every root executes at most once, and a same-Tick dependency cycle is a graph error that stops the Expressions it reaches before any of their effects are published, while every other Expression publishes. Ordinary value writes become inputs immediately to dependent roots; generated Function code still waits until the next Tick. More complex Cell addressing remains deferred.
 
 Halt `*!` withholds activation along a fixed spatial relation: its target is the Expression root one row directly south, and it locks that root rather than writing to Source, which is what separates it from the Jump Functions above. ADR 0006 states the complete Halt contract, and it is not restated here.

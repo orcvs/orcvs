@@ -254,14 +254,14 @@ fn a_jump_nested_two_levels_deep_reads_and_writes_its_own_parents_cells() {
 }
 
 #[test]
-fn a_nested_west_jump_cycle_stops_every_unrelated_expression_publishing() {
-    // A same-Tick cycle rejects the whole Tick (ADR 0014, ADR 0034), so an
-    // unrelated Addition on the same row or another row never writes `03`,
-    // and nothing is diagnosed at it.
+fn a_nested_west_jump_cycle_leaves_unrelated_expressions_publishing() {
+    // A same-Tick cycle stops only the Expressions it reaches (ADR 0065), so
+    // an unrelated Addition on the same row or another row writes `03` every
+    // Tick.
     assert_eq!(
         observe(Grid::with_shape(14, 2), &[".+&<01  .+0102"], 3),
         every_tick(
-            &[".+&<01  .+0102", "              "],
+            &[".+&<01  .+0102", "        03    "],
             &[(2, 0, "same-Tick dependency cycle")],
         ),
     );
@@ -272,7 +272,7 @@ fn a_nested_west_jump_cycle_stops_every_unrelated_expression_publishing() {
                 ".+&<01        ",
                 "              ",
                 "      .+0102  ",
-                "              ",
+                "      03      ",
             ],
             &[(2, 0, "same-Tick dependency cycle")],
         ),
