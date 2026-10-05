@@ -956,6 +956,19 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
             pending.extend_from_slice(&outgoing[index]);
         }
         order.retain(|&index| !stopped[index]);
+        // An Expression stopped only because it depends on a cycle says so at
+        // its root, so a performer can tell the cycle from what it starves.
+        let mut on_cycle = vec![false; nodes.len()];
+        for index in (0..nodes.len()).filter(|&index| stopped[index]) {
+            if reaches(&outgoing, index, index) {
+                on_cycle[nodes[index].owner] = true;
+            }
+        }
+        for (index, node) in nodes.iter().enumerate() {
+            if node.parent.is_none() && stopped[index] && !on_cycle[index] {
+                diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
+            }
+        }
     }
     Schedule {
         lookup,
@@ -1271,6 +1284,20 @@ mod test {
         plan.diagnostics
             .iter()
             .map(|diagnostic| diagnostic.message.as_str())
+            .collect()
+    }
+
+    ///
+    /// Where each of one Tick Plan's diagnostics sends a reader, with what it
+    /// says there.
+    ///
+    fn anchors(plan: &TickPlan) -> Vec<(usize, usize, &str)> {
+        plan.diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let anchor = diagnostic.anchor();
+                (anchor.x(), anchor.y(), diagnostic.message.as_str())
+            })
             .collect()
     }
 
@@ -2068,15 +2095,7 @@ mod test {
         // Jump itself, so the Jump is the computation the cycle runs through.
         // The parent only waits on it, and is not where the cycle is.
         let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+&<01"], 1);
-        let anchors: Vec<_> = plans[0]
-            .diagnostics
-            .iter()
-            .map(|diagnostic| {
-                let anchor = diagnostic.anchor();
-                (anchor.x(), anchor.y(), diagnostic.message.as_str())
-            })
-            .collect();
-        assert_eq!(anchors, [(2, 0, "same-Tick dependency cycle")]);
+        assert_eq!(anchors(&plans[0]), [(2, 0, "same-Tick dependency cycle")]);
     }
 
     #[test]
@@ -2088,6 +2107,22 @@ mod test {
             assert_eq!(rows, &[".+&<01  .+0102", "        03    "]);
             assert_eq!(messages(plan), ["same-Tick dependency cycle"]);
         }
+    }
+
+    #[test]
+    fn an_expression_a_cycle_stops_is_diagnosed_at_its_root_as_waiting() {
+        // The lower Addition reads `00`, which the upper one writes over, so
+        // it waits on the cycle the `&<` runs through and holds no part of it.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &["  .+&<01", ".+0001", ""], 1);
+        assert_eq!(grids[0], ["  .+&<01", ".+0001  ", "        "]);
+        assert_eq!(
+            anchors(&plans[0]),
+            [
+                (4, 0, "same-Tick dependency cycle"),
+                (0, 1, "waiting on a same-Tick dependency cycle"),
+            ]
+        );
     }
 
     #[test]

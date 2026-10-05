@@ -119,14 +119,18 @@ fn the_cycle_diagnostic_anchors_at_a_computation_on_the_cycle() {
     // The cycle is the Addition and the `&^` below it. The `&^` on row 1
     // reads the Addition's spelling, which the cycle writes, so it waits on
     // the cycle without being part of it. It comes first in Source order, and
-    // the diagnostic still anchors at the Addition.
+    // the cycle diagnostic still anchors at the Addition; the `&^` is
+    // diagnosed at its own root as waiting.
     let downstream = ["", "&^", ".+0102", "&^"];
     assert_eq!(
         observe(Grid::with_shape(14, 4), &downstream, 1),
         vec![seen(
             14,
             &downstream,
-            &[(0, 2, "same-Tick dependency cycle")]
+            &[
+                (0, 2, "same-Tick dependency cycle"),
+                (0, 1, "waiting on a same-Tick dependency cycle"),
+            ]
         )]
     );
 
