@@ -824,14 +824,14 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
             // computation that writes over its own Cells reports itself as a
             // same-Tick cycle: the reservation covering the producer and the
             // Cell pair its write reaches are the same fact, and
-            // `live_cycles_reject_independent_effects_and_self_dependency`
-            // holds that rule.
+            // `live_cycles_stop_only_the_expressions_they_reach` holds that
+            // rule.
             //
             // The one way a producer's own Cells are not a defect is one a
             // declaration states outright: an advancing bundle clears the
             // Span it stands in, so its first Portal covers its own spelling
-            // by design. Ordering it after itself would reject every Tick one
-            // of these takes a Turn in. An emitting bundle plans nothing at
+            // by design. Ordering it after itself would stop it every Tick it
+            // takes a Turn in. An emitting bundle plans nothing at
             // its own Cells and needs no exception.
             let clears_its_own_span = advances(node.function);
             let mut order_after = |consumer: usize| {
@@ -1673,11 +1673,9 @@ mod test {
 
     #[test]
     fn a_blocked_pair_of_moves_leaves_the_rest_of_the_grid_running() {
-        // The cost of rejecting that Tick would not be local. A rejected
-        // schedule discards every write on the Grid, so an Addition sharing the
-        // Source with a facing pair would fall silent with nothing wrong with
-        // it and no diagnostic of its own. The pair reports in its own four
-        // Cells and the Addition answers `03` in the same Tick.
+        // A blocked pair costs only itself: the pair reports in its own four
+        // Cells and the Addition sharing the Source with it answers `03` in
+        // the same Tick.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(13, 2), &[" >><<  .+0102", ""], 1);
 
         assert_eq!(grids[0], [" ****  .+0102", "       03    "]);
@@ -2319,7 +2317,7 @@ mod test {
     }
 
     #[test]
-    fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
+    fn a_jump_that_closes_a_same_tick_cycle_is_diagnosed() {
         // Increment reads and writes one row south. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", "&^"], 1);
@@ -2367,7 +2365,7 @@ mod test {
         // the other stands: a move is admitted only into empty Cells, so mutual
         // reservation describes two blocked moves rather than two writes
         // competing for one Cell. Ordering either after the other would make
-        // that pair a cycle and cost the whole Grid its Tick. Both are blocked
+        // that pair a cycle and stop both. Both are blocked
         // by complete root contact and both bang, which is what a blocked move
         // does whatever blocked it.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &[">><<  "], 1);
@@ -2476,8 +2474,8 @@ mod test {
         //
         // Without that edge `^^` could move first and `>>` would find the Cell
         // empty, planning a write over Cells a computation that had already
-        // run was scheduled at. That is a defect a Tick is rejected for, and
-        // this is the ordering that stops it arising.
+        // run was scheduled at. That write would be refused as an ordering
+        // defect, and this is the ordering that stops it arising.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["", ">>^^  "], 1);
 
         assert_eq!(grids[0], ["  ^^  ", "**    "]);
@@ -5090,7 +5088,7 @@ mod test {
     }
 
     #[test]
-    fn competing_writers_publish_but_dependency_cycles_abort_before_output() {
+    fn competing_writers_publish_but_a_dependency_cycle_writes_nothing() {
         let conflict_grid = Grid::with_shape(16, 2);
         let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
         let conflict_map = LanguageMap::build(conflict_grid, Cells::of(conflict_bytes.as_bytes()));
@@ -5134,9 +5132,10 @@ mod test {
             Tick::ZERO,
             &cycle_destinations,
         );
+        // One cycle runs through both Expressions, so it is diagnosed once, at
+        // the first in Parser order, and neither is reported as waiting.
         assert!(cycle.writes.is_empty());
-        assert_eq!(cycle.diagnostics.len(), 1);
-        assert_eq!(cycle.diagnostics[0].message, "same-Tick dependency cycle");
+        assert_eq!(anchors(&cycle), [(0, 0, "same-Tick dependency cycle")]);
     }
 
     use crate::{

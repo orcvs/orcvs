@@ -120,7 +120,7 @@ fn an_east_jump_reading_a_sibling_nested_function_copies_that_siblings_operand()
 fn a_west_jump_that_writes_over_its_parent_spelling_is_a_same_tick_cycle() {
     // As the first operand the Jump's Output Portal is the parent's anchor,
     // which the Jump's own Return feeds, so no order satisfies both and the
-    // Tick is rejected, diagnosed at the Jump, whatever the Jump reads: a
+    // Expression is stopped, diagnosed at the Jump, whatever the Jump reads: a
     // value, or a sibling nested Function's spelling.
     assert_eq!(
         observe(Grid::with_shape(6, 2), &[".+&<01"], 3),

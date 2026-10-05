@@ -3,8 +3,8 @@
 //! where nesting and placement agree and where they part.
 //!
 //! An Increment `~+0110` stands apart from the Jumps in several layouts as a
-//! witness: it counts one per Tick while the Tick publishes, and holds while
-//! the Tick is rejected.
+//! witness: it counts one per Tick, whatever the Jumps beside it do, because
+//! nothing they stop reaches it.
 
 use super::{Observed, observe};
 use crate::grid::Grid;
