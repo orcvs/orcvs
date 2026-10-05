@@ -546,10 +546,13 @@ impl<'a> Execution<'a> {
                 .subtree
                 .any(|descendant| self.states[descendant].attempted)
         }) {
-            return Break(diagnose(
+            // A computation that has taken its Turn is past changing, so the
+            // schedule ordered this write wrongly. Only this write is refused.
+            self.effects.push(Effect::Diagnose(diagnose(
                 node,
-                "spatial output reached an executed computation; Tick effects rejected",
-            ));
+                "spatial output reached an executed computation",
+            )));
+            return Continue(());
         }
         // A covered Expression is suppressed: its spelling is no longer the
         // one that was scheduled.

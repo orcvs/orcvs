@@ -1532,7 +1532,7 @@ mod test {
 
         proptest! {
             #[test]
-            fn movers_never_reject_a_tick(
+            fn movers_never_meet_an_ordering_defect_or_a_cycle(
                 rows in prop::collection::vec(
                     prop::collection::vec(select(vec![" ", "  ", "^^", "vv", "<<", ">>"]), 0..=6),
                     4,
@@ -1544,7 +1544,7 @@ mod test {
                 let (plans, _, _) = tick_by_tick(Grid::with_shape(12, 4), &refs, 5);
                 for plan in plans {
                     for message in messages(&plan) {
-                        prop_assert!(!message.contains("Tick effects rejected"), "{rows:?}: {message}");
+                        prop_assert!(!message.contains("reached an executed computation"), "{rows:?}: {message}");
                         prop_assert!(!message.contains("same-Tick dependency cycle"), "{rows:?}: {message}");
                     }
                 }
@@ -4056,36 +4056,20 @@ mod test {
     }
 
     #[test]
-    fn a_late_spatial_write_rejects_the_tick_even_when_the_earlier_turn_failed() {
+    fn a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_turn_failed() {
         for target in [".+0101", "./0100", ".+01??"] {
             let grid = Grid::with_shape(16, 11);
-            let bytes = snapshot(
-                grid,
-                &[
-                    "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "**", "",
-                    "",
-                ],
-            );
+            let rows = [
+                "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "**", "", "",
+            ];
+            let bytes = snapshot(grid, &rows);
             let map = LanguageMap::derive(grid, &bytes).unwrap();
             let carried =
                 carried_destinations(grid, &[(32, 0), (48, 160), (64, 96), (80, 64), (112, 160)]);
-            // A valid order delivers the writer before its target. Execute it
-            // once to prove that this fixture has writes and a Play Command
-            // which the defensive rejection below must discard.
-            let (plan, _) = super::plan_carrying(
-                grid,
-                Cells::of(bytes.as_bytes()),
-                &map,
-                Tick::ZERO,
-                &carried,
-            );
-            assert!(!plan.writes.is_empty());
-            assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
-
             let mut schedule = super::schedule_carrying(grid, &map, &carried);
             // Supply a broken order at the execution seam: the scheduler must
-            // never produce this, but execution promises to reject it rather
-            // than panic or publish the effects already accumulated.
+            // never produce this, but execution promises to refuse the one
+            // write it gets wrong rather than panic or drop the Tick.
             schedule.order = [32, 16, 48, 64, 80, 112]
                 .into_iter()
                 .map(|anchor| {
@@ -4097,36 +4081,50 @@ mod test {
                         .unwrap()
                 })
                 .collect();
-            let (rejected, states) = super::execution::execute(
+            let (plan, states) = super::execution::execute(
                 grid,
                 Cells::of(bytes.as_bytes()),
                 &map,
                 Tick::ZERO,
                 &schedule,
             );
-            assert!(rejected.writes.is_empty());
-            assert!(rejected.play_commands.is_empty());
-            // The broken order was walked as given, and stopped where it was
-            // rejected: the computation anchored at Cell 32 took the first Turn
-            // ahead of the one anchored at Cell 16, and the one anchored at
-            // Cell 112 never took a Turn at all. Read in parse order, which is
-            // anchor order here, so the entries name Cells 16, 32, 48, 64, 80
-            // and 112.
+            // The broken order was walked as given, and to its end: the
+            // computation anchored at Cell 32 took the first Turn ahead of the
+            // one anchored at Cell 16, and the one anchored at Cell 112 took
+            // the last. Read in parse order, which is anchor order here, so
+            // the entries name Cells 16, 32, 48, 64, 80 and 112.
             assert_eq!(
                 turns(&states),
-                vec![Some(1), Some(0), Some(2), Some(3), Some(4), None],
+                vec![Some(1), Some(0), Some(2), Some(3), Some(4), Some(5)],
             );
+            // Only the write onto Cell 64 is refused. The target keeps its
+            // spelling and its own answer, and every other effect publishes.
+            let mut published = bytes.clone().into_bytes();
+            for write in &plan.writes {
+                published[write.cell.get()] = write.content.as_char() as u8;
+            }
+            let published: Vec<_> = published
+                .chunks(grid.columns())
+                .map(|row| std::str::from_utf8(row).unwrap())
+                .collect();
+            let answer = if target == ".+0101" { "02" } else { "" };
+            assert_eq!(
+                published,
+                [
+                    "**", "!>007FC4", ".=0101", "./0100", target, ".+0203", answer, ".+0304", "",
+                    "", "07",
+                ]
+                .map(|row| format!("{row:16}")),
+                "{target}"
+            );
+            assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
             let mut expected = vec![(48, "cannot divide by zero")];
             if target == "./0100" {
                 expected.push((64, "cannot divide by zero"));
             }
-            expected.push((
-                80,
-                "spatial output reached an executed computation; Tick effects rejected",
-            ));
+            expected.push((80, "spatial output reached an executed computation"));
             assert_eq!(
-                rejected
-                    .diagnostics
+                plan.diagnostics
                     .iter()
                     .map(|diagnostic| {
                         (
@@ -4141,7 +4139,7 @@ mod test {
             // reaching it, although that Turn never calls the Evaluator.
             assert_eq!(
                 interpreted(&states).len(),
-                if target == ".+01??" { 4 } else { 5 }
+                if target == ".+01??" { 5 } else { 6 }
             );
         }
     }
