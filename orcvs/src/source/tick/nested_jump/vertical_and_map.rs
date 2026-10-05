@@ -344,10 +344,10 @@ fn a_nested_vertical_jump_relays_a_same_tick_bang_to_an_aligned_root() {
 }
 
 #[test]
-fn a_nested_south_jump_off_the_grid_diagnoses_at_its_parent() {
+fn a_south_jump_off_the_grid_diagnoses_at_its_own_anchor() {
     // Nothing is highlighted: the Output Portal leaves no room for a Cell
-    // pair. During the Tick both writes are refused and both diagnostics
-    // anchor at the parent's column; a root `&v` anchors at its own.
+    // pair. During the Tick both writes are refused, and each diagnostic
+    // anchors at the Function whose write it refuses, nested or root.
     let grid = Grid::with_shape(8, 2);
     let blank = vec!["........".to_owned(); 2];
     assert_eq!(
@@ -359,7 +359,7 @@ fn a_nested_south_jump_off_the_grid_diagnoses_at_its_parent() {
         steady(
             &["  07    ", ".+&v01  "],
             &[
-                (0, 1, "result \"07\" falls below the Source"),
+                (2, 1, "result \"07\" falls below the Source"),
                 (0, 1, "result \"08\" falls below the Source"),
             ],
             3

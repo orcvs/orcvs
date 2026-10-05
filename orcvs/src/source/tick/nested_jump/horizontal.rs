@@ -52,7 +52,7 @@ fn an_east_jump_in_the_first_operand_copies_the_parent_spelling_over_the_next_op
                 &[(0, 0, "expected a number, found \".+\"")],
             ),
             &[".+&>.+", "      "],
-            &[(0, 0, "Expression layout crosses the row edge")],
+            &[(4, 0, "Expression layout crosses the row edge")],
         ),
     );
     assert_eq!(
@@ -76,7 +76,7 @@ fn an_east_jump_in_the_first_operand_copies_the_parent_spelling_over_the_next_op
             &["~?&>~?09  ", "          "],
             &[
                 (0, 0, "Expression layout crosses the row edge"),
-                (0, 0, "Expression layout crosses the row edge"),
+                (4, 0, "Expression layout crosses the row edge"),
             ],
         ),
     );
@@ -199,14 +199,14 @@ fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before
 #[test]
 fn a_west_jump_reading_an_invalid_unit_past_the_expression_writes_nothing() {
     // Invalid input diagnoses and writes nothing, so the Jump Returns nothing
-    // and the parent diagnoses that too. Both anchor at the root, not at the
-    // Jump in column 4.
+    // and the parent diagnoses that too: the first at the Jump, the second at
+    // the root.
     assert_eq!(
         observe(Grid::with_shape(8, 2), &[".+01&<ab"], 3),
         every_tick(
             &[".+01&<ab", "        "],
             &[
-                (0, 0, "&< has partial or invalid input"),
+                (4, 0, "&< has partial or invalid input"),
                 (
                     0,
                     0,
@@ -229,7 +229,7 @@ fn a_jump_nested_two_levels_deep_reads_and_writes_its_own_parents_cells() {
             tick(
                 &[".+.+&>.+02", "          ", "          "],
                 &[
-                    (0, 0, "expected a number, found \".+\""),
+                    (2, 0, "expected a number, found \".+\""),
                     (
                         0,
                         0,
@@ -240,7 +240,7 @@ fn a_jump_nested_two_levels_deep_reads_and_writes_its_own_parents_cells() {
             &[".+.+&>.+02", "          ", "          "],
             &[
                 (0, 0, "Expression layout crosses the row edge"),
-                (0, 0, "Expression layout crosses the row edge"),
+                (6, 0, "Expression layout crosses the row edge"),
             ],
         ),
     );
@@ -319,16 +319,17 @@ fn a_nested_east_jump_leaves_unrelated_expressions_publishing() {
 }
 
 #[test]
-fn a_nested_jump_portal_past_the_grid_edge_is_diagnosed_at_the_root() {
+fn a_nested_jump_portal_past_the_grid_edge_is_diagnosed_at_the_jump() {
     // An east Output Portal past the Grid diagnoses the Jump's result, yet the
     // Jump still Returns it and the parent publishes `02`. A west Input
     // Portal past the Grid is invalid input: nothing is written and the
-    // parent publishes nothing. Both anchor at the root, not at the Jump.
+    // parent publishes nothing. The Jump's own diagnostic anchors at the Jump;
+    // the parent's missing Return anchors at the root.
     assert_eq!(
         observe(Grid::with_shape(6, 2), &[".+01&>"], 3),
         every_tick(
             &[".+01&>", "02    "],
-            &[(0, 0, "result \"01\" falls outside the Grid")],
+            &[(4, 0, "result \"01\" falls outside the Grid")],
         ),
     );
     assert_eq!(
@@ -336,7 +337,7 @@ fn a_nested_jump_portal_past_the_grid_edge_is_diagnosed_at_the_root() {
         every_tick(
             &[".+01&<", "      "],
             &[
-                (0, 0, "&< has partial or invalid input"),
+                (4, 0, "&< has partial or invalid input"),
                 (
                     0,
                     0,

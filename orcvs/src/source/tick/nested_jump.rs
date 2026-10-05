@@ -56,8 +56,8 @@ fn observe(grid: Grid, rows: &[&str], ticks: u64) -> Vec<Observed> {
                     .diagnostics
                     .iter()
                     .map(|diagnostic| {
-                        let start = diagnostic.start();
-                        (start % width, start / width, diagnostic.message.clone())
+                        let anchor = diagnostic.anchor();
+                        (anchor.x(), anchor.y(), diagnostic.message.clone())
                     })
                     .collect(),
             }
