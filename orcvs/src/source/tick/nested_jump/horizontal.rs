@@ -120,34 +120,34 @@ fn an_east_jump_reading_a_sibling_nested_function_copies_that_siblings_operand()
 fn a_west_jump_that_writes_over_its_parent_spelling_is_a_same_tick_cycle() {
     // As the first operand the Jump's Output Portal is the parent's anchor,
     // which the Jump's own Return feeds, so no order satisfies both and the
-    // Tick is rejected at the root, whatever the Jump reads: a value, or a
-    // sibling nested Function's spelling.
+    // Tick is rejected, diagnosed at the Jump, whatever the Jump reads: a
+    // value, or a sibling nested Function's spelling.
     assert_eq!(
         observe(Grid::with_shape(6, 2), &[".+&<01"], 3),
         every_tick(
             &[".+&<01", "      "],
-            &[(0, 0, "same-Tick dependency cycle")]
+            &[(2, 0, "same-Tick dependency cycle")]
         ),
     );
     assert_eq!(
         observe(Grid::with_shape(8, 2), &["~?&<0109"], 3),
         every_tick(
             &["~?&<0109", "        "],
-            &[(0, 0, "same-Tick dependency cycle")],
+            &[(2, 0, "same-Tick dependency cycle")],
         ),
     );
     assert_eq!(
         observe(Grid::with_shape(10, 2), &[".+&<.+0102"], 3),
         every_tick(
             &[".+&<.+0102", "          "],
-            &[(0, 0, "same-Tick dependency cycle")],
+            &[(2, 0, "same-Tick dependency cycle")],
         ),
     );
     assert_eq!(
         observe(Grid::with_shape(8, 2), &["  .+&<01"], 3),
         every_tick(
             &["  .+&<01", "        "],
-            &[(2, 0, "same-Tick dependency cycle")],
+            &[(4, 0, "same-Tick dependency cycle")],
         ),
     );
 }
@@ -248,7 +248,7 @@ fn a_jump_nested_two_levels_deep_reads_and_writes_its_own_parents_cells() {
         observe(Grid::with_shape(10, 3), &[".+.+&<0102"], 3),
         every_tick(
             &[".+.+&<0102", "          ", "          "],
-            &[(0, 0, "same-Tick dependency cycle")],
+            &[(4, 0, "same-Tick dependency cycle")],
         ),
     );
 }
@@ -262,7 +262,7 @@ fn a_nested_west_jump_cycle_stops_every_unrelated_expression_publishing() {
         observe(Grid::with_shape(14, 2), &[".+&<01  .+0102"], 3),
         every_tick(
             &[".+&<01  .+0102", "              "],
-            &[(0, 0, "same-Tick dependency cycle")],
+            &[(2, 0, "same-Tick dependency cycle")],
         ),
     );
     assert_eq!(
@@ -274,7 +274,7 @@ fn a_nested_west_jump_cycle_stops_every_unrelated_expression_publishing() {
                 "      .+0102  ",
                 "              ",
             ],
-            &[(0, 0, "same-Tick dependency cycle")],
+            &[(2, 0, "same-Tick dependency cycle")],
         ),
     );
 }

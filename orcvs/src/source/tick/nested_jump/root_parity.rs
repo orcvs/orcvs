@@ -109,18 +109,18 @@ fn a_root_only_cycle_rejects_every_effect_of_every_tick() {
 }
 
 #[test]
-fn the_cycle_diagnostic_anchors_at_the_first_waiting_root_in_source_order() {
+fn the_cycle_diagnostic_anchors_at_a_computation_on_the_cycle() {
     // The cycle is the Addition and the `&^` below it. The `&^` on row 1
     // reads the Addition's spelling, which the cycle writes, so it waits on
-    // the cycle without being part of it, and the diagnostic anchors there
-    // because it comes first in Source order.
+    // the cycle without being part of it. It comes first in Source order, and
+    // the diagnostic still anchors at the Addition.
     let downstream = ["", "&^", ".+0102", "&^"];
     assert_eq!(
         observe(Grid::with_shape(14, 4), &downstream, 1),
         vec![seen(
             14,
             &downstream,
-            &[(0, 1, "same-Tick dependency cycle")]
+            &[(0, 2, "same-Tick dependency cycle")]
         )]
     );
 
@@ -187,8 +187,8 @@ fn a_nested_east_jump_agrees_with_its_spatial_equivalent_on_the_first_tick_only(
             ),
             vec![
                 seen(14, &spatial_rows, &[(0, 2, &found)]),
-                seen(14, &spatial_rows, &[(0, 2, "same-Tick dependency cycle")]),
-                seen(14, &spatial_rows, &[(0, 2, "same-Tick dependency cycle")]),
+                seen(14, &spatial_rows, &[(4, 2, "same-Tick dependency cycle")]),
+                seen(14, &spatial_rows, &[(4, 2, "same-Tick dependency cycle")]),
             ]
         );
     }
@@ -199,16 +199,15 @@ fn a_nested_west_jump_is_a_cycle_where_its_spatial_equivalent_replaces_the_paren
     // `&<` nested in a parent copies `01` west over the parent's own spelling
     // and Returns `01` to the first operand. A nested Function's write onto
     // its own root is a same-Tick self-dependency, so every Tick is rejected,
-    // the witness never counts, and the diagnostic anchors at the parent
-    // rather than the Jump.
+    // the witness never counts, and the diagnostic anchors at the Jump.
     for parent in [".+", ".x"] {
         let nested = format!("{parent}&<01");
         let frozen = ["", "", nested.as_str(), "", "~+0110", ""];
         assert_eq!(
             observe(Grid::with_shape(14, 6), &frozen, 2),
             vec![
-                seen(14, &frozen, &[(0, 2, "same-Tick dependency cycle")]),
-                seen(14, &frozen, &[(0, 2, "same-Tick dependency cycle")]),
+                seen(14, &frozen, &[(2, 2, "same-Tick dependency cycle")]),
+                seen(14, &frozen, &[(2, 2, "same-Tick dependency cycle")]),
             ]
         );
 

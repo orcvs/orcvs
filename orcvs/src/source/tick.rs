@@ -953,9 +953,10 @@ fn order_turns(
         }
     }
     if order.len() != nodes.len() {
-        let index = indegree
-            .iter()
-            .position(|incoming| *incoming != 0)
+        // A computation still waiting may only be downstream of the cycle, so
+        // the diagnostic names the first one that reaches itself.
+        let index = (0..nodes.len())
+            .find(|&start| reaches(&outgoing, start, start))
             .expect("cycle has a node");
         diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
         return Err(diagnostics);
@@ -965,6 +966,23 @@ fn order_turns(
         order,
         diagnostics,
     })
+}
+
+///
+/// Whether a path of at least one edge leads from `from` to `to`.
+///
+fn reaches(outgoing: &[Vec<usize>], from: usize, to: usize) -> bool {
+    let mut seen = vec![false; outgoing.len()];
+    let mut pending = outgoing[from].clone();
+    while let Some(index) = pending.pop() {
+        if index == to {
+            return true;
+        }
+        if !std::mem::replace(&mut seen[index], true) {
+            pending.extend_from_slice(&outgoing[index]);
+        }
+    }
+    false
 }
 
 ///
@@ -2046,6 +2064,23 @@ mod test {
             messages(&plans[0]),
             ["result \"01\" falls outside the Grid"]
         );
+    }
+
+    #[test]
+    fn a_cycle_is_diagnosed_at_a_computation_on_it() {
+        // The nested `&<` writes over its parent's anchor, which covers the
+        // Jump itself, so the Jump is the computation the cycle runs through.
+        // The parent only waits on it, and is not where the cycle is.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+&<01"], 1);
+        let anchors: Vec<_> = plans[0]
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let anchor = diagnostic.anchor();
+                (anchor.x(), anchor.y(), diagnostic.message.as_str())
+            })
+            .collect();
+        assert_eq!(anchors, [(2, 0, "same-Tick dependency cycle")]);
     }
 
     #[test]

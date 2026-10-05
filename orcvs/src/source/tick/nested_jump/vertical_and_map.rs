@@ -455,7 +455,7 @@ fn source_paint_marks_each_nested_jumps_output_portal_before_a_tick() {
     let rows = ["          ", ".+&<01    ", "          "];
     assert_eq!(
         observe(grid, &["", ".+&<01", ""], 3),
-        steady(&rows, &[(0, 1, "same-Tick dependency cycle")], 3)
+        steady(&rows, &[(2, 1, "same-Tick dependency cycle")], 3)
     );
 }
 
