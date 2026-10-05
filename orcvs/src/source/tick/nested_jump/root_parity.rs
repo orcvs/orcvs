@@ -145,18 +145,17 @@ fn the_cycle_diagnostic_anchors_at_a_computation_on_the_cycle() {
 fn a_nested_east_jump_agrees_with_its_spatial_equivalent_on_the_first_tick_only() {
     // `&>` nested in a parent copies the parent's spelling east over the
     // parent's second operand and Returns that spelling to the first. The
-    // spatial equivalent places both deliveries with roots: `&v` under a
-    // copy of the spelling for the first slot, and `&^` over the second.
+    // spatial equivalent places both deliveries with roots: `&v` writes the
+    // spelling into the first slot and `&^` writes it over the second.
     for parent in [".+", ".x"] {
         let nested = format!("{parent}&>01");
         let rewritten = format!("{parent}&>{parent}");
         let found = format!("expected a number, found \"{parent}\"");
 
-        // Every Tick the parent refuses the spelling as a Number. From Tick
-        // 1 the Source reads `{parent}&>{parent}`, whose second `{parent}`
-        // has blank operands and gives the Blank Answer, but the Jump still
-        // Returns the spelling to the first operand, and a malformed operand
-        // is refused beside a blank one. The witness counts on.
+        // Tick 0: the parent refuses the spelling as a Number. From Tick 1
+        // the Source reads `{parent}&>{parent}`, whose second `{parent}` has
+        // blank operands, so the parent answers blank: nothing is written
+        // and nothing is said, while the witness counts on.
         let nested_rows =
             |count: &'static str| [rewritten.as_str(), "", "", "", "", "", "~+0110", count];
         assert_eq!(
@@ -167,26 +166,24 @@ fn a_nested_east_jump_agrees_with_its_spatial_equivalent_on_the_first_tick_only(
             ),
             vec![
                 seen(14, &nested_rows("01"), &[(0, 0, &found)]),
-                seen(14, &nested_rows("02"), &[(0, 0, &found)]),
-                seen(14, &nested_rows("03"), &[(0, 0, &found)]),
+                seen(14, &nested_rows("02"), &[]),
+                seen(14, &nested_rows("03"), &[]),
             ]
         );
 
-        // Tick 0 diagnoses as the nested form does, though the first slot
-        // stays blank: the source `{parent}` is itself a root whose operands
-        // are blank, so it gives the Blank Answer and clears `&v` before `&v`
-        // takes a Turn. `&^` still writes the spelling over the second
-        // operand. From Tick 1 that spelling parses as a nested Function
-        // whose south write covers `&^`, while `&^` covers that spelling: a
-        // cycle that stops those Expressions while the witness counts on.
+        // Tick 0 matches the nested form, with the spelling in the slot where
+        // the nested form keeps `&>`. From Tick 1 the slot's spelling parses
+        // as a nested Function whose south write covers `&^`, while `&^`
+        // covers that spelling: a cycle that stops those Expressions while the
+        // witness counts on.
         let source = format!("  {parent}");
         let slot = format!("{parent}  01");
         let below = format!("    {parent}");
-        let placed = format!("{parent}  {parent}");
+        let placed = format!("{parent}{parent}{parent}");
         let spatial_rows = |count: &'static str| {
             [
                 source.clone(),
-                String::new(),
+                "  &v".to_owned(),
                 placed.clone(),
                 "    &^".to_owned(),
                 below.clone(),

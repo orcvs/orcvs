@@ -42,10 +42,8 @@ fn settles(first: Observed, rows: &[&str], diagnostics: &[(usize, usize, &str)])
 fn an_east_jump_in_the_first_operand_copies_the_parent_spelling_over_the_next_operand() {
     // The Jump reads the parent's own spelling and writes it over the operand
     // beside it, then Returns that spelling, which the parent cannot read as a
-    // Number. From Tick 1 the copied spelling parses as a Function, and what
-    // is diagnosed depends on how many Cells lie east of it: where its blank
-    // operands fit, it gives the Blank Answer and the parent still refuses the
-    // spelling the Jump Returns every Tick.
+    // Number. From Tick 1 the copied spelling parses as a Function without
+    // operands, and what is diagnosed depends on how many Cells lie east of it.
     assert_eq!(
         observe(Grid::with_shape(6, 2), &[".+&>01"], 3),
         settles(
@@ -59,9 +57,13 @@ fn an_east_jump_in_the_first_operand_copies_the_parent_spelling_over_the_next_op
     );
     assert_eq!(
         observe(Grid::with_shape(10, 2), &[".+&>01"], 3),
-        every_tick(
+        settles(
+            tick(
+                &[".+&>.+    ", "          "],
+                &[(0, 0, "expected a number, found \".+\"")],
+            ),
             &[".+&>.+    ", "          "],
-            &[(0, 0, "expected a number, found \".+\"")],
+            &[],
         ),
     );
     assert_eq!(
@@ -167,15 +169,30 @@ fn a_west_jump_in_a_middle_or_last_operand_copies_east_cells_over_the_operand_be
 #[test]
 fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before_it() {
     // Empty aligned input clears the destination, so the operand before the
-    // Jump becomes blank and the parent gives the Blank Answer (ADR 0062).
-    // The Grid stays as it is and nothing is diagnosed on any Tick.
+    // Jump becomes blank. Tick 0 diagnoses the blank; from Tick 1 the parent
+    // no longer forms an Expression and the Grid stays as it is with nothing
+    // diagnosed.
     assert_eq!(
         observe(Grid::with_shape(8, 2), &[".+01&<"], 3),
-        every_tick(&[".+  &<  ", "        "], &[]),
+        settles(
+            tick(
+                &[".+  &<  ", "        "],
+                &[(0, 0, "expected a number, found \"  \"")],
+            ),
+            &[".+  &<  ", "        "],
+            &[],
+        ),
     );
     assert_eq!(
         observe(Grid::with_shape(10, 2), &["~?0109&<"], 3),
-        every_tick(&["~?01  &<  ", "          "], &[]),
+        settles(
+            tick(
+                &["~?01  &<  ", "          "],
+                &[(0, 0, "expected a number, found \"  \"")],
+            ),
+            &["~?01  &<  ", "          "],
+            &[],
+        ),
     );
 }
 
@@ -265,24 +282,38 @@ fn a_nested_west_jump_cycle_leaves_unrelated_expressions_publishing() {
 #[test]
 fn a_nested_east_jump_leaves_unrelated_expressions_publishing() {
     // The parent's diagnostic is confined to its own Expression, so an
-    // Addition on the same row or another row writes `03` every Tick.
+    // unrelated Addition on the same row or another row writes `03` from
+    // Tick 0.
     assert_eq!(
         observe(Grid::with_shape(14, 2), &[".+&>01  .+0102"], 3),
-        every_tick(
+        settles(
+            tick(
+                &[".+&>.+  .+0102", "        03    "],
+                &[(0, 0, "expected a number, found \".+\"")],
+            ),
             &[".+&>.+  .+0102", "        03    "],
-            &[(0, 0, "expected a number, found \".+\"")],
+            &[],
         ),
     );
     assert_eq!(
         observe(Grid::with_shape(14, 4), &[".+&>01", "", "      .+0102"], 3),
-        every_tick(
+        settles(
+            tick(
+                &[
+                    ".+&>.+        ",
+                    "              ",
+                    "      .+0102  ",
+                    "      03      ",
+                ],
+                &[(0, 0, "expected a number, found \".+\"")],
+            ),
             &[
                 ".+&>.+        ",
                 "              ",
                 "      .+0102  ",
                 "      03      ",
             ],
-            &[(0, 0, "expected a number, found \".+\"")],
+            &[],
         ),
     );
 }

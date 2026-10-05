@@ -213,10 +213,8 @@ struct DerivedExpression {
 impl DerivedExpression {
     /// Whether this Expression reads as `other` to a schedule: the same Span
     /// and leading Function, and every positioned entry in the same Cells,
-    /// under the same parent, parsed, blank or refused alike and as the same
-    /// Function. An Operand Literal's value is not compared. A blank operand
-    /// and a refused one both hold no Atom, and only the refusal blocks the
-    /// Turn, so blankness is compared beside the Atom.
+    /// under the same parent, parsed or not alike and as the same Function.
+    /// An Operand Literal's value is not compared.
     fn schedules_as(&self, other: &Self) -> bool {
         let scheduled_atom = |atom: Option<&Atom>| {
             atom.map(|atom| match atom {
@@ -232,7 +230,6 @@ impl DerivedExpression {
                 |ours, theirs| {
                     ours.cells == theirs.cells
                         && ours.parent == theirs.parent
-                        && ours.is_blank_operand() == theirs.is_blank_operand()
                         && scheduled_atom(ours.atom.as_ref())
                             == scheduled_atom(theirs.atom.as_ref())
                 },
@@ -2123,9 +2120,8 @@ mod property {
 
                 // A value never stands in for Source that was not read: an
                 // Expression answers with Atoms exactly when it has nothing to
-                // report and is neither a Comment nor holding a blank operand,
-                // and a root is only ever the anchor of one with nothing to
-                // report.
+                // report and is not a Comment, and a root is only ever the
+                // anchor of one that does.
                 //
                 // A Comment is a complete Language Unit that is not a value.
                 // That is this property's premise rather than a case skipped
@@ -2135,15 +2131,12 @@ mod property {
                 // because its text is arbitrary and was never decoded. It is
                 // the one Expression for which "nothing to report" and "answers
                 // with a value" come apart.
-                // A blank operand slot is the other: complete Source with no
-                // Atom, so its Function gives the Blank Answer.
                 let comment = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Comment);
-                let blank = expression.positioned().any(|entry| entry.is_blank_operand());
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment && !blank,
+                    expression.diagnostic().is_none() && !comment,
                     "{:?}",
                     source,
                 );
@@ -2162,8 +2155,7 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    prop_assert!(expression.diagnostic().is_none(), "{:?}", source);
-                    prop_assert!(expression.atoms().is_some() || blank, "{:?}", source);
+                    prop_assert!(expression.atoms().is_some(), "{:?}", source);
                     prop_assert!(span.positions().any(|position| position == root));
                 }
                 if let Some(diagnostic) = expression.diagnostic() {

@@ -234,9 +234,9 @@ mod tests {
         grid.index(position)
     }
 
-    /// One example's expected result: the Cells starting at `(column, row)`,
-    /// read west to east, and the string they hold after one Tick — what the
-    /// example writes there, or the checked-in text when it writes nothing.
+    /// One example's expected written result: the Cells starting at
+    /// `(column, row)`, read west to east, and the string one Tick writes
+    /// there — or a run of spaces when the example writes nothing there.
     struct ExpectedResult {
         column: usize,
         row: usize,
@@ -272,12 +272,7 @@ mod tests {
             result(0, 20, "03"), // .<0305
             result(0, 23, "05"), // .>0305
             result(0, 26, "**"), // .=0505 (equal)
-            // The unequal Equality and the blank operand sit over the same
-            // checked-in `00`, so one Tick tells them apart: the Absence
-            // Marker writes nothing and the `00` stays, while the Blank
-            // Answer writes two spaces over it.
-            result(0, 29, "00"), // .=0506 (not equal: no Cell write)
-            result(0, 32, "  "), // .+  01 (blank operand: the Blank Answer writes two spaces)
+            result(0, 29, "  "), // .=0506 (not equal: no Cell write)
             // Conversion (column 16)
             result(16, 2, "C4"), // .^3C (Number to Note)
             result(16, 5, "3C"), // .vC4 (Note to Number)
@@ -288,7 +283,7 @@ mod tests {
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
             // written Cell — so the checked-in result row already holds
-            // what Tick 0 writes, as Arithmetic's other rows do.
+            // what Tick 0 writes, exactly like Arithmetic.
             //
             // Increment and Interpolation are different: each reads its own
             // result Cell as the previous value before it writes a new one.
@@ -330,17 +325,11 @@ mod tests {
         ]
     }
 
-    /// The `(column, row)` of each result row whose checked-in text Tick 0
-    /// visibly overwrites: Increment's and Interpolation's, which read their
-    /// own Cells as the previous value, and the blank operand's, where the
-    /// Blank Answer clears a checked-in value. Every other result row's
-    /// checked-in text is what Tick 0 leaves there.
-    const RESULTS_CHANGED_BY_TICK_ZERO: [(usize, usize); 3] = [(32, 11), (32, 14), (0, 32)];
-
-    /// The `(column, row)` of each result row Tick 0 does not write: the
-    /// unequal Equality's, whose Absence Marker leaves the checked-in text in
-    /// place.
-    const RESULTS_NOT_WRITTEN: [(usize, usize); 1] = [(0, 29)];
+    /// The `(column, row)` of each result row that reads its own Cells as the
+    /// previous value before Tick 0 overwrites them: Increment's and
+    /// Interpolation's. Every other result row's checked-in text is what
+    /// Tick 0 writes.
+    const RESULTS_READING_THEIR_PREVIOUS: [(usize, usize); 2] = [(32, 11), (32, 14)];
 
     /// Reads the `width` Cells east of `(column, row)`, a space for each empty
     /// one.
@@ -366,7 +355,7 @@ mod tests {
         } in expected_results()
         {
             let checked_in = read_row(&source, column, row, expected.chars().count());
-            if RESULTS_CHANGED_BY_TICK_ZERO.contains(&(column, row)) {
+            if RESULTS_READING_THEIR_PREVIOUS.contains(&(column, row)) {
                 assert_ne!(
                     checked_in, expected,
                     "row {row}, column {column} must hold a previous Tick 0 visibly changes"
@@ -404,7 +393,7 @@ mod tests {
                 .map(|offset| cell_index(grid, column + offset, row))
                 .collect();
 
-            if RESULTS_NOT_WRITTEN.contains(&(column, row)) {
+            if expected.trim().is_empty() {
                 for &cell in &cells {
                     assert!(
                         !plan.writes.iter().any(|write| write.cell == cell),
@@ -659,8 +648,7 @@ mod tests {
     /// times — Ticks 0 through 4 — and asserts three things: no Cell outside
     /// an example's own area ever changes (excepting the Tick group's own
     /// dynamic result rows and the MIDI group's own Bang-display Cells,
-    /// unrelated to Source Functions, and holding the Blank Answer's row to
-    /// the spaces Tick 0 writes over it); every mover Halt can wall in still
+    /// unrelated to Source Functions); every mover Halt can wall in still
     /// shows its own glyph at rest by the Tick indexed 2; and nothing in any
     /// Source Function area changes again after that.
     ///
@@ -689,17 +677,7 @@ mod tests {
         };
         let index_of = |x: usize, y: usize| y * grid.columns() + x;
 
-        // A result row Tick 0 overwrites is held to what Tick 0 leaves there,
-        // so the Blank Answer's cleared row must stay clear on every Tick.
-        let mut before = snapshot(&source);
-        for result in expected_results() {
-            if RESULTS_CHANGED_BY_TICK_ZERO.contains(&(result.column, result.row)) {
-                for (offset, ch) in result.expected.chars().enumerate() {
-                    before[index_of(result.column + offset, result.row)] =
-                        (ch != ' ').then(|| ch.to_string());
-                }
-            }
-        }
+        let before = snapshot(&source);
         let mut settled: Option<Vec<Option<String>>> = None;
 
         for tick in 0..5u64 {

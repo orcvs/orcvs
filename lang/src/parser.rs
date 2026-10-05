@@ -118,31 +118,26 @@ impl<'a> Parser<'a> {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
         // Every record of an Expression that reported no error carries an Atom,
-        // with two exceptions: a Comment is a complete Language Unit that is
-        // not a value, so it records a Token and nothing else, and a blank
-        // operand slot is complete Source that holds no Atom. Strict parsing
-        // yields values, and has none to yield for either.
+        // with one exception: a Comment is a complete Language Unit that is not
+        // a value, so it records a Token and nothing else. Strict parsing
+        // yields values, and has none to yield here.
         //
-        // Each is asked for rather than read off the absent Atoms. Absent
-        // Atoms mean only that some record carries none, and naming a reason
-        // is a premise about every other record rather than an observation of
-        // this one: a Token that ever went atomless without also reporting an
-        // error would be answered here as Source the Expression does not hold.
+        // The Comment is asked for rather than read off the absent Atoms.
+        // Absent Atoms mean only that some record carries none, and naming
+        // the Comment as the reason is a premise about every other record
+        // rather than an observation of this one: a Token that ever went
+        // atomless without also reporting an error would be answered here as
+        // a Comment the Source does not hold.
         let comment = self
             .expression
             .tokens()
             .any(|token| token == Token::Comment);
-        let blank = self.expression.has_blank_operand();
         self.expression.take_atoms().ok_or_else(|| {
             debug_assert!(
-                comment || blank,
-                "an Expression with no error holds only Atoms, a Comment, or a blank operand"
+                comment,
+                "an Expression that reported no error holds only Atoms, or a Comment"
             );
-            if comment {
-                SyntaxError::CommentIsNotAValue.into()
-            } else {
-                SyntaxError::BlankOperandIsNotAValue.into()
-            }
+            SyntaxError::CommentIsNotAValue.into()
         })
     }
 
@@ -191,19 +186,6 @@ impl<'a> Parser<'a> {
         while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
-                // An operand slot whose Cells are all spaces is complete
-                // Source: its Function gives the Blank Answer rather than
-                // being refused. A slot only partly blank is refused by its
-                // literal type below, like any other malformed spelling.
-                if self.is_blank_next(token) {
-                    self.next_token(token.len());
-                    self.expression.add_blank(
-                        token,
-                        cell_start..self.start + self.consumed(),
-                        parent,
-                    );
-                    continue;
-                }
                 match self.take_token(&token) {
                     Ok(atom) => self.expression.add_positioned(
                         token,
@@ -334,14 +316,6 @@ impl<'a> Parser<'a> {
             }
             None => None,
         }
-    }
-
-    /// Whether the next Cells fill `token`'s whole width with spaces. A
-    /// Source too short for the width is not blank: `Token::is_blank` holds
-    /// the width, and an empty spelling never fills it.
-    #[inline(always)]
-    fn is_blank_next(&self, token: Token) -> bool {
-        token.is_blank(self.source.get(..token.len()).unwrap_or_default())
     }
 
     #[inline(always)]
@@ -582,41 +556,6 @@ mod test {
                 (4, Token::Number, Some(Atom::Number(2))),
             ]
         );
-    }
-
-    ///
-    /// An operand slot whose Cells are all spaces is complete Source holding no
-    /// Atom, in a Number or a Note slot and inside a nested Function. A slot
-    /// only partly blank is refused by its literal type, and strict parsing,
-    /// whose whole output is Atoms, refuses the blank slot too.
-    ///
-    #[test]
-    fn a_blank_operand_is_complete_source_and_a_partly_blank_one_is_refused() {
-        for (source, blank) in [(".+  01", 2), (".v  ", 2), (".+.+  0101", 4)] {
-            let analysis = Parser::from(source).analyze();
-            assert!(analysis.is_complete(), "{source:?}: {:?}", analysis.error());
-            assert_eq!(analysis.cells(), 0..source.len());
-            let blanks: Vec<_> = analysis
-                .expression()
-                .positioned()
-                .filter(|entry| entry.is_blank_operand())
-                .map(|entry| (entry.cells.clone(), entry.atom))
-                .collect();
-            assert_eq!(blanks, [(blank..blank + 2, None)], "{source:?}");
-            assert!(matches!(
-                Parser::from(source).try_parse(),
-                Err(Error::Syntax(SyntaxError::BlankOperandIsNotAValue))
-            ));
-        }
-        for source in [".+0 01", ".+ 001", ".v C4", ".vC 01"] {
-            let analysis = Parser::from(source).analyze();
-            assert!(
-                matches!(analysis.error(), Some(Error::Type(_))),
-                "{source:?}: {:?}",
-                analysis.error()
-            );
-            assert!(!analysis.expression().has_blank_operand(), "{source:?}");
-        }
     }
 
     ///
@@ -1480,22 +1419,6 @@ mod property {
                     Some(atoms) => {
                         prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end])
                     }
-                    // A blank operand slot is complete Source with no Atom.
-                    // Every other record still spells the Cells it was read
-                    // from, and the blank ones are spaces.
-                    None if expression.has_blank_operand() => {
-                        let mut rendered = String::new();
-                        for entry in expression.positioned() {
-                            match entry.atom {
-                                Some(atom) => rendered.push_str(&atom.to_string()),
-                                None => {
-                                    prop_assert!(entry.is_blank_operand(), "{spelled:?} {entry:?}");
-                                    rendered.push_str(&" ".repeat(entry.token.len()));
-                                }
-                            }
-                        }
-                        prop_assert_eq!(rendered, &spelled[..analysis.cells().end]);
-                    }
                     None => {
                         prop_assert_eq!(
                             expression.tokens().collect::<Vec<_>>(),
@@ -1510,31 +1433,12 @@ mod property {
             } else {
                 prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
-                // read, and that record is what withholds the Atoms above,
-                // except a nested effect Function. It reads every Token, so
-                // its Function and operands keep the layout its signatures
-                // give, and its error alone withholds the Expression from
-                // execution. Atoms beside an error therefore mean exactly
-                // that: the error is the nested effect refusal, and the
-                // Expression holds the effect Function it names, nested.
-                if expression.atoms().is_some() {
-                    prop_assert!(
-                        matches!(
-                            analysis.error(),
-                            Some(Error::Syntax(SyntaxError::NestedEffectFunction))
-                        ),
-                        "{spelled:?} produced runtime Atoms for {:?}",
-                        analysis.error(),
-                    );
-                    prop_assert!(
-                        expression.positioned().any(|entry| entry.parent.is_some()
-                            && matches!(
-                                entry.atom,
-                                Some(Atom::Function(function)) if !function.answers_value()
-                            )),
-                        "{spelled:?} refused a nested effect Function it does not hold",
-                    );
-                }
+                // read, and that record is what withholds the Atoms above.
+                prop_assert!(
+                    expression.atoms().is_none(),
+                    "{spelled:?} produced runtime Atoms for {:?}",
+                    analysis.error(),
+                );
             }
 
             // Analysis reports a boundary rather than refusing what follows
@@ -1559,12 +1463,11 @@ mod property {
         /// at six Cells, and strict parsing refuses the `Z` it did not
         /// consume.
         ///
-        /// The values clause is the Comment and the blank operand, the only
-        /// Source the two contracts read alike and answer differently. A
-        /// Comment is a complete Language Unit that is not a value, and a blank
-        /// operand slot is complete Source that holds none, so `||x` and
-        /// `.+  01` are read whole and called complete by analysis and still
-        /// refused by the path whose whole output is Atoms.
+        /// The values clause is the Comment, and it is the only Source the two
+        /// contracts read alike and answer differently. A Comment is a complete
+        /// Language Unit that is not a value, so `||x` is read whole and called
+        /// complete by analysis and still refused by the path whose whole
+        /// output is Atoms.
         ///
         #[test]
         fn strict_parsing_accepts_exactly_the_source_analysis_reads_whole(
@@ -1577,11 +1480,8 @@ mod property {
                 .expression()
                 .tokens()
                 .any(|token| token == Token::Comment);
-            let blank = analysis.expression().has_blank_operand();
-            let complete = analysis.is_complete()
-                && analysis.cells().end == source.len()
-                && !comment
-                && !blank;
+            let complete =
+                analysis.is_complete() && analysis.cells().end == source.len() && !comment;
             prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
 
             if let Ok(atoms) = parsed {

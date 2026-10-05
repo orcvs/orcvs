@@ -195,13 +195,6 @@ pub enum SyntaxError {
     /// yields Atoms, has nothing to yield.
     #[error("a Comment is a Language Unit rather than a value")]
     CommentIsNotAValue,
-
-    /// A blank operand where a value was required. An operand slot whose
-    /// Cells are all spaces is complete Source, so permissive analysis
-    /// completes, but it holds no Atom for strict parsing to yield: its
-    /// Function gives the Blank Answer rather than evaluating.
-    #[error("a blank operand holds no value")]
-    BlankOperandIsNotAValue,
 }
 
 #[derive(Error, Debug)]
