@@ -1908,9 +1908,9 @@ mod property {
     /// `lang` keeps a Function's signature crate-private, so the operand count
     /// and types are not restated here: a Function is drawn with between one
     /// and four literals after it and the draws that do not spell a whole
-    /// Expression are filtered out. Strict parsing is what selects them, and
-    /// the properties state what permissive analysis and the walk do with
-    /// them, so the generator is not deciding the question it feeds.
+    /// Expression are filtered out. The filter keeps what analysis reads whole,
+    /// without a diagnostic and with an Atom in every slot; the properties
+    /// state what the walk and the Language Map do with them.
     fn complete_expression() -> BoxedStrategy<String> {
         (
             select(Function::ALL),
@@ -1921,7 +1921,10 @@ mod property {
         )
             .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
             .prop_filter("one whole Expression", |source| {
-                Parser::from(source.as_str()).try_parse().is_ok()
+                let analysis = Parser::from(source.as_str()).analyze();
+                analysis.is_complete()
+                    && analysis.cells() == (0..source.len())
+                    && analysis.expression().atoms().is_some()
             })
             .boxed()
     }

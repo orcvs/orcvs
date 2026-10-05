@@ -105,11 +105,6 @@ impl Expression {
         });
     }
 
-    /// Whether any operand slot of this Expression is blank.
-    pub fn has_blank_operand(&self) -> bool {
-        self.records.iter().any(PositionedEntry::is_blank_operand)
-    }
-
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
         self.records.iter()
     }
@@ -126,14 +121,6 @@ impl Expression {
             .iter()
             .filter(|record| !record.is_item())
             .map(Record::atom)
-            .collect()
-    }
-
-    pub fn take_atoms(self) -> Option<Atoms> {
-        self.records
-            .into_iter()
-            .filter(|record| !record.is_item())
-            .map(|record| record.atom)
             .collect()
     }
 
