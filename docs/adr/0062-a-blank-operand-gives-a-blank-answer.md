@@ -1,6 +1,6 @@
 # A blank operand gives a blank answer
 
-Status: accepted. Clarifies [ADR 0061](0061-a-nested-function-returns-to-the-slot-it-occupies.md)'s Return for a blank operand, and amends the nested-consumer failure clause of [ADR 0034](0034-execute-against-live-typed-expressions.md) and the absent-result clause of [ADR 0032](0032-schedule-tick-execution-by-dependency.md) for that case. Not yet implemented; tracked in `.scratch/cell-tracker/issues/03-blank-operands-clear-output-portals.md`.
+Status: superseded by [ADR 0066](0066-an-unwritten-operand-leaves-its-function-pending.md): an unwritten operand leaves its Function pending, and Orcvs has no Blank Answer.
 
 **A blank answer is two spaces.** It is what a value Function answers when one of its inline input portals is blank, and it is delivered like any other answer: the Function writes the two spaces through its Output Portal, and when it is nested its Return is those two blank Cells. Blankness therefore travels one way, whether it arrives at a slot through nesting or through a Portal, and the slot that receives it is blank in turn.
 

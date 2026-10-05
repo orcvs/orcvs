@@ -179,8 +179,8 @@ fn a_nested_vertical_jump_copies_another_expressions_spelling() {
     expected.extend(steady(&rows, &[(2, 0, "same-Tick dependency cycle")], 2));
     assert_eq!(observed, expected);
 
-    // `&v` copies `!>` south. The copy has no operands, which only the Map
-    // reports; it waits for a Bang, so the Tick says nothing about it.
+    // `&v` copies `!>` south. The copy's operands are unwritten, so it is
+    // pending and nothing reports it.
     let rows = ["  !>007FC4", ".+&v01    ", "  !>      ", "          "];
     assert_eq!(
         observe(
@@ -190,10 +190,7 @@ fn a_nested_vertical_jump_copies_another_expressions_spelling() {
         ),
         steady(&rows, &[(0, 1, "expected a number, found \"!>\"")], 3)
     );
-    assert_eq!(
-        before_a_tick(Grid::with_shape(10, 4), &rows).1,
-        [(2, 2, "expected a number, found \"  \"".to_owned())]
-    );
+    assert_eq!(before_a_tick(Grid::with_shape(10, 4), &rows).1, []);
 }
 
 #[test]
@@ -240,8 +237,8 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
         steady(&rows, &[], 3)
     );
 
-    // Empty input clears the operand under the Jump. That root diagnoses
-    // once, during the Tick that cleared it; afterwards only the Map does.
+    // Empty input clears the operand under the Jump, which leaves that root
+    // pending. The parent still diagnoses the Return the Jump does not give.
     let observed = observe(
         Grid::with_shape(10, 4),
         &["", "    .+&v01", "  .+0405", ""],
@@ -253,17 +250,8 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
         1,
         "nested computation at column 6, row 1 returned nothing",
     );
-    let mut expected = steady(
-        &rows,
-        &[returned_nothing, (2, 2, "expected a number, found \"  \"")],
-        1,
-    );
-    expected.extend(steady(&rows, &[returned_nothing], 2));
-    assert_eq!(observed, expected);
-    assert_eq!(
-        before_a_tick(Grid::with_shape(10, 4), &rows).1,
-        [(2, 2, "expected a number, found \"  \"".to_owned())]
-    );
+    assert_eq!(observed, steady(&rows, &[returned_nothing], 3));
+    assert_eq!(before_a_tick(Grid::with_shape(10, 4), &rows).1, []);
 
     // A root writing onto the nested Jump's spelling wins: the Jump never
     // runs, and the parent adds the value that replaced it.
@@ -439,8 +427,9 @@ fn source_paint_marks_each_nested_jumps_output_portal_before_a_tick() {
     );
 
     // What the self-overlapping layouts then do. `&>` copies the parent's
-    // spelling over its own operand: one Tick diagnostic, then a row the Tick
-    // never mentions again and only the Map reports. `&<` writes the
+    // spelling over its own operand: one Tick diagnostic, then a nested `.+`
+    // whose operands are unwritten, so the row is pending and nothing reports
+    // it. `&<` writes the
     // parent's spelling while the parent reads it: a cycle every Tick, and a
     // Map that reports nothing.
     let grid = Grid::with_shape(10, 3);
@@ -448,10 +437,7 @@ fn source_paint_marks_each_nested_jumps_output_portal_before_a_tick() {
     let mut expected = steady(&rows, &[(0, 1, "expected a number, found \".+\"")], 1);
     expected.extend(steady(&rows, &[], 2));
     assert_eq!(observe(grid, &["", ".+&>01", ""], 3), expected);
-    assert_eq!(
-        before_a_tick(grid, &rows).1,
-        [(0, 1, "expected a number, found \"  \"".to_owned())]
-    );
+    assert_eq!(before_a_tick(grid, &rows).1, []);
     let rows = ["          ", ".+&<01    ", "          "];
     assert_eq!(
         observe(grid, &["", ".+&<01", ""], 3),

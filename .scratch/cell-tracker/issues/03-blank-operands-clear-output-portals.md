@@ -1,22 +1,24 @@
-# 03 — Blank operands clear Output Portals and propagate blank
+# 03 — An unwritten operand leaves its Function pending
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02
 
 **What to build:**
 
-Implement ADR 0062 through root and nested execution. An empty inline operand
-makes a value Function answer a Blank Answer without a diagnostic. It writes
-two spaces at its Output Portal and returns those blank Cells when nested.
+Implement ADR 0066 through the Language Map and root and nested execution. An
+inline operand slot with no Cell written leaves its Function pending: it does
+not evaluate, writes nothing and raises no diagnostic. A pending nested Function
+leaves its parent pending. ADR 0066 supersedes ADR 0062, so Orcvs has no Blank
+Answer.
 
 ## Acceptance criteria
 
-- [ ] A value Function with a completely blank operand answers blank, writes two spaces through its Output Portal and raises no diagnostic. A nested blank Return makes its parent do the same.
-- [ ] An activated Terminal Output Function with a blank operand emits no Play Command and raises no diagnostic.
-- [ ] Nested Addition with a blank operand writes spaces at both Output Portals, returns blank to the parent and raises no diagnostic.
-- [ ] The nested test asserts both south destinations are cleared to spaces and the nested Function spelling remains intact. A blank operand to Increment or Interpolation clears the shared feedback/output Cell; the next valid evaluation reads the cleared Cell as initial `00`.
-- [ ] A value root with a blank operand whose Output Portal feeds Timed Play's note slot clears that slot, and the Bang-activated Timed Play emits no Play Command rather than replaying the previous Note. Test the same consumer fed by a nested blank Return.
-- [ ] A partially empty operand remains malformed and diagnoses under the ordinary literal rules.
-- [ ] Cover Number and Note operand contexts, Bang-activated roots and Terminal Output operands through Source/Tick tests.
-- [ ] Record Blank Answer separately from the Absence Marker in ADR 0062 and the domain glossary. This explicit encoding applies only when an inline operand is blank; ordinary absence from unequal Equality or a non-firing pulse remains a no-write result.
-- [ ] The Function reference agrees with blank-operand behavior; a failed computation remains distinguishable from deliberate absence.
+- [x] A Function whose only unbound operands are unwritten slots inside the row reports no diagnostic and is not a root, whether the slot is in the root or in a nested Function.
+- [x] A slot with some Cells written, or one the row edge cuts short, still diagnoses.
+- [x] A root whose operand an earlier Turn empties during the Tick is pending for that Turn, and nothing diagnoses it.
+- [x] A Bang reaching a Play whose note slot is unwritten plays nothing and diagnoses nothing.
+- [x] ADR 0066 records the decision, and the ADRs that deferred to ADR 0062 point at it.
+
+## Comments
+
+The criteria are covered by `an_expression_waiting_on_unwritten_operands_is_pending_and_not_diagnosed` and `a_partly_written_or_edge_cut_operand_still_diagnoses` in `orcvs/src/source/language_map.rs`, `a_banged_play_with_an_unwritten_note_is_pending_and_emits_nothing` in `orcvs/src/source/tick.rs`, and the nested Jump tests in `orcvs/src/source/tick/nested_jump/` whose Jump empties an operand.

@@ -308,12 +308,19 @@ impl<'a> Execution<'a> {
             });
         // A syntax-blocked child did not fail evaluation. Propagate the block
         // without inventing another Tick diagnostic. A suppressed child is
-        // instead consumed as literal characters from working Source.
+        // instead consumed as literal characters from working Source, and an
+        // operand slot read that way with no Cell written leaves the Function
+        // pending, which blocks it the same way.
         unchanged
-            || node.operands.iter().any(|operand| {
-                operand.child.is_some_and(|child| {
-                    !self.states[child].suppressed && self.states[child].syntax_blocked
-                })
+            || node.operands.iter().any(|operand| match operand.child {
+                Some(child) if !self.states[child].suppressed => self.states[child].syntax_blocked,
+                _ => self
+                    .working
+                    .cells()
+                    .slice(operand.cells.clone())
+                    .bytes()
+                    .iter()
+                    .all(|&byte| byte == b' '),
             })
     }
 

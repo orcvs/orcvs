@@ -1307,12 +1307,16 @@ mod test {
 
         let at = src.cells();
 
-        // The half-typed Function remains visible and is diagnosed
-        // immediately. Its Span is six Cells rather than four: an Addition
-        // claims two operands whether or not anyone has written into them, so
-        // the diagnostic covers the Cells the Function is asking for.
+        // A Function waiting on an operand nobody has written into is
+        // pending, so it is not diagnosed.
         src.write(at(0), ".+01");
         assert_eq!(src.row(0), ".+01      ");
+        assert!(diagnostics(&src).is_empty());
+
+        // A half-typed operand is diagnosed immediately. Its Span is six
+        // Cells: an Addition claims two operands, so the diagnostic covers
+        // the Cells the Function is asking for.
+        src.write(at(4), "0");
         assert_eq!(diagnostics(&src).len(), 1);
         assert_eq!(diagnostics(&src)[0].start(), 0);
         assert_eq!(diagnostics(&src)[0].end(), 5);

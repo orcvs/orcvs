@@ -169,16 +169,12 @@ fn a_west_jump_in_a_middle_or_last_operand_copies_east_cells_over_the_operand_be
 #[test]
 fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before_it() {
     // Empty aligned input clears the destination, so the operand before the
-    // Jump becomes blank. Tick 0 diagnoses the blank; from Tick 1 the parent
-    // no longer forms an Expression and the Grid stays as it is with nothing
-    // diagnosed.
+    // Jump becomes unwritten and the parent is pending. Nothing diagnoses,
+    // and the Grid stays as it is.
     assert_eq!(
         observe(Grid::with_shape(8, 2), &[".+01&<"], 3),
         settles(
-            tick(
-                &[".+  &<  ", "        "],
-                &[(0, 0, "expected a number, found \"  \"")],
-            ),
+            tick(&[".+  &<  ", "        "], &[],),
             &[".+  &<  ", "        "],
             &[],
         ),
@@ -186,10 +182,7 @@ fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before
     assert_eq!(
         observe(Grid::with_shape(10, 2), &["~?0109&<"], 3),
         settles(
-            tick(
-                &["~?01  &<  ", "          "],
-                &[(0, 0, "expected a number, found \"  \"")],
-            ),
+            tick(&["~?01  &<  ", "          "], &[],),
             &["~?01  &<  ", "          "],
             &[],
         ),

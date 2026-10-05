@@ -4602,10 +4602,32 @@ mod test {
     }
 
     #[test]
+    fn a_banged_play_with_an_unwritten_note_is_pending_and_emits_nothing() {
+        // The Bang gives the timing and the note slot gives what plays. With
+        // no note written the Play is pending: the Bang reaches nothing that
+        // plays, and nothing is diagnosed.
+        let grid = Grid::with_shape(16, 4);
+        for (play, commands) in [("!>007FC4", vec![raw(0, 0x7F, 60)]), ("!>007F", vec![])] {
+            let bytes = snapshot(grid, &[".=0101", "", play, ""]);
+            let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+
+            let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+
+            assert_eq!(plan.play_commands, commands, "{play:?}");
+            assert!(
+                plan.diagnostics.is_empty(),
+                "{play:?}: {:?}",
+                plan.diagnostics
+            );
+            assert!(map.diagnostics().next().is_none(), "{play:?}");
+        }
+    }
+
+    #[test]
     fn an_activated_consumer_uses_surviving_cells_after_supplier_failure() {
         let (plan, source) = carried_source(
             Grid::with_shape(16, 4),
-            &["  .+", "!>007FC4", "", ".=0101"],
+            &["  .+0Z", "!>007FC4", "", ".=0101"],
             &[(48, 32)],
         );
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
