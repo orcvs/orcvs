@@ -102,7 +102,7 @@ impl Expression {
 
     /// Whether any operand slot of this Expression is blank.
     pub fn has_blank_operand(&self) -> bool {
-        self.records.iter().any(PositionedEntry::is_blank)
+        self.records.iter().any(PositionedEntry::is_blank_operand)
     }
 
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
@@ -138,7 +138,7 @@ impl Expression {
 impl PositionedEntry {
     /// Whether this is an operand slot whose Cells are all spaces: complete
     /// Source that holds no Atom, so its Function gives the Blank Answer.
-    pub fn is_blank(&self) -> bool {
+    pub fn is_blank_operand(&self) -> bool {
         self.blank
     }
 

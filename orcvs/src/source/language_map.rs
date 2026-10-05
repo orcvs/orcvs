@@ -232,7 +232,7 @@ impl DerivedExpression {
                 |ours, theirs| {
                     ours.cells == theirs.cells
                         && ours.parent == theirs.parent
-                        && ours.is_blank() == theirs.is_blank()
+                        && ours.is_blank_operand() == theirs.is_blank_operand()
                         && scheduled_atom(ours.atom.as_ref())
                             == scheduled_atom(theirs.atom.as_ref())
                 },
@@ -2140,7 +2140,7 @@ mod property {
                 let comment = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Comment);
-                let blank = expression.positioned().any(|entry| entry.is_blank());
+                let blank = expression.positioned().any(|entry| entry.is_blank_operand());
                 prop_assert_eq!(
                     expression.atoms().is_some(),
                     expression.diagnostic().is_none() && !comment && !blank,

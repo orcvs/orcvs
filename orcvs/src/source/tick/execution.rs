@@ -463,9 +463,6 @@ impl<'a> Execution<'a> {
         }
         self.states[index].result = Some(Answer::Blank);
         let node = &self.lookup.nodes()[index];
-        if !node.portal_access.writes_cells() {
-            return;
-        }
         let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
         for output in node.portal_access.write_sites() {
             self.deliver_output(index, Answer::Blank, &cleared, *output);

@@ -769,7 +769,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 None
             };
             if let Some(parent) = parent {
-                nodes[parent].syntax_valid &= entry.atom.is_some() || entry.is_blank();
+                nodes[parent].syntax_valid &= entry.atom.is_some() || entry.is_blank_operand();
                 nodes[parent].operands.push(Operand {
                     cells: entry.cells.clone(),
                     child,
@@ -2488,30 +2488,71 @@ mod test {
     }
 
     #[test]
-    fn a_blank_answer_through_a_portal_clears_timed_plays_note_rather_than_replaying_it() {
-        // The value root's Output Portal is Timed Play's note slot, which
-        // holds the Note `E4` a previous Tick wrote. A root that answers C4
-        // replaces it and Timed Play plays C4. A root that answers blank
-        // clears the slot, so the Timed Play its Bang activates emits nothing
-        // rather than replaying `E4`.
+    fn a_blank_answer_through_a_portal_clears_a_plays_note_rather_than_replaying_it() {
+        // The value root's Output Portal is the Play's note slot, which holds
+        // the Note `E4` a previous Tick wrote. A root that answers C4 replaces
+        // it and the Play plays C4. A root that answers blank clears the slot
+        // and nothing else of the Play's, so the Play its Bang activates emits
+        // nothing rather than replaying `E4`.
         //
         // The second pair feeds the slot from a root whose answer is a nested
-        // Return. The nested Addition writes its own answer into the length
-        // slot, so with a blank operand both slots are cleared.
-        for (value, written, expected) in [
-            ("  .^3C  ", "C404", vec![timed(0, 0x64, 60, 4)]),
-            ("  .^    ", "  04", vec![]),
-            ("  .^.+3C00", "C43C", vec![timed(0, 0x64, 60, 0x3C)]),
-            ("  .^.+  00", "    ", vec![]),
+        // Return. The nested Addition writes its own answer south of it, east
+        // of Raw Play's last operand, so the note slot is the one Play operand
+        // the blank Return clears.
+        for (play, value, written, expected) in [
+            (
+                "!~0064E404",
+                "  .^3C  ",
+                "!~0064C404",
+                vec![timed(0, 0x64, 60, 4)],
+            ),
+            ("!~0064E404", "  .^    ", "!~0064  04", vec![]),
+            (
+                "!>0064E4",
+                "  .^.+3C00",
+                "!>0064C43C",
+                vec![raw(0, 0x64, 60)],
+            ),
+            ("!>0064E4", "  .^.+  00", "!>0064    ", vec![]),
         ] {
-            let rows = [format!(".=0101{value}"), "  !~0064E404".to_owned()];
+            let rows = [format!(".=0101{value}"), format!("  {play}")];
             let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
             let (plans, grids, _) = tick_by_tick(Grid::with_shape(16, 2), &rows, 1);
-            assert_eq!(grids[0][1], format!("**!~0064{written}    "), "{value:?}");
+            assert_eq!(grids[0][1], format!("**{written:<14}"), "{value:?}");
             assert_eq!(plans[0].play_commands, expected, "{value:?}");
             assert!(
                 plans[0].diagnostics.is_empty(),
                 "{value:?}: {:?}",
+                plans[0].diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_blank_return_under_a_terminal_output_clears_its_portal_and_emits_nothing() {
+        // Raw Play's note is a nested Conversion to Note, activated by
+        // Equality's Bang. With its operand present the nested Function
+        // writes C4 south of it and Raw Play plays it. With its operand blank
+        // the nested Function clears its Output Portal and returns blank, so
+        // Raw Play gives the Blank Answer: no Play Command, no diagnostic.
+        for (nested, south, expected) in [
+            (".^3C", "C4", vec![raw(0, 0x7F, 60)]),
+            (".^  ", "  ", vec![]),
+        ] {
+            let rows = [
+                ".=0101".to_owned(),
+                format!("  !>007F{nested}"),
+                "        05".to_owned(),
+            ];
+            let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+            let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 3), &rows, 1);
+            // The `**` west of Raw Play is the Bang that activated it.
+            assert_eq!(grids[0][1], format!("**!>007F{nested}"), "{nested:?}");
+            assert_eq!(grids[0][2], format!("        {south}  "), "{nested:?}");
+            assert_eq!(plans[0].play_commands, expected, "{nested:?}");
+            assert!(
+                plans[0].diagnostics.is_empty(),
+                "{nested:?}: {:?}",
                 plans[0].diagnostics
             );
         }
