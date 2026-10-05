@@ -136,7 +136,7 @@ impl<'a> Parser<'a> {
         self.expression.take_atoms().ok_or_else(|| {
             debug_assert!(
                 comment || blank,
-                "an Expression that reported no error holds only Atoms, a Comment, or a blank operand"
+                "an Expression with no error holds only Atoms, a Comment, or a blank operand"
             );
             if comment {
                 SyntaxError::CommentIsNotAValue.into()
@@ -336,12 +336,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Whether the next Cells fill `token`'s whole width with spaces.
+    /// Whether the next Cells fill `token`'s whole width with spaces. A
+    /// Source too short for the width is not blank: `Token::is_blank` holds
+    /// the width, and an empty spelling never fills it.
     #[inline(always)]
     fn is_blank_next(&self, token: Token) -> bool {
-        self.source
-            .get(..token.len())
-            .is_some_and(|cells| token.is_blank(cells))
+        token.is_blank(self.source.get(..token.len()).unwrap_or_default())
     }
 
     #[inline(always)]
@@ -599,7 +599,7 @@ mod test {
             let blanks: Vec<_> = analysis
                 .expression()
                 .positioned()
-                .filter(|entry| entry.is_blank())
+                .filter(|entry| entry.is_blank_operand())
                 .map(|entry| (entry.cells.clone(), entry.atom))
                 .collect();
             assert_eq!(blanks, [(blank..blank + 2, None)], "{source:?}");
@@ -1489,7 +1489,7 @@ mod property {
                             match entry.atom {
                                 Some(atom) => rendered.push_str(&atom.to_string()),
                                 None => {
-                                    prop_assert!(entry.is_blank(), "{spelled:?} {entry:?}");
+                                    prop_assert!(entry.is_blank_operand(), "{spelled:?} {entry:?}");
                                     rendered.push_str(&" ".repeat(entry.token.len()));
                                 }
                             }
