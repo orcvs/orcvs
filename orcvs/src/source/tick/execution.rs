@@ -440,7 +440,7 @@ impl<'a> Execution<'a> {
                 if Some(position) == count
                     && let Some(count) = node.list_count()
                 {
-                    return Ok(Some(Atom::Number(count)));
+                    return Ok(Some(Atom::Number(count.get())));
                 }
                 if let Some(child) = operand
                     .child
@@ -512,10 +512,11 @@ impl<'a> Execution<'a> {
     /// diagnoses where it is read rather than where it is written.
     ///
     /// The copy is an ordinary Cell write, never an answered Bang or Function:
-    /// copied `**` activates no root, and over a root's anchor it covers the
-    /// spelling and suppresses that Expression, where a Jump's Bang would
-    /// activate the root. Copied Function characters over a running
-    /// Function's anchor suppress it rather than replacing the Function.
+    /// copied `**` never activates a root, and over a root's anchor it covers
+    /// the spelling and suppresses that Expression, where a Jump's answered
+    /// Bang would activate the root. Copied Function characters over a running
+    /// Function's anchor suppress it under the same covering rule: Function
+    /// Replacement needs an answered Function Atom, and characters are none.
     ///
     fn deliver_item(&mut self, index: usize, item: u8) {
         let lookup = self.lookup;

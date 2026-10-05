@@ -577,13 +577,15 @@ fn single_item_all_blank_and_function_like_lists() {
 
 ///
 /// Copied characters are an ordinary Cell write, never an answered Bang or
-/// Function. Copied `**` beside a Bang-activated root activates nothing in the
-/// Tick it is copied, where an answered Bang there activates the root, and
-/// the `**` it leaves is Bang display, which the next Tick does not read as an
-/// activation either. Over a root's anchor, where a Jump's copied Bang activates that root,
-/// Track's `**` covers the spelling and suppresses the Expression. A copied
-/// Function spelling over a running Function's anchor likewise suppresses it
-/// rather than replacing the Function, so the Addition writes nothing.
+/// Function, so copied `**` never activates a root. Beside a Bang-activated
+/// root it activates nothing in the Tick it is copied, where an answered Bang
+/// there activates the root, and the `**` it leaves is Bang display, which the
+/// next Tick does not read as an activation either. Over a root's anchor,
+/// where a Jump's answered Bang activates that root, Track's `**` covers the
+/// spelling and suppresses the Expression. A copied Function spelling over a
+/// running Function's anchor suppresses it under the same covering rule:
+/// Function Replacement needs an answered Function Atom, and copied
+/// characters are none, so the Addition writes nothing.
 ///
 #[test]
 fn copied_characters_activate_and_replace_nothing_where_they_land() {

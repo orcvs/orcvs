@@ -205,6 +205,25 @@ impl Operand for Length {
     }
 }
 
+/// A List's count over a Number literal: the number of Items the List holds,
+/// which is at least one.
+///
+/// The Parser refuses a count of `00` before it claims any Item, so a count
+/// from an established claim always binds. A caller that hands a Function a
+/// count of its own is refused with the Parser's diagnostic, so a List
+/// Function body never meets a List with no Item to select.
+pub enum Count {}
+
+impl Operand for Count {
+    type Token = Number;
+    type Bound = core::num::NonZeroU8;
+
+    #[inline(always)]
+    fn bind(number: u8) -> Result<core::num::NonZeroU8, Error> {
+        core::num::NonZeroU8::new(number).ok_or_else(|| crate::SyntaxError::EmptyList.into())
+    }
+}
+
 /// Checks one operand Atom against `O`'s token.
 #[inline(always)]
 pub(crate) fn check<O: Operand>(atom: crate::Atom) -> Result<(), Error> {
