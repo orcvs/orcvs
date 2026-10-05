@@ -135,6 +135,10 @@ impl ComputationState {
     /// by a syntax error the Source revision already reports, or because an
     /// operand it reads holds no written Cell and it is pending.
     ///
+    /// Read only by the nested settle property, whose `cfg` matches the
+    /// native-only proptest dev-dependency, so a WASM test build omits it too.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::source) fn blocked(&self) -> bool {
         self.syntax_blocked
     }
