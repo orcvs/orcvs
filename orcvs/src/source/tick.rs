@@ -15,6 +15,7 @@ mod track;
 
 use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU8;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
@@ -65,11 +66,11 @@ impl Computation {
     /// compares Items, and working Source at the count's Cells changes none
     /// of them before the next Tick parses it.
     ///
-    fn list_count(&self) -> Option<u8> {
-        if self.items.is_empty() || self.items.iter().any(|item| item.len() != 2) {
+    fn list_count(&self) -> Option<NonZeroU8> {
+        if self.items.iter().any(|item| item.len() != 2) {
             return None;
         }
-        u8::try_from(self.items.len()).ok()
+        NonZeroU8::new(u8::try_from(self.items.len()).ok()?)
     }
 }
 

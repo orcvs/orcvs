@@ -5,22 +5,20 @@ use crate::{Error, atom::operands::Track, interpreter::Context};
 /// The position of the Item `index % count` selects, counted from zero. The
 /// Item's characters are Source in the claim the Parser established, so
 /// `orcvs` reads them from working Source; nothing here holds or decodes an
-/// Item. Wrapping lets any index drive a List of any length.
-///
-/// The count is never `00`: the Parser refuses that count, and a Turn hands
-/// Track the number of Items the established claim holds, which is at least
-/// one.
+/// Item. Wrapping lets any index drive a List of any length, and the count
+/// binds as a [`NonZeroU8`](core::num::NonZeroU8), so every index selects an
+/// Item.
 #[inline(always)]
 pub fn track(ctx: &mut Context) -> Result<u8, Error> {
     let Track { index, count } = ctx.stack.extract::<Track>()?;
-    Ok(index
-        .checked_rem(count)
-        .expect("a List's count is the Items its claim holds, never 00"))
+    Ok(index % count)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{Anchor, Atom, Error, Function, Interpretation, Interpreter, Tick, TickInputs};
+    use crate::{
+        Anchor, Atom, Error, Function, Interpretation, Interpreter, SyntaxError, Tick, TickInputs,
+    };
 
     fn evaluate(index: u8, count: u8) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
@@ -37,6 +35,21 @@ mod test {
                 evaluate(index, count).unwrap(),
                 Interpretation::Item(item),
                 "{index:02X} of {count:02X}"
+            );
+        }
+    }
+
+    /// A direct caller can hand Track a count of `00`, which no claim holds,
+    /// and is told so as the Parser tells the Source.
+    #[test]
+    fn track_refuses_a_count_of_00() {
+        for index in [0, 1, 0xFF] {
+            assert!(
+                matches!(
+                    evaluate(index, 0),
+                    Err(Error::Syntax(SyntaxError::EmptyList))
+                ),
+                "{index:02X}"
             );
         }
     }

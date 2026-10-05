@@ -705,7 +705,7 @@ define_functions! {
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
     Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Track => ("@t", Value, Intrinsic, false, [index: Number, count: Number]),
+    Track => ("@t", Value, Intrinsic, false, [index: Number, count: Count]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -1054,9 +1054,23 @@ mod test {
         // evaluation, every Tick. Every declared domain contains its
         // token's minimum, so binding each signature from its own tokens'
         // lowest values finds that the day the row is declared; a domain that
-        // excluded its minimum would need its own witness here.
+        // excluded its minimum would need its own witness here. A List's count
+        // excludes `00`, which holds no Item, so its witness is `01`.
         for function in Function::ALL.iter().copied() {
-            let values: Vec<Atom> = function.signature().iter().copied().map(lowest).collect();
+            let count = function.list_count_slot();
+            let values: Vec<Atom> = function
+                .signature()
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(position, token)| {
+                    if Some(position) == count {
+                        Atom::Number(1)
+                    } else {
+                        lowest(token)
+                    }
+                })
+                .collect();
 
             assert!(
                 function.bind_declared(&values).is_ok(),
