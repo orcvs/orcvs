@@ -935,13 +935,7 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
         }
     }
     if order.len() != nodes.len() {
-        // A computation still waiting may only be downstream of the cycle, so
-        // the diagnostic names the first one that reaches itself.
-        let index = (0..nodes.len())
-            .find(|&start| reaches(&outgoing, start, start))
-            .expect("cycle has a node");
-        diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
-        // ADR 0065: the cycle stops every Expression it reaches, and no other.
+        // ADR 0065: a cycle stops every Expression it reaches, and no other.
         let mut placed = vec![false; nodes.len()];
         for &index in &order {
             placed[index] = true;
@@ -956,16 +950,30 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
             pending.extend_from_slice(&outgoing[index]);
         }
         order.retain(|&index| !stopped[index]);
-        // An Expression stopped only because it depends on a cycle says so at
-        // its root, so a performer can tell the cycle from what it starves.
-        let mut on_cycle = vec![false; nodes.len()];
-        for index in (0..nodes.len()).filter(|&index| stopped[index]) {
-            if reaches(&outgoing, index, index) {
-                on_cycle[nodes[index].owner] = true;
+        // Each cycle is diagnosed once, at the first computation on it in
+        // Parser order: a computation still waiting may only be downstream of
+        // a cycle, and two computations that reach each other share one.
+        let on_cycle: Vec<_> = (0..nodes.len())
+            .map(|index| !placed[index] && reaches(&outgoing, index, index))
+            .collect();
+        let mut diagnosed = vec![false; nodes.len()];
+        let mut holds_cycle = vec![false; nodes.len()];
+        for index in (0..nodes.len()).filter(|&index| on_cycle[index]) {
+            holds_cycle[nodes[index].owner] = true;
+            if diagnosed[index] {
+                continue;
+            }
+            diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
+            for other in (index..nodes.len()).filter(|&other| on_cycle[other]) {
+                if reaches(&outgoing, index, other) && reaches(&outgoing, other, index) {
+                    diagnosed[other] = true;
+                }
             }
         }
+        // An Expression stopped only because it depends on a cycle says so at
+        // its root, so a performer can tell the cycle from what it starves.
         for (index, node) in nodes.iter().enumerate() {
-            if node.parent.is_none() && stopped[index] && !on_cycle[index] {
+            if node.parent.is_none() && stopped[index] && !holds_cycle[index] {
                 diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
             }
         }
@@ -2096,6 +2104,20 @@ mod test {
         // The parent only waits on it, and is not where the cycle is.
         let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+&<01"], 1);
         assert_eq!(anchors(&plans[0]), [(2, 0, "same-Tick dependency cycle")]);
+    }
+
+    #[test]
+    fn each_separate_cycle_is_diagnosed_once() {
+        // Two Additions, each with a nested `&<` writing over it: neither
+        // cycle reaches the other, so each is diagnosed at its own Jump.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(14, 1), &[".+&<01  .+&<01"], 1);
+        assert_eq!(
+            anchors(&plans[0]),
+            [
+                (2, 0, "same-Tick dependency cycle"),
+                (10, 0, "same-Tick dependency cycle"),
+            ]
+        );
     }
 
     #[test]
