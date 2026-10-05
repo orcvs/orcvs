@@ -697,6 +697,7 @@ impl DerivedRow {
             );
             return Self::default();
         }
+        let bytes = row.bytes();
         let mut row = Self {
             units: walk.units,
             expressions: Vec::with_capacity(walk.parses.len()),
@@ -713,6 +714,7 @@ impl DerivedRow {
             let executable = analysis.is_complete();
             let diagnostic = analysis
                 .error()
+                .filter(|_| !is_pending(analysis.expression(), bytes, row_start))
                 .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
             let expression = analysis.into_expression();
             let function_candidate = match expression.entries().next() {
@@ -879,6 +881,34 @@ fn name_units(
             }
         }
     }
+}
+
+/// Whether an Expression is only waiting for input: it has an operand the
+/// Parser could not bind, and every such operand is a whole slot inside the
+/// row with no Cell written. Its Function is pending until those Cells are written, so it is
+/// neither evaluated nor diagnosed. A slot with any Cell written, one the row
+/// edge cuts short, a refused Function, or a nested effect Function is a fault
+/// and keeps its diagnostic.
+fn is_pending(expression: &Expression, bytes: &[u8], row_start: usize) -> bool {
+    let mut waiting = false;
+    for entry in expression.positioned() {
+        let ready = match entry.atom {
+            Some(Atom::Function(function)) => entry.parent.is_none() || function.answers_value(),
+            Some(_) => true,
+            None => {
+                waiting = true;
+                !matches!(entry.token, Token::Function | Token::Comment)
+                    && entry.cells.len() == entry.token.len()
+                    && bytes[entry.cells.start - row_start..entry.cells.end - row_start]
+                        .iter()
+                        .all(|&byte| byte == SPACE_BYTE)
+            }
+        };
+        if !ready {
+            return false;
+        }
+    }
+    waiting
 }
 
 fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
@@ -1390,6 +1420,44 @@ mod tests {
             expression_spans(grid, b"  .+.-  "),
             vec![span(grid, 2, 3), span(grid, 4, 7)]
         );
+    }
+
+    /// An Expression whose only unbound operands are unwritten slots inside
+    /// the row is pending: it reports no diagnostic and is not a root, so it
+    /// does not evaluate. The Function waits for its input Cells.
+    #[test]
+    fn an_expression_waiting_on_unwritten_operands_is_pending_and_not_diagnosed() {
+        for row in [
+            ".+        ",
+            ".|        ",
+            ".+01      ",
+            ".+01.+  02",
+            ".+  .+0102",
+        ] {
+            let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
+
+            assert!(map.diagnostics().next().is_none(), "{row:?} was diagnosed");
+            assert!(
+                map.expressions()
+                    .all(|expression| expression.root().is_none()),
+                "{row:?} became a root"
+            );
+        }
+    }
+
+    /// Pending is only for slots nobody has written into. A slot with one
+    /// Cell written is malformed, and a slot the row edge cuts short is one
+    /// the Grid cannot hold, so both still diagnose.
+    #[test]
+    fn a_partly_written_or_edge_cut_operand_still_diagnoses() {
+        for (width, row) in [(10, ".+ 101    "), (10, ".+01.+ 1  "), (4, ".+01")] {
+            let map = LanguageMap::build(Grid::with_shape(width, 1), Cells::of(row.as_bytes()));
+
+            assert!(
+                map.diagnostics().next().is_some(),
+                "{row:?} was not diagnosed"
+            );
+        }
     }
 
     #[test]
@@ -2129,14 +2197,19 @@ mod property {
                 // it was refused; it answers with no Atoms, because it records
                 // a Token and none; and there is nothing to render back,
                 // because its text is arbitrary and was never decoded. It is
-                // the one Expression for which "nothing to report" and "answers
-                // with a value" come apart.
+                // the one complete Expression for which "nothing to report" and
+                // "answers with a value" come apart.
+                //
+                // A pending Expression is the other: it waits on operand Cells
+                // nobody has written, so nothing about it is refused and it
+                // has no value yet.
                 let comment = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Comment);
+                let pending = super::is_pending(&expression.derived.expression, source.as_bytes(), 0);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment,
+                    expression.diagnostic().is_none() && !comment && !pending,
                     "{:?}",
                     source,
                 );

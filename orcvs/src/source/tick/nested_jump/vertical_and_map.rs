@@ -148,13 +148,8 @@ fn a_nested_vertical_jump_copies_what_it_reads_and_returns_it() {
         steady(&rows, &[], 3)
     );
 
-    // Empty: the Jump clears its destination and returns nothing, and the
-    // parent diagnoses at its own anchor every Tick.
-    let returned_nothing = [(
-        0,
-        1,
-        "nested computation at column 2, row 1 returned nothing",
-    )];
+    // Empty: the Jump copies the empty Cells to its destination and returns
+    // them, so the parent's operand is empty and the parent is pending.
     for rows in [
         ["        ", ".+&^01  ", "        ", "        "],
         ["        ", ".+&v01  ", "        ", "        "],
@@ -162,7 +157,7 @@ fn a_nested_vertical_jump_copies_what_it_reads_and_returns_it() {
         let source: Vec<&str> = rows.iter().map(|row| row.trim_end()).collect();
         assert_eq!(
             observe(Grid::with_shape(8, 4), &source, 3),
-            steady(&rows, &returned_nothing, 3)
+            steady(&rows, &[], 3)
         );
     }
 }
@@ -179,8 +174,8 @@ fn a_nested_vertical_jump_copies_another_expressions_spelling() {
     expected.extend(steady(&rows, &[(2, 0, "same-Tick dependency cycle")], 2));
     assert_eq!(observed, expected);
 
-    // `&v` copies `!>` south. The copy has no operands, which only the Map
-    // reports; it waits for a Bang, so the Tick says nothing about it.
+    // `&v` copies `!>` south. The copy's operands are unwritten, so it is
+    // pending and nothing reports it.
     let rows = ["  !>007FC4", ".+&v01    ", "  !>      ", "          "];
     assert_eq!(
         observe(
@@ -190,10 +185,7 @@ fn a_nested_vertical_jump_copies_another_expressions_spelling() {
         ),
         steady(&rows, &[(0, 1, "expected a number, found \"!>\"")], 3)
     );
-    assert_eq!(
-        before_a_tick(Grid::with_shape(10, 4), &rows).1,
-        [(2, 2, "expected a number, found \"  \"".to_owned())]
-    );
+    assert_eq!(before_a_tick(Grid::with_shape(10, 4), &rows).1, []);
 }
 
 #[test]
@@ -240,30 +232,17 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
         steady(&rows, &[], 3)
     );
 
-    // Empty input clears the operand under the Jump. That root diagnoses
-    // once, during the Tick that cleared it; afterwards only the Map does.
+    // Empty input clears the operand under the Jump, which leaves that root
+    // pending, and the Jump returns the empty Cells, which leaves its parent
+    // pending too.
     let observed = observe(
         Grid::with_shape(10, 4),
         &["", "    .+&v01", "  .+0405", ""],
         3,
     );
     let rows = ["          ", "    .+&v01", "  .+04    ", "          "];
-    let returned_nothing = (
-        4,
-        1,
-        "nested computation at column 6, row 1 returned nothing",
-    );
-    let mut expected = steady(
-        &rows,
-        &[returned_nothing, (2, 2, "expected a number, found \"  \"")],
-        1,
-    );
-    expected.extend(steady(&rows, &[returned_nothing], 2));
-    assert_eq!(observed, expected);
-    assert_eq!(
-        before_a_tick(Grid::with_shape(10, 4), &rows).1,
-        [(2, 2, "expected a number, found \"  \"".to_owned())]
-    );
+    assert_eq!(observed, steady(&rows, &[], 3));
+    assert_eq!(before_a_tick(Grid::with_shape(10, 4), &rows).1, []);
 
     // A root writing onto the nested Jump's spelling wins: the Jump never
     // runs, and the parent adds the value that replaced it.
@@ -281,18 +260,13 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
 #[test]
 fn a_bang_in_the_source_is_gone_before_a_vertical_jump_reads_it() {
     // A `**` the performer typed is not a Bang the Jump can relay: the Tick
-    // clears it, the Jump reads empty and clears its destination. Nested,
-    // the parent diagnoses the missing Return; a root says nothing. Either
-    // way an aligned `.=` loses its spelling.
-    let returned_nothing = [(
-        0,
-        1,
-        "nested computation at column 2, row 1 returned nothing",
-    )];
+    // clears it, the Jump reads empty and copies the empty Cells to its
+    // destination. Nested, it returns them and the parent is pending; a root
+    // says nothing. Either way an aligned `.=` loses its spelling.
     let rows = ["        ", ".+&^01  ", "        ", "        "];
     assert_eq!(
         observe(Grid::with_shape(8, 4), &["", ".+&^01", "  **", ""], 3),
-        steady(&rows, &returned_nothing, 3)
+        steady(&rows, &[], 3)
     );
     let rows = ["          ", ".+&v01    ", "    0101  ", "          "];
     assert_eq!(
@@ -301,7 +275,7 @@ fn a_bang_in_the_source_is_gone_before_a_vertical_jump_reads_it() {
             &["  **", ".+&v01", "  .=0101", ""],
             3
         ),
-        steady(&rows, &returned_nothing, 3)
+        steady(&rows, &[], 3)
     );
     let rows = ["          ", "  &v      ", "    0101  ", "          "];
     assert_eq!(
@@ -439,8 +413,9 @@ fn source_paint_marks_each_nested_jumps_output_portal_before_a_tick() {
     );
 
     // What the self-overlapping layouts then do. `&>` copies the parent's
-    // spelling over its own operand: one Tick diagnostic, then a row the Tick
-    // never mentions again and only the Map reports. `&<` writes the
+    // spelling over its own operand: one Tick diagnostic, then a nested `.+`
+    // whose operands are unwritten, so the row is pending and nothing reports
+    // it. `&<` writes the
     // parent's spelling while the parent reads it: a cycle every Tick, and a
     // Map that reports nothing.
     let grid = Grid::with_shape(10, 3);
@@ -448,10 +423,7 @@ fn source_paint_marks_each_nested_jumps_output_portal_before_a_tick() {
     let mut expected = steady(&rows, &[(0, 1, "expected a number, found \".+\"")], 1);
     expected.extend(steady(&rows, &[], 2));
     assert_eq!(observe(grid, &["", ".+&>01", ""], 3), expected);
-    assert_eq!(
-        before_a_tick(grid, &rows).1,
-        [(0, 1, "expected a number, found \"  \"".to_owned())]
-    );
+    assert_eq!(before_a_tick(grid, &rows).1, []);
     let rows = ["          ", ".+&<01    ", "          "];
     assert_eq!(
         observe(grid, &["", ".+&<01", ""], 3),

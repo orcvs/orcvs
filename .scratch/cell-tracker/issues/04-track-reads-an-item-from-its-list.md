@@ -20,8 +20,9 @@ made by other Functions and can nest Track without changing literal meaning.
 - [ ] Partial and competing Item writes compose Cell-wise in dependency order. Absent and failed suppliers leave surviving Source characters available to Track.
 - [ ] Read/write cycles preserve atomic publication and publish no partial writes or Play Commands; cover overlap with declared Item reads.
 - [ ] Structural count edits produce the same observable result with reused scheduling and freshly derived scheduling.
-- [ ] Track copies a blank Item as two spaces south, clearing a previous Note. The receiving Timed Play emits no command or diagnostic. A nested parent with another value operand answers blank and clears its own Output Portal; it does not preserve that destination.
-- [ ] Nested Track supplies its selected encoding to the parent and also writes its own Output Portal. A blank Item clears Track’s south Cells while the parent answers blank and clears its own Output Portal.
-- [ ] Contrast blank Item delivery with the Absence Marker that ticket 03 keeps as a no-write result: no-write absence must not be used as the representation of an explicit clear.
+- [ ] Track copies an empty Item as two empty Cells south, clearing a previous Note, as Orca's `T` copies `.` (ADR 0066). A Bang-activated Timed Play whose note slot it cleared is pending: it emits no command and no diagnostic. A value parent fed by that Output Portal is pending and writes nothing.
+- [ ] Nested Track supplies its selected encoding to the parent and also writes its own Output Portal. An empty Item clears Track's south Cells and returns the empty Cells, so the parent is pending: it writes nothing and raises no diagnostic.
+- [ ] Only the selected Item decides whether Track copies empty Cells. An empty unselected Item leaves Track and its parent unaffected, so the Language Map does not read List Items as operand slots that can leave an Expression pending.
+- [ ] Contrast an empty Item with the Absence Marker: a nested Function answering the Absence Marker returns nothing and its parent diagnoses, while Track copying an empty Item leaves its parent pending.
 - [ ] Cover single-Item and all-blank Lists, malformed selected and unselected Items, partly empty Items, invalid counts and claims at the row edge. Malformed selected data diagnoses at its receiving operand.
 - [ ] Record frozen-count and live-Item-read semantics in ADR 0063; the glossary, Function table, Function reference and Source Paint agree with Track’s behavior.

@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 6cc1f538f56ffd555c535ff195303e7c0ba531517e809d6337cd41001b0212a1 # shrinks to (cols, rows, source) = (2, 3, ".|>>  ")
 cc b30cfa3162a7e17f56f19f3141b66086bcd8761b909ad4b377af26feac1e9cb8 # shrinks to rows = [[], [" ", "^^"], ["^^"], []]
+cc f61719c85e27a7a6160d0bb57cb2e09a16b7fec06729771a58fbf96103458aad # shrinks to ".-.|00./.|0000&^~*~>.-~>6C56D82B.+AC0A"

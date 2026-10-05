@@ -129,6 +129,19 @@ impl ComputationState {
     pub(in crate::source) fn interpretations(&self) -> usize {
         self.interpretations
     }
+
+    ///
+    /// Whether this computation's Turn was blocked without a Tick diagnostic:
+    /// by a syntax error the Source revision already reports, or because an
+    /// operand it reads holds no written Cell and it is pending.
+    ///
+    /// Read only by the nested settle property, whose `cfg` matches the
+    /// native-only proptest dev-dependency, so a WASM test build omits it too.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::source) fn blocked(&self) -> bool {
+        self.syntax_blocked
+    }
 }
 
 struct Execution<'a> {
@@ -307,13 +320,26 @@ impl<'a> Execution<'a> {
                     == self.original.slice(operand.cells.clone()).bytes()
             });
         // A syntax-blocked child did not fail evaluation. Propagate the block
-        // without inventing another Tick diagnostic. A suppressed child is
-        // instead consumed as literal characters from working Source.
+        // without inventing another Tick diagnostic. A child that copied empty
+        // Cells returns them, so its operand is empty. A suppressed child is
+        // instead consumed as literal characters from working Source. An
+        // operand with no Cell written, either way, leaves the Function
+        // pending, which blocks it the same way.
         unchanged
-            || node.operands.iter().any(|operand| {
-                operand.child.is_some_and(|child| {
-                    !self.states[child].suppressed && self.states[child].syntax_blocked
-                })
+            || node.operands.iter().any(|operand| match operand.child {
+                Some(child) if !self.states[child].suppressed => {
+                    let state = &self.states[child];
+                    state.syntax_blocked
+                        || (state.function.copies_language_unit()
+                            && matches!(state.result, Some(Atom::Empty)))
+                }
+                _ => self
+                    .working
+                    .cells()
+                    .slice(operand.cells.clone())
+                    .bytes()
+                    .iter()
+                    .all(|&byte| byte == b' '),
             })
     }
 
