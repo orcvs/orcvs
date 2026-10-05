@@ -253,13 +253,17 @@ fn rows(source: &[&str], empty_rows: usize) -> Vec<String> {
 type Call = (Function, Vec<Atom>);
 
 /// The calls a Source's Expressions make once their operands are resolved.
-/// Rows that hold no Expression, and rows the Parser refuses, contribute
-/// nothing, which is the point the assertions rest on. An Expression that
-/// nests a Function is resolved by `orcvs` one call at a time, so only the
-/// Expressions over Operand Literals are a call as written.
+/// Rows that hold no Expression, and rows the Parser refuses or does not read
+/// whole as values, contribute nothing, which is the point the assertions rest
+/// on. An Expression that nests a Function is resolved by `orcvs` one call at
+/// a time, so only the Expressions over Operand Literals are a call as written.
 fn calls(rows: &[String]) -> Vec<Call> {
     rows.iter()
-        .filter_map(|row| Parser::at(row, 0).try_parse().ok())
+        .filter_map(|row| {
+            let analysis = Parser::at(row, 0).analyze();
+            let whole = analysis.is_complete() && analysis.cells() == (0..row.len());
+            whole.then(|| analysis.expression().atoms()).flatten()
+        })
         .filter_map(|atoms| {
             let Some((Atom::Function(function), literals)) = atoms.split_first() else {
                 return None;

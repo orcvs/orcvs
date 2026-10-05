@@ -38,8 +38,10 @@ const SOURCE: &[&str] = &[
 ];
 
 fn parse(c: &mut Criterion) {
+    // `analyze` of a whole nested Expression: the read every complete row
+    // costs. The name stays `parse` so the series it reports continues.
     c.bench_function("parse", |b| {
-        b.iter(|| Parser::from(black_box(NESTED)).try_parse())
+        b.iter(|| Parser::from(black_box(NESTED)).analyze())
     });
 }
 

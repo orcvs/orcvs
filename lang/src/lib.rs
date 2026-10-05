@@ -261,10 +261,22 @@ fn midi_number_to_note(note: u8) -> Option<String> {
 /// a Turn calls the Interpreter once it has resolved the operands: the Parser
 /// reads the spelling and [`Interpreter::execute_function`] answers it.
 /// Nesting is resolved by `orcvs`, so a nested Function is refused here rather
-/// than evaluated by a second path.
+/// than evaluated by a second path. The spelling must analyze whole, without a
+/// diagnostic, and with an Atom in every slot; an error the result carries is
+/// the Interpreter's.
 #[cfg(test)]
 fn interpret_source(source: &str) -> Result<Interpretation, Error> {
-    let atoms = Parser::from(source).try_parse()?;
+    let analysis = Parser::from(source).analyze();
+    assert!(analysis.is_complete(), "{source:?}: {:?}", analysis.error());
+    assert_eq!(
+        analysis.cells(),
+        0..source.len(),
+        "{source:?} was not read whole"
+    );
+    let atoms = analysis
+        .expression()
+        .atoms()
+        .unwrap_or_else(|| panic!("{source:?} holds an entry with no Atom"));
     let Some((Atom::Function(function), literals)) = atoms.split_first() else {
         panic!("{source:?} does not start with a Function");
     };

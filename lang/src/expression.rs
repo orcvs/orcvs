@@ -102,14 +102,6 @@ impl Expression {
             .collect()
     }
 
-    pub fn take_atoms(self) -> Option<Atoms> {
-        self.records
-            .into_iter()
-            .filter(|record| !record.is_item())
-            .map(|record| record.atom)
-            .collect()
-    }
-
     pub fn tokens(&self) -> impl DoubleEndedIterator<Item = Token> + '_ {
         self.records.iter().map(Record::token)
     }

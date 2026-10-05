@@ -5775,9 +5775,13 @@ mod nested_property {
     /// root reaches the Interpreter or the Tick says why not. Answers how many
     /// Interpreter calls the Tick made.
     fn settle(source: &str) -> Result<usize, TestCaseError> {
+        let analysis = Parser::from(source).analyze();
         prop_assert!(
-            Parser::from(source).try_parse().is_ok(),
-            "{source:?} failed to parse"
+            analysis.is_complete()
+                && analysis.cells() == (0..source.len())
+                && analysis.expression().atoms().is_some(),
+            "{source:?} did not analyze whole as values: {:?}",
+            analysis.error()
         );
         let width = source.len().max(2);
         let grid = Grid::with_shape(width, 3);

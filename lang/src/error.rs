@@ -178,9 +178,6 @@ pub enum SyntaxError {
     #[error("unknown function {0:?}")]
     UnknownFunction(String),
 
-    #[error("unexpected trailing content {0:?}")]
-    UnexpectedTrailingContent(String),
-
     /// A nested Function returns one two-Cell answer to the operand it
     /// stands in, so a Function that answers an effect can stand only where
     /// nothing consumes an answer. This names the rule rather than any one
@@ -199,13 +196,6 @@ pub enum SyntaxError {
     /// there is nothing to select and no claim to establish.
     #[error("a List count of 00 holds no Item")]
     EmptyList,
-
-    /// A Comment where a value was required. A Comment is a complete
-    /// Language Unit that is not a value: it records a Token and no
-    /// Atom, so permissive analysis completes and strict parsing, which
-    /// yields Atoms, has nothing to yield.
-    #[error("a Comment is a Language Unit rather than a value")]
-    CommentIsNotAValue,
 }
 
 #[derive(Error, Debug)]
