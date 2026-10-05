@@ -18,5 +18,5 @@ two spaces at its Output Portal and returns those blank Cells when nested.
 - [ ] A value root with a blank operand whose Output Portal feeds Timed Play's note slot clears that slot, and the Bang-activated Timed Play emits no Play Command rather than replaying the previous Note. Test the same consumer fed by a nested blank Return.
 - [ ] A partially empty operand remains malformed and diagnoses under the ordinary literal rules.
 - [ ] Cover Number and Note operand contexts, Bang-activated roots and Terminal Output operands through Source/Tick tests.
-- [ ] Record Blank Answer separately from the Absence Marker in ADR 0062 and the domain glossary. This explicit encoding applies only when an inline operand is blank; ordinary absence from unequal Equality or a non-firing pulse remains a no-write result.
+- [ ] Record Blank Answer separately from the Absence Marker in ADR 0062 and the domain glossary. The Blank Answer is withheld from the Absence Marker, not from copying Functions: ordinary absence from unequal Equality or a non-firing pulse remains a no-write result, while a Jump copying two spaces gives the Blank Answer.
 - [ ] The Function reference agrees with blank-operand behavior; a failed computation remains distinguishable from deliberate absence.
