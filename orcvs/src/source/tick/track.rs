@@ -324,45 +324,74 @@ fn partial_competing_failed_and_absent_index_writers_leave_track_the_surviving_c
 }
 
 ///
-/// A cycle through Track's declared Item reads costs the whole Tick: nothing
-/// is written and no Play Command is published, though another root's write
-/// and an activated Play stand independent of it.
+/// A cycle through Track's declared Item reads stops Track, the Expression on
+/// the cycle with it and the Expression that reads Track's write, and nothing
+/// else (ADR 0065): the Equality's Bang still plays and the independent
+/// Addition still writes.
 ///
-/// The Addition writes the Item Track does not select and Track writes the
-/// Addition's operand. Every Item of the established claim is a read, so the
-/// pair is a cycle whichever Item the index selects.
+/// The first Addition writes the Item Track does not select and Track writes
+/// that Addition's operand. Every Item of the established claim is a read, so
+/// the pair is a cycle whichever Item the index selects. Track also writes the
+/// third Addition's operand, so that Addition waits on the cycle.
 ///
 #[test]
-fn a_cycle_through_an_unselected_item_publishes_no_partial_tick() {
+fn a_cycle_through_an_unselected_item_stops_only_track_and_its_dependants() {
     let grid = Grid::with_shape(24, 4);
     let rows = [
         "@t0002C4D4  .=0101",
         "              !>007FC4",
-        ".+0101  .+0102",
+        ".+0101  .+0102  .+0001",
         "",
     ];
     let mut source = seeded(grid, &rows);
-    let before = rows_of(&source);
-    // Track writes the Addition's first operand, and the Addition writes
-    // Track's second Item.
+    // Track writes the first and third Additions' first operands, and the
+    // first Addition writes Track's second Item.
     let carried: std::collections::BTreeMap<_, _> = [
-        (cell(grid, 0), vec![grid.position(2, 2).unwrap()]),
+        (
+            cell(grid, 0),
+            vec![grid.position(2, 2).unwrap(), grid.position(18, 2).unwrap()],
+        ),
         (cell(grid, 48), vec![grid.position(8, 0).unwrap()]),
     ]
     .into_iter()
     .collect();
     let (plan, _) = source.execute_carrying(Tick::new(0), &carried);
 
-    assert_eq!(messages(&plan), ["same-Tick dependency cycle"]);
-    assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-    assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
-    assert_eq!(rows_of(&source), before);
+    let anchored: Vec<_> = plan
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic.anchor().x(),
+                diagnostic.anchor().y(),
+                diagnostic.message.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        anchored,
+        [
+            (0, 0, "same-Tick dependency cycle"),
+            (16, 2, "waiting on a same-Tick dependency cycle"),
+        ]
+    );
+    assert_eq!(
+        rows_of(&source),
+        [
+            "@t0002C4D4  .=0101      ",
+            "            **!>007FC4  ",
+            ".+0101  .+0102  .+0001  ",
+            "        03              ",
+        ]
+    );
+    assert_eq!(plan.play_commands.len(), 1, "{:?}", plan.play_commands);
 
-    // Without the carried Portals the same Source has no cycle, and both the
-    // independent write and the Play are published.
+    // Without the carried Portals the same Source has no cycle, and every
+    // Expression publishes.
     let plan = source.execute(Tick::new(0));
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(plan.play_commands.len(), 1);
+    assert_eq!(&rows_of(&source)[3][..2], "02");
 }
 
 ///
