@@ -17,6 +17,7 @@ Answer.
 - [x] A slot with some Cells written, or one the row edge cuts short, still diagnoses.
 - [x] A root whose operand an earlier Turn empties during the Tick is pending for that Turn, and nothing diagnoses it.
 - [x] A Bang reaching a Play whose note slot is unwritten plays nothing and diagnoses nothing.
+- [x] A Jump copies empty aligned input to its destination and, nested, returns the empty Cells, so its parent is pending rather than diagnosed.
 - [x] ADR 0066 records the decision, and the ADRs that deferred to ADR 0062 point at it.
 
 ## Comments

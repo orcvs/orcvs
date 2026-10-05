@@ -5724,12 +5724,15 @@ mod nested_property {
             "{source:?} exhausted an Operand Stack: {:?}",
             tick.diagnostics
         );
+        // An Expression that parsed has no syntax error for a block to defer
+        // to, so a blocked root is pending: a Jump inside it copied empty
+        // Cells into the operand chain.
         let root = Function::try_from(&source[..2]).unwrap();
         if root.is_intrinsically_active() {
             prop_assert!(
                 states
                     .first()
-                    .is_some_and(|root| root.interpreted().is_some())
+                    .is_some_and(|root| root.interpreted().is_some() || root.blocked())
                     || !tick.diagnostics.is_empty(),
                 "{source:?} left its active root unanswered and undiagnosed"
             );

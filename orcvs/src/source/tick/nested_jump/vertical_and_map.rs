@@ -148,13 +148,8 @@ fn a_nested_vertical_jump_copies_what_it_reads_and_returns_it() {
         steady(&rows, &[], 3)
     );
 
-    // Empty: the Jump clears its destination and returns nothing, and the
-    // parent diagnoses at its own anchor every Tick.
-    let returned_nothing = [(
-        0,
-        1,
-        "nested computation at column 2, row 1 returned nothing",
-    )];
+    // Empty: the Jump copies the empty Cells to its destination and returns
+    // them, so the parent's operand is empty and the parent is pending.
     for rows in [
         ["        ", ".+&^01  ", "        ", "        "],
         ["        ", ".+&v01  ", "        ", "        "],
@@ -162,7 +157,7 @@ fn a_nested_vertical_jump_copies_what_it_reads_and_returns_it() {
         let source: Vec<&str> = rows.iter().map(|row| row.trim_end()).collect();
         assert_eq!(
             observe(Grid::with_shape(8, 4), &source, 3),
-            steady(&rows, &returned_nothing, 3)
+            steady(&rows, &[], 3)
         );
     }
 }
@@ -238,19 +233,15 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
     );
 
     // Empty input clears the operand under the Jump, which leaves that root
-    // pending. The parent still diagnoses the Return the Jump does not give.
+    // pending, and the Jump returns the empty Cells, which leaves its parent
+    // pending too.
     let observed = observe(
         Grid::with_shape(10, 4),
         &["", "    .+&v01", "  .+0405", ""],
         3,
     );
     let rows = ["          ", "    .+&v01", "  .+04    ", "          "];
-    let returned_nothing = (
-        4,
-        1,
-        "nested computation at column 6, row 1 returned nothing",
-    );
-    assert_eq!(observed, steady(&rows, &[returned_nothing], 3));
+    assert_eq!(observed, steady(&rows, &[], 3));
     assert_eq!(before_a_tick(Grid::with_shape(10, 4), &rows).1, []);
 
     // A root writing onto the nested Jump's spelling wins: the Jump never
@@ -269,18 +260,13 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
 #[test]
 fn a_bang_in_the_source_is_gone_before_a_vertical_jump_reads_it() {
     // A `**` the performer typed is not a Bang the Jump can relay: the Tick
-    // clears it, the Jump reads empty and clears its destination. Nested,
-    // the parent diagnoses the missing Return; a root says nothing. Either
-    // way an aligned `.=` loses its spelling.
-    let returned_nothing = [(
-        0,
-        1,
-        "nested computation at column 2, row 1 returned nothing",
-    )];
+    // clears it, the Jump reads empty and copies the empty Cells to its
+    // destination. Nested, it returns them and the parent is pending; a root
+    // says nothing. Either way an aligned `.=` loses its spelling.
     let rows = ["        ", ".+&^01  ", "        ", "        "];
     assert_eq!(
         observe(Grid::with_shape(8, 4), &["", ".+&^01", "  **", ""], 3),
-        steady(&rows, &returned_nothing, 3)
+        steady(&rows, &[], 3)
     );
     let rows = ["          ", ".+&v01    ", "    0101  ", "          "];
     assert_eq!(
@@ -289,7 +275,7 @@ fn a_bang_in_the_source_is_gone_before_a_vertical_jump_reads_it() {
             &["  **", ".+&v01", "  .=0101", ""],
             3
         ),
-        steady(&rows, &returned_nothing, 3)
+        steady(&rows, &[], 3)
     );
     let rows = ["          ", "  &v      ", "    0101  ", "          "];
     assert_eq!(
