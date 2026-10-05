@@ -7,6 +7,8 @@
 
 pub(super) mod execution;
 #[cfg(test)]
+mod nested_jump;
+#[cfg(test)]
 mod schedule_reuse;
 
 use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
