@@ -94,12 +94,12 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 
 ///
 /// Every Source Paint fact a Cell can carry, in [`SourcePaintVisuals`]'s
-/// index order: the four whole-Cell facts, then each declared operand Token
+/// index order: the five whole-Cell facts, then each declared operand Token
 /// in each [`OperandState`].
 ///
-const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
+const SOURCE_PAINT_FACTS: [SourcePaint; 11] = {
     use OperandState::{Invalid, Pending, Valid};
-    use SourcePaint::{Bang, Comment, Function, Unclaimed};
+    use SourcePaint::{Bang, Comment, Function, Item, Unclaimed};
     use Token::{Note, Number};
     const fn operand(token: Token, state: OperandState) -> SourcePaint {
         SourcePaint::Operand { token, state }
@@ -109,6 +109,7 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
         Function,
         Bang,
         Comment,
+        Item,
         operand(Number, Pending),
         operand(Number, Valid),
         operand(Number, Invalid),
@@ -125,7 +126,7 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 /// An unselected Cell's visuals depend only on its Source Paint fact and its
 /// Output Portal flag (`selected`, `cursor_visible` and the Cursor fill are
-/// all inert when `selected` is false), so the 10 facts × 2 flags are every
+/// all inert when `selected` is false), so the 11 facts × 2 flags are every
 /// answer the walk can need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
@@ -189,11 +190,12 @@ fn fact_index(paint: SourcePaint) -> usize {
         SourcePaint::Function => 1,
         SourcePaint::Bang => 2,
         SourcePaint::Comment => 3,
+        SourcePaint::Item => 4,
         SourcePaint::Operand { token, state } => {
             let token = match token {
                 Token::Number => 0,
                 Token::Note => 1,
-                Token::Bang | Token::Comment | Token::Function | Token::Char => {
+                Token::Bang | Token::Comment | Token::Function | Token::Item | Token::Char => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
             };
@@ -202,7 +204,7 @@ fn fact_index(paint: SourcePaint) -> usize {
                 OperandState::Valid => 1,
                 OperandState::Invalid => 2,
             };
-            4 + token * 3 + state
+            5 + token * 3 + state
         }
     }
 }
@@ -479,11 +481,15 @@ fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
         SourcePaint::Bang => (theme.source_bang, theme.source_bang_background),
         SourcePaint::Comment => (theme.source_comment, theme.source_comment_background),
         SourcePaint::Function => (theme.source_function, theme.source_function_background),
+        // An Item is untyped Source in a Function's claim: ordinary text on
+        // the claiming Function's tint, so no operand type is implied before
+        // the operand that receives a copy decodes it.
+        SourcePaint::Item => (theme.source_ordinary, theme.source_function_background),
         SourcePaint::Operand { token, state } => {
             let (colour, background) = match token {
                 Token::Number => (theme.source_number, theme.source_number_background),
                 Token::Note => (theme.source_note, theme.source_note_background),
-                Token::Bang | Token::Comment | Token::Function | Token::Char => {
+                Token::Bang | Token::Comment | Token::Function | Token::Item | Token::Char => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
             };
@@ -1458,6 +1464,23 @@ mod tests {
             painted(SourcePaint::Function, false, &retuned).foreground,
             Color32::from_rgb(1, 2, 3)
         );
+    }
+
+    ///
+    /// A List Item is untyped Source in its Function's claim: ordinary glyphs
+    /// on the claiming Function's tint, so it reads as part of that claim
+    /// without implying an operand type, and apart from an Unclaimed Cell.
+    ///
+    #[test]
+    fn an_item_draws_ordinary_glyphs_on_its_functions_tint() {
+        let theme = okabe_ito();
+        let item = painted(SourcePaint::Item, false, &theme);
+        let function = painted(SourcePaint::Function, false, &theme);
+        let ordinary = painted(SourcePaint::Unclaimed, false, &theme);
+
+        assert_eq!(item.foreground, theme.source_ordinary);
+        assert_eq!(item.background, function.background);
+        assert_ne!(item.background, ordinary.background);
     }
 
     #[test]

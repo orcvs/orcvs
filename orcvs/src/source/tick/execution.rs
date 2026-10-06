@@ -63,7 +63,7 @@ pub(super) fn execute(
 /// Keeping them together does not turn them into an exclusive lifecycle enum.
 pub(in crate::source) struct ComputationState {
     function: Function,
-    result: Option<Atom>,
+    result: Option<Answer>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
@@ -142,6 +142,21 @@ impl ComputationState {
     pub(in crate::source) fn blocked(&self) -> bool {
         self.syntax_blocked
     }
+}
+
+/// What a value computation answered, for the parent that consumes it.
+///
+/// The Absence Marker is an Atom with no Source encoding: it plans no write,
+/// and a parent that receives it has no Return to decode. A Function that
+/// copies empty Cells answers it too, and clears its Output Portal instead.
+///
+/// A copied Item is neither. Its characters are Source copied whole and never
+/// decoded here, so they carry no type: the operand that receives them, through
+/// a Portal or as a Return, decodes them as it decodes any written Cells.
+#[derive(Clone, PartialEq)]
+enum Answer {
+    Atom(Atom),
+    Copied(Encoding),
 }
 
 struct Execution<'a> {
@@ -287,30 +302,41 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
-        let result = self.operands(node, signature).and_then(|operands| {
-            // Recorded beside the call rather than before it: a Turn whose
-            // operands would not resolve is one the Interpreter never ran for,
-            // and the record says which of the two happened.
-            #[cfg(test)]
-            {
-                self.states[index].interpreted = Some(tick);
-                self.states[index].interpretations += 1;
-            }
-            let inputs =
-                FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
-            Interpreter::execute_function(function, operands, inputs)
-                .map_err(|error| error.to_string())
-        });
+        let result = self
+            .operands(node, function, signature)
+            .and_then(|operands| {
+                // Recorded beside the call rather than before it: a Turn whose
+                // operands would not resolve is one the Interpreter never ran for,
+                // and the record says which of the two happened.
+                #[cfg(test)]
+                {
+                    self.states[index].interpreted = Some(tick);
+                    self.states[index].interpretations += 1;
+                }
+                let inputs =
+                    FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
+                Interpreter::execute_function(function, operands, inputs)
+                    .map_err(|error| error.to_string())
+            });
         match result {
             Err(message) => self.effects.push(Effect::Diagnose(diagnose(node, message))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
             Ok(Interpretation::Cell(atom)) => self.deliver_value(index, atom),
             Ok(Interpretation::Source(effect)) => self.deliver_source_effect(index, effect),
             Ok(Interpretation::Lock) => self.lock_portal(index),
+            Ok(Interpretation::Item(item)) => self.deliver_item(index, item),
         }
     }
 
     fn syntax_blocks(&self, node: &Computation, function: Function) -> bool {
+        // A List Function selects only inside the claim the Parser
+        // established for this Tick. A count of `00`, one that did not parse,
+        // or a claim the row cut short establishes none, and a same-Tick
+        // write to the count changes the claim only when the next Tick parses
+        // it. The Expression's own diagnostic already reports why.
+        if function.reads_list() && node.list_count().is_none() {
+            return true;
+        }
         // Unchanged initial syntax errors belong to the Source revision.
         // Earlier writes or a Function replacement can repair those inputs.
         let unchanged = !node.syntax_valid
@@ -330,8 +356,8 @@ impl<'a> Execution<'a> {
                 Some(child) if !self.states[child].suppressed => {
                     let state = &self.states[child];
                     state.syntax_blocked
-                        || (state.function.copies_language_unit()
-                            && matches!(state.result, Some(Atom::Empty)))
+                        || (copies_cells(state.function)
+                            && state.result == Some(Answer::Atom(Atom::Empty)))
                 }
                 _ => self
                     .working
@@ -394,32 +420,46 @@ impl<'a> Execution<'a> {
     /// child's one consumer. The child's Atom type does not cross: a Note
     /// returned into a Number operand is read as the Number it spells, exactly
     /// as the same characters written there by a Portal would be.
+    ///
+    /// A List Function's count is the one operand not read from working
+    /// Source: it is the count of the claim the Parser established.
     fn operands(
         &mut self,
         node: &Computation,
+        function: Function,
         signature: lang::Tokens,
     ) -> Result<Vec<Atom>, String> {
+        let count = signature.len().checked_sub(1);
         node.operands
             .iter()
             .zip(signature)
-            .map(|(operand, token)| {
+            .enumerate()
+            .map(|(position, (operand, token))| {
+                // A List Function's count is the claim the Parser established,
+                // not what working Source holds at its Cells now: a write to
+                // the count reaches the claim, the selection and the zero
+                // check together, on the next Tick.
+                if Some(position) == count
+                    && function.reads_list()
+                    && let Some(count) = node.list_count()
+                {
+                    return Ok(Atom::Number(count));
+                }
                 if let Some(child) = operand
                     .child
                     .filter(|child| !self.states[*child].suppressed)
                 {
                     let anchor = self.lookup.nodes()[child].anchor;
-                    let returned = match self.states[child].result.take().map(Encoding::render) {
-                        Some(Ok(Rendered::Cells(encoding))) => encoding,
-                        Some(Ok(Rendered::Nothing)) | None => {
-                            return Err(format!(
-                                "nested computation at column {}, row {} returned nothing",
-                                anchor.x(),
-                                anchor.y()
-                            ));
-                        }
-                        // A rendering a Cell cannot hold is its own fault, not
-                        // an absent answer.
-                        Some(Err(reason)) => return Err(render_message(reason)),
+                    let returned = match self.states[child].result.take() {
+                        Some(Answer::Copied(encoding)) => encoding,
+                        Some(Answer::Atom(atom)) => match Encoding::render(atom) {
+                            Ok(Rendered::Cells(encoding)) => encoding,
+                            Ok(Rendered::Nothing) => return Err(returned_nothing(anchor)),
+                            // A rendering a Cell cannot hold is its own fault,
+                            // not an absent answer.
+                            Err(reason) => return Err(render_message(reason)),
+                        },
+                        None => return Err(returned_nothing(anchor)),
                     };
                     return token
                         .decode(&returned.to_string())
@@ -431,10 +471,57 @@ impl<'a> Execution<'a> {
             .collect()
     }
 
+    ///
+    /// Delivers the Item a List Function selected: its characters as working
+    /// Source holds them now, once every producer of the claim has taken its
+    /// Turn.
+    ///
+    /// A blank Item is copied as a Jump copies empty input: it clears the
+    /// Output Portal and, nested, leaves its parent pending. Any other
+    /// characters are copied whole, through the Output Portal and to a parent, without being
+    /// decoded: whatever receives them decodes them, so malformed data
+    /// diagnoses where it is read rather than where it is written.
+    ///
+    fn deliver_item(&mut self, index: usize, item: u8) {
+        let node = &self.lookup.nodes()[index];
+        let Some(cells) = node.items.get(usize::from(item)) else {
+            self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                format!(
+                    "{} selected Item {item:02X} outside its List",
+                    node.function
+                ),
+            )));
+            return;
+        };
+        let text = self.working.text(cells.clone());
+        if text.bytes().all(|byte| byte == b' ') {
+            self.deliver_value(index, Atom::Empty);
+            return;
+        }
+        let encoding = match Encoding::literal(text) {
+            Ok(encoding) => encoding,
+            Err(reason) => {
+                self.effects
+                    .push(Effect::Diagnose(diagnose(node, render_message(reason))));
+                return;
+            }
+        };
+        let answer = Answer::Copied(encoding.clone());
+        self.states[index].result = Some(answer.clone());
+        let node = &self.lookup.nodes()[index];
+        if !node.portal_access.writes_cells() {
+            return;
+        }
+        for output in node.portal_access.write_sites() {
+            self.deliver_output(index, &answer, &encoding, *output);
+        }
+    }
+
     fn deliver_value(&mut self, index: usize, atom: Atom) {
         self.project_value(index, atom);
         // A successful nested answer survives every refusal to project it.
-        self.states[index].result = Some(atom);
+        self.states[index].result = Some(Answer::Atom(atom));
     }
 
     /// Plans the Cell writes, activation, or clear one answer makes, whether
@@ -455,12 +542,13 @@ impl<'a> Execution<'a> {
         // schedule reserved.
         let encoding = match Encoding::render(atom) {
             Ok(Rendered::Nothing) => {
-                // A Jump answers Empty when its input is two spaces. That is a
-                // clear of the reserved output Portal, not an omitted write.
-                if self.states[index].function.copies_language_unit() {
+                // A Jump answers Empty when its input is two spaces, and a
+                // Track when its selected Item is. That is a clear of the
+                // reserved output Portal, not an omitted write.
+                if copies_cells(self.states[index].function) {
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     for output in node.portal_access.write_sites() {
-                        self.deliver_output(index, Atom::Empty, &cleared, *output);
+                        self.deliver_output(index, &Answer::Atom(Atom::Empty), &cleared, *output);
                     }
                 }
                 return;
@@ -473,14 +561,14 @@ impl<'a> Execution<'a> {
             }
         };
         for output in node.portal_access.write_sites() {
-            self.deliver_output(index, atom, &encoding, *output);
+            self.deliver_output(index, &Answer::Atom(atom), &encoding, *output);
         }
     }
 
     fn deliver_output(
         &mut self,
         index: usize,
-        atom: Atom,
+        answer: &Answer,
         encoding: &Encoding,
         output: Result<Position, PortalError>,
     ) {
@@ -495,7 +583,8 @@ impl<'a> Execution<'a> {
                 return;
             }
         };
-        if atom == Atom::Bang && self.states[index].function.copies_language_unit() {
+        if *answer == Answer::Atom(Atom::Bang) && self.states[index].function.copies_language_unit()
+        {
             if let Some(root) = self.lookup.root_at(destination) {
                 self.states[root].activated = true;
                 return;
@@ -521,12 +610,12 @@ impl<'a> Execution<'a> {
         };
         // The Cells this write actually covers: `Lookup::written_over`.
         let relationships = self.lookup.written_over(&write);
-        if atom == Atom::Bang {
+        if *answer == Answer::Atom(Atom::Bang) {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
             }
         }
-        if let Atom::Function(replacement) = atom
+        if let Answer::Atom(Atom::Function(replacement)) = *answer
             && let Some(change) = relationships.functions().find_map(|contact| {
                 if !contact.at_anchor {
                     return None;
@@ -575,7 +664,7 @@ impl<'a> Execution<'a> {
             let target = contact.index;
             if contact.at_anchor
                 && !self.states[target].suppressed
-                && let Atom::Function(replacement) = atom
+                && let Answer::Atom(Atom::Function(replacement)) = *answer
             {
                 self.states[target].function = replacement;
                 continue;
@@ -848,6 +937,21 @@ fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
         PortalError::OutsideGrid => format!("result {encoding:?} falls outside the Grid"),
         PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
     }
+}
+
+/// Whether `function` copies Cells rather than computing a value, so that an
+/// empty answer from it is empty Cells copied, which clear its Output Portal
+/// and leave a parent pending, rather than the Absence Marker.
+fn copies_cells(function: Function) -> bool {
+    function.copies_language_unit() || function.reads_list()
+}
+
+fn returned_nothing(anchor: Position) -> String {
+    format!(
+        "nested computation at column {}, row {} returned nothing",
+        anchor.x(),
+        anchor.y()
+    )
 }
 
 /// A value that could not become Cells names what it rendered to, which is the

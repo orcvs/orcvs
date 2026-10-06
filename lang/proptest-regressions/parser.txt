@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc de8d0dd86c7845cc357b024a058408bb6658c5c832eb5036be2a89f189dd3459 # shrinks to source = ".^*>"
+cc 95d0250fd98cdd8189e5848ee38e19428863ddff03a75d4bda244bdc102aa295 # shrinks to source = "@t0000"

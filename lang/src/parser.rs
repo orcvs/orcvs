@@ -181,10 +181,22 @@ impl<'a> Parser<'a> {
         // this inline capacity is an optimization, not a language limit.
         let mut pending = arrayvec::ArrayVec::<_, 16>::new();
         let mut overflow = Vec::new();
-        pending.push((Token::Function, None));
+        pending.push((Slot::Unit(Token::Function), None));
         let mut error = None;
-        while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
+        while let Some((slot, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
+            let token = match slot {
+                Slot::Unit(token) => token,
+                Slot::Count => {
+                    self.take_count(cell_start, parent, &mut error);
+                    continue;
+                }
+                Slot::List => {
+                    let owner = parent.expect("a List belongs to the Function that reads it");
+                    self.take_list(owner, &mut error);
+                    continue;
+                }
+            };
             if token != Token::Function && !self.is_function_next() {
                 match self.take_token(&token) {
                     Ok(atom) => self.expression.add_positioned(
@@ -257,8 +269,19 @@ impl<'a> Parser<'a> {
                         }
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
-                        for token in function.signature().iter().rev() {
-                            let item = (*token, Some(index));
+                        // A List Function's last operand is its literal count,
+                        // and its Items follow every operand.
+                        let signature = function.signature();
+                        let slots = signature.iter().enumerate().map(|(position, token)| {
+                            if function.reads_list() && position + 1 == signature.len() {
+                                Slot::Count
+                            } else {
+                                Slot::Unit(*token)
+                            }
+                        });
+                        let list = function.reads_list().then_some(Slot::List);
+                        for slot in list.into_iter().chain(slots.rev()) {
+                            let item = (slot, Some(index));
                             // Overflow is always popped first, so any occupied
                             // overflow has a full inline stack beneath it.
                             if pending.is_full() {
@@ -284,6 +307,73 @@ impl<'a> Parser<'a> {
             }
         }
         error
+    }
+
+    ///
+    /// Reads a List Function's count as a Number literal.
+    ///
+    /// The count decides the claim's extent here, before any Function
+    /// evaluates, so a Function spelling in its slot is refused rather than
+    /// nested, and a blank slot is refused rather than answering blank: there
+    /// is no claim to establish without a count.
+    ///
+    fn take_count(&mut self, cell_start: usize, parent: Option<usize>, error: &mut Option<Error>) {
+        let atom = if self.is_function_next() {
+            self.next_token(Token::Number.len());
+            Err(SyntaxError::ListCountNotLiteral.into())
+        } else {
+            self.take_token(&Token::Number)
+        };
+        let cells = cell_start..self.start + self.consumed();
+        match atom {
+            Ok(atom) => self
+                .expression
+                .add_positioned(Token::Number, Some(atom), cells, parent),
+            Err(failure) => {
+                error.get_or_insert(failure);
+                self.expression
+                    .add_positioned(Token::Number, None, cells, parent);
+            }
+        }
+    }
+
+    ///
+    /// Claims the Items of the List `owner` reads: as many two-Cell Items as
+    /// its count, which is the last entry `owner` holds.
+    ///
+    /// Every Item the count states is recorded, so a count cut short by the
+    /// end of the Source still records how many Items it claims: the tail
+    /// that is left belongs to the first Item it cannot fill, and every Item
+    /// after it records no Cells. A count that did not parse claims nothing.
+    ///
+    fn take_list(&mut self, owner: usize, error: &mut Option<Error>) {
+        let count = self
+            .expression
+            .positioned()
+            .rev()
+            .find(|entry| entry.parent == Some(owner))
+            .and_then(|entry| entry.atom);
+        let count = match count {
+            Some(Atom::Number(0)) => {
+                error.get_or_insert(SyntaxError::EmptyList.into());
+                return;
+            }
+            Some(Atom::Number(count)) => count,
+            _ => return,
+        };
+        for _ in 0..count {
+            let cell_start = self.start + self.consumed();
+            if self.next_token(Token::Item.len()).is_none() {
+                self.source = "";
+                error.get_or_insert(SyntaxError::ExpectedToken.into());
+            }
+            self.expression.add_positioned(
+                Token::Item,
+                None,
+                cell_start..self.start + self.consumed(),
+                Some(owner),
+            );
+        }
     }
 
     ///
@@ -336,6 +426,17 @@ impl<'a> Parser<'a> {
             None => None,
         }
     }
+}
+
+/// What the Parser reads next on behalf of the Function that owns it.
+#[derive(Clone, Copy)]
+enum Slot {
+    /// A Language Unit, or an operand of the Token a signature declares.
+    Unit(Token),
+    /// A List Function's count: a Number literal, never a nested Function.
+    Count,
+    /// A List Function's Items, claimed once its count is read.
+    List,
 }
 
 #[inline(always)]
@@ -986,12 +1087,6 @@ mod test {
         }
     }
 
-    /// Source text for the lowest value of the domain a `Token` names: what the
-    /// operand positions that are not being swept are held at.
-    fn baseline(token: Token) -> String {
-        every_atom_of(token)[0].to_string()
-    }
-
     #[test]
     fn an_operand_literal_outside_a_slot_is_not_an_expression() {
         // ADR 0021 gives an Operand Literal the type of the slot that consumes
@@ -1098,23 +1193,41 @@ mod test {
         // covers both readings because it covers every value of every declared
         // operand domain in every slot that declares it. `Atom::Empty` is
         // absent because no signature declares it, so no Source spells one.
+        //
+        // A List Function's count is held at `01` rather than `00`, which
+        // claims no Item, and its sweep skips `00` for the same reason. The
+        // Items its count claims follow the operands as blank Cells, which are
+        // Source rather than Atoms and so render back as nothing.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
+            let count_slot = function.reads_list().then(|| signature.len() - 1);
             for (slot, token) in signature.iter().copied().enumerate() {
                 for atom in every_atom_of(token) {
+                    if Some(slot) == count_slot && atom == Atom::Number(0) {
+                        continue;
+                    }
+                    let operand = |position: usize, declared: Token| {
+                        if position == slot {
+                            atom
+                        } else if Some(position) == count_slot {
+                            Atom::Number(1)
+                        } else {
+                            // The lowest value of the domain, which every
+                            // operand not being swept is held at.
+                            every_atom_of(declared)[0]
+                        }
+                    };
                     let operands: String = signature
                         .iter()
                         .copied()
                         .enumerate()
-                        .map(|(position, declared)| {
-                            if position == slot {
-                                atom.to_string()
-                            } else {
-                                baseline(declared)
-                            }
-                        })
+                        .map(|(position, declared)| operand(position, declared).to_string())
                         .collect();
-                    let source = format!("{function}{operands}");
+                    let items = match count_slot.map(|position| operand(position, Token::Number)) {
+                        Some(Atom::Number(count)) => "  ".repeat(usize::from(count)),
+                        _ => String::new(),
+                    };
+                    let source = format!("{function}{operands}{items}");
                     let parsed = try_parse(&source)
                         .unwrap_or_else(|error| panic!("{source:?} did not parse: {error}"));
 
@@ -1124,7 +1237,7 @@ mod test {
                     // Cells it was parsed from, which is the round trip and the
                     // absence of trailing content in one statement.
                     assert_eq!(
-                        parsed.iter().map(Atom::to_string).collect::<String>(),
+                        parsed.iter().map(Atom::to_string).collect::<String>() + &items,
                         source
                     );
                 }
@@ -1344,7 +1457,22 @@ mod property {
                         !atoms.iter().any(|atom| matches!(atom, Atom::Empty)),
                         "{spelled:?} parsed to a value no signature declares: {atoms:?}",
                     );
-                    prop_assert_eq!(rendered(atoms), spelled);
+                    // A List's Items are Source the Expression claims and
+                    // holds no Atom for, so they are the Cells the Atoms do
+                    // not spell back.
+                    let analysis = Parser::from(spelled).analyze();
+                    let items: Vec<_> = analysis
+                        .expression()
+                        .positioned()
+                        .filter(|entry| entry.token == Token::Item)
+                        .map(|entry| entry.cells.clone())
+                        .collect();
+                    let valued: String = spelled
+                        .char_indices()
+                        .filter(|(cell, _)| !items.iter().any(|item| item.contains(cell)))
+                        .map(|(_, character)| character)
+                        .collect();
+                    prop_assert_eq!(rendered(atoms), valued);
                 }
                 // Reading two Cells is the only thing the parser does, so the
                 // families it can diagnose are the shape of those Cells and the
@@ -1391,9 +1519,16 @@ mod property {
             // it holds is a complete entry, so an incomplete or invalid Token
             // withholds the whole Expression rather than contributing a
             // placeholder to it.
+            //
+            // A List Item is Source rather than a value: it records no Atom
+            // and withholds nothing.
+            let values = expression
+                .positioned()
+                .filter(|entry| entry.token != Token::Item)
+                .count();
             prop_assert_eq!(
                 expression.atoms().is_some(),
-                entries.len() == expression.len(),
+                entries.len() == values,
                 "{:?}",
                 spelled,
             );
@@ -1412,12 +1547,27 @@ mod property {
                 // withholds its Atoms with nothing to report, and there is no
                 // Source to render back because its text is arbitrary and was
                 // never decoded.
+                // A complete Expression spells exactly the Cells it consumed.
+                // Anything after them is the next Expression's Source and is
+                // neither read nor held against this one. A List Item is Source
+                // that is never decoded; every other record spells the Cells
+                // it was read from.
+                let spelled_back = || -> Result<String, TestCaseError> {
+                    let mut rendered = String::new();
+                    for entry in expression.positioned() {
+                        match entry.atom {
+                            Some(atom) => rendered.push_str(&atom.to_string()),
+                            None => {
+                                prop_assert_eq!(entry.token, Token::Item, "{:?} {:?}", spelled, entry);
+                                rendered.push_str(&spelled[entry.cells.clone()]);
+                            }
+                        }
+                    }
+                    Ok(rendered)
+                };
                 match expression.atoms() {
-                    // A complete Expression spells exactly the Cells it
-                    // consumed. Anything after them is the next Expression's
-                    // Source and is neither read nor held against this one.
-                    Some(atoms) => {
-                        prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end])
+                    Some(_) => {
+                        prop_assert_eq!(spelled_back()?, &spelled[..analysis.cells().end])
                     }
                     None => {
                         prop_assert_eq!(
@@ -1434,29 +1584,40 @@ mod property {
                 prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
                 // read, and that record is what withholds the Atoms above,
-                // except a nested effect Function. It reads every Token, so
-                // its Function and operands keep the layout its signatures
-                // give, and its error alone withholds the Expression from
-                // execution. Atoms beside an error therefore mean exactly
-                // that: the error is the nested effect refusal, and the
-                // Expression holds the effect Function it names, nested.
+                // except where every Token was read and the error is about
+                // what they say together. A nested effect Function keeps its
+                // Function and operands in the layout its signatures give,
+                // and its error alone withholds the Expression from
+                // execution. A List refused for its count of `00`, or cut
+                // short by the end of the Source, keeps its operands for the
+                // same reason: they are read, and the Items they claim are
+                // what failed. Atoms beside an error therefore mean exactly
+                // one of those refusals, over the Expression it names.
                 if expression.atoms().is_some() {
-                    prop_assert!(
-                        matches!(
-                            analysis.error(),
-                            Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                    match analysis.error() {
+                        Some(Error::Syntax(SyntaxError::NestedEffectFunction)) => prop_assert!(
+                            expression.positioned().any(|entry| entry.parent.is_some()
+                                && matches!(
+                                    entry.atom,
+                                    Some(Atom::Function(function)) if !function.answers_value()
+                                )),
+                            "{spelled:?} refused a nested effect Function it does not hold",
                         ),
-                        "{spelled:?} produced runtime Atoms for {:?}",
-                        analysis.error(),
-                    );
-                    prop_assert!(
-                        expression.positioned().any(|entry| entry.parent.is_some()
-                            && matches!(
+                        Some(Error::Syntax(SyntaxError::EmptyList)) => prop_assert!(
+                            expression.positioned().any(|entry| matches!(
                                 entry.atom,
-                                Some(Atom::Function(function)) if !function.answers_value()
+                                Some(Atom::Function(function)) if function.reads_list()
                             )),
-                        "{spelled:?} refused a nested effect Function it does not hold",
-                    );
+                            "{spelled:?} refused an empty List it does not claim",
+                        ),
+                        error => prop_assert!(
+                            matches!(error, Some(Error::Syntax(SyntaxError::ExpectedToken)))
+                                && expression
+                                    .positioned()
+                                    .any(|entry| entry.token == Token::Item),
+                            "{spelled:?} produced runtime Atoms for {error:?}",
+                        ),
+                    }
                 }
             }
 
@@ -1653,7 +1814,7 @@ mod positioned_tests {
 #[cfg(test)]
 mod nesting_tests {
     use super::Parser;
-    use crate::{Atom, Error, Function, SyntaxError};
+    use crate::{Atom, Error, Function, SyntaxError, Token};
 
     #[test]
     fn a_nested_function_that_answers_no_value_is_refused_from_source_alone() {
@@ -1697,5 +1858,170 @@ mod nesting_tests {
     fn a_root_effect_function_and_a_nested_value_function_parse() {
         assert!(Parser::from("!>007FC4").analyze().is_complete());
         assert!(Parser::from(".+.x030401").analyze().is_complete());
+    }
+
+    /// One positioned entry as its start Cell, end Cell, Token, Atom and
+    /// owning entry.
+    type Laid = (usize, usize, Token, Option<Atom>, Option<usize>);
+
+    /// Each positioned entry of `source`'s first Expression.
+    fn layout(source: &str) -> Vec<Laid> {
+        Parser::from(source)
+            .analyze()
+            .expression()
+            .positioned()
+            .map(|entry| {
+                (
+                    entry.cells.start,
+                    entry.cells.end,
+                    entry.token,
+                    entry.atom,
+                    entry.parent,
+                )
+            })
+            .collect()
+    }
+
+    ///
+    /// Track claims its literal count and then that many two-Cell Items. The
+    /// Items are Source, never values: they record no Atom, and a Function
+    /// spelling or a Comment introducer inside the claim is an Item rather
+    /// than a nested Function or a Comment.
+    ///
+    #[test]
+    fn track_claims_its_count_and_that_many_untyped_items() {
+        let source = "@t0104C4.+||  ";
+        let analysis = Parser::from(source).analyze();
+
+        assert!(analysis.is_complete(), "{:?}", analysis.error());
+        assert_eq!(analysis.cells(), 0..source.len());
+        assert_eq!(
+            layout(source),
+            vec![
+                (
+                    0,
+                    2,
+                    Token::Function,
+                    Some(Atom::Function(Function::Track)),
+                    None
+                ),
+                (2, 4, Token::Number, Some(Atom::Number(1)), Some(0)),
+                (4, 6, Token::Number, Some(Atom::Number(4)), Some(0)),
+                (6, 8, Token::Item, None, Some(0)),
+                (8, 10, Token::Item, None, Some(0)),
+                (10, 12, Token::Item, None, Some(0)),
+                (12, 14, Token::Item, None, Some(0)),
+            ]
+        );
+        // The Items are not operands: an Expression's values are its
+        // Function and the operands its signature declares.
+        assert_eq!(
+            analysis.expression().atoms().unwrap().as_slice(),
+            &[
+                Atom::Function(Function::Track),
+                Atom::Number(1),
+                Atom::Number(4),
+            ]
+        );
+        assert_eq!(
+            Parser::from(source).try_parse().unwrap().as_slice(),
+            &[
+                Atom::Function(Function::Track),
+                Atom::Number(1),
+                Atom::Number(4),
+            ]
+        );
+        // Source after the claim is the next Expression's.
+        assert_eq!(Parser::from("@t0001C4.+0102").analyze().cells(), 0..8);
+    }
+
+    ///
+    /// The count is read as a literal before the claim exists: a Function
+    /// spelling there is refused rather than nested, and so are a blank and
+    /// a malformed count. None of them claims an Item, so the Cells after the
+    /// count are the next Expression's Source.
+    ///
+    #[test]
+    fn a_track_count_is_a_literal_number_or_the_list_claims_nothing() {
+        for (source, end) in [("@t00.+0101C4", 6), ("@t00  C4", 6), ("@t00ZZC4", 6)] {
+            let analysis = Parser::from(source).analyze();
+            assert_eq!(analysis.cells(), 0..end, "{source}");
+            assert!(
+                !analysis
+                    .expression()
+                    .positioned()
+                    .any(|entry| entry.token == Token::Item),
+                "{source}"
+            );
+            assert!(analysis.error().is_some(), "{source}");
+        }
+        assert!(matches!(
+            Parser::from("@t00.+0101C4").analyze().error(),
+            Some(Error::Syntax(SyntaxError::ListCountNotLiteral))
+        ));
+        // The index is an ordinary operand, so a Function may supply it.
+        let nested_index = Parser::from("@t.+010102C4D4").analyze();
+        assert!(nested_index.is_complete(), "{:?}", nested_index.error());
+        assert_eq!(nested_index.cells(), 0..14);
+    }
+
+    ///
+    /// A count of `00` holds no Item and is refused. A count the row cannot
+    /// hold still records every Item it states: the tail left belongs to the
+    /// first Item it cannot fill and the rest record no Cells, so the claim
+    /// never reaches Source past its end.
+    ///
+    #[test]
+    fn a_zero_count_is_refused_and_a_count_past_the_source_records_every_item() {
+        let zero = Parser::from("@t0000C4").analyze();
+        assert!(matches!(
+            zero.error(),
+            Some(Error::Syntax(SyntaxError::EmptyList))
+        ));
+        assert_eq!(zero.cells(), 0..6);
+
+        let source = "@t0004C4D4E";
+        let short = Parser::from(source).analyze();
+        assert!(matches!(
+            short.error(),
+            Some(Error::Syntax(SyntaxError::ExpectedToken))
+        ));
+        assert_eq!(short.cells(), 0..source.len());
+        let items: Vec<_> = short
+            .expression()
+            .positioned()
+            .filter(|entry| entry.token == Token::Item)
+            .map(|entry| entry.cells.clone())
+            .collect();
+        assert_eq!(items, vec![6..8, 8..10, 10..11, 11..11]);
+    }
+
+    ///
+    /// A nested Track claims its List inside its parent's claim, and the
+    /// parent's next operand follows the List.
+    ///
+    #[test]
+    fn a_nested_track_claims_its_list_before_its_parents_next_operand() {
+        let source = "!~0064@t0208C4D4E4  G4C5  E404";
+        let analysis = Parser::from(source).analyze();
+
+        assert!(analysis.is_complete(), "{:?}", analysis.error());
+        assert_eq!(analysis.cells(), 0..source.len());
+        let layout = layout(source);
+        let items: Vec<_> = layout
+            .iter()
+            .filter(|entry| entry.2 == Token::Item)
+            .map(|entry| (entry.0, entry.4))
+            .collect();
+        assert_eq!(
+            items,
+            (0..8)
+                .map(|item| (12 + 2 * item, Some(3)))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            layout.last(),
+            Some(&(28, 30, Token::Number, Some(Atom::Number(4)), Some(0)))
+        );
     }
 }

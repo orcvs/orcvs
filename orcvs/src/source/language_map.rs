@@ -73,6 +73,11 @@ pub enum LanguageUnitKind {
     /// no Atom, so it is never an operand, never a Function, and never
     /// scheduled.
     Comment,
+    /// One written Item of a List, inside the claim of the Function that
+    /// reads it. Its Cells are never decoded or diagnosed where they stand:
+    /// the operand that receives a copy decides how they read. A blank Item
+    /// is no unit, as a blank operand slot is none.
+    Item,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -850,13 +855,22 @@ fn name_units(
             .cell_index(entry.cells.end - 1)
             .expect("parsed Cell inside Grid");
         // The Token is asked first, because the kind of a unit is a syntactic
-        // fact and the Token is where syntax lives. Only the Comment arm needs
-        // it: every other unit's Token and Atom agree, so the Atom arms below
-        // decide the rest. A Comment is the one unit that records no Atom, and
-        // matching on the Atom alone would drop it into the diagnose branch and
-        // report every Cell of it as an unmatched character.
+        // fact and the Token is where syntax lives. Only the Comment and Item
+        // arms need it: every other unit's Token and Atom agree, so the Atom
+        // arms below decide the rest. A Comment and an Item are the units that
+        // record no Atom, and matching on the Atom alone would drop them into
+        // the diagnose branch and report every Cell of them as an unmatched
+        // character.
+        let written = || {
+            entry
+                .cells
+                .clone()
+                .any(|index| row.bytes()[index - row_start] != SPACE_BYTE)
+        };
         let kind = match (entry.token, entry.atom) {
             (Token::Comment, _) => Some(LanguageUnitKind::Comment),
+            (Token::Item, _) if written() => Some(LanguageUnitKind::Item),
+            (Token::Item, _) => continue,
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
             (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
@@ -977,6 +991,50 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(0, 0, 1), (4, 4, 5)],
         );
+    }
+
+    ///
+    /// A Track's Items are Source in its claim. Each written Item is one
+    /// Language Unit and none diagnoses, whatever it spells: a Note, a
+    /// malformed pair, a Function spelling or a Comment introducer. A blank
+    /// Item is no unit, as a blank operand is none. Every Cell of the claim
+    /// answers the Item Token, and the Expression is an executable root.
+    ///
+    #[test]
+    fn track_items_are_undiagnosed_units_of_its_claim() {
+        let source = "@t0005C4Z .+||  ";
+        let grid = Grid::with_shape(16, 1);
+        let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
+
+        assert_eq!(
+            map.diagnostics().count(),
+            0,
+            "{:?}",
+            map.diagnostics().collect::<Vec<_>>()
+        );
+        let expression = map.expressions().next().unwrap();
+        assert_eq!(expression.root(), grid.position(0, 0));
+        assert_eq!(
+            map.units()
+                .map(|unit| (unit.kind(), unit.span().start().get()))
+                .collect::<Vec<_>>(),
+            vec![
+                (LanguageUnitKind::Function(Function::Track), 0),
+                (LanguageUnitKind::OperandLiteral, 2),
+                (LanguageUnitKind::OperandLiteral, 4),
+                (LanguageUnitKind::Item, 6),
+                (LanguageUnitKind::Item, 8),
+                (LanguageUnitKind::Item, 10),
+                (LanguageUnitKind::Item, 12),
+            ]
+        );
+        for column in 6..16 {
+            assert_eq!(
+                map.token_at(grid.position(column, 0).unwrap()),
+                Some(Token::Item),
+                "column {column}"
+            );
+        }
     }
 
     #[test]

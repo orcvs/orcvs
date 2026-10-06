@@ -213,6 +213,57 @@ fn an_expression_cut_by_the_row_edge_orders_a_new_schedule() {
 }
 
 #[test]
+fn changing_a_track_count_orders_a_new_schedule() {
+    // The count decides how many Items the claim holds, and so which Cells
+    // Track reads and which producers it waits for. With index `02`, growing
+    // the count from two to three selects the Item the old claim did not
+    // hold, shrinking it selects the first, and a count of `00` claims none
+    // and writes nothing. A schedule kept from before the edit would hold the
+    // old claim.
+    for (rows, count, selected) in [
+        (["@t0202C4D4E4", ""], "03", "E4"),
+        (["@t0203C4D4E4", ""], "02", "C4"),
+        (["@t0203C4D4E4", ""], "00", "  "),
+    ] {
+        let grid = Grid::with_shape(12, 2);
+        let mut source = source_of(grid, &rows);
+        agreeing_tick(&mut source, 0);
+        let earlier = source.shared_language_map();
+        write_at(&mut source, &[(4, 0, count), (0, 1, "  ")]);
+        let shared = source
+            .language_map()
+            .schedule_cache()
+            .is_shared_with(earlier.schedule_cache());
+        let stale = stale_tick(&source, &earlier, 1);
+        let planned = agreeing_tick(&mut source, 1);
+        assert!(!shared, "{count}");
+        assert_ne!(planned, stale, "{count}");
+        assert_eq!(&source.snapshot()[12..14], selected, "{count}");
+    }
+}
+
+#[test]
+fn changing_a_track_index_or_item_keeps_the_schedule() {
+    // An index and an Item are values in Cells the claim already holds: a
+    // write to either changes no scheduling input, and Track reads both
+    // afresh at its Turn.
+    for (edit, selected) in [((2, 0, "01"), "D4"), ((6, 0, "G4"), "G4")] {
+        let (shared, planned, stale) =
+            edited_between_ticks(Grid::with_shape(12, 2), &["@t0003C4D4E4", ""], &[edit]);
+        assert!(shared, "{edit:?}");
+        assert_eq!(planned, stale, "{edit:?}");
+        assert!(
+            planned
+                .writes
+                .iter()
+                .map(|write| write.content.as_char())
+                .eq(selected.chars()),
+            "{edit:?}: {planned:?}"
+        );
+    }
+}
+
+#[test]
 fn a_commit_that_writes_nothing_keeps_the_schedule() {
     let grid = Grid::with_shape(8, 2);
     let mut source = source_of(grid, &[".+0304  ", "        "]);

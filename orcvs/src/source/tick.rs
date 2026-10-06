@@ -10,6 +10,8 @@ pub(super) mod execution;
 mod nested_jump;
 #[cfg(test)]
 mod schedule_reuse;
+#[cfg(test)]
+mod track;
 
 use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,8 +46,31 @@ struct Computation {
     parent: Option<usize>,
     owner: usize,
     operands: Vec<Operand>,
+    /// The Cells of each Item a List Function's claim holds, in List order,
+    /// as the Parser established them. Empty for every other Function.
+    items: Vec<Range<usize>>,
     syntax_valid: bool,
     portal_access: PortalAccess,
+}
+
+impl Computation {
+    ///
+    /// The count of the List this computation's claim holds, when the Parser
+    /// established it whole: every Item its count states, each a full Cell
+    /// pair. `None` where the count claimed nothing or the row cut the claim
+    /// short, so no selection can reach Cells outside the claim.
+    ///
+    /// The count is the number of Items rather than the count operand's
+    /// value: the Parser records one Item per counted position, the schedule
+    /// compares Items, and working Source at the count's Cells changes none
+    /// of them before the next Tick parses it.
+    ///
+    fn list_count(&self) -> Option<u8> {
+        if self.items.is_empty() || self.items.iter().any(|item| item.len() != 2) {
+            return None;
+        }
+        u8::try_from(self.items.len()).ok()
+    }
 }
 
 struct Schedule {
@@ -191,6 +216,14 @@ impl Lookup {
                 cells: start..start + 2,
                 node: index,
             });
+            // An Item is inside its List Function's claim as an operand is,
+            // so a Bang written over one is operand contact.
+            for item in &node.items {
+                operands.push(Claim {
+                    cells: item.clone(),
+                    node: index,
+                });
+            }
             for operand in &node.operands {
                 operands.push(Claim {
                     cells: operand.cells.clone(),
@@ -760,6 +793,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                     parent,
                     owner,
                     operands: vec![],
+                    items: vec![],
                     syntax_valid: true,
                     portal_access,
                 });
@@ -768,6 +802,12 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             } else {
                 None
             };
+            if let Some(parent) = parent
+                && entry.token == lang::Token::Item
+            {
+                nodes[parent].items.push(entry.cells.clone());
+                continue;
+            }
             if let Some(parent) = parent {
                 nodes[parent].syntax_valid &= entry.atom.is_some();
                 nodes[parent].operands.push(Operand {
@@ -783,6 +823,10 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             .iter()
             .zip(lang::Tokens::from(&node.function))
             .any(|(operand, token)| operand.child.is_none() && operand.cells.len() < token.len())
+            || node
+                .items
+                .iter()
+                .any(|item| item.len() < lang::Token::Item.len())
         {
             // The row edge is the only boundary a truncated operand can meet.
             // An operand is short of its Token width only where `take_token`
@@ -902,8 +946,12 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
     // An Input Portal reads working Source. Those Cells are often an operand
     // Span, so they cannot sit in `literals`; the edge is the same fact
     // `literal_consumers` records for a declared operand.
+    //
+    // A List Function reads the Item its index selects, which no schedule
+    // knows before the index settles, so every Item of the established claim
+    // is a read: each Item's producer precedes it.
     for (consumer, node) in nodes.iter().enumerate() {
-        for read in node.portal_access.read_spans() {
+        for read in node.portal_access.read_spans().iter().chain(&node.items) {
             for producer in lookup.writes.touching(read.clone()) {
                 if producer == consumer || !active[nodes[producer].owner] {
                     continue;
@@ -5610,9 +5658,12 @@ mod nested_property {
             .collect()
     }
 
+    /// The Value Functions over two Number operands and nothing else: a List
+    /// Function's count claims Items after it, so it does not chain.
     fn binary_value_functions() -> Vec<Function> {
         value_functions()
             .into_iter()
+            .filter(|function| !function.reads_list())
             .filter(|function| {
                 let signature = Tokens::from(function);
                 signature.len() == 2 && signature.iter().all(|token| *token == Token::Number)
@@ -5650,13 +5701,37 @@ mod nested_property {
         .boxed()
     }
 
+    /// A List Function's literal count followed by the Items it claims. The
+    /// Parser refuses a nested count, so none is drawn.
+    fn list_source() -> BoxedStrategy<String> {
+        (1usize..=4)
+            .prop_flat_map(|count| (Just(count), vec(select(vec!["C4", "  ", "3C"]), count)))
+            .prop_map(|(count, items)| format!("{count:02X}{}", items.concat()))
+            .boxed()
+    }
+
+    /// The operand strategies `function` declares, with a List Function's
+    /// count and Items in place of its last operand.
+    fn operand_sources(function: Function, depth: u32) -> Vec<BoxedStrategy<String>> {
+        let signature = Tokens::from(&function);
+        let count = signature.len().checked_sub(1);
+        signature
+            .into_iter()
+            .enumerate()
+            .map(|(slot, token)| {
+                if function.reads_list() && Some(slot) == count {
+                    list_source()
+                } else {
+                    operand_source(token, depth)
+                }
+            })
+            .collect()
+    }
+
     fn nested_source(depth: u32) -> BoxedStrategy<String> {
         select(value_functions())
             .prop_flat_map(move |function| {
-                let operands: Vec<BoxedStrategy<String>> = Tokens::from(&function)
-                    .into_iter()
-                    .map(|token| operand_source(token, depth - 1))
-                    .collect();
+                let operands = operand_sources(function, depth - 1);
                 (Just(function), operands)
             })
             .prop_map(|(function, operands)| apply(function, &operands))
@@ -5668,10 +5743,7 @@ mod nested_property {
     fn expression_source() -> BoxedStrategy<String> {
         select(Function::ALL)
             .prop_flat_map(|function| {
-                let operands: Vec<BoxedStrategy<String>> = Tokens::from(&function)
-                    .into_iter()
-                    .map(|token| operand_source(token, NESTING))
-                    .collect();
+                let operands = operand_sources(function, NESTING);
                 (Just(function), operands)
             })
             .prop_map(|(function, operands)| apply(function, &operands))
@@ -5788,12 +5860,16 @@ mod nested_property {
                     return None;
                 }
                 let first = signature.iter().position(|token| *token == Token::Number)?;
+                let count = signature.len() - 1;
                 let operands: Vec<String> = signature
                     .iter()
                     .enumerate()
                     .map(|(slot, token)| {
                         if slot == first {
                             chain.clone()
+                        } else if root.reads_list() && slot == count {
+                            // A literal count and the one Item it claims.
+                            "01C4".to_owned()
                         } else {
                             literal(*token).to_owned()
                         }

@@ -84,7 +84,11 @@ pub enum InterpretationError {
     )]
     EuclideanOverfull { hits: u8, steps: u8 },
 
-    /// Increment handed a zero where its wrap needs a length.
+    /// Increment or Track handed a zero where its wrap needs a length.
+    ///
+    /// Track wraps its index at its count. The Parser refuses a count of
+    /// `00` before any Turn, so evaluation raises this only for operands
+    /// handed to it directly.
     ///
     /// Increment's `(previous + step) % modulus` has no wrap once the modulus
     /// is zero, so Increment diagnoses rather than inventing one. The variant
@@ -188,6 +192,17 @@ pub enum SyntaxError {
     /// kind alone, and the Source shows it before any Tick runs.
     #[error("a Function that answers an effect is valid only at the root of an Expression")]
     NestedEffectFunction,
+
+    /// A List Function's count where the Source does not spell a Number
+    /// literal. The count decides how many Items the claim holds before any
+    /// Function evaluates, so a nested Function cannot supply it.
+    #[error("a List count is a literal Number")]
+    ListCountNotLiteral,
+
+    /// A List Function's count of `00`. A List holds at least one Item, so
+    /// there is nothing to select and no claim to establish.
+    #[error("a List count of 00 holds no Item")]
+    EmptyList,
 
     /// A Comment where a value was required. A Comment is a complete
     /// Language Unit that is not a value: it records a Token and no

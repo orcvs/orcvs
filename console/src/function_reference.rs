@@ -21,12 +21,15 @@
 //! that Comment and silently stop being parsed and run. All six headers
 //! therefore sit on row 0, and every group's own examples start on row 1. A
 //! group that stacks a second header inside its own band follows the same
-//! rule: that header's row must hold no Expression east of it either.
+//! rule: that header's row must hold no Expression east of it either. The
+//! Lists header on row 23 of the Conversion band is one: the Arithmetic
+//! result west of it is the only other Source on that row, and no mover
+//! travels through it.
 //!
 //! | Columns   | Group                                                       |
 //! |-----------|--------------------------------------------------------------|
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                   |
+//! | `16..32`  | Numeric Conversion: `.v .^`; from row 23, Lists: `@t`         |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
 //! | `48..64`  | Jumps and Halt: `&^ &v &< &>`, `*!`                           |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
@@ -279,6 +282,10 @@ mod tests {
             // A nested `.^` writes its own `C4` under its anchor and returns
             // the same Cells, which Addition's Number operand reads as `C4`.
             result(16, 8, "C5C4"), // .+.^3C01
+            // Lists (column 16, from row 23). Track copies the Item its
+            // index selects; a blank Item is copied too and clears the Cells.
+            result(16, 25, "D4"), // @t0103C4D4E4
+            result(16, 28, "  "), // @t0103C4  E4
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
@@ -324,6 +331,11 @@ mod tests {
             literal(70, 16, "00"), // *>'s blocker
         ]
     }
+
+    /// The `(column, row)` of each result row Tick 0 does not write: the
+    /// unequal Equality's, whose Absence Marker leaves the checked-in text in
+    /// place. A Track copying a blank Item writes its spaces.
+    const RESULTS_NOT_WRITTEN: [(usize, usize); 1] = [(0, 29)];
 
     /// The `(column, row)` of each result row that reads its own Cells as the
     /// previous value before Tick 0 overwrites them: Increment's and
@@ -393,7 +405,7 @@ mod tests {
                 .map(|offset| cell_index(grid, column + offset, row))
                 .collect();
 
-            if expected.trim().is_empty() {
+            if RESULTS_NOT_WRITTEN.contains(&(column, row)) {
                 for &cell in &cells {
                     assert!(
                         !plan.writes.iter().any(|write| write.cell == cell),

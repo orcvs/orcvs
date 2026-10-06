@@ -50,6 +50,11 @@ pub enum Token {
     Function,
     Note,
     Number,
+    /// One two-Cell Item of a List, inside the claim of the Function that
+    /// reads it. Its Cells are Source the Parser never decodes: they record
+    /// no Atom, and the operand that receives a copy of them decides how they
+    /// read.
+    Item,
     /// One Cell of leftover content: written, and claimed by no Language
     /// Unit. The Parser never labels an entry with it; `orcvs` answers it for
     /// such a Cell so its presentation can tell written Cells from blank ones.
@@ -87,12 +92,22 @@ impl Expression {
         self.records.iter().filter_map(|record| record.entry())
     }
 
+    /// The Atoms of every entry, when each entry holds one. A List Item is
+    /// Source rather than a value, so it is not among them.
     pub fn atoms(&self) -> Option<Atoms> {
-        self.records.iter().map(Record::atom).collect()
+        self.records
+            .iter()
+            .filter(|record| !record.is_item())
+            .map(Record::atom)
+            .collect()
     }
 
     pub fn take_atoms(self) -> Option<Atoms> {
-        self.records.into_iter().map(|record| record.atom).collect()
+        self.records
+            .into_iter()
+            .filter(|record| !record.is_item())
+            .map(|record| record.atom)
+            .collect()
     }
 
     pub fn tokens(&self) -> impl DoubleEndedIterator<Item = Token> + '_ {
@@ -109,6 +124,10 @@ impl Expression {
 }
 
 impl PositionedEntry {
+    fn is_item(&self) -> bool {
+        self.token == Token::Item
+    }
+
     fn entry(&self) -> Option<(Token, Atom)> {
         self.atom.map(|atom| (self.token, atom))
     }
@@ -146,6 +165,9 @@ impl Token {
             // rest of the Source, a Grid row rather than a fixed-width value,
             // and nothing asks it to decode one.
             Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
+            // An Item is copied whole and decoded by the operand that
+            // receives it, never as an Item.
+            Self::Item => Err(crate::SyntaxError::ExpectedToken.into()),
             // Leftover content is a Cell no Language Unit claims, so it has
             // no Atom to decode to.
             Self::Char => Err(crate::SyntaxError::ExpectedToken.into()),
@@ -171,9 +193,13 @@ impl Token {
             // the only other thing that can stand at an operand position — is
             // exactly two by the compile-time assertion `define_functions!`
             // holds every spelling to.
-            Token::Bang | Token::Comment | Token::Function | Token::Note | Token::Number => {
-                DEFAULT_TOKEN_LEN
-            }
+            // An Item is the Cell pair one encoding occupies.
+            Token::Bang
+            | Token::Comment
+            | Token::Function
+            | Token::Item
+            | Token::Note
+            | Token::Number => DEFAULT_TOKEN_LEN,
         }
     }
 

@@ -7,3 +7,4 @@
 cc 6cc1f538f56ffd555c535ff195303e7c0ba531517e809d6337cd41001b0212a1 # shrinks to (cols, rows, source) = (2, 3, ".|>>  ")
 cc b30cfa3162a7e17f56f19f3141b66086bcd8761b909ad4b377af26feac1e9cb8 # shrinks to rows = [[], [" ", "^^"], ["^^"], []]
 cc f61719c85e27a7a6160d0bb57cb2e09a16b7fec06729771a58fbf96103458aad # shrinks to ".-.|00./.|0000&^~*~>.-~>6C56D82B.+AC0A"
+cc 397bfc686705e692dca0ef3c32b9ca8e564138e5ff9861095676c54f48ecf033 # shrinks to ".=.-.|.|.|.|.|.|.|.|.|.|.|.|.|.|.|.|.|.+.=536787C6D35DBA95E8C1EE51125BAD8FAF1D0144D8@t.=.>.%.%.>~+~>.>.+~%.>.-~>~*.+.%A763F4D809793D02D7B014C3FBAFB566D55C"
