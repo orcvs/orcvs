@@ -717,7 +717,7 @@ assert_not_contains "$root_dir/.github/workflows/test.yml" 'taiki-e/install-acti
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 
 # `cargo deny` sees the graph whenever a commit changes it, and an advisory is
 # published against code nobody changed. Without a trigger that is time rather
@@ -732,7 +732,7 @@ assert_contains "$root_dir/.github/workflows/advisories.yml" '^      - run: mise
 # stated against it rather than inherited from the two written before it.
 assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
-assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/advisories.yml" 'taiki-e/install-action'
 assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
 # Stated against `bench.yml` for the same reason: unasserted, its `checkout` and
@@ -741,7 +741,7 @@ assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
-assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/bench.yml" 'taiki-e/install-action'
 # The memory series reuses the timing series' action rather than adding one, so
 # every use of it carries the same pin. Two steps per job — the timing series and
@@ -872,7 +872,7 @@ assert_contains "$root_dir/.github/workflows/release-captures.yml" '^          m
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
-assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 # Stated over whichever workflow names the task or the feature, as the Miri rule
 # is, and as a whole trigger set: a pull request, a push to `main`, a merge group
