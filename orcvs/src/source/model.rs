@@ -156,7 +156,7 @@ pub struct RevisionId(u64);
 impl RevisionId {
     fn mint() -> Self {
         let id = NEXT_REVISION_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("Source revision identity space exhausted");
         Self(id)
     }

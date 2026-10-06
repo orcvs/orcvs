@@ -97,7 +97,7 @@ impl TickGate {
     pub(super) fn clear_stop(&self) {
         let _ = self
             .word
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, answered);
+            .try_update(Ordering::AcqRel, Ordering::Acquire, answered);
     }
 }
 

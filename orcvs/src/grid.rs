@@ -10,7 +10,7 @@ struct GridId(u64);
 impl GridId {
     fn new() -> Self {
         let id = NEXT_GRID_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("Grid identity space exhausted");
         Self(id)
     }
