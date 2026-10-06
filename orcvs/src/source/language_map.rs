@@ -35,7 +35,7 @@ struct LanguageMapId(u64);
 impl LanguageMapId {
     fn new() -> Self {
         let id = NEXT_LANGUAGE_MAP_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("LanguageMap identity space exhausted");
         Self(id)
     }
