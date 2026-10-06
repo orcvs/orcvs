@@ -429,7 +429,7 @@ test_merge_only_wasm_job_is_rejected() {
 
 test_patch_bump_of_a_pinned_action_is_accepted() {
   make_fixture
-  perl -pi -e 's/# v7[.]0[.]1$/# v7.0.2/; s/# v4[.]3[.]0$/# v4.4.0/' "$fixture_dir/.github/workflows/test.yml"
+  perl -pi -e 's/# v7[.]0[.]1$/# v7.0.2/; s/# v5[.]0[.]1$/# v5.0.2/' "$fixture_dir/.github/workflows/test.yml"
   assert_accepted "a patch bump of a SHA-pinned action"
 }
 
@@ -489,7 +489,7 @@ test_advisory_workflow_without_the_audit_is_rejected() {
   # The pinning rules are per file, so the newest workflow needs them asserted
   # against it rather than inherited from the two that came before.
   make_fixture
-  perl -pi -e 's/^(      - uses: jdx\/mise-action@)[0-9a-f]{40}( +# v4.*)$/$1v4/' "$fixture_dir/.github/workflows/advisories.yml"
+  perl -pi -e 's/^(      - uses: jdx\/mise-action@)[0-9a-f]{40}( +# v5.*)$/$1v5/' "$fixture_dir/.github/workflows/advisories.yml"
   assert_rejected "an advisory workflow whose mise-action is pinned to a mutable tag"
 }
 
