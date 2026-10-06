@@ -5,16 +5,17 @@
 //! admitted spatial result changes later Turns. Nothing here survives the Tick.
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalCoords, PortalInput,
-    PortalSource, SourceBundle, SourceEffect, Tick,
+    Atom, Function, FunctionInputs, InputPortal, Interpretation, Interpreter, PortalCoords,
+    PortalInput, PortalSource, SourceBundle, SourceEffect, Tick,
 };
 
 use super::{
-    Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Occupancy, Portal,
-    PortalError, PortalUnit, Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan,
-    diagnose, resolve, tick_inputs,
+    Computation, Effect, Encoding, Grid, LanguageMap, Lookup, Occupancy, Operand, Portal,
+    PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, Schedule, SpanWrite,
+    TickPlan, diagnose, diagnose_cycles, resolve, tick_inputs,
 };
 use crate::source::buffer::{Cells, WorkingCells};
+use std::collections::BTreeSet;
 
 ///
 /// Executes an established order against the original Source Snapshot.
@@ -25,7 +26,9 @@ use crate::source::buffer::{Cells, WorkingCells};
 /// a Tick Plan says what to apply, and a Turn that ran can apply nothing.
 ///
 /// The schedule is borrowed and left as it was: every Tick planned against the
-/// same scheduling inputs executes the one schedule they share.
+/// same scheduling inputs executes the one schedule they share. Its order is
+/// taken as built until a Turn finds a dependency the schedule could not know,
+/// and from that Turn the ordering continues under [`continue_ordering`].
 ///
 pub(super) fn execute(
     grid: Grid,
@@ -34,27 +37,92 @@ pub(super) fn execute(
     tick: Tick,
     schedule: &Schedule,
 ) -> (TickPlan, Vec<ComputationState>) {
-    let Schedule {
-        lookup,
-        order,
-        diagnostics,
-    } = schedule;
-    let mut execution = Execution::new(grid, cells, map, tick, lookup, diagnostics.clone());
-    #[cfg_attr(
-        not(test),
-        expect(unused_variables, reason = "only a test build records the Turn")
-    )]
-    for (turn, &index) in order.iter().enumerate() {
-        // Recorded here rather than where the order was built: the ordinal is
-        // the Turn a computation took, which only the loop that walks the
-        // order knows.
-        #[cfg(test)]
-        {
-            execution.states[index].turn = Some(turn);
+    let mut execution = Execution::new(grid, cells, map, tick, schedule);
+    for &index in &schedule.order {
+        if let Some(writers) = execution.take_turn(index) {
+            continue_ordering(&mut execution, schedule, index, writers);
+            break;
         }
-        execution.take_turn(index);
     }
     (resolve(execution.effects), execution.states)
+}
+
+/// Orders `waiter` after each of `writers`.
+fn order_after(
+    outgoing: &mut [Vec<usize>],
+    indegree: &mut [usize],
+    waiter: usize,
+    writers: Vec<usize>,
+) {
+    indegree[waiter] += writers.len();
+    for writer in writers {
+        outgoing[writer].push(waiter);
+    }
+}
+
+///
+/// The ordering loop the schedule ran before the Tick, resumed at the Turn
+/// that found `writers` of the Cells it reads still waiting.
+///
+/// The computations that have not taken their Turn keep every edge the
+/// schedule ordered them by, and `waiter` gains one from each of `writers`.
+/// Ready Turns are taken in Grid order, as the schedule takes them, so a Tick
+/// that defers nothing takes its Turns in the schedule's order. A Turn that
+/// finds more waiting writers waits for them in turn. Turns still waiting when
+/// nothing is ready form a same-Tick dependency cycle, diagnosed and left
+/// untaken as ADR 0065 has the schedule leave its own.
+///
+fn continue_ordering(
+    execution: &mut Execution<'_>,
+    schedule: &Schedule,
+    waiter: usize,
+    writers: Vec<usize>,
+) {
+    let nodes = schedule.lookup.nodes();
+    let mut outgoing = schedule.outgoing.clone();
+    let mut indegree = vec![0_usize; nodes.len()];
+    for (producer, consumers) in outgoing.iter().enumerate() {
+        if !execution.waiting[producer] {
+            continue;
+        }
+        for &consumer in consumers {
+            if execution.waiting[consumer] {
+                indegree[consumer] += 1;
+            }
+        }
+    }
+    order_after(&mut outgoing, &mut indegree, waiter, writers);
+    let grid = execution.grid;
+    let key = |index: usize| (grid.index(nodes[index].anchor), index);
+    let mut ready: BTreeSet<_> = (0..nodes.len())
+        .filter(|&index| execution.waiting[index] && indegree[index] == 0)
+        .map(key)
+        .collect();
+    while let Some((_, index)) = ready.pop_first() {
+        if let Some(writers) = execution.take_turn(index) {
+            order_after(&mut outgoing, &mut indegree, index, writers);
+            continue;
+        }
+        for &consumer in &outgoing[index] {
+            indegree[consumer] -= 1;
+            if indegree[consumer] == 0 {
+                ready.insert(key(consumer));
+            }
+        }
+    }
+    if execution.waiting.iter().any(|&waiting| waiting) {
+        let placed: Vec<bool> = execution.waiting.iter().map(|waiting| !waiting).collect();
+        let diagnostics = diagnose_cycles(
+            &schedule.lookup,
+            &outgoing,
+            &placed,
+            &execution.waiting,
+            &schedule.active,
+        );
+        execution
+            .effects
+            .extend(diagnostics.into_iter().map(Effect::Diagnose));
+    }
 }
 
 /// These facts are independent: an attempted Turn can be syntax-blocked, and
@@ -155,6 +223,15 @@ struct Execution<'a> {
     /// classify every Language Unit rather than the computations alone.
     map: &'a LanguageMap,
     lookup: &'a Lookup,
+    /// Which roots the schedule found activation can reach this Tick. A writer
+    /// outside them takes no Turn, so no Turn waits for it.
+    active: &'a [bool],
+    /// Which computations the order holds a Turn for that they have not yet
+    /// taken.
+    waiting: Vec<bool>,
+    /// How many Turns have been taken, which is the next Turn's ordinal.
+    #[cfg(test)]
+    turns: usize,
     states: Vec<ComputationState>,
     effects: Vec<Effect>,
     /// Intact Functions and Bang displays placed this Tick. Neither has a pending Turn.
@@ -178,9 +255,19 @@ impl<'a> Execution<'a> {
         cells: Cells<'a>,
         map: &'a LanguageMap,
         tick: Tick,
-        lookup: &'a Lookup,
-        diagnostics: Vec<Diagnostic>,
+        schedule: &'a Schedule,
     ) -> Self {
+        let Schedule {
+            lookup,
+            order,
+            diagnostics,
+            active,
+            ..
+        } = schedule;
+        let mut waiting = vec![false; lookup.nodes().len()];
+        for &index in order {
+            waiting[index] = true;
+        }
         let mut execution = Self {
             grid,
             original: cells,
@@ -188,6 +275,10 @@ impl<'a> Execution<'a> {
             tick,
             map,
             lookup,
+            active,
+            waiting,
+            #[cfg(test)]
+            turns: 0,
             states: lookup
                 .nodes()
                 .iter()
@@ -206,7 +297,7 @@ impl<'a> Execution<'a> {
                     interpretations: 0,
                 })
                 .collect(),
-            effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
+            effects: diagnostics.iter().cloned().map(Effect::Diagnose).collect(),
             placed_units: Vec::new(),
             source_writes: Vec::new(),
         };
@@ -276,38 +367,151 @@ impl<'a> Execution<'a> {
         Some(signature)
     }
 
+    ///
+    /// Takes `index`'s Turn, or answers the writers it waits for.
+    ///
+    /// A Turn waits only where its Input Portal is found from its operands and
+    /// a writer of the Cells it selects has not yet taken its Turn. It then
+    /// leaves no effect and takes its Turn again once they have. Every other
+    /// Turn is taken here.
+    ///
+    fn take_turn(&mut self, index: usize) -> Option<Vec<usize>> {
+        let writers = self.turn(index);
+        if writers.is_none() {
+            self.waiting[index] = false;
+            // Recorded here rather than where the order was built: the
+            // ordinal is the Turn a computation took, which only the loop
+            // that takes it knows.
+            #[cfg(test)]
+            {
+                self.states[index].turn = Some(self.turns);
+                self.turns += 1;
+            }
+        }
+        writers
+    }
+
     /// Every failure settles this Turn and records its diagnostic, a violated
     /// execution order included: it refuses the one write or lock it reaches,
     /// and every other Turn of the Tick still takes place.
-    fn take_turn(&mut self, index: usize) {
-        let Some(signature) = self.opens_turn(index) else {
-            return;
-        };
+    fn turn(&mut self, index: usize) -> Option<Vec<usize>> {
+        let signature = self.opens_turn(index)?;
         let lookup = self.lookup;
         let node = &lookup.nodes()[index];
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
         let result = self.operands(node, signature).and_then(|operands| {
-            // Recorded beside the call rather than before it: a Turn whose
-            // operands would not resolve is one the Interpreter never ran for,
-            // and the record says which of the two happened.
-            #[cfg(test)]
-            {
-                self.states[index].interpreted = Some(tick);
-                self.states[index].interpretations += 1;
-            }
-            let inputs =
-                FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
-            Interpreter::execute_function(function, operands, inputs)
-                .map_err(|error| error.to_string())
+            let coords = self.input_portal(index, function, &operands)?;
+            Ok((operands, coords))
         });
-        match result {
-            Err(message) => self.effects.push(Effect::Diagnose(diagnose(node, message))),
+        let (operands, coords) = match result {
+            Ok(resolved) => resolved,
+            Err(message) => {
+                self.effects.push(Effect::Diagnose(diagnose(node, message)));
+                return None;
+            }
+        };
+        if function.input_portal() == Some(InputPortal::AfterOperands) {
+            let writers = self.unwritten(index, coords);
+            if !writers.is_empty() {
+                return Some(writers);
+            }
+        }
+        // Recorded beside the call rather than before it: a Turn whose
+        // operands would not resolve is one the Interpreter never ran for, and
+        // the record says which of the two happened.
+        #[cfg(test)]
+        {
+            self.states[index].interpreted = Some(tick);
+            self.states[index].interpretations += 1;
+        }
+        let inputs =
+            FunctionInputs::with_portal_source(tick, self.portal_source(node, function, coords));
+        match Interpreter::execute_function(function, operands, inputs) {
+            Err(error) => self
+                .effects
+                .push(Effect::Diagnose(diagnose(node, error.to_string()))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
             Ok(Interpretation::Cell(atom)) => self.deliver_value(index, atom),
             Ok(Interpretation::Source(effect)) => self.deliver_source_effect(index, effect),
             Ok(Interpretation::Lock) => self.lock_portal(index),
         }
+        None
+    }
+
+    ///
+    /// Where `function`'s Input Portal stands relative to `index`'s anchor,
+    /// once its operands are resolved, or `None` where it names none.
+    ///
+    /// An anchored Portal is its declaration. A Portal after the operands is
+    /// the selected pair east of the last Cell its operands occupy, nested
+    /// operands included, and a selection that refuses diagnoses the Turn.
+    ///
+    fn input_portal(
+        &self,
+        index: usize,
+        function: Function,
+        operands: &[Atom],
+    ) -> Result<Option<PortalCoords>, String> {
+        match function.input_portal() {
+            None => Ok(None),
+            Some(InputPortal::Anchored(coords)) => Ok(Some(coords)),
+            Some(InputPortal::AfterOperands) => {
+                let pair = function
+                    .selected_pair(operands)
+                    .expect("a Portal after the operands is selected by them")
+                    .map_err(|error| error.to_string())?;
+                let anchor = self.grid.index(self.lookup.nodes()[index].anchor).get();
+                let columns = self.operands_end(index) - anchor + usize::from(pair) * SCALAR_WIDTH;
+                // A step no row holds resolves no Portal, which the read
+                // diagnoses as it does a Jump's Input Portal outside the Grid.
+                Ok(i16::try_from(columns)
+                    .ok()
+                    .map(|columns| PortalCoords { columns, rows: 0 }))
+            }
+        }
+    }
+
+    /// The Cell after the last one `index`'s operands occupy, following a
+    /// nested last operand to the end of its own.
+    fn operands_end(&self, index: usize) -> usize {
+        let node = &self.lookup.nodes()[index];
+        match node.operands.last() {
+            Some(Operand {
+                child: Some(child), ..
+            }) => self.operands_end(*child),
+            Some(operand) => operand.cells.end,
+            None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
+        }
+    }
+
+    ///
+    /// The writers of the pair at `coords` that have not yet taken their Turn,
+    /// which `index` waits for.
+    ///
+    /// The rule is the one the schedule applies to an anchored Input Portal: a
+    /// reader goes after every writer whose reservation covers the Cells it
+    /// reads, other than itself and those activation cannot reach this Tick.
+    ///
+    fn unwritten(&self, index: usize, coords: Option<PortalCoords>) -> Vec<usize> {
+        let nodes = self.lookup.nodes();
+        let Some(read) = coords
+            .and_then(|coords| Portal::named(self.grid, nodes[index].anchor, coords).ok())
+            .and_then(|portal| portal.span(SCALAR_WIDTH).ok())
+        else {
+            return Vec::new();
+        };
+        let mut writers: Vec<usize> = self
+            .lookup
+            .writes
+            .touching(read.range())
+            .filter(|&writer| {
+                writer != index && self.waiting[writer] && self.active[nodes[writer].owner]
+            })
+            .collect();
+        writers.sort_unstable();
+        writers.dedup();
+        writers
     }
 
     fn syntax_blocks(&self, node: &Computation, function: Function) -> bool {
@@ -343,10 +547,19 @@ impl<'a> Execution<'a> {
             })
     }
 
-    /// Borrow working Source at the Function's Input Portal.
-    fn portal_source(&self, node: &Computation, function: Function) -> PortalSource<'_> {
-        let Some(coords) = function.input_portal() else {
+    /// Borrow working Source at the Function's Input Portal, which `coords`
+    /// resolved for this Turn.
+    fn portal_source(
+        &self,
+        node: &Computation,
+        function: Function,
+        coords: Option<PortalCoords>,
+    ) -> PortalSource<'_> {
+        if function.input_portal().is_none() {
             return PortalSource::none();
+        }
+        let Some(coords) = coords else {
+            return PortalSource::from_cells(None);
         };
         if let Some(input) = function.portal_input() {
             return PortalSource::from_cells(self.borrow_portal_cells(node, coords, input));
@@ -368,7 +581,8 @@ impl<'a> Execution<'a> {
         Some(self.working.text(span.range()))
     }
 
-    /// The Cells a Jump reads, when they are one complete aligned unit.
+    /// The Cells a Jump or Track reads, when they are one complete aligned
+    /// unit.
     ///
     /// Invalid and partial input stay absent so the Interpreter diagnoses
     /// rather than answering an Atom that was never a Language Unit.
@@ -394,11 +608,7 @@ impl<'a> Execution<'a> {
     /// child's one consumer. The child's Atom type does not cross: a Note
     /// returned into a Number operand is read as the Number it spells, exactly
     /// as the same characters written there by a Portal would be.
-    fn operands(
-        &mut self,
-        node: &Computation,
-        signature: lang::Tokens,
-    ) -> Result<Vec<Atom>, String> {
+    fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Atom>, String> {
         node.operands
             .iter()
             .zip(signature)
@@ -408,7 +618,7 @@ impl<'a> Execution<'a> {
                     .filter(|child| !self.states[*child].suppressed)
                 {
                     let anchor = self.lookup.nodes()[child].anchor;
-                    let returned = match self.states[child].result.take().map(Encoding::render) {
+                    let returned = match self.states[child].result.map(Encoding::render) {
                         Some(Ok(Rendered::Cells(encoding))) => encoding,
                         Some(Ok(Rendered::Nothing)) | None => {
                             return Err(format!(

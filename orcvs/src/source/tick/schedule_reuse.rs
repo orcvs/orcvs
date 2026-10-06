@@ -389,3 +389,30 @@ mod property {
         }
     }
 }
+
+#[test]
+fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // The Clock selects pair 0, 1 and 2 in turn. `&^` writes pair 1 from
+    // below, so Track waits for it on every Tick that selects that pair and
+    // on no other, while every Tick plans against one shared schedule.
+    let grid = Grid::with_shape(16, 3);
+    let mut source = source_of(
+        grid,
+        &["@t~.010303C4  E4", "            &^  ", "            D4  "],
+    );
+    agreeing_tick(&mut source, 0);
+    let settled = source.shared_language_map();
+    let mut selected = vec![source.snapshot()[16..18].to_owned()];
+    for tick in 1..6 {
+        agreeing_tick(&mut source, tick);
+        selected.push(source.snapshot()[16..18].to_owned());
+        assert!(
+            source
+                .language_map()
+                .schedule_cache()
+                .is_shared_with(settled.schedule_cache()),
+            "Tick {tick}"
+        );
+    }
+    assert_eq!(selected, ["C4", "D4", "E4", "C4", "D4", "E4"]);
+}

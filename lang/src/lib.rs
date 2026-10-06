@@ -153,6 +153,21 @@ impl PortalCoords {
     };
 }
 
+/// Where a Function's Input Portal stands.
+///
+/// `orcvs` resolves either kind against the Grid, as it does
+/// [`PortalCoords`]. An anchored Portal is known before the Tick, so
+/// scheduling orders it before any Turn; a Portal after the operands is known
+/// only once the operands are read at the Function's Turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputPortal {
+    /// A fixed step from the Function's anchor.
+    Anchored(PortalCoords),
+    /// The Cell pair [`Function::selected_pair`] counts east of the end of the
+    /// Function's last operand.
+    AfterOperands,
+}
+
 /// Which validated effect bundle a Source-writing Function plans.
 ///
 /// The two Source-writing Function groups differ here and in their activation

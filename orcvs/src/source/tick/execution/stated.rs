@@ -59,26 +59,27 @@ pub(in crate::source::tick) fn plan_with_answers(
             "one computation is stated one answer: two are stated here for the same anchor"
         );
     }
-    let Schedule {
-        lookup,
-        order,
-        diagnostics,
-    } = order_turns(lookup, diagnostics);
-    let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &lookup, diagnostics);
+    let schedule: Schedule = order_turns(lookup, diagnostics);
+    let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
-    for (turn, index) in order.into_iter().enumerate() {
-        let anchor = grid.index(lookup.nodes()[index].anchor);
-        // The ordinal production records, recorded here for the reason the
-        // loop around it is reproduced: a stated answer replaces what one
-        // computation answers and nothing else, and the Turn it took is
-        // the Turn it would have taken.
-        execution.states[index].turn = Some(turn);
+    for &index in &schedule.order {
+        let anchor = grid.index(schedule.lookup.nodes()[index].anchor);
         match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {
                 stated[position] = true;
+                // The ordinal production records, recorded here for the
+                // reason the loop around it is reproduced: a stated answer
+                // replaces what one computation answers and nothing else, and
+                // the Turn it took is the Turn it would have taken.
+                execution.waiting[index] = false;
+                execution.states[index].turn = Some(execution.turns);
+                execution.turns += 1;
                 execution.state_answer(index, answers[position].1);
             }
-            None => execution.take_turn(index),
+            None => assert!(
+                execution.take_turn(index).is_none(),
+                "a stated fixture holds no Turn that waits on a writer"
+            ),
         }
     }
     // Every order runs to its end, so an answer whose computation the order

@@ -1,15 +1,19 @@
 //! Tick-local execution of Parser-owned expressions.
 //!
-//! Fixed Portal destinations and nested ownership determine the complete order
-//! before execution. Spatial writes remain character encodings until consumed,
-//! and a nested result returns to its parent as the same encoding, so the
-//! receiving operand decodes both. Only the final effects are published.
+//! Fixed Portal destinations and nested ownership determine the order before
+//! execution. A Portal found from operands at a Turn adds its dependencies to
+//! that order during the Tick. Spatial writes remain character encodings until
+//! consumed, and a nested result returns to its parent as the same encoding,
+//! so the receiving operand decodes both. Only the final effects are
+//! published.
 
 pub(super) mod execution;
 #[cfg(test)]
 mod nested_jump;
 #[cfg(test)]
 mod schedule_reuse;
+#[cfg(test)]
+mod track;
 
 use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,7 +23,7 @@ use std::sync::{Arc, OnceLock};
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
-use super::portal::{Portal, PortalAccess, SpanWrite};
+use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -52,6 +56,11 @@ struct Schedule {
     lookup: Lookup,
     order: Vec<usize>,
     diagnostics: Vec<Diagnostic>,
+    /// Every dependency edge `order` was built from, by producer, so that
+    /// execution can continue ordering from a Turn that finds one more.
+    outgoing: Vec<Vec<usize>>,
+    /// Which roots activation can reach this Tick, by computation.
+    active: Vec<bool>,
 }
 
 struct Claim {
@@ -468,7 +477,8 @@ fn plan_unshared(
 ///   target is classified by. A unit records its kind and no value.
 ///
 /// Portal destinations are read from the Function's declaration, never from
-/// an operand. An Operand Literal's value, working Source and the Tick are
+/// an operand. A Portal its declaration places after the operands is found at
+/// the Turn and is no scheduling input. An Operand Literal's value, working Source and the Tick are
 /// execution's alone, so a Tick that writes new values into Cells whose units
 /// keep their Spans changes no scheduling input. Anything [`computations`] or
 /// [`Lookup::new`] reads from the Map is a scheduling input and must be
@@ -950,41 +960,62 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
             pending.extend_from_slice(&outgoing[index]);
         }
         order.retain(|&index| !stopped[index]);
-        // Each cycle is diagnosed once, at the first computation on it in
-        // Parser order: a computation still waiting may only be downstream of
-        // a cycle, and two computations that reach each other share one.
-        let on_cycle: Vec<_> = (0..nodes.len())
-            .map(|index| !placed[index] && reaches(&outgoing, index, index))
-            .collect();
-        let mut diagnosed = vec![false; nodes.len()];
-        let mut holds_cycle = vec![false; nodes.len()];
-        for index in (0..nodes.len()).filter(|&index| on_cycle[index]) {
-            holds_cycle[nodes[index].owner] = true;
-            if diagnosed[index] {
-                continue;
-            }
-            diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
-            for other in (index..nodes.len()).filter(|&other| on_cycle[other]) {
-                if reaches(&outgoing, index, other) && reaches(&outgoing, other, index) {
-                    diagnosed[other] = true;
-                }
-            }
-        }
-        // An Expression stopped only because it depends on a cycle says so at
-        // its root, so a performer can tell the cycle from what it starves. A
-        // root no activation can reach this Tick takes no Turn with or without
-        // the cycle, so it has nothing to wait for and stays quiet.
-        for (index, node) in nodes.iter().enumerate() {
-            if node.parent.is_none() && stopped[index] && !holds_cycle[index] && active[index] {
-                diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
-            }
-        }
+        diagnostics.extend(diagnose_cycles(
+            &lookup, &outgoing, &placed, &stopped, &active,
+        ));
     }
     Schedule {
         lookup,
         order,
         diagnostics,
+        outgoing,
+        active,
     }
+}
+
+///
+/// The diagnostics ADR 0065 owes the computations no order placed.
+///
+/// Each cycle is diagnosed once, at the first computation on it in Parser
+/// order: a computation still waiting may only be downstream of a cycle, and
+/// two computations that reach each other share one. An Expression stopped
+/// only because it depends on a cycle says so at its root, so a performer can
+/// tell the cycle from what it starves. A root no activation can reach this
+/// Tick takes no Turn with or without the cycle, so it has nothing to wait
+/// for and stays quiet.
+///
+fn diagnose_cycles(
+    lookup: &Lookup,
+    outgoing: &[Vec<usize>],
+    placed: &[bool],
+    stopped: &[bool],
+    active: &[bool],
+) -> Vec<Diagnostic> {
+    let nodes = lookup.nodes();
+    let mut diagnostics = Vec::new();
+    let on_cycle: Vec<_> = (0..nodes.len())
+        .map(|index| !placed[index] && reaches(outgoing, index, index))
+        .collect();
+    let mut diagnosed = vec![false; nodes.len()];
+    let mut holds_cycle = vec![false; nodes.len()];
+    for index in (0..nodes.len()).filter(|&index| on_cycle[index]) {
+        holds_cycle[nodes[index].owner] = true;
+        if diagnosed[index] {
+            continue;
+        }
+        diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
+        for other in (index..nodes.len()).filter(|&other| on_cycle[other]) {
+            if reaches(outgoing, index, other) && reaches(outgoing, other, index) {
+                diagnosed[other] = true;
+            }
+        }
+    }
+    for (index, node) in nodes.iter().enumerate() {
+        if node.parent.is_none() && stopped[index] && !holds_cycle[index] && active[index] {
+            diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
+        }
+    }
+    diagnostics
 }
 
 ///

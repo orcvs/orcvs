@@ -1,6 +1,6 @@
 use crate::{
     Atom, Error, Function, InterpretationError,
-    atom::{note_atom_from_spelling, number_atom_from_spelling},
+    atom::{note_atom_from_spelling, number_atom_from_spelling, operands::Track},
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
 };
@@ -30,6 +30,29 @@ pub fn jump(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
     Ok(copied_atom(cells).ok_or(InterpretationError::JumpInput { function })?)
 }
 
+/// Track: `@t index count`.
+///
+/// The Language Unit at the pair its operands select, read as a Jump reads its
+/// Input Portal. The Turn supplies the Cells of that pair, so evaluation binds
+/// the operands, refuses a zero `count`, and answers what Jump would.
+pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
+    selected_pair(ctx.stack.extract::<Track>()?)?;
+    jump(ctx, Function::Track)
+}
+
+/// The pair Track's operands select, `index % count`, counted from zero east
+/// of its last operand.
+pub(crate) fn selected_pair(Track { index, count }: Track) -> Result<u8, Error> {
+    if count == 0 {
+        return Err(InterpretationError::ZeroWrap {
+            function: Function::Track,
+            role: "count",
+        }
+        .into());
+    }
+    Ok(index % count)
+}
+
 /// The Atom two Cells spell, read as a Function, then a Number, then a Note.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
@@ -46,8 +69,8 @@ fn copied_atom(cells: &str) -> Option<Atom> {
 mod test {
     use super::jump;
     use crate::{
-        Anchor, Atom, Function, FunctionInputs, InterpretationError, PortalSource, Tick,
-        TickInputs, interpreter::Context,
+        Anchor, Atom, Function, FunctionInputs, Interpretation, InterpretationError, Interpreter,
+        Note, PortalSource, Tick, TickInputs, interpreter::Context,
     };
 
     // Decode admitted Portal Cells. Alignment and partial Spans are
@@ -125,5 +148,78 @@ mod test {
                 "{cells:?} was read as a Language Unit",
             );
         }
+    }
+
+    /// Evaluates Track over `index` and `count` with `cells` at the pair the
+    /// Turn found them to select.
+    fn track(index: u8, count: u8, cells: Option<&str>) -> Result<Interpretation, crate::Error> {
+        Interpreter::execute_function(
+            Function::Track,
+            [Atom::Number(index), Atom::Number(count)],
+            FunctionInputs::with_portal_source(
+                TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+                PortalSource::from_cells(cells),
+            ),
+        )
+    }
+
+    #[test]
+    fn track_selects_index_modulo_count() {
+        let pair = |index, count| {
+            Function::Track
+                .selected_pair(&[Atom::Number(index), Atom::Number(count)])
+                .expect("Track reads after its operands")
+                .unwrap()
+        };
+        assert_eq!(pair(1, 3), 1);
+        assert_eq!(pair(5, 3), 2);
+        assert_eq!(pair(0xFF, 0xFF), 0);
+        assert!(Function::JumpEast.selected_pair(&[]).is_none());
+    }
+
+    #[test]
+    fn a_zero_count_selects_no_pair() {
+        let zero = || {
+            crate::Error::from(InterpretationError::ZeroWrap {
+                function: Function::Track,
+                role: "count",
+            })
+            .to_string()
+        };
+        let selected = Function::Track
+            .selected_pair(&[Atom::Number(1), Atom::Number(0)])
+            .expect("Track reads after its operands");
+        assert_eq!(selected.unwrap_err().to_string(), zero());
+        assert_eq!(track(1, 0, Some("D4")).unwrap_err().to_string(), zero());
+    }
+
+    #[test]
+    fn track_answers_what_a_jump_answers_for_the_same_cells() {
+        for cells in ["D4", "01", "**", "  ", ".+"] {
+            let jumped = evaluate(Function::JumpEast, Some(cells)).unwrap();
+            assert_eq!(
+                track(1, 3, Some(cells)).unwrap(),
+                Interpretation::Cell(jumped),
+                "{cells:?}"
+            );
+        }
+        // Read as a Jump reads it: Number before Note, so `D4` is `0xD4`
+        // and `G4`, which spells no Number, is the Note.
+        assert_eq!(
+            track(1, 3, Some("D4")).unwrap(),
+            Interpretation::Cell(Atom::Number(0xD4))
+        );
+        assert_eq!(
+            track(1, 3, Some("G4")).unwrap(),
+            Interpretation::Cell(Atom::Note(Note::try_from(67).unwrap()))
+        );
+        assert!(matches!(
+            track(1, 3, Some("xx")),
+            Err(crate::Error::Interpretation(
+                InterpretationError::JumpInput {
+                    function: Function::Track
+                }
+            ))
+        ));
     }
 }
