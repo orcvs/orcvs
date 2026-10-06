@@ -10,12 +10,11 @@ use lang::{
 };
 
 use super::{
-    Computation, Effect, Encoding, Grid, LanguageMap, Lookup, Occupancy, Operand, Portal,
+    Computation, Dependencies, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal,
     PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, Schedule, SpanWrite,
-    TickPlan, diagnose, diagnose_cycles, resolve, tick_inputs,
+    TickPlan, diagnose, diagnose_cycles, input_writers, resolve, tick_inputs,
 };
 use crate::source::buffer::{Cells, WorkingCells};
-use std::collections::BTreeSet;
 
 ///
 /// Executes an established order against the original Source Snapshot.
@@ -28,7 +27,8 @@ use std::collections::BTreeSet;
 /// The schedule is borrowed and left as it was: every Tick planned against the
 /// same scheduling inputs executes the one schedule they share. Its order is
 /// taken as built until a Turn finds a dependency the schedule could not know,
-/// and from that Turn the ordering continues under [`continue_ordering`].
+/// and from that Turn the ordering continues under
+/// [`Execution::continue_ordering`].
 ///
 pub(super) fn execute(
     grid: Grid,
@@ -40,89 +40,11 @@ pub(super) fn execute(
     let mut execution = Execution::new(grid, cells, map, tick, schedule);
     for &index in &schedule.order {
         if let Some(writers) = execution.take_turn(index) {
-            continue_ordering(&mut execution, schedule, index, writers);
+            execution.continue_ordering(index, writers);
             break;
         }
     }
     (resolve(execution.effects), execution.states)
-}
-
-/// Orders `waiter` after each of `writers`.
-fn order_after(
-    outgoing: &mut [Vec<usize>],
-    indegree: &mut [usize],
-    waiter: usize,
-    writers: Vec<usize>,
-) {
-    indegree[waiter] += writers.len();
-    for writer in writers {
-        outgoing[writer].push(waiter);
-    }
-}
-
-///
-/// The ordering loop the schedule ran before the Tick, resumed at the Turn
-/// that found `writers` of the Cells it reads still waiting.
-///
-/// The computations that have not taken their Turn keep every edge the
-/// schedule ordered them by, and `waiter` gains one from each of `writers`.
-/// Ready Turns are taken in Grid order, as the schedule takes them, so a Tick
-/// that defers nothing takes its Turns in the schedule's order. A Turn that
-/// finds more waiting writers waits for them in turn. Turns still waiting when
-/// nothing is ready form a same-Tick dependency cycle, diagnosed and left
-/// untaken as ADR 0065 has the schedule leave its own.
-///
-fn continue_ordering(
-    execution: &mut Execution<'_>,
-    schedule: &Schedule,
-    waiter: usize,
-    writers: Vec<usize>,
-) {
-    let nodes = schedule.lookup.nodes();
-    let mut outgoing = schedule.outgoing.clone();
-    let mut indegree = vec![0_usize; nodes.len()];
-    for (producer, consumers) in outgoing.iter().enumerate() {
-        if !execution.waiting[producer] {
-            continue;
-        }
-        for &consumer in consumers {
-            if execution.waiting[consumer] {
-                indegree[consumer] += 1;
-            }
-        }
-    }
-    order_after(&mut outgoing, &mut indegree, waiter, writers);
-    let grid = execution.grid;
-    let key = |index: usize| (grid.index(nodes[index].anchor), index);
-    let mut ready: BTreeSet<_> = (0..nodes.len())
-        .filter(|&index| execution.waiting[index] && indegree[index] == 0)
-        .map(key)
-        .collect();
-    while let Some((_, index)) = ready.pop_first() {
-        if let Some(writers) = execution.take_turn(index) {
-            order_after(&mut outgoing, &mut indegree, index, writers);
-            continue;
-        }
-        for &consumer in &outgoing[index] {
-            indegree[consumer] -= 1;
-            if indegree[consumer] == 0 {
-                ready.insert(key(consumer));
-            }
-        }
-    }
-    if execution.waiting.iter().any(|&waiting| waiting) {
-        let placed: Vec<bool> = execution.waiting.iter().map(|waiting| !waiting).collect();
-        let diagnostics = diagnose_cycles(
-            &schedule.lookup,
-            &outgoing,
-            &placed,
-            &execution.waiting,
-            &schedule.active,
-        );
-        execution
-            .effects
-            .extend(diagnostics.into_iter().map(Effect::Diagnose));
-    }
 }
 
 /// These facts are independent: an attempted Turn can be syntax-blocked, and
@@ -212,6 +134,18 @@ impl ComputationState {
     }
 }
 
+/// A Function's Input Portal as one Turn resolves it.
+#[derive(Clone, Copy)]
+enum TurnPortal {
+    /// The Function reads no Input Portal.
+    None,
+    /// A Portal at a fixed offset from the anchor, which the schedule orders.
+    Anchored(PortalCoords),
+    /// A Portal the operands select, which the Turn orders. `None` where the
+    /// selection lies beyond any offset a row holds.
+    Selected(Option<PortalCoords>),
+}
+
 struct Execution<'a> {
     grid: Grid,
     original: Cells<'a>,
@@ -222,10 +156,7 @@ struct Execution<'a> {
     /// Comment and a standalone Bang are absent from it, and those questions
     /// classify every Language Unit rather than the computations alone.
     map: &'a LanguageMap,
-    lookup: &'a Lookup,
-    /// Which roots the schedule found activation can reach this Tick. A writer
-    /// outside them takes no Turn, so no Turn waits for it.
-    active: &'a [bool],
+    schedule: &'a Schedule,
     /// Which computations the order holds a Turn for that they have not yet
     /// taken.
     waiting: Vec<bool>,
@@ -259,24 +190,18 @@ impl<'a> Execution<'a> {
     ) -> Self {
         let Schedule {
             lookup,
-            order,
             diagnostics,
-            active,
+            stopped,
             ..
         } = schedule;
-        let mut waiting = vec![false; lookup.nodes().len()];
-        for &index in order {
-            waiting[index] = true;
-        }
         let mut execution = Self {
             grid,
             original: cells,
             working: WorkingCells::new(cells),
             tick,
             map,
-            lookup,
-            active,
-            waiting,
+            schedule,
+            waiting: stopped.iter().map(|stopped| !stopped).collect(),
             #[cfg(test)]
             turns: 0,
             states: lookup
@@ -324,7 +249,7 @@ impl<'a> Execution<'a> {
     /// prologue.
     ///
     fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
-        let node = &self.lookup.nodes()[index];
+        let node = &self.schedule.lookup.nodes()[index];
         // Activation is the owner's to declare, and the declaration that
         // decides it is the one the owner is running: the Function the Parser
         // found until an earlier replacement in this same Tick changed it. It
@@ -378,17 +303,69 @@ impl<'a> Execution<'a> {
     fn take_turn(&mut self, index: usize) -> Option<Vec<usize>> {
         let writers = self.turn(index);
         if writers.is_none() {
-            self.waiting[index] = false;
-            // Recorded here rather than where the order was built: the
-            // ordinal is the Turn a computation took, which only the loop
-            // that takes it knows.
-            #[cfg(test)]
-            {
-                self.states[index].turn = Some(self.turns);
-                self.turns += 1;
-            }
+            self.finish_turn(index);
         }
         writers
+    }
+
+    /// Records that `index` has taken its Turn, which no later Turn waits on.
+    fn finish_turn(&mut self, index: usize) {
+        self.waiting[index] = false;
+        // The ordinal counts Turns as they are taken. It is not a position in
+        // the schedule's order, which a Turn that waits departs from.
+        #[cfg(test)]
+        {
+            self.states[index].turn = Some(self.turns);
+            self.turns += 1;
+        }
+    }
+
+    ///
+    /// The ordering loop the schedule ran before the Tick, resumed at the Turn
+    /// that found `writers` of the Cells it reads still waiting.
+    ///
+    /// The computations that have not taken their Turn keep every edge the
+    /// schedule ordered them by, and `waiter` gains one from each of `writers`.
+    /// Ready Turns are taken by [`Dependencies::take_ready`], the loop the
+    /// schedule is ordered by, so a Tick that defers nothing takes its Turns
+    /// in the schedule's order. A Turn that finds more waiting writers waits
+    /// for them in turn. Turns still waiting when nothing is ready are on a
+    /// same-Tick dependency cycle or wait on one, and are diagnosed and left
+    /// untaken: a cycle stops what it reaches and nothing else, so every other
+    /// Turn of the Tick is still taken.
+    ///
+    fn continue_ordering(&mut self, waiter: usize, writers: Vec<usize>) {
+        let schedule = self.schedule;
+        let waiting = &self.waiting;
+        let mut dependencies = Dependencies::new(
+            waiting.len(),
+            schedule
+                .outgoing
+                .iter()
+                .enumerate()
+                .filter(|&(producer, _)| waiting[producer])
+                .flat_map(|(producer, consumers)| {
+                    consumers
+                        .iter()
+                        .filter(|&&consumer| waiting[consumer])
+                        .map(move |&consumer| (producer, consumer))
+                }),
+        );
+        dependencies.wait_on(waiter, writers);
+        let ready = dependencies.free(|index| waiting[index]);
+        dependencies.take_ready(&schedule.lookup, ready, |index| self.take_turn(index));
+        if self.waiting.iter().any(|&waiting| waiting) {
+            let placed: Vec<bool> = self.waiting.iter().map(|waiting| !waiting).collect();
+            let diagnostics = diagnose_cycles(
+                &schedule.lookup,
+                &dependencies.outgoing,
+                &placed,
+                &self.waiting,
+                &schedule.active,
+            );
+            self.effects
+                .extend(diagnostics.into_iter().map(Effect::Diagnose));
+        }
     }
 
     /// Every failure settles this Turn and records its diagnostic, a violated
@@ -396,23 +373,23 @@ impl<'a> Execution<'a> {
     /// and every other Turn of the Tick still takes place.
     fn turn(&mut self, index: usize) -> Option<Vec<usize>> {
         let signature = self.opens_turn(index)?;
-        let lookup = self.lookup;
+        let lookup = &self.schedule.lookup;
         let node = &lookup.nodes()[index];
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
         let result = self.operands(node, signature).and_then(|operands| {
-            let coords = self.input_portal(index, function, &operands)?;
-            Ok((operands, coords))
+            let portal = self.turn_portal(index, function, &operands)?;
+            Ok((operands, portal))
         });
-        let (operands, coords) = match result {
+        let (operands, portal) = match result {
             Ok(resolved) => resolved,
             Err(message) => {
                 self.effects.push(Effect::Diagnose(diagnose(node, message)));
                 return None;
             }
         };
-        if function.input_portal() == Some(InputPortal::AfterOperands) {
-            let writers = self.unwritten(index, coords);
+        if let TurnPortal::Selected(coords) = portal {
+            let writers = self.pending_writers(index, coords);
             if !writers.is_empty() {
                 return Some(writers);
             }
@@ -426,7 +403,7 @@ impl<'a> Execution<'a> {
             self.states[index].interpretations += 1;
         }
         let inputs =
-            FunctionInputs::with_portal_source(tick, self.portal_source(node, function, coords));
+            FunctionInputs::with_portal_source(tick, self.portal_source(node, function, portal));
         match Interpreter::execute_function(function, operands, inputs) {
             Err(error) => self
                 .effects
@@ -440,46 +417,50 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// Where `function`'s Input Portal stands relative to `index`'s anchor,
-    /// once its operands are resolved, or `None` where it names none.
+    /// `function`'s Input Portal for `index`'s Turn, once its operands are
+    /// resolved.
     ///
     /// An anchored Portal is its declaration. A Portal after the operands is
     /// the selected pair east of the last Cell its operands occupy, nested
     /// operands included, and a selection that refuses diagnoses the Turn.
     ///
-    fn input_portal(
+    fn turn_portal(
         &self,
         index: usize,
         function: Function,
         operands: &[Atom],
-    ) -> Result<Option<PortalCoords>, String> {
+    ) -> Result<TurnPortal, String> {
         match function.input_portal() {
-            None => Ok(None),
-            Some(InputPortal::Anchored(coords)) => Ok(Some(coords)),
+            None => Ok(TurnPortal::None),
+            Some(InputPortal::Anchored(coords)) => Ok(TurnPortal::Anchored(coords)),
             Some(InputPortal::AfterOperands) => {
-                let pair = function
-                    .selected_pair(operands)
-                    .expect("a Portal after the operands is selected by them")
-                    .map_err(|error| error.to_string())?;
-                let anchor = self.grid.index(self.lookup.nodes()[index].anchor).get();
+                let pair = lang::track_pair(operands).map_err(|error| error.to_string())?;
+                let anchor = self
+                    .grid
+                    .index(self.schedule.lookup.nodes()[index].anchor)
+                    .get();
                 let columns = self.operands_end(index) - anchor + usize::from(pair) * SCALAR_WIDTH;
                 // A step no row holds resolves no Portal, which the read
                 // diagnoses as it does a Jump's Input Portal outside the Grid.
-                Ok(i16::try_from(columns)
-                    .ok()
-                    .map(|columns| PortalCoords { columns, rows: 0 }))
+                Ok(TurnPortal::Selected(
+                    i16::try_from(columns)
+                        .ok()
+                        .map(|columns| PortalCoords { columns, rows: 0 }),
+                ))
             }
         }
     }
 
     /// The Cell after the last one `index`'s operands occupy, following a
-    /// nested last operand to the end of its own.
+    /// nested last operand to the end of its own. A suppressed child is read
+    /// as the two Cells at its anchor, as [`Execution::operands`] reads it, so
+    /// the operand ends there.
     fn operands_end(&self, index: usize) -> usize {
-        let node = &self.lookup.nodes()[index];
+        let node = &self.schedule.lookup.nodes()[index];
         match node.operands.last() {
             Some(Operand {
                 child: Some(child), ..
-            }) => self.operands_end(*child),
+            }) if !self.states[*child].suppressed => self.operands_end(*child),
             Some(operand) => operand.cells.end,
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
         }
@@ -489,26 +470,27 @@ impl<'a> Execution<'a> {
     /// The writers of the pair at `coords` that have not yet taken their Turn,
     /// which `index` waits for.
     ///
-    /// The rule is the one the schedule applies to an anchored Input Portal: a
-    /// reader goes after every writer whose reservation covers the Cells it
-    /// reads, other than itself and those activation cannot reach this Tick.
+    /// The writers are those [`input_writers`] orders an anchored Input Portal
+    /// after. A writer the schedule stopped never takes its Turn, so the
+    /// reader waits on it and is stopped with it, as an anchored reader of
+    /// those Cells is.
     ///
-    fn unwritten(&self, index: usize, coords: Option<PortalCoords>) -> Vec<usize> {
-        let nodes = self.lookup.nodes();
+    fn pending_writers(&self, index: usize, coords: Option<PortalCoords>) -> Vec<usize> {
+        let nodes = self.schedule.lookup.nodes();
         let Some(read) = coords
             .and_then(|coords| Portal::named(self.grid, nodes[index].anchor, coords).ok())
             .and_then(|portal| portal.span(SCALAR_WIDTH).ok())
         else {
             return Vec::new();
         };
-        let mut writers: Vec<usize> = self
-            .lookup
-            .writes
-            .touching(read.range())
-            .filter(|&writer| {
-                writer != index && self.waiting[writer] && self.active[nodes[writer].owner]
-            })
-            .collect();
+        let mut writers: Vec<usize> = input_writers(
+            &self.schedule.lookup,
+            &self.schedule.active,
+            index,
+            read.range(),
+        )
+        .filter(|&writer| self.waiting[writer] || self.schedule.stopped[writer])
+        .collect();
         writers.sort_unstable();
         writers.dedup();
         writers
@@ -547,19 +529,18 @@ impl<'a> Execution<'a> {
             })
     }
 
-    /// Borrow working Source at the Function's Input Portal, which `coords`
-    /// resolved for this Turn.
+    /// Borrow working Source at the Input Portal `portal` resolved for this
+    /// Turn.
     fn portal_source(
         &self,
         node: &Computation,
         function: Function,
-        coords: Option<PortalCoords>,
+        portal: TurnPortal,
     ) -> PortalSource<'_> {
-        if function.input_portal().is_none() {
-            return PortalSource::none();
-        }
-        let Some(coords) = coords else {
-            return PortalSource::from_cells(None);
+        let coords = match portal {
+            TurnPortal::None => return PortalSource::none(),
+            TurnPortal::Selected(None) => return PortalSource::from_cells(None),
+            TurnPortal::Anchored(coords) | TurnPortal::Selected(Some(coords)) => coords,
         };
         if let Some(input) = function.portal_input() {
             return PortalSource::from_cells(self.borrow_portal_cells(node, coords, input));
@@ -604,10 +585,11 @@ impl<'a> Execution<'a> {
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
     /// Source until consumption; a surviving nested child returns its answer's
-    /// two-Cell encoding, taken out of its state because this Turn is the
-    /// child's one consumer. The child's Atom type does not cross: a Note
-    /// returned into a Number operand is read as the Number it spells, exactly
-    /// as the same characters written there by a Portal would be.
+    /// two-Cell encoding, read from its state and left there, because a Turn
+    /// that waits on a writer resolves its operands again when it retries. The
+    /// child's Atom type does not cross: a Note returned into a Number operand
+    /// is read as the Number it spells, exactly as the same characters written
+    /// there by a Portal would be.
     fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Atom>, String> {
         node.operands
             .iter()
@@ -617,7 +599,7 @@ impl<'a> Execution<'a> {
                     .child
                     .filter(|child| !self.states[*child].suppressed)
                 {
-                    let anchor = self.lookup.nodes()[child].anchor;
+                    let anchor = self.schedule.lookup.nodes()[child].anchor;
                     let returned = match self.states[child].result.map(Encoding::render) {
                         Some(Ok(Rendered::Cells(encoding))) => encoding,
                         Some(Ok(Rendered::Nothing)) | None => {
@@ -650,7 +632,7 @@ impl<'a> Execution<'a> {
     /// Plans the Cell writes, activation, or clear one answer makes, whether
     /// its computation is a root or nested.
     fn project_value(&mut self, index: usize, atom: Atom) {
-        let node = &self.lookup.nodes()[index];
+        let node = &self.schedule.lookup.nodes()[index];
         // Every arm below plans or diagnoses a write at an Output Portal, so an
         // answer with none to write, which only its consumer reads, is not
         // rendered at all. Every arm below relies on this return and does not
@@ -694,7 +676,7 @@ impl<'a> Execution<'a> {
         encoding: &Encoding,
         output: Result<Position, PortalError>,
     ) {
-        let node = &self.lookup.nodes()[index];
+        let node = &self.schedule.lookup.nodes()[index];
         let destination = match output {
             Ok(destination) => destination,
             Err(reason) => {
@@ -706,7 +688,7 @@ impl<'a> Execution<'a> {
             }
         };
         if atom == Atom::Bang && self.states[index].function.copies_language_unit() {
-            if let Some(root) = self.lookup.root_at(destination) {
+            if let Some(root) = self.schedule.lookup.root_at(destination) {
                 self.states[root].activated = true;
                 return;
             }
@@ -730,7 +712,7 @@ impl<'a> Execution<'a> {
             }
         };
         // The Cells this write actually covers: `Lookup::written_over`.
-        let relationships = self.lookup.written_over(&write);
+        let relationships = self.schedule.lookup.written_over(&write);
         if atom == Atom::Bang {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
@@ -832,7 +814,7 @@ impl<'a> Execution<'a> {
     /// every reservation has with the write it orders.
     ///
     fn deliver_source_effect(&mut self, index: usize, effect: SourceEffect) {
-        let node = &self.lookup.nodes()[index];
+        let node = &self.schedule.lookup.nodes()[index];
         let anchor = node.anchor;
         let spelling = Encoding::literal(
             effect
@@ -975,6 +957,7 @@ impl<'a> Execution<'a> {
             }
             if cells.iter().all(covers) {
                 return self
+                    .schedule
                     .lookup
                     .root_at(unit.anchor())
                     .map_or(Occupancy::NonRoot, Occupancy::Root);
@@ -999,8 +982,8 @@ impl<'a> Execution<'a> {
     /// reaching this arm means this Halt locks.
     ///
     fn lock_portal(&mut self, index: usize) {
-        let node = &self.lookup.nodes()[index];
-        match &self.lookup.locks[index] {
+        let node = &self.schedule.lookup.nodes()[index];
+        match &self.schedule.lookup.locks[index] {
             Some(super::LockTarget::Root(target)) => {
                 if target
                     .clone()
@@ -1015,8 +998,9 @@ impl<'a> Execution<'a> {
                 for descendant in target.clone() {
                     self.states[descendant].suppressed = true;
                 }
-                self.effects
-                    .push(Effect::Lock(self.lookup.nodes()[target.start].anchor));
+                self.effects.push(Effect::Lock(
+                    self.schedule.lookup.nodes()[target.start].anchor,
+                ));
             }
             Some(super::LockTarget::Occupied) => {
                 self.effects.push(Effect::Diagnose(diagnose(

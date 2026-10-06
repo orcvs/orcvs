@@ -15,6 +15,7 @@ pub use atom::{
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
+pub use functions::track::track_pair;
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
@@ -163,8 +164,8 @@ impl PortalCoords {
 pub enum InputPortal {
     /// A fixed step from the Function's anchor.
     Anchored(PortalCoords),
-    /// The Cell pair [`Function::selected_pair`] counts east of the end of the
-    /// Function's last operand.
+    /// The Cell pair [`track_pair`] selects east of the end of the
+    /// Function's last operand. Only Track's Input Portal stands here.
     AfterOperands,
 }
 

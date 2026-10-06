@@ -890,24 +890,6 @@ impl Function {
         }
     }
 
-    /// Which Cell pair east of the end of its last operand this Function's
-    /// Input Portal reads, from the operands its Turn resolved, or `None` for
-    /// a Function whose Input Portal is not [`crate::InputPortal::AfterOperands`].
-    ///
-    /// Track reads pair `index % count`, counted from zero. A `count` of zero
-    /// selects no pair and diagnoses as a wrap by zero does, and operands
-    /// outside their domain diagnose as they would at evaluation.
-    pub fn selected_pair(self, operands: &[Atom]) -> Option<Result<u8, Error>> {
-        match self {
-            Self::Track => Some(
-                <operands::Track as crate::stack::Operands>::check(operands)
-                    .and_then(|()| <operands::Track as crate::stack::Operands>::bind(operands))
-                    .and_then(crate::functions::jump::selected_pair),
-            ),
-            _ => None,
-        }
-    }
-
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
     /// Jump and Track name an Input Portal and bind no typed Portal input.

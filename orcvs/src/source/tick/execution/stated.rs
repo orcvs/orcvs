@@ -18,11 +18,8 @@
 
 use lang::Tick;
 
-use super::super::{carry, computations, order_turns};
-use super::{
-    Atom, ComputationState, Execution, Grid, LanguageMap, Lookup, Position, Schedule, TickPlan,
-    resolve,
-};
+use super::super::{Lookup, carry, computations, order_turns};
+use super::{Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, resolve};
 use crate::grid::CellIndex;
 use crate::source::Cells;
 use std::collections::BTreeMap;
@@ -59,7 +56,7 @@ pub(in crate::source::tick) fn plan_with_answers(
             "one computation is stated one answer: two are stated here for the same anchor"
         );
     }
-    let schedule: Schedule = order_turns(lookup, diagnostics);
+    let schedule = order_turns(lookup, diagnostics);
     let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
     for &index in &schedule.order {
@@ -67,13 +64,11 @@ pub(in crate::source::tick) fn plan_with_answers(
         match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {
                 stated[position] = true;
-                // The ordinal production records, recorded here for the
-                // reason the loop around it is reproduced: a stated answer
-                // replaces what one computation answers and nothing else, and
-                // the Turn it took is the Turn it would have taken.
-                execution.waiting[index] = false;
-                execution.states[index].turn = Some(execution.turns);
-                execution.turns += 1;
+                // Finished as production finishes a Turn, for the reason the
+                // loop around it is reproduced: a stated answer replaces what
+                // one computation answers and nothing else, and the Turn it
+                // took is the Turn it would have taken.
+                execution.finish_turn(index);
                 execution.state_answer(index, answers[position].1);
             }
             None => assert!(

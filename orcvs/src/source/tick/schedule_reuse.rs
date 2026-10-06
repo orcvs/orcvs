@@ -8,6 +8,8 @@
 //! a stale schedule would plan differently, the test says so, so a key too
 //! coarse to see that change fails here rather than in a pattern.
 
+use std::collections::BTreeSet;
+
 use lang::Tick;
 
 use super::execution::{self, ComputationState};
@@ -72,6 +74,51 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
     );
     source.commit_tick(&shared);
     shared
+}
+
+///
+/// Asserts that `source`'s schedule is the Grid-ordered topological sort of
+/// its dependency edges, less the computations a cycle stops, and that a Tick
+/// of a Source holding no Track takes its Turns in exactly that order. Only
+/// a Track finds a dependency at its Turn, so every other Function is ordered
+/// as the edges alone order it.
+///
+fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) {
+    let grid = source.grid();
+    let map = source.shared_language_map();
+    let schedule = map.schedule_cache().schedule(grid, &map);
+    let nodes = schedule.lookup.nodes();
+    let mut indegree = vec![0_usize; nodes.len()];
+    for &consumer in schedule.outgoing.iter().flatten() {
+        indegree[consumer] += 1;
+    }
+    let key = |index: usize| (grid.index(nodes[index].anchor), index);
+    let mut ready: BTreeSet<_> = (0..nodes.len())
+        .filter(|&index| indegree[index] == 0)
+        .map(key)
+        .collect();
+    let mut sorted = Vec::new();
+    while let Some((_, index)) = ready.pop_first() {
+        sorted.push(index);
+        for &consumer in &schedule.outgoing[index] {
+            indegree[consumer] -= 1;
+            if indegree[consumer] == 0 {
+                ready.insert(key(consumer));
+            }
+        }
+    }
+    sorted.retain(|&index| !schedule.stopped[index]);
+    assert_eq!(schedule.order, sorted, "the schedule's order");
+    let bytes = source.snapshot();
+    if bytes.contains("@t") {
+        return;
+    }
+    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
+    let mut scheduled = vec![None; nodes.len()];
+    for (turn, &index) in schedule.order.iter().enumerate() {
+        scheduled[index] = Some(turn);
+    }
+    assert_eq!(turns(&states), scheduled, "the Turns Tick {tick} took");
 }
 
 ///
@@ -311,7 +358,7 @@ fn a_map_derived_afresh_orders_its_own_schedule() {
 ///
 #[cfg(not(target_arch = "wasm32"))]
 mod property {
-    use super::{Grid, agreeing_tick, source_of, write_rows};
+    use super::{Grid, agreeing_tick, source_of, takes_turns_in_the_scheduled_order, write_rows};
     use lang::Function;
     use proptest::prelude::*;
     use proptest::sample::select;
@@ -382,6 +429,7 @@ mod property {
                 // Two Ticks per revision: the second runs against whatever
                 // the first wrote, which is the steady state a pattern plays in.
                 for _ in 0..2 {
+                    takes_turns_in_the_scheduled_order(&source, tick);
                     agreeing_tick(&mut source, tick);
                     tick += 1;
                 }
@@ -415,4 +463,36 @@ fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
         );
     }
     assert_eq!(selected, ["C4", "D4", "E4", "C4", "D4", "E4"]);
+}
+
+#[test]
+fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
+    // Jumps reading and writing each other's Cells, a Clock feeding an
+    // Addition, an Equality's Bang activating a Play, and an Addition and
+    // two Jumps that form a cycle on the first Tick.
+    let grid = Grid::with_shape(20, 6);
+    let mut source = source_of(
+        grid,
+        &[
+            "~.0104  &>  .=0101",
+            ".+0001  &^",
+            "        D4  !>010AC4",
+            "    .+0102",
+            "    &v",
+            "    &^",
+        ],
+    );
+    let map = source.shared_language_map();
+    assert!(
+        map.schedule_cache()
+            .schedule(grid, &map)
+            .stopped
+            .contains(&true),
+        "the first Tick holds a cycle"
+    );
+    for tick in 0..4 {
+        takes_turns_in_the_scheduled_order(&source, tick);
+        let plan = agreeing_tick(&mut source, tick);
+        assert_eq!(plan.play_commands.len(), 1, "Tick {tick}");
+    }
 }
