@@ -144,9 +144,8 @@ enum TurnPortal {
     None,
     /// A Portal at a fixed offset from the anchor, which the schedule orders.
     Anchored(PortalCoords),
-    /// A Portal the operands select, which the Turn orders. `None` where the
-    /// selection lies beyond any offset a row holds.
-    Selected(Option<PortalCoords>),
+    /// A Portal the operands select, which the Turn orders.
+    Selected(PortalCoords),
 }
 
 struct Execution<'a> {
@@ -392,26 +391,19 @@ impl<'a> Execution<'a> {
                     .index(self.schedule.lookup.nodes()[index].anchor)
                     .get();
                 let columns = self.operands_end(index) - anchor + usize::from(pair) * SCALAR_WIDTH;
-                // A step no row holds resolves no Portal, which the read
-                // diagnoses as it does a Jump's Input Portal outside the Grid.
-                Ok(TurnPortal::Selected(
-                    i16::try_from(columns)
-                        .ok()
-                        .map(|columns| PortalCoords { columns, rows: 0 }),
-                ))
+                // Operands occupy at most 256 columns and a u8 pair adds at
+                // most 510, so the offset fits even when it leaves the row.
+                let columns = i16::try_from(columns).expect("a selected pair offset fits i16");
+                Ok(TurnPortal::Selected(PortalCoords { columns, rows: 0 }))
             }
         }
     }
 
     /// The Cells of the pair at `coords` from `index`'s anchor, or `None`
     /// where no pair of the Grid stands there.
-    fn selected_cells(
-        &self,
-        index: usize,
-        coords: Option<PortalCoords>,
-    ) -> Option<std::ops::Range<usize>> {
+    fn selected_cells(&self, index: usize, coords: PortalCoords) -> Option<std::ops::Range<usize>> {
         let anchor = self.schedule.lookup.nodes()[index].anchor;
-        let portal = Portal::named(self.grid, anchor, coords?).ok()?;
+        let portal = Portal::named(self.grid, anchor, coords).ok()?;
         Some(portal.span(SCALAR_WIDTH).ok()?.range())
     }
 
@@ -436,8 +428,7 @@ impl<'a> Execution<'a> {
     ) -> PortalSource<'_> {
         let coords = match portal {
             TurnPortal::None => return PortalSource::none(),
-            TurnPortal::Selected(None) => return PortalSource::from_cells(None),
-            TurnPortal::Anchored(coords) | TurnPortal::Selected(Some(coords)) => coords,
+            TurnPortal::Anchored(coords) | TurnPortal::Selected(coords) => coords,
         };
         if let Some(input) = function.portal_input() {
             return PortalSource::from_cells(self.borrow_portal_cells(node, coords, input));

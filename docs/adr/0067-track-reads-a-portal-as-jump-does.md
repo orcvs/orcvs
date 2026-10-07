@@ -19,6 +19,9 @@ Status: accepted. Supersedes the List clauses of [ADR 0063](0063-a-list-is-cells
 
 ## Consequences
 
+A cycle found at Track's Turn preserves completed Turns and stops the remaining
+computations in every Expression it reaches, per [ADR 0068](0068-a-discovered-cycle-preserves-completed-turns.md).
+
 When `index` and `count` are literals that nothing writes during the Tick, Track's pair is known before the Tick. Its dependency could then join the schedule built in advance, which keeps that schedule reusable across Ticks. This is an optional optimisation that never changes what Track reads. Add it only when a benchmark shows the Turn-time path costs something.
 
 A Track that reads `**` activates the root its Output Portal lands on, as a Jump does. This differs from ADR 0063, where a copied `**` was characters and activated nothing.

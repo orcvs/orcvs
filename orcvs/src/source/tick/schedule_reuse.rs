@@ -8,7 +8,7 @@
 //! a stale schedule would plan differently, the test says so, so a key too
 //! coarse to see that change fails here rather than in a pattern.
 
-use lang::Tick;
+use lang::{InputPortal, Tick};
 
 use super::execution::{self, ComputationState};
 use super::{plan, plan_unshared};
@@ -78,22 +78,29 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
 /// Asserts that a Tick of `source`, which holds no Track, takes exactly the
 /// Turns its schedule orders, in that order, Turns that settle without an
 /// effect included. Only a Track finds a dependency at its Turn, so every
-/// other Function is ordered by the schedule alone.
+/// other Function is ordered by the schedule alone. Answers whether the
+/// assertion applies to the parsed Functions in this Source.
 ///
-fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) {
+fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let bytes = source.snapshot();
-    if bytes.contains("@t") {
-        return;
-    }
     let grid = source.grid();
     let map = source.shared_language_map();
     let schedule = map.schedule_cache().schedule(grid, &map);
+    if schedule
+        .lookup
+        .nodes()
+        .iter()
+        .any(|node| node.function.input_portal() == Some(InputPortal::AfterOperands))
+    {
+        return false;
+    }
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     let mut scheduled = vec![None; states.len()];
     for (turn, &index) in schedule.order.iter().enumerate() {
         scheduled[index] = Some(turn);
     }
     assert_eq!(turns(&states), scheduled, "the Turns Tick {tick} took");
+    true
 }
 
 ///
@@ -470,4 +477,66 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
         let plan = agreeing_tick(&mut source, tick);
         assert_eq!(plan.play_commands.len(), 1, "Tick {tick}");
     }
+}
+
+#[test]
+fn a_track_spelling_in_a_comment_does_not_skip_the_order_assertion() {
+    let source = source_of(Grid::with_shape(12, 2), &[".+0102 ||@t", ""]);
+    assert!(takes_turns_in_the_scheduled_order(&source, 0));
+}
+
+#[test]
+fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
+    let grid = Grid::with_shape(28, 4);
+    let source = source_of(
+        grid,
+        &[
+            "@t~.010303C4  E4",
+            "            &^    .+0102",
+            "            D4      .x0203",
+            "",
+        ],
+    );
+    let map = source.shared_language_map();
+    let schedule = map.schedule_cache().schedule(grid, &map);
+    let cached_order = schedule.order.clone();
+    let at = |x, y| {
+        schedule
+            .lookup
+            .nodes()
+            .iter()
+            .position(|node| node.anchor.x() == x && node.anchor.y() == y)
+            .expect("the Function has a computation")
+    };
+    let track = at(0, 0);
+    let clock = at(2, 0);
+    let writer = at(12, 1);
+    let addition = at(18, 1);
+    let multiplication = at(20, 2);
+    let cached_turn = |index| cached_order.iter().position(|&node| node == index).unwrap();
+    assert!(cached_turn(clock) < cached_turn(track));
+    assert!(cached_turn(track) < cached_turn(writer));
+
+    let bytes = source.snapshot();
+    let (planned, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
+    assert!(planned.diagnostics.is_empty(), "{:?}", planned.diagnostics);
+    let turn = |index: usize| states[index].turn().expect("the Function takes a Turn");
+    assert!(turn(clock) < turn(track), "the nested index precedes Track");
+    assert!(
+        turn(writer) < turn(track),
+        "the selected pair's writer precedes Track"
+    );
+    assert!(
+        turn(addition) < turn(multiplication),
+        "Grid position breaks independent ties"
+    );
+    assert_eq!(
+        schedule.order, cached_order,
+        "a wait never changes the cached schedule"
+    );
+    assert_eq!(
+        turns(&states),
+        turns(&plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1)).1),
+        "fresh and cached ordering have identical continuation",
+    );
 }

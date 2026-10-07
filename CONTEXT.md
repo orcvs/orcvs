@@ -176,7 +176,7 @@ The Language Unit the Parser establishes at the two-Cell introducer `||`, claimi
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:
-One discrete musical-time step that interprets a Source Snapshot and atomically applies its Tick Plan. An error never stops a Tick: it costs the Expressions it reaches, and every other Expression publishes. A same-Tick dependency cycle stops the Expressions on it and those that depend on them, each diagnosed.
+One discrete musical-time step that interprets a Source Snapshot and atomically applies its Tick Plan. An error never stops a Tick: a same-Tick dependency cycle stops the remaining Turns in the Expressions it reaches, each diagnosed, while completed Turns retain their Effects and independent Expressions publish.
 _Avoid_: Cycle, frame
 
 **Tick Plan**:

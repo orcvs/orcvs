@@ -145,6 +145,39 @@ fn an_empty_operand_leaves_track_pending() {
 }
 
 #[test]
+fn a_partially_written_operand_diagnoses_instead_of_leaving_track_pending() {
+    for row in ["@t0 03C4D4E4", "@t010 C4D4E4"] {
+        let source = source_of(Grid::with_shape(12, 2), &[row, "xx"]);
+        let diagnostics: Vec<_> = source.language_map().diagnostics().collect();
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.anchor().x() == 0
+                    && diagnostic.anchor().y() == 0
+                    && diagnostic.message == "expected a number, found \"0 \""
+            }),
+            "{row:?}: {diagnostics:?}"
+        );
+        let tick = first(Grid::with_shape(12, 2), &[row, "xx"]);
+        assert_eq!(tick.rows[1], "xx          ", "{row:?}");
+        assert!(
+            tick.diagnostics.is_empty(),
+            "{row:?}: {:?}",
+            tick.diagnostics
+        );
+    }
+}
+
+#[test]
+fn a_comment_aligned_with_the_selected_pair_diagnoses() {
+    let tick = first(Grid::with_shape(12, 2), &["@t0103C4||E4", "xx"]);
+    assert_eq!(tick.rows[1], "xx          ");
+    assert_eq!(
+        tick.diagnostics,
+        [diagnostic(0, 0, "@t has partial or invalid input")]
+    );
+}
+
+#[test]
 fn a_zero_count_diagnoses_at_the_turn() {
     let tick = first(Grid::with_shape(12, 2), &["@t0100C4D4E4"]);
     assert_eq!(tick.rows[1], "            ");
@@ -169,6 +202,16 @@ fn a_pair_past_the_row_edge_diagnoses_as_a_jump_input_outside_the_grid_does() {
     assert_eq!(
         jump.diagnostics,
         [diagnostic(0, 0, "&> has partial or invalid input")]
+    );
+}
+
+#[test]
+fn a_selected_pair_straddling_the_row_edge_diagnoses() {
+    let tick = first(Grid::with_shape(11, 2), &["@t0203C4D4E", "xx"]);
+    assert_eq!(tick.rows[1], "xx         ");
+    assert_eq!(
+        tick.diagnostics,
+        [diagnostic(0, 0, "@t has partial or invalid input")]
     );
 }
 
@@ -604,5 +647,92 @@ fn a_cycle_a_track_finds_after_another_track_waited_is_diagnosed_as_one_found_fi
             ".+0102        ",
             "03            ",
         ]
+    );
+}
+
+#[test]
+fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
+    let grid = Grid::with_shape(18, 4);
+    let source = source_of(grid, &[".+@t0304.x0203", "&^        &>", ".+0102"]);
+    let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
+    let site = |x, y| grid.position(x, y).expect("inside the Grid");
+    let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(14, 0)])].into();
+    let map = source.shared_language_map();
+    let bytes = source.snapshot();
+    let (planned, states) = plan_carrying(
+        grid,
+        Cells::of(bytes.as_bytes()),
+        &map,
+        Tick::ZERO,
+        &destinations,
+    );
+    let turns = anchored_turns(&source, &states);
+    assert_eq!(
+        turns[&(8, 0)],
+        None,
+        "a stopped Expression's sibling takes no Turn"
+    );
+    assert_eq!(turns[&(10, 1)], None, "the sibling's consumer also stops");
+    assert!(turns[&(0, 2)].is_some(), "the independent Expression plays");
+    assert!(!planned.writes.iter().any(|write| write.cell == cell(8, 1)));
+    let independent: Vec<_> = planned
+        .writes
+        .iter()
+        .filter(|write| write.cell == cell(0, 3) || write.cell == cell(1, 3))
+        .map(|write| write.content.byte())
+        .collect();
+    assert_eq!(independent, b"03");
+}
+
+#[test]
+fn a_late_cycle_preserves_a_completed_nested_operands_write() {
+    let grid = Grid::with_shape(22, 4);
+    let source = source_of(grid, &[".+@t.+000304.x0203", "&^            &>", ".+0102"]);
+    let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
+    let site = |x, y| grid.position(x, y).expect("inside the Grid");
+    let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(18, 0)])].into();
+    let map = source.shared_language_map();
+    let bytes = source.snapshot();
+    let (planned, states) = plan_carrying(
+        grid,
+        Cells::of(bytes.as_bytes()),
+        &map,
+        Tick::ZERO,
+        &destinations,
+    );
+    assert!(
+        planned
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message == "same-Tick dependency cycle" }),
+        "the selected writer closes an actual cycle"
+    );
+    let turns = anchored_turns(&source, &states);
+    assert_eq!(
+        turns[&(4, 0)],
+        Some(0),
+        "the nested index settles before the read is known"
+    );
+    for anchor in [(0, 0), (2, 0), (12, 0), (0, 1), (14, 1)] {
+        assert_eq!(
+            turns[&anchor], None,
+            "{anchor:?} is stopped by the late cycle"
+        );
+    }
+    assert!(turns[&(0, 2)].is_some(), "the independent Expression plays");
+    let written: BTreeMap<_, _> = planned
+        .writes
+        .iter()
+        .map(|write| (write.cell, write.content.byte()))
+        .collect();
+    assert_eq!(
+        written,
+        BTreeMap::from([
+            (cell(4, 1), b'0'),
+            (cell(5, 1), b'3'),
+            (cell(0, 3), b'0'),
+            (cell(1, 3), b'3'),
+        ]),
+        "the completed index and independent Expression keep their writes"
     );
 }

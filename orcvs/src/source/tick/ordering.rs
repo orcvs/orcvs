@@ -53,7 +53,7 @@ pub(super) fn schedule(
     let mut dependencies = Dependencies::new(nodes.len(), edges);
     let ready = dependencies.free(|_| true);
     let mut order = Vec::new();
-    dependencies.take_ready(&lookup, ready, |index| {
+    dependencies.take_ready(&lookup, ready, vec![true; nodes.len()], |index| {
         order.push(index);
         None
     });
@@ -196,7 +196,7 @@ impl Progress<'_> {
         );
         dependencies.wait_on(waiter, writers);
         let ready = dependencies.free(|index| waiting[index]);
-        dependencies.take_ready(&schedule.lookup, ready, |index| {
+        dependencies.take_ready(&schedule.lookup, ready, self.waiting.clone(), |index| {
             let writers = take(index, &self);
             if writers.is_none() {
                 self.waiting[index] = false;
@@ -261,15 +261,22 @@ impl Dependencies {
         &mut self,
         lookup: &Lookup,
         ready: impl IntoIterator<Item = usize>,
+        mut remaining: Vec<bool>,
         mut take: impl FnMut(usize) -> Option<Vec<usize>>,
     ) {
         let key = |index: usize| (lookup.grid.index(lookup.nodes()[index].anchor), index);
         let mut ready: BTreeSet<_> = ready.into_iter().map(key).collect();
+        let mut stopped = self.cycle_closure(lookup, &remaining);
         while let Some((_, index)) = ready.pop_first() {
-            if let Some(writers) = take(index) {
-                self.wait_on(index, writers);
+            if stopped[index] {
                 continue;
             }
+            if let Some(writers) = take(index) {
+                self.wait_on(index, writers);
+                stopped = self.cycle_closure(lookup, &remaining);
+                continue;
+            }
+            remaining[index] = false;
             for &consumer in &self.outgoing[index] {
                 self.indegree[consumer] -= 1;
                 if self.indegree[consumer] == 0 {
@@ -277,6 +284,38 @@ impl Dependencies {
                 }
             }
         }
+    }
+
+    /// The unresolved computations a cycle stops, closed over whole
+    /// Expressions and their consumers. Completed computations keep their
+    /// effects; this closure prevents any remaining part from taking a Turn.
+    fn cycle_closure(&self, lookup: &Lookup, remaining: &[bool]) -> Vec<bool> {
+        let mut indegree = self.indegree.clone();
+        let mut unresolved = remaining.to_vec();
+        let mut ready = self.free(|index| remaining[index]);
+        while let Some(index) = ready.pop() {
+            unresolved[index] = false;
+            for &consumer in &self.outgoing[index] {
+                indegree[consumer] -= 1;
+                if remaining[consumer] && indegree[consumer] == 0 {
+                    ready.push(consumer);
+                }
+            }
+        }
+        let mut stopped = vec![false; remaining.len()];
+        let mut pending: Vec<_> = unresolved
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &pending)| pending.then_some(index))
+            .collect();
+        while let Some(index) = pending.pop() {
+            if std::mem::replace(&mut stopped[index], true) {
+                continue;
+            }
+            pending.extend(lookup.descendants(lookup.nodes()[index].owner));
+            pending.extend_from_slice(&self.outgoing[index]);
+        }
+        stopped
     }
 
     /// Orders `waiter` after each of `writers`.
