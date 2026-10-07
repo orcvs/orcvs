@@ -53,26 +53,16 @@ pub(super) fn schedule(
     let mut dependencies = Dependencies::new(nodes.len(), edges);
     let ready = dependencies.free(|_| true);
     let mut order = Vec::new();
-    dependencies.take_ready(&lookup, ready, vec![true; nodes.len()], |index| {
+    let stopped = dependencies.take_ready(&lookup, ready, vec![true; nodes.len()], |index| {
         order.push(index);
         None
     });
     let Dependencies { outgoing, .. } = dependencies;
-    let mut stopped = vec![false; nodes.len()];
     if order.len() != nodes.len() {
         let mut placed = vec![false; nodes.len()];
         for &index in &order {
             placed[index] = true;
         }
-        let mut pending: Vec<_> = (0..nodes.len()).filter(|&index| !placed[index]).collect();
-        while let Some(index) = pending.pop() {
-            if std::mem::replace(&mut stopped[index], true) {
-                continue;
-            }
-            pending.extend(lookup.descendants(nodes[index].owner));
-            pending.extend_from_slice(&outgoing[index]);
-        }
-        order.retain(|&index| !stopped[index]);
         diagnostics.extend(diagnose_cycles(
             &lookup, &outgoing, &placed, &stopped, &active,
         ));
@@ -256,6 +246,7 @@ impl Dependencies {
     /// wait for. One that waits is ordered after them and is taken again once
     /// they have been, so a dependency found at a Turn joins the order there.
     /// A computation whose dependencies are never all taken is left untaken.
+    /// Answers the stopped closure, shared with scheduling and diagnosis.
     ///
     fn take_ready(
         &mut self,
@@ -263,7 +254,7 @@ impl Dependencies {
         ready: impl IntoIterator<Item = usize>,
         mut remaining: Vec<bool>,
         mut take: impl FnMut(usize) -> Option<Vec<usize>>,
-    ) {
+    ) -> Vec<bool> {
         let key = |index: usize| (lookup.grid.index(lookup.nodes()[index].anchor), index);
         let mut ready: BTreeSet<_> = ready.into_iter().map(key).collect();
         let mut stopped = self.cycle_closure(lookup, &remaining);
@@ -284,11 +275,13 @@ impl Dependencies {
                 }
             }
         }
+        stopped
     }
 
     /// The unresolved computations a cycle stops, closed over whole
     /// Expressions and their consumers. Completed computations keep their
-    /// effects; this closure prevents any remaining part from taking a Turn.
+    /// effects, so their outgoing edges do not propagate later faults. Only
+    /// unresolved computations propagate stopping to their consumers.
     fn cycle_closure(&self, lookup: &Lookup, remaining: &[bool]) -> Vec<bool> {
         let mut indegree = self.indegree.clone();
         let mut unresolved = remaining.to_vec();
@@ -309,7 +302,7 @@ impl Dependencies {
             .filter_map(|(index, &pending)| pending.then_some(index))
             .collect();
         while let Some(index) = pending.pop() {
-            if std::mem::replace(&mut stopped[index], true) {
+            if !remaining[index] || std::mem::replace(&mut stopped[index], true) {
                 continue;
             }
             pending.extend(lookup.descendants(lookup.nodes()[index].owner));

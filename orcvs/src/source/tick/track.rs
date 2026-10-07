@@ -736,3 +736,53 @@ fn a_late_cycle_preserves_a_completed_nested_operands_write() {
         "the completed index and independent Expression keep their writes"
     );
 }
+
+#[test]
+fn a_completed_operands_consumer_survives_a_late_cycle_after_an_earlier_wait() {
+    let grid = Grid::with_shape(24, 5);
+    let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
+    let site = |x, y| grid.position(x, y).expect("inside the Grid");
+    for earlier_wait in ["", "@t0001"] {
+        let source = source_of(
+            grid,
+            &[earlier_wait, ".+@t.+000304.x0203", "&^    &>", ".x0102"],
+        );
+        let destinations: BTreeMap<CellIndex, Vec<Position>> = [
+            (cell(0, 0), vec![site(18, 4)]),
+            (cell(0, 2), vec![site(18, 1)]),
+            (cell(0, 3), vec![site(6, 0)]),
+        ]
+        .into();
+        let map = source.shared_language_map();
+        let bytes = source.snapshot();
+        let (planned, states) = plan_carrying(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            Tick::ZERO,
+            &destinations,
+        );
+        let turns = anchored_turns(&source, &states);
+        assert!(
+            turns[&(4, 1)].is_some(),
+            "the nested index completes: {earlier_wait:?}"
+        );
+        assert!(
+            turns[&(6, 2)].is_some(),
+            "its independent consumer takes a Turn: {earlier_wait:?}"
+        );
+        let written: BTreeMap<_, _> = planned
+            .writes
+            .iter()
+            .map(|write| (write.cell, write.content.byte()))
+            .collect();
+        assert_eq!((written[&cell(8, 2)], written[&cell(9, 2)]), (b'0', b'3'));
+        assert_eq!(turns[&(12, 1)], None, "the unfinished sibling stops");
+        assert!(
+            planned
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message == "same-Tick dependency cycle")
+        );
+    }
+}

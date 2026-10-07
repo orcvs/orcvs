@@ -6,7 +6,10 @@ A cycle known before execution stops every computation in the Expressions it
 reaches. A cycle discovered at a Turn stops every remaining computation in those
 Expressions and their dependants, including nested siblings whose own inputs
 are ready. Turns already completed retain their Effects, including writes from
-a nested Function that supplied Track's index or count. The cycle is diagnosed
+a nested Function that supplied Track's index or count. A consumer of a completed
+Turn is not stopped solely because that producer's Expression later stops; it
+stops only if another dependency reaches an unfinished stopped computation.
+The cycle is diagnosed
 under ADR 0065's representative and downstream-waiting rules, and independent
 Expressions continue.
 
