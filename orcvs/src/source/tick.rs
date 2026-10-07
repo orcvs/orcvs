@@ -3720,6 +3720,36 @@ mod test {
     }
 
     #[test]
+    fn a_later_pending_operand_leaves_its_function_pending_before_an_earlier_one_decodes() {
+        // `G4` spells no Number. Whether a Portal writes it into the first
+        // operand or a nested `.^43` returns it there, the empty second
+        // operand leaves the Addition pending, so nothing is decoded and
+        // nothing diagnoses. With the second operand written, the same `G4`
+        // diagnoses.
+        let grid = Grid::with_shape(8, 3);
+        let tick = |rows: &[&str]| super::observed::observe_at(grid, rows, [0]).remove(0);
+        let written = tick(&[".+    ", "  &^", "  G4"]);
+        assert_eq!(written.rows[..2], [".+G4    ", "  &^    "]);
+        assert!(written.diagnostics.is_empty(), "{:?}", written.diagnostics);
+        let returned = tick(&[".+.^43  ", "xx"]);
+        assert_eq!(returned.rows[1], "xxG4    ");
+        assert!(
+            returned.diagnostics.is_empty(),
+            "{:?}",
+            returned.diagnostics
+        );
+        for rows in [&[".+  01", "  &^", "  G4"][..], &[".+.^4301", "xx"]] {
+            let decoded = tick(rows);
+            assert_eq!(&decoded.rows[1][..2], &rows[1][..2], "{rows:?}");
+            assert_eq!(
+                decoded.diagnostics,
+                [(0, 0, "expected a number, found \"G4\"".to_string())],
+                "{rows:?}"
+            );
+        }
+    }
+
+    #[test]
     fn live_spatial_and_returned_notes_are_both_encodings() {
         let (plan, source) = carried_source(
             Grid::with_shape(16, 3),

@@ -364,6 +364,67 @@ fn a_suppressed_nested_count_is_read_as_its_two_cells_and_the_pairs_follow_them(
 }
 
 #[test]
+fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_after_it() {
+    // `.+0003` at (8, 0) writes `03` over the anchor of the nested `.+0102`,
+    // which suppresses it, so the count ends at column 10 and pair 2 is the
+    // empty pair at column 14, past the Cells the suppressed Function
+    // claimed. The `&^` at (14, 2) writes `D4` there after Track in Grid
+    // order, so Track waits for it and reads `D4` on its retried Turn.
+    let grid = Grid::with_shape(20, 4);
+    let rows = [
+        "        .+0003",
+        "@t.+0002.+0102  E4F4",
+        "              &^",
+        "              D4",
+    ];
+    let tick = first(grid, &rows);
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    assert_eq!(
+        tick.rows,
+        [
+            "        .+0003      ",
+            "@t.+0002030102D4E4F4",
+            "D402          &^    ",
+            "              D4    ",
+        ]
+    );
+    let source = source_of(grid, &rows);
+    let map = source.shared_language_map();
+    let bytes = source.snapshot();
+    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let schedule = map.schedule_cache().schedule(grid, &map);
+    let nodes = schedule.lookup.nodes();
+    let interpretations: BTreeMap<_, _> = nodes
+        .iter()
+        .zip(&states)
+        .map(|(node, state)| ((node.anchor.x(), node.anchor.y()), state.interpretations()))
+        .collect();
+    // The nested index completes once and is not interpreted again when
+    // Track retries; the suppressed count is never interpreted.
+    assert_eq!(
+        interpretations,
+        BTreeMap::from([
+            ((0, 1), 1),
+            ((2, 1), 1),
+            ((8, 0), 1),
+            ((8, 1), 0),
+            ((14, 2), 1),
+        ])
+    );
+    // The schedule built before the Tick orders Track ahead of the `&^`, so
+    // the `&^` taking the earlier Turn is Track's wait.
+    let scheduled = |x, y| {
+        schedule
+            .order
+            .iter()
+            .position(|&index| (nodes[index].anchor.x(), nodes[index].anchor.y()) == (x, y))
+    };
+    assert!(scheduled(0, 1) < scheduled(14, 2));
+    let turns = anchored_turns(&source, &states);
+    assert!(turns[&(14, 2)] < turns[&(0, 1)], "{turns:?}");
+}
+
+#[test]
 fn a_nested_track_that_reads_empty_cells_leaves_its_parent_pending() {
     // Track reads pair 1, which is empty. It clears its own Output Portal,
     // and the Addition it is nested in neither writes nor diagnoses.

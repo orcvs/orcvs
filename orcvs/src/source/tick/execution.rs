@@ -18,6 +18,8 @@ use super::{
 };
 use crate::source::buffer::{Cells, WorkingCells};
 
+mod operands;
+
 ///
 /// Executes an established order against the original Source Snapshot.
 ///
@@ -266,9 +268,11 @@ impl<'a> Execution<'a> {
         // A nested Function that answers no value has no Return for its
         // parent. The Parser reports that against the Expression from Source
         // alone, so the Turn is blocked as an unparsed operand's is, without
-        // repeating the report, and its parent is blocked in turn.
+        // repeating the report, and its parent is blocked in turn. A pending
+        // Function is blocked the same way, before any operand is decoded.
         if self.syntax_blocks(node, function)
             || (node.parent.is_some() && !function.answers_value())
+            || self.pending(node)
         {
             self.states[index].syntax_blocked = true;
             return None;
@@ -323,7 +327,7 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
-        let result = self.operands(node, signature).and_then(|operands| {
+        let result = self.decode(node, signature).and_then(|operands| {
             let portal = self.turn_portal(index, function, &operands)?;
             Ok((operands, portal))
         });
@@ -399,21 +403,6 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// The Cell after the last one `index`'s operands occupy, following a
-    /// nested last operand to the end of its own. A suppressed child is read
-    /// as the two Cells at its anchor, as [`Execution::operands`] reads it, so
-    /// the operand ends there.
-    fn operands_end(&self, index: usize) -> usize {
-        let node = &self.schedule.lookup.nodes()[index];
-        match node.operands.last() {
-            Some(Operand {
-                child: Some(child), ..
-            }) if !self.states[*child].suppressed => self.operands_end(*child),
-            Some(operand) => operand.cells.end,
-            None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
-        }
-    }
-
     /// The Cells of the pair at `coords` from `index`'s anchor, or `None`
     /// where no pair of the Grid stands there.
     fn selected_cells(
@@ -429,33 +418,11 @@ impl<'a> Execution<'a> {
     fn syntax_blocks(&self, node: &Computation, function: Function) -> bool {
         // Unchanged initial syntax errors belong to the Source revision.
         // Earlier writes or a Function replacement can repair those inputs.
-        let unchanged = !node.syntax_valid
+        !node.syntax_valid
             && function == node.function
             && node.operands.iter().all(|operand| {
                 self.working.cells().slice(operand.cells.clone()).bytes()
                     == self.original.slice(operand.cells.clone()).bytes()
-            });
-        // A syntax-blocked child did not fail evaluation. Propagate the block
-        // without inventing another Tick diagnostic. A child that copied empty
-        // Cells returns them, so its operand is empty. A suppressed child is
-        // instead consumed as literal characters from working Source. An
-        // operand with no Cell written, either way, leaves the Function
-        // pending, which blocks it the same way.
-        unchanged
-            || node.operands.iter().any(|operand| match operand.child {
-                Some(child) if !self.states[child].suppressed => {
-                    let state = &self.states[child];
-                    state.syntax_blocked
-                        || (state.function.copies_language_unit()
-                            && matches!(state.result, Some(Atom::Empty)))
-                }
-                _ => self
-                    .working
-                    .cells()
-                    .slice(operand.cells.clone())
-                    .bytes()
-                    .iter()
-                    .all(|&byte| byte == b' '),
             })
     }
 
@@ -508,49 +475,6 @@ impl<'a> Execution<'a> {
                 Some(self.working.text(span.range()))
             }
         }
-    }
-
-    /// The operands of `node`'s Turn, in signature order.
-    ///
-    /// Each operand is decoded by its declared Token, whichever way its
-    /// characters arrived. Spatial delivery leaves them pending in working
-    /// Source until consumption; a surviving nested child returns its answer's
-    /// two-Cell encoding, read from its state and left there, because a Turn
-    /// that waits on a writer resolves its operands again when it retries. The
-    /// child's Atom type does not cross: a Note returned into a Number operand
-    /// is read as the Number it spells, exactly as the same characters written
-    /// there by a Portal would be.
-    fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Atom>, String> {
-        node.operands
-            .iter()
-            .zip(signature)
-            .map(|(operand, token)| {
-                if let Some(child) = operand
-                    .child
-                    .filter(|child| !self.states[*child].suppressed)
-                {
-                    let anchor = self.schedule.lookup.nodes()[child].anchor;
-                    let returned = match self.states[child].result.map(Encoding::render) {
-                        Some(Ok(Rendered::Cells(encoding))) => encoding,
-                        Some(Ok(Rendered::Nothing)) | None => {
-                            return Err(format!(
-                                "nested computation at column {}, row {} returned nothing",
-                                anchor.x(),
-                                anchor.y()
-                            ));
-                        }
-                        // A rendering a Cell cannot hold is its own fault, not
-                        // an absent answer.
-                        Some(Err(reason)) => return Err(render_message(reason)),
-                    };
-                    return token
-                        .decode(&returned.to_string())
-                        .map_err(|error| error.to_string());
-                }
-                let spelling = self.working.text(operand.cells.clone());
-                token.decode(spelling).map_err(|error| error.to_string())
-            })
-            .collect()
     }
 
     fn deliver_value(&mut self, index: usize, atom: Atom) {
