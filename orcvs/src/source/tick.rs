@@ -12,6 +12,7 @@ pub(super) mod execution;
 mod nested_jump;
 #[cfg(test)]
 mod observed;
+mod ordering;
 #[cfg(test)]
 mod schedule_reuse;
 #[cfg(test)]
@@ -28,6 +29,7 @@ pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
+use ordering::Schedule;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
@@ -52,20 +54,6 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     portal_access: PortalAccess,
-}
-
-struct Schedule {
-    lookup: Lookup,
-    order: Vec<usize>,
-    diagnostics: Vec<Diagnostic>,
-    /// Every dependency edge `order` was built from, by producer, so that
-    /// execution can continue ordering from a Turn that finds one more.
-    outgoing: Vec<Vec<usize>>,
-    /// Which roots activation can reach this Tick, by computation.
-    active: Vec<bool>,
-    /// Which computations a same-Tick dependency cycle stops: exactly those
-    /// `order` holds no Turn for.
-    stopped: Vec<bool>,
 }
 
 struct Claim {
@@ -813,13 +801,10 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 }
 
 ///
-/// One Tick's execution order, from the reservations a [`Lookup`] has already
-/// derived: every dependency edge the reservations name, resolved into
-/// the order the Turns are taken in. A cycle admits no order for the
-/// Expressions it reaches, which take no Turn; every other Expression keeps
-/// its place.
+/// The schedule for the reservations a [`Lookup`] has already derived: every
+/// dependency edge they name, ordered by [`ordering::schedule`].
 ///
-fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
+fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
     let nodes = lookup.nodes();
     let active = active_roots(&lookup);
     let mut edges = BTreeSet::new();
@@ -918,198 +903,12 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
     // `literal_consumers` records for a declared operand.
     for (consumer, node) in nodes.iter().enumerate() {
         for read in node.portal_access.read_spans() {
-            for producer in input_writers(&lookup, &active, consumer, read.clone()) {
+            for producer in ordering::input_writers(&lookup, &active, consumer, read.clone()) {
                 edges.insert((producer, consumer));
             }
         }
     }
-    let mut dependencies = Dependencies::new(nodes.len(), edges);
-    let ready = dependencies.free(|_| true);
-    let mut order = Vec::new();
-    dependencies.take_ready(&lookup, ready, |index| {
-        order.push(index);
-        None
-    });
-    let Dependencies { outgoing, .. } = dependencies;
-    let mut stopped = vec![false; nodes.len()];
-    if order.len() != nodes.len() {
-        // ADR 0065: a cycle stops every Expression it reaches, and no other.
-        let mut placed = vec![false; nodes.len()];
-        for &index in &order {
-            placed[index] = true;
-        }
-        let mut pending: Vec<_> = (0..nodes.len()).filter(|&index| !placed[index]).collect();
-        while let Some(index) = pending.pop() {
-            if std::mem::replace(&mut stopped[index], true) {
-                continue;
-            }
-            pending.extend(lookup.descendants(nodes[index].owner));
-            pending.extend_from_slice(&outgoing[index]);
-        }
-        order.retain(|&index| !stopped[index]);
-        diagnostics.extend(diagnose_cycles(
-            &lookup, &outgoing, &placed, &stopped, &active,
-        ));
-    }
-    Schedule {
-        lookup,
-        order,
-        diagnostics,
-        outgoing,
-        active,
-        stopped,
-    }
-}
-
-///
-/// The computations an Input Portal reading `read` is ordered after: every
-/// writer whose reservation covers those Cells, other than `reader` itself
-/// and those activation cannot reach this Tick. A Portal declared before the
-/// Tick and one found at a Turn are ordered by this one rule.
-///
-fn input_writers<'a>(
-    lookup: &'a Lookup,
-    active: &'a [bool],
-    reader: usize,
-    read: Range<usize>,
-) -> impl Iterator<Item = usize> + 'a {
-    lookup
-        .writes
-        .touching(read)
-        .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner])
-}
-
-///
-/// Dependency edges by producer, and how many producers each consumer still
-/// waits for.
-///
-struct Dependencies {
-    outgoing: Vec<Vec<usize>>,
-    indegree: Vec<usize>,
-}
-
-impl Dependencies {
-    /// `edges` as `(producer, consumer)` pairs among `nodes` computations.
-    fn new(nodes: usize, edges: impl IntoIterator<Item = (usize, usize)>) -> Self {
-        let mut dependencies = Self {
-            outgoing: vec![vec![]; nodes],
-            indegree: vec![0; nodes],
-        };
-        for (producer, consumer) in edges {
-            dependencies.indegree[consumer] += 1;
-            dependencies.outgoing[producer].push(consumer);
-        }
-        dependencies
-    }
-
-    /// The computations `candidate` admits that wait for no producer.
-    fn free(&self, candidate: impl Fn(usize) -> bool) -> Vec<usize> {
-        (0..self.indegree.len())
-            .filter(|&index| candidate(index) && self.indegree[index] == 0)
-            .collect()
-    }
-
-    ///
-    /// Takes each computation in `ready`, and each one whose last dependency
-    /// is then taken, in Grid order: the order a schedule is built in and a
-    /// Tick continues in.
-    ///
-    /// `take` takes a computation's Turn, or answers the computations it must
-    /// wait for. One that waits is ordered after them and is taken again once
-    /// they have been, so a dependency found at a Turn joins the order there.
-    /// A computation whose dependencies are never all taken is left untaken.
-    ///
-    fn take_ready(
-        &mut self,
-        lookup: &Lookup,
-        ready: impl IntoIterator<Item = usize>,
-        mut take: impl FnMut(usize) -> Option<Vec<usize>>,
-    ) {
-        let key = |index: usize| (lookup.grid.index(lookup.nodes()[index].anchor), index);
-        let mut ready: BTreeSet<_> = ready.into_iter().map(key).collect();
-        while let Some((_, index)) = ready.pop_first() {
-            if let Some(writers) = take(index) {
-                self.wait_on(index, writers);
-                continue;
-            }
-            for &consumer in &self.outgoing[index] {
-                self.indegree[consumer] -= 1;
-                if self.indegree[consumer] == 0 {
-                    ready.insert(key(consumer));
-                }
-            }
-        }
-    }
-
-    /// Orders `waiter` after each of `writers`.
-    fn wait_on(&mut self, waiter: usize, writers: Vec<usize>) {
-        self.indegree[waiter] += writers.len();
-        for writer in writers {
-            self.outgoing[writer].push(waiter);
-        }
-    }
-}
-
-///
-/// The diagnostics for the computations no order placed.
-///
-/// Each cycle is diagnosed once, at the first computation on it in Parser
-/// order: a computation still waiting may only be downstream of a cycle, and
-/// two computations that reach each other share one. An Expression stopped
-/// only because it depends on a cycle says so at its root, so a performer can
-/// tell the cycle from what it starves. A root no activation can reach this
-/// Tick takes no Turn with or without the cycle, so it has nothing to wait
-/// for and stays quiet.
-///
-fn diagnose_cycles(
-    lookup: &Lookup,
-    outgoing: &[Vec<usize>],
-    placed: &[bool],
-    stopped: &[bool],
-    active: &[bool],
-) -> Vec<Diagnostic> {
-    let nodes = lookup.nodes();
-    let mut diagnostics = Vec::new();
-    let on_cycle: Vec<_> = (0..nodes.len())
-        .map(|index| !placed[index] && reaches(outgoing, index, index))
-        .collect();
-    let mut diagnosed = vec![false; nodes.len()];
-    let mut holds_cycle = vec![false; nodes.len()];
-    for index in (0..nodes.len()).filter(|&index| on_cycle[index]) {
-        holds_cycle[nodes[index].owner] = true;
-        if diagnosed[index] {
-            continue;
-        }
-        diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
-        for other in (index..nodes.len()).filter(|&other| on_cycle[other]) {
-            if reaches(outgoing, index, other) && reaches(outgoing, other, index) {
-                diagnosed[other] = true;
-            }
-        }
-    }
-    for (index, node) in nodes.iter().enumerate() {
-        if node.parent.is_none() && stopped[index] && !holds_cycle[index] && active[index] {
-            diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
-        }
-    }
-    diagnostics
-}
-
-///
-/// Whether a path of at least one edge leads from `from` to `to`.
-///
-fn reaches(outgoing: &[Vec<usize>], from: usize, to: usize) -> bool {
-    let mut seen = vec![false; outgoing.len()];
-    let mut pending = outgoing[from].clone();
-    while let Some(index) = pending.pop() {
-        if index == to {
-            return true;
-        }
-        if !std::mem::replace(&mut seen[index], true) {
-            pending.extend_from_slice(&outgoing[index]);
-        }
-    }
-    false
+    ordering::schedule(lookup, active, edges, diagnostics)
 }
 
 ///

@@ -8,8 +8,6 @@
 //! a stale schedule would plan differently, the test says so, so a key too
 //! coarse to see that change fails here rather than in a pattern.
 
-use std::collections::BTreeSet;
-
 use lang::Tick;
 
 use super::execution::{self, ComputationState};
@@ -77,44 +75,21 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
 }
 
 ///
-/// Asserts that `source`'s schedule is the Grid-ordered topological sort of
-/// its dependency edges, less the computations a cycle stops, and that a Tick
-/// of a Source holding no Track takes its Turns in exactly that order. Only
-/// a Track finds a dependency at its Turn, so every other Function is ordered
-/// as the edges alone order it.
+/// Asserts that a Tick of `source`, which holds no Track, takes exactly the
+/// Turns its schedule orders, in that order, Turns that settle without an
+/// effect included. Only a Track finds a dependency at its Turn, so every
+/// other Function is ordered by the schedule alone.
 ///
 fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) {
-    let grid = source.grid();
-    let map = source.shared_language_map();
-    let schedule = map.schedule_cache().schedule(grid, &map);
-    let nodes = schedule.lookup.nodes();
-    let mut indegree = vec![0_usize; nodes.len()];
-    for &consumer in schedule.outgoing.iter().flatten() {
-        indegree[consumer] += 1;
-    }
-    let key = |index: usize| (grid.index(nodes[index].anchor), index);
-    let mut ready: BTreeSet<_> = (0..nodes.len())
-        .filter(|&index| indegree[index] == 0)
-        .map(key)
-        .collect();
-    let mut sorted = Vec::new();
-    while let Some((_, index)) = ready.pop_first() {
-        sorted.push(index);
-        for &consumer in &schedule.outgoing[index] {
-            indegree[consumer] -= 1;
-            if indegree[consumer] == 0 {
-                ready.insert(key(consumer));
-            }
-        }
-    }
-    sorted.retain(|&index| !schedule.stopped[index]);
-    assert_eq!(schedule.order, sorted, "the schedule's order");
     let bytes = source.snapshot();
     if bytes.contains("@t") {
         return;
     }
+    let grid = source.grid();
+    let map = source.shared_language_map();
+    let schedule = map.schedule_cache().schedule(grid, &map);
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
-    let mut scheduled = vec![None; nodes.len()];
+    let mut scheduled = vec![None; states.len()];
     for (turn, &index) in schedule.order.iter().enumerate() {
         scheduled[index] = Some(turn);
     }

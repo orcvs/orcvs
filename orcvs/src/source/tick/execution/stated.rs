@@ -8,18 +8,21 @@
 //! [`super::execute`], so that the shipped Turn stays one thing in every build:
 //! the Interpreter's answer, delivered.
 //!
-//! Only the Turn loop is reimplemented, because substituting one Turn is the
-//! one thing this does differently. It records each Turn's ordinal exactly as
-//! the production loop does. The starting state, the Bang cleanup it
-//! performs, the schedule, the resolution, and the Turn every other
-//! computation takes are all the production ones, reached through the same
-//! [`super::Execution::new`] that [`super::execute`] reaches them through.
+//! Substituting one Turn is the one thing this does differently, and it
+//! records that Turn's ordinal as a production Turn records its own. The
+//! starting state, the Bang cleanup it performs, the schedule, the order its
+//! Turns are taken in, the resolution, and the Turn every other computation
+//! takes are all the production ones, reached through the same
+//! [`super::Execution::new`] and [`ordering::take_turns`] that
+//! [`super::execute`] reaches them through.
 //!
 
 use lang::Tick;
 
 use super::super::{Lookup, carry, computations, order_turns};
-use super::{Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, resolve};
+use super::{
+    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, ordering, resolve,
+};
 use crate::grid::CellIndex;
 use crate::source::Cells;
 use std::collections::BTreeMap;
@@ -59,24 +62,28 @@ pub(in crate::source::tick) fn plan_with_answers(
     let schedule = order_turns(lookup, diagnostics);
     let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
-    for &index in &schedule.order {
+    ordering::take_turns(&schedule, |index, progress| {
         let anchor = grid.index(schedule.lookup.nodes()[index].anchor);
         match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {
                 stated[position] = true;
-                // Finished as production finishes a Turn, for the reason the
-                // loop around it is reproduced: a stated answer replaces what
-                // one computation answers and nothing else, and the Turn it
-                // took is the Turn it would have taken.
-                execution.finish_turn(index);
+                // Counted as production counts a Turn it takes: a stated
+                // answer replaces what one computation answers and nothing
+                // else, and the Turn it took is the Turn it would have taken.
+                execution.count_turn(index);
                 execution.state_answer(index, answers[position].1);
+                None
             }
-            None => assert!(
-                execution.take_turn(index).is_none(),
-                "a stated fixture holds no Turn that waits on a writer"
-            ),
+            None => {
+                let writers = execution.take_turn(index, progress);
+                assert!(
+                    writers.is_none(),
+                    "a stated fixture holds no Turn that waits on a writer"
+                );
+                None
+            }
         }
-    }
+    });
     // Every order runs to its end, so an answer whose computation the order
     // never reached was stated for a computation a cycle stops, and the
     // fixture is told so here rather than handed a quiet Tick.

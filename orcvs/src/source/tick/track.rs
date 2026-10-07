@@ -504,3 +504,44 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     let turns = anchored_turns(&source, &states);
     assert!(turns[&(12, 1)] < turns[&(0, 0)], "{turns:?}");
 }
+
+#[test]
+fn a_cycle_a_track_finds_after_another_track_waited_is_diagnosed_as_one_found_first() {
+    // The Track at (0, 0) waits for the `&^` at (8, 1), so the rest of the
+    // Tick is ordered from its Turn on. The Track at (0, 3) then finds that
+    // its pair 1 is written by the `&^` at (8, 4), which waits on it through
+    // the two `&>`. The `&>` at (10, 4) reads Cells the cycle writes, and the
+    // Addition depends on none of it.
+    let tick = first(
+        Grid::with_shape(14, 8),
+        &[
+            "@t0103C4  E4",
+            "        &^",
+            "        D4",
+            "@t0103C4  E4",
+            "  &>  &>&^&>",
+            "        D4",
+            ".+0102",
+        ],
+    );
+    assert_eq!(
+        tick.diagnostics,
+        [
+            diagnostic(0, 3, "same-Tick dependency cycle"),
+            diagnostic(10, 4, "waiting on a same-Tick dependency cycle"),
+        ]
+    );
+    assert_eq!(
+        tick.rows,
+        [
+            "@t0103C4D4E4  ",
+            "D4      &^    ",
+            "        D4    ",
+            "@t0103C4  E4  ",
+            "  &>  &>&^&>  ",
+            "        D4    ",
+            ".+0102        ",
+            "03            ",
+        ]
+    );
+}
