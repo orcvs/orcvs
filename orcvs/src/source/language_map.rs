@@ -697,7 +697,6 @@ impl DerivedRow {
             );
             return Self::default();
         }
-        let bytes = row.bytes();
         let mut row = Self {
             units: walk.units,
             expressions: Vec::with_capacity(walk.parses.len()),
@@ -712,10 +711,9 @@ impl DerivedRow {
             let units = units_range(&row.units, grid, span);
 
             let executable = analysis.is_complete();
-            let diagnostic = analysis.error().map(|error| {
-                Diagnostic::for_range(grid, start, end, error.to_string())
-                    .pending_on(unwritten_slot(analysis.expression(), bytes, row_start))
-            });
+            let diagnostic = analysis
+                .error()
+                .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
             let expression = analysis.into_expression();
             let function_candidate = match expression.entries().next() {
                 Some((Token::Function, Atom::Function(function))) => {
@@ -881,35 +879,6 @@ fn name_units(
             }
         }
     }
-}
-
-/// The declared literal type an Expression's diagnostic is pending on, or
-/// `None` where it is a fault.
-///
-/// It is pending where every operand the Parser could not bind is a whole
-/// slot inside the row with no Cell written, and the type it names is the
-/// first such slot's. A slot with any Cell written, one the row edge cuts
-/// short, a refused Function, or a nested effect Function is a fault.
-fn unwritten_slot(expression: &Expression, bytes: &[u8], row_start: usize) -> Option<Token> {
-    let mut waiting = None;
-    for entry in expression.positioned() {
-        let ready = match entry.atom {
-            Some(Atom::Function(function)) => entry.parent.is_none() || function.answers_value(),
-            Some(_) => true,
-            None => {
-                waiting = waiting.or(Some(entry.token));
-                !matches!(entry.token, Token::Function | Token::Comment)
-                    && entry.cells.len() == entry.token.len()
-                    && bytes[entry.cells.start - row_start..entry.cells.end - row_start]
-                        .iter()
-                        .all(|&byte| byte == SPACE_BYTE)
-            }
-        };
-        if !ready {
-            return None;
-        }
-    }
-    waiting
 }
 
 fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
@@ -1424,24 +1393,22 @@ mod tests {
     }
 
     /// An Expression whose only unbound operands are unwritten slots inside
-    /// the row is refused as a partly written one is: it is diagnosed and is
-    /// not a root. Its diagnostic is classified pending on the declared
-    /// literal type of the first unwritten slot, nested slots included.
+    /// the row is refused as a partly written one is: it is diagnosed once and
+    /// is not a root, nested slots included.
     #[test]
-    fn an_expression_waiting_on_unwritten_operands_is_diagnosed_as_pending() {
-        for (row, waiting) in [
-            (".+        ", Token::Number),
-            (".|        ", Token::Number),
-            (".+01      ", Token::Number),
-            (".+01.+  02", Token::Number),
-            (".+  .+0102", Token::Number),
-            ("!>007F    ", Token::Note),
+    fn an_expression_waiting_on_unwritten_operands_is_diagnosed_and_not_a_root() {
+        for row in [
+            ".+        ",
+            ".|        ",
+            ".+01      ",
+            ".+01.+  02",
+            ".+  .+0102",
+            "!>007F    ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
             let diagnostics: Vec<_> = map.diagnostics().collect();
             assert_eq!(diagnostics.len(), 1, "{row:?}: {diagnostics:?}");
-            assert_eq!(diagnostics[0].pending(), Some(waiting), "{row:?}");
             assert!(
                 map.expressions()
                     .all(|expression| expression.root().is_none()),
@@ -1451,10 +1418,10 @@ mod tests {
     }
 
     /// A slot with one Cell written is malformed, and a slot the row edge cuts
-    /// short is one the Grid cannot hold, so both diagnose as faults, even
-    /// beside an unwritten slot.
+    /// short is one the Grid cannot hold, so both diagnose, even beside an
+    /// unwritten slot.
     #[test]
-    fn a_partly_written_or_edge_cut_operand_diagnoses_as_a_fault() {
+    fn a_partly_written_or_edge_cut_operand_is_diagnosed() {
         for (width, row) in [
             (10, ".+ 101    "),
             (10, ".+01.+ 1  "),
@@ -1463,13 +1430,9 @@ mod tests {
         ] {
             let map = LanguageMap::build(Grid::with_shape(width, 1), Cells::of(row.as_bytes()));
 
-            let diagnostics: Vec<_> = map.diagnostics().collect();
-            assert!(!diagnostics.is_empty(), "{row:?} was not diagnosed");
             assert!(
-                diagnostics
-                    .iter()
-                    .all(|diagnostic| diagnostic.pending().is_none()),
-                "{row:?}: {diagnostics:?}"
+                map.diagnostics().next().is_some(),
+                "{row:?} was not diagnosed"
             );
         }
     }

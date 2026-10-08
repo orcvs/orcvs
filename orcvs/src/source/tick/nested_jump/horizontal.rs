@@ -5,10 +5,8 @@
 //! them; `&<` reads east and writes west. Those Cells are the parent's
 //! spelling, its sibling operands, or the Cells just past the Expression.
 
-use lang::Token;
-
 use super::super::observed;
-use super::{Observed, observe, pending_on_a_number};
+use super::{Observed, observe};
 use crate::grid::Grid;
 
 ///
@@ -22,7 +20,6 @@ fn tick(rows: &[&str], diagnostics: &[(usize, usize, &str)]) -> Observed {
             .iter()
             .map(|&(column, row, message)| (column, row, message.to_string()))
             .collect(),
-        pending: vec![None; diagnostics.len()],
     }
 }
 
@@ -174,8 +171,8 @@ fn a_west_jump_in_a_middle_or_last_operand_copies_east_cells_over_the_operand_be
 fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before_it() {
     // Empty aligned input clears the destination, so the operand before the
     // Jump becomes unwritten and the parent is invalid: the Tick diagnoses
-    // it, pending on a Number. From the next Tick the slot is unwritten in
-    // the Source, so the Language Map reports it and the Tick says nothing.
+    // it. From the next Tick the slot is unwritten in the Source, so the
+    // Language Map reports it and the Tick says nothing.
     for (width, row, blanked) in [(8, ".+01&<", ".+  &<  "), (10, "~?0109&<", "~?01  &<  ")] {
         let grid = Grid::with_shape(width, 2);
         let empty = " ".repeat(width);
@@ -183,7 +180,7 @@ fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before
         assert_eq!(
             observe(grid, &[row], 3),
             settles(
-                pending_on_a_number(vec![tick(&[blanked, &empty], &[(0, 0, message)])]).remove(0),
+                tick(&[blanked, &empty], &[(0, 0, message)]),
                 &[blanked, &empty],
                 &[],
             ),
@@ -193,9 +190,9 @@ fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before
         let map: Vec<_> = source
             .language_map()
             .diagnostics()
-            .map(|diagnostic| (diagnostic.start(), diagnostic.pending()))
+            .map(|diagnostic| diagnostic.start())
             .collect();
-        assert_eq!(map, [(0, Some(Token::Number))], "{row:?}");
+        assert_eq!(map, [0], "{row:?}");
     }
 }
 

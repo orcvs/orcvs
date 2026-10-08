@@ -18,7 +18,6 @@ use super::{
     resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
-use operands::Refusal;
 use working::{WorkingSource, WriteKind};
 
 mod operands;
@@ -61,9 +60,6 @@ pub(super) fn execute(
 pub(in crate::source) struct ComputationState {
     function: Function,
     result: Option<Atom>,
-    /// The declared literal type of the unwritten slot that refused this
-    /// computation's Turn, or `None` where nothing refused it so.
-    pending: Option<lang::Token>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
@@ -191,7 +187,6 @@ impl<'a> Execution<'a> {
                 .map(|node| ComputationState {
                     function: node.function,
                     result: None,
-                    pending: None,
                     syntax_blocked: false,
                     activated: false,
                     suppressed: false,
@@ -309,20 +304,13 @@ impl<'a> Execution<'a> {
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
         let result = self.decode(node, signature).and_then(|operands| {
-            let portal = self
-                .turn_portal(index, function, &operands)
-                .map_err(Refusal::fault)?;
+            let portal = self.turn_portal(index, function, &operands)?;
             Ok((operands, portal))
         });
         let (operands, portal) = match result {
             Ok(resolved) => resolved,
-            Err(Refusal { message, pending }) => {
-                // Kept for a parent this Function returns to, whose refusal
-                // has the same cause.
-                self.states[index].pending = pending;
-                self.effects.push(Effect::Diagnose(
-                    diagnose(node, message).pending_on(pending),
-                ));
+            Err(message) => {
+                self.effects.push(Effect::Diagnose(diagnose(node, message)));
                 return None;
             }
         };

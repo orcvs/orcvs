@@ -3752,25 +3752,23 @@ mod test {
                 [(0, 0, "expected a number, found \"G4\"".to_string())],
                 "{rows:?}"
             );
-            assert_eq!(decoded.pending, [None], "{rows:?}");
         }
     }
 
     #[test]
     fn an_unwritten_operand_in_the_source_blocks_its_function_as_the_map_reports() {
         // The second operand is unwritten in the Source and nothing writes
-        // it, so the Language Map diagnoses the Expression, pending on a
-        // Number, and the Tick does not report it again. The nested `.^43`
-        // still answers and writes `G4` south of itself; the Addition it
-        // returns to writes nothing.
+        // it, so the Language Map diagnoses the Expression and the Tick does
+        // not report it again. The nested `.^43` still answers and writes
+        // `G4` south of itself; the Addition it returns to writes nothing.
         let grid = Grid::with_shape(8, 3);
         let mut source = super::observed::source_of(grid, &[".+.^43  ", "xx"]);
-        let map_pending = source
-            .language_map()
-            .diagnostics()
-            .find(|diagnostic| diagnostic.start() == 0)
-            .and_then(|diagnostic| diagnostic.pending());
-        assert_eq!(map_pending, Some(Token::Number));
+        assert!(
+            source
+                .language_map()
+                .diagnostics()
+                .any(|diagnostic| diagnostic.start() == 0)
+        );
 
         let plan = source.execute(Tick::ZERO);
 
@@ -3779,11 +3777,10 @@ mod test {
     }
 
     #[test]
-    fn a_nested_function_invalid_on_an_unwritten_slot_fails_its_parent_as_pending() {
+    fn a_nested_function_invalid_on_an_unwritten_slot_fails_its_parent() {
         // The Jump north copies the empty Cells below it over `.^`'s operand,
         // so `.^` is invalid at its Turn and gives the Addition no operand.
-        // Both are diagnosed, both pending on a Number: the slot the Addition
-        // waits on through its child is the `.^`'s own.
+        // Both are diagnosed.
         let grid = Grid::with_shape(8, 4);
         let observed = super::observed::observe_at(grid, &[".+01.^43", "      &^"], [0]).remove(0);
         assert_eq!(observed.rows[0], ".+01.^  ");
@@ -3798,14 +3795,12 @@ mod test {
                 ),
             ]
         );
-        assert_eq!(observed.pending, [Some(Token::Number), Some(Token::Number)]);
     }
 
     #[test]
-    fn a_nested_absence_marker_fails_its_parent_as_a_fault() {
+    fn a_nested_absence_marker_fails_its_parent() {
         // Equality with unequal operands evaluates and answers the Absence
-        // Marker, so the Addition has no operand and is diagnosed. Nothing is
-        // unwritten, so the diagnostic is a fault, not pending.
+        // Marker, so the Addition has no operand and is diagnosed.
         let grid = Grid::with_shape(10, 3);
         let observed = super::observed::observe_at(grid, &[".+.=010201"], [0]).remove(0);
         assert_eq!(
@@ -3816,7 +3811,6 @@ mod test {
                 "nested computation at column 2, row 0 returned nothing".to_string()
             )]
         );
-        assert_eq!(observed.pending, [None]);
     }
 
     #[test]
@@ -4612,11 +4606,11 @@ mod test {
     fn a_banged_play_with_an_unwritten_note_is_invalid_and_emits_nothing() {
         // The Bang gives the timing and the note slot gives what plays. With
         // no note written the Play is invalid: the Bang reaches nothing that
-        // plays, and the Language Map diagnoses it, pending on a Note.
+        // plays, and the Language Map diagnoses it.
         let grid = Grid::with_shape(16, 4);
-        for (play, commands, waiting) in [
+        for (play, commands, diagnosed) in [
             ("!>007FC4", vec![raw(0, 0x7F, 60)], vec![]),
-            ("!>007F", vec![], vec![Some(Token::Note)]),
+            ("!>007F", vec![], vec![(0, 2)]),
         ] {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -4631,9 +4625,9 @@ mod test {
             );
             assert_eq!(
                 map.diagnostics()
-                    .map(Diagnostic::pending)
+                    .map(|d| (d.anchor().x(), d.anchor().y()))
                     .collect::<Vec<_>>(),
-                waiting,
+                diagnosed,
                 "{play:?}"
             );
         }
@@ -4643,12 +4637,12 @@ mod test {
     fn a_banged_play_whose_nested_track_copies_an_empty_pair_is_invalid() {
         // Track stands in the note slot and copies the pair its index
         // selects. `C4` plays; the empty pair is returned as empty Cells, so
-        // the note slot is unwritten and the Play fails with its child,
-        // diagnosed pending on a Note.
+        // the note slot is unwritten and the Play fails with its child and
+        // is diagnosed.
         let grid = Grid::with_shape(16, 4);
-        for (play, commands, waiting) in [
+        for (play, commands, diagnosed) in [
             ("!>007F@t0002C4  ", vec![raw(0, 0x7F, 60)], vec![]),
-            ("!>007F@t0102C4  ", vec![], vec![(0, 2, Some(Token::Note))]),
+            ("!>007F@t0102C4  ", vec![], vec![(0, 2)]),
         ] {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -4659,9 +4653,9 @@ mod test {
             assert_eq!(
                 plan.diagnostics
                     .iter()
-                    .map(|d| (d.anchor().x(), d.anchor().y(), d.pending()))
+                    .map(|d| (d.anchor().x(), d.anchor().y()))
                     .collect::<Vec<_>>(),
-                waiting,
+                diagnosed,
                 "{play:?}: {:?}",
                 plan.diagnostics
             );
@@ -4673,9 +4667,8 @@ mod test {
         // Track writes the pair its index selects into `.^`'s operand, and
         // `.^` writes the Note it converts into the Play's note slot. With
         // the index moved to the empty pair, Track clears `.^`'s operand, so
-        // `.^` is invalid, writes nothing and is diagnosed pending on a
-        // Number. The `G4` it wrote on the earlier Tick stays, and the next
-        // Bang plays it again.
+        // `.^` is invalid, writes nothing and is diagnosed. The `G4` it wrote
+        // on the earlier Tick stays, and the next Bang plays it again.
         let grid = Grid::with_shape(18, 4);
         let mut source = seeded_source(grid, &[".=0101  @t000243  ", "      .^", "!>007F", ""]);
 
@@ -4693,9 +4686,9 @@ mod test {
         assert_eq!(
             rest.diagnostics
                 .iter()
-                .map(|d| (d.anchor().x(), d.anchor().y(), d.pending()))
+                .map(|d| (d.anchor().x(), d.anchor().y()))
                 .collect::<Vec<_>>(),
-            [(6, 1, Some(Token::Number))]
+            [(6, 1)]
         );
     }
 
@@ -4949,13 +4942,11 @@ mod test {
 
             source.set(cell(grid, 2), " ").unwrap();
             source.set(cell(grid, 3), " ").unwrap();
-            assert_eq!(
+            assert!(
                 source
                     .language_map()
                     .diagnostics()
-                    .find(|diagnostic| diagnostic.start() == 0)
-                    .and_then(|diagnostic| diagnostic.pending()),
-                Some(Token::Number),
+                    .any(|diagnostic| diagnostic.start() == 0),
                 "{function}"
             );
             source.execute(Tick::new(1));

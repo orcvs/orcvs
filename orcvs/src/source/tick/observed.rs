@@ -1,7 +1,7 @@
 //! A Source Tick as a performer observes it: the Grid after the Tick, and
 //! each diagnostic with the Grid column and row of its first Cell.
 
-use lang::{Tick, Token};
+use lang::Tick;
 
 use crate::grid::Grid;
 use crate::source::{Source, TickPlan};
@@ -11,9 +11,6 @@ use crate::source::{Source, TickPlan};
 pub(super) struct Observed {
     pub(super) rows: Vec<String>,
     pub(super) diagnostics: Vec<(usize, usize, String)>,
-    /// Each diagnostic's pending classification, in the order of
-    /// `diagnostics`.
-    pub(super) pending: Vec<Option<Token>>,
 }
 
 /// A Source holding `rows`, each padded to the Grid's width, with every Cell
@@ -56,7 +53,6 @@ pub(super) fn observed(source: &Source, plan: &TickPlan) -> Observed {
                 (anchor.x(), anchor.y(), diagnostic.message.clone())
             })
             .collect(),
-        pending: plan.diagnostics.iter().map(|d| d.pending()).collect(),
     }
 }
 

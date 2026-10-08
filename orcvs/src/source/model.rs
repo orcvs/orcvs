@@ -32,18 +32,11 @@ const SPACE_BYTE: u8 = b' ';
 /// producer whose effect falls elsewhere than where it sits diagnoses at its
 /// own Position while describing the Cells its Expression occupies.
 ///
-/// A Diagnostic is also classified by its cause. One caused by an operand slot
-/// with no written Cell, in the Function it describes or in a nested Function
-/// that Function waits on, is pending: the Function is waiting for a value of
-/// the slot's declared literal type. Every other cause is a fault. The
-/// classification is what the console presents; it never changes what runs.
-///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Diagnostic {
     pub message: String,
     anchor: crate::grid::Position,
     span: Span,
-    pending: Option<lang::Token>,
 }
 
 impl Diagnostic {
@@ -61,7 +54,6 @@ impl Diagnostic {
             message,
             anchor: grid.position_at(start),
             span: Span::new(grid, start, end),
-            pending: None,
         }
     }
 
@@ -80,24 +72,7 @@ impl Diagnostic {
             message,
             anchor,
             span,
-            pending: None,
         }
-    }
-
-    /// This Diagnostic, classified pending on an unwritten slot of the
-    /// declared literal type `waiting`, or left a fault where it is `None`.
-    pub(super) fn pending_on(self, waiting: Option<lang::Token>) -> Self {
-        Self {
-            pending: waiting,
-            ..self
-        }
-    }
-
-    /// The declared literal type of the unwritten operand slot this Diagnostic
-    /// is caused by, or `None` where its cause is a fault: a malformed slot,
-    /// an Absence Marker, or anything else that is not a slot left unwritten.
-    pub fn pending(&self) -> Option<lang::Token> {
-        self.pending
     }
 
     /// The first Cell this Diagnostic covers, as a Source index.
@@ -1332,19 +1307,16 @@ mod test {
 
         let at = src.cells();
 
-        // A Function waiting on an operand nobody has written into is
-        // diagnosed, classified pending on the Number its slot declares.
+        // A Function with an operand nobody has written into is diagnosed.
         src.write(at(0), ".+01");
         assert_eq!(src.row(0), ".+01      ");
         assert_eq!(diagnostics(&src).len(), 1);
-        assert_eq!(diagnostics(&src)[0].pending(), Some(Token::Number));
 
-        // A half-typed operand is diagnosed as a fault. Its Span is six
+        // A half-typed operand is diagnosed too. Its Span is six
         // Cells: an Addition claims two operands, so the diagnostic covers
         // the Cells the Function is asking for.
         src.write(at(4), "0");
         assert_eq!(diagnostics(&src).len(), 1);
-        assert_eq!(diagnostics(&src)[0].pending(), None);
         assert_eq!(diagnostics(&src)[0].start(), 0);
         assert_eq!(diagnostics(&src)[0].end(), 5);
 

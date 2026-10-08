@@ -20,7 +20,6 @@ fn seen(width: usize, rows: &[&str], diagnostics: &[(usize, usize, &str)]) -> Ob
             .iter()
             .map(|&(column, row, message)| (column, row, message.to_string()))
             .collect(),
-        pending: vec![None; diagnostics.len()],
     }
 }
 

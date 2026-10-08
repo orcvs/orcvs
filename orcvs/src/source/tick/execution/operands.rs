@@ -12,40 +12,13 @@
 //! and reads a completed child's Return from that child's state rather than
 //! interpreting the child again.
 
-use lang::{Atom, Token};
-
-use crate::source::CellContent;
+use lang::Atom;
 
 use super::{Computation, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH, render_message};
 
 /// The two empty Cells a Function that copies Cells returns for an empty
 /// pair.
 const EMPTY_PAIR: &str = "  ";
-
-/// Why a Turn's operands do not decode, and the declared literal type of the
-/// unwritten slot that caused it, if one did.
-pub(super) struct Refusal {
-    pub(super) message: String,
-    pub(super) pending: Option<Token>,
-}
-
-impl Refusal {
-    pub(super) fn fault(message: String) -> Self {
-        Self {
-            message,
-            pending: None,
-        }
-    }
-
-    /// A refusal of a slot of type `token`, pending where the slot holds no
-    /// written Cell.
-    fn waiting(message: String, unwritten: bool, token: Token) -> Self {
-        Self {
-            message,
-            pending: unwritten.then_some(token),
-        }
-    }
-}
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
@@ -78,28 +51,20 @@ impl Execution<'_> {
     /// exactly as the same characters written there by a Portal would be.
     ///
     /// The first operand that does not decode refuses the Turn. A slot with
-    /// no written Cell, a child that copied empty Cells into it, or a child
-    /// refused for such a slot of its own refuses it as pending.
+    /// no written Cell refuses it as a partly written slot does, and so does
+    /// a child that copied empty Cells into it.
     pub(super) fn decode(
         &self,
         node: &Computation,
         signature: lang::Tokens,
-    ) -> Result<Vec<Atom>, Refusal> {
+    ) -> Result<Vec<Atom>, String> {
         node.operands
             .iter()
             .zip(signature)
             .map(|(operand, token)| {
                 let Some(child) = self.returning_child(operand) else {
                     let spelling = self.working.text(operand.cells.clone());
-                    // A slot the row edge cuts short is a fault however
-                    // its Cells read.
-                    let unwritten = operand.cells.len() == token.len()
-                        && spelling
-                            .bytes()
-                            .all(|byte| byte == CellContent::SPACE.byte());
-                    return token
-                        .decode(spelling)
-                        .map_err(|error| Refusal::waiting(error.to_string(), unwritten, token));
+                    return token.decode(spelling).map_err(|error| error.to_string());
                 };
                 let state = &self.states[child];
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
@@ -108,27 +73,22 @@ impl Execution<'_> {
                     // A Function that copies Cells returns the empty Cells it
                     // copied, so the operand it stands in is unwritten.
                     Some(Ok(Rendered::Nothing)) if state.function.copies_language_unit() => {
-                        return token
-                            .decode(EMPTY_PAIR)
-                            .map_err(|error| Refusal::waiting(error.to_string(), true, token));
+                        return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
                     }
                     Some(Ok(Rendered::Nothing)) | None => {
-                        return Err(Refusal {
-                            message: format!(
-                                "nested computation at column {}, row {} returned nothing",
-                                anchor.x(),
-                                anchor.y()
-                            ),
-                            pending: state.pending,
-                        });
+                        return Err(format!(
+                            "nested computation at column {}, row {} returned nothing",
+                            anchor.x(),
+                            anchor.y()
+                        ));
                     }
                     // A rendering a Cell cannot hold is its own fault, not an
                     // absent answer.
-                    Some(Err(reason)) => return Err(Refusal::fault(render_message(reason))),
+                    Some(Err(reason)) => return Err(render_message(reason)),
                 };
                 token
                     .decode(&returned.to_string())
-                    .map_err(|error| Refusal::fault(error.to_string()))
+                    .map_err(|error| error.to_string())
             })
             .collect()
     }
