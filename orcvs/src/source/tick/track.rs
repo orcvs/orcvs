@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
+use lang::{MidiChannel, Note, PlayCommand, Tick, Token, Velocity};
 
 use super::execution::ComputationState;
 use super::observed::{Observed, observe_at, rows_of, source_of};
@@ -132,8 +132,17 @@ fn a_bang_track_reads_is_relayed_and_activates_the_root_it_lands_on() {
 }
 
 #[test]
-fn an_empty_operand_leaves_track_pending() {
+fn an_empty_operand_makes_track_invalid_as_pending() {
+    // The Language Map diagnoses the unwritten operand, pending on its
+    // Number, and the Tick writes nothing and does not report it again.
     for rows in [["@t  03C4D4E4", "xx"], ["@t01  C4D4E4", "xx"]] {
+        let source = source_of(Grid::with_shape(12, 2), &rows);
+        let pending = source
+            .language_map()
+            .diagnostics()
+            .find(|diagnostic| diagnostic.start() == 0)
+            .and_then(|diagnostic| diagnostic.pending());
+        assert_eq!(pending, Some(Token::Number), "{rows:?}");
         let tick = first(Grid::with_shape(12, 2), &rows);
         assert_eq!(tick.rows[1], "xx          ", "{rows:?}");
         assert!(
@@ -145,7 +154,7 @@ fn an_empty_operand_leaves_track_pending() {
 }
 
 #[test]
-fn a_partially_written_operand_diagnoses_instead_of_leaving_track_pending() {
+fn a_partially_written_operand_diagnoses_as_a_fault() {
     for row in ["@t0 03C4D4E4", "@t010 C4D4E4"] {
         let source = source_of(Grid::with_shape(12, 2), &[row, "xx"]);
         let diagnostics: Vec<_> = source.language_map().diagnostics().collect();
@@ -154,6 +163,7 @@ fn a_partially_written_operand_diagnoses_instead_of_leaving_track_pending() {
                 diagnostic.anchor().x() == 0
                     && diagnostic.anchor().y() == 0
                     && diagnostic.message == "expected a number, found \"0 \""
+                    && diagnostic.pending().is_none()
             }),
             "{row:?}: {diagnostics:?}"
         );
@@ -468,12 +478,17 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
 }
 
 #[test]
-fn a_nested_track_that_reads_empty_cells_leaves_its_parent_pending() {
-    // Track reads pair 1, which is empty. It clears its own Output Portal,
-    // and the Addition it is nested in neither writes nor diagnoses.
+fn a_nested_track_that_reads_empty_cells_makes_its_parent_invalid() {
+    // Track reads pair 1, which is empty. It clears its own Output Portal
+    // and returns the empty Cells, so the Addition's operand is unwritten:
+    // the Addition writes nothing and is diagnosed, pending on a Number.
     let tick = first(Grid::with_shape(12, 2), &[".+@t010203  ", "xxxx"]);
     assert_eq!(tick.rows, [".+@t010203  ", "xx          "]);
-    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    assert_eq!(
+        tick.diagnostics,
+        [diagnostic(0, 0, "expected a number, found \"  \"")]
+    );
+    assert_eq!(tick.pending, [Some(Token::Number)]);
 }
 
 #[test]

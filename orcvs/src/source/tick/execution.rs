@@ -18,6 +18,7 @@ use super::{
     resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
+use operands::Refusal;
 use working::{WorkingSource, WriteKind};
 
 mod operands;
@@ -60,6 +61,9 @@ pub(super) fn execute(
 pub(in crate::source) struct ComputationState {
     function: Function,
     result: Option<Atom>,
+    /// The declared literal type of the unwritten slot that refused this
+    /// computation's Turn, or `None` where nothing refused it so.
+    pending: Option<lang::Token>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
@@ -127,9 +131,8 @@ impl ComputationState {
     }
 
     ///
-    /// Whether this computation's Turn was blocked without a Tick diagnostic:
-    /// by a syntax error the Source revision already reports, or because an
-    /// operand it reads holds no written Cell and it is pending.
+    /// Whether this computation's Turn was blocked without a Tick diagnostic,
+    /// by a syntax error the Source revision already reports.
     ///
     /// Read only by the nested settle property, whose `cfg` matches the
     /// native-only proptest dev-dependency, so a WASM test build omits it too.
@@ -188,6 +191,7 @@ impl<'a> Execution<'a> {
                 .map(|node| ComputationState {
                     function: node.function,
                     result: None,
+                    pending: None,
                     syntax_blocked: false,
                     activated: false,
                     suppressed: false,
@@ -246,11 +250,10 @@ impl<'a> Execution<'a> {
         // A nested Function that answers no value has no Return for its
         // parent. The Parser reports that against the Expression from Source
         // alone, so the Turn is blocked as an unparsed operand's is, without
-        // repeating the report, and its parent is blocked in turn. A pending
-        // Function is blocked the same way, before any operand is decoded.
+        // repeating the report, and its parent is blocked in turn.
         if self.syntax_blocks(node, function)
             || (node.parent.is_some() && !function.answers_value())
-            || self.pending(node)
+            || self.blocked_by_child(node)
         {
             self.states[index].syntax_blocked = true;
             return None;
@@ -306,13 +309,20 @@ impl<'a> Execution<'a> {
         let function = self.states[index].function;
         let tick = tick_inputs(self.tick, node.anchor);
         let result = self.decode(node, signature).and_then(|operands| {
-            let portal = self.turn_portal(index, function, &operands)?;
+            let portal = self
+                .turn_portal(index, function, &operands)
+                .map_err(Refusal::fault)?;
             Ok((operands, portal))
         });
         let (operands, portal) = match result {
             Ok(resolved) => resolved,
-            Err(message) => {
-                self.effects.push(Effect::Diagnose(diagnose(node, message)));
+            Err(Refusal { message, pending }) => {
+                // Kept for a parent this Function returns to, whose refusal
+                // has the same cause.
+                self.states[index].pending = pending;
+                self.effects.push(Effect::Diagnose(
+                    diagnose(node, message).pending_on(pending),
+                ));
                 return None;
             }
         };

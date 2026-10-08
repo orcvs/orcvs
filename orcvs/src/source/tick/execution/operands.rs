@@ -3,20 +3,49 @@
 //! Each operand consumes one of two things, and [`Execution::returning_child`]
 //! alone decides which: a nested Function that survives supplies its Return,
 //! and any other operand supplies the Cells working Source holds at it. For a
-//! child a write suppressed those are the two Cells at its anchor. Whether the
-//! Function is pending, what each operand decodes to, and where the operands
-//! end all follow from that decision.
+//! child a write suppressed those are the two Cells at its anchor. Whether a
+//! child blocks the Function, what each operand decodes to, and where the
+//! operands end all follow from that decision.
 //!
 //! Nothing here is kept between attempts. A Turn that waits for a writer
 //! resolves its operands again from current execution state when it retries,
 //! and reads a completed child's Return from that child's state rather than
 //! interpreting the child again.
 
-use lang::Atom;
+use lang::{Atom, Token};
 
 use crate::source::CellContent;
 
 use super::{Computation, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH, render_message};
+
+/// The two empty Cells a Function that copies Cells returns for an empty
+/// pair.
+const EMPTY_PAIR: &str = "  ";
+
+/// Why a Turn's operands do not decode, and the declared literal type of the
+/// unwritten slot that caused it, if one did.
+pub(super) struct Refusal {
+    pub(super) message: String,
+    pub(super) pending: Option<Token>,
+}
+
+impl Refusal {
+    pub(super) fn fault(message: String) -> Self {
+        Self {
+            message,
+            pending: None,
+        }
+    }
+
+    /// A refusal of a slot of type `token`, pending where the slot holds no
+    /// written Cell.
+    fn waiting(message: String, unwritten: bool, token: Token) -> Self {
+        Self {
+            message,
+            pending: unwritten.then_some(token),
+        }
+    }
+}
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
@@ -28,33 +57,15 @@ impl Execution<'_> {
     }
 
     ///
-    /// Whether some operand of `node` has not yet arrived, which leaves the
-    /// Function pending: it takes no Turn and nothing diagnoses.
+    /// Whether a nested Function returning to `node` was blocked by a syntax
+    /// error the Source revision already reports, which blocks `node` in
+    /// turn without repeating the report.
     ///
-    /// Every operand is asked before any is decoded, so a later pending
-    /// operand leaves the Function pending even where an earlier one would
-    /// fail to decode.
-    ///
-    pub(super) fn pending(&self, node: &Computation) -> bool {
-        node.operands
-            .iter()
-            .any(|operand| match self.returning_child(operand) {
-                // A child blocked without a Tick diagnostic, by syntax the
-                // Source revision reports or because it is pending, blocks its
-                // parent. A child that copied empty Cells returns them, so its
-                // operand is empty.
-                Some(child) => {
-                    let state = &self.states[child];
-                    state.syntax_blocked
-                        || (state.function.copies_language_unit()
-                            && matches!(state.result, Some(Atom::Empty)))
-                }
-                None => self
-                    .working
-                    .text(operand.cells.clone())
-                    .bytes()
-                    .all(|byte| byte == CellContent::SPACE.byte()),
-            })
+    pub(super) fn blocked_by_child(&self, node: &Computation) -> bool {
+        node.operands.iter().any(|operand| {
+            self.returning_child(operand)
+                .is_some_and(|child| self.states[child].syntax_blocked)
+        })
     }
 
     /// The operands of `node`'s Turn, in signature order.
@@ -65,36 +76,59 @@ impl Execution<'_> {
     /// two-Cell encoding. The child's Atom type does not cross: a Note
     /// returned into a Number operand is read as the Number it spells,
     /// exactly as the same characters written there by a Portal would be.
+    ///
+    /// The first operand that does not decode refuses the Turn. A slot with
+    /// no written Cell, a child that copied empty Cells into it, or a child
+    /// refused for such a slot of its own refuses it as pending.
     pub(super) fn decode(
         &self,
         node: &Computation,
         signature: lang::Tokens,
-    ) -> Result<Vec<Atom>, String> {
+    ) -> Result<Vec<Atom>, Refusal> {
         node.operands
             .iter()
             .zip(signature)
             .map(|(operand, token)| {
                 let Some(child) = self.returning_child(operand) else {
                     let spelling = self.working.text(operand.cells.clone());
-                    return token.decode(spelling).map_err(|error| error.to_string());
+                    // A slot the row edge cuts short is a fault however
+                    // its Cells read.
+                    let unwritten = operand.cells.len() == token.len()
+                        && spelling
+                            .bytes()
+                            .all(|byte| byte == CellContent::SPACE.byte());
+                    return token
+                        .decode(spelling)
+                        .map_err(|error| Refusal::waiting(error.to_string(), unwritten, token));
                 };
+                let state = &self.states[child];
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
-                let returned = match self.states[child].result.map(Encoding::render) {
+                let returned = match state.result.map(Encoding::render) {
                     Some(Ok(Rendered::Cells(encoding))) => encoding,
+                    // A Function that copies Cells returns the empty Cells it
+                    // copied, so the operand it stands in is unwritten.
+                    Some(Ok(Rendered::Nothing)) if state.function.copies_language_unit() => {
+                        return token
+                            .decode(EMPTY_PAIR)
+                            .map_err(|error| Refusal::waiting(error.to_string(), true, token));
+                    }
                     Some(Ok(Rendered::Nothing)) | None => {
-                        return Err(format!(
-                            "nested computation at column {}, row {} returned nothing",
-                            anchor.x(),
-                            anchor.y()
-                        ));
+                        return Err(Refusal {
+                            message: format!(
+                                "nested computation at column {}, row {} returned nothing",
+                                anchor.x(),
+                                anchor.y()
+                            ),
+                            pending: state.pending,
+                        });
                     }
                     // A rendering a Cell cannot hold is its own fault, not an
                     // absent answer.
-                    Some(Err(reason)) => return Err(render_message(reason)),
+                    Some(Err(reason)) => return Err(Refusal::fault(render_message(reason))),
                 };
                 token
                     .decode(&returned.to_string())
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| Refusal::fault(error.to_string()))
             })
             .collect()
     }

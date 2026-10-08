@@ -712,10 +712,10 @@ impl DerivedRow {
             let units = units_range(&row.units, grid, span);
 
             let executable = analysis.is_complete();
-            let diagnostic = analysis
-                .error()
-                .filter(|_| !is_pending(analysis.expression(), bytes, row_start))
-                .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
+            let diagnostic = analysis.error().map(|error| {
+                Diagnostic::for_range(grid, start, end, error.to_string())
+                    .pending_on(unwritten_slot(analysis.expression(), bytes, row_start))
+            });
             let expression = analysis.into_expression();
             let function_candidate = match expression.entries().next() {
                 Some((Token::Function, Atom::Function(function))) => {
@@ -883,20 +883,21 @@ fn name_units(
     }
 }
 
-/// Whether an Expression is only waiting for input: it has an operand the
-/// Parser could not bind, and every such operand is a whole slot inside the
-/// row with no Cell written. Its Function is pending until those Cells are written, so it is
-/// neither evaluated nor diagnosed. A slot with any Cell written, one the row
-/// edge cuts short, a refused Function, or a nested effect Function is a fault
-/// and keeps its diagnostic.
-fn is_pending(expression: &Expression, bytes: &[u8], row_start: usize) -> bool {
-    let mut waiting = false;
+/// The declared literal type an Expression's diagnostic is pending on, or
+/// `None` where it is a fault.
+///
+/// It is pending where every operand the Parser could not bind is a whole
+/// slot inside the row with no Cell written, and the type it names is the
+/// first such slot's. A slot with any Cell written, one the row edge cuts
+/// short, a refused Function, or a nested effect Function is a fault.
+fn unwritten_slot(expression: &Expression, bytes: &[u8], row_start: usize) -> Option<Token> {
+    let mut waiting = None;
     for entry in expression.positioned() {
         let ready = match entry.atom {
             Some(Atom::Function(function)) => entry.parent.is_none() || function.answers_value(),
             Some(_) => true,
             None => {
-                waiting = true;
+                waiting = waiting.or(Some(entry.token));
                 !matches!(entry.token, Token::Function | Token::Comment)
                     && entry.cells.len() == entry.token.len()
                     && bytes[entry.cells.start - row_start..entry.cells.end - row_start]
@@ -905,7 +906,7 @@ fn is_pending(expression: &Expression, bytes: &[u8], row_start: usize) -> bool {
             }
         };
         if !ready {
-            return false;
+            return None;
         }
     }
     waiting
@@ -1423,20 +1424,24 @@ mod tests {
     }
 
     /// An Expression whose only unbound operands are unwritten slots inside
-    /// the row is pending: it reports no diagnostic and is not a root, so it
-    /// does not evaluate. The Function waits for its input Cells.
+    /// the row is refused as a partly written one is: it is diagnosed and is
+    /// not a root. Its diagnostic is classified pending on the declared
+    /// literal type of the first unwritten slot, nested slots included.
     #[test]
-    fn an_expression_waiting_on_unwritten_operands_is_pending_and_not_diagnosed() {
-        for row in [
-            ".+        ",
-            ".|        ",
-            ".+01      ",
-            ".+01.+  02",
-            ".+  .+0102",
+    fn an_expression_waiting_on_unwritten_operands_is_diagnosed_as_pending() {
+        for (row, waiting) in [
+            (".+        ", Token::Number),
+            (".|        ", Token::Number),
+            (".+01      ", Token::Number),
+            (".+01.+  02", Token::Number),
+            (".+  .+0102", Token::Number),
+            ("!>007F    ", Token::Note),
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
-            assert!(map.diagnostics().next().is_none(), "{row:?} was diagnosed");
+            let diagnostics: Vec<_> = map.diagnostics().collect();
+            assert_eq!(diagnostics.len(), 1, "{row:?}: {diagnostics:?}");
+            assert_eq!(diagnostics[0].pending(), Some(waiting), "{row:?}");
             assert!(
                 map.expressions()
                     .all(|expression| expression.root().is_none()),
@@ -1445,17 +1450,26 @@ mod tests {
         }
     }
 
-    /// Pending is only for slots nobody has written into. A slot with one
-    /// Cell written is malformed, and a slot the row edge cuts short is one
-    /// the Grid cannot hold, so both still diagnose.
+    /// A slot with one Cell written is malformed, and a slot the row edge cuts
+    /// short is one the Grid cannot hold, so both diagnose as faults, even
+    /// beside an unwritten slot.
     #[test]
-    fn a_partly_written_or_edge_cut_operand_still_diagnoses() {
-        for (width, row) in [(10, ".+ 101    "), (10, ".+01.+ 1  "), (4, ".+01")] {
+    fn a_partly_written_or_edge_cut_operand_diagnoses_as_a_fault() {
+        for (width, row) in [
+            (10, ".+ 101    "),
+            (10, ".+01.+ 1  "),
+            (4, ".+01"),
+            (10, ".+ 1      "),
+        ] {
             let map = LanguageMap::build(Grid::with_shape(width, 1), Cells::of(row.as_bytes()));
 
+            let diagnostics: Vec<_> = map.diagnostics().collect();
+            assert!(!diagnostics.is_empty(), "{row:?} was not diagnosed");
             assert!(
-                map.diagnostics().next().is_some(),
-                "{row:?} was not diagnosed"
+                diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.pending().is_none()),
+                "{row:?}: {diagnostics:?}"
             );
         }
     }
@@ -2199,17 +2213,12 @@ mod property {
                 // because its text is arbitrary and was never decoded. It is
                 // the one complete Expression for which "nothing to report" and
                 // "answers with a value" come apart.
-                //
-                // A pending Expression is the other: it waits on operand Cells
-                // nobody has written, so nothing about it is refused and it
-                // has no value yet.
                 let comment = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Comment);
-                let pending = super::is_pending(&expression.derived.expression, source.as_bytes(), 0);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment && !pending,
+                    expression.diagnostic().is_none() && !comment,
                     "{:?}",
                     source,
                 );
