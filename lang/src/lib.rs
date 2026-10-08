@@ -15,7 +15,6 @@ pub use atom::{
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
-pub use functions::track::track_pair;
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
@@ -161,15 +160,16 @@ impl PortalCoords {
 /// Turn. A static Input Portal's position is known when the Source is parsed,
 /// so scheduling orders its writers before the Tick. A dynamic Input Portal's
 /// position is known only at the Function's Turn, from its operands, so its
-/// writers are found then. `orcvs` resolves either position against the Grid,
-/// as it does [`PortalCoords`].
+/// writers are found then. [`InputPortal::resolve`] answers either kind's
+/// offset from the anchor at the Turn, and `orcvs` resolves that offset
+/// against the Grid, as it does [`PortalCoords`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputPortal {
     /// A position at a fixed offset from the Function's anchor.
     Static(PortalCoords),
     /// A position the operands select at the Turn: the Cell pair
-    /// [`track_pair`] selects east of the end of the Function's last operand.
-    /// Only Track's Input Portal is dynamic.
+    /// `index % count` east of the end of the Function's last operand. Only
+    /// Track's Input Portal is dynamic.
     Dynamic,
 }
 

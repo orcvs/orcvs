@@ -19,7 +19,7 @@ pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// A `count` of zero selects no pair and diagnoses as a wrap by zero does, and
 /// operands outside their domain diagnose as they would at evaluation.
-pub fn track_pair(operands: &[Atom]) -> Result<u8, Error> {
+pub(crate) fn track_pair(operands: &[Atom]) -> Result<u8, Error> {
     <Track as Operands>::check(operands)
         .and_then(|()| <Track as Operands>::bind(operands))
         .and_then(selected_pair)
