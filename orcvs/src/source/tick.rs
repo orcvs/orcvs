@@ -1409,6 +1409,23 @@ mod test {
     }
 
     #[test]
+    fn a_mover_meets_the_overwrite_of_a_moved_mover_as_source_content() {
+        // `vv` moves into Cells the Snapshot left empty, and the Jump then
+        // overwrites its new spelling with `01`. `^^` is blocked by that `1`
+        // and also enters an empty Cell past it. The overwritten mover is no
+        // longer a unit there to meet part of, so the blocked move bangs
+        // without diagnosing.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &["    vv", "01&>", "     ^^"], 1);
+        assert_eq!(grids[0], ["        ", "01&>01  ", "     ** "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
     fn a_mover_supplies_a_claimed_operand_before_its_consumer() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+  01", "  ^^", ""], 1);
         assert_eq!(grids[0], [".+^^01  ", "        ", "        "]);
