@@ -705,6 +705,7 @@ define_functions! {
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
     Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Track => ("@t", Value, Intrinsic, true, [index: Number, count: Number]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -866,31 +867,36 @@ impl Function {
     ///
     /// Jump names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
-    pub const fn input_portal(self) -> Option<crate::PortalCoords> {
+    /// Those are static; Track's is dynamic, the pair its operands select
+    /// after them.
+    pub const fn input_portal(self) -> Option<crate::InputPortal> {
+        use crate::InputPortal::{Dynamic, Static};
         match self {
-            Self::JumpEast => Some(crate::PortalCoords {
+            Self::JumpEast => Some(Static(crate::PortalCoords {
                 columns: -2,
                 rows: 0,
-            }),
-            Self::JumpWest => Some(crate::PortalCoords {
+            })),
+            Self::JumpWest => Some(Static(crate::PortalCoords {
                 columns: 2,
                 rows: 0,
-            }),
-            Self::JumpNorth => Some(crate::PortalCoords::SOUTH),
-            Self::JumpSouth => Some(crate::PortalCoords {
+            })),
+            Self::JumpNorth => Some(Static(crate::PortalCoords::SOUTH)),
+            Self::JumpSouth => Some(Static(crate::PortalCoords {
                 columns: 0,
                 rows: -1,
-            }),
-            _ if self.portal_input().is_some() => Some(crate::PortalCoords::SOUTH),
+            })),
+            Self::Track => Some(Dynamic),
+            _ if self.portal_input().is_some() => Some(Static(crate::PortalCoords::SOUTH)),
             _ => None,
         }
     }
 
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
-    /// Jump names an Input Portal and binds no typed Portal input. Increment
-    /// and Interpolation name the same south site as a Number Portal input, so
-    /// they are not this: the Cells they read are a value, not a Language Unit.
+    /// Jump and Track name an Input Portal and bind no typed Portal input.
+    /// Increment and Interpolation name the same south site as a Number Portal
+    /// input, so they are not this: the Cells they read are a value, not a
+    /// Language Unit.
     pub const fn copies_language_unit(self) -> bool {
         self.input_portal().is_some() && self.portal_input().is_none()
     }
@@ -1142,15 +1148,15 @@ mod test {
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
-        // result, and a Jump copies a Bang from its Input Portal. Tick
+        // result, and a Jump or Track copies a Bang from its Input Portal. Tick
         // scheduling trusts the declaration to decide which roots can supply
         // activation, so the list is stated whole — a Function that began
         // returning Bang without declaring it would build no activation edge,
         // and the neighbouring terminal root would fall silent with no
         // diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
-        // other half for operand-reading Functions; the Jumps are exercised on
-        // their own path, because a Jump reads its Portal.
+        // other half for operand-reading Functions; the Jumps and Track are
+        // exercised on their own path, because each reads its Portal.
         assert_eq!(
             Function::ALL
                 .iter()
@@ -1165,13 +1171,17 @@ mod test {
                 Function::JumpNorth,
                 Function::JumpSouth,
                 Function::JumpWest,
+                Function::Track,
             ]
         );
     }
 
     #[test]
     fn every_function_names_its_portals() {
-        use crate::PortalCoords;
+        use crate::{
+            InputPortal::{Dynamic, Static},
+            PortalCoords,
+        };
 
         for function in Function::ALL.iter().copied() {
             let output = function.output_portal();
@@ -1187,10 +1197,10 @@ mod test {
                     );
                     assert_eq!(
                         input,
-                        Some(PortalCoords {
+                        Some(Static(PortalCoords {
                             columns: -2,
                             rows: 0
-                        })
+                        }))
                     );
                 }
                 Function::JumpWest => {
@@ -1203,10 +1213,10 @@ mod test {
                     );
                     assert_eq!(
                         input,
-                        Some(PortalCoords {
+                        Some(Static(PortalCoords {
                             columns: 2,
                             rows: 0
-                        })
+                        }))
                     );
                 }
                 Function::JumpNorth => {
@@ -1217,21 +1227,25 @@ mod test {
                             rows: -1
                         })
                     );
-                    assert_eq!(input, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
                 }
                 Function::JumpSouth => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(
                         input,
-                        Some(PortalCoords {
+                        Some(Static(PortalCoords {
                             columns: 0,
                             rows: -1
-                        })
+                        }))
                     );
                 }
                 Function::Increment | Function::Interpolation => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(input, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
+                }
+                Function::Track => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, Some(Dynamic));
                 }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
@@ -1514,7 +1528,8 @@ mod test {
                 | Function::Modulo
                 | Function::Multiply
                 | Function::Random
-                | Function::Subtract => (true, false, true),
+                | Function::Subtract
+                | Function::Track => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend

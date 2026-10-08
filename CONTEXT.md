@@ -108,6 +108,9 @@ _Avoid_: Stop Function, control phase, retroactive suppression
 One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It is a Function that answers a value: it reads one aligned two-Cell Language Unit at the Portal opposite its output and writes that value through its output Portal. East and west displace two columns; north and south one row. Consecutive Jumps compose through those Portals; when one output covers the next Function, the first write suppresses it. Empty aligned input is copied like any other: the Jump clears the two-Cell destination and, nested, returns the empty Cells, so its parent is a Pending Function. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Span. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump participates in the dependency schedule, and its Bang output can activate a root in the same Tick. A Jump does not transport part of a Language Unit.
 _Avoid_: Jumper, Jymper
 
+**Track Function**:
+`@t index count`, a Function that answers a value. Its Input Portal is the two Cells `index % count` pairs east of its last operand, counted from zero, so `@t0103C4D4E4` reads `D4`. It reads those Cells exactly as a Jump reads its Input Portal and writes what it reads through its Output Portal, one row south, and, nested, returns it to its parent. Track claims only its operands: the Cells it reads are ordinary Source. A nested Function supplying its count extends that operand through its own operands; if a write suppresses that Function, the count instead occupies the two Cells at its anchor and the selectable pairs begin immediately after them. This same rule applies when Track retries its Turn after waiting for a writer. Its Input Portal is dynamic: its position is known only once its operands are read at its Turn, so its Turn waits for every writer of those Cells that has not yet taken its Turn. A `count` of `00` diagnoses, and so does a pair past the row edge.
+
 **Number**:
 An unsigned byte interpreted from an Operand Literal as exactly two uppercase hexadecimal Cells from `00` through `FF` when a Function requires a Number. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
 _Avoid_: Base-36 value, decimal literal, single-glyph number
@@ -165,7 +168,7 @@ The Portal through which a Function acts on the Source, as an offset from its an
 _Avoid_: Result Cell, output Cell, destination
 
 **Input Portal**:
-The Portal a Function declares it reads a Source input through, as an offset from its anchor. A Jump reads at the Portal opposite its Output Portal; Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source, nested or not. Most Functions declare none and take every input as an operand.
+The Portal a Function declares it reads a Source input through, as an offset from its anchor. A Jump reads at the Portal opposite its Output Portal; Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source, nested or not. An Input Portal is static or dynamic by when its position is known; its Cells are always read from working Source at the Function's Turn. Jump, Increment and Interpolation's Input Portals are static: their position is a fixed offset, known when the Source is parsed, so their writers are ordered before the Tick. Track's is the one dynamic Input Portal: its operands place it east of its last operand, so its position is known only at its Turn and its writers are found then. Most Functions declare none and take every input as an operand.
 _Avoid_: Input Cell, source Cell, feedback register
 
 **Comment**:
@@ -173,7 +176,7 @@ The Language Unit the Parser establishes at the two-Cell introducer `||`, claimi
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:
-One discrete musical-time step that interprets a Source Snapshot and atomically applies its Tick Plan. An error never stops a Tick: it costs the Expressions it reaches, and every other Expression publishes. A same-Tick dependency cycle stops the Expressions on it and those that depend on them, each diagnosed.
+One discrete musical-time step that interprets a Source Snapshot and atomically applies its Tick Plan. An error never stops a Tick: a same-Tick dependency cycle stops the remaining Turns in the Expressions it reaches, each diagnosed, while completed Turns retain their Effects and independent Expressions publish.
 _Avoid_: Cycle, frame
 
 **Tick Plan**:

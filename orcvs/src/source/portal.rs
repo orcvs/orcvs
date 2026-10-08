@@ -21,7 +21,7 @@
 
 use std::ops::Range;
 
-use lang::{Function, PortalCoords, SourceBundle};
+use lang::{Function, InputPortal, PortalCoords, SourceBundle};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -456,10 +456,12 @@ impl PortalAccess {
                 reads: Vec::new(),
             };
         }
-        let reads = function
-            .input_portal()
-            .map(|coords| Self::portal_reads(grid, anchor, coords))
-            .unwrap_or_default();
+        // A dynamic Input Portal's position is found at the Turn, so it
+        // records no read here and execution orders it once its pair is known.
+        let reads = match function.input_portal() {
+            Some(InputPortal::Static(coords)) => Self::portal_reads(grid, anchor, coords),
+            Some(InputPortal::Dynamic) | None => Vec::new(),
+        };
         if function.performs_terminal_output() {
             return Self {
                 output: PortalOutput::None,

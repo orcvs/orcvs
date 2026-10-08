@@ -2,6 +2,8 @@
 
 Status: accepted. Amends the cycle clauses of [ADR 0034](0034-execute-against-live-typed-expressions.md), [ADR 0014](0014-spatial-functions-preserve-performative-behaviour.md) and [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md), which reject every effect of a Tick that holds a same-Tick dependency cycle. Number 0064 is skipped: commits on `main` cite it for a decision that was withdrawn.
 
+The no-Turn guarantee below is amended by [ADR 0068](0068-a-discovered-cycle-preserves-completed-turns.md) for a cycle discovered during a Tick: completed Turns retain their Effects, and every remaining computation in the affected Expressions stops.
+
 **An error costs the Expressions it reaches, never the performance.** Orcvs is played live, and a performer makes mistakes while it plays. Every Tick publishes the effects of every Expression that does not depend on a fault, whatever else in the Grid is wrong. No error, in the Source or in Orcvs itself, rejects a whole Tick.
 
 Most errors already behave this way. A type, domain or decode failure diagnoses one computation; a refused write keeps the Function's answer for its parent; a parent's error leaves its child's write standing ([ADR 0034](0034-execute-against-live-typed-expressions.md)). This decision makes the rule general and removes the two exceptions.

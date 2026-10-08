@@ -8,7 +8,7 @@
 //! a stale schedule would plan differently, the test says so, so a key too
 //! coarse to see that change fails here rather than in a pattern.
 
-use lang::Tick;
+use lang::{InputPortal, Tick};
 
 use super::execution::{self, ComputationState};
 use super::{plan, plan_unshared};
@@ -72,6 +72,35 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
     );
     source.commit_tick(&shared);
     shared
+}
+
+///
+/// Asserts that a Tick of `source`, which holds no Track, takes exactly the
+/// Turns its schedule orders, in that order, Turns that settle without an
+/// effect included. Only a Track finds a dependency at its Turn, so every
+/// other Function is ordered by the schedule alone. Answers whether the
+/// assertion applies to the parsed Functions in this Source.
+///
+fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
+    let bytes = source.snapshot();
+    let grid = source.grid();
+    let map = source.shared_language_map();
+    let schedule = map.schedule_cache().schedule(grid, &map);
+    if schedule
+        .lookup
+        .nodes()
+        .iter()
+        .any(|node| node.function.input_portal() == Some(InputPortal::Dynamic))
+    {
+        return false;
+    }
+    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
+    let mut scheduled = vec![None; states.len()];
+    for (turn, &index) in schedule.order.iter().enumerate() {
+        scheduled[index] = Some(turn);
+    }
+    assert_eq!(turns(&states), scheduled, "the Turns Tick {tick} took");
+    true
 }
 
 ///
@@ -311,7 +340,7 @@ fn a_map_derived_afresh_orders_its_own_schedule() {
 ///
 #[cfg(not(target_arch = "wasm32"))]
 mod property {
-    use super::{Grid, agreeing_tick, source_of, write_rows};
+    use super::{Grid, agreeing_tick, source_of, takes_turns_in_the_scheduled_order, write_rows};
     use lang::Function;
     use proptest::prelude::*;
     use proptest::sample::select;
@@ -382,10 +411,132 @@ mod property {
                 // Two Ticks per revision: the second runs against whatever
                 // the first wrote, which is the steady state a pattern plays in.
                 for _ in 0..2 {
+                    takes_turns_in_the_scheduled_order(&source, tick);
                     agreeing_tick(&mut source, tick);
                     tick += 1;
                 }
             }
         }
     }
+}
+
+#[test]
+fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // The Clock selects pair 0, 1 and 2 in turn. `&^` writes pair 1 from
+    // below, so Track waits for it on every Tick that selects that pair and
+    // on no other, while every Tick plans against one shared schedule.
+    let grid = Grid::with_shape(16, 3);
+    let mut source = source_of(
+        grid,
+        &["@t~.010303C4  E4", "            &^  ", "            D4  "],
+    );
+    agreeing_tick(&mut source, 0);
+    let settled = source.shared_language_map();
+    let mut selected = vec![source.snapshot()[16..18].to_owned()];
+    for tick in 1..6 {
+        agreeing_tick(&mut source, tick);
+        selected.push(source.snapshot()[16..18].to_owned());
+        assert!(
+            source
+                .language_map()
+                .schedule_cache()
+                .is_shared_with(settled.schedule_cache()),
+            "Tick {tick}"
+        );
+    }
+    assert_eq!(selected, ["C4", "D4", "E4", "C4", "D4", "E4"]);
+}
+
+#[test]
+fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
+    // Jumps reading and writing each other's Cells, a Clock feeding an
+    // Addition, an Equality's Bang activating a Play, and an Addition and
+    // two Jumps that form a cycle on the first Tick.
+    let grid = Grid::with_shape(20, 6);
+    let mut source = source_of(
+        grid,
+        &[
+            "~.0104  &>  .=0101",
+            ".+0001  &^",
+            "        D4  !>010AC4",
+            "    .+0102",
+            "    &v",
+            "    &^",
+        ],
+    );
+    let map = source.shared_language_map();
+    assert!(
+        map.schedule_cache()
+            .schedule(grid, &map)
+            .stopped
+            .contains(&true),
+        "the first Tick holds a cycle"
+    );
+    for tick in 0..4 {
+        takes_turns_in_the_scheduled_order(&source, tick);
+        let plan = agreeing_tick(&mut source, tick);
+        assert_eq!(plan.play_commands.len(), 1, "Tick {tick}");
+    }
+}
+
+#[test]
+fn a_track_spelling_in_a_comment_does_not_skip_the_order_assertion() {
+    let source = source_of(Grid::with_shape(12, 2), &[".+0102 ||@t", ""]);
+    assert!(takes_turns_in_the_scheduled_order(&source, 0));
+}
+
+#[test]
+fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
+    let grid = Grid::with_shape(28, 4);
+    let source = source_of(
+        grid,
+        &[
+            "@t~.010303C4  E4",
+            "            &^    .+0102",
+            "            D4      .x0203",
+            "",
+        ],
+    );
+    let map = source.shared_language_map();
+    let schedule = map.schedule_cache().schedule(grid, &map);
+    let cached_order = schedule.order.clone();
+    let at = |x, y| {
+        schedule
+            .lookup
+            .nodes()
+            .iter()
+            .position(|node| node.anchor.x() == x && node.anchor.y() == y)
+            .expect("the Function has a computation")
+    };
+    let track = at(0, 0);
+    let clock = at(2, 0);
+    let writer = at(12, 1);
+    let addition = at(18, 1);
+    let multiplication = at(20, 2);
+    let cached_turn = |index| cached_order.iter().position(|&node| node == index).unwrap();
+    assert!(cached_turn(clock) < cached_turn(track));
+    assert!(cached_turn(track) < cached_turn(writer));
+
+    let bytes = source.snapshot();
+    let (planned, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
+    assert!(planned.diagnostics.is_empty(), "{:?}", planned.diagnostics);
+    let turn = |index: usize| states[index].turn().expect("the Function takes a Turn");
+    assert!(turn(clock) < turn(track), "the nested index precedes Track");
+    assert!(
+        turn(writer) < turn(track),
+        "the selected pair's writer precedes Track"
+    );
+    assert!(
+        turn(addition) < turn(multiplication),
+        "Grid position breaks independent ties"
+    );
+    assert_eq!(
+        schedule.order, cached_order,
+        "a wait never changes the cached schedule"
+    );
+    assert_eq!(
+        turns(&states),
+        turns(&plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1)).1),
+        "fresh and cached ordering have identical continuation",
+    );
 }

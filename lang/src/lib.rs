@@ -153,6 +153,26 @@ impl PortalCoords {
     };
 }
 
+/// Where a Function's Input Portal stands, and when that position is known.
+///
+/// It is the Portal's position that is static or dynamic, not its contents:
+/// every Input Portal's Cells are read from working Source at the Function's
+/// Turn. A static Input Portal's position is known when the Source is parsed,
+/// so scheduling orders its writers before the Tick. A dynamic Input Portal's
+/// position is known only at the Function's Turn, from its operands, so its
+/// writers are found then. [`InputPortal::resolve`] answers either kind's
+/// offset from the anchor at the Turn, and `orcvs` resolves that offset
+/// against the Grid, as it does [`PortalCoords`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputPortal {
+    /// A position at a fixed offset from the Function's anchor.
+    Static(PortalCoords),
+    /// A position the operands select at the Turn: the Cell pair
+    /// `index % count` east of the end of the Function's last operand. Only
+    /// Track's Input Portal is dynamic.
+    Dynamic,
+}
+
 /// Which validated effect bundle a Source-writing Function plans.
 ///
 /// The two Source-writing Function groups differ here and in their activation

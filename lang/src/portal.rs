@@ -5,8 +5,44 @@
 //! Evaluator receives beside resolved cell operands.
 
 use crate::{
-    Atom, Error, Function, InterpretationError, Stack, TickInputs, Token, stack::Operands,
+    Atom, Error, Function, InputPortal, InterpretationError, PortalCoords, Stack, TickInputs,
+    Token, expression::DEFAULT_TOKEN_LEN, functions::track::track_pair, stack::Operands,
 };
+
+impl InputPortal {
+    ///
+    /// This Input Portal's position from its Function's anchor at the Turn.
+    ///
+    /// `operands` are the values the Turn resolved, and `operand_columns` is
+    /// how many columns east of the anchor the Function and its operands
+    /// occupy, nested operands included: `orcvs` knows how they lie in the
+    /// Grid. A static Input Portal is the offset it declares and reads
+    /// neither. A dynamic Input Portal is the Cell pair its operands select,
+    /// counted from zero east of `operand_columns`.
+    ///
+    /// # Errors
+    ///
+    /// A dynamic Input Portal diagnoses its operands as evaluation does,
+    /// including a `count` of `00` as a wrap by zero. An offset too far east
+    /// to represent is a Portal outside any Grid, and diagnoses as partial or
+    /// invalid input, as a Portal past the row edge does.
+    ///
+    pub fn resolve(self, operands: &[Atom], operand_columns: usize) -> Result<PortalCoords, Error> {
+        match self {
+            Self::Static(coords) => Ok(coords),
+            Self::Dynamic => {
+                let pair = track_pair(operands)?;
+                let columns = operand_columns
+                    .checked_add(usize::from(pair) * DEFAULT_TOKEN_LEN)
+                    .and_then(|columns| i16::try_from(columns).ok())
+                    .ok_or(InterpretationError::JumpInput {
+                        function: Function::Track,
+                    })?;
+                Ok(PortalCoords { columns, rows: 0 })
+            }
+        }
+    }
+}
 
 /// One Portal input declaration, beside the Function's cell operands.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -165,7 +201,10 @@ pub(crate) fn bind_operands<O: PortalOperands>(
 #[cfg(test)]
 mod test {
     use super::{PortalInput, PortalNumber, PortalSource};
-    use crate::{Error, Function, InterpretationError};
+    use crate::{
+        Anchor, Atom, Error, Function, FunctionInputs, InputPortal, InterpretationError,
+        Interpreter, Note, PortalCoords, Tick, TickInputs,
+    };
 
     const INPUT: PortalInput = PortalInput::number("previous value");
 
@@ -225,5 +264,145 @@ mod test {
                 }
             ))
         ));
+    }
+
+    /// Resolves `function`'s declared Input Portal over `operands`, which
+    /// occupy `operand_columns` columns east of its anchor.
+    fn resolve(
+        function: Function,
+        operands: &[Atom],
+        operand_columns: usize,
+    ) -> Result<PortalCoords, Error> {
+        function
+            .input_portal()
+            .expect("the Function declares an Input Portal")
+            .resolve(operands, operand_columns)
+    }
+
+    #[test]
+    fn a_static_input_portal_resolves_to_its_declaration() {
+        for function in Function::ALL.iter().copied() {
+            if let Some(InputPortal::Static(coords)) = function.input_portal() {
+                for operand_columns in [0, 2, 6, usize::MAX] {
+                    assert_eq!(
+                        resolve(function, &[Atom::Number(1)], operand_columns).unwrap(),
+                        coords,
+                        "{function:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_dynamic_input_portal_resolves_to_the_pair_its_operands_select() {
+        // `@t0103C4D4E4`: the operands end six columns east of the anchor and
+        // select pair 1, so the Portal is `D4`, eight columns east.
+        let track = |index, count, operand_columns| {
+            resolve(
+                Function::Track,
+                &[Atom::Number(index), Atom::Number(count)],
+                operand_columns,
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            track(1, 3, 6),
+            PortalCoords {
+                columns: 8,
+                rows: 0
+            }
+        );
+        assert_eq!(
+            track(5, 3, 6),
+            PortalCoords {
+                columns: 10,
+                rows: 0
+            }
+        );
+        assert_eq!(
+            track(0xFF, 0xFF, 4),
+            PortalCoords {
+                columns: 4,
+                rows: 0
+            }
+        );
+        assert_eq!(
+            track(0xFE, 0xFF, 256),
+            PortalCoords {
+                columns: 764,
+                rows: 0
+            }
+        );
+    }
+
+    #[test]
+    fn a_dynamic_input_portal_diagnoses_its_operands_as_evaluation_does() {
+        let evaluated = |operands: [Atom; 2]| {
+            Interpreter::execute_function(
+                Function::Track,
+                operands,
+                FunctionInputs::with_portal_source(
+                    TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+                    PortalSource::from_cells(Some("D4")),
+                ),
+            )
+            .unwrap_err()
+            .to_string()
+        };
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        for operands in [
+            [Atom::Number(1), Atom::Number(0)],
+            [note, Atom::Number(3)],
+            [Atom::Number(1), note],
+        ] {
+            assert_eq!(
+                resolve(Function::Track, &operands, 6)
+                    .unwrap_err()
+                    .to_string(),
+                evaluated(operands),
+                "{operands:?}"
+            );
+        }
+        assert!(matches!(
+            resolve(Function::Track, &[Atom::Number(1), Atom::Number(0)], 6),
+            Err(Error::Interpretation(InterpretationError::ZeroWrap {
+                function: Function::Track,
+                role: "count",
+            }))
+        ));
+    }
+
+    #[test]
+    fn an_unrepresentable_offset_diagnoses_as_a_portal_outside_the_grid() {
+        let past = |index, operand_columns| {
+            resolve(
+                Function::Track,
+                &[Atom::Number(index), Atom::Number(3)],
+                operand_columns,
+            )
+        };
+        assert_eq!(
+            past(0, usize::try_from(i16::MAX).unwrap()).unwrap(),
+            PortalCoords {
+                columns: i16::MAX,
+                rows: 0
+            }
+        );
+        for (index, operand_columns) in [
+            (1, usize::try_from(i16::MAX).unwrap()),
+            (0, usize::try_from(i16::MAX).unwrap() + 1),
+            (2, usize::MAX),
+        ] {
+            assert!(
+                matches!(
+                    past(index, operand_columns),
+                    Err(Error::Interpretation(InterpretationError::JumpInput {
+                        function: Function::Track
+                    }))
+                ),
+                "{operand_columns}"
+            );
+        }
     }
 }

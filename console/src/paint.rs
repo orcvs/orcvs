@@ -1669,6 +1669,57 @@ mod tests {
     }
 
     ///
+    /// Track paints as any other Function: `@t0103C4D4E4` and `.+0103C4D4E4`
+    /// answer the same claim, tint and glyph colour on every Cell of their
+    /// row.
+    /// The pairs Track reads east of its operands are ordinary Source, so
+    /// they paint as the Cells after Add's operands do, never as an operand.
+    ///
+    /// The rows stand two apart so each Reservation lands on an empty row,
+    /// and the Cursor parks east of both Expressions, on a Cell neither
+    /// claims.
+    ///
+    #[tokio::test]
+    async fn track_paints_as_any_other_function() {
+        let mut orcvs = running_orcvs(14, 4);
+        write_row(&mut orcvs, 0, "@t0103C4D4E4");
+        write_row(&mut orcvs, 2, ".+0103C4D4E4");
+        orcvs.select(orcvs.grid().position(13, 0).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let grid = orcvs.grid();
+        let at = |x, row| grid.position(x, row).expect("inside the grid");
+
+        for x in 0..12 {
+            let (track, add) = (frame.at(at(x, 0)), frame.at(at(x, 2)));
+            let expected = match x {
+                0..2 => Some(SourcePaint::Function),
+                2..6 => Some(SourcePaint::Operand {
+                    token: Token::Number,
+                    state: OperandState::Valid,
+                }),
+                _ => None,
+            };
+            if let Some(expected) = expected {
+                assert_eq!(track.source_paint(), expected, "column {x}");
+            } else {
+                assert!(
+                    !matches!(track.source_paint(), SourcePaint::Operand { .. }),
+                    "column {x} was claimed as Track's operand"
+                );
+            }
+            assert_eq!(track.source_paint(), add.source_paint(), "column {x}");
+            // Tint and glyph colour are what a claim decides; the character
+            // is the spelling and the sector marks are the row's place.
+            let colours = |row| {
+                let painted = paint.at(at(x, row));
+                (painted.background, painted.foreground)
+            };
+            assert_eq!(colours(0), colours(2), "column {x}");
+        }
+    }
+
+    ///
     /// A Theme whose role backgrounds are all transparent paints no
     /// background anywhere — not on a Function Cell, not on an Operand Cell
     /// of any Token, and not on an Output Portal Cell either, since Output

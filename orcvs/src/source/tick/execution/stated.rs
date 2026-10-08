@@ -8,20 +8,20 @@
 //! [`super::execute`], so that the shipped Turn stays one thing in every build:
 //! the Interpreter's answer, delivered.
 //!
-//! Only the Turn loop is reimplemented, because substituting one Turn is the
-//! one thing this does differently. It records each Turn's ordinal exactly as
-//! the production loop does. The starting state, the Bang cleanup it
-//! performs, the schedule, the resolution, and the Turn every other
-//! computation takes are all the production ones, reached through the same
-//! [`super::Execution::new`] that [`super::execute`] reaches them through.
+//! Substituting one Turn is the one thing this does differently, and it
+//! records that Turn's ordinal as a production Turn records its own. The
+//! starting state, the Bang cleanup it performs, the schedule, the order its
+//! Turns are taken in, the resolution, and the Turn every other computation
+//! takes are all the production ones, reached through the same
+//! [`super::Execution::new`] and [`ordering::take_turns`] that
+//! [`super::execute`] reaches them through.
 //!
 
 use lang::Tick;
 
-use super::super::{carry, computations, order_turns};
+use super::super::{Lookup, carry, computations, order_turns};
 use super::{
-    Atom, ComputationState, Execution, Grid, LanguageMap, Lookup, Position, Schedule, TickPlan,
-    resolve,
+    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, ordering, resolve,
 };
 use crate::grid::CellIndex;
 use crate::source::Cells;
@@ -59,28 +59,31 @@ pub(in crate::source::tick) fn plan_with_answers(
             "one computation is stated one answer: two are stated here for the same anchor"
         );
     }
-    let Schedule {
-        lookup,
-        order,
-        diagnostics,
-    } = order_turns(lookup, diagnostics);
-    let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &lookup, diagnostics);
+    let schedule = order_turns(lookup, diagnostics);
+    let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
-    for (turn, index) in order.into_iter().enumerate() {
-        let anchor = grid.index(lookup.nodes()[index].anchor);
-        // The ordinal production records, recorded here for the reason the
-        // loop around it is reproduced: a stated answer replaces what one
-        // computation answers and nothing else, and the Turn it took is
-        // the Turn it would have taken.
-        execution.states[index].turn = Some(turn);
+    ordering::take_turns(&schedule, |index, progress| {
+        let anchor = grid.index(schedule.lookup.nodes()[index].anchor);
         match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {
                 stated[position] = true;
+                // Counted as production counts a Turn it takes: a stated
+                // answer replaces what one computation answers and nothing
+                // else, and the Turn it took is the Turn it would have taken.
+                execution.count_turn(index);
                 execution.state_answer(index, answers[position].1);
+                None
             }
-            None => execution.take_turn(index),
+            None => {
+                let writers = execution.take_turn(index, progress);
+                assert!(
+                    writers.is_none(),
+                    "a stated fixture holds no Turn that waits on a writer"
+                );
+                None
+            }
         }
-    }
+    });
     // Every order runs to its end, so an answer whose computation the order
     // never reached was stated for a computation a cycle stops, and the
     // fixture is told so here rather than handed a quiet Tick.

@@ -1,6 +1,6 @@
 # Sequences and Portals replace Cell-batch Operators
 
-Status: the Sequence clauses are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). Track returns as a List Function that reads its own List; Select, Replace and the other Sequence mappings are removed with the value. The rule that Source holds all persistent language state stands.
+Status: the Sequence clauses are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). Track returns as a value Function that reads a Portal as Jump does ([ADR 0067](0067-track-reads-a-portal-as-jump-does.md)); Select, Replace and the other Sequence mappings are removed with the value. The rule that Source holds all persistent language state stands.
 
 Orcvs preserves the capabilities of Orca's Track, Generator, Query, Konkat, Push, and Variable operators without adopting them as separate Functions. Track becomes Sequence selection. Query becomes a Source Read that returns one Sequence. Generator becomes a Source Read followed by a Source Write of one intact Sequence. Konkat becomes a Source Read from visible Source instead of a hidden variable table. Push becomes Sequence replacement followed by Source Write. Variable's hidden named table is omitted entirely: the Source is Orcvs's visible address space, and the Source Snapshot must contain all persistent language state.
 

@@ -125,6 +125,7 @@ impl Interpreter {
                 functions::jump::jump(&mut ctx, function)?
             }
             Function::Random => tick::random(&mut ctx)?,
+            Function::Track => functions::track::track(&mut ctx)?,
             Function::Maximum => math::maximum(&mut ctx)?,
             Function::Minimum => math::minimum(&mut ctx)?,
             Function::Modulo => math::modulo(&mut ctx)?,

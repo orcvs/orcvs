@@ -1,15 +1,22 @@
 //! Tick-local execution of Parser-owned expressions.
 //!
-//! Fixed Portal destinations and nested ownership determine the complete order
-//! before execution. Spatial writes remain character encodings until consumed,
-//! and a nested result returns to its parent as the same encoding, so the
-//! receiving operand decodes both. Only the final effects are published.
+//! Fixed Portal destinations and nested ownership determine the order before
+//! execution. A Portal found from operands at a Turn adds its dependencies to
+//! that order during the Tick. Spatial writes remain character encodings until
+//! consumed, and a nested result returns to its parent as the same encoding,
+//! so the receiving operand decodes both. Only the final effects are
+//! published.
 
 pub(super) mod execution;
 #[cfg(test)]
 mod nested_jump;
 #[cfg(test)]
+mod observed;
+mod ordering;
+#[cfg(test)]
 mod schedule_reuse;
+#[cfg(test)]
+mod track;
 
 use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,9 +26,10 @@ use std::sync::{Arc, OnceLock};
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
 pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
-use super::portal::{Portal, PortalAccess, SpanWrite};
+use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
+use ordering::Schedule;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
@@ -46,12 +54,6 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     portal_access: PortalAccess,
-}
-
-struct Schedule {
-    lookup: Lookup,
-    order: Vec<usize>,
-    diagnostics: Vec<Diagnostic>,
 }
 
 struct Claim {
@@ -468,15 +470,16 @@ fn plan_unshared(
 ///   target is classified by. A unit records its kind and no value.
 ///
 /// Portal destinations are read from the Function's declaration, never from
-/// an operand. An Operand Literal's value, working Source and the Tick are
-/// execution's alone, so a Tick that writes new values into Cells whose units
-/// keep their Spans changes no scheduling input. Anything [`computations`] or
-/// [`Lookup::new`] reads from the Map is a scheduling input and must be
-/// compared by `DerivedRow::schedules_as` too. [`LanguageMap::rebuild`] compares these
-/// inputs row by row and carries this cache to the new revision when every
-/// row it re-derived holds the inputs it held before, which is what lets the
-/// cache survive a commit that rewrites identical bytes as well as one that
-/// writes nothing.
+/// an operand. A dynamic Input Portal's position is found at the Turn and is
+/// no scheduling input. An Operand Literal's value, working
+/// Source and the Tick are execution's alone, so a Tick that writes new values
+/// into Cells whose units keep their Spans changes no scheduling input.
+/// Anything [`computations`] or [`Lookup::new`] reads from the Map is a
+/// scheduling input and must be compared by `DerivedRow::schedules_as` too.
+/// [`LanguageMap::rebuild`] compares these inputs row by row and carries this
+/// cache to the new revision when every row it re-derived holds the inputs it
+/// held before, which is what lets the cache survive a commit that rewrites
+/// identical bytes as well as one that writes nothing.
 ///
 /// Ordering waits for the first Tick planned against the inputs, so a
 /// revision no Tick is planned against costs no ordering. The cache is shared
@@ -798,14 +801,10 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 }
 
 ///
-/// One Tick's execution order, from the reservations a [`Lookup`] has already
-/// derived: every dependency edge the reservations name, resolved into
-/// the order the Turns are taken in. A cycle admits no order for the
-/// Expressions it reaches, which take no Turn; every other Expression keeps
-/// its place.
+/// The schedule for the reservations a [`Lookup`] has already derived: every
+/// dependency edge they name, ordered by [`ordering::schedule`].
 ///
-fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
-    let grid = lookup.grid;
+fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
     let nodes = lookup.nodes();
     let active = active_roots(&lookup);
     let mut edges = BTreeSet::new();
@@ -904,104 +903,12 @@ fn order_turns(lookup: Lookup, mut diagnostics: Vec<Diagnostic>) -> Schedule {
     // `literal_consumers` records for a declared operand.
     for (consumer, node) in nodes.iter().enumerate() {
         for read in node.portal_access.read_spans() {
-            for producer in lookup.writes.touching(read.clone()) {
-                if producer == consumer || !active[nodes[producer].owner] {
-                    continue;
-                }
+            for producer in ordering::input_writers(&lookup, &active, consumer, read.clone()) {
                 edges.insert((producer, consumer));
             }
         }
     }
-    let mut indegree = vec![0; nodes.len()];
-    let mut outgoing = vec![vec![]; nodes.len()];
-    for (producer, consumer) in edges {
-        indegree[consumer] += 1;
-        outgoing[producer].push(consumer);
-    }
-    let mut ready: BTreeSet<_> = indegree
-        .iter()
-        .enumerate()
-        .filter(|(_, incoming)| **incoming == 0)
-        .map(|(index, _)| (grid.index(nodes[index].anchor), index))
-        .collect();
-    let mut order = Vec::new();
-    while let Some((_, index)) = ready.pop_first() {
-        order.push(index);
-        for &consumer in &outgoing[index] {
-            indegree[consumer] -= 1;
-            if indegree[consumer] == 0 {
-                ready.insert((grid.index(nodes[consumer].anchor), consumer));
-            }
-        }
-    }
-    if order.len() != nodes.len() {
-        // ADR 0065: a cycle stops every Expression it reaches, and no other.
-        let mut placed = vec![false; nodes.len()];
-        for &index in &order {
-            placed[index] = true;
-        }
-        let mut stopped = vec![false; nodes.len()];
-        let mut pending: Vec<_> = (0..nodes.len()).filter(|&index| !placed[index]).collect();
-        while let Some(index) = pending.pop() {
-            if std::mem::replace(&mut stopped[index], true) {
-                continue;
-            }
-            pending.extend(lookup.descendants(nodes[index].owner));
-            pending.extend_from_slice(&outgoing[index]);
-        }
-        order.retain(|&index| !stopped[index]);
-        // Each cycle is diagnosed once, at the first computation on it in
-        // Parser order: a computation still waiting may only be downstream of
-        // a cycle, and two computations that reach each other share one.
-        let on_cycle: Vec<_> = (0..nodes.len())
-            .map(|index| !placed[index] && reaches(&outgoing, index, index))
-            .collect();
-        let mut diagnosed = vec![false; nodes.len()];
-        let mut holds_cycle = vec![false; nodes.len()];
-        for index in (0..nodes.len()).filter(|&index| on_cycle[index]) {
-            holds_cycle[nodes[index].owner] = true;
-            if diagnosed[index] {
-                continue;
-            }
-            diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
-            for other in (index..nodes.len()).filter(|&other| on_cycle[other]) {
-                if reaches(&outgoing, index, other) && reaches(&outgoing, other, index) {
-                    diagnosed[other] = true;
-                }
-            }
-        }
-        // An Expression stopped only because it depends on a cycle says so at
-        // its root, so a performer can tell the cycle from what it starves. A
-        // root no activation can reach this Tick takes no Turn with or without
-        // the cycle, so it has nothing to wait for and stays quiet.
-        for (index, node) in nodes.iter().enumerate() {
-            if node.parent.is_none() && stopped[index] && !holds_cycle[index] && active[index] {
-                diagnostics.push(diagnose(node, "waiting on a same-Tick dependency cycle"));
-            }
-        }
-    }
-    Schedule {
-        lookup,
-        order,
-        diagnostics,
-    }
-}
-
-///
-/// Whether a path of at least one edge leads from `from` to `to`.
-///
-fn reaches(outgoing: &[Vec<usize>], from: usize, to: usize) -> bool {
-    let mut seen = vec![false; outgoing.len()];
-    let mut pending = outgoing[from].clone();
-    while let Some(index) = pending.pop() {
-        if index == to {
-            return true;
-        }
-        if !std::mem::replace(&mut seen[index], true) {
-            pending.extend_from_slice(&outgoing[index]);
-        }
-    }
-    false
+    ordering::schedule(lookup, active, edges, diagnostics)
 }
 
 ///
@@ -1494,6 +1401,23 @@ mod test {
             grids[0],
             ["        ", "  03    ", "  &^    ", ".+0300  ", "03      "]
         );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_mover_meets_the_overwrite_of_a_moved_mover_as_source_content() {
+        // `vv` moves into Cells the Snapshot left empty, and the Jump then
+        // overwrites its new spelling with `01`. `^^` is blocked by that `1`
+        // and also enters an empty Cell past it. The overwritten mover is no
+        // longer a unit there to meet part of, so the blocked move bangs
+        // without diagnosing.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &["    vv", "01&>", "     ^^"], 1);
+        assert_eq!(grids[0], ["        ", "01&>01  ", "     ** "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -3810,6 +3734,36 @@ mod test {
         );
         assert_eq!(&source.snapshot()[32..34], "EA");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn a_later_pending_operand_leaves_its_function_pending_before_an_earlier_one_decodes() {
+        // `G4` spells no Number. Whether a Portal writes it into the first
+        // operand or a nested `.^43` returns it there, the empty second
+        // operand leaves the Addition pending, so nothing is decoded and
+        // nothing diagnoses. With the second operand written, the same `G4`
+        // diagnoses.
+        let grid = Grid::with_shape(8, 3);
+        let tick = |rows: &[&str]| super::observed::observe_at(grid, rows, [0]).remove(0);
+        let written = tick(&[".+    ", "  &^", "  G4"]);
+        assert_eq!(written.rows[..2], [".+G4    ", "  &^    "]);
+        assert!(written.diagnostics.is_empty(), "{:?}", written.diagnostics);
+        let returned = tick(&[".+.^43  ", "xx"]);
+        assert_eq!(returned.rows[1], "xxG4    ");
+        assert!(
+            returned.diagnostics.is_empty(),
+            "{:?}",
+            returned.diagnostics
+        );
+        for rows in [&[".+  01", "  &^", "  G4"][..], &[".+.^4301", "xx"]] {
+            let decoded = tick(rows);
+            assert_eq!(&decoded.rows[1][..2], &rows[1][..2], "{rows:?}");
+            assert_eq!(
+                decoded.diagnostics,
+                [(0, 0, "expected a number, found \"G4\"".to_string())],
+                "{rows:?}"
+            );
+        }
     }
 
     #[test]

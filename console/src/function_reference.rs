@@ -28,7 +28,7 @@
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
 //! | `16..32`  | Numeric Conversion: `.v .^`                                   |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
-//! | `48..64`  | Jumps and Halt: `&^ &v &< &>`, `*!`                           |
+//! | `48..64`  | Jumps, Halt and Track: `&^ &v &< &>`, `*!`, `@t`              |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
 //! | `80..96`  | MIDI: `!> !~ !% !c !b`                                        |
 //!
@@ -297,10 +297,14 @@ mod tests {
             result(32, 11, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
             result(32, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
             result(32, 17, "0F"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
+            // Track (column 48) reads pair 01 % 03 of the three after its
+            // operands, as a Jump reads its Input Portal, so `D4` is the
+            // Number it spells.
+            result(48, 18, "D4"), // @t0103C4D4E4
         ]
     }
 
-    /// Every Cell a Jump reads as its spatial input, or an ordinary blocking
+    /// Every Cell a Jump or Track reads as its spatial input, or an ordinary blocking
     /// Language Unit occupies, in the checked-in text: present with no
     /// Function before it, so the Parser's greedy two-Cell Function read
     /// refuses it exactly as it refuses a written result — a fact about the
@@ -319,6 +323,9 @@ mod tests {
             literal(48, 5, "06"),  // &v's input
             literal(52, 9, "07"),  // &<'s input
             literal(48, 11, "08"), // &>'s input
+            literal(54, 17, "C4"), // @t's pair 00
+            literal(56, 17, "D4"), // @t's pair 01
+            literal(58, 17, "E4"), // @t's pair 02
             literal(66, 10, "00"), // *v's blocker
             literal(64, 13, "00"), // *<'s blocker
             literal(70, 16, "00"), // *>'s blocker
