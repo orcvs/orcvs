@@ -470,8 +470,8 @@ fn plan_unshared(
 ///   target is classified by. A unit records its kind and no value.
 ///
 /// Portal destinations are read from the Function's declaration, never from
-/// an operand. A Portal its declaration places after the operands is found at
-/// the Turn and is no scheduling input. An Operand Literal's value, working
+/// an operand. A dynamic Input Portal's position is found at the Turn and is
+/// no scheduling input. An Operand Literal's value, working
 /// Source and the Tick are execution's alone, so a Tick that writes new values
 /// into Cells whose units keep their Spans changes no scheduling input.
 /// Anything [`computations`] or [`Lookup::new`] reads from the Map is a

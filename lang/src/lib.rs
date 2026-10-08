@@ -154,19 +154,23 @@ impl PortalCoords {
     };
 }
 
-/// Where a Function's Input Portal stands.
+/// Where a Function's Input Portal stands, and when that position is known.
 ///
-/// `orcvs` resolves either kind against the Grid, as it does
-/// [`PortalCoords`]. An anchored Portal is known before the Tick, so
-/// scheduling orders it before any Turn; a Portal after the operands is known
-/// only once the operands are read at the Function's Turn.
+/// It is the Portal's position that is static or dynamic, not its contents:
+/// every Input Portal's Cells are read from working Source at the Function's
+/// Turn. A static Input Portal's position is known when the Source is parsed,
+/// so scheduling orders its writers before the Tick. A dynamic Input Portal's
+/// position is known only at the Function's Turn, from its operands, so its
+/// writers are found then. `orcvs` resolves either position against the Grid,
+/// as it does [`PortalCoords`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputPortal {
-    /// A fixed step from the Function's anchor.
-    Anchored(PortalCoords),
-    /// The Cell pair [`track_pair`] selects east of the end of the
-    /// Function's last operand. Only Track's Input Portal stands here.
-    AfterOperands,
+    /// A position at a fixed offset from the Function's anchor.
+    Static(PortalCoords),
+    /// A position the operands select at the Turn: the Cell pair
+    /// [`track_pair`] selects east of the end of the Function's last operand.
+    /// Only Track's Input Portal is dynamic.
+    Dynamic,
 }
 
 /// Which validated effect bundle a Source-writing Function plans.

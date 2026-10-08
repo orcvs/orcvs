@@ -142,10 +142,11 @@ impl ComputationState {
 enum TurnPortal {
     /// The Function reads no Input Portal.
     None,
-    /// A Portal at a fixed offset from the anchor, which the schedule orders.
-    Anchored(PortalCoords),
-    /// A Portal the operands select, which the Turn orders.
-    Selected(PortalCoords),
+    /// A static Input Portal, whose writers the schedule orders.
+    Static(PortalCoords),
+    /// A dynamic Input Portal at the position the operands select, whose
+    /// writers the Turn orders.
+    Dynamic(PortalCoords),
 }
 
 struct Execution<'a> {
@@ -337,7 +338,7 @@ impl<'a> Execution<'a> {
                 return None;
             }
         };
-        if let TurnPortal::Selected(coords) = portal
+        if let TurnPortal::Dynamic(coords) = portal
             && let Some(read) = self.selected_cells(index, coords)
         {
             let writers = progress.unresolved_writers(index, read);
@@ -371,9 +372,9 @@ impl<'a> Execution<'a> {
     /// `function`'s Input Portal for `index`'s Turn, once its operands are
     /// resolved.
     ///
-    /// An anchored Portal is its declaration. A Portal after the operands is
-    /// the selected pair east of the last Cell its operands occupy, nested
-    /// operands included, and a selection that refuses diagnoses the Turn.
+    /// A static Input Portal is its declaration. A dynamic one is the selected
+    /// pair east of the last Cell its operands occupy, nested operands
+    /// included, and a selection that refuses diagnoses the Turn.
     ///
     fn turn_portal(
         &self,
@@ -383,8 +384,8 @@ impl<'a> Execution<'a> {
     ) -> Result<TurnPortal, String> {
         match function.input_portal() {
             None => Ok(TurnPortal::None),
-            Some(InputPortal::Anchored(coords)) => Ok(TurnPortal::Anchored(coords)),
-            Some(InputPortal::AfterOperands) => {
+            Some(InputPortal::Static(coords)) => Ok(TurnPortal::Static(coords)),
+            Some(InputPortal::Dynamic) => {
                 let pair = lang::track_pair(operands).map_err(|error| error.to_string())?;
                 let anchor = self
                     .grid
@@ -394,7 +395,7 @@ impl<'a> Execution<'a> {
                 // Operands occupy at most 256 columns and a u8 pair adds at
                 // most 510, so the offset fits even when it leaves the row.
                 let columns = i16::try_from(columns).expect("a selected pair offset fits i16");
-                Ok(TurnPortal::Selected(PortalCoords { columns, rows: 0 }))
+                Ok(TurnPortal::Dynamic(PortalCoords { columns, rows: 0 }))
             }
         }
     }
@@ -428,7 +429,7 @@ impl<'a> Execution<'a> {
     ) -> PortalSource<'_> {
         let coords = match portal {
             TurnPortal::None => return PortalSource::none(),
-            TurnPortal::Anchored(coords) | TurnPortal::Selected(coords) => coords,
+            TurnPortal::Static(coords) | TurnPortal::Dynamic(coords) => coords,
         };
         if let Some(input) = function.portal_input() {
             return PortalSource::from_cells(self.borrow_portal_cells(node, coords, input));

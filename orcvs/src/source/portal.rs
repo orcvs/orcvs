@@ -456,11 +456,11 @@ impl PortalAccess {
                 reads: Vec::new(),
             };
         }
-        // A Portal after the operands is found at the Turn, so it records no
-        // read here and execution orders it once its pair is known.
+        // A dynamic Input Portal's position is found at the Turn, so it
+        // records no read here and execution orders it once its pair is known.
         let reads = match function.input_portal() {
-            Some(InputPortal::Anchored(coords)) => Self::portal_reads(grid, anchor, coords),
-            Some(InputPortal::AfterOperands) | None => Vec::new(),
+            Some(InputPortal::Static(coords)) => Self::portal_reads(grid, anchor, coords),
+            Some(InputPortal::Dynamic) | None => Vec::new(),
         };
         if function.performs_terminal_output() {
             return Self {

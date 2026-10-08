@@ -144,10 +144,10 @@ impl Progress<'_> {
     /// The writers of the Cells `read` that have not yet taken their Turn,
     /// which `reader`'s Turn must wait for.
     ///
-    /// The writers are those [`input_writers`] orders an anchored Input
-    /// Portal after. A writer the schedule stopped never takes its Turn, so
-    /// the reader waits on it and is stopped with it, as an anchored reader
-    /// of those Cells is.
+    /// The writers are those [`input_writers`] orders a static Input Portal
+    /// after. A writer the schedule stopped never takes its Turn, so the
+    /// reader waits on it and is stopped with it, as a static reader of those
+    /// Cells is.
     ///
     pub(super) fn unresolved_writers(&self, reader: usize, read: Range<usize>) -> Vec<usize> {
         let schedule = self.schedule;

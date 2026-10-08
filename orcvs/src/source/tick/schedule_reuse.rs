@@ -90,7 +90,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
         .lookup
         .nodes()
         .iter()
-        .any(|node| node.function.input_portal() == Some(InputPortal::AfterOperands))
+        .any(|node| node.function.input_portal() == Some(InputPortal::Dynamic))
     {
         return false;
     }
