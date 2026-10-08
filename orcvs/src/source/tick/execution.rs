@@ -3,11 +3,12 @@
 //! Lookup retains the original Parser structure. Execution owns whether its
 //! computations can take a Turn, how their operands are consumed, and how an
 //! admitted spatial result changes later Turns. Which Turn is taken next is
-//! [`super::ordering`]'s. Nothing here survives the Tick.
+//! [`super::ordering`]'s, and what working Source holds is
+//! [`working::WorkingSource`]'s. Nothing here survives the Tick.
 
 use lang::{
     Atom, Function, FunctionInputs, InputPortal, Interpretation, Interpreter, PortalCoords,
-    PortalInput, PortalSource, SourceBundle, SourceEffect, Tick,
+    PortalSource, SourceBundle, SourceEffect, Tick,
 };
 
 use super::ordering::{self, Progress, Schedule};
@@ -16,9 +17,11 @@ use super::{
     PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite, TickPlan, diagnose,
     resolve, tick_inputs,
 };
-use crate::source::buffer::{Cells, WorkingCells};
+use crate::source::buffer::Cells;
+use working::{WorkingSource, WriteKind};
 
 mod operands;
+mod working;
 
 ///
 /// Executes an established order against the original Source Snapshot.
@@ -151,24 +154,14 @@ enum TurnPortal {
 struct Execution<'a> {
     grid: Grid,
     original: Cells<'a>,
-    working: WorkingCells,
+    working: WorkingSource<'a>,
     tick: Tick,
-    /// The Language Units of the Source Snapshot, retained for occupancy and
-    /// Jump's Language Unit at a Portal. A `Lookup` indexes Expressions, so a
-    /// Comment and a standalone Bang are absent from it, and those questions
-    /// classify every Language Unit rather than the computations alone.
-    map: &'a LanguageMap,
     schedule: &'a Schedule,
     /// How many Turns have been taken, which is the next Turn's ordinal.
     #[cfg(test)]
     turns: usize,
     states: Vec<ComputationState>,
     effects: Vec<Effect>,
-    /// Intact Functions and Bang displays placed this Tick. Neither has a pending Turn.
-    placed_units: Vec<std::ops::Range<usize>>,
-    /// Source-effect writes obscure Snapshot ownership even if a later value
-    /// write replaces the generated Function. Neither creates a new computation.
-    source_writes: Vec<std::ops::Range<usize>>,
 }
 
 impl<'a> Execution<'a> {
@@ -195,9 +188,8 @@ impl<'a> Execution<'a> {
         let mut execution = Self {
             grid,
             original: cells,
-            working: WorkingCells::new(cells),
+            working: WorkingSource::new(cells, map),
             tick,
-            map,
             schedule,
             #[cfg(test)]
             turns: 0,
@@ -220,8 +212,6 @@ impl<'a> Execution<'a> {
                 })
                 .collect(),
             effects: diagnostics.iter().cloned().map(Effect::Diagnose).collect(),
-            placed_units: Vec::new(),
-            source_writes: Vec::new(),
         };
         // Source content rather than an answer, so it is stated here rather than
         // rendered: a Bang occupies two Cells and clearing it writes two spaces.
@@ -230,7 +220,7 @@ impl<'a> Execution<'a> {
             let clear = Portal::at(grid, anchor)
                 .admit(&blank)
                 .expect("parsed Bang fits its Grid");
-            execution.write(clear);
+            execution.write(WriteKind::Output, clear);
         }
         execution
     }
@@ -413,13 +403,15 @@ impl<'a> Execution<'a> {
         !node.syntax_valid
             && function == node.function
             && node.operands.iter().all(|operand| {
-                self.working.cells().slice(operand.cells.clone()).bytes()
+                self.working.text(operand.cells.clone()).as_bytes()
                     == self.original.slice(operand.cells.clone()).bytes()
             })
     }
 
     /// Borrow working Source at the Input Portal `portal` resolved for this
-    /// Turn.
+    /// Turn. A missing or truncated site stays absent so binding diagnoses it
+    /// after all cell operands have been validated; a Jump or Track reads the
+    /// pair only when it is one complete aligned unit.
     fn portal_source(
         &self,
         node: &Computation,
@@ -430,42 +422,13 @@ impl<'a> Execution<'a> {
             TurnPortal::None => return PortalSource::none(),
             TurnPortal::Anchored(coords) | TurnPortal::Selected(coords) => coords,
         };
-        if let Some(input) = function.portal_input() {
-            return PortalSource::from_cells(self.borrow_portal_cells(node, coords, input));
-        }
-        PortalSource::from_cells(self.borrow_jump_input(node, coords))
-    }
-
-    /// Borrow one Portal's Cells directly from working Source. A missing or
-    /// truncated site stays absent so binding diagnoses it after all cell
-    /// operands have been validated.
-    fn borrow_portal_cells(
-        &self,
-        node: &Computation,
-        coords: PortalCoords,
-        input: PortalInput,
-    ) -> Option<&str> {
-        let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
-        let span = portal.span(input.token().len()).ok()?;
-        Some(self.working.text(span.range()))
-    }
-
-    /// The Cells a Jump or Track reads, when they are one complete aligned
-    /// unit.
-    ///
-    /// Invalid and partial input stay absent so the Interpreter diagnoses
-    /// rather than answering an Atom that was never a Language Unit.
-    fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
-        let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
-        match portal.language_unit(self.working.cells(), self.map) {
-            PortalUnit::Invalid => None,
-            PortalUnit::Empty | PortalUnit::Bang | PortalUnit::Unit => {
-                let span = portal
-                    .reservation()
-                    .expect("an admitted unit fitted its row");
-                Some(self.working.text(span.range()))
-            }
-        }
+        let Ok(portal) = Portal::named(self.grid, node.anchor, coords) else {
+            return PortalSource::from_cells(None);
+        };
+        PortalSource::from_cells(match function.portal_input() {
+            Some(input) => self.working.portal_cells(portal, input.token().len()),
+            None => self.working.portal_unit(portal),
+        })
     }
 
     fn deliver_value(&mut self, index: usize, atom: Atom) {
@@ -537,7 +500,7 @@ impl<'a> Execution<'a> {
                 self.states[root].activated = true;
                 return;
             }
-            if Portal::at(self.grid, destination).occupied_in(self.working.cells()) {
+            if self.working.occupied(Portal::at(self.grid, destination)) {
                 let producer = self.states[index].function;
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
@@ -621,7 +584,7 @@ impl<'a> Execution<'a> {
                 self.states[descendant].suppressed = true;
             }
         }
-        self.write(write);
+        self.write(WriteKind::Output, write);
     }
 
     ///
@@ -704,7 +667,7 @@ impl<'a> Execution<'a> {
                 .collect(),
             Err(_) => vec![],
         };
-        let empty = entered.iter().all(|&cell| self.working.is_empty_at(cell));
+        let empty = self.working.vacant(&entered);
 
         match admitted {
             Ok(write) if empty => {
@@ -720,13 +683,9 @@ impl<'a> Execution<'a> {
                     let clear = Portal::at(self.grid, anchor)
                         .admit(&cleared)
                         .expect("a Function standing in the Source fits its own Span");
-                    self.source_writes.push(clear.span().range());
-                    self.write(clear);
+                    self.write(WriteKind::Vacate, clear);
                 }
-                let placed = write.span().range();
-                self.source_writes.push(placed.clone());
-                self.write(write);
-                self.placed_units.push(placed);
+                self.write(WriteKind::Place, write);
             }
             // Refused: out of the Grid, past the row edge, or blocked by Cells
             // that are not empty. No partial write is admitted, so the whole
@@ -742,11 +701,12 @@ impl<'a> Execution<'a> {
                 let display = Portal::at(self.grid, anchor)
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
-                let placed = display.span().range();
-                self.source_writes.push(placed.clone());
-                self.write(display);
-                self.placed_units.push(placed);
-                match self.contact_occupancy(&entered) {
+                self.write(WriteKind::Place, display);
+                let lookup = &self.schedule.lookup;
+                match self
+                    .working
+                    .contact(&entered, |anchor| lookup.root_at(anchor))
+                {
                     // Only a surviving Snapshot root can receive activation.
                     // A placed unit has no pending computation this Tick.
                     Occupancy::Root(root) => self.states[root].activated = true,
@@ -776,43 +736,6 @@ impl<'a> Execution<'a> {
                         .expect("an Emit declares the Function it writes"),
                 ),
             ))),
-        }
-    }
-
-    /// Contact follows intact placements and the Snapshot Cells they have not
-    /// obscured. Source writes establish unit geometry without reparsing or
-    /// admitting generated computations into this Tick's schedule.
-    fn contact_occupancy(&self, cells: &[usize]) -> Occupancy {
-        let mut partial = false;
-        for placed in &self.placed_units {
-            if cells.iter().any(|cell| placed.contains(cell)) {
-                if cells.iter().all(|cell| placed.contains(cell)) {
-                    return Occupancy::NonRoot;
-                }
-                partial = true;
-            }
-        }
-        for unit in self.map.units() {
-            let span = unit.span().range();
-            let covers = |cell: &usize| {
-                span.contains(cell) && !self.source_writes.iter().any(|write| write.contains(cell))
-            };
-            if !cells.iter().any(covers) {
-                continue;
-            }
-            if cells.iter().all(covers) {
-                return self
-                    .schedule
-                    .lookup
-                    .root_at(unit.anchor())
-                    .map_or(Occupancy::NonRoot, Occupancy::Root);
-            }
-            partial = true;
-        }
-        if partial {
-            Occupancy::Partial
-        } else {
-            Occupancy::Empty
         }
     }
 
@@ -857,15 +780,11 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// Applying a write and recording its Effect are one operation, including
-    /// the cleanup of prior Bang display before any Turn is attempted.
-    fn write(&mut self, write: SpanWrite) {
-        let written = write.span().range();
-        self.placed_units
-            .retain(|placed| written.end <= placed.start || placed.end <= written.start);
-        for (cell, content) in write.cells() {
-            self.working.write(cell, content);
-        }
+    /// Applying a write to working Source and recording its Effect are one
+    /// operation, including the cleanup of prior Bang display before any Turn
+    /// is attempted, so the Tick Plan writes exactly what later Turns read.
+    fn write(&mut self, kind: WriteKind, write: SpanWrite) {
+        self.working.apply(kind, &write);
         self.effects.push(Effect::Write(write));
     }
 }
