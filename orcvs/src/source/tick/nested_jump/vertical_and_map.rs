@@ -236,10 +236,10 @@ fn a_nested_vertical_jump_overwrites_another_expression() {
         steady(&rows, &[], 3)
     );
 
-    // Empty input clears the operand under the Jump, which makes that root
-    // invalid, and the Jump returns the empty Cells, which makes its parent
-    // invalid too. From the next Tick the root's slot is unwritten in the Source, so the Language Map reports
-    // it and the Tick reports only the parent.
+    // Empty input clears the operand under the Jump, which makes that root invalid, and the Jump
+    // returns the empty Cells, which makes its parent invalid too. From the next Tick the root's
+    // slot is unwritten in the Source, so the Language Map reports it and the Tick reports only
+    // the parent.
     let observed = observe(
         Grid::with_shape(10, 4),
         &["", "    .+&v01", "  .+0405", ""],
@@ -273,8 +273,7 @@ fn a_bang_in_the_source_is_gone_before_a_vertical_jump_reads_it() {
     // A `**` the performer typed is not a Bang the Jump can relay: the Tick
     // clears it, the Jump reads empty and copies the empty Cells to its
     // destination. Nested, it returns them and the parent is invalid; a root
-    // says nothing. Either way an aligned `.=`
-    // loses its spelling.
+    // says nothing. Either way an aligned `.=` loses its spelling.
     let empty = "expected a number, found \"  \"";
     let rows = ["        ", ".+&^01  ", "        ", "        "];
     assert_eq!(
@@ -428,9 +427,8 @@ fn source_paint_marks_each_nested_jumps_output_portal_before_a_tick() {
     // What the self-overlapping layouts then do. `&>` copies the parent's
     // spelling over its own operand: one Tick diagnostic, then a nested `.+`
     // whose operands are unwritten, which the Map diagnoses and the Tick
-    // does not report again. `&<` writes the parent's
-    // spelling while the parent reads it: a cycle every Tick, and a Map that
-    // reports nothing.
+    // does not report again. `&<` writes the parent's spelling while the
+    // parent reads it: a cycle every Tick, and a Map that reports nothing.
     let grid = Grid::with_shape(10, 3);
     let rows = ["          ", ".+&>.+    ", "          "];
     let mut expected = steady(&rows, &[(0, 1, "expected a number, found \".+\"")], 1);

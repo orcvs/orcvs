@@ -5839,7 +5839,7 @@ mod nested_property {
             prop_assert!(
                 states
                     .first()
-                    .is_some_and(|root| root.interpreted().is_some() || root.blocked())
+                    .is_some_and(|root| root.interpreted().is_some())
                     || !tick.diagnostics.is_empty(),
                 "{source:?} left its active root unanswered and undiagnosed"
             );

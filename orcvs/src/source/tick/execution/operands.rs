@@ -14,11 +14,9 @@
 
 use lang::Atom;
 
-use super::{Computation, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH, render_message};
-
-/// The two empty Cells a Function that copies Cells returns for an empty
-/// pair.
-const EMPTY_PAIR: &str = "  ";
+use super::{
+    Computation, EMPTY_PAIR, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH, render_message,
+};
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
