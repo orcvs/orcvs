@@ -3737,33 +3737,80 @@ mod test {
     }
 
     #[test]
-    fn a_later_pending_operand_leaves_its_function_pending_before_an_earlier_one_decodes() {
-        // `G4` spells no Number. Whether a Portal writes it into the first
-        // operand or a nested `.^43` returns it there, the empty second
-        // operand leaves the Addition pending, so nothing is decoded and
-        // nothing diagnoses. With the second operand written, the same `G4`
-        // diagnoses.
+    fn an_unwritten_operand_does_not_hide_an_earlier_malformed_one() {
+        // `G4` spells no Number. A Portal writes it into the first operand
+        // while the second is unwritten: the Addition is invalid, and the
+        // first operand it cannot decode is the fault it reports. With the
+        // second operand written, the same `G4` diagnoses the same way.
         let grid = Grid::with_shape(8, 3);
         let tick = |rows: &[&str]| super::observed::observe_at(grid, rows, [0]).remove(0);
-        let written = tick(&[".+    ", "  &^", "  G4"]);
-        assert_eq!(written.rows[..2], [".+G4    ", "  &^    "]);
-        assert!(written.diagnostics.is_empty(), "{:?}", written.diagnostics);
-        let returned = tick(&[".+.^43  ", "xx"]);
-        assert_eq!(returned.rows[1], "xxG4    ");
-        assert!(
-            returned.diagnostics.is_empty(),
-            "{:?}",
-            returned.diagnostics
-        );
-        for rows in [&[".+  01", "  &^", "  G4"][..], &[".+.^4301", "xx"]] {
+        for rows in [&[".+    ", "  &^", "  G4"][..], &[".+  01", "  &^", "  G4"]] {
             let decoded = tick(rows);
-            assert_eq!(&decoded.rows[1][..2], &rows[1][..2], "{rows:?}");
+            assert_eq!(&decoded.rows[0][2..4], "G4", "{rows:?}");
             assert_eq!(
                 decoded.diagnostics,
                 [(0, 0, "expected a number, found \"G4\"".to_string())],
                 "{rows:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_unwritten_operand_in_the_source_blocks_its_function_as_the_map_reports() {
+        // The second operand is unwritten in the Source and nothing writes
+        // it, so the Language Map diagnoses the Expression and the Tick does
+        // not report it again. The nested `.^43` still answers and writes
+        // `G4` south of itself; the Addition it returns to writes nothing.
+        let grid = Grid::with_shape(8, 3);
+        let mut source = super::observed::source_of(grid, &[".+.^43  ", "xx"]);
+        assert!(
+            source
+                .language_map()
+                .diagnostics()
+                .any(|diagnostic| diagnostic.start() == 0)
+        );
+
+        let plan = source.execute(Tick::ZERO);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(rows_of(grid, &source)[1], "xxG4    ");
+    }
+
+    #[test]
+    fn a_nested_function_invalid_on_an_unwritten_slot_fails_its_parent() {
+        // The Jump north copies the empty Cells below it over `.^`'s operand,
+        // so `.^` is invalid at its Turn and gives the Addition no operand.
+        // Both are diagnosed.
+        let grid = Grid::with_shape(8, 4);
+        let observed = super::observed::observe_at(grid, &[".+01.^43", "      &^"], [0]).remove(0);
+        assert_eq!(observed.rows[0], ".+01.^  ");
+        assert_eq!(
+            observed.diagnostics,
+            [
+                (4, 0, "expected a number, found \"  \"".to_string()),
+                (
+                    0,
+                    0,
+                    "nested computation at column 4, row 0 returned nothing".to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_nested_absence_marker_fails_its_parent() {
+        // Equality with unequal operands evaluates and answers the Absence
+        // Marker, so the Addition has no operand and is diagnosed.
+        let grid = Grid::with_shape(10, 3);
+        let observed = super::observed::observe_at(grid, &[".+.=010201"], [0]).remove(0);
+        assert_eq!(
+            observed.diagnostics,
+            [(
+                0,
+                0,
+                "nested computation at column 2, row 0 returned nothing".to_string()
+            )]
+        );
     }
 
     #[test]
@@ -4556,12 +4603,15 @@ mod test {
     }
 
     #[test]
-    fn a_banged_play_with_an_unwritten_note_is_pending_and_emits_nothing() {
+    fn a_banged_play_with_an_unwritten_note_is_invalid_and_emits_nothing() {
         // The Bang gives the timing and the note slot gives what plays. With
-        // no note written the Play is pending: the Bang reaches nothing that
-        // plays, and nothing is diagnosed.
+        // no note written the Play is invalid: the Bang reaches nothing that
+        // plays, and the Language Map diagnoses it.
         let grid = Grid::with_shape(16, 4);
-        for (play, commands) in [("!>007FC4", vec![raw(0, 0x7F, 60)]), ("!>007F", vec![])] {
+        for (play, commands, diagnosed) in [
+            ("!>007FC4", vec![raw(0, 0x7F, 60)], vec![]),
+            ("!>007F", vec![], vec![(0, 2)]),
+        ] {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
@@ -4573,8 +4623,73 @@ mod test {
                 "{play:?}: {:?}",
                 plan.diagnostics
             );
-            assert!(map.diagnostics().next().is_none(), "{play:?}");
+            assert_eq!(
+                map.diagnostics()
+                    .map(|d| (d.anchor().x(), d.anchor().y()))
+                    .collect::<Vec<_>>(),
+                diagnosed,
+                "{play:?}"
+            );
         }
+    }
+
+    #[test]
+    fn a_banged_play_whose_nested_track_copies_an_empty_pair_is_invalid() {
+        // Track stands in the note slot and copies the pair its index
+        // selects. `C4` plays; the empty pair is returned as empty Cells, so
+        // the note slot is unwritten and the Play fails with its child and
+        // is diagnosed.
+        let grid = Grid::with_shape(16, 4);
+        for (play, commands, diagnosed) in [
+            ("!>007F@t0002C4  ", vec![raw(0, 0x7F, 60)], vec![]),
+            ("!>007F@t0102C4  ", vec![], vec![(0, 2)]),
+        ] {
+            let bytes = snapshot(grid, &[".=0101", "", play, ""]);
+            let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+
+            let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+
+            assert_eq!(plan.play_commands, commands, "{play:?}");
+            assert_eq!(
+                plan.diagnostics
+                    .iter()
+                    .map(|d| (d.anchor().x(), d.anchor().y()))
+                    .collect::<Vec<_>>(),
+                diagnosed,
+                "{play:?}: {:?}",
+                plan.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn a_value_function_whose_operand_a_portal_empties_leaves_its_last_note_to_replay() {
+        // Track writes the pair its index selects into `.^`'s operand, and
+        // `.^` writes the Note it converts into the Play's note slot. With
+        // the index moved to the empty pair, Track clears `.^`'s operand, so
+        // `.^` is invalid, writes nothing and is diagnosed. The `G4` it wrote
+        // on the earlier Tick stays, and the next Bang plays it again.
+        let grid = Grid::with_shape(18, 4);
+        let mut source = seeded_source(grid, &[".=0101  @t000243  ", "      .^", "!>007F", ""]);
+
+        let first = source.execute(Tick::ZERO);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(first.play_commands, vec![raw(0, 0x7F, 67)]);
+        assert_eq!(&rows_of(grid, &source)[2][..8], "!>007FG4");
+
+        source.set(cell(grid, 11), "1").unwrap();
+        let rest = source.execute(Tick::new(1));
+
+        assert_eq!(&rows_of(grid, &source)[1][6..10], ".^  ");
+        assert_eq!(&rows_of(grid, &source)[2][..8], "!>007FG4");
+        assert_eq!(rest.play_commands, vec![raw(0, 0x7F, 67)]);
+        assert_eq!(
+            rest.diagnostics
+                .iter()
+                .map(|d| (d.anchor().x(), d.anchor().y()))
+                .collect::<Vec<_>>(),
+            [(6, 1)]
+        );
     }
 
     #[test]
@@ -4812,6 +4927,44 @@ mod test {
         source.execute(Tick::new(1));
 
         assert_eq!(rows_of(grid, &source)[1], "06    ");
+    }
+
+    #[test]
+    fn increment_and_interpolation_keep_their_state_across_an_unwritten_operand() {
+        // Their state is the Cells they wrote. On the Tick an operand is
+        // unwritten they are invalid and write nothing, so those Cells stand,
+        // and once the operand is written again they continue from them.
+        for (function, before, after) in [("~+0108", "01", "02"), ("~>0410", "04", "08")] {
+            let grid = Grid::with_shape(6, 2);
+            let mut source = seeded_source(grid, &[function, ""]);
+            source.execute(Tick::ZERO);
+            assert_eq!(rows_of(grid, &source)[1], format!("{before}    "));
+
+            source.set(cell(grid, 2), " ").unwrap();
+            source.set(cell(grid, 3), " ").unwrap();
+            assert!(
+                source
+                    .language_map()
+                    .diagnostics()
+                    .any(|diagnostic| diagnostic.start() == 0),
+                "{function}"
+            );
+            source.execute(Tick::new(1));
+            assert_eq!(
+                rows_of(grid, &source)[1],
+                format!("{before}    "),
+                "{function}"
+            );
+
+            source.set(cell(grid, 2), &function[2..3]).unwrap();
+            source.set(cell(grid, 3), &function[3..4]).unwrap();
+            source.execute(Tick::new(2));
+            assert_eq!(
+                rows_of(grid, &source)[1],
+                format!("{after}    "),
+                "{function}"
+            );
+        }
     }
 
     #[test]
@@ -5679,14 +5832,14 @@ mod nested_property {
             tick.diagnostics
         );
         // An Expression that parsed has no syntax error for a block to defer
-        // to, so a blocked root is pending: a Jump inside it copied empty
-        // Cells into the operand chain.
+        // to. A Jump inside it that copies empty Cells into the operand chain
+        // leaves a slot unwritten, which makes the root invalid and diagnoses.
         let root = Function::try_from(&source[..2]).unwrap();
         if root.is_intrinsically_active() {
             prop_assert!(
                 states
                     .first()
-                    .is_some_and(|root| root.interpreted().is_some() || root.blocked())
+                    .is_some_and(|root| root.interpreted().is_some())
                     || !tick.diagnostics.is_empty(),
                 "{source:?} left its active root unanswered and undiagnosed"
             );

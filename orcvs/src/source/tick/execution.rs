@@ -23,6 +23,10 @@ use working::{WorkingSource, WriteKind};
 mod operands;
 mod working;
 
+/// The two empty Cells a Function that copies Cells writes and returns for an
+/// empty pair.
+const EMPTY_PAIR: &str = "  ";
+
 ///
 /// Executes an established order against the original Source Snapshot.
 ///
@@ -124,19 +128,6 @@ impl ComputationState {
     ///
     pub(in crate::source) fn interpretations(&self) -> usize {
         self.interpretations
-    }
-
-    ///
-    /// Whether this computation's Turn was blocked without a Tick diagnostic:
-    /// by a syntax error the Source revision already reports, or because an
-    /// operand it reads holds no written Cell and it is pending.
-    ///
-    /// Read only by the nested settle property, whose `cfg` matches the
-    /// native-only proptest dev-dependency, so a WASM test build omits it too.
-    ///
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(in crate::source) fn blocked(&self) -> bool {
-        self.syntax_blocked
     }
 }
 
@@ -246,11 +237,10 @@ impl<'a> Execution<'a> {
         // A nested Function that answers no value has no Return for its
         // parent. The Parser reports that against the Expression from Source
         // alone, so the Turn is blocked as an unparsed operand's is, without
-        // repeating the report, and its parent is blocked in turn. A pending
-        // Function is blocked the same way, before any operand is decoded.
+        // repeating the report, and its parent is blocked in turn.
         if self.syntax_blocks(node, function)
             || (node.parent.is_some() && !function.answers_value())
-            || self.pending(node)
+            || self.blocked_by_child(node)
         {
             self.states[index].syntax_blocked = true;
             return None;
@@ -445,7 +435,8 @@ impl<'a> Execution<'a> {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
                 if self.states[index].function.copies_language_unit() {
-                    let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
+                    let cleared =
+                        Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
                     for output in node.portal_access.write_sites() {
                         self.deliver_output(index, Atom::Empty, &cleared, *output);
                     }

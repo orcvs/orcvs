@@ -132,8 +132,18 @@ fn a_bang_track_reads_is_relayed_and_activates_the_root_it_lands_on() {
 }
 
 #[test]
-fn an_empty_operand_leaves_track_pending() {
+fn an_empty_operand_makes_track_invalid() {
+    // The Language Map diagnoses the unwritten operand, and the Tick writes
+    // nothing and does not report it again.
     for rows in [["@t  03C4D4E4", "xx"], ["@t01  C4D4E4", "xx"]] {
+        let source = source_of(Grid::with_shape(12, 2), &rows);
+        assert!(
+            source
+                .language_map()
+                .diagnostics()
+                .any(|diagnostic| diagnostic.start() == 0),
+            "{rows:?}"
+        );
         let tick = first(Grid::with_shape(12, 2), &rows);
         assert_eq!(tick.rows[1], "xx          ", "{rows:?}");
         assert!(
@@ -145,7 +155,7 @@ fn an_empty_operand_leaves_track_pending() {
 }
 
 #[test]
-fn a_partially_written_operand_diagnoses_instead_of_leaving_track_pending() {
+fn a_partially_written_operand_makes_track_invalid() {
     for row in ["@t0 03C4D4E4", "@t010 C4D4E4"] {
         let source = source_of(Grid::with_shape(12, 2), &[row, "xx"]);
         let diagnostics: Vec<_> = source.language_map().diagnostics().collect();
@@ -468,12 +478,16 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
 }
 
 #[test]
-fn a_nested_track_that_reads_empty_cells_leaves_its_parent_pending() {
-    // Track reads pair 1, which is empty. It clears its own Output Portal,
-    // and the Addition it is nested in neither writes nor diagnoses.
+fn a_nested_track_that_reads_empty_cells_makes_its_parent_invalid() {
+    // Track reads pair 1, which is empty. It clears its own Output Portal
+    // and returns the empty Cells, so the Addition's operand is unwritten:
+    // the Addition writes nothing and is diagnosed.
     let tick = first(Grid::with_shape(12, 2), &[".+@t010203  ", "xxxx"]);
     assert_eq!(tick.rows, [".+@t010203  ", "xx          "]);
-    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    assert_eq!(
+        tick.diagnostics,
+        [diagnostic(0, 0, "expected a number, found \"  \"")]
+    );
 }
 
 #[test]

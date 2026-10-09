@@ -5,6 +5,7 @@
 //! them; `&<` reads east and writes west. Those Cells are the parent's
 //! spelling, its sibling operands, or the Cells just past the Expression.
 
+use super::super::observed;
 use super::{Observed, observe};
 use crate::grid::Grid;
 
@@ -169,24 +170,30 @@ fn a_west_jump_in_a_middle_or_last_operand_copies_east_cells_over_the_operand_be
 #[test]
 fn a_west_jump_reading_empty_cells_past_the_expression_blanks_the_operand_before_it() {
     // Empty aligned input clears the destination, so the operand before the
-    // Jump becomes unwritten and the parent is pending. Nothing diagnoses,
-    // and the Grid stays as it is.
-    assert_eq!(
-        observe(Grid::with_shape(8, 2), &[".+01&<"], 3),
-        settles(
-            tick(&[".+  &<  ", "        "], &[],),
-            &[".+  &<  ", "        "],
-            &[],
-        ),
-    );
-    assert_eq!(
-        observe(Grid::with_shape(10, 2), &["~?0109&<"], 3),
-        settles(
-            tick(&["~?01  &<  ", "          "], &[],),
-            &["~?01  &<  ", "          "],
-            &[],
-        ),
-    );
+    // Jump becomes unwritten and the parent is invalid: the Tick diagnoses
+    // it. From the next Tick the slot is unwritten in the Source, so the
+    // Language Map reports it and the Tick says nothing.
+    for (width, row, blanked) in [(8, ".+01&<", ".+  &<  "), (10, "~?0109&<", "~?01  &<  ")] {
+        let grid = Grid::with_shape(width, 2);
+        let empty = " ".repeat(width);
+        let message = "expected a number, found \"  \"";
+        assert_eq!(
+            observe(grid, &[row], 3),
+            settles(
+                tick(&[blanked, &empty], &[(0, 0, message)]),
+                &[blanked, &empty],
+                &[],
+            ),
+            "{row:?}"
+        );
+        let source = observed::source_of(grid, &[blanked]);
+        let map: Vec<_> = source
+            .language_map()
+            .diagnostics()
+            .map(|diagnostic| diagnostic.start())
+            .collect();
+        assert_eq!(map, [0], "{row:?}");
+    }
 }
 
 #[test]
