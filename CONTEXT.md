@@ -45,7 +45,7 @@ One parsed value or operation an Expression is made of: a Number, a Note, a Bang
 _Avoid_: Token, glyph, symbol, cell value
 
 **Operand Literal**:
-Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context, so a standalone operand literal is invalid.
+Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Spatial Output**:
