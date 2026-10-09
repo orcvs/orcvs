@@ -8,17 +8,20 @@ A performer needs to edit a row of musical Notes directly in Source, cycle
 through it with a Clock, and hear each selected Note when triggered. Constructing
 an invisible Sequence can play pitches but does not provide that interaction.
 Empty pairs must retain their timing, and edits and same-Tick spatial writes
-must not replay stale Notes.
+must reach the Play in the Tick they happen. An empty pair copied straight into
+a Play's note slot triggers nothing; a value Function between Track and the
+Play that is invalid writes nothing, so the next Bang replays its last answer
+(ADR 0069).
 
 ## Solution
 
 Track `@t index count` reads one pair of the ordinary Source Cells east of its
 last operand each Tick, through an Input Portal it reads exactly as a Jump does
 (ADR 0067). A Clock drives the index, and a trigger activates Timed Play
-receiving what Track reads. Occupied pairs are editable two-Cell Notes; empty
-pairs are rests. The Source File contains the complete pattern and works with
-ordinary console editing, Open and Save. Nested Track uses the same
-receiving-operand interpretation as spatial delivery.
+receiving what Track reads. Occupied pairs are editable two-Cell Notes; Track
+copies an empty pair's Cells as it copies any others. The Source File contains
+the complete pattern and works with ordinary console editing, Open and Save.
+Nested Track uses the same receiving-operand interpretation as spatial delivery.
 
 ## User Stories
 
@@ -34,10 +37,12 @@ receiving-operand interpretation as spatial delivery.
    so that a new Playback run starts the pattern consistently.
 6. As a performer, I want playback to continue beyond Tick 255, so that long
    runs retain their rhythm.
-7. As a performer, I want clearing a pair to prevent a new note trigger,
-   so that I can introduce rests without moving later pairs.
-8. As a performer, I want existing Timed Play note lifetimes to survive rests,
-   so that clearing a pair does not unexpectedly stop a sustained note.
+7. As a performer, I want clearing a pair that Track copies straight into
+   Timed Play's note slot to prevent a new note trigger, so that I can leave a
+   step silent without moving later pairs.
+8. As a performer, I want existing Timed Play note lifetimes to survive an
+   empty pair, so that clearing a pair does not unexpectedly stop a sustained
+   note.
 9. As a performer, I want a complete edit to affect the next eligible Tick,
    so that Live Editing feels immediate.
 10. As a performer, I want malformed intermediate edits to diagnose without
@@ -56,11 +61,11 @@ receiving-operand interpretation as spatial delivery.
     so that nesting and spatial composition agree about the same characters.
 16. As a composer, I want nested feedback Functions to write their own Output
     Portals, so that their state advances across Ticks.
-17. As a composer, I want a nested blank-input computation to propagate a
-    blank answer and clear its Output Portal without an error, so that a blank
-    slot remains blank through nested expressions.
-18. As a performer, I want copied and pasted blanks to stay in place, so that
-    editing preserves the pattern's rhythm.
+17. As a composer, I want a Function whose operand is unwritten to be
+    invalid and not execute, and its parent with it, so that an empty slot
+    never produces a value and its Output Portal is not updated.
+18. As a performer, I want copied and pasted empty pairs to stay in place,
+    so that editing preserves the pattern's rhythm.
 19. As a performer, I want Open, Save and reopen to preserve the pattern,
     so that the Source File is sufficient to reproduce it.
 20. As a performer, I want Source Paint to show malformed data Track reads at
@@ -75,7 +80,7 @@ receiving-operand interpretation as spatial delivery.
 ## Implementation Decisions
 
 1. Implement the accepted Return and Sequence-retirement decisions in ADRs
-   0061 and 0063, the pending-operand decision in ADR 0066, and Track as
+   0061 and 0063, the unwritten-operand decision in ADR 0069, and Track as
    ADR 0067 decides it, which supersedes ADR 0063's List clauses. Keep the
    general spelling sweep in a separate follow-up.
 2. Keep the existing Source Tick interface as the principal test seam. Playback
@@ -105,15 +110,19 @@ receiving-operand interpretation as spatial delivery.
    Cells it may reach. A refused spatial destination does not erase a valid
    Return. Effect Functions and Functions unable to answer one two-Cell Return
    are refused by the Parser when nested.
-9. An inline operand slot whose Cells are all empty leaves its Function
-   pending (ADR 0066): it does not evaluate, writes nothing, returns nothing
-   and is not diagnosed. A pending nested Function leaves its parent pending in
-   turn. Pending does not give the Absence Marker a Source encoding.
-10. Track reading an empty pair copies it as a Jump does: it clears its
-    Output Portal and, nested, leaves its parent pending (ADR 0066). Keep this
-    behavior distinct from other no-write absence and from evaluation failure.
-11. A rest emits no new Play Command. It does not cancel notes whose Timed Play
-    lifetimes are still running; their existing Note Off scheduling remains.
+9. An inline operand slot whose Cells are all empty is invalid input
+   (ADR 0069), handled as a partly written slot is: the Function does not
+   evaluate, writes nothing, returns nothing and is diagnosed, and a nested
+   invalid Function fails its parent. Its Output Portal keeps the Cells it
+   held. An unwritten operand does not give the Absence Marker a Source
+   encoding.
+10. Track reading an empty pair copies its Cells as a Jump does: it clears its
+    Output Portal and, nested, returns the empty Cells, so its parent is
+    invalid (ADR 0069). Copying empty Cells is a successful evaluation.
+11. A Bang reaching a Timed Play whose note slot is empty finds it invalid,
+    so it emits no new Play Command. It does not cancel notes whose Timed
+    Play lifetimes are still running; their existing Note Off scheduling
+    remains.
 12. Retire the Sequence value, its Functions, pervasive extension and
     variable-width Reservations as specified by ADR 0063. Preserve ordinary
     scalar behavior and the declared distinction between value and effect
@@ -136,14 +145,17 @@ receiving-operand interpretation as spatial delivery.
   including Number/Note contextual decoding and malformed encodings. Check
   independent child writes when a parent fails and valid Return delivery when
   the child's spatial destination is refused.
-- Exercise blank-input nested arithmetic: parent and child clear their Output
-  Portals to spaces, propagate blank, and do not diagnose. Contrast it with
-  other Absence Marker results, which remain no-write outcomes. Test that a
-  blank operand clears Increment and Interpolation feedback to spaces, so the
-  next valid evaluation reads the initial `00`, and that a Timed Play fed through
-  a Portal by a blank-answering value root emits nothing rather than replaying
-  its previous Note. Nested Track selecting an empty
-  pair also clears its own south Cells and leaves its parent pending.
+- Exercise unwritten operands: a root or nested Function with an unwritten
+  slot is invalid and does not execute, and its parent is invalid in turn.
+  It writes nothing, so its Output Portal keeps the Cells it held. A partly
+  written slot or one the row edge cuts short still diagnoses. Contrast it
+  with Absence Marker results, which diagnose a nested parent. Test that a
+  Banged Play whose note slot is unwritten emits no Play Command, including
+  when Track empties that slot directly, by copying an empty pair to an Output
+  Portal that is the slot, or through nesting, as the note operand returning
+  the empty Cells. Test that a Banged Play reading the Output Portal of an
+  invalid value root plays the Cells that Portal still holds. Nested Track copies an empty pair's Cells as it
+  copies any others, which leaves its parent invalid.
 - Drive both index and selected-pair writers before and after Track in Grid
   order, and east of and below it. Check the resulting Note in the same Tick,
   partial and competing writes, absent or failed suppliers, a writer of an
@@ -158,8 +170,8 @@ receiving-operand interpretation as spatial delivery.
 - Run Clock-driven selection from Tick zero, holding each index for the rate,
   wrapping at count and continuing beyond Tick 255.
 - Load the exact shipped Source File and verify two complete loops, including
-  rests, through Source/Tick and Playback. Assert Note Off timing independently
-  from the absence of a new trigger at a rest.
+  empty pairs, through Source/Tick and Playback. Assert Note Off timing
+  independently from the absence of a new trigger at an empty pair.
 - Use real console input and file workflows for edit, clear, restore, copy,
   paste, Save and reopen. Follow the egui skill for console tests. Playback
   tests retain existing output adapters; do not introduce one for Track.
@@ -180,9 +192,13 @@ receiving-operand interpretation as spatial delivery.
 ## Further Notes
 
 This is active pre-release language design, with no public compatibility
-contract. Track is not implemented yet; the existing Sequence-based experiment
-is not acceptance evidence. Existing Sequence documentation remains until its
-implementation is retired.
+contract. Sequence retirement, Return and Track are implemented (tickets 01,
+02 and 04); console verification and the shipped example remain. Ticket 03
+delivered unwritten operands as ADR 0066's pending state, and ADR 0069
+superseded it and the pending clauses of ticket 04.
+`.scratch/pending-presentation/issues/01-treat-an-unwritten-operand-as-invalid-input.md`
+implemented the invalid-input behaviour Decisions 9–11 describe, and its
+Comments name the tests that cover it.
 
 The selected `@t` spelling follows existing lowercase second-Cell spellings
 such as Control Change `!c` and Pitch Bend `!b`; no family-wide rename is needed
@@ -196,19 +212,20 @@ in the same Tick even if the stored initial index names another pair. The guide
 must give exact columns and explain that the four-Tick note length can sustain
 notes through later empty pairs.
 
-Delivery numbers the six deliverables in dependency order: Sequence retirement
-(01), Return (02), blank results (03), Track (04), console verification (05),
-and the shipped example (06). Blank results depend
-on Return; Track depends on both Return and blank results. Sequence retirement in 01 removes the existing alternative value form, not an
-opportunity to introduce a new abstraction. If implementation exceeds
-one fresh context, split its migration before claiming it rather than leaving
-a half-retired language on the main branch.
+Delivery numbers the six deliverables in dependency order: Sequence
+retirement (01), Return (02), unwritten operands (03), Track (04), console
+verification (05), and the shipped example (06). Unwritten operands depend on
+Return; Track depends on both Return and unwritten operands. Sequence retirement
+in 01 removes the existing alternative value form, not an opportunity to
+introduce a new abstraction. If implementation exceeds one fresh context,
+split its migration before claiming it rather than leaving a half-retired
+language on the main branch.
 
 | Ticket | Deliverable | Blocked by |
 | --- | --- | --- |
 | 01 | Sequence retirement and scalar behavior | None |
 | 02 | Return and nested Output Portal writes | 01 |
-| 03 | Blank operands and blank-result delivery | 02 |
+| 03 | Unwritten operands (delivered as pending under ADR 0066, which ADR 0069 superseded) | 02 |
 | 04 | Track reads a Portal as Jump does | 02, 03 |
 | 05 | Real console editing and file workflows | 04 |
 | 06 | Shipped example and acceptance evidence | 03, 05 |

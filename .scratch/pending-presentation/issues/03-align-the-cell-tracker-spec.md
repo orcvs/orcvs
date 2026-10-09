@@ -17,4 +17,4 @@ Blocked by: None — can start immediately
 
 ## Comments
 
-Resolved on PR #206 by `a5a94dcc`, which rewrote `.scratch/cell-tracker/spec.md` and tickets 05 and 06 there, building on uncommitted edits another session had left in its worktree.
+Resolved on PR #206 by its commit "Describe the cell tracker under ADR 0069, without rest or pending", which rewrote `.scratch/cell-tracker/spec.md` and tickets 05 and 06 there, building on uncommitted edits another session had left in its worktree.
