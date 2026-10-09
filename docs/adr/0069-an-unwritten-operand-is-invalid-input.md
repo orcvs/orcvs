@@ -20,7 +20,7 @@ Every unwritten slot is diagnosed. The console shows no Source or Tick diagnosti
 
 Increment and Interpolation keep their state while an operand is unwritten, because their state is the Cells they wrote, and continue from it once the operand is written again.
 
-An Expression with an unwritten slot is no longer excluded from the Language Map's roots; it is refused as a partly written one is.
+An Expression with an unwritten slot is diagnosed by the Language Map and is not a root, as a partly written one is. Under ADR 0066 it was kept out of the diagnostics; it is still kept out of the roots, because only a complete Expression is scheduled.
 
 ## Considered options
 
