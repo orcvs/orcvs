@@ -192,9 +192,9 @@ every named property below has an exact value, including the ones it shares
 with Okabe–Ito, which are written out rather than left to a toolkit default,
 and including ADR 0053's border-width keys. It declares itself light.
 
-Its **chrome** colours start from the hand-tuned `LIGHT_PALETTE` on the
-`feat/egui-theming` branch, mapped onto the named keys as `04`'s 2026-09-21
-comment directs. That palette predates the named-key format: it says nothing
+Its **chrome** colours start from the hand-tuned `LIGHT_PALETTE` whose values
+`.scratch/theming/issues/04` records, mapped onto the named keys as `04`'s
+2026-09-21 comment directs. That palette predates the named-key format: it says nothing
 about Comment, Diagnostic or Output Portal, and its `marker`,
 `highlight` and four `bloom_*` pairs name tokens this console retired (the
 Marker and Highlight Glyphs went with `retired-glyph-vocabulary`; the four
