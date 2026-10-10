@@ -8,6 +8,7 @@ Orca's behaviour, read from `hundredrabbits/Orca` at `223e45c84d` (`desktop/sour
 - An operator with a bang port writes `*` when it bangs and `.` when it does not, so its output Cell is cleared on every frame it is quiet.
 - J, Y, X, O, T, P, Q and G read a Cell's glyph and write it with `orca.write`, which overwrites whatever stands at the destination. A `*` they carry is written as `*`, replaces an operator or data at the destination, and bangs that Cell's neighbours. Nothing activates the operator it replaced.
 - A `*` typed into the grid bangs its neighbours on the next frame, then erases itself.
+- Orca records nothing about who wrote a `*`. A produced `*` reaches each neighbour once only because of row-major turn order. A `*` in another operator's input is locked, so it never erases itself, and bangs its neighbours every frame. Once that operator is removed, the `*` behaves as a typed one: it bangs the neighbours whose turn comes first, then erases itself.
 
 ## Decision
 
@@ -23,6 +24,7 @@ Orca's behaviour, read from `hundredrabbits/Orca` at `223e45c84d` (`desktop/sour
 - A chain such as `.=` into `=v` into `=v` still carries a Bang down a column in one Tick, each Copy writing `**` and activating the roots aligned with its own destination.
 - Anything placed in the Output Portal of Equality, Delay or Euclidean is cleared on every Tick that Function does not bang.
 - A performer can fire a root by typing `**` beside it.
+- Source remembers Bang display for one Tick only. A `**` left in an operand by an earlier Tick is not cleared, and fires once as typed if an edit later makes it standalone, as Orca's `*` does once freed from a locked input.
 - Bang ordering, same-Tick delivery regardless of Position, Bang display cleanup, Halt, chain heads, and the clearing of an empty Copy input are unchanged.
 
 ## Considered options

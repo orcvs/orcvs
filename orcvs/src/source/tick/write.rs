@@ -10,7 +10,7 @@
 use lang::Tick;
 
 use super::observed::{
-    MISSED_BANG, diagnostic, first, observe_at, observed, quiet, raw_play, rows_of, source_of,
+    MISSED_BANG, diagnostic, first, observe_at, observed, quiet, raw, rows_of, source_of,
     turn_before, turns,
 };
 use crate::grid::Grid;
@@ -54,7 +54,7 @@ fn a_bang_written_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_alig
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
     assert_eq!(rows_of(&source)[2], "**007FC4");
 }
 
@@ -63,7 +63,7 @@ fn a_bang_written_onto_occupied_data_overwrites_it_and_activates_the_roots_align
     let mut source = source_of(Grid::with_shape(8, 3), &["@$0001**", "C4", "!>007FD4"]);
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
     assert_eq!(rows_of(&source)[1], "**      ");
 }
 

@@ -952,6 +952,17 @@ impl Function {
         self.input_portal().is_some() && self.portal_input().is_none()
     }
 
+    /// Whether every answer this Function gives is a Bang or the Absence
+    /// Marker.
+    ///
+    /// Equality, Delay and Euclidean are Orca's bang ports: each answers
+    /// whether it bangs this Tick and nothing else, so a Turn that does not
+    /// Bang still has an answer to show at its Output Portal, which is two
+    /// empty Cells.
+    pub const fn answers_only_bang(self) -> bool {
+        matches!(self, Self::Equality | Self::Delay | Self::Euclidean)
+    }
+
     /// Which declared fact this Function changes about `running`, the Function
     /// a computation is running, or `None` where it changes none of them.
     ///
@@ -1211,6 +1222,22 @@ mod test {
         assert_eq!(
             seen, 8,
             "the Source-writing rows are no longer the eight expected"
+        );
+    }
+
+    #[test]
+    fn exactly_the_bang_ports_answer_only_bang() {
+        // A Tick clears the Output Portal of each of these on every Turn that
+        // does not Bang, so the list is stated whole: a Function added here
+        // would erase what stands south of it, and one missing would leave
+        // its last Bang displayed.
+        assert_eq!(
+            Function::ALL
+                .iter()
+                .copied()
+                .filter(|function| function.answers_only_bang())
+                .collect::<Vec<_>>(),
+            vec![Function::Delay, Function::Equality, Function::Euclidean]
         );
     }
 

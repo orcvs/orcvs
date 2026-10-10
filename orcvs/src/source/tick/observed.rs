@@ -1,22 +1,22 @@
 //! A Source Tick as a performer observes it: the Grid after the Tick, and
 //! each diagnostic with the Grid column and row of its first Cell.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::plan;
+use super::plan_first;
 use crate::grid::Grid;
 use crate::source::{Cells, Source, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
 pub(super) const MISSED_BANG: &str = "Bang reached a root that has taken its Turn";
 
-/// The Play Command a Raw Play spelled `!>007F` answers for `note`.
-pub(super) fn raw_play(note: u8) -> PlayCommand {
+/// One Raw Play Command, stated as the three Numbers a Source writes.
+pub(super) fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
     PlayCommand::Raw {
-        channel: MidiChannel::try_from(0x00).expect("a MIDI channel"),
-        velocity: Velocity::try_from(0x7F).expect("a MIDI data byte"),
+        channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+        velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
         note: Note::try_from(note).expect("a MIDI note"),
     }
 }
@@ -119,13 +119,7 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
     let source = source_of(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, states) = plan(
-        grid,
-        Cells::of(bytes.as_bytes()),
-        &map,
-        &BTreeSet::new(),
-        Tick::ZERO,
-    );
+    let (_, states) = plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     map.schedule_cache()
         .schedule(grid, &map)
         .lookup

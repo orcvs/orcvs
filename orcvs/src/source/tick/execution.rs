@@ -81,11 +81,11 @@ pub(super) fn execute(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
-    display: &BTreeSet<CellIndex>,
+    bang_display: &BTreeSet<CellIndex>,
     tick: Tick,
     schedule: &Schedule,
 ) -> (TickPlan, Vec<ComputationState>) {
-    let (mut execution, fired) = Execution::new(grid, cells, map, display, tick, schedule);
+    let (mut execution, fired) = Execution::new(grid, cells, map, bang_display, tick, schedule);
     let diagnostics = ordering::take_turns(schedule, fired, |index, progress| {
         execution.take_turn(index, progress)
     });
@@ -200,7 +200,7 @@ impl<'a> Execution<'a> {
     /// is part of starting a Tick rather than part of taking a Turn, which is
     /// why it happens here and not in the loop that follows.
     ///
-    /// A `**` whose anchor `display` names is the display of a Bang the
+    /// A `**` whose anchor `bang_display` names is the display of a Bang the
     /// previous Tick produced. Dependency order delivered that Bang to its
     /// aligned roots in its own Tick, so it is cleared without activating
     /// them again. Every other `**` was typed or read in, and fires once: it
@@ -210,7 +210,7 @@ impl<'a> Execution<'a> {
         grid: Grid,
         cells: Cells<'a>,
         map: &'a LanguageMap,
-        display: &BTreeSet<CellIndex>,
+        bang_display: &BTreeSet<CellIndex>,
         tick: Tick,
         schedule: &'a Schedule,
     ) -> (Self, Vec<usize>) {
@@ -257,7 +257,7 @@ impl<'a> Execution<'a> {
             let clear = Portal::at(grid, anchor)
                 .admit(&blank)
                 .expect("parsed Bang fits its Grid");
-            if !display.contains(&grid.index(anchor)) {
+            if !bang_display.contains(&grid.index(anchor)) {
                 for owner in schedule.lookup.written_over(&clear).bang_roots() {
                     execution.states[owner].activated = true;
                     fired.push(owner);
@@ -574,9 +574,12 @@ impl<'a> Execution<'a> {
                 // than omit the write. A Copy answers Empty when its input is two
                 // spaces, and writes them. A Bang producer writes its answer
                 // on every Turn, so a Turn that does not Bang leaves its
-                // Output Portal empty. Every other Function writes nothing.
+                // Output Portal empty, as Orca's bang ports write `.`; the two
+                // Cells it clears are the pair the schedule reserves for its
+                // Bang, root or nested, so clearing them orders nothing new.
+                // Every other Function writes nothing.
                 let function = self.states[index].function;
-                if function.copies_language_unit() || clears_when_absent(function) {
+                if function.copies_language_unit() || function.answers_only_bang() {
                     let cleared =
                         Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
                     for output in sites {
@@ -955,17 +958,6 @@ impl<'a> Execution<'a> {
         self.working.apply(kind, &write);
         self.effects.push(Effect::Write(write));
     }
-}
-
-/// Whether `function` answers only Bang or the Absence Marker, and so clears
-/// its Output Portal on a Turn that does not Bang, as Orca's bang ports write
-/// `.`. The two Cells it clears are the pair the schedule reserves for its
-/// Bang, root or nested, so clearing them orders nothing new.
-fn clears_when_absent(function: Function) -> bool {
-    matches!(
-        function,
-        Function::Equality | Function::Delay | Function::Euclidean
-    )
 }
 
 /// Why a destination refused the value sent to it.

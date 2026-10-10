@@ -1,6 +1,6 @@
 # 03 — Fire a typed Bang once
 
-Status: done
+Status: resolved
 
 **What to build:**
 

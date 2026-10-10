@@ -450,24 +450,35 @@ impl PortalRelationships<'_> {
 /// Plans one Tick against `map`, through the schedule every revision holding
 /// the same scheduling inputs shares.
 ///
-/// `display` names the anchors of the Bangs the previous Tick wrote. Every
+/// `bang_display` names the anchors of the Bangs the previous Tick wrote. Every
 /// other standalone `**` in `map` fires at the start of this Tick.
 ///
 pub(super) fn plan(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
-    display: &BTreeSet<CellIndex>,
+    bang_display: &BTreeSet<CellIndex>,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
     execution::execute(
         grid,
         cells,
         map,
-        display,
+        bang_display,
         tick,
         map.schedule_cache().schedule(grid, map),
     )
+}
+
+/// [`plan`] for a Source's first Tick: every standalone `**` fires as typed.
+#[cfg(test)]
+fn plan_first(
+    grid: Grid,
+    cells: Cells<'_>,
+    map: &LanguageMap,
+    tick: Tick,
+) -> (TickPlan, Vec<execution::ComputationState>) {
+    plan(grid, cells, map, &BTreeSet::new(), tick)
 }
 
 ///
@@ -479,10 +490,16 @@ fn plan_unshared(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
-    display: &BTreeSet<CellIndex>,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    execution::execute(grid, cells, map, display, tick, &schedule(grid, map))
+    execution::execute(
+        grid,
+        cells,
+        map,
+        &BTreeSet::new(),
+        tick,
+        &schedule(grid, map),
+    )
 }
 
 ///
@@ -591,7 +608,7 @@ pub(super) fn plan_carrying(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
-    display: &BTreeSet<CellIndex>,
+    bang_display: &BTreeSet<CellIndex>,
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
@@ -599,7 +616,7 @@ pub(super) fn plan_carrying(
         grid,
         cells,
         map,
-        display,
+        bang_display,
         tick,
         &schedule_carrying(grid, map, destinations),
     )
@@ -1026,15 +1043,29 @@ fn input_edges(
 /// one predictable order, which is a separate question from which producer
 /// owns each Cell.
 ///
+/// A write of exactly `**` is a Bang this Tick wrote, whether a Bang answer,
+/// a pass-through carrying one, or the display a refused move leaves. Its
+/// anchor is the Tick's Bang display when both its Cells still hold `*` once
+/// every write has resolved, wherever the language reads that pair at commit.
+///
 pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     let mut writes: BTreeMap<CellIndex, CellContent> = BTreeMap::new();
     let mut play_commands = Vec::new();
     let mut diagnostics = Vec::new();
     let mut locks = Vec::new();
+    let mut bangs = Vec::new();
 
     for effect in effects {
         match effect {
             Effect::Write(write) => {
+                let mut cells = write.cells();
+                if let (Some((anchor, first)), Some((east, second)), None) =
+                    (cells.next(), cells.next(), cells.next())
+                    && is_bang_cell(first)
+                    && is_bang_cell(second)
+                {
+                    bangs.push((anchor, east));
+                }
                 for (cell, content) in write.cells() {
                     writes.insert(cell, content);
                 }
@@ -1044,6 +1075,19 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
             Effect::Lock(root) => locks.push(root),
         }
     }
+
+    let holds_bang = |cell| {
+        writes
+            .get(&cell)
+            .is_some_and(|content| is_bang_cell(*content))
+    };
+    let mut bang_display: Vec<CellIndex> = bangs
+        .into_iter()
+        .filter(|&(anchor, east)| holds_bang(anchor) && holds_bang(east))
+        .map(|(anchor, _)| anchor)
+        .collect();
+    bang_display.sort_unstable();
+    bang_display.dedup();
 
     TickPlan {
         // Cell indices order row-major within one Grid, so draining the map in
@@ -1055,7 +1099,13 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
         play_commands,
         diagnostics,
         locks,
+        bang_display,
     }
+}
+
+/// Whether `content` is one Cell of the Bang spelling `**`.
+fn is_bang_cell(content: CellContent) -> bool {
+    content.byte() == b'*'
 }
 
 ///
@@ -1077,6 +1127,7 @@ mod test {
     use lang::{Atom, Token};
     use std::collections::BTreeSet;
 
+    use super::observed::raw;
     use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
 
     ///
@@ -2920,13 +2971,7 @@ mod test {
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (_, states) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (_, states) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
         let order = turns(&states);
         // Parser preorder: Equality, Halt, Add.
         assert_eq!(order, vec![Some(0), Some(1), Some(2)]);
@@ -3088,13 +3133,7 @@ mod test {
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!<<  ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (plan, states) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (plan, states) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -4051,6 +4090,47 @@ mod test {
     }
 
     #[test]
+    fn nested_delay_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
+        // Nested as the Addition's left operand, each Bang producer's Output
+        // Portal is the pair one row south of its own anchor, which holds `C4`
+        // at the start of every Tick. `~*0201` Bangs on every second Tick and
+        // `~%0304` on steps 0, 2 and 3, so on Tick 1 neither Bangs.
+        let grid = Grid::with_shape(10, 2);
+        for function in ["~*0201", "~%0304"] {
+            let row = format!(".+{function}01");
+            let observed = super::observed::observe_at(grid, &[&row, "  C4"], [1]).remove(0);
+            assert_eq!(observed.rows[1], "          ", "{function}");
+        }
+    }
+
+    #[test]
+    fn a_bang_written_into_a_copied_operand_does_not_fire_again_once_freed() {
+        // Equality's `**` plays the Raw Play aligned east of it, but the `.+`
+        // copied in the same Tick makes the `**` that Addition's operand by
+        // the commit. An edit then removes the Equality, the Copy and the
+        // `.+` without reaching the `**`: the previous Tick wrote that `**`
+        // and delivered its Bang, so the next Tick clears it without playing
+        // the Raw Play a second time.
+        let grid = Grid::with_shape(14, 4);
+        let mut source =
+            super::observed::source_of(grid, &["  .=0101", "    !>007FC4", "=^", ".+"]);
+        let first = source.execute(Tick::ZERO);
+        assert_eq!(first.play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(super::observed::rows_of(&source)[1], ".+**!>007FC4  ");
+
+        for idx in [2, 3, 4, 5, 6, 7, 14, 15, 28, 29, 42, 43] {
+            source
+                .set(grid.cell_index(idx).expect("inside the Grid"), " ")
+                .unwrap();
+        }
+        assert_eq!(super::observed::rows_of(&source)[1], "  **!>007FC4  ");
+
+        let freed = source.execute(Tick::new(1));
+        assert!(freed.play_commands.is_empty(), "{:?}", freed.play_commands);
+        assert_eq!(super::observed::rows_of(&source)[1], "    !>007FC4  ");
+    }
+
+    #[test]
     fn a_function_outside_the_bang_producers_writes_nothing_for_the_absence_marker() {
         // Only Equality, Delay and Euclidean clear their Output Portal for an
         // absent answer. An Addition stated to answer the Absence Marker
@@ -4711,13 +4791,7 @@ mod test {
         let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![]);
         assert_eq!(planned(&plan), vec![(20, '*'), (21, '*')]);
@@ -4832,13 +4906,7 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         // The Bang the Equality writes, and the Addition's own `03` below it.
@@ -4860,13 +4928,7 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", "            .+01"]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -4891,13 +4953,7 @@ mod test {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-            let (plan, _) = super::plan(
-                grid,
-                Cells::of(bytes.as_bytes()),
-                &map,
-                &BTreeSet::new(),
-                Tick::ZERO,
-            );
+            let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
             assert_eq!(plan.play_commands, commands, "{play:?}");
             assert!(
@@ -4929,13 +4985,7 @@ mod test {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-            let (plan, _) = super::plan(
-                grid,
-                Cells::of(bytes.as_bytes()),
-                &map,
-                &BTreeSet::new(),
-                Tick::ZERO,
-            );
+            let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
             assert_eq!(plan.play_commands, commands, "{play:?}");
             assert_eq!(
@@ -5014,13 +5064,7 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let tick = Tick::new(11);
 
-        let (_, states) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            tick,
-        );
+        let (_, states) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, tick);
         let interpreted = interpreted(&states);
 
         assert_eq!(interpreted.len(), 3, "each of the three roots is evaluated");
@@ -5056,13 +5100,7 @@ mod test {
         // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
         // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
         // Both answer the Absence Marker and clear their pair.
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::new(1),
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -5082,13 +5120,7 @@ mod test {
         // hardcoded first Tick would write `00` here and a hardcoded Tick of
         // its own would move all three at once, so the pair of assertions is
         // what makes this about the Tick rather than about the formulas.
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::new(4),
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(4));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -5114,13 +5146,7 @@ mod test {
         let bytes = snapshot(grid, &["~*0300 ~%0400", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::new(3),
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(3));
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(
@@ -5421,20 +5447,8 @@ mod test {
         let grid = Grid::with_shape(10, 2);
         let bytes = snapshot(grid, &["~?010010", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let first = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
-        let second = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let first = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let second = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
         assert_eq!(first.0.writes, second.0.writes);
     }
 
@@ -5659,17 +5673,6 @@ mod test {
             .collect()
     }
 
-    ///
-    /// One Raw Play Command, stated as the three Numbers a Source writes.
-    ///
-    fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
-        PlayCommand::Raw {
-            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
-            velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
-            note: Note::try_from(note).expect("a MIDI note"),
-        }
-    }
-
     fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
         let cell = |idx: usize| grid.cell_index(idx).expect("inside the Grid");
         Effect::Diagnose(Diagnostic::for_range(
@@ -5691,13 +5694,7 @@ mod test {
         let bytes = snapshot(grid, &["", ".+0102"]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (plan, _) = super::plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert!(plan.writes.is_empty());
         assert_eq!(
@@ -6020,7 +6017,7 @@ mod property {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod nested_property {
-    use super::{Cells, Tick, plan};
+    use super::{Cells, Tick, plan_first};
     use crate::grid::{COL_COUNT, Grid};
     use crate::source::language_map::LanguageMap;
     use lang::{Atom, Function, Note, Parser, Token, Tokens};
@@ -6175,13 +6172,7 @@ mod nested_property {
         let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (tick, states) = plan(
-            grid,
-            Cells::of(bytes.as_bytes()),
-            &map,
-            &std::collections::BTreeSet::new(),
-            Tick::ZERO,
-        );
+        let (tick, states) = plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         prop_assert!(
             !tick

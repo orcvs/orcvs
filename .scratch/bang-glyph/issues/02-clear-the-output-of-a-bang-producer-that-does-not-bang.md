@@ -1,6 +1,6 @@
 # 02 — Clear the output of a Bang producer that does not bang
 
-Status: done
+Status: resolved
 
 **What to build:**
 

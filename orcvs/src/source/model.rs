@@ -127,6 +127,9 @@ pub struct TickPlan {
     pub diagnostics: Vec<Diagnostic>,
     /// Expression-root anchors this Tick locked, in producer order.
     pub locks: Vec<Position>,
+    /// The anchors of the Bangs this Tick wrote, in Cell order: each `**` one
+    /// write placed whose Cells both still hold `*` in `writes`.
+    pub(in crate::source) bang_display: Vec<CellIndex>,
 }
 
 ///
@@ -422,29 +425,14 @@ impl Source {
     /// the Tick module — is still committed the one way a Tick is committed.
     ///
     /// A Tick's writes are not an edit, so the Bangs they leave are recorded
-    /// as display: each standalone `**` both of whose Cells this Tick wrote.
+    /// as display: each `**` this Tick wrote as a Bang, whether or not it
+    /// stands alone at commit. A Bang the Tick wrote into an operand was
+    /// still delivered in that Tick, so an edit that later frees it leaves a
+    /// `**` the next Tick clears without firing.
     pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan) {
         self.apply_writes(&plan.writes);
-        // A Tick Plan lists its writes in Cell order, one per Cell, so a
-        // Cell is found by search without collecting them again.
-        debug_assert!(
-            plan.writes
-                .windows(2)
-                .all(|pair| pair[0].cell.get() < pair[1].cell.get())
-        );
-        let written = |cell: &CellIndex| {
-            plan.writes
-                .binary_search_by_key(&cell.get(), |write| write.cell.get())
-                .is_ok()
-        };
-        let display: BTreeSet<CellIndex> = self
-            .language_map
-            .bangs()
-            .filter(|(_, span)| span.indices().all(|cell| written(&cell)))
-            .map(|(anchor, _)| self.grid.index(anchor))
-            .collect();
-        if !(display.is_empty() && self.bang_display.is_empty()) {
-            self.bang_display = Arc::new(display);
+        if !(plan.bang_display.is_empty() && self.bang_display.is_empty()) {
+            self.bang_display = Arc::new(plan.bang_display.iter().copied().collect());
         }
     }
 
