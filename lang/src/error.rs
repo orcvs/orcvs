@@ -116,13 +116,15 @@ pub enum InterpretationError {
         role: &'static str,
     },
 
-    /// A Copy's input Portal did not hold one complete aligned Language Unit.
+    /// The Input Portal of a Function that copies a Language Unit, a Copy,
+    /// Track or a Read, did not hold one complete aligned Language Unit.
     ///
     /// Empty and Bang are legal inputs; a partial pair or a slice across two
-    /// units is not. `function` is the Copy the Source
-    /// wrote so the message names those Cells.
+    /// units is not, and neither is a Portal that lies outside any Grid.
+    /// `function` is the Function the Source wrote, so the message names
+    /// those Cells.
     #[error("{function} has partial or invalid input")]
-    CopyInput { function: crate::Function },
+    PartialInput { function: crate::Function },
 
     /// Increment or Interpolation computed a Number their answer cannot hold.
     ///

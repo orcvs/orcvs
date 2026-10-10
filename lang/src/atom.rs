@@ -473,7 +473,7 @@ macro_rules! define_functions {
             "a Function spelling must be exactly two ASCII Cells",
         );)+
 
-        #[derive(Clone, Copy, Debug, PartialEq)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum Function {
             $($variant,)+
         }
@@ -679,6 +679,10 @@ define_functions! {
     ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Intrinsic, false, [value: Number]),
     ConvertToNumber => (".v", Value, Intrinsic, false, [value: Note]),
+    CopyEast => ("=>", Value, Intrinsic, true, []),
+    CopyNorth => ("=^", Value, Intrinsic, true, []),
+    CopySouth => ("=v", Value, Intrinsic, true, []),
+    CopyWest => ("=<", Value, Intrinsic, true, []),
     Delay => ("~*", Value, Intrinsic, true, [rate: Number, modulus: Number]),
     DirectionalBangEast => ("*>", BangEast, Bang, false, []),
     DirectionalBangNorth => ("*^", BangNorth, Bang, false, []),
@@ -690,10 +694,6 @@ define_functions! {
     Halt => ("*!", Halt, Bang, false, []),
     Increment => ("~+", Value, Intrinsic, false, [step: Number, modulus: Number], portal: "previous value": Number),
     Interpolation => ("~>", Value, Intrinsic, false, [rate: Number, target: Number], portal: "previous value": Number),
-    CopyEast => ("=>", Value, Intrinsic, true, []),
-    CopyNorth => ("=^", Value, Intrinsic, true, []),
-    CopySouth => ("=v", Value, Intrinsic, true, []),
-    CopyWest => ("=<", Value, Intrinsic, true, []),
     Maximum => (".>", Value, Intrinsic, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Intrinsic, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Intrinsic, false, [left: Number, right: Number]),
@@ -894,12 +894,12 @@ impl Function {
         use crate::PairSelection::{DestinationPosition, Distance, Lane, Position};
         match self {
             Self::AbsoluteCopy => Some(DestinationPosition),
-            Self::AbsoluteWrite => Some(Position),
+            Self::AbsoluteWrite => Some(Position(self)),
             Self::Push => Some(Lane),
-            Self::WriteEast => Some(Distance(East)),
-            Self::WriteNorth => Some(Distance(North)),
-            Self::WriteSouth => Some(Distance(South)),
-            Self::WriteWest => Some(Distance(West)),
+            Self::WriteEast => Some(Distance(East, self)),
+            Self::WriteNorth => Some(Distance(North, self)),
+            Self::WriteSouth => Some(Distance(South, self)),
+            Self::WriteWest => Some(Distance(West, self)),
             _ => None,
         }
     }
@@ -930,11 +930,11 @@ impl Function {
                 columns: 0,
                 rows: -1,
             })),
-            Self::AbsoluteRead => Some(Dynamic(Position)),
-            Self::ReadEast => Some(Dynamic(Distance(East))),
-            Self::ReadNorth => Some(Dynamic(Distance(North))),
-            Self::ReadSouth => Some(Dynamic(Distance(South))),
-            Self::ReadWest => Some(Dynamic(Distance(West))),
+            Self::AbsoluteRead => Some(Dynamic(Position(self))),
+            Self::ReadEast => Some(Dynamic(Distance(East, self))),
+            Self::ReadNorth => Some(Dynamic(Distance(North, self))),
+            Self::ReadSouth => Some(Dynamic(Distance(South, self))),
+            Self::ReadWest => Some(Dynamic(Distance(West, self))),
             Self::Track => Some(Dynamic(IndexModuloCount)),
             _ if self.portal_input().is_some() => Some(Static(crate::PortalCoords::SOUTH)),
             _ => None,
@@ -1237,13 +1237,13 @@ mod test {
                 Function::AbsoluteCopy,
                 Function::AbsoluteRead,
                 Function::AbsoluteWrite,
-                Function::Delay,
-                Function::Equality,
-                Function::Euclidean,
                 Function::CopyEast,
                 Function::CopyNorth,
                 Function::CopySouth,
                 Function::CopyWest,
+                Function::Delay,
+                Function::Equality,
+                Function::Euclidean,
                 Function::Push,
                 Function::ReadEast,
                 Function::ReadNorth,
@@ -1367,13 +1367,13 @@ mod test {
                     assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
                     assert_eq!(
                         input,
-                        Some(Dynamic(PairSelection::Distance(*direction))),
+                        Some(Dynamic(PairSelection::Distance(*direction, function))),
                         "{function:?}"
                     );
                 }
                 Function::AbsoluteRead => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(input, Some(Dynamic(PairSelection::Position)));
+                    assert_eq!(input, Some(Dynamic(PairSelection::Position(function))));
                 }
                 // A Write's Output Portal is the pair the Read with the same
                 // arrow, or the absolute Read, reads, and nothing south.
@@ -1389,14 +1389,14 @@ mod test {
                     assert_eq!(input, None, "{function:?}");
                     assert_eq!(
                         dynamic_output,
-                        Some(PairSelection::Distance(*direction)),
+                        Some(PairSelection::Distance(*direction, function)),
                         "{function:?}"
                     );
                 }
                 Function::AbsoluteWrite => {
                     assert_eq!(output, None);
                     assert_eq!(input, None);
-                    assert_eq!(dynamic_output, Some(PairSelection::Position));
+                    assert_eq!(dynamic_output, Some(PairSelection::Position(function)));
                 }
                 // The absolute Copy reads one Position and writes another,
                 // and nothing south.

@@ -10,7 +10,7 @@ use crate::{
     expression::DEFAULT_TOKEN_LEN,
     functions::{
         copy::{copied_from, copied_to},
-        read::{read_distance, read_position},
+        read::{distance, position},
         track::track_pair,
         write::lane_pair,
     },
@@ -49,22 +49,23 @@ impl PairSelection {
     /// how many columns east of the anchor the Function and its operands
     /// occupy, nested operands included: `orcvs` knows how they lie in the
     /// Grid. The rule takes the values of only the address operands that
-    /// lead the signature, and the directional and absolute rules tell a
-    /// Read's operands from a Write's by how many there are: a Write's
-    /// `value` after them counts toward that number, and its value is never
-    /// read. Track's pair counts from `operand_columns`, Push's lane from the
-    /// pair under its anchor, a directional rule's from its `n` operand's
-    /// slot, the pair after its spelling, whatever that operand's width, and
-    /// the absolute rules' are the Positions their operands name, which
-    /// `orcvs` finds in its Grid. The absolute Copy's two rules each read
+    /// lead the signature, and the directional and absolute rules count the
+    /// operands against the signature of the Read or Write they name: a
+    /// Write's `value` after them counts toward that number, and its value is
+    /// never read. Track's pair counts from `operand_columns`, Push's lane
+    /// from the pair under its anchor, a directional rule's from its `n`
+    /// operand's slot, the pair after its spelling, whatever that operand's
+    /// width, and the absolute rules' are the Positions their operands name,
+    /// which `orcvs` finds in its Grid. The absolute Copy's two rules each read
     /// their own half of its four operands.
     ///
     /// # Errors
     ///
-    /// The address operands diagnose as evaluation does: an operand that is
-    /// not a Number, such as a Note given as Track's `count` or as a Read's
-    /// `n`, is an [`Error::Type`], and Track's or Push's `count` of `00` is a
-    /// wrap by zero. Track's pair can lie too far east to represent, which is
+    /// The address operands diagnose as evaluation does: a count other than
+    /// the signature's is its arity, an operand that is not a Number, such as
+    /// a Note given as Track's `count` or as a Read's `n`, is an
+    /// [`Error::Type`], and Track's or Push's `count` of `00` is a wrap by
+    /// zero. Track's pair can lie too far east to represent, which is
     /// a Portal outside any Grid and diagnoses as Track's partial or invalid
     /// input, as a Portal past the row edge does. Any other pair is unchecked
     /// here: a pair placed outside the Grid diagnoses when `orcvs` resolves
@@ -76,8 +77,8 @@ impl PairSelection {
         operand_columns: usize,
     ) -> Result<PortalAddress, Error> {
         match self {
-            Self::Position => {
-                let (column, row) = read_position(operands)?;
+            Self::Position(function) => {
+                let (column, row) = position(function, operands)?;
                 Ok(PortalAddress::Position { column, row })
             }
             Self::SourcePosition => {
@@ -93,7 +94,7 @@ impl PairSelection {
                 let columns = operand_columns
                     .checked_add(usize::from(pair) * DEFAULT_TOKEN_LEN)
                     .and_then(|columns| i16::try_from(columns).ok())
-                    .ok_or(InterpretationError::CopyInput {
+                    .ok_or(InterpretationError::PartialInput {
                         function: Function::Track,
                     })?;
                 Ok(PortalAddress::Offset(PortalCoords { columns, rows: 0 }))
@@ -106,10 +107,10 @@ impl PairSelection {
                     rows: 1,
                 }))
             }
-            Self::Distance(direction) => {
+            Self::Distance(direction, function) => {
                 // The slot is the pair after the spelling, and at most 255
                 // steps from it every offset fits.
-                let n = i16::from(read_distance(direction, operands)?);
+                let n = i16::from(distance(function, operands)?);
                 let step = direction.step();
                 Ok(PortalAddress::Offset(PortalCoords {
                     columns: DEFAULT_TOKEN_LEN as i16 + n * step.columns,
@@ -390,6 +391,36 @@ mod test {
                 ),
                 "{operands:?}"
             );
+        }
+    }
+
+    #[test]
+    fn a_read_handed_the_wrong_operand_count_diagnoses_its_own_arity() {
+        // Evaluation would diagnose the Read's own arity, so resolution
+        // diagnoses it too, whatever the Write with the same arrow declares.
+        let number = Atom::Number(1);
+        for function in [
+            Function::ReadEast,
+            Function::ReadNorth,
+            Function::ReadSouth,
+            Function::ReadWest,
+            Function::AbsoluteRead,
+        ] {
+            let expected = function.signature().len();
+            for found in [0, expected + 1, expected + 2] {
+                let operands = vec![number; found];
+                let resolved = address(function, &operands, 4);
+                assert!(
+                    matches!(
+                        resolved,
+                        Err(Error::Argument(crate::ArgumentError::Arity {
+                            expected: e,
+                            found: f,
+                        })) if e == expected && f == found
+                    ),
+                    "{function:?} over {found} operands: {resolved:?}"
+                );
+            }
         }
     }
 
@@ -695,7 +726,7 @@ mod test {
             assert!(
                 matches!(
                     past(index, operand_columns),
-                    Err(Error::Interpretation(InterpretationError::CopyInput {
+                    Err(Error::Interpretation(InterpretationError::PartialInput {
                         function: Function::Track
                     }))
                 ),

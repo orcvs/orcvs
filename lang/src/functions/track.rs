@@ -118,7 +118,7 @@ mod test {
         assert!(matches!(
             track(1, 3, Some("xx")),
             Err(crate::Error::Interpretation(
-                InterpretationError::CopyInput {
+                InterpretationError::PartialInput {
                     function: Function::Track
                 }
             ))

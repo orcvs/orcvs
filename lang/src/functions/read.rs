@@ -1,6 +1,6 @@
 use super::copy::copy;
 use crate::{
-    Atom, Direction, Error,
+    Atom, Error, Function,
     atom::operands::{
         AbsoluteRead, AbsoluteWrite, ReadEast, ReadNorth, ReadSouth, ReadWest, WriteEast,
         WriteNorth, WriteSouth, WriteWest,
@@ -21,36 +21,46 @@ pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
     copy(ctx, O::FUNCTION)
 }
 
-/// The distance a directional Read or Write in `direction` counts, from the
+/// The distance the directional Read or Write `function` counts, from the
 /// operands its Turn resolved.
 ///
-/// A Read's one operand is its `n`; a Write's `n` leads the same way, with
-/// its `value` after it, so the operand count tells the two apart. Operands
-/// outside their domain diagnose as they would at evaluation.
-pub(crate) fn read_distance(direction: Direction, operands: &[Atom]) -> Result<u8, Error> {
-    match (direction, operands) {
-        (Direction::North, [_]) => bound(operands, |ReadNorth { n }| n),
-        (Direction::North, _) => bound(operands, |WriteNorth { n, .. }| n),
-        (Direction::South, [_]) => bound(operands, |ReadSouth { n }| n),
-        (Direction::South, _) => bound(operands, |WriteSouth { n, .. }| n),
-        (Direction::East, [_]) => bound(operands, |ReadEast { n }| n),
-        (Direction::East, _) => bound(operands, |WriteEast { n, .. }| n),
-        (Direction::West, [_]) => bound(operands, |ReadWest { n }| n),
-        (Direction::West, _) => bound(operands, |WriteWest { n, .. }| n),
+/// The operands are checked against `function`'s own signature, so they
+/// diagnose as they would at its evaluation: a Write's `value` follows its
+/// `n` and is never read.
+pub(crate) fn distance(function: Function, operands: &[Atom]) -> Result<u8, Error> {
+    match function {
+        Function::ReadEast => bound(operands, |ReadEast { n }| n),
+        Function::ReadNorth => bound(operands, |ReadNorth { n }| n),
+        Function::ReadSouth => bound(operands, |ReadSouth { n }| n),
+        Function::ReadWest => bound(operands, |ReadWest { n }| n),
+        Function::WriteEast => bound(operands, |WriteEast { n, .. }| n),
+        Function::WriteNorth => bound(operands, |WriteNorth { n, .. }| n),
+        Function::WriteSouth => bound(operands, |WriteSouth { n, .. }| n),
+        Function::WriteWest => bound(operands, |WriteWest { n, .. }| n),
+        // Only `Function::input_portal` and `Function::dynamic_output_portal`
+        // build a distance selection, and each names one of the Functions
+        // above.
+        _ => unreachable!("{function:?} counts no distance"),
     }
 }
 
 /// The Position the absolute Read `&$ column row` or the absolute Write
-/// `@$ column row value` addresses, from the operands its Turn resolved, as
-/// `(column, row)`.
+/// `@$ column row value` that `function` names addresses, from the operands
+/// its Turn resolved, as `(column, row)`.
 ///
-/// The Write's `value` follows the Position, so the operand count tells the
-/// two apart. Operands outside their domain diagnose as they would at
-/// evaluation.
-pub(crate) fn read_position(operands: &[Atom]) -> Result<(u8, u8), Error> {
-    match operands {
-        [_, _] => bound(operands, |AbsoluteRead { column, row }| (column, row)),
-        _ => bound(operands, |AbsoluteWrite { column, row, .. }| (column, row)),
+/// The operands are checked against `function`'s own signature, so they
+/// diagnose as they would at its evaluation: a Write's `value` follows the
+/// Position and is never read.
+pub(crate) fn position(function: Function, operands: &[Atom]) -> Result<(u8, u8), Error> {
+    match function {
+        Function::AbsoluteRead => bound(operands, |AbsoluteRead { column, row }| (column, row)),
+        Function::AbsoluteWrite => {
+            bound(operands, |AbsoluteWrite { column, row, .. }| (column, row))
+        }
+        // Only `Function::input_portal` and `Function::dynamic_output_portal`
+        // build a Position selection, and each names one of the Functions
+        // above.
+        _ => unreachable!("{function:?} addresses no Position"),
     }
 }
 
@@ -95,17 +105,17 @@ mod test {
     #[test]
     fn a_read_counts_the_distance_its_n_operand_states() {
         let note = Atom::Note(Note::try_from(60).unwrap());
-        for (_, direction) in READS {
+        for (function, direction) in READS {
             for n in [0, 1, 0xFF] {
                 assert_eq!(
-                    super::read_distance(direction, &[Atom::Number(n)]).unwrap(),
+                    super::distance(function, &[Atom::Number(n)]).unwrap(),
                     n,
                     "{direction:?}"
                 );
             }
             assert!(
                 matches!(
-                    super::read_distance(direction, &[note]),
+                    super::distance(function, &[note]),
                     Err(crate::Error::Type(_))
                 ),
                 "{direction:?}"
@@ -115,14 +125,18 @@ mod test {
 
     #[test]
     fn an_absolute_read_addresses_column_then_row() {
-        let position =
-            |column, row| super::read_position(&[Atom::Number(column), Atom::Number(row)]);
+        let position = |column, row| {
+            super::position(
+                Function::AbsoluteRead,
+                &[Atom::Number(column), Atom::Number(row)],
+            )
+        };
         assert_eq!(position(0, 0).unwrap(), (0, 0));
         assert_eq!(position(0x3A, 0x18).unwrap(), (0x3A, 0x18));
         assert_eq!(position(0xFF, 0xFF).unwrap(), (0xFF, 0xFF));
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            super::read_position(&[Atom::Number(0), note]),
+            super::position(Function::AbsoluteRead, &[Atom::Number(0), note]),
             Err(crate::Error::Type(_))
         ));
         assert_eq!(
@@ -159,7 +173,7 @@ mod test {
                     matches!(
                         read(cells),
                         Err(crate::Error::Interpretation(
-                            InterpretationError::CopyInput { function: diagnosed }
+                            InterpretationError::PartialInput { function: diagnosed }
                         )) if diagnosed == function
                     ),
                     "{function:?} {cells:?}"

@@ -494,7 +494,7 @@ fn a_turn_over_atoms_allocates_nothing() {
 #[test]
 fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
     // A Copy reads the two Cells at its input Portal as a Function, a Number
-    // or a Note, and refuses any other spelling with a `CopyInput` that owns
+    // or a Note, and refuses any other spelling with a `PartialInput` that owns
     // no text. Asking which of the three the Cells spell borrows them, so a
     // Note or an unreadable spelling costs nothing on the way through the
     // readings it is not, and the refusal a Turn reports is itself no block.
@@ -518,7 +518,7 @@ fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
             assert!(
                 matches!(
                     answer,
-                    Err(Error::Interpretation(InterpretationError::CopyInput {
+                    Err(Error::Interpretation(InterpretationError::PartialInput {
                         function: Function::CopyEast
                     }))
                 ),

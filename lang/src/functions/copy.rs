@@ -21,14 +21,14 @@ pub fn copy(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
         .portal_source()
         .cells()
         .filter(|cells| cells.len() == DEFAULT_TOKEN_LEN)
-        .ok_or(InterpretationError::CopyInput { function })?;
+        .ok_or(InterpretationError::PartialInput { function })?;
     if cells.bytes().all(|cell| cell == b' ') {
         return Ok(Atom::Empty);
     }
     if cells == "**" {
         return Ok(Atom::Bang);
     }
-    Ok(copied_atom(cells).ok_or(InterpretationError::CopyInput { function })?)
+    Ok(copied_atom(cells).ok_or(InterpretationError::PartialInput { function })?)
 }
 
 /// The absolute Copy: `=$ src-column src-row dst-column dst-row`.
@@ -75,7 +75,7 @@ pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
 /// The Atom two Cells spell, read as a Function, then a Number, then a Note.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
-/// error a Copy reports is `CopyInput`, so an error built by a reading the
+/// error a Copy reports is `PartialInput`, so an error built by a reading the
 /// Cells fail would be discarded unread.
 pub(crate) fn copied_atom(cells: &str) -> Option<Atom> {
     Function::from_spelling(cells)
@@ -134,7 +134,7 @@ mod test {
         assert!(matches!(
             evaluate(Function::CopySouth, None),
             Err(crate::Error::Interpretation(
-                InterpretationError::CopyInput {
+                InterpretationError::PartialInput {
                     function: Function::CopySouth
                 }
             ))
@@ -142,7 +142,7 @@ mod test {
         assert!(matches!(
             evaluate(Function::CopyEast, Some("xx")),
             Err(crate::Error::Interpretation(
-                InterpretationError::CopyInput {
+                InterpretationError::PartialInput {
                     function: Function::CopyEast
                 }
             ))
@@ -173,7 +173,7 @@ mod test {
                 matches!(
                     absolute(cells),
                     Err(crate::Error::Interpretation(
-                        InterpretationError::CopyInput {
+                        InterpretationError::PartialInput {
                             function: Function::AbsoluteCopy
                         }
                     ))
@@ -193,7 +193,7 @@ mod test {
                 matches!(
                     evaluate(Function::CopyEast, Some(cells)),
                     Err(crate::Error::Interpretation(
-                        InterpretationError::CopyInput {
+                        InterpretationError::PartialInput {
                             function: Function::CopyEast
                         }
                     ))
