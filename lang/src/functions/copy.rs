@@ -1,6 +1,7 @@
+use super::read::bound;
 use crate::{
     Atom, Error, Function, InterpretationError,
-    atom::{note_atom_from_spelling, number_atom_from_spelling},
+    atom::{note_atom_from_spelling, number_atom_from_spelling, operands::AbsoluteCopy},
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
 };
@@ -30,6 +31,47 @@ pub fn copy(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
     Ok(copied_atom(cells).ok_or(InterpretationError::CopyInput { function })?)
 }
 
+/// The absolute Copy: `=$ src-column src-row dst-column dst-row`.
+///
+/// The Language Unit at its source Position, read as a Copy reads its Input
+/// Portal. The Turn supplies the Cells of that pair and writes the answer at
+/// the destination Position, so evaluation binds the operands and answers
+/// what a Copy would.
+pub fn absolute_copy(ctx: &mut Context) -> Result<Atom, Error> {
+    ctx.stack.extract::<AbsoluteCopy>()?;
+    copy(ctx, Function::AbsoluteCopy)
+}
+
+/// The source Position the absolute Copy reads, from the operands its Turn
+/// resolved, as `(column, row)`.
+///
+/// Operands outside their domain diagnose as they would at evaluation.
+pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
+    bound(
+        operands,
+        |AbsoluteCopy {
+             source_column,
+             source_row,
+             ..
+         }| (source_column, source_row),
+    )
+}
+
+/// The destination Position the absolute Copy writes, from the operands its
+/// Turn resolved, as `(column, row)`.
+///
+/// Operands outside their domain diagnose as they would at evaluation.
+pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
+    bound(
+        operands,
+        |AbsoluteCopy {
+             destination_column,
+             destination_row,
+             ..
+         }| (destination_column, destination_row),
+    )
+}
+
 /// The Atom two Cells spell, read as a Function, then a Number, then a Note.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
@@ -46,8 +88,8 @@ pub(crate) fn copied_atom(cells: &str) -> Option<Atom> {
 mod test {
     use super::copy;
     use crate::{
-        Anchor, Atom, Function, FunctionInputs, InterpretationError, PortalSource, Tick,
-        TickInputs, interpreter::Context,
+        Anchor, Atom, Function, FunctionInputs, Interpretation, InterpretationError, Interpreter,
+        PortalSource, Tick, TickInputs, interpreter::Context,
     };
 
     // Decode admitted Portal Cells. Alignment and partial Spans are
@@ -105,6 +147,40 @@ mod test {
                 }
             ))
         ));
+    }
+
+    #[test]
+    fn an_absolute_copy_answers_what_a_directional_copy_answers_for_the_same_cells() {
+        let absolute = |cells| {
+            Interpreter::execute_function(
+                Function::AbsoluteCopy,
+                [Atom::Number(0); 4],
+                FunctionInputs::with_portal_source(
+                    TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+                    PortalSource::from_cells(cells),
+                ),
+            )
+        };
+        for cells in ["  ", "**", "01", "G4", ".+", "=$"] {
+            assert_eq!(
+                absolute(Some(cells)).unwrap(),
+                Interpretation::Cell(evaluate(Function::CopyEast, Some(cells)).unwrap()),
+                "{cells:?}"
+            );
+        }
+        for cells in [None, Some("xx"), Some("D")] {
+            assert!(
+                matches!(
+                    absolute(cells),
+                    Err(crate::Error::Interpretation(
+                        InterpretationError::CopyInput {
+                            function: Function::AbsoluteCopy
+                        }
+                    ))
+                ),
+                "{cells:?}"
+            );
+        }
     }
 
     #[test]

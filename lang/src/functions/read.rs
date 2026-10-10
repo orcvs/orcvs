@@ -56,7 +56,7 @@ pub(crate) fn read_position(operands: &[Atom]) -> Result<(u8, u8), Error> {
 
 /// Checks and binds `operands` as `O`'s, answering what `read` takes from
 /// them.
-fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Result<T, Error> {
+pub(super) fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Result<T, Error> {
     O::check(operands)?;
     O::bind(operands).map(read)
 }

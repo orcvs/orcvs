@@ -192,8 +192,9 @@ pub enum PortalAddress {
 /// Each Function with a dynamic Input Portal names its rule in
 /// [`Function::input_portal`], and each with a dynamic Output Portal in
 /// [`Function::dynamic_output_portal`]. [`PairSelection::resolve`] asks the
-/// rule where the pair stands. A rule takes the values of only the address
-/// operands that lead its Function's signature, and the directional and
+/// rule where the pair stands. A rule takes the values of only its address
+/// operands: those that lead its Function's signature, except that the
+/// absolute Copy's destination rule takes its last two. The directional and
 /// absolute rules tell a Read's operands from a Write's by how many there
 /// are, so a Write and the Read with the same arrow select the same pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,6 +218,12 @@ pub enum PairSelection {
     /// Function stands. The absolute Read's and the absolute Write's
     /// selection.
     Position,
+    /// The pair at the Position the absolute Copy's first two operands,
+    /// `src-column` and `src-row`, name: the pair it reads.
+    SourcePosition,
+    /// The pair at the Position the absolute Copy's last two operands,
+    /// `dst-column` and `dst-row`, name: the pair it writes.
+    DestinationPosition,
 }
 
 /// The direction a directional Read's or Write's arrow names.

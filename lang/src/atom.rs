@@ -670,6 +670,7 @@ macro_rules! define_functions {
 }
 
 define_functions! {
+    AbsoluteCopy => ("=$", Value, Intrinsic, true, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
     AbsoluteDifference => (".|", Value, Intrinsic, false, [left: Number, right: Number]),
     AbsoluteRead => ("&$", Value, Intrinsic, true, [column: Number, row: Number]),
     AbsoluteWrite => ("@$", Value, Intrinsic, true, [column: Number, row: Number, value: Untyped]),
@@ -886,11 +887,13 @@ impl Function {
     /// Each Write selects its pair by the rule the Read with the same arrow,
     /// or the absolute Read, selects the pair it reads: the address operands
     /// lead the signature and `value` follows them. Push selects a pair of
-    /// the lane below it.
+    /// the lane below it, and the absolute Copy the destination Position its
+    /// last two operands name.
     pub const fn dynamic_output_portal(self) -> Option<crate::PairSelection> {
         use crate::Direction::{East, North, South, West};
-        use crate::PairSelection::{Distance, Lane, Position};
+        use crate::PairSelection::{DestinationPosition, Distance, Lane, Position};
         match self {
+            Self::AbsoluteCopy => Some(DestinationPosition),
             Self::AbsoluteWrite => Some(Position),
             Self::Push => Some(Lane),
             Self::WriteEast => Some(Distance(East)),
@@ -905,13 +908,15 @@ impl Function {
     ///
     /// Copy names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
-    /// Those are static. Track's and every Read's are dynamic, and each names
-    /// the rule by which its operands select the pair it reads.
+    /// Those are static. Track's, every Read's and the absolute Copy's are
+    /// dynamic, and each names the rule by which its operands select the pair
+    /// it reads.
     pub const fn input_portal(self) -> Option<crate::InputPortal> {
         use crate::Direction::{East, North, South, West};
         use crate::InputPortal::{Dynamic, Static};
-        use crate::PairSelection::{Distance, IndexModuloCount, Position};
+        use crate::PairSelection::{Distance, IndexModuloCount, Position, SourcePosition};
         match self {
+            Self::AbsoluteCopy => Some(Dynamic(SourcePosition)),
             Self::CopyEast => Some(Static(crate::PortalCoords {
                 columns: -2,
                 rows: 0,
@@ -938,8 +943,8 @@ impl Function {
 
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
-    /// Copy, Track and the Reads name an Input Portal and bind no typed Portal
-    /// input.
+    /// The Copies, Track and the Reads name an Input Portal and bind no typed
+    /// Portal input.
     /// Increment and Interpolation name the same south site as a Number Portal
     /// input, so they are not this: the Cells they read are a value, not a
     /// Language Unit.
@@ -1229,6 +1234,7 @@ mod test {
                 .filter(|function| function.can_emit_bang())
                 .collect::<Vec<_>>(),
             vec![
+                Function::AbsoluteCopy,
                 Function::AbsoluteRead,
                 Function::AbsoluteWrite,
                 Function::Delay,
@@ -1279,7 +1285,8 @@ mod test {
             let dynamic_output = function.dynamic_output_portal();
             if !matches!(
                 function,
-                Function::AbsoluteWrite
+                Function::AbsoluteCopy
+                    | Function::AbsoluteWrite
                     | Function::Push
                     | Function::WriteEast
                     | Function::WriteNorth
@@ -1391,6 +1398,13 @@ mod test {
                     assert_eq!(input, None);
                     assert_eq!(dynamic_output, Some(PairSelection::Position));
                 }
+                // The absolute Copy reads one Position and writes another,
+                // and nothing south.
+                Function::AbsoluteCopy => {
+                    assert_eq!(output, None);
+                    assert_eq!(input, Some(Dynamic(PairSelection::SourcePosition)));
+                    assert_eq!(dynamic_output, Some(PairSelection::DestinationPosition));
+                }
                 // Push writes a pair of the lane below it.
                 Function::Push => {
                     assert_eq!(output, None);
@@ -1417,8 +1431,9 @@ mod test {
 
     #[test]
     fn replacing_a_read_with_track_another_read_or_a_copy_is_a_write() {
-        // Each names its own rule for selecting its dynamic Input Portal, and a
-        // Copy declares static Portals.
+        // Each names its own rule for selecting its dynamic Input Portal, a
+        // directional Copy declares static Portals, and the absolute Copy
+        // also declares a dynamic Output Portal.
         const READS: [Function; 5] = [
             Function::AbsoluteRead,
             Function::ReadEast,
@@ -1426,7 +1441,8 @@ mod test {
             Function::ReadSouth,
             Function::ReadWest,
         ];
-        const COPIES: [Function; 4] = [
+        const COPIES: [Function; 5] = [
+            Function::AbsoluteCopy,
             Function::CopyEast,
             Function::CopyNorth,
             Function::CopySouth,
@@ -1456,9 +1472,11 @@ mod test {
 
     #[test]
     fn replacing_a_write_with_another_write_a_read_or_a_value_function_is_a_write() {
-        // Each Write names its own rule for selecting its dynamic Output
-        // Portal; a Read and Equality answer through a static one.
-        const WRITES: [Function; 6] = [
+        // Each Write, and the absolute Copy, names its own rule for selecting
+        // its dynamic Output Portal; a Read and Equality answer through a
+        // static one.
+        const WRITES: [Function; 7] = [
+            Function::AbsoluteCopy,
             Function::AbsoluteWrite,
             Function::Push,
             Function::WriteEast,
@@ -1732,7 +1750,8 @@ mod test {
             // to it, and so does a Self-Banging Function that answers an
             // effect, so the third column is not the first one read again.
             let (answers_value, terminal_output, intrinsically_active) = match function {
-                Function::AbsoluteDifference
+                Function::AbsoluteCopy
+                | Function::AbsoluteDifference
                 | Function::AbsoluteRead
                 | Function::Add
                 | Function::Clock

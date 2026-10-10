@@ -742,3 +742,16 @@ fn a_push_plans_alike_through_a_reused_and_a_fresh_schedule() {
     );
     agreeing_tick(&mut source, 2);
 }
+
+#[test]
+fn an_absolute_copy_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // The Clock at (2, 3) writes 0, 1 and 2 in turn into the pair `=$` reads,
+    // after `=$` in Grid order, so `=$` waits for it at every Turn. `&$` at
+    // (0, 0) reads the destination before `=$` in Grid order and answers
+    // under itself what `=$` copied there that Tick.
+    let rows = ["&$0A04", "", "=$02040A04", "  ~.0103", ""];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(12, 5), &rows, 12..14, 5),
+        ["00", "01", "02", "00", "01"]
+    );
+}

@@ -23,14 +23,18 @@
 //! group that stacks a second header inside its own band follows the same
 //! rule: that header's row must hold no Expression east of it either.
 //!
-//! | Columns   | Group                                                                         |
-//! |-----------|-------------------------------------------------------------------------------|
-//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                      |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                                   |
-//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                     |
-//! | `48..64`  | Copies and Halt: `=^ =v =< =>`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
-//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`              |
-//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                        |
+//! | Columns   | Group                                                                            |
+//! |-----------|----------------------------------------------------------------------------------|
+//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                         |
+//! | `16..32`  | Numeric Conversion: `.v .^`                                                      |
+//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                        |
+//! | `48..64`  | Copies and Halt: `=^ =v =< => =$`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
+//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`                 |
+//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                           |
+//!
+//! The absolute Copy, `=$`, stands on row 18, below Halt, with the pair it
+//! copies on the row below its operands and the pair it writes directly
+//! below that.
 //!
 //! From row 39 the `48..64` band holds the Writes, `@> @^ @v @< @$`, under a
 //! second `|| Write` header, then Generator under its own: a Read nested
@@ -304,6 +308,10 @@ mod tests {
             result(32, 11, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
             result(32, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
             result(32, 17, "0F"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
+            // The absolute Copy (column 48) copies the `F4` at Position
+            // `34 13`, below its operands, to `34 14`, directly below that,
+            // and writes nothing south of its own anchor.
+            result(52, 20, "F4"), // =$34133414
             // Track (column 48) reads pair 01 % 03 of the three after its
             // operands, as a Copy reads its Input Portal, so `D4` is the
             // Number it spells.
@@ -357,6 +365,7 @@ mod tests {
             literal(48, 5, "06"),  // =v's input
             literal(52, 9, "07"),  // =<'s input
             literal(48, 11, "08"), // =>'s input
+            literal(52, 19, "F4"), // =$'s source
             literal(54, 24, "C4"), // &t's pair 00
             literal(56, 24, "D4"), // &t's pair 01
             literal(58, 24, "E4"), // &t's pair 02, and &$'s Position

@@ -111,6 +111,7 @@ impl Interpreter {
             inputs,
         };
         let atom = match function {
+            Function::AbsoluteCopy => functions::copy::absolute_copy(&mut ctx)?,
             Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
             Function::Add => math::add(&mut ctx)?,
             Function::Clock => tick::clock(&mut ctx)?,

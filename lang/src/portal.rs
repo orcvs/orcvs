@@ -9,6 +9,7 @@ use crate::{
     PortalCoords, Stack, TickInputs, Token,
     expression::DEFAULT_TOKEN_LEN,
     functions::{
+        copy::{copied_from, copied_to},
         read::{read_distance, read_position},
         track::track_pair,
         write::lane_pair,
@@ -54,8 +55,9 @@ impl PairSelection {
     /// read. Track's pair counts from `operand_columns`, Push's lane from the
     /// pair under its anchor, a directional rule's from its `n` operand's
     /// slot, the pair after its spelling, whatever that operand's width, and
-    /// the absolute rule's is the Position its operands name, which `orcvs`
-    /// finds in its Grid.
+    /// the absolute rules' are the Positions their operands name, which
+    /// `orcvs` finds in its Grid. The absolute Copy's two rules each read
+    /// their own half of its four operands.
     ///
     /// # Errors
     ///
@@ -76,6 +78,14 @@ impl PairSelection {
         match self {
             Self::Position => {
                 let (column, row) = read_position(operands)?;
+                Ok(PortalAddress::Position { column, row })
+            }
+            Self::SourcePosition => {
+                let (column, row) = copied_from(operands)?;
+                Ok(PortalAddress::Position { column, row })
+            }
+            Self::DestinationPosition => {
+                let (column, row) = copied_to(operands)?;
                 Ok(PortalAddress::Position { column, row })
             }
             Self::IndexModuloCount => {
@@ -525,6 +535,63 @@ mod test {
                 .resolve(&[note, value], 6),
             Err(Error::Type(_))
         ));
+    }
+
+    #[test]
+    fn an_absolute_copy_reads_where_its_first_two_operands_point_and_writes_where_its_last_two_do()
+    {
+        // Each rule reads its own half of the four operands, and each half
+        // addresses the Position `&$` and `@$` address with the same two.
+        let copy = |operands: [u8; 4]| {
+            let operands = operands.map(Atom::Number);
+            let read = address(Function::AbsoluteCopy, &operands, 10).unwrap();
+            let written = Function::AbsoluteCopy
+                .dynamic_output_portal()
+                .expect("the absolute Copy declares a dynamic Output Portal")
+                .resolve(&operands, 10)
+                .unwrap();
+            (read, written)
+        };
+        let position = |column, row| PortalAddress::Position { column, row };
+        assert_eq!(copy([0, 1, 6, 2]), (position(0, 1), position(6, 2)));
+        assert_eq!(copy([6, 2, 0, 1]), (position(6, 2), position(0, 1)));
+        assert_eq!(
+            copy([0xFF, 0xFE, 0x3A, 0x18]),
+            (position(0xFF, 0xFE), position(0x3A, 0x18))
+        );
+        assert_eq!(
+            copy([0x3A, 0x18, 0, 0]).0,
+            address(
+                Function::AbsoluteRead,
+                &[Atom::Number(0x3A), Atom::Number(0x18)],
+                6
+            )
+            .unwrap()
+        );
+        // A Note in any of the four operands refuses both rules, whichever
+        // half it falls in.
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        for slot in 0..4 {
+            let mut operands = [Atom::Number(0); 4];
+            operands[slot] = note;
+            assert!(
+                matches!(
+                    address(Function::AbsoluteCopy, &operands, 10),
+                    Err(Error::Type(_))
+                ),
+                "{slot}"
+            );
+            assert!(
+                matches!(
+                    Function::AbsoluteCopy
+                        .dynamic_output_portal()
+                        .unwrap()
+                        .resolve(&operands, 10),
+                    Err(Error::Type(_))
+                ),
+                "{slot}"
+            );
+        }
     }
 
     #[test]

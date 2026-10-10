@@ -7,6 +7,8 @@
 //! so the receiving operand decodes both. Only the final effects are
 //! published.
 
+#[cfg(test)]
+mod absolute_copy;
 pub(super) mod execution;
 #[cfg(test)]
 mod nested_copy;
