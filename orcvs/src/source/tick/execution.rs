@@ -51,6 +51,17 @@ impl Delivery {
     }
 }
 
+/// Where a Function's Input Portal stands for one Turn.
+#[derive(Clone, Copy)]
+enum InputSite {
+    /// The Function declares no Input Portal.
+    Undeclared,
+    /// The Portal its operands select stands outside the Grid.
+    Outside,
+    /// The Portal its operands select.
+    At(Portal),
+}
+
 ///
 /// Executes an established order against the original Source Snapshot.
 ///
@@ -356,7 +367,7 @@ impl<'a> Execution<'a> {
         // The schedule orders a static Input Portal after its writers, and a
         // Function Replacement keeps the declared Input Portal, so only a
         // dynamic one finds writers still to take their Turn here.
-        if let Some(Some(portal)) = portal
+        if let InputSite::At(portal) = portal
             && let Ok(span) = portal.span(SCALAR_WIDTH)
         {
             let writers = progress.unresolved_writers(index, span.range());
@@ -396,37 +407,23 @@ impl<'a> Execution<'a> {
 
     ///
     /// `function`'s Input Portal for `index`'s Turn once its operands are
-    /// resolved: `None` where it declares none, and `Some(None)` where the
-    /// Portal it selects stands outside the Grid.
-    ///
-    /// `lang` resolves the declaration; the columns it is given are those
-    /// `index`'s operands occupy east of its anchor, nested operands included.
-    /// An offset is taken from the anchor, and a Position is the Grid's own.
-    /// A resolution that refuses diagnoses the Turn.
+    /// resolved. A resolution that refuses diagnoses the Turn.
     ///
     fn turn_portal(
         &self,
         index: usize,
         function: Function,
         operands: &[Atom],
-    ) -> Result<Option<Option<Portal>>, String> {
+    ) -> Result<InputSite, String> {
         let Some(declared) = function.input_portal() else {
-            return Ok(None);
+            return Ok(InputSite::Undeclared);
         };
-        let anchor = self.schedule.lookup.nodes()[index].anchor;
-        let address = declared
-            .resolve(
-                operands,
-                self.operands_end(index) - self.grid.index(anchor).get(),
-            )
-            .map_err(|error| error.to_string())?;
-        Ok(Some(match address {
-            PortalAddress::Offset(coords) => Portal::named(self.grid, anchor, coords).ok(),
-            PortalAddress::Position { column, row } => self
-                .grid
-                .position(usize::from(column), usize::from(row))
-                .map(|position| Portal::at(self.grid, position)),
-        }))
+        Ok(
+            match self.select(index, |columns| declared.resolve(operands, columns))? {
+                Ok(portal) => InputSite::At(portal),
+                Err(_) => InputSite::Outside,
+            },
+        )
     }
 
     ///
@@ -435,7 +432,6 @@ impl<'a> Execution<'a> {
     /// Portal is static, and otherwise the Position the pair starts at or
     /// why no pair in the Grid answers.
     ///
-    /// An offset is taken from the anchor, and a Position is the Grid's own.
     /// A pair that starts inside the Grid and is cut short by the row edge is
     /// refused when the write is admitted. A resolution that refuses
     /// diagnoses the Turn.
@@ -449,23 +445,40 @@ impl<'a> Execution<'a> {
         let Some(selection) = function.dynamic_output_portal() else {
             return Ok(None);
         };
+        Ok(Some(
+            self.select(index, |columns| selection.resolve(operands, columns))?
+                .map(Portal::destination),
+        ))
+    }
+
+    ///
+    /// The Portal a declaration `resolve`s for `index`'s Turn, or why the
+    /// Grid holds none.
+    ///
+    /// `lang` resolves the declaration; the columns it is given are those
+    /// `index`'s operands occupy east of its anchor, nested operands
+    /// included. An offset is taken from the anchor, and a Position is the
+    /// Grid's own. A resolution that refuses is the outer error, which
+    /// diagnoses the Turn.
+    ///
+    fn select(
+        &self,
+        index: usize,
+        resolve: impl FnOnce(usize) -> Result<PortalAddress, lang::Error>,
+    ) -> Result<Result<Portal, PortalError>, String> {
         let anchor = self.schedule.lookup.nodes()[index].anchor;
-        let address = selection
-            .resolve(
-                operands,
-                self.operands_end(index) - self.grid.index(anchor).get(),
-            )
+        let address = resolve(self.operands_end(index) - self.grid.index(anchor).get())
             .map_err(|error| error.to_string())?;
-        Ok(Some(match address {
+        Ok(match address {
             PortalAddress::Offset(coords) => {
                 Portal::displaced(self.grid, anchor, coords.columns, coords.rows)
-                    .map(Portal::destination)
             }
             PortalAddress::Position { column, row } => self
                 .grid
                 .position(usize::from(column), usize::from(row))
+                .map(|position| Portal::at(self.grid, position))
                 .ok_or(PortalError::OutsideGrid),
-        }))
+        })
     }
 
     fn syntax_blocks(&self, node: &Computation, function: Function) -> bool {
@@ -483,16 +496,11 @@ impl<'a> Execution<'a> {
     /// Turn. A missing or truncated site stays absent so binding diagnoses it
     /// after all cell operands have been validated; a Function that copies a
     /// Language Unit reads the pair only when it is one complete aligned unit.
-    fn portal_source(
-        &self,
-        function: Function,
-        portal: Option<Option<Portal>>,
-    ) -> PortalSource<'_> {
-        let Some(portal) = portal else {
-            return PortalSource::none();
-        };
-        let Some(portal) = portal else {
-            return PortalSource::from_cells(None);
+    fn portal_source(&self, function: Function, portal: InputSite) -> PortalSource<'_> {
+        let portal = match portal {
+            InputSite::Undeclared => return PortalSource::none(),
+            InputSite::Outside => return PortalSource::from_cells(None),
+            InputSite::At(portal) => portal,
         };
         PortalSource::from_cells(match function.portal_input() {
             Some(input) => self.working.portal_cells(portal, input.token().len()),
