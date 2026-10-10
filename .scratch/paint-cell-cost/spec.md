@@ -1,6 +1,6 @@
 # Paint per-Cell cost
 
-What one drawn Cell costs in `Paint::derive_with_colours`, and what it is allowed to cost.
+What one drawn Cell costs in `Paint::derive_with_theme`, and what it is allowed to cost.
 
 `syntax-highlighting/08`–`10` moved Paint from two scalar projections to the parser's shared claim,
 and added the Output Portal fact beside it. The per-Cell body gained an `Option<&Claim>` dereference,
@@ -14,7 +14,7 @@ derives every Paint distinction from it. The Language Map retains only parser Cl
 
 ## Vocabulary
 
-- **Per-Cell body** — the loop in `Paint::derive_with_colours` that runs once per drawn Position.
+- **Per-Cell body** — the loop in `Paint::derive_with_theme` that runs once per drawn Position.
 - **Drawn range** — `VisiblePositions`, the console's culling decision. The fitted series walks the
   whole Grid; the culled series walks a fixed 16x16 window whatever the Grid's size.
 - **Series** — one named benchmark's points over `main`, as `benchmark-action/github-action-benchmark`

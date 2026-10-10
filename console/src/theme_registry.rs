@@ -16,8 +16,10 @@
 //! built-ins alone.
 //!
 //! Nothing here chooses what the console paints: `theme_selection`'s
-//! `SelectedThemes` holds the registry, resolves the saved dark and light
-//! selections against it, and lists its Themes in the View menu's pickers.
+//! `SelectedThemes` holds the registry, resolves the dark and light
+//! selections against it, and gathers the registry's notices with its own.
+//! The selections come from `~/.orcvs/config.toml` on native and are the
+//! defaults on the web; the console offers no Theme picker.
 //!
 
 use std::collections::BTreeMap;

@@ -539,10 +539,20 @@ fn operand_paint(
 /// field once, before their loop, and pass the same value to every Cell's
 /// seam instead of indexing `theme.sector_seam` again per Cell.
 ///
+/// The scale is applied to the premultiplied bytes `Color32` holds, every
+/// channel alike and rounded to the nearest byte, so the hue is kept and the
+/// alpha alone changes. It runs once per seam Cell, so it never leaves
+/// premultiplied space: no division by alpha and no re-multiplication.
+/// Scaling every channel by one factor keeps each colour channel at or below
+/// the alpha, which is what keeps the result a valid premultiplied colour.
+///
 pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
-    let [red, green, blue, base_alpha] = base.to_srgba_unmultiplied();
-    let alpha = u16::from(base_alpha) * u16::from(strength_percent.min(100)) / 100;
-    Color32::from_rgba_unmultiplied(red, green, blue, alpha as u8)
+    let strength = u16::from(strength_percent.min(100));
+    // At most 255 * 100 + 50, inside `u16`; the quotient is at most 255.
+    let [red, green, blue, alpha] = base
+        .to_array()
+        .map(|channel| ((u16::from(channel) * strength + 50) / 100) as u8);
+    Color32::from_rgba_premultiplied(red, green, blue, alpha)
 }
 
 ///
@@ -1460,6 +1470,34 @@ mod tests {
         );
     }
 
+    ///
+    /// The strength scales every premultiplied channel of the base alike,
+    /// rounded to the nearest byte, so the seam stays in the premultiplied
+    /// space `Color32` holds and a channel never exceeds its alpha. A base
+    /// whose channels equal its alpha is the case where rounding each
+    /// channel apart could break that.
+    ///
+    #[test]
+    fn sector_line_scales_the_premultiplied_base_by_its_strength() {
+        let bases = [
+            okabe_ito().sector_seam,
+            Color32::from_rgba_premultiplied(110, 110, 110, 110),
+            Color32::from_rgba_premultiplied(1, 254, 0, 255),
+            Color32::TRANSPARENT,
+        ];
+        for base in bases {
+            for strength in 0..=u8::MAX {
+                let percent = u16::from(strength.min(100));
+                let expected = base
+                    .to_array()
+                    .map(|channel| ((u16::from(channel) * percent + 50) / 100) as u8);
+                let line = sector_line(strength, base);
+                assert_eq!(line.to_array(), expected, "{base:?} at strength {strength}");
+                assert!(line.r().max(line.g()).max(line.b()) <= line.a());
+            }
+        }
+    }
+
     #[test]
     fn sector_line_strength_only_attenuates_the_base_colours_alpha() {
         let base = okabe_ito().sector_seam;
@@ -1469,7 +1507,8 @@ mod tests {
         assert!(green.abs_diff(101) <= 2);
         assert!(blue.abs_diff(86) <= 2);
         assert_eq!(alpha, 55);
-        assert_eq!(sector_line(8, base).a(), 8);
+        // 8% of the base alpha of 110 is 8.8, which rounds to 9.
+        assert_eq!(sector_line(8, base).a(), 9);
         assert_eq!(sector_line(255, base), base);
     }
 
