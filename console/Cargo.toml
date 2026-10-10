@@ -156,10 +156,11 @@ midir = "0.11"
 # dialog crate must.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-# `main.rs`'s `trace()` is the only user of this crate, and it is itself
-# `cfg(not(target_arch = "wasm32"))`-gated, so a WASM build has no code path
-# that reaches it. Target-gating the dependency keeps it and everything
-# beneath it out of the WASM graph.
+# `main.rs`'s `trace()` is the only shipped user of this crate, and it is
+# itself `cfg(not(target_arch = "wasm32"))`-gated, so a WASM build has no code
+# path that reaches it. The native persistence tests also install a `fmt`
+# subscriber to read what `crate::report` writes. Target-gating the
+# dependency keeps it and everything beneath it out of the WASM graph.
 #
 # `fmt` is declared although `ansi` already implies it, because `main.rs`
 # names `FmtSubscriber` and that should not rest on `ansi` staying. There is

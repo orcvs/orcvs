@@ -23,7 +23,7 @@
 //! Each one enters the way it enters the shipped console, so no shipped code
 //! knows it is being captured:
 //!
-//! - the Source, from `orcvs_source` in an `app.ron` written with the native
+//! - the Source, from `orcvs_source_rwc` in an `app.ron` written with the native
 //!   storage codec (`persistence::RonFileStorage`), read by `Console::new`;
 //! - the mode and zoom, from egui memory stored under eframe's `"egui"` key in
 //!   the same file and restored into the `Context` before the console is
@@ -147,7 +147,7 @@ fn procedure() -> String {
     format!(
         "egui_kittest Harness::build_eframe over the shipped Console::new, rendered by \
         egui_kittest's wgpu renderer. Storage: an app.ron in eframe's native RON codec holding \
-        orcvs_source (console/tests/fixtures/release-capture.orcvs) and egui memory with the mode \
+        orcvs_source_rwc (console/tests/fixtures/release-capture.orcvs) and egui memory with the mode \
         as theme_preference and zoom_factor 1.0, restored into the Context before the console is \
         built. Settings: {CONFIG_FILE} holding {settings}, over the built-in Themes alone. Input: \
         ArrowRight x{columns}, ArrowDown x{rows}, Shift+ArrowRight, Shift+ArrowDown, raising a \

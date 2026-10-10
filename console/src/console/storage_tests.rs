@@ -68,6 +68,39 @@ async fn an_undecodable_value_is_discarded_and_overwritten_by_the_next_save() {
     );
 }
 
+///
+/// A Source stored under the stale key is discarded: the running Console
+/// starts the empty Grid, and its own save removes the stale value and stores
+/// the empty Grid under the current key.
+///
+#[tokio::test]
+async fn a_stale_source_is_discarded_and_removed_by_the_next_save() {
+    use crate::persistence::STALE_SOURCE_KEY;
+
+    let mut storage = InMemoryStorage::default();
+    edited_source().read_source(|source| eframe::set_value(&mut storage, STALE_SOURCE_KEY, source));
+
+    let mut console = console_over(&storage);
+    assert_eq!(
+        console.orcvs.source().snapshot(),
+        crate::persistence::default_source().snapshot(),
+        "a stale Source did not start the empty Grid"
+    );
+
+    console.save(&mut storage);
+
+    assert_eq!(
+        eframe::Storage::get_string(&storage, STALE_SOURCE_KEY),
+        None,
+        "the save left the stale Source"
+    );
+    assert!(eframe::Storage::get_string(&storage, SOURCE_KEY).is_some());
+    assert_eq!(
+        starting_source(Some(&storage)).snapshot(),
+        crate::persistence::default_source().snapshot()
+    );
+}
+
 #[tokio::test]
 async fn a_console_starts_the_revision_its_creation_storage_holds() {
     let saved = edited_source();
