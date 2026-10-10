@@ -97,6 +97,8 @@ A Function spelling typed into `value` is a nested Function, as it is in every o
 
 **The lane is ordinary Source.** Push claims only its operands, as Track does (ADR 0067). Orca locks a Push's lane, so that operators standing in it do not run; Orcvs does not, and a Function standing in the lane takes its Turn and can be written over like any other.
 
+**A lane below the Grid diagnoses as a lane, pair `00` included.** On the Grid's last row every pair of the lane is outside the Grid, and Push diagnoses that its result falls outside the Grid whichever pair `index` selects, rather than reporting pair `00` as a default Output Portal below the Source.
+
 ### Considered options
 
 - **The pairs east of Push's last operand, `value`, on its own row.** It mirrors where Track's list lies, but it is not Orca's `P`, and it needs a counting rule of its own where the south default already gives one.
