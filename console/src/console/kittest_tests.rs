@@ -1592,7 +1592,7 @@ async fn hit_testing_holds_across_cell_border_widths_and_zoom_factors() {
     const ZOOMS: [f32; 2] = [1.0, 1.3];
     const CELLS: [(usize, usize); 4] = [(2, 1), (7, 4), (4, 6), (9, 2)];
     // A fraction of the Cell inside each corner: off the shared edge, and
-    // well within the border a 1 point stroke would cover at either zoom.
+    // under the 1 point a Cell's widest inside stroke covers at either zoom.
     const PROBES: [Vec2; 3] = [
         Vec2::new(0.5, 0.5),
         Vec2::new(0.04, 0.04),
