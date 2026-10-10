@@ -102,12 +102,6 @@ impl<'a> WorkingSource<'a> {
         cells.iter().all(|&cell| self.cells.is_empty_at(cell))
     }
 
-    /// Whether the pair one Atom occupies at `portal` holds a non-space in
-    /// working Source.
-    pub(super) fn occupied(&self, portal: Portal) -> bool {
-        portal.occupied_in(self.cells.cells())
-    }
-
     /// The `width` Cells at `portal`, or `None` where the row edge cuts them.
     pub(super) fn portal_cells(&self, portal: Portal, width: usize) -> Option<&str> {
         let span = portal.span(width).ok()?;

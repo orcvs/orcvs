@@ -616,29 +616,6 @@ impl<'a> Execution<'a> {
                 return;
             }
         };
-        // A Function that passes a pair through, as a Copy or Read does, or
-        // as a Write carries its `value`, relays a Bang: it activates the
-        // root it lands on rather than covering it.
-        if atom == Atom::Bang && (selected || self.states[index].function.copies_language_unit()) {
-            if let Some(root) = self.schedule.lookup.root_at(destination) {
-                if selected && self.misses_activation(root) {
-                    return;
-                }
-                self.states[root].activated = true;
-                if selected {
-                    self.activated.push(root);
-                }
-                return;
-            }
-            if self.working.occupied(Portal::at(self.grid, destination)) {
-                let producer = self.states[index].function;
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    format!("{producer} cannot activate an occupied non-root"),
-                )));
-                return;
-            }
-        }
         let write = match Portal::at(self.grid, destination).admit(encoding) {
             Ok(write) => write,
             Err(reason) => {

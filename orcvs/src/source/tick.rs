@@ -664,15 +664,7 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
                     .then(|| relationships.contacted_roots())
                     .into_iter()
                     .flatten();
-                // A Copy writes Bang through its output Portal. A root at
-                // that Portal is activated without a write; neighbours of
-                // an empty `**` write are the ordinary `bang_roots`.
-                let landed = function
-                    .copies_language_unit()
-                    .then(|| relationships.contacted_roots())
-                    .into_iter()
-                    .flatten();
-                for index in banged.chain(contacted).chain(landed).collect::<Vec<_>>() {
+                for index in banged.chain(contacted).collect::<Vec<_>>() {
                     if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
                         pending.push(index);
@@ -1829,23 +1821,33 @@ mod test {
     }
 
     #[test]
-    fn relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges() {
-        // A Copy can relay a newly produced Bang directly onto an edge root.
-        // Activation must precede its Turn even when the root sorts before
-        // the Copy, as the top-edge fixture does.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".=0101", "  =>*>"], 1);
-        assert_eq!(grids[0], [".=0101", "**=>*>"]);
+    fn copied_bangs_reach_emission_refusals_at_the_right_and_top_edges() {
+        // A Copy's newly produced Bang activates an edge root aligned with its
+        // destination. Activation must precede its Turn even when the root
+        // sorts before the Copy, as the top-edge fixture does.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".=0101", "  =>  *>"], 1);
+        assert_eq!(grids[0], [".=0101  ", "**=>***>"]);
         assert_eq!(
             messages(&plans[0]),
             vec!["*> has no empty destination inside the Grid for >>"]
         );
 
-        let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(10, 3), &["*^", "=^  .=0101", "  =<"], 1);
-        assert_eq!(grids[0], ["*^        ", "=^  .=0101", "**=<**    "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &["*^  .=0101", "  =<"], 1);
+        assert_eq!(grids[0], ["*^  .=0101", "**=<**    "]);
         assert_eq!(
             messages(&plans[0]),
             vec!["*^ has no empty destination inside the Grid for ^^"]
+        );
+    }
+
+    #[test]
+    fn a_copied_bang_overwrites_an_edge_roots_anchor_rather_than_activating_it() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".=0101", "  =>*>"], 1);
+        assert_eq!(grids[0], [".=0101", "**=>**"]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
         );
     }
 
@@ -1996,7 +1998,7 @@ mod test {
     }
 
     #[test]
-    fn a_relayed_bang_writes_into_empty_source() {
+    fn a_copied_bang_writes_into_empty_source() {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  =>"], 1);
         assert_eq!(grids[0], [".=0101    ", "**=>**    "]);
         assert!(
@@ -2007,7 +2009,7 @@ mod test {
     }
 
     #[test]
-    fn a_relayed_bang_activates_a_neighbour_of_empty_source() {
+    fn a_copied_bang_activates_a_neighbour_of_empty_source() {
         // `**` written into empty Source is ordinary Bang output: a MIDI
         // south of that write sounds this Tick.
         let (plans, grids, _) = tick_by_tick(
@@ -2025,14 +2027,17 @@ mod test {
     }
 
     #[test]
-    fn a_relayed_bang_activates_a_root() {
-        // Equality Bangs on every Tick; the Copy relays that Bang onto Raw
-        // Play. The Play Command is the evidence the root was activated
-        // without its Source being overwritten.
-        let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(12, 2), &[".=0101", "  =>!>007FC4"], 1);
-        assert_eq!(grids[0], [".=0101      ", "**=>!>007FC4"]);
-        assert_eq!(plans[0].play_commands.len(), 1);
+    fn a_copied_bang_overwrites_a_roots_anchor_and_activates_the_roots_aligned_with_it() {
+        // Equality Bangs on every Tick; the Copy writes that Bang over Raw
+        // Play C4's anchor, so C4 does not run, and activates Raw Play D4
+        // south of it.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(12, 3),
+            &[".=0101", "  =>!>007FC4", "    !>007FD4"],
+            1,
+        );
+        assert_eq!(grids[0][1], "**=>**007FC4");
+        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 62)]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2041,17 +2046,16 @@ mod test {
     }
 
     #[test]
-    fn a_relayed_bang_activates_a_root_above_the_copy() {
-        // MIDI sits at the earliest Position. A North Copy below it relays
-        // Bang onto that root, so the Play Command is also the evidence that
-        // the schedule ordered the Copy first.
+    fn a_copied_bang_overwrites_a_root_above_the_copy() {
+        // MIDI sits at the earliest Position. A North Copy below it writes
+        // the Bang over that root's anchor, and the root does not run.
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(10, 3),
             &["!>007FC4", "=^  .=0101", "  =<"],
             1,
         );
-        assert_eq!(grids[0][0], "!>007FC4  ");
-        assert_eq!(plans[0].play_commands.len(), 1);
+        assert_eq!(grids[0][0], "**007FC4  ");
+        assert!(plans[0].play_commands.is_empty());
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2060,12 +2064,51 @@ mod test {
     }
 
     #[test]
-    fn a_relayed_bang_on_an_occupied_non_root_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  =>xx"], 1);
-        assert_eq!(grids[0], [".=0101    ", "**=>xx    "]);
+    fn a_copied_bang_overwrites_occupied_data_and_activates_the_roots_aligned_with_it() {
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(12, 3),
+            &[".=0101", "  =>xx", "    !>007FD4"],
+            1,
+        );
+        assert_eq!(grids[0][1], "**=>**      ");
+        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 62)]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_copied_bang_leaving_the_grid_diagnoses_and_writes_nothing() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  .=0101", "=<"], 1);
+        assert_eq!(grids[0], ["  .=0101", "=<**    "]);
         assert_eq!(
             messages(&plans[0]),
-            vec!["=> cannot activate an occupied non-root"]
+            vec![r#"result "**" falls outside the Grid"#]
+        );
+    }
+
+    #[test]
+    fn a_chain_of_copies_carries_a_bang_down_a_column_in_one_tick() {
+        // `.=` Bangs into the first `=v`'s Input Portal, and each `=v`
+        // writes `**` that the next reads, until the last activates Raw Play.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::with_shape(8, 7),
+            &[".=0101", "", "=v", "", "=v", "", "!>007FC4"],
+            1,
+        );
+        assert_eq!(
+            grids[0],
+            [
+                ".=0101  ", "**      ", "=v      ", "**      ", "=v      ", "**      ", "!>007FC4",
+            ]
+        );
+        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
         );
     }
 
@@ -4421,7 +4464,7 @@ mod test {
     fn one_bang_activates_every_aligned_timed_play_root_as_one_chord() {
         // A chord is several Timed Play roots that one Bang activates, each
         // answering its own Play Command. Equality writes `**` below itself,
-        // and two Copies relay it east to (8, 1), where its cardinal anchors
+        // and two Copies carry it east to (8, 1), where its cardinal anchors
         // hold three Timed Play roots: north (8, 0), east (10, 1) and south
         // (8, 2). The roots take their Turns in anchor order once the Bang
         // has settled, so the chord reads C4, E4, G4 on every Tick.
@@ -4442,7 +4485,7 @@ mod test {
 
         assert_eq!(
             grids[0][1], "**=>**=>**!~017FE404",
-            "the Bang was relayed to (8, 1)"
+            "the Bang was carried to (8, 1)"
         );
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
