@@ -4,7 +4,7 @@ use crate::{
     stack::Operands,
 };
 
-/// Track: `@t index count`.
+/// Track: `&t index count`.
 ///
 /// The Language Unit at the pair its operands select, read as a Copy reads its
 /// Input Portal. The Turn supplies the Cells of that pair, so evaluation binds

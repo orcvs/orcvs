@@ -429,7 +429,7 @@ fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
     let grid = Grid::with_shape(16, 3);
     let mut source = source_of(
         grid,
-        &["@t~.010303C4  E4", "            =^  ", "            D4  "],
+        &["&t~.010303C4  E4", "            =^  ", "            D4  "],
     );
     agreeing_tick(&mut source, 0);
     let settled = source.shared_language_map();
@@ -482,7 +482,7 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
 
 #[test]
 fn a_track_spelling_in_a_comment_does_not_skip_the_order_assertion() {
-    let source = source_of(Grid::with_shape(12, 2), &[".+0102 ||@t", ""]);
+    let source = source_of(Grid::with_shape(12, 2), &[".+0102 ||&t", ""]);
     assert!(takes_turns_in_the_scheduled_order(&source, 0));
 }
 
@@ -492,7 +492,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
     let source = source_of(
         grid,
         &[
-            "@t~.010303C4  E4",
+            "&t~.010303C4  E4",
             "            =^    .+0102",
             "            D4      .x0203",
             "",

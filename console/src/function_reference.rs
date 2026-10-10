@@ -28,7 +28,7 @@
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
 //! | `16..32`  | Numeric Conversion: `.v .^`                                   |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
-//! | `48..64`  | Copies, Halt and Track: `=^ =v =< =>`, `*!`, `@t`             |
+//! | `48..64`  | Copies, Halt and Track: `=^ =v =< =>`, `*!`, `&t`             |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
 //! | `80..96`  | MIDI: `!> !~ !% !c !b`                                        |
 //!
@@ -300,7 +300,7 @@ mod tests {
             // Track (column 48) reads pair 01 % 03 of the three after its
             // operands, as a Copy reads its Input Portal, so `D4` is the
             // Number it spells.
-            result(48, 18, "D4"), // @t0103C4D4E4
+            result(48, 18, "D4"), // &t0103C4D4E4
         ]
     }
 
@@ -323,9 +323,9 @@ mod tests {
             literal(48, 5, "06"),  // =v's input
             literal(52, 9, "07"),  // =<'s input
             literal(48, 11, "08"), // =>'s input
-            literal(54, 17, "C4"), // @t's pair 00
-            literal(56, 17, "D4"), // @t's pair 01
-            literal(58, 17, "E4"), // @t's pair 02
+            literal(54, 17, "C4"), // &t's pair 00
+            literal(56, 17, "D4"), // &t's pair 01
+            literal(58, 17, "E4"), // &t's pair 02
             literal(66, 10, "00"), // *v's blocker
             literal(64, 13, "00"), // *<'s blocker
             literal(70, 16, "00"), // *>'s blocker

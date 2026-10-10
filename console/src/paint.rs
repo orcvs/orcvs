@@ -1669,7 +1669,7 @@ mod tests {
     }
 
     ///
-    /// Track paints as any other Function: `@t0103C4D4E4` and `.+0103C4D4E4`
+    /// Track paints as any other Function: `&t0103C4D4E4` and `.+0103C4D4E4`
     /// answer the same claim, tint and glyph colour on every Cell of their
     /// row.
     /// The pairs Track reads east of its operands are ordinary Source, so
@@ -1682,7 +1682,7 @@ mod tests {
     #[tokio::test]
     async fn track_paints_as_any_other_function() {
         let mut orcvs = running_orcvs(14, 4);
-        write_row(&mut orcvs, 0, "@t0103C4D4E4");
+        write_row(&mut orcvs, 0, "&t0103C4D4E4");
         write_row(&mut orcvs, 2, ".+0103C4D4E4");
         orcvs.select(orcvs.grid().position(13, 0).expect("inside the grid"));
         let frame = orcvs.render_frame();

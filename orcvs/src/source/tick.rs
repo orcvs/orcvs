@@ -4641,8 +4641,8 @@ mod test {
         // is diagnosed.
         let grid = Grid::with_shape(16, 4);
         for (play, commands, diagnosed) in [
-            ("!>007F@t0002C4  ", vec![raw(0, 0x7F, 60)], vec![]),
-            ("!>007F@t0102C4  ", vec![], vec![(0, 2)]),
+            ("!>007F&t0002C4  ", vec![raw(0, 0x7F, 60)], vec![]),
+            ("!>007F&t0102C4  ", vec![], vec![(0, 2)]),
         ] {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -4670,7 +4670,7 @@ mod test {
         // `.^` is invalid, writes nothing and is diagnosed. The `G4` it wrote
         // on the earlier Tick stays, and the next Bang plays it again.
         let grid = Grid::with_shape(18, 4);
-        let mut source = seeded_source(grid, &[".=0101  @t000243  ", "      .^", "!>007F", ""]);
+        let mut source = seeded_source(grid, &[".=0101  &t000243  ", "      .^", "!>007F", ""]);
 
         let first = source.execute(Tick::ZERO);
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
@@ -5867,6 +5867,17 @@ mod nested_property {
         TestRunner::new(config)
             .run(&expression_source(), |source| settle(&source).map(drop))
             .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    ///
+    /// The property's checks hold for a nested Copy whose input is empty, deep
+    /// inside a nested Expression. The generators draw from
+    /// `Function::ALL`, so a stored seed replays a different case whenever the
+    /// table changes length, and this shape is stated here instead.
+    ///
+    #[test]
+    fn a_tick_over_a_nested_copy_of_empty_cells_settles_its_root() {
+        settle(".-.|00./.|0000=^~*~>.-~>6C56D82B.+AC0A").unwrap_or_else(|error| panic!("{error}"));
     }
 
     ///

@@ -705,7 +705,7 @@ define_functions! {
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
     Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Track => ("@t", Value, Intrinsic, true, [index: Number, count: Number]),
+    Track => ("&t", Value, Intrinsic, true, [index: Number, count: Number]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting

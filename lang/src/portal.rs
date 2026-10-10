@@ -320,7 +320,7 @@ mod test {
 
     #[test]
     fn a_dynamic_input_portal_resolves_to_the_pair_its_operands_select() {
-        // `@t0103C4D4E4`: the operands end six columns east of the anchor and
+        // `&t0103C4D4E4`: the operands end six columns east of the anchor and
         // select pair 1, so the Portal is `D4`, eight columns east.
         let track = |index, count, operand_columns| {
             resolve(
