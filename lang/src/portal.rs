@@ -11,6 +11,7 @@ use crate::{
     functions::{
         read::{read_distance, read_position},
         track::track_pair,
+        write::lane_pair,
     },
     stack::Operands,
 };
@@ -46,24 +47,26 @@ impl PairSelection {
     /// `operands` are the values the Turn resolved, and `operand_columns` is
     /// how many columns east of the anchor the Function and its operands
     /// occupy, nested operands included: `orcvs` knows how they lie in the
-    /// Grid. The rule reads only the address operands that lead the
-    /// signature, so a Write's `value` after them is never read here. Track's
-    /// pair
-    /// counts from `operand_columns`, a directional rule's from its `n`
-    /// operand's slot, the pair after its spelling, whatever that operand's
-    /// width, and the absolute rule's is the Position its operands name,
-    /// which `orcvs` finds in its Grid.
+    /// Grid. The rule takes the values of only the address operands that
+    /// lead the signature, and the directional and absolute rules tell a
+    /// Read's operands from a Write's by how many there are: a Write's
+    /// `value` after them counts toward that number, and its value is never
+    /// read. Track's pair counts from `operand_columns`, Push's lane from the
+    /// pair under its anchor, a directional rule's from its `n` operand's
+    /// slot, the pair after its spelling, whatever that operand's width, and
+    /// the absolute rule's is the Position its operands name, which `orcvs`
+    /// finds in its Grid.
     ///
     /// # Errors
     ///
     /// The address operands diagnose as evaluation does: an operand that is
     /// not a Number, such as a Note given as Track's `count` or as a Read's
-    /// `n`, is an [`Error::Type`], and Track's `count` of `00` is a wrap by
-    /// zero. Track's pair can lie too far east to represent, which is a
-    /// Portal outside any Grid and diagnoses as Track's partial or invalid
-    /// input, as a Portal past the row edge does. Any other pair is
-    /// unchecked here: a pair placed outside the Grid diagnoses when `orcvs`
-    /// resolves it.
+    /// `n`, is an [`Error::Type`], and Track's or Push's `count` of `00` is a
+    /// wrap by zero. Track's pair can lie too far east to represent, which is
+    /// a Portal outside any Grid and diagnoses as Track's partial or invalid
+    /// input, as a Portal past the row edge does. Any other pair is unchecked
+    /// here: a pair placed outside the Grid diagnoses when `orcvs` resolves
+    /// it.
     ///
     pub fn resolve(
         self,
@@ -84,6 +87,14 @@ impl PairSelection {
                         function: Function::Track,
                     })?;
                 Ok(PortalAddress::Offset(PortalCoords { columns, rows: 0 }))
+            }
+            Self::Lane => {
+                // At most 254 pairs east of the anchor, every offset fits.
+                let pair = i16::from(lane_pair(operands)?);
+                Ok(PortalAddress::Offset(PortalCoords {
+                    columns: pair * DEFAULT_TOKEN_LEN as i16,
+                    rows: 1,
+                }))
             }
             Self::Distance(direction) => {
                 // The slot is the pair after the spelling, and at most 255
@@ -512,6 +523,46 @@ mod test {
                 .dynamic_output_portal()
                 .unwrap()
                 .resolve(&[note, value], 6),
+            Err(Error::Type(_))
+        ));
+    }
+
+    #[test]
+    fn push_selects_a_pair_of_the_lane_below_its_anchor() {
+        // Pair 00 is the default Output Portal one row south, and `index %
+        // count` steps east by pairs, wherever the operands end.
+        let value = Atom::Note(Note::try_from(67).unwrap());
+        let push = |index, count, operand_columns| {
+            Function::Push
+                .dynamic_output_portal()
+                .expect("Push declares a dynamic Output Portal")
+                .resolve(
+                    &[Atom::Number(index), Atom::Number(count), value],
+                    operand_columns,
+                )
+        };
+        let at = |columns, rows| PortalAddress::Offset(PortalCoords { columns, rows });
+        for operand_columns in [8, 12, 256] {
+            assert_eq!(push(0, 3, operand_columns).unwrap(), at(0, 1));
+            assert_eq!(push(1, 3, operand_columns).unwrap(), at(2, 1));
+            assert_eq!(push(4, 3, operand_columns).unwrap(), at(2, 1));
+            assert_eq!(push(0xFE, 0xFF, operand_columns).unwrap(), at(508, 1));
+            assert_eq!(push(0xFF, 0xFF, operand_columns).unwrap(), at(0, 1));
+        }
+        // A zero count names Push, as Track's names Track.
+        assert!(matches!(
+            push(1, 0, 8),
+            Err(Error::Interpretation(InterpretationError::ZeroWrap {
+                function: Function::Push,
+                role: "count",
+            }))
+        ));
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        assert!(matches!(
+            Function::Push
+                .dynamic_output_portal()
+                .unwrap()
+                .resolve(&[note, Atom::Number(3), value], 8),
             Err(Error::Type(_))
         ));
     }

@@ -10,36 +10,10 @@ use std::collections::BTreeMap;
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::execution::ComputationState;
-use super::observed::{Observed, observe_at, rows_of, source_of};
+use super::observed::{diagnostic, first, observe_at, quiet_rows, rows_of, source_of, turns};
 use super::{plan, plan_carrying};
 use crate::grid::{CellIndex, Grid, Position};
 use crate::source::{Cells, Source};
-
-/// The first Tick of `rows`, observed.
-fn first(grid: Grid, rows: &[&str]) -> Observed {
-    observe_at(grid, rows, [0]).remove(0)
-}
-
-/// The Grid rows after `ticks` consecutive Ticks from Tick zero, one entry per
-/// Tick, for a Source whose Ticks diagnose nothing.
-fn quiet_rows(grid: Grid, rows: &[&str], ticks: u64) -> Vec<Vec<String>> {
-    observe_at(grid, rows, 0..ticks)
-        .into_iter()
-        .map(|tick| {
-            assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
-            tick.rows
-        })
-        .collect()
-}
-
-/// The Turn each computation took in Tick zero of `rows`, by anchor.
-fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Option<usize>> {
-    let source = source_of(grid, rows);
-    let map = source.shared_language_map();
-    let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    anchored_turns(&source, &states)
-}
 
 fn anchored_turns(
     source: &Source,
@@ -55,10 +29,6 @@ fn anchored_turns(
         .zip(states)
         .map(|(node, state)| ((node.anchor.x(), node.anchor.y()), state.turn()))
         .collect()
-}
-
-fn diagnostic(x: usize, y: usize, message: &str) -> (usize, usize, String) {
-    (x, y, message.to_string())
 }
 
 #[test]

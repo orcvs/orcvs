@@ -135,6 +135,7 @@ impl Interpreter {
             Function::AbsoluteWrite => {
                 functions::write::write::<operands::AbsoluteWrite>(&mut ctx)?
             }
+            Function::Push => functions::write::write::<operands::Push>(&mut ctx)?,
             Function::WriteEast => functions::write::write::<operands::WriteEast>(&mut ctx)?,
             Function::WriteNorth => functions::write::write::<operands::WriteNorth>(&mut ctx)?,
             Function::WriteSouth => functions::write::write::<operands::WriteSouth>(&mut ctx)?,

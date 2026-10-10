@@ -7,63 +7,12 @@
 //! Portal. The pair is known only at the Read's Turn, so these tests also
 //! state the order that Turn takes against the writers of the Cells it reads.
 
-use std::collections::BTreeMap;
-
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::observed::{Observed, observe_at, rows_of, source_of};
-use super::plan;
+use super::observed::{
+    diagnostic, first, observe_at, quiet_rows, rows_of, source_of, turn_before, turns,
+};
 use crate::grid::Grid;
-use crate::source::Cells;
-
-/// The first Tick of `rows`, observed.
-fn first(grid: Grid, rows: &[&str]) -> Observed {
-    observe_at(grid, rows, [0]).remove(0)
-}
-
-/// The Grid rows after `ticks` consecutive Ticks from Tick zero, one entry per
-/// Tick, for a Source whose Ticks diagnose nothing.
-fn quiet_rows(grid: Grid, rows: &[&str], ticks: u64) -> Vec<Vec<String>> {
-    observe_at(grid, rows, 0..ticks)
-        .into_iter()
-        .map(|tick| {
-            assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
-            tick.rows
-        })
-        .collect()
-}
-
-/// The Turn each computation took in Tick zero of `rows`, by anchor.
-fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Option<usize>> {
-    let source = source_of(grid, rows);
-    let map = source.shared_language_map();
-    let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    map.schedule_cache()
-        .schedule(grid, &map)
-        .lookup
-        .nodes()
-        .iter()
-        .zip(&states)
-        .map(|(node, state)| ((node.anchor.x(), node.anchor.y()), state.turn()))
-        .collect()
-}
-
-/// Asserts that the computation at `writer` took its Turn before the one at
-/// `read`, both having taken one.
-fn turn_before(
-    turns: &BTreeMap<(usize, usize), Option<usize>>,
-    writer: (usize, usize),
-    read: (usize, usize),
-) {
-    let turn =
-        |anchor| turns[&anchor].unwrap_or_else(|| panic!("{anchor:?} took no Turn: {turns:?}"));
-    assert!(turn(writer) < turn(read), "{turns:?}");
-}
-
-fn diagnostic(x: usize, y: usize, message: &str) -> (usize, usize, String) {
-    (x, y, message.to_string())
-}
 
 /// The diagnostic a Read spelled `spelling` gives a pair it cannot read.
 fn invalid(spelling: &str) -> String {

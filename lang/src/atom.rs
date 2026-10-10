@@ -699,6 +699,7 @@ define_functions! {
     MonophonicPlay => ("!%", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Intrinsic, false, [left: Number, right: Number]),
     PitchBend => ("!b", TerminalOutput, Bang, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Push => ("@t", Value, Intrinsic, true, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, false, [seed: Number, minimum: Number, maximum: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
     ReadEast => ("&>", Value, Intrinsic, true, [n: Number]),
@@ -884,12 +885,14 @@ impl Function {
     ///
     /// Each Write selects its pair by the rule the Read with the same arrow,
     /// or the absolute Read, selects the pair it reads: the address operands
-    /// lead the signature and `value` follows them.
+    /// lead the signature and `value` follows them. Push selects a pair of
+    /// the lane below it.
     pub const fn dynamic_output_portal(self) -> Option<crate::PairSelection> {
         use crate::Direction::{East, North, South, West};
-        use crate::PairSelection::{Distance, Position};
+        use crate::PairSelection::{Distance, Lane, Position};
         match self {
             Self::AbsoluteWrite => Some(Position),
+            Self::Push => Some(Lane),
             Self::WriteEast => Some(Distance(East)),
             Self::WriteNorth => Some(Distance(North)),
             Self::WriteSouth => Some(Distance(South)),
@@ -1235,6 +1238,7 @@ mod test {
                 Function::CopyNorth,
                 Function::CopySouth,
                 Function::CopyWest,
+                Function::Push,
                 Function::ReadEast,
                 Function::ReadNorth,
                 Function::ReadSouth,
@@ -1276,6 +1280,7 @@ mod test {
             if !matches!(
                 function,
                 Function::AbsoluteWrite
+                    | Function::Push
                     | Function::WriteEast
                     | Function::WriteNorth
                     | Function::WriteSouth
@@ -1386,6 +1391,12 @@ mod test {
                     assert_eq!(input, None);
                     assert_eq!(dynamic_output, Some(PairSelection::Position));
                 }
+                // Push writes a pair of the lane below it.
+                Function::Push => {
+                    assert_eq!(output, None);
+                    assert_eq!(input, None);
+                    assert_eq!(dynamic_output, Some(PairSelection::Lane));
+                }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, None);
@@ -1447,8 +1458,9 @@ mod test {
     fn replacing_a_write_with_another_write_a_read_or_a_value_function_is_a_write() {
         // Each Write names its own rule for selecting its dynamic Output
         // Portal; a Read and Equality answer through a static one.
-        const WRITES: [Function; 5] = [
+        const WRITES: [Function; 6] = [
             Function::AbsoluteWrite,
+            Function::Push,
             Function::WriteEast,
             Function::WriteNorth,
             Function::WriteSouth,
@@ -1458,6 +1470,7 @@ mod test {
             assert_eq!(write.replacing(write), None, "{write:?}");
             let others = WRITES.into_iter().filter(|other| *other != write).chain([
                 Function::AbsoluteRead,
+                Function::Track,
                 Function::ReadEast,
                 Function::Equality,
             ]);
@@ -1747,6 +1760,7 @@ mod test {
                 | Function::Subtract
                 | Function::Track
                 | Function::AbsoluteWrite
+                | Function::Push
                 | Function::WriteEast
                 | Function::WriteNorth
                 | Function::WriteSouth

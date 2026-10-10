@@ -10,7 +10,8 @@ use crate::{
 /// Input Portal. The Turn supplies the Cells of that pair, so evaluation binds
 /// the operands, refuses a zero `count`, and answers what a Copy would.
 pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
-    selected_pair(ctx.stack.extract::<Track>()?)?;
+    let Track { index, count } = ctx.stack.extract::<Track>()?;
+    selected_pair(Function::Track, index, count)?;
     copy(ctx, Function::Track)
 }
 
@@ -22,14 +23,15 @@ pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
 pub(crate) fn track_pair(operands: &[Atom]) -> Result<u8, Error> {
     <Track as Operands>::check(operands)
         .and_then(|()| <Track as Operands>::bind(operands))
-        .and_then(selected_pair)
+        .and_then(|Track { index, count }| selected_pair(Function::Track, index, count))
 }
 
-/// The pair Track's operands select, `index % count`.
-fn selected_pair(Track { index, count }: Track) -> Result<u8, Error> {
+/// The pair `index % count` that `function`'s operands select, Track's or
+/// Push's. A `count` of zero selects no pair and diagnoses as a wrap by zero.
+pub(crate) fn selected_pair(function: Function, index: u8, count: u8) -> Result<u8, Error> {
     if count == 0 {
         return Err(InterpretationError::ZeroWrap {
-            function: Function::Track,
+            function,
             role: "count",
         }
         .into());

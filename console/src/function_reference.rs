@@ -33,9 +33,11 @@
 //! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                        |
 //!
 //! From row 39 the `48..64` band holds the Writes, `@> @^ @v @< @$`, under a
-//! second `|| Write` header, and then Generator under its own: a Read nested
+//! second `|| Write` header, then Generator under its own: a Read nested
 //! in a Write's `value`, which carries the pair the Read reads to the pair
-//! the Write addresses. Each header's row holds nothing east of it.
+//! the Write addresses. Push, `@t`, follows under a `|| Push` header, with
+//! the lane it writes on the row below it. Each header's row holds nothing
+//! east of it.
 //!
 //! # Source Functions need an area, not just a row
 //!
@@ -329,6 +331,10 @@ mod tests {
             // which writes it at 3A 32.
             result(54, 50, "C4"), // &$3A2F
             result(58, 50, "C4"), // @$3A32&$3A2F
+            // Push (column 48, row 52) writes its `value` into pair 01 % 03
+            // of the lane of three pairs on the row below, starting under its
+            // anchor.
+            result(50, 53, "G4"), // @t0103G4
         ]
     }
 

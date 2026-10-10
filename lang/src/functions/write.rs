@@ -1,18 +1,31 @@
+use super::track::selected_pair;
 use crate::{
-    Atom, Error,
-    atom::operands::{AbsoluteWrite, WriteEast, WriteNorth, WriteSouth, WriteWest},
+    Atom, Error, Function,
+    atom::operands::{AbsoluteWrite, Push, WriteEast, WriteNorth, WriteSouth, WriteWest},
     interpreter::Context,
     stack::Operands,
 };
 
-/// A Write: `@^ n value`, `@v n value`, `@< n value`, `@> n value` or
-/// `@$ column row value`.
+/// A Write: `@^ n value`, `@v n value`, `@< n value`, `@> n value`,
+/// `@$ column row value` or Push, `@t index count value`.
 ///
 /// It answers `value`, the encoding it carries, unchanged. The Turn resolves
 /// the pair its address operands select and writes the answer there, so
 /// evaluation binds the operands and has nothing left to decide.
 pub fn write<O: Operands + Carried>(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack.apply(|operands: O| Ok(operands.value()))
+}
+
+/// The pair of its lane Push writes, from the operands its Turn resolved,
+/// counted from zero east of its default Output Portal.
+///
+/// A `count` of zero selects no pair and diagnoses as a wrap by zero does,
+/// as Track's does, and operands outside their domain diagnose as they would
+/// at evaluation.
+pub(crate) fn lane_pair(operands: &[Atom]) -> Result<u8, Error> {
+    <Push as Operands>::check(operands)
+        .and_then(|()| <Push as Operands>::bind(operands))
+        .and_then(|Push { index, count, .. }| selected_pair(Function::Push, index, count))
 }
 
 /// The operands of a Write, which carry one `value`.
@@ -31,7 +44,14 @@ macro_rules! carried {
     };
 }
 
-carried!(AbsoluteWrite, WriteEast, WriteNorth, WriteSouth, WriteWest);
+carried!(
+    AbsoluteWrite,
+    Push,
+    WriteEast,
+    WriteNorth,
+    WriteSouth,
+    WriteWest
+);
 
 #[cfg(test)]
 mod test {
@@ -40,8 +60,9 @@ mod test {
         TypeError,
     };
 
-    const WRITES: [Function; 5] = [
+    const WRITES: [Function; 6] = [
         Function::AbsoluteWrite,
+        Function::Push,
         Function::WriteEast,
         Function::WriteNorth,
         Function::WriteSouth,

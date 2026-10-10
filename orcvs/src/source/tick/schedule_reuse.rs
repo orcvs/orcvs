@@ -711,3 +711,34 @@ fn a_write_onto_a_function_spelling_orders_a_new_schedule() {
     );
     agreeing_tick(&mut source, 2);
 }
+
+#[test]
+fn a_push_plans_alike_through_a_reused_and_a_fresh_schedule() {
+    // The Clock above Push writes its index, which selects pair 0 of its
+    // lane, then pair 1. On Tick 0 Push writes `0A` over the spelling of `.+0102`
+    // below it, which that Tick it suppresses and from the next is no
+    // Function: that revision is scheduled afresh. On Tick 1 it writes over
+    // the standalone `01` the suppressed `.+` left, which keeps the schedule.
+    let grid = Grid::with_shape(8, 3);
+    let mut source = source_of(grid, &["  ~.0102", "@t  020A", ".+0102"]);
+    let written = source.shared_language_map();
+    let plan = agreeing_tick(&mut source, 0);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    assert_eq!(&source.snapshot()[16..22], "0A0102");
+    let suppressed = source.shared_language_map();
+    assert!(
+        !suppressed
+            .schedule_cache()
+            .is_shared_with(written.schedule_cache())
+    );
+    let plan = agreeing_tick(&mut source, 1);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    assert_eq!(&source.snapshot()[16..22], "0A0A02");
+    assert!(
+        source
+            .language_map()
+            .schedule_cache()
+            .is_shared_with(suppressed.schedule_cache())
+    );
+    agreeing_tick(&mut source, 2);
+}

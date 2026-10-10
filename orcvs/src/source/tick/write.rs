@@ -7,55 +7,13 @@
 //! order that Turn takes against the readers of that pair and against what
 //! feeds the Write.
 
-use std::collections::BTreeMap;
-
 use lang::Tick;
 
-use super::observed::{Observed, observe_at, observed, rows_of, source_of};
-use super::plan;
+use super::observed::{
+    MISSED_BANG, diagnostic, first, observe_at, observed, quiet, rows_of, source_of, turn_before,
+    turns,
+};
 use crate::grid::Grid;
-use crate::source::Cells;
-
-/// The first Tick of `rows`, observed.
-fn first(grid: Grid, rows: &[&str]) -> Observed {
-    observe_at(grid, rows, [0]).remove(0)
-}
-
-/// The Turn each computation took in Tick zero of `rows`, by anchor.
-fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Option<usize>> {
-    let source = source_of(grid, rows);
-    let map = source.shared_language_map();
-    let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    map.schedule_cache()
-        .schedule(grid, &map)
-        .lookup
-        .nodes()
-        .iter()
-        .zip(&states)
-        .map(|(node, state)| ((node.anchor.x(), node.anchor.y()), state.turn()))
-        .collect()
-}
-
-/// Asserts that the computation at `earlier` took its Turn before the one at
-/// `later`, both having taken one.
-fn turn_before(
-    turns: &BTreeMap<(usize, usize), Option<usize>>,
-    earlier: (usize, usize),
-    later: (usize, usize),
-) {
-    let turn =
-        |anchor| turns[&anchor].unwrap_or_else(|| panic!("{anchor:?} took no Turn: {turns:?}"));
-    assert!(turn(earlier) < turn(later), "{turns:?}");
-}
-
-fn diagnostic(x: usize, y: usize, message: &str) -> (usize, usize, String) {
-    (x, y, message.to_string())
-}
-
-fn quiet(tick: &Observed) {
-    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
-}
 
 #[test]
 fn a_write_answers_its_value_at_its_pair_and_writes_nothing_south() {
@@ -144,9 +102,6 @@ fn a_root_a_static_bang_activates_is_read_the_same_tick() {
     assert_eq!(tick.rows[2], "vv    vv      ");
     quiet(&tick);
 }
-
-/// The diagnostic for a Bang that reaches a root after its Turn.
-const MISSED_BANG: &str = "Bang reached a root that has taken its Turn";
 
 #[test]
 fn a_bang_onto_a_root_that_fed_the_write_is_missed() {

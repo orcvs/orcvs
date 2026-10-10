@@ -192,14 +192,20 @@ pub enum PortalAddress {
 /// Each Function with a dynamic Input Portal names its rule in
 /// [`Function::input_portal`], and each with a dynamic Output Portal in
 /// [`Function::dynamic_output_portal`]. [`PairSelection::resolve`] asks the
-/// rule where the pair stands. A rule reads only the address operands that
-/// lead its Function's signature, so a Write and the Read with the same arrow
-/// select the same pair.
+/// rule where the pair stands. A rule takes the values of only the address
+/// operands that lead its Function's signature, and the directional and
+/// absolute rules tell a Read's operands from a Write's by how many there
+/// are, so a Write and the Read with the same arrow select the same pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairSelection {
     /// The pair `index % count` pairs east of the end of the last operand, on
     /// the Function's own row. Track's selection.
     IndexModuloCount,
+    /// The pair `index % count` pairs east of the Function's default Output
+    /// Portal: a lane of `count` pairs on the row below the Function,
+    /// starting directly under its anchor, wherever its operands end. Push's
+    /// selection.
+    Lane,
     /// The pair `n` Portals from the `n` operand's slot, the pair immediately
     /// after the Function's spelling, in the [`Direction`] named. Each step is
     /// one pair east or west, or one row north or south in the slot's

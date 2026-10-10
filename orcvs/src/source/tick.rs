@@ -14,6 +14,8 @@ mod nested_copy;
 mod observed;
 mod ordering;
 #[cfg(test)]
+mod push;
+#[cfg(test)]
 mod read;
 #[cfg(test)]
 mod schedule_reuse;
