@@ -14,6 +14,8 @@ mod nested_copy;
 mod observed;
 mod ordering;
 #[cfg(test)]
+mod read;
+#[cfg(test)]
 mod schedule_reuse;
 #[cfg(test)]
 mod track;
@@ -5870,13 +5872,14 @@ mod nested_property {
     }
 
     ///
-    /// The property's checks hold for a nested Copy whose input is empty, deep
-    /// inside a nested Expression. The generators draw from
+    /// A nested Copy whose input is empty, deep inside a nested Expression,
+    /// parses, exhausts no Operand Stack, and leaves its active root either
+    /// interpreted or diagnosed. The generators draw from
     /// `Function::ALL`, so a stored seed replays a different case whenever the
     /// table changes length, and this shape is stated here instead.
     ///
     #[test]
-    fn a_tick_over_a_nested_copy_of_empty_cells_settles_its_root() {
+    fn a_nested_copy_of_empty_cells_leaves_its_root_answered_or_diagnosed() {
         settle(".-.|00./.|0000=^~*~>.-~>6C56D82B.+AC0A").unwrap_or_else(|error| panic!("{error}"));
     }
 

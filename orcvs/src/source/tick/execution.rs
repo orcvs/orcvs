@@ -388,8 +388,8 @@ impl<'a> Execution<'a> {
 
     /// Borrow working Source at the Input Portal `portal` resolved for this
     /// Turn. A missing or truncated site stays absent so binding diagnoses it
-    /// after all cell operands have been validated; a Jump or Track reads the
-    /// pair only when it is one complete aligned unit.
+    /// after all cell operands have been validated; a Function that copies a
+    /// Language Unit reads the pair only when it is one complete aligned unit.
     fn portal_source(
         &self,
         node: &Computation,

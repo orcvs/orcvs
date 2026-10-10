@@ -6,7 +6,9 @@
 
 use crate::{
     Atom, Error, Function, InputPortal, InterpretationError, PairSelection, PortalCoords, Stack,
-    TickInputs, Token, expression::DEFAULT_TOKEN_LEN, functions::track::track_pair,
+    TickInputs, Token,
+    expression::DEFAULT_TOKEN_LEN,
+    functions::{read::read_distance, track::track_pair},
     stack::Operands,
 };
 
@@ -19,50 +21,53 @@ impl InputPortal {
     /// occupy, nested operands included: `orcvs` knows how they lie in the
     /// Grid. A static Input Portal is the offset it declares and reads
     /// neither. A dynamic Input Portal is the Cell pair its operands select
-    /// by its [`PairSelection`], counted from `operand_columns`.
+    /// by its [`PairSelection`]: Track's counts from `operand_columns`, and a
+    /// directional Read's from its `n` operand's slot, the pair after its
+    /// spelling, whatever that operand's width.
     ///
     /// # Errors
     ///
-    /// A dynamic Input Portal diagnoses its operands as evaluation does,
-    /// including a `count` of `00` as a wrap by zero. An offset too far east
-    /// to represent is a Portal outside any Grid, and diagnoses as partial or
-    /// invalid input, as a Portal past the row edge does.
+    /// A dynamic Input Portal diagnoses its operands as evaluation does: an
+    /// operand that is not a Number, such as a Note given as Track's `count`
+    /// or as a Read's `n`, is an [`Error::Type`], and Track's `count` of `00`
+    /// is a wrap by zero. Track's pair can lie too far east to represent,
+    /// which is a Portal outside any Grid and diagnoses as Track's partial or
+    /// invalid input, as a Portal past the row edge does. Every distance a
+    /// Read's `n` can state is representable, and is otherwise unchecked
+    /// here: a pair it places outside the Grid diagnoses when `orcvs`
+    /// resolves it.
     ///
     pub fn resolve(self, operands: &[Atom], operand_columns: usize) -> Result<PortalCoords, Error> {
         match self {
             Self::Static(coords) => Ok(coords),
-            Self::Dynamic(selection) => {
-                let (east, rows) = selection.offset(operands)?;
-                let columns = operand_columns
-                    .checked_add(east)
-                    .and_then(|columns| i16::try_from(columns).ok())
-                    .ok_or(InterpretationError::CopyInput {
-                        function: selection.function(),
-                    })?;
-                Ok(PortalCoords {
-                    columns,
-                    rows: i16::from(rows),
-                })
-            }
+            Self::Dynamic(selection) => selection.coords(operands, operand_columns),
         }
     }
 }
 
 impl PairSelection {
-    /// The Function whose definition names this rule, which a refused
-    /// resolution diagnoses.
-    const fn function(self) -> Function {
-        match self {
-            Self::IndexModuloCount => Function::Track,
-        }
-    }
-
-    /// The selected pair's offset from the end of the last operand: Cells
-    /// east, and rows south.
-    fn offset(self, operands: &[Atom]) -> Result<(usize, u8), Error> {
+    /// The selected pair's offset from the Function's anchor.
+    fn coords(self, operands: &[Atom], operand_columns: usize) -> Result<PortalCoords, Error> {
         match self {
             Self::IndexModuloCount => {
-                track_pair(operands).map(|pair| (usize::from(pair) * DEFAULT_TOKEN_LEN, 0))
+                let pair = track_pair(operands)?;
+                let columns = operand_columns
+                    .checked_add(usize::from(pair) * DEFAULT_TOKEN_LEN)
+                    .and_then(|columns| i16::try_from(columns).ok())
+                    .ok_or(InterpretationError::CopyInput {
+                        function: Function::Track,
+                    })?;
+                Ok(PortalCoords { columns, rows: 0 })
+            }
+            Self::Distance(direction) => {
+                // The slot is the pair after the spelling, and at most 255
+                // steps from it every offset fits.
+                let n = i16::from(read_distance(direction, operands)?);
+                let step = direction.step();
+                Ok(PortalCoords {
+                    columns: DEFAULT_TOKEN_LEN as i16 + n * step.columns,
+                    rows: n * step.rows,
+                })
             }
         }
     }
@@ -358,6 +363,42 @@ mod test {
                 rows: 0
             }
         );
+    }
+
+    #[test]
+    fn a_read_resolves_to_the_pair_n_portals_from_its_operand_slot() {
+        // The `n` operand's slot is the pair at column 2, after the spelling,
+        // whatever the Function and its operands occupy east of it.
+        let read = |function, n, operand_columns| {
+            resolve(function, &[Atom::Number(n)], operand_columns).unwrap()
+        };
+        let at = |columns, rows| PortalCoords { columns, rows };
+        for operand_columns in [4, 8, 256] {
+            for function in [
+                Function::ReadNorth,
+                Function::ReadSouth,
+                Function::ReadEast,
+                Function::ReadWest,
+            ] {
+                assert_eq!(read(function, 0, operand_columns), at(2, 0), "{function:?}");
+            }
+            assert_eq!(read(Function::ReadEast, 1, operand_columns), at(4, 0));
+            assert_eq!(read(Function::ReadEast, 0xFF, operand_columns), at(512, 0));
+            assert_eq!(read(Function::ReadWest, 1, operand_columns), at(0, 0));
+            assert_eq!(read(Function::ReadWest, 0xFF, operand_columns), at(-508, 0));
+            assert_eq!(read(Function::ReadSouth, 1, operand_columns), at(2, 1));
+            assert_eq!(read(Function::ReadSouth, 0xFF, operand_columns), at(2, 255));
+            assert_eq!(read(Function::ReadNorth, 1, operand_columns), at(2, -1));
+            assert_eq!(
+                read(Function::ReadNorth, 0xFF, operand_columns),
+                at(2, -255)
+            );
+        }
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        assert!(matches!(
+            resolve(Function::ReadEast, &[note], 4),
+            Err(Error::Type(_))
+        ));
     }
 
     #[test]

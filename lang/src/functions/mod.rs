@@ -1,6 +1,7 @@
 pub(crate) mod copy;
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
+pub(crate) mod read;
 pub(crate) mod tick;
 pub(crate) mod track;
 use crate::{Error, PlayCommand, atom::operands, interpreter::Context};

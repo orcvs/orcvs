@@ -176,14 +176,54 @@ pub enum InputPortal {
 ///
 /// Each Function with a dynamic Input Portal names its rule in
 /// [`Function::input_portal`], and [`InputPortal::resolve`] asks the rule for
-/// the pair's offset from the end of the Function's last operand. A rule
-/// counts only east and south of that point, so the pair never lies under the
-/// Function's own operands.
+/// the pair's offset from the Function's anchor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairSelection {
     /// The pair `index % count` pairs east of the end of the last operand, on
     /// the Function's own row. Track's selection.
     IndexModuloCount,
+    /// The pair `n` Portals from the `n` operand's slot, the pair immediately
+    /// after the Function's spelling, in the [`Direction`] named. Each step is
+    /// one pair east or west, or one row north or south in the slot's
+    /// columns, so a distance of zero is the slot itself. A directional
+    /// Read's selection.
+    Distance(Direction),
+}
+
+/// The direction a directional Read's arrow names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    /// Toward row zero.
+    North,
+    /// Away from row zero.
+    South,
+    /// Away from column zero.
+    East,
+    /// Toward column zero.
+    West,
+}
+
+impl Direction {
+    /// One Portal in this direction: a pair of Cells east or west, or a row
+    /// north or south.
+    pub(crate) const fn step(self) -> PortalCoords {
+        let pair = expression::DEFAULT_TOKEN_LEN as i16;
+        match self {
+            Self::North => PortalCoords {
+                columns: 0,
+                rows: -1,
+            },
+            Self::South => PortalCoords::SOUTH,
+            Self::East => PortalCoords {
+                columns: pair,
+                rows: 0,
+            },
+            Self::West => PortalCoords {
+                columns: -pair,
+                rows: 0,
+            },
+        }
+    }
 }
 
 /// Which validated effect bundle a Source-writing Function plans.

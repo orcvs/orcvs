@@ -948,6 +948,32 @@ mod test {
     }
 
     #[test]
+    fn the_ampersand_arrows_parse_as_reads_of_one_number() {
+        for (spelling, function) in [
+            ("&^", Function::ReadNorth),
+            ("&v", Function::ReadSouth),
+            ("&<", Function::ReadWest),
+            ("&>", Function::ReadEast),
+        ] {
+            assert_eq!(
+                try_parse(&format!("{spelling}02")).unwrap().as_slice(),
+                &[Atom::Function(function), Atom::Number(2)],
+                "{spelling}"
+            );
+            assert_eq!(
+                try_parse(&format!("{spelling}.+0101")).unwrap().as_slice(),
+                &[
+                    Atom::Function(function),
+                    Atom::Function(Function::Add),
+                    Atom::Number(1),
+                    Atom::Number(1),
+                ],
+                "{spelling}"
+            );
+        }
+    }
+
+    #[test]
     fn test_parse_play_function() {
         trace();
 

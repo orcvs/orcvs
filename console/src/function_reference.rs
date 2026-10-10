@@ -23,14 +23,14 @@
 //! group that stacks a second header inside its own band follows the same
 //! rule: that header's row must hold no Expression east of it either.
 //!
-//! | Columns   | Group                                                       |
-//! |-----------|--------------------------------------------------------------|
-//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                   |
-//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
-//! | `48..64`  | Copies, Halt and Track: `=^ =v =< =>`, `*!`, `&t`             |
-//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
-//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                        |
+//! | Columns   | Group                                                                      |
+//! |-----------|----------------------------------------------------------------------------|
+//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                   |
+//! | `16..32`  | Numeric Conversion: `.v .^`                                                |
+//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                  |
+//! | `48..64`  | Copies and Halt: `=^ =v =< =>`, `*!`; from row 23, Reads: `&t &^ &v &< &>` |
+//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`           |
+//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                     |
 //!
 //! # Source Functions need an area, not just a row
 //!
@@ -300,11 +300,18 @@ mod tests {
             // Track (column 48) reads pair 01 % 03 of the three after its
             // operands, as a Copy reads its Input Portal, so `D4` is the
             // Number it spells.
-            result(48, 18, "D4"), // &t0103C4D4E4
+            result(48, 25, "D4"), // &t0103C4D4E4
+            // The directional Reads (column 48) each read the pair the
+            // given number of Portals from their operand in their arrow's
+            // direction.
+            result(48, 27, "C4"), // &>01C4
+            result(48, 30, "E4"), // &^01
+            result(48, 32, "G4"), // &v02
+            result(52, 35, "A4"), // &<03
         ]
     }
 
-    /// Every Cell a Copy or Track reads as its spatial input, or an ordinary blocking
+    /// Every Cell a Copy, Track or Read reads as its spatial input, or an ordinary blocking
     /// Language Unit occupies, in the checked-in text: present with no
     /// Function before it, so the Parser's greedy two-Cell Function read
     /// refuses it exactly as it refuses a written result — a fact about the
@@ -323,9 +330,13 @@ mod tests {
             literal(48, 5, "06"),  // =v's input
             literal(52, 9, "07"),  // =<'s input
             literal(48, 11, "08"), // =>'s input
-            literal(54, 17, "C4"), // &t's pair 00
-            literal(56, 17, "D4"), // &t's pair 01
-            literal(58, 17, "E4"), // &t's pair 02
+            literal(54, 24, "C4"), // &t's pair 00
+            literal(56, 24, "D4"), // &t's pair 01
+            literal(58, 24, "E4"), // &t's pair 02
+            literal(52, 26, "C4"), // &>'s pair 01 east
+            literal(50, 28, "E4"), // &^'s pair 01 north
+            literal(50, 33, "G4"), // &v's pair 02 south
+            literal(48, 34, "A4"), // &<'s pair 03 west
             literal(66, 10, "00"), // *v's blocker
             literal(64, 13, "00"), // *<'s blocker
             literal(70, 16, "00"), // *>'s blocker

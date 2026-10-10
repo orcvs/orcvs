@@ -1,5 +1,6 @@
 use crate::{
     Atom, Error, Function, FunctionInputs, PlayCommand, SourceEffect, Stack,
+    atom::operands,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -125,6 +126,10 @@ impl Interpreter {
                 functions::copy::copy(&mut ctx, function)?
             }
             Function::Random => tick::random(&mut ctx)?,
+            Function::ReadEast => functions::read::read::<operands::ReadEast>(&mut ctx)?,
+            Function::ReadNorth => functions::read::read::<operands::ReadNorth>(&mut ctx)?,
+            Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
+            Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
             Function::Track => functions::track::track(&mut ctx)?,
             Function::Maximum => math::maximum(&mut ctx)?,
             Function::Minimum => math::minimum(&mut ctx)?,

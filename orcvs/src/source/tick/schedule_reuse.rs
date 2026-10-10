@@ -448,6 +448,88 @@ fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
     assert_eq!(selected, ["C4", "D4", "E4", "C4", "D4", "E4"]);
 }
 
+/// The pair at `output` after each of `ticks` Ticks of `rows`, every Tick
+/// planned through one shared schedule and agreeing with a fresh one.
+fn read_through_one_shared_schedule(
+    grid: Grid,
+    rows: &[&str],
+    output: std::ops::Range<usize>,
+    ticks: u64,
+) -> Vec<String> {
+    let mut source = source_of(grid, rows);
+    agreeing_tick(&mut source, 0);
+    let settled = source.shared_language_map();
+    let mut selected = vec![source.snapshot()[output.clone()].to_owned()];
+    for tick in 1..ticks {
+        agreeing_tick(&mut source, tick);
+        selected.push(source.snapshot()[output.clone()].to_owned());
+        assert!(
+            source
+                .language_map()
+                .schedule_cache()
+                .is_shared_with(settled.schedule_cache()),
+            "Tick {tick}"
+        );
+    }
+    selected
+}
+
+#[test]
+fn a_south_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // The Clock writes the Read's `n` as 0, 1 and 2 in turn. `=<` writes the
+    // pair one row below the operand, so the Read waits for it on every Tick
+    // that selects that pair and on no other.
+    let rows = ["  ~.0103", "&v      ", "    =<D4", "  E4    "];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(8, 4), &rows, 16..18, 6),
+        ["00", "D4", "E4", "00", "D4", "E4"]
+    );
+}
+
+#[test]
+fn an_east_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // `=<` writes the pair two pairs east of the operand.
+    let rows = ["  ~.0103    ", "&>  C4  =<D4", "            "];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(12, 3), &rows, 24..26, 6),
+        ["00", "C4", "D4", "00", "C4", "D4"]
+    );
+}
+
+#[test]
+fn a_west_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // `.+02~.0102` writes the Read's `n` as 2 and 3 in turn. `=^` writes the
+    // pair two pairs west of the operand from below.
+    let rows = [
+        "        .+02~.0102",
+        "  C4  &<          ",
+        "    =^            ",
+        "    D4            ",
+    ];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(18, 4), &rows, 42..44, 4),
+        ["D4", "C4", "D4", "C4"]
+    );
+}
+
+#[test]
+fn a_north_read_plans_as_a_fresh_schedule_does() {
+    // `.+01~.0102` writes 1 and 2 in turn, which `=<` copies into the Read's
+    // `n` after the Read in Grid order. `=<` on the first row writes the pair
+    // two rows north of the operand, and takes its Turn before the Read's
+    // in Grid order.
+    let rows = [
+        "    =<E4        ",
+        "  D4  .+01~.0102",
+        "&^  =<          ",
+        "                ",
+    ];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(16, 4), &rows, 48..50, 4),
+        ["D4", "E4", "D4", "E4"]
+    );
+}
+
 #[test]
 fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
     // Copies reading and writing each other's Cells, a Clock feeding an

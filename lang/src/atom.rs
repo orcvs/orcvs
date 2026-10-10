@@ -699,6 +699,10 @@ define_functions! {
     PitchBend => ("!b", TerminalOutput, Bang, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Random => ("~?", Value, Intrinsic, false, [seed: Number, minimum: Number, maximum: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    ReadEast => ("&>", Value, Intrinsic, true, [n: Number]),
+    ReadNorth => ("&^", Value, Intrinsic, true, [n: Number]),
+    ReadSouth => ("&v", Value, Intrinsic, true, [n: Number]),
+    ReadWest => ("&<", Value, Intrinsic, true, [n: Number]),
     SelfBangingEast => (">>", SelfBangEast, Intrinsic, false, []),
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, false, []),
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, false, []),
@@ -867,11 +871,12 @@ impl Function {
     ///
     /// Copy names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
-    /// Those are static. Track's is dynamic, and names the rule by which its
-    /// operands select the pair after them.
+    /// Those are static. Track's and each directional Read's are dynamic, and
+    /// each names the rule by which its operands select the pair it reads.
     pub const fn input_portal(self) -> Option<crate::InputPortal> {
+        use crate::Direction::{East, North, South, West};
         use crate::InputPortal::{Dynamic, Static};
-        use crate::PairSelection::IndexModuloCount;
+        use crate::PairSelection::{Distance, IndexModuloCount};
         match self {
             Self::CopyEast => Some(Static(crate::PortalCoords {
                 columns: -2,
@@ -886,6 +891,10 @@ impl Function {
                 columns: 0,
                 rows: -1,
             })),
+            Self::ReadEast => Some(Dynamic(Distance(East))),
+            Self::ReadNorth => Some(Dynamic(Distance(North))),
+            Self::ReadSouth => Some(Dynamic(Distance(South))),
+            Self::ReadWest => Some(Dynamic(Distance(West))),
             Self::Track => Some(Dynamic(IndexModuloCount)),
             _ if self.portal_input().is_some() => Some(Static(crate::PortalCoords::SOUTH)),
             _ => None,
@@ -894,7 +903,8 @@ impl Function {
 
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
-    /// Copy and Track name an Input Portal and bind no typed Portal input.
+    /// Copy, Track and the directional Reads name an Input Portal and bind no
+    /// typed Portal input.
     /// Increment and Interpolation name the same south site as a Number Portal
     /// input, so they are not this: the Cells they read are a value, not a
     /// Language Unit.
@@ -1149,15 +1159,15 @@ mod test {
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
-        // result, and a Copy or Track copies a Bang from its Input Portal. Tick
-        // scheduling trusts the declaration to decide which roots can supply
-        // activation, so the list is stated whole — a Function that began
-        // returning Bang without declaring it would build no activation edge,
-        // and the neighbouring terminal root would fall silent with no
+        // result, and a Copy, Track or Read copies a Bang from its Input
+        // Portal. Tick scheduling trusts the declaration to decide which roots
+        // can supply activation, so the list is stated whole — a Function that
+        // began returning Bang without declaring it would build no activation
+        // edge, and the neighbouring terminal root would fall silent with no
         // diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
-        // other half for operand-reading Functions; the Copies and Track are
-        // exercised on their own path, because each reads its Portal.
+        // other half for operand-reading Functions; the Copies, Track and Read
+        // are exercised on their own path, because each reads its Portal.
         assert_eq!(
             Function::ALL
                 .iter()
@@ -1172,6 +1182,10 @@ mod test {
                 Function::CopyNorth,
                 Function::CopySouth,
                 Function::CopyWest,
+                Function::ReadEast,
+                Function::ReadNorth,
+                Function::ReadSouth,
+                Function::ReadWest,
                 Function::Track,
             ]
         );
@@ -1180,9 +1194,17 @@ mod test {
     #[test]
     fn every_function_names_its_portals() {
         use crate::{
+            Direction,
             InputPortal::{Dynamic, Static},
             PairSelection, PortalCoords,
         };
+        // The arrow each Read's spelling names.
+        const READS: [(Function, Direction); 4] = [
+            (Function::ReadEast, Direction::East),
+            (Function::ReadNorth, Direction::North),
+            (Function::ReadSouth, Direction::South),
+            (Function::ReadWest, Direction::West),
+        ];
 
         for function in Function::ALL.iter().copied() {
             let output = function.output_portal();
@@ -1248,6 +1270,21 @@ mod test {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Dynamic(PairSelection::IndexModuloCount)));
                 }
+                Function::ReadEast
+                | Function::ReadNorth
+                | Function::ReadSouth
+                | Function::ReadWest => {
+                    let (_, direction) = READS
+                        .iter()
+                        .find(|(read, _)| *read == function)
+                        .expect("every Read is listed");
+                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
+                    assert_eq!(
+                        input,
+                        Some(Dynamic(PairSelection::Distance(*direction))),
+                        "{function:?}"
+                    );
+                }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, None);
@@ -1262,6 +1299,44 @@ mod test {
                     assert_eq!(input, None, "{function:?}");
                     assert!(!function.locks_root(), "{function:?}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_read_with_track_another_read_or_a_copy_is_a_write() {
+        // Each names its own rule for selecting its dynamic Input Portal, and a
+        // Copy declares static Portals.
+        const READS: [Function; 4] = [
+            Function::ReadEast,
+            Function::ReadNorth,
+            Function::ReadSouth,
+            Function::ReadWest,
+        ];
+        const COPIES: [Function; 4] = [
+            Function::CopyEast,
+            Function::CopyNorth,
+            Function::CopySouth,
+            Function::CopyWest,
+        ];
+        for read in READS {
+            assert_eq!(read.replacing(read), None, "{read:?}");
+            let others = READS
+                .into_iter()
+                .filter(|other| *other != read)
+                .chain(COPIES)
+                .chain([Function::Track]);
+            for other in others {
+                assert_eq!(
+                    other.replacing(read),
+                    Some(ReplacementChange::Write),
+                    "{other:?} replacing {read:?}"
+                );
+                assert_eq!(
+                    read.replacing(other),
+                    Some(ReplacementChange::Write),
+                    "{read:?} replacing {other:?}"
+                );
             }
         }
     }
@@ -1529,6 +1604,10 @@ mod test {
                 | Function::Modulo
                 | Function::Multiply
                 | Function::Random
+                | Function::ReadEast
+                | Function::ReadNorth
+                | Function::ReadSouth
+                | Function::ReadWest
                 | Function::Subtract
                 | Function::Track => (true, false, true),
                 Function::ControlChange
