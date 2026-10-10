@@ -690,8 +690,8 @@ mod test {
     #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
-        // `Atom::Empty`, the Interpreter's "no result write" signal, so
-        // the Source never gains a Cell meaning "false".
+        // `Atom::Empty`, the Absence Marker, which leaves the Output Portal
+        // empty, so the Source never gains a Cell meaning "false".
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {
                 let expected = if left == right {

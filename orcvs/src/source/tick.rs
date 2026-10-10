@@ -3948,9 +3948,12 @@ mod test {
     #[test]
     fn a_nested_absence_marker_fails_its_parent() {
         // Equality with unequal operands evaluates and answers the Absence
-        // Marker, so the Addition has no operand and is diagnosed.
+        // Marker, so the Addition has no operand and is diagnosed. The
+        // Equality still clears its own Output Portal, one row south of its
+        // anchor, as a root Equality that does not Bang does.
         let grid = Grid::with_shape(10, 3);
-        let observed = super::observed::observe_at(grid, &[".+.=010201"], [0]).remove(0);
+        let observed = super::observed::observe_at(grid, &[".+.=010201", "  C4"], [0]).remove(0);
+        assert_eq!(observed.rows[1], "          ");
         assert_eq!(
             observed.diagnostics,
             [(
@@ -3959,6 +3962,59 @@ mod test {
                 "nested computation at column 2, row 0 returned nothing".to_string()
             )]
         );
+    }
+
+    #[test]
+    fn an_unequal_root_equality_clears_the_pair_south_and_an_equal_one_bangs_there() {
+        // Equality answers only Bang or the Absence Marker, so it writes its
+        // answer through its Output Portal on every Turn: `**` when its
+        // operands are equal, which activates the root aligned south of the
+        // display, and two empty Cells when they are not.
+        let grid = Grid::with_shape(8, 3);
+        let unequal = super::observed::first(grid, &[".=0102", "C4", "!>007FC4"]);
+        super::observed::quiet(&unequal);
+        assert_eq!(unequal.rows, [".=0102  ", "        ", "!>007FC4"]);
+
+        let (plans, grids, _) = tick_by_tick(grid, &[".=0101", "C4", "!>007FC4"], 1);
+        assert_eq!(grids[0], [".=0101  ", "**      ", "!>007FC4"]);
+        assert_eq!(plans[0].play_commands, [raw(0, 0x7F, 60)]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn delay_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
+        // Each Tick starts from Source that holds `C4` in the Output Portal,
+        // so a Tick that left it alone would show it. `~*0201` Bangs on every
+        // second Tick, and `~%0304` places onsets at steps 0, 2 and 3.
+        let grid = Grid::with_shape(8, 2);
+        for (function, bangs) in [
+            ("~*0201", [true, false, true, false]),
+            ("~%0304", [true, false, true, true]),
+        ] {
+            for (tick, bangs) in (0..).zip(bangs) {
+                let observed =
+                    super::observed::observe_at(grid, &[function, "C4"], [tick]).remove(0);
+                super::observed::quiet(&observed);
+                let expected = if bangs { "**      " } else { "        " };
+                assert_eq!(observed.rows[1], expected, "{function} at Tick {tick}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_function_outside_the_bang_producers_writes_nothing_for_the_absence_marker() {
+        // Only Equality, Delay and Euclidean clear their Output Portal for an
+        // absent answer. An Addition stated to answer the Absence Marker
+        // plans no write, so the pair south of it keeps what it held.
+        let grid = Grid::with_shape(8, 2);
+        let (plan, source) = stated_source(grid, &[".+0102", "C4"], &[], &[(0, Atom::Empty)]);
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(rows_of(grid, &source), [".+0102  ", "C4      "]);
     }
 
     #[test]
@@ -4908,13 +4964,22 @@ mod test {
 
         // Tick 1. The Clock is still in its first step of three, so it writes
         // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
-        // it; the Euclidean's `X.XX` over four steps has no onset at step 1. A
-        // Function that answered the Absence Marker plans no Cell write, so
-        // only the Clock's pair is planned.
+        // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
+        // Both answer the Absence Marker and clear their pair.
         let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(planned(&plan), vec![(24, '0'), (25, '0')]);
+        assert_eq!(
+            planned(&plan),
+            vec![
+                (24, '0'),
+                (25, '0'),
+                (31, ' '),
+                (32, ' '),
+                (38, ' '),
+                (39, ' ')
+            ]
+        );
 
         // Tick 4. The Clock has counted one whole step of three; the Delay is
         // on a multiple of its cycle; and step 0 of `X.XX` is an onset. A
