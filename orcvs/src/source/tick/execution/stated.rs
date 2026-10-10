@@ -1,7 +1,7 @@
 //! One Tick whose named producers answer a value a test states rather than one
 //! the Interpreter computes.
 //!
-//! A Jump can copy a Function value from its input Portal. These tests instead
+//! A Copy can copy a Function value from its input Portal. These tests instead
 //! choose a producer's answer independently of its operands and Portal input,
 //! including answers its declared Function cannot produce, to isolate delivery
 //! and replacement rules. These values are constructed here, one call below

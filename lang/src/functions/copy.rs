@@ -5,7 +5,7 @@ use crate::{
     interpreter::Context,
 };
 
-/// The Language Unit at a Jump's input Portal.
+/// The Language Unit at a Copy's input Portal.
 ///
 /// The Turn supplies Cells only after the Portal has classified them as one
 /// complete aligned unit. Empty and Bang are values; any other admitted
@@ -14,26 +14,26 @@ use crate::{
 /// spelling, or Cells that are not exactly one two-Cell unit, is diagnosed
 /// rather than delivered as a write: blank Cells of another width are not an
 /// Empty unit.
-pub fn jump(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
+pub fn copy(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
     let cells = ctx
         .inputs
         .portal_source()
         .cells()
         .filter(|cells| cells.len() == DEFAULT_TOKEN_LEN)
-        .ok_or(InterpretationError::JumpInput { function })?;
+        .ok_or(InterpretationError::CopyInput { function })?;
     if cells.bytes().all(|cell| cell == b' ') {
         return Ok(Atom::Empty);
     }
     if cells == "**" {
         return Ok(Atom::Bang);
     }
-    Ok(copied_atom(cells).ok_or(InterpretationError::JumpInput { function })?)
+    Ok(copied_atom(cells).ok_or(InterpretationError::CopyInput { function })?)
 }
 
 /// The Atom two Cells spell, read as a Function, then a Number, then a Note.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
-/// error a Jump reports is `JumpInput`, so an error built by a reading the
+/// error a Copy reports is `CopyInput`, so an error built by a reading the
 /// Cells fail would be discarded unread.
 fn copied_atom(cells: &str) -> Option<Atom> {
     Function::from_spelling(cells)
@@ -44,7 +44,7 @@ fn copied_atom(cells: &str) -> Option<Atom> {
 
 #[cfg(test)]
 mod test {
-    use super::jump;
+    use super::copy;
     use crate::{
         Anchor, Atom, Function, FunctionInputs, InterpretationError, PortalSource, Tick,
         TickInputs, interpreter::Context,
@@ -60,13 +60,13 @@ mod test {
             ),
             1,
         );
-        jump(&mut ctx, function)
+        copy(&mut ctx, function)
     }
 
     #[test]
     fn empty_input_answers_the_absence_marker() {
         assert_eq!(
-            evaluate(Function::JumpEast, Some("  ")).unwrap(),
+            evaluate(Function::CopyEast, Some("  ")).unwrap(),
             Atom::Empty
         );
     }
@@ -74,7 +74,7 @@ mod test {
     #[test]
     fn bang_input_answers_bang() {
         assert_eq!(
-            evaluate(Function::JumpNorth, Some("**")).unwrap(),
+            evaluate(Function::CopyNorth, Some("**")).unwrap(),
             Atom::Bang
         );
     }
@@ -82,7 +82,7 @@ mod test {
     #[test]
     fn a_number_unit_answers_that_number() {
         assert_eq!(
-            evaluate(Function::JumpWest, Some("01")).unwrap(),
+            evaluate(Function::CopyWest, Some("01")).unwrap(),
             Atom::Number(1)
         );
     }
@@ -90,18 +90,18 @@ mod test {
     #[test]
     fn a_missing_or_invalid_site_diagnoses() {
         assert!(matches!(
-            evaluate(Function::JumpSouth, None),
+            evaluate(Function::CopySouth, None),
             Err(crate::Error::Interpretation(
-                InterpretationError::JumpInput {
-                    function: Function::JumpSouth
+                InterpretationError::CopyInput {
+                    function: Function::CopySouth
                 }
             ))
         ));
         assert!(matches!(
-            evaluate(Function::JumpEast, Some("xx")),
+            evaluate(Function::CopyEast, Some("xx")),
             Err(crate::Error::Interpretation(
-                InterpretationError::JumpInput {
-                    function: Function::JumpEast
+                InterpretationError::CopyInput {
+                    function: Function::CopyEast
                 }
             ))
         ));
@@ -111,14 +111,14 @@ mod test {
     fn a_portal_that_is_not_one_two_cell_unit_diagnoses() {
         // Blank Cells of the wrong width are not an Empty unit, and a wider
         // run whose digits still parse is not a Number: only exactly two
-        // Cells are a Language Unit a Jump can copy.
+        // Cells are a Language Unit a Copy can copy.
         for cells in ["", " ", "   ", "    ", "1", "001", "0001", "****"] {
             assert!(
                 matches!(
-                    evaluate(Function::JumpEast, Some(cells)),
+                    evaluate(Function::CopyEast, Some(cells)),
                     Err(crate::Error::Interpretation(
-                        InterpretationError::JumpInput {
-                            function: Function::JumpEast
+                        InterpretationError::CopyInput {
+                            function: Function::CopyEast
                         }
                     ))
                 ),

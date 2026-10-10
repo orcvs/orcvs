@@ -432,7 +432,7 @@ impl<'a> Execution<'a> {
         // schedule reserved.
         let encoding = match Encoding::render(atom) {
             Ok(Rendered::Nothing) => {
-                // A Jump answers Empty when its input is two spaces. That is a
+                // A Copy answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
                 if self.states[index].function.copies_language_unit() {
                     let cleared =
@@ -769,7 +769,7 @@ impl<'a> Execution<'a> {
 
 /// Why a destination refused the value sent to it.
 ///
-/// `OutsideGrid` is live for a Jump whose reserved output Portal left the
+/// `OutsideGrid` is live for a Copy whose reserved output Portal left the
 /// Grid. Advance and Emit settle an out-of-Grid displacement in
 /// [`Execution::deliver_source_effect`], so they never reach this function.
 /// The other refusals come from `Portal::at(..).admit(..)`, which resolves

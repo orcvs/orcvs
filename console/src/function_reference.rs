@@ -28,7 +28,7 @@
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
 //! | `16..32`  | Numeric Conversion: `.v .^`                                   |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
-//! | `48..64`  | Jumps, Halt and Track: `&^ &v &< &>`, `*!`, `@t`              |
+//! | `48..64`  | Copies, Halt and Track: `=^ =v =< =>`, `*!`, `@t`             |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
 //! | `80..96`  | MIDI: `!> !~ !% !c !b`                                        |
 //!
@@ -36,7 +36,7 @@
 //!
 //! Every value-answering group's example is stable after the one Tick that
 //! computes it: an Arithmetic sum does not change on Tick 1 just because
-//! Tick 0 already wrote it. A Jump and a Halt are the same — a Jump re-reads
+//! Tick 0 already wrote it. A Copy and a Halt are the same — a Copy re-reads
 //! and re-writes the same value every Tick, and a locked Halt target simply
 //! never runs — so their areas need only the columns their Expression and
 //! result occupy.
@@ -298,17 +298,17 @@ mod tests {
             result(32, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
             result(32, 17, "0F"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
             // Track (column 48) reads pair 01 % 03 of the three after its
-            // operands, as a Jump reads its Input Portal, so `D4` is the
+            // operands, as a Copy reads its Input Portal, so `D4` is the
             // Number it spells.
             result(48, 18, "D4"), // @t0103C4D4E4
         ]
     }
 
-    /// Every Cell a Jump or Track reads as its spatial input, or an ordinary blocking
+    /// Every Cell a Copy or Track reads as its spatial input, or an ordinary blocking
     /// Language Unit occupies, in the checked-in text: present with no
     /// Function before it, so the Parser's greedy two-Cell Function read
     /// refuses it exactly as it refuses a written result — a fact about the
-    /// raw spatial value it carries, never about the Jump or the mover whose
+    /// raw spatial value it carries, never about the Copy or the mover whose
     /// Turn reads it. Named explicitly, the same way [`expected_results`]
     /// is, rather than by a blanket area: a mistyped operand elsewhere in a
     /// Source Function's own Expression is still expected to diagnose.
@@ -319,10 +319,10 @@ mod tests {
             expected,
         };
         vec![
-            literal(48, 3, "05"),  // &^'s input
-            literal(48, 5, "06"),  // &v's input
-            literal(52, 9, "07"),  // &<'s input
-            literal(48, 11, "08"), // &>'s input
+            literal(48, 3, "05"),  // =^'s input
+            literal(48, 5, "06"),  // =v's input
+            literal(52, 9, "07"),  // =<'s input
+            literal(48, 11, "08"), // =>'s input
             literal(54, 17, "C4"), // @t's pair 00
             literal(56, 17, "D4"), // @t's pair 01
             literal(58, 17, "E4"), // @t's pair 02
@@ -465,14 +465,14 @@ mod tests {
         expected: &'static str,
     }
 
-    /// Every area a Jump, Halt, Directional Bang, or Self-Banging example
+    /// Every area a Copy, Halt, Directional Bang, or Self-Banging example
     /// may act inside — the Cells its own Expression, emission, or Halt
     /// wall occupies — named rather than indexed positionally.
     struct SourceFunctionAreas {
-        jump_north: Area,
-        jump_south: Area,
-        jump_west: Area,
-        jump_east: Area,
+        copy_north: Area,
+        copy_south: Area,
+        copy_west: Area,
+        copy_east: Area,
         halt: Area,
         directional_north: Area,
         directional_south: Area,
@@ -487,27 +487,27 @@ mod tests {
     impl SourceFunctionAreas {
         fn new() -> Self {
             Self {
-                // Band 3 (48..64): Jumps and Halt. Each Jump is stable after
+                // Band 3 (48..64): Copies and Halt. Each Copy is stable after
                 // Tick 0 (re-reading and re-writing the same input every
                 // Tick), and a locked Halt target never runs, but every
                 // example still gets its own area for the same reason the
                 // one-Tick test excludes this group as a whole.
-                jump_north: Area {
+                copy_north: Area {
                     columns: 48..50,
                     rows: 1..4,
-                }, // &^: output, jump, input
-                jump_south: Area {
+                }, // =^: output, copy, input
+                copy_south: Area {
                     columns: 48..50,
                     rows: 5..8,
-                }, // &v: input, jump, output
-                jump_west: Area {
+                }, // =v: input, copy, output
+                copy_west: Area {
                     columns: 48..54,
                     rows: 9..10,
-                }, // &<: output, jump, input, one row
-                jump_east: Area {
+                }, // =<: output, copy, input, one row
+                copy_east: Area {
                     columns: 48..54,
                     rows: 11..12,
-                }, // &>: input, jump, output, one row
+                }, // =>: input, copy, output, one row
                 halt: Area {
                     columns: 48..56,
                     rows: 13..16,
@@ -550,10 +550,10 @@ mod tests {
 
         fn all(&self) -> [&Area; 13] {
             [
-                &self.jump_north,
-                &self.jump_south,
-                &self.jump_west,
-                &self.jump_east,
+                &self.copy_north,
+                &self.copy_south,
+                &self.copy_west,
+                &self.copy_east,
                 &self.halt,
                 &self.directional_north,
                 &self.directional_south,
@@ -648,7 +648,7 @@ mod tests {
     }
 
     ///
-    /// Playing the reference is not a one-Tick affair for the Jump, Halt,
+    /// Playing the reference is not a one-Tick affair for the Copy, Halt,
     /// Directional Bang, and Self-Banging examples: a Directional Bang's
     /// emission and a Self-Banging Function's own Span move every Tick until
     /// something stops them. This ticks the reference five
@@ -741,10 +741,10 @@ mod tests {
                         area.rows
                     );
                 };
-                expect_area(&source_functions.jump_north, &["05", "&^", "05"]);
-                expect_area(&source_functions.jump_south, &["06", "&v", "06"]);
-                expect_area(&source_functions.jump_west, &["07&<07"]);
-                expect_area(&source_functions.jump_east, &["08&>08"]);
+                expect_area(&source_functions.copy_north, &["05", "=^", "05"]);
+                expect_area(&source_functions.copy_south, &["06", "=v", "06"]);
+                expect_area(&source_functions.copy_west, &["07=<07"]);
+                expect_area(&source_functions.copy_east, &["08=>08"]);
                 expect_area(
                     &source_functions.halt,
                     &[".=0909  ", "***!    ", "  .+0304"],

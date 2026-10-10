@@ -933,10 +933,10 @@ mod test {
             ("vv", Function::SelfBangingSouth),
             ("<<", Function::SelfBangingWest),
             (">>", Function::SelfBangingEast),
-            ("&^", Function::JumpNorth),
-            ("&v", Function::JumpSouth),
-            ("&<", Function::JumpWest),
-            ("&>", Function::JumpEast),
+            ("=^", Function::CopyNorth),
+            ("=v", Function::CopySouth),
+            ("=<", Function::CopyWest),
+            ("=>", Function::CopyEast),
             ("*!", Function::Halt),
         ] {
             assert_eq!(

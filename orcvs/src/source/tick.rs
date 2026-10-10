@@ -9,7 +9,7 @@
 
 pub(super) mod execution;
 #[cfg(test)]
-mod nested_jump;
+mod nested_copy;
 #[cfg(test)]
 mod observed;
 mod ordering;
@@ -205,7 +205,7 @@ impl Lookup {
                     });
                 }
             }
-            // Jump input Cells are recorded on the computation and become
+            // Copy input Cells are recorded on the computation and become
             // dependency edges in `order_turns`. They are not literal claims:
             // an aligned input often overlaps an operand Span, and `Claims`
             // are disjoint.
@@ -622,7 +622,7 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                     .then(|| relationships.contacted_roots())
                     .into_iter()
                     .flatten();
-                // A Jump writes Bang through its output Portal. A root at
+                // A Copy writes Bang through its output Portal. A root at
                 // that Portal is activated without a write; neighbours of
                 // an empty `**` write are the ordinary `bang_roots`.
                 let landed = function
@@ -1394,12 +1394,12 @@ mod test {
     fn a_movers_new_cells_can_be_overwritten_after_its_turn() {
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(8, 5),
-            &["  vv", "", "  &^", ".+0300", ""],
+            &["  vv", "", "  =^", ".+0300", ""],
             1,
         );
         assert_eq!(
             grids[0],
-            ["        ", "  03    ", "  &^    ", ".+0300  ", "03      "]
+            ["        ", "  03    ", "  =^    ", ".+0300  ", "03      "]
         );
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1410,14 +1410,14 @@ mod test {
 
     #[test]
     fn a_mover_meets_the_overwrite_of_a_moved_mover_as_source_content() {
-        // `vv` moves into Cells the Snapshot left empty, and the Jump then
+        // `vv` moves into Cells the Snapshot left empty, and the Copy then
         // overwrites its new spelling with `01`. `^^` is blocked by that `1`
         // and also enters an empty Cell past it. The overwritten mover is no
         // longer a unit there to meet part of, so the blocked move bangs
         // without diagnosing.
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(8, 3), &["    vv", "01&>", "     ^^"], 1);
-        assert_eq!(grids[0], ["        ", "01&>01  ", "     ** "]);
+            tick_by_tick(Grid::with_shape(8, 3), &["    vv", "01=>", "     ^^"], 1);
+        assert_eq!(grids[0], ["        ", "01=>01  ", "     ** "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1439,8 +1439,8 @@ mod test {
 
     #[test]
     fn a_mover_supplies_an_input_portal_before_its_consumer() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 4), &["", "&^", "", "^^"], 1);
-        assert_eq!(grids[0], ["^^  ", "&^  ", "^^  ", "    "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 4), &["", "=^", "", "^^"], 1);
+        assert_eq!(grids[0], ["^^  ", "=^  ", "^^  ", "    "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1725,19 +1725,19 @@ mod test {
 
     #[test]
     fn relayed_bangs_reach_emission_refusals_at_the_right_and_top_edges() {
-        // A Jump can relay a newly produced Bang directly onto an edge root.
+        // A Copy can relay a newly produced Bang directly onto an edge root.
         // Activation must precede its Turn even when the root sorts before
-        // the Jump, as the top-edge fixture does.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".=0101", "  &>*>"], 1);
-        assert_eq!(grids[0], [".=0101", "**&>*>"]);
+        // the Copy, as the top-edge fixture does.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[".=0101", "  =>*>"], 1);
+        assert_eq!(grids[0], [".=0101", "**=>*>"]);
         assert_eq!(
             messages(&plans[0]),
             vec!["*> has no empty destination inside the Grid for >>"]
         );
 
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(10, 3), &["*^", "&^  .=0101", "  &<"], 1);
-        assert_eq!(grids[0], ["*^        ", "&^  .=0101", "**&<**    "]);
+            tick_by_tick(Grid::with_shape(10, 3), &["*^", "=^  .=0101", "  =<"], 1);
+        assert_eq!(grids[0], ["*^        ", "=^  .=0101", "**=<**    "]);
         assert_eq!(
             messages(&plans[0]),
             vec!["*^ has no empty destination inside the Grid for ^^"]
@@ -1768,11 +1768,11 @@ mod test {
     }
 
     #[test]
-    fn a_single_east_jump_relays_one_aligned_language_unit() {
-        // `&>` reads the aligned two-Cell unit at its input Portal and writes
+    fn a_single_east_copy_relays_one_aligned_language_unit() {
+        // `=>` reads the aligned two-Cell unit at its input Portal and writes
         // that unit through its output Portal.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &["01&>    "], 1);
-        assert_eq!(grids[0], ["01&>01  "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &["01=>    "], 1);
+        assert_eq!(grids[0], ["01=>01  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1781,57 +1781,57 @@ mod test {
     }
 
     #[test]
-    fn each_jump_direction_relays_one_aligned_language_unit() {
-        let (_, north, _) = tick_by_tick(Grid::with_shape(2, 3), &["  ", "&^", "01"], 1);
-        assert_eq!(north[0], ["01", "&^", "01"]);
+    fn each_copy_direction_relays_one_aligned_language_unit() {
+        let (_, north, _) = tick_by_tick(Grid::with_shape(2, 3), &["  ", "=^", "01"], 1);
+        assert_eq!(north[0], ["01", "=^", "01"]);
 
-        let (_, south, _) = tick_by_tick(Grid::with_shape(2, 3), &["01", "&v", "  "], 1);
-        assert_eq!(south[0], ["01", "&v", "01"]);
+        let (_, south, _) = tick_by_tick(Grid::with_shape(2, 3), &["01", "=v", "  "], 1);
+        assert_eq!(south[0], ["01", "=v", "01"]);
 
-        let (_, west, _) = tick_by_tick(Grid::with_shape(8, 1), &["    &<01"], 1);
-        assert_eq!(west[0], ["  01&<01"]);
+        let (_, west, _) = tick_by_tick(Grid::with_shape(8, 1), &["    =<01"], 1);
+        assert_eq!(west[0], ["  01=<01"]);
     }
 
     #[test]
-    fn consecutive_jumps_compose_through_overlapping_portals() {
-        // Each Jump's output Portal is its own displacement. Two touching
-        // east Jumps overlap: the first writes onto the second and suppresses
+    fn consecutive_copies_compose_through_overlapping_portals() {
+        // Each Copy's output Portal is its own displacement. Two touching
+        // east Copies overlap: the first writes onto the second and suppresses
         // it, the same way any Source write covering a Function does.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 1), &["01&>&>    "], 1);
-        assert_eq!(grids[0], ["01&>01    "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 1), &["01=>=>    "], 1);
+        assert_eq!(grids[0], ["01=>01    "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
             plans[0].diagnostics
         );
 
-        let (_, north, _) = tick_by_tick(Grid::with_shape(2, 4), &["  ", "&^", "&^", "01"], 1);
-        assert_eq!(north[0], ["  ", "01", "&^", "01"]);
+        let (_, north, _) = tick_by_tick(Grid::with_shape(2, 4), &["  ", "=^", "=^", "01"], 1);
+        assert_eq!(north[0], ["  ", "01", "=^", "01"]);
 
-        let (_, south, _) = tick_by_tick(Grid::with_shape(2, 4), &["01", "&v", "&v", "  "], 1);
-        assert_eq!(south[0], ["01", "&v", "01", "  "]);
+        let (_, south, _) = tick_by_tick(Grid::with_shape(2, 4), &["01", "=v", "=v", "  "], 1);
+        assert_eq!(south[0], ["01", "=v", "01", "  "]);
 
-        let (_, west, _) = tick_by_tick(Grid::with_shape(10, 1), &["    &<&<01"], 1);
-        assert_eq!(west[0], ["    01&<01"]);
+        let (_, west, _) = tick_by_tick(Grid::with_shape(10, 1), &["    =<=<01"], 1);
+        assert_eq!(west[0], ["    01=<01"]);
     }
 
     #[test]
-    fn each_jump_uses_its_own_portals() {
-        // A space between two `&>` is each Function's own Portals: the first
+    fn each_copy_uses_its_own_portals() {
+        // A space between two `=>` is each Function's own Portals: the first
         // writes into the gap; the second reads that write and writes past
         // itself.
-        let (_, gap, _) = tick_by_tick(Grid::with_shape(12, 1), &["01&>  &>    "], 1);
-        assert_eq!(gap[0], ["01&>01&>01  "]);
+        let (_, gap, _) = tick_by_tick(Grid::with_shape(12, 1), &["01=>  =>    "], 1);
+        assert_eq!(gap[0], ["01=>01=>01  "]);
 
-        // `&v` sits on `&>`'s output Portal, so the east Jump writes onto it.
-        let (_, split, _) = tick_by_tick(Grid::with_shape(8, 1), &["01&>&v  "], 1);
-        assert_eq!(split[0], ["01&>01  "]);
+        // `=v` sits on `=>`'s output Portal, so the east Copy writes onto it.
+        let (_, split, _) = tick_by_tick(Grid::with_shape(8, 1), &["01=>=v  "], 1);
+        assert_eq!(split[0], ["01=>01  "]);
     }
 
     #[test]
-    fn a_jump_overwrites_an_occupied_destination() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["01&>xx"], 1);
-        assert_eq!(grids[0], ["01&>01"]);
+    fn a_copy_overwrites_an_occupied_destination() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["01=>xx"], 1);
+        assert_eq!(grids[0], ["01=>01"]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1840,9 +1840,9 @@ mod test {
     }
 
     #[test]
-    fn an_empty_jump_input_clears_the_destination() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["  &>xx"], 1);
-        assert_eq!(grids[0], ["  &>  "]);
+    fn an_empty_copy_input_clears_the_destination() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["  =>xx"], 1);
+        assert_eq!(grids[0], ["  =>  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1851,28 +1851,28 @@ mod test {
     }
 
     #[test]
-    fn a_partial_jump_input_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["0 &>xx"], 1);
-        assert_eq!(grids[0], ["0 &>xx"]);
-        assert_eq!(messages(&plans[0]), vec!["&> has partial or invalid input"]);
+    fn a_partial_copy_input_diagnoses_and_writes_nothing() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &["0 =>xx"], 1);
+        assert_eq!(grids[0], ["0 =>xx"]);
+        assert_eq!(messages(&plans[0]), vec!["=> has partial or invalid input"]);
     }
 
     #[test]
-    fn a_jump_does_not_transport_an_incomplete_language_unit() {
+    fn a_copy_does_not_transport_an_incomplete_language_unit() {
         // Cells 3–4 of `.+0102` are the last Cell of `01` and the first of
         // `02`: a slice across two Language Units, not one unit to copy.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "   &v", ""], 1);
-        assert_eq!(grids[0], [".+0102  ", "03 &v   ", "        "]);
-        assert_eq!(messages(&plans[0]), vec!["&v has partial or invalid input"]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "   =v", ""], 1);
+        assert_eq!(grids[0], [".+0102  ", "03 =v   ", "        "]);
+        assert_eq!(messages(&plans[0]), vec!["=v has partial or invalid input"]);
     }
 
     #[test]
-    fn a_jump_copies_a_same_tick_result_as_a_language_unit() {
-        // `.+0001` writes `01` on the row below this Tick, and the Jump reads
+    fn a_copy_copies_a_same_tick_result_as_a_language_unit() {
+        // `.+0001` writes `01` on the row below this Tick, and the Copy reads
         // that Cell pair as one aligned Language Unit and relays it.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+0001", "  &>xx"], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[".+0001", "  =>xx"], 1);
         assert_eq!(grids[0][0], ".+0001  ");
-        assert_eq!(grids[0][1], "01&>01  ");
+        assert_eq!(grids[0][1], "01=>01  ");
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1881,9 +1881,9 @@ mod test {
     }
 
     #[test]
-    fn an_out_of_grid_jump_destination_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 1), &["01&>"], 1);
-        assert_eq!(grids[0], ["01&>"]);
+    fn an_out_of_grid_copy_destination_diagnoses_and_writes_nothing() {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(4, 1), &["01=>"], 1);
+        assert_eq!(grids[0], ["01=>"]);
         assert_eq!(
             messages(&plans[0]),
             vec![r#"result "01" falls outside the Grid"#]
@@ -1892,8 +1892,8 @@ mod test {
 
     #[test]
     fn a_relayed_bang_writes_into_empty_source() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  &>"], 1);
-        assert_eq!(grids[0], [".=0101    ", "**&>**    "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  =>"], 1);
+        assert_eq!(grids[0], [".=0101    ", "**=>**    "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1907,10 +1907,10 @@ mod test {
         // south of that write sounds this Tick.
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(12, 3),
-            &[".=0101", "  &>", "    !>007FC4"],
+            &[".=0101", "  =>", "    !>007FC4"],
             1,
         );
-        assert_eq!(grids[0][1], "**&>**      ");
+        assert_eq!(grids[0][1], "**=>**      ");
         assert_eq!(plans[0].play_commands.len(), 1);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1921,12 +1921,12 @@ mod test {
 
     #[test]
     fn a_relayed_bang_activates_a_root() {
-        // Equality Bangs on every Tick; the Jump relays that Bang onto Raw
+        // Equality Bangs on every Tick; the Copy relays that Bang onto Raw
         // Play. The Play Command is the evidence the root was activated
         // without its Source being overwritten.
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(12, 2), &[".=0101", "  &>!>007FC4"], 1);
-        assert_eq!(grids[0], [".=0101      ", "**&>!>007FC4"]);
+            tick_by_tick(Grid::with_shape(12, 2), &[".=0101", "  =>!>007FC4"], 1);
+        assert_eq!(grids[0], [".=0101      ", "**=>!>007FC4"]);
         assert_eq!(plans[0].play_commands.len(), 1);
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -1936,13 +1936,13 @@ mod test {
     }
 
     #[test]
-    fn a_relayed_bang_activates_a_root_above_the_jump() {
-        // MIDI sits at the earliest Position. A North Jump below it relays
+    fn a_relayed_bang_activates_a_root_above_the_copy() {
+        // MIDI sits at the earliest Position. A North Copy below it relays
         // Bang onto that root, so the Play Command is also the evidence that
-        // the schedule ordered the Jump first.
+        // the schedule ordered the Copy first.
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(10, 3),
-            &["!>007FC4", "&^  .=0101", "  &<"],
+            &["!>007FC4", "=^  .=0101", "  =<"],
             1,
         );
         assert_eq!(grids[0][0], "!>007FC4  ");
@@ -1956,11 +1956,11 @@ mod test {
 
     #[test]
     fn a_relayed_bang_on_an_occupied_non_root_diagnoses_and_writes_nothing() {
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  &>xx"], 1);
-        assert_eq!(grids[0], [".=0101    ", "**&>xx    "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".=0101", "  =>xx"], 1);
+        assert_eq!(grids[0], [".=0101    ", "**=>xx    "]);
         assert_eq!(
             messages(&plans[0]),
-            vec!["&> cannot activate an occupied non-root"]
+            vec!["=> cannot activate an occupied non-root"]
         );
     }
 
@@ -1968,23 +1968,23 @@ mod test {
     fn a_copied_function_is_not_actionable_until_the_next_snapshot() {
         // `>>` copied this Tick is in the Grid but not in the Snapshot the
         // schedule was built from, so it first moves on the following Tick.
-        // Delay Bangs once; `*>` emits `>>`; the Jump copies that spelling.
+        // Delay Bangs once; `*>` emits `>>`; the Copy copies that spelling.
         // The copy sits at columns 8–9 on this Tick. If it were actionable
         // from the Snapshot that wrote it, it would already have moved to 9.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(16, 2), &["~*0401", "  *>  &>"], 1);
-        assert_eq!(grids[0][1], "***>>>&>>>      ");
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(16, 2), &["~*0401", "  *>  =>"], 1);
+        assert_eq!(grids[0][1], "***>>>=>>>      ");
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
     }
 
     #[test]
-    fn a_jump_below_its_consumer_reaches_it_the_same_tick() {
-        // Backward routing is ordinary: the Jump is below Addition and still
+    fn a_copy_below_its_consumer_reaches_it_the_same_tick() {
+        // Backward routing is ordinary: the Copy is below Addition and still
         // supplies `02` in time for `03` to be written this Tick.
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(6, 3), &[".+  02", "  &^", "  01"], 1);
-        assert_eq!(grids[0], [".+0102", "03&^  ", "  01  "]);
+            tick_by_tick(Grid::with_shape(6, 3), &[".+  02", "  =^", "  01"], 1);
+        assert_eq!(grids[0], [".+0102", "03=^  ", "  01  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1993,17 +1993,17 @@ mod test {
     }
 
     #[test]
-    fn a_nested_jump_reads_a_same_tick_write_at_its_input_portal() {
-        // Nested `&^` reads the Portal one row south and writes the unit it
-        // copies one row north. The root Jump lands `01` at its input this
-        // Tick; without that read span the nested Jump would run first and
+    fn a_nested_copy_reads_a_same_tick_write_at_its_input_portal() {
+        // Nested `=^` reads the Portal one row south and writes the unit it
+        // copies one row north. The root Copy lands `01` at its input this
+        // Tick; without that read span the nested Copy would run first and
         // copy empty Source.
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(6, 5),
-            &["", ".+&^01", "", "  &^", "  01"],
+            &["", ".+=^01", "", "  =^", "  01"],
             1,
         );
-        assert_eq!(grids[0], ["  01  ", ".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert_eq!(grids[0], ["  01  ", ".+=^01", "0201  ", "  =^  ", "  01  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2013,8 +2013,8 @@ mod test {
         // On the top row its output Portal leaves the Grid. That write is
         // refused and diagnosed, and the Return still reaches the parent.
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
-        assert_eq!(grids[0], [".+&^01", "0201  ", "  &^  ", "  01  "]);
+            tick_by_tick(Grid::with_shape(6, 4), &[".+=^01", "", "  =^", "  01"], 1);
+        assert_eq!(grids[0], [".+=^01", "0201  ", "  =^  ", "  01  "]);
         assert_eq!(
             messages(&plans[0]),
             ["result \"01\" falls outside the Grid"]
@@ -2023,10 +2023,10 @@ mod test {
 
     #[test]
     fn a_cycle_is_diagnosed_at_a_computation_on_it() {
-        // The nested `&<` writes over its parent's anchor, which covers the
-        // Jump itself, so the Jump is the computation the cycle runs through.
+        // The nested `=<` writes over its parent's anchor, which covers the
+        // Copy itself, so the Copy is the computation the cycle runs through.
         // The parent only waits on it, and is not where the cycle is.
-        let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+&<01"], 1);
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(6, 1), &[".+=<01"], 1);
         assert_eq!(anchors(&plans[0]), [(2, 0, "same-Tick dependency cycle")]);
     }
 
@@ -2035,15 +2035,15 @@ mod test {
         // The cycle writes over the `00` the Note Function reads, but nothing
         // activates the Note Function this Tick, so it would take no Turn
         // with the cycle gone either, and has nothing to wait for.
-        let (plans, _, _) = tick_by_tick(Grid::with_shape(8, 3), &["  .+&<01", "!>007FC4", ""], 1);
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(8, 3), &["  .+=<01", "!>007FC4", ""], 1);
         assert_eq!(anchors(&plans[0]), [(4, 0, "same-Tick dependency cycle")]);
     }
 
     #[test]
     fn each_separate_cycle_is_diagnosed_once() {
-        // Two Additions, each with a nested `&<` writing over it: neither
-        // cycle reaches the other, so each is diagnosed at its own Jump.
-        let (plans, _, _) = tick_by_tick(Grid::with_shape(14, 1), &[".+&<01  .+&<01"], 1);
+        // Two Additions, each with a nested `=<` writing over it: neither
+        // cycle reaches the other, so each is diagnosed at its own Copy.
+        let (plans, _, _) = tick_by_tick(Grid::with_shape(14, 1), &[".+=<01  .+=<01"], 1);
         assert_eq!(
             anchors(&plans[0]),
             [
@@ -2057,9 +2057,9 @@ mod test {
     fn a_cycle_leaves_an_independent_expression_publishing() {
         // ADR 0065: the cycle stops its own Expression, and the Addition beside
         // it, which depends on nothing there, writes `03` every Tick.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &[".+&<01  .+0102"], 3);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &[".+=<01  .+0102"], 3);
         for (plan, rows) in plans.iter().zip(&grids) {
-            assert_eq!(rows, &[".+&<01  .+0102", "        03    "]);
+            assert_eq!(rows, &[".+=<01  .+0102", "        03    "]);
             assert_eq!(messages(plan), ["same-Tick dependency cycle"]);
         }
     }
@@ -2067,10 +2067,10 @@ mod test {
     #[test]
     fn an_expression_a_cycle_stops_is_diagnosed_at_its_root_as_waiting() {
         // The lower Addition reads `00`, which the upper one writes over, so
-        // it waits on the cycle the `&<` runs through and holds no part of it.
+        // it waits on the cycle the `=<` runs through and holds no part of it.
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(8, 3), &["  .+&<01", ".+0001", ""], 1);
-        assert_eq!(grids[0], ["  .+&<01", ".+0001  ", "        "]);
+            tick_by_tick(Grid::with_shape(8, 3), &["  .+=<01", ".+0001", ""], 1);
+        assert_eq!(grids[0], ["  .+=<01", ".+0001  ", "        "]);
         assert_eq!(
             anchors(&plans[0]),
             [
@@ -2236,14 +2236,14 @@ mod test {
 
     #[test]
     fn a_nested_output_portal_orders_an_earlier_consumer_after_its_writer() {
-        // The nested North Jump copies `05` from below it into the second
+        // The nested North Copy copies `05` from below it into the second
         // operand of the Addition on the row above. That Addition comes first
-        // in Grid order, so only the Jump's reservation orders it after the
-        // write; read in Grid order it would execute over `00` and the Jump's
+        // in Grid order, so only the Copy's reservation orders it after the
+        // write; read in Grid order it would execute over `00` and the Copy's
         // write would then reach a computation that had already run.
         let (plans, grids, _) =
-            tick_by_tick(Grid::with_shape(8, 3), &[".+0000", "  .+&^01", "    05"], 1);
-        assert_eq!(grids[0], [".+0005  ", "05.+&^01", "  0605  "]);
+            tick_by_tick(Grid::with_shape(8, 3), &[".+0000", "  .+=^01", "    05"], 1);
+        assert_eq!(grids[0], [".+0005  ", "05.+=^01", "  0605  "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2252,11 +2252,11 @@ mod test {
     }
 
     #[test]
-    fn a_jump_that_closes_a_same_tick_cycle_is_diagnosed() {
-        // Increment reads and writes one row south. A Jump that copies
+    fn a_copy_that_closes_a_same_tick_cycle_is_diagnosed() {
+        // Increment reads and writes one row south. A Copy that copies
         // that Cell pair back onto Increment's operand closes a cycle.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", "&^"], 1);
-        assert_eq!(grids[0], ["~+0104", "&^    "]);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", "=^"], 1);
+        assert_eq!(grids[0], ["~+0104", "=^    "]);
         assert!(
             plans[0]
                 .diagnostics
@@ -2444,12 +2444,12 @@ mod test {
     }
 
     #[test]
-    fn halt_does_not_supply_cells_read_by_a_jump() {
-        // Halt targets the empty Cells west of East Jump. Treating that lock
-        // as a write closes a false cycle through both other Jumps and Equality.
+    fn halt_does_not_supply_cells_read_by_a_copy() {
+        // Halt targets the empty Cells west of East Copy. Treating that lock
+        // as a write closes a false cycle through both other Copies and Equality.
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(8, 3),
-            &[".=0101&<", "  *!  &^", "    &>  "],
+            &[".=0101=<", "  *!  =^", "    =>  "],
             1,
         );
         assert!(
@@ -2457,7 +2457,7 @@ mod test {
             "{:?}",
             plans[0].diagnostics
         );
-        assert_eq!(grids[0], [".=0101  ", "***!  &^", "    &>  "]);
+        assert_eq!(grids[0], [".=0101  ", "***!  =^", "    =>  "]);
         assert!(plans[0].locks.is_empty());
         assert!(plans[0].play_commands.is_empty());
     }
@@ -2832,17 +2832,17 @@ mod test {
     }
 
     #[test]
-    fn an_active_halt_locks_a_south_root_that_would_jump_onto_it() {
-        // `&^` is intrinsically active and overwrites occupied Cells. Its
+    fn an_active_halt_locks_a_south_root_that_would_copy_onto_it() {
+        // `=^` is intrinsically active and overwrites occupied Cells. Its
         // output Portal is Halt. The lock wins: the Tick is ordered, Halt
         // stays, and `01` is not copied onto it.
         let (plans, grids, source) = tick_by_tick(
             Grid::with_shape(8, 4),
-            &[".=0101  ", "  *!    ", "  &^    ", "  01    "],
+            &[".=0101  ", "  *!    ", "  =^    ", "  01    "],
             1,
         );
 
-        assert_eq!(grids[0], [".=0101  ", "***!    ", "  &^    ", "  01    "]);
+        assert_eq!(grids[0], [".=0101  ", "***!    ", "  =^    ", "  01    "]);
         assert_eq!(
             plans[0].locks,
             vec![source.grid().position(2, 2).expect("inside the Grid")]
@@ -3744,7 +3744,7 @@ mod test {
         // second operand written, the same `G4` diagnoses the same way.
         let grid = Grid::with_shape(8, 3);
         let tick = |rows: &[&str]| super::observed::observe_at(grid, rows, [0]).remove(0);
-        for rows in [&[".+    ", "  &^", "  G4"][..], &[".+  01", "  &^", "  G4"]] {
+        for rows in [&[".+    ", "  =^", "  G4"][..], &[".+  01", "  =^", "  G4"]] {
             let decoded = tick(rows);
             assert_eq!(&decoded.rows[0][2..4], "G4", "{rows:?}");
             assert_eq!(
@@ -3778,11 +3778,11 @@ mod test {
 
     #[test]
     fn a_nested_function_invalid_on_an_unwritten_slot_fails_its_parent() {
-        // The Jump north copies the empty Cells below it over `.^`'s operand,
+        // The Copy north copies the empty Cells below it over `.^`'s operand,
         // so `.^` is invalid at its Turn and gives the Addition no operand.
         // Both are diagnosed.
         let grid = Grid::with_shape(8, 4);
-        let observed = super::observed::observe_at(grid, &[".+01.^43", "      &^"], [0]).remove(0);
+        let observed = super::observed::observe_at(grid, &[".+01.^43", "      =^"], [0]).remove(0);
         assert_eq!(observed.rows[0], ".+01.^  ");
         assert_eq!(
             observed.diagnostics,
@@ -4316,14 +4316,14 @@ mod test {
     fn one_bang_activates_every_aligned_timed_play_root_as_one_chord() {
         // A chord is several Timed Play roots that one Bang activates, each
         // answering its own Play Command. Equality writes `**` below itself,
-        // and two Jumps relay it east to (8, 1), where its cardinal anchors
+        // and two Copies relay it east to (8, 1), where its cardinal anchors
         // hold three Timed Play roots: north (8, 0), east (10, 1) and south
         // (8, 2). The roots take their Turns in anchor order once the Bang
         // has settled, so the chord reads C4, E4, G4 on every Tick.
         let grid = Grid::with_shape(20, 3);
         let rows = [
             ".=0101  !~017FC404",
-            "  &>  &>  !~017FE404",
+            "  =>  =>  !~017FE404",
             "        !~017FG404",
         ];
         let timed = |note: u8| PlayCommand::Timed {
@@ -4336,7 +4336,7 @@ mod test {
         let (plans, grids, _) = tick_by_tick(grid, &rows, 2);
 
         assert_eq!(
-            grids[0][1], "**&>**&>**!~017FE404",
+            grids[0][1], "**=>**=>**!~017FE404",
             "the Bang was relayed to (8, 1)"
         );
         for plan in &plans {
@@ -5832,7 +5832,7 @@ mod nested_property {
             tick.diagnostics
         );
         // An Expression that parsed has no syntax error for a block to defer
-        // to. A Jump inside it that copies empty Cells into the operand chain
+        // to. A Copy inside it that copies empty Cells into the operand chain
         // leaves a slot unwritten, which makes the root invalid and diagnoses.
         let root = Function::try_from(&source[..2]).unwrap();
         if root.is_intrinsically_active() {

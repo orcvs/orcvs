@@ -121,8 +121,8 @@ impl Interpreter {
             Function::Euclidean => tick::euclidean(&mut ctx)?,
             Function::Increment => tick::increment(&mut ctx)?,
             Function::Interpolation => tick::interpolation(&mut ctx)?,
-            Function::JumpEast | Function::JumpNorth | Function::JumpSouth | Function::JumpWest => {
-                functions::jump::jump(&mut ctx, function)?
+            Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
+                functions::copy::copy(&mut ctx, function)?
             }
             Function::Random => tick::random(&mut ctx)?,
             Function::Track => functions::track::track(&mut ctx)?,

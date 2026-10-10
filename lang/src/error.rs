@@ -116,13 +116,13 @@ pub enum InterpretationError {
         role: &'static str,
     },
 
-    /// A Jump's input Portal did not hold one complete aligned Language Unit.
+    /// A Copy's input Portal did not hold one complete aligned Language Unit.
     ///
     /// Empty and Bang are legal inputs; a partial pair or a slice across two
-    /// units is not. `function` is the Jump the Source
+    /// units is not. `function` is the Copy the Source
     /// wrote so the message names those Cells.
     #[error("{function} has partial or invalid input")]
-    JumpInput { function: crate::Function },
+    CopyInput { function: crate::Function },
 
     /// Increment or Interpolation computed a Number their answer cannot hold.
     ///

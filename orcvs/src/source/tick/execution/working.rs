@@ -25,7 +25,7 @@ use crate::source::buffer::WorkingCells;
 /// What an admitted write does to placement geometry besides its Cells.
 #[derive(Clone, Copy)]
 pub(super) enum WriteKind {
-    /// Ordinary Source content: a value, a Jump's copy, or the cleanup of a
+    /// Ordinary Source content: a value, a Copy's write, or the cleanup of a
     /// prior Bang display. It obscures nothing, and an intact placement it
     /// reaches stops being one unit.
     Output,
@@ -115,7 +115,7 @@ impl<'a> WorkingSource<'a> {
     }
 
     ///
-    /// The pair at `portal` when it is one complete aligned unit Jump may
+    /// The pair at `portal` when it is one complete aligned unit a Copy may
     /// copy, or `None` where it is not.
     ///
     /// Invalid and partial input stay absent so the Interpreter diagnoses

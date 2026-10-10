@@ -1,4 +1,4 @@
-use super::jump::jump;
+use super::copy::copy;
 use crate::{
     Atom, Error, Function, InterpretationError, atom::operands::Track, interpreter::Context,
     stack::Operands,
@@ -6,12 +6,12 @@ use crate::{
 
 /// Track: `@t index count`.
 ///
-/// The Language Unit at the pair its operands select, read as a Jump reads its
+/// The Language Unit at the pair its operands select, read as a Copy reads its
 /// Input Portal. The Turn supplies the Cells of that pair, so evaluation binds
-/// the operands, refuses a zero `count`, and answers what Jump would.
+/// the operands, refuses a zero `count`, and answers what a Copy would.
 pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
     selected_pair(ctx.stack.extract::<Track>()?)?;
-    jump(ctx, Function::Track)
+    copy(ctx, Function::Track)
 }
 
 /// The pair Track selects from the operands its Turn resolved, counted from
@@ -95,15 +95,15 @@ mod test {
     }
 
     #[test]
-    fn track_answers_what_a_jump_answers_for_the_same_cells() {
+    fn track_answers_what_a_copy_answers_for_the_same_cells() {
         for cells in ["D4", "01", "**", "  ", ".+"] {
             assert_eq!(
                 track(1, 3, Some(cells)).unwrap(),
-                evaluate(Function::JumpEast, [], Some(cells)).unwrap(),
+                evaluate(Function::CopyEast, [], Some(cells)).unwrap(),
                 "{cells:?}"
             );
         }
-        // Read as a Jump reads it: Number before Note, so `D4` is `0xD4`
+        // Read as a Copy reads it: Number before Note, so `D4` is `0xD4`
         // and `G4`, which spells no Number, is the Note.
         assert_eq!(
             track(1, 3, Some("D4")).unwrap(),
@@ -116,7 +116,7 @@ mod test {
         assert!(matches!(
             track(1, 3, Some("xx")),
             Err(crate::Error::Interpretation(
-                InterpretationError::JumpInput {
+                InterpretationError::CopyInput {
                     function: Function::Track
                 }
             ))

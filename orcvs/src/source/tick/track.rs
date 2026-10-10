@@ -1,7 +1,7 @@
 //! Track, `@t index count`, read as a performer sees it Tick after Tick.
 //!
 //! Track reads the Cell pair `index % count` pairs east of its last operand
-//! with Jump's rules, and writes what it reads through its Output Portal. The
+//! with Copy's rules, and writes what it reads through its Output Portal. The
 //! pair is known only at Track's Turn, so these tests also state the order
 //! that Turn takes against the writers of the Cells it reads.
 
@@ -78,7 +78,7 @@ fn a_nested_index_or_count_moves_the_pairs_east_with_the_last_operand() {
 }
 
 #[test]
-fn track_answers_what_a_jump_answers_for_the_cells_it_reads() {
+fn track_answers_what_a_copy_answers_for_the_cells_it_reads() {
     let grid = Grid::with_shape(12, 2);
     // Empty Cells clear the Output Portal.
     assert_eq!(
@@ -107,7 +107,7 @@ fn track_answers_what_a_jump_answers_for_the_cells_it_reads() {
 #[test]
 fn a_function_track_copies_replaces_the_function_where_it_lands() {
     // Track writes `.+` over the anchor of `.-0302`, which then answers as
-    // Add in the same Tick, as a Jump's copy would make it. The `.+0101`
+    // Add in the same Tick, as a Copy's write would make it. The `.+0101`
     // Track reads from is itself a root and writes `02` south.
     let tick = first(Grid::with_shape(14, 3), &["@t0102C4.+0101", ".-0302"]);
     assert_eq!(
@@ -198,7 +198,7 @@ fn a_zero_count_diagnoses_at_the_turn() {
 }
 
 #[test]
-fn a_pair_past_the_row_edge_diagnoses_as_a_jump_input_outside_the_grid_does() {
+fn a_pair_past_the_row_edge_diagnoses_as_a_copy_input_outside_the_grid_does() {
     // Both leave their Output Portal as it was and diagnose the read.
     let tick = first(Grid::with_shape(12, 2), &["@t0304C4D4E4", "xx"]);
     assert_eq!(tick.rows[1], "xx          ");
@@ -206,12 +206,12 @@ fn a_pair_past_the_row_edge_diagnoses_as_a_jump_input_outside_the_grid_does() {
         tick.diagnostics,
         [diagnostic(0, 0, "@t has partial or invalid input")]
     );
-    // `&>` at (0, 0) reads the two Cells west of it, outside the Grid.
-    let jump = first(Grid::with_shape(12, 2), &["&>", "xx"]);
-    assert_eq!(jump.rows[1], "xx          ");
+    // `=>` at (0, 0) reads the two Cells west of it, outside the Grid.
+    let copy = first(Grid::with_shape(12, 2), &["=>", "xx"]);
+    assert_eq!(copy.rows[1], "xx          ");
     assert_eq!(
-        jump.diagnostics,
-        [diagnostic(0, 0, "&> has partial or invalid input")]
+        copy.diagnostics,
+        [diagnostic(0, 0, "=> has partial or invalid input")]
     );
 }
 
@@ -252,11 +252,11 @@ fn a_clock_writing_the_index_is_read_the_same_tick() {
 
 #[test]
 fn a_writer_below_the_selected_pair_takes_its_turn_first() {
-    // `&^` at (8, 1) copies `D4` from (8, 2) into pair 1. It stands after
+    // `=^` at (8, 1) copies `D4` from (8, 2) into pair 1. It stands after
     // Track in Grid order, so Track waits for it.
     let grid = Grid::with_shape(12, 3);
-    let rows = ["@t0103C4  E4", "        &^", "        D4"];
-    assert_eq!(first(grid, &rows).rows[1], "D4      &^  ");
+    let rows = ["@t0103C4  E4", "        =^", "        D4"];
+    assert_eq!(first(grid, &rows).rows[1], "D4      =^  ");
     let turns = turns(grid, &rows);
     assert!(turns[&(8, 1)] < turns[&(0, 0)], "{turns:?}");
 }
@@ -267,18 +267,18 @@ fn a_deferred_track_and_independent_addition_run_beside_a_stopped_cycle() {
         Grid::with_shape(24, 5),
         &[
             "@t0103C4  E4",
-            "        &^      .+0102",
-            "        D4      &v",
-            "                &^",
+            "        =^      .+0102",
+            "        D4      =v",
+            "                =^",
         ],
     );
     assert_eq!(
         tick.rows,
         [
             "@t0103C4D4E4            ",
-            "D4      &^      .+0102  ",
+            "D4      =^      .+0102  ",
             "        D4      03      ",
-            "                &^      ",
+            "                =^      ",
             "                        ",
         ]
     );
@@ -290,9 +290,9 @@ fn a_deferred_track_and_independent_addition_run_beside_a_stopped_cycle() {
 
 #[test]
 fn a_writer_east_of_the_selected_pair_takes_its_turn_first() {
-    // `&<` at (10, 0) copies `D4` from (12, 0) into pair 1.
+    // `=<` at (10, 0) copies `D4` from (12, 0) into pair 1.
     let grid = Grid::with_shape(14, 2);
-    let rows = ["@t0104C4  &<D4"];
+    let rows = ["@t0104C4  =<D4"];
     assert_eq!(first(grid, &rows).rows[1], "D4            ");
     let turns = turns(grid, &rows);
     assert!(turns[&(10, 0)] < turns[&(0, 0)], "{turns:?}");
@@ -301,8 +301,8 @@ fn a_writer_east_of_the_selected_pair_takes_its_turn_first() {
 #[test]
 fn a_writer_of_an_unselected_pair_is_not_ordered_against_track() {
     let grid = Grid::with_shape(12, 3);
-    let rows = ["@t0003C4  E4", "        &^", "        D4"];
-    assert_eq!(first(grid, &rows).rows[1], "C4      &^  ");
+    let rows = ["@t0003C4  E4", "        =^", "        D4"];
+    assert_eq!(first(grid, &rows).rows[1], "C4      =^  ");
     let turns = turns(grid, &rows);
     assert_eq!(turns[&(0, 0)], Some(0), "{turns:?}");
     assert!(turns[&(0, 0)] < turns[&(8, 1)], "{turns:?}");
@@ -372,13 +372,13 @@ fn a_timed_play_plays_the_note_a_nested_track_supplies() {
 
 #[test]
 fn a_track_reading_cells_a_stopped_cycle_writes_waits_on_the_cycle() {
-    // `.+0102` at (8, 0) writes over the `&^` below it, and the `&^` copies
+    // `.+0102` at (8, 0) writes over the `=^` below it, and the `=^` copies
     // its empty input over the Addition's spelling: a cycle the schedule
     // stops. Track's pair 1 is the Cells the Addition writes, so Track
-    // depends on the stopped Addition and is stopped with it, as a Jump
+    // depends on the stopped Addition and is stopped with it, as a Copy
     // reading those Cells is.
     let grid = Grid::with_shape(14, 3);
-    let tick = first(grid, &["        .+0102", "@t0103C4&^E4", "xx"]);
+    let tick = first(grid, &["        .+0102", "@t0103C4=^E4", "xx"]);
     assert_eq!(tick.rows[2], "xx            ");
     assert_eq!(
         tick.diagnostics,
@@ -387,11 +387,11 @@ fn a_track_reading_cells_a_stopped_cycle_writes_waits_on_the_cycle() {
             diagnostic(0, 1, "waiting on a same-Tick dependency cycle"),
         ]
     );
-    // The `&>` at (10, 1) reads the same Cells through an anchored Input
+    // The `=>` at (10, 1) reads the same Cells through an anchored Input
     // Portal.
-    let jump = first(grid, &["        .+0102", "        &^&>"]);
+    let copy = first(grid, &["        .+0102", "        =^=>"]);
     assert_eq!(
-        jump.diagnostics,
+        copy.diagnostics,
         [
             diagnostic(8, 0, "same-Tick dependency cycle"),
             diagnostic(10, 1, "waiting on a same-Tick dependency cycle"),
@@ -421,13 +421,13 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
     // `.+0003` at (8, 0) writes `03` over the anchor of the nested `.+0102`,
     // which suppresses it, so the count ends at column 10 and pair 2 is the
     // empty pair at column 14, past the Cells the suppressed Function
-    // claimed. The `&^` at (14, 2) writes `D4` there after Track in Grid
+    // claimed. The `=^` at (14, 2) writes `D4` there after Track in Grid
     // order, so Track waits for it and reads `D4` on its retried Turn.
     let grid = Grid::with_shape(20, 4);
     let rows = [
         "        .+0003",
         "@t.+0002.+0102  E4F4",
-        "              &^",
+        "              =^",
         "              D4",
     ];
     let tick = first(grid, &rows);
@@ -437,7 +437,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
         [
             "        .+0003      ",
             "@t.+0002030102D4E4F4",
-            "D402          &^    ",
+            "D402          =^    ",
             "              D4    ",
         ]
     );
@@ -464,8 +464,8 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
             ((14, 2), 1),
         ])
     );
-    // The schedule built before the Tick orders Track ahead of the `&^`, so
-    // the `&^` taking the earlier Turn is Track's wait.
+    // The schedule built before the Tick orders Track ahead of the `=^`, so
+    // the `=^` taking the earlier Turn is Track's wait.
     let scheduled = |x, y| {
         schedule
             .order
@@ -504,14 +504,14 @@ fn a_count_a_portal_writes_this_tick_is_read_at_the_turn() {
 
 #[test]
 fn a_writer_that_waits_on_track_through_the_source_forms_a_cycle() {
-    // Track writes (0, 1), which the `&>` at (2, 1) copies to (4, 1), which
-    // the `&>` at (6, 1) copies over the `&^` at (8, 1). That `&^` writes
+    // Track writes (0, 1), which the `=>` at (2, 1) copies to (4, 1), which
+    // the `=>` at (6, 1) copies over the `=^` at (8, 1). That `=^` writes
     // Track's pair 1, so Track finds at its Turn that it waits on a writer
-    // that waits on it. The `&>` at (10, 1) reads Cells the cycle writes and
+    // that waits on it. The `=>` at (10, 1) reads Cells the cycle writes and
     // waits on it, and the Addition below depends on none of it.
     let tick = first(
         Grid::with_shape(14, 5),
-        &["@t0103C4  E4", "  &>  &>&^&>", "        D4", ".+0102"],
+        &["@t0103C4  E4", "  =>  =>=^=>", "        D4", ".+0102"],
     );
     assert_eq!(
         tick.diagnostics,
@@ -524,7 +524,7 @@ fn a_writer_that_waits_on_track_through_the_source_forms_a_cycle() {
         tick.rows,
         [
             "@t0103C4  E4  ",
-            "  &>  &>&^&>  ",
+            "  =>  =>=^=>  ",
             "        D4    ",
             ".+0102        ",
             "03            ",
@@ -577,21 +577,21 @@ fn all_empty_pairs_clear_the_output_portal_without_a_diagnostic() {
 
 #[test]
 fn a_partial_write_to_the_selected_pair_completes_it_cell_by_cell() {
-    // `&^` at (7, 1) copies `4D` into Cells 7 and 8. Cell 7 already holds
+    // `=^` at (7, 1) copies `4D` into Cells 7 and 8. Cell 7 already holds
     // `4`, and Cell 8 begins pair 1, whose Cell 9 holds `4` in the Source:
     // Track reads the `D4` the write and the Source make together.
     let grid = Grid::with_shape(12, 3);
-    let tick = first(grid, &["@t0103C4 4E4", "       &^", "       4D"]);
+    let tick = first(grid, &["@t0103C4 4E4", "       =^", "       4D"]);
     assert_eq!(tick.rows[0], "@t0103C4D4E4");
     assert_eq!(&tick.rows[1][..2], "D4");
 }
 
 #[test]
 fn competing_writes_to_the_selected_pair_reach_track_as_they_reach_the_source() {
-    // `&<` at (10, 0) and `&^` at (8, 1) both write pair 1. The later Turn
+    // `=<` at (10, 0) and `=^` at (8, 1) both write pair 1. The later Turn
     // wins each Cell, and Track reads the pair after both.
     let grid = Grid::with_shape(14, 3);
-    let rows = ["@t0104C4  &<D4", "        &^", "        E4"];
+    let rows = ["@t0104C4  =<D4", "        =^", "        E4"];
     let tick = first(grid, &rows);
     assert_eq!(&tick.rows[1][..2], &tick.rows[0][8..10]);
     assert_eq!(&tick.rows[1][..2], "E4");
@@ -602,11 +602,11 @@ fn competing_writes_to_the_selected_pair_reach_track_as_they_reach_the_source() 
 
 #[test]
 fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
-    // `.+0001` answers Track's index `01`, then Track waits for the `&^` that
+    // `.+0001` answers Track's index `01`, then Track waits for the `=^` that
     // writes pair 1. Its retried Turn reads the same Return, and the
     // Addition is interpreted once.
     let grid = Grid::with_shape(16, 3);
-    let rows = ["@t.+000103C4  E4", "            &^", "            D4"];
+    let rows = ["@t.+000103C4  E4", "            =^", "            D4"];
     let source = source_of(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
@@ -618,26 +618,26 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
         .position(|node| (node.anchor.x(), node.anchor.y()) == (2, 0))
         .expect("the nested Addition");
     assert_eq!(states[addition].interpretations(), 1);
-    assert_eq!(first(grid, &rows).rows[1], "D401        &^  ");
+    assert_eq!(first(grid, &rows).rows[1], "D401        =^  ");
     let turns = anchored_turns(&source, &states);
     assert!(turns[&(12, 1)] < turns[&(0, 0)], "{turns:?}");
 }
 
 #[test]
 fn a_cycle_a_track_finds_after_another_track_waited_is_diagnosed_as_one_found_first() {
-    // The Track at (0, 0) waits for the `&^` at (8, 1), so the rest of the
+    // The Track at (0, 0) waits for the `=^` at (8, 1), so the rest of the
     // Tick is ordered from its Turn on. The Track at (0, 3) then finds that
-    // its pair 1 is written by the `&^` at (8, 4), which waits on it through
-    // the two `&>`. The `&>` at (10, 4) reads Cells the cycle writes, and the
+    // its pair 1 is written by the `=^` at (8, 4), which waits on it through
+    // the two `=>`. The `=>` at (10, 4) reads Cells the cycle writes, and the
     // Addition depends on none of it.
     let tick = first(
         Grid::with_shape(14, 8),
         &[
             "@t0103C4  E4",
-            "        &^",
+            "        =^",
             "        D4",
             "@t0103C4  E4",
-            "  &>  &>&^&>",
+            "  =>  =>=^=>",
             "        D4",
             ".+0102",
         ],
@@ -653,10 +653,10 @@ fn a_cycle_a_track_finds_after_another_track_waited_is_diagnosed_as_one_found_fi
         tick.rows,
         [
             "@t0103C4D4E4  ",
-            "D4      &^    ",
+            "D4      =^    ",
             "        D4    ",
             "@t0103C4  E4  ",
-            "  &>  &>&^&>  ",
+            "  =>  =>=^=>  ",
             "        D4    ",
             ".+0102        ",
             "03            ",
@@ -667,7 +667,7 @@ fn a_cycle_a_track_finds_after_another_track_waited_is_diagnosed_as_one_found_fi
 #[test]
 fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
     let grid = Grid::with_shape(18, 4);
-    let source = source_of(grid, &[".+@t0304.x0203", "&^        &>", ".+0102"]);
+    let source = source_of(grid, &[".+@t0304.x0203", "=^        =>", ".+0102"]);
     let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
     let site = |x, y| grid.position(x, y).expect("inside the Grid");
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(14, 0)])].into();
@@ -701,7 +701,7 @@ fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
 #[test]
 fn a_late_cycle_preserves_a_completed_nested_operands_write() {
     let grid = Grid::with_shape(22, 4);
-    let source = source_of(grid, &[".+@t.+000304.x0203", "&^            &>", ".+0102"]);
+    let source = source_of(grid, &[".+@t.+000304.x0203", "=^            =>", ".+0102"]);
     let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
     let site = |x, y| grid.position(x, y).expect("inside the Grid");
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(18, 0)])].into();
@@ -759,7 +759,7 @@ fn a_completed_operands_consumer_survives_a_late_cycle_after_an_earlier_wait() {
     for earlier_wait in ["", "@t0001"] {
         let source = source_of(
             grid,
-            &[earlier_wait, ".+@t.+000304.x0203", "&^    &>", ".x0102"],
+            &[earlier_wait, ".+@t.+000304.x0203", "=^    =>", ".x0102"],
         );
         let destinations: BTreeMap<CellIndex, Vec<Position>> = [
             (cell(0, 0), vec![site(18, 4)]),

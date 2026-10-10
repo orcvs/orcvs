@@ -600,7 +600,7 @@ macro_rules! define_functions {
             /// One name for a question both crates ask: `signature()` is
             /// `pub(crate)`, so `orcvs` cannot ask the slice. It is a fact
             /// about the declaration and not about a Function group — the
-            /// Jumps, Halt and the Directional Bang Functions declare no
+            /// Copies, Halt and the Directional Bang Functions declare no
             /// operand either — so a caller that means "is a Self-Banging
             /// Function" should ask [`Function::source_effect`] instead, and
             /// read the bundle it answers: both groups declare an effect, and
@@ -687,10 +687,10 @@ define_functions! {
     Halt => ("*!", Halt, Bang, false, []),
     Increment => ("~+", Value, Intrinsic, false, [step: Number, modulus: Number], portal: "previous value": Number),
     Interpolation => ("~>", Value, Intrinsic, false, [rate: Number, target: Number], portal: "previous value": Number),
-    JumpEast => ("&>", Value, Intrinsic, true, []),
-    JumpNorth => ("&^", Value, Intrinsic, true, []),
-    JumpSouth => ("&v", Value, Intrinsic, true, []),
-    JumpWest => ("&<", Value, Intrinsic, true, []),
+    CopyEast => ("=>", Value, Intrinsic, true, []),
+    CopyNorth => ("=^", Value, Intrinsic, true, []),
+    CopySouth => ("=v", Value, Intrinsic, true, []),
+    CopyWest => ("=<", Value, Intrinsic, true, []),
     Maximum => (".>", Value, Intrinsic, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Intrinsic, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Intrinsic, false, [left: Number, right: Number]),
@@ -840,22 +840,22 @@ impl Function {
     /// Terminal Output and Source-writing Functions name none here: the former
     /// has no Cell destination, and the latter keeps its destinations on
     /// [`Function::source_effect`]. Every other Function names one row south
-    /// unless it is a Jump, which names the Portal its direction writes
+    /// unless it is a Copy, which names the Portal its direction writes
     /// through.
     pub const fn output_portal(self) -> Option<crate::PortalCoords> {
         if self.performs_terminal_output() || self.source_effect().is_some() {
             return None;
         }
         Some(match self {
-            Self::JumpEast => crate::PortalCoords {
+            Self::CopyEast => crate::PortalCoords {
                 columns: 2,
                 rows: 0,
             },
-            Self::JumpWest => crate::PortalCoords {
+            Self::CopyWest => crate::PortalCoords {
                 columns: -2,
                 rows: 0,
             },
-            Self::JumpNorth => crate::PortalCoords {
+            Self::CopyNorth => crate::PortalCoords {
                 columns: 0,
                 rows: -1,
             },
@@ -865,7 +865,7 @@ impl Function {
 
     /// The Input Portal this Function names, or `None` when it names none.
     ///
-    /// Jump names the Portal opposite its Output Portal. Increment and
+    /// Copy names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
     /// Those are static. Track's is dynamic, and names the rule by which its
     /// operands select the pair after them.
@@ -873,16 +873,16 @@ impl Function {
         use crate::InputPortal::{Dynamic, Static};
         use crate::PairSelection::IndexModuloCount;
         match self {
-            Self::JumpEast => Some(Static(crate::PortalCoords {
+            Self::CopyEast => Some(Static(crate::PortalCoords {
                 columns: -2,
                 rows: 0,
             })),
-            Self::JumpWest => Some(Static(crate::PortalCoords {
+            Self::CopyWest => Some(Static(crate::PortalCoords {
                 columns: 2,
                 rows: 0,
             })),
-            Self::JumpNorth => Some(Static(crate::PortalCoords::SOUTH)),
-            Self::JumpSouth => Some(Static(crate::PortalCoords {
+            Self::CopyNorth => Some(Static(crate::PortalCoords::SOUTH)),
+            Self::CopySouth => Some(Static(crate::PortalCoords {
                 columns: 0,
                 rows: -1,
             })),
@@ -894,7 +894,7 @@ impl Function {
 
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
-    /// Jump and Track name an Input Portal and bind no typed Portal input.
+    /// Copy and Track name an Input Portal and bind no typed Portal input.
     /// Increment and Interpolation name the same south site as a Number Portal
     /// input, so they are not this: the Cells they read are a value, not a
     /// Language Unit.
@@ -1149,14 +1149,14 @@ mod test {
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
-        // result, and a Jump or Track copies a Bang from its Input Portal. Tick
+        // result, and a Copy or Track copies a Bang from its Input Portal. Tick
         // scheduling trusts the declaration to decide which roots can supply
         // activation, so the list is stated whole — a Function that began
         // returning Bang without declaring it would build no activation edge,
         // and the neighbouring terminal root would fall silent with no
         // diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
-        // other half for operand-reading Functions; the Jumps and Track are
+        // other half for operand-reading Functions; the Copies and Track are
         // exercised on their own path, because each reads its Portal.
         assert_eq!(
             Function::ALL
@@ -1168,10 +1168,10 @@ mod test {
                 Function::Delay,
                 Function::Equality,
                 Function::Euclidean,
-                Function::JumpEast,
-                Function::JumpNorth,
-                Function::JumpSouth,
-                Function::JumpWest,
+                Function::CopyEast,
+                Function::CopyNorth,
+                Function::CopySouth,
+                Function::CopyWest,
                 Function::Track,
             ]
         );
@@ -1188,7 +1188,7 @@ mod test {
             let output = function.output_portal();
             let input = function.input_portal();
             match function {
-                Function::JumpEast => {
+                Function::CopyEast => {
                     assert_eq!(
                         output,
                         Some(PortalCoords {
@@ -1204,7 +1204,7 @@ mod test {
                         }))
                     );
                 }
-                Function::JumpWest => {
+                Function::CopyWest => {
                     assert_eq!(
                         output,
                         Some(PortalCoords {
@@ -1220,7 +1220,7 @@ mod test {
                         }))
                     );
                 }
-                Function::JumpNorth => {
+                Function::CopyNorth => {
                     assert_eq!(
                         output,
                         Some(PortalCoords {
@@ -1230,7 +1230,7 @@ mod test {
                     );
                     assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
                 }
-                Function::JumpSouth => {
+                Function::CopySouth => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(
                         input,
@@ -1520,10 +1520,10 @@ mod test {
                 | Function::Euclidean
                 | Function::Increment
                 | Function::Interpolation
-                | Function::JumpEast
-                | Function::JumpNorth
-                | Function::JumpSouth
-                | Function::JumpWest
+                | Function::CopyEast
+                | Function::CopyNorth
+                | Function::CopySouth
+                | Function::CopyWest
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
@@ -1578,10 +1578,10 @@ mod test {
         assert_eq!(Atom::Function(Function::SelfBangingSouth).to_string(), "vv");
         assert_eq!(Atom::Function(Function::SelfBangingWest).to_string(), "<<");
         assert_eq!(Atom::Function(Function::SelfBangingEast).to_string(), ">>");
-        assert_eq!(Atom::Function(Function::JumpNorth).to_string(), "&^");
-        assert_eq!(Atom::Function(Function::JumpSouth).to_string(), "&v");
-        assert_eq!(Atom::Function(Function::JumpWest).to_string(), "&<");
-        assert_eq!(Atom::Function(Function::JumpEast).to_string(), "&>");
+        assert_eq!(Atom::Function(Function::CopyNorth).to_string(), "=^");
+        assert_eq!(Atom::Function(Function::CopySouth).to_string(), "=v");
+        assert_eq!(Atom::Function(Function::CopyWest).to_string(), "=<");
+        assert_eq!(Atom::Function(Function::CopyEast).to_string(), "=>");
     }
 
     #[test]

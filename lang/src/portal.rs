@@ -36,7 +36,7 @@ impl InputPortal {
                 let columns = operand_columns
                     .checked_add(east)
                     .and_then(|columns| i16::try_from(columns).ok())
-                    .ok_or(InterpretationError::JumpInput {
+                    .ok_or(InterpretationError::CopyInput {
                         function: selection.function(),
                     })?;
                 Ok(PortalCoords {
@@ -421,7 +421,7 @@ mod test {
             assert!(
                 matches!(
                     past(index, operand_columns),
-                    Err(Error::Interpretation(InterpretationError::JumpInput {
+                    Err(Error::Interpretation(InterpretationError::CopyInput {
                         function: Function::Track
                     }))
                 ),

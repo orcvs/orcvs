@@ -7,7 +7,7 @@
 //! change: a future Cell-addressing model, an infinite canvas among them, moves
 //! a result somewhere else without touching Function evaluation, effect
 //! ordering, or Tick Plan commit. Reads, write admission, Reservations,
-//! occupancy, and Jump's Language Unit share its row-fit calculation; each
+//! occupancy, and Copy's Language Unit share its row-fit calculation; each
 //! caller retains the policy deciding how much coverage it needs, and whether
 //! an occupied Portal diagnoses, activates, locks, copies, or stays silent.
 //!
@@ -30,7 +30,7 @@ use super::language_map::{LanguageMap, LanguageUnitKind, Span};
 use super::{CellContent, Cells};
 
 /// The Cell pair one Atom occupies, and the one declaration of it: what a
-/// scalar answer reserves, what a Jump reads at its opposite Portal, and the
+/// scalar answer reserves, what a Copy reads at its opposite Portal, and the
 /// step an Output Portal highlight extends by.
 pub(super) const SCALAR_WIDTH: usize = 2;
 
@@ -62,7 +62,7 @@ pub(super) struct Portal {
 /// those Cells look empty. Working Source vacancy is [`Portal::occupied_in`].
 ///
 /// ADR 0006 and CONTEXT.md keep diagnose-versus-silent with the producer.
-/// Halt, Jump Bang, and a blocked Self-Banging move each read this answer and
+/// Halt, a Copy's Bang output, and a blocked Self-Banging move each read this answer and
 /// apply their own policy.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +78,7 @@ pub(super) enum Occupancy {
 }
 
 ///
-/// The Language Unit occupying a Portal's two Cells, as Jump copies it.
+/// The Language Unit occupying a Portal's two Cells, as a Copy reads it.
 ///
 /// Occupancy is the Snapshot Map. This is working Source at the Portal,
 /// aligned against that Map: Empty and Bang are values even when the Map still
@@ -92,9 +92,9 @@ pub(super) enum PortalUnit {
     Empty,
     /// Working Source holds `**`.
     Bang,
-    /// One complete aligned unit Jump may copy. The Interpreter decodes it.
+    /// One complete aligned unit a Copy may write. The Interpreter decodes it.
     Unit,
-    /// Not one Language Unit Jump may copy.
+    /// Not one Language Unit a Copy may write.
     Invalid,
 }
 
@@ -130,7 +130,7 @@ impl Portal {
     ///
     /// The row below is the default Portal: leaving the Grid there is the row
     /// below, not a displacement the Source wrote. Any other coordinates use
-    /// the same displaced resolution Jump takes.
+    /// the same displaced resolution a Copy takes.
     ///
     pub(super) fn named(
         grid: Grid,
@@ -249,7 +249,7 @@ impl Portal {
     /// holds a non-space in working Source.
     ///
     /// A span that cannot fit answers false: the write path refuses the row
-    /// edge itself. Jump Bang asks this after a root at the destination has
+    /// edge itself. A Copy's Bang output asks this after a root at the destination has
     /// already been offered activation, which is why a cleaned standalone
     /// Bang — empty in working Source, still a unit on the Map — writes
     /// rather than diagnosing.
@@ -265,7 +265,7 @@ impl Portal {
     }
 
     ///
-    /// The Language Unit Jump may copy from the Cell pair one Atom occupies in
+    /// The Language Unit a Copy may read from the Cell pair one Atom occupies in
     /// working Source.
     ///
     pub(super) fn language_unit(self, working: Cells<'_>, map: &LanguageMap) -> PortalUnit {
@@ -409,8 +409,8 @@ impl SpanWrite {
 ///
 /// A Portal is one Cell. [`PortalOutput`] distinguishes a Cell write from
 /// a root lock, so a lock never supplies an Input Portal's characters. Reads
-/// are independent of that: a Jump reads the Portal opposite its output, so
-/// a producer of those Cells is ordered first, whether the Jump is a root or
+/// are independent of that: a Copy reads the Portal opposite its output, so
+/// a producer of those Cells is ordered first, whether the Copy is a root or
 /// nested.
 ///
 /// Terminal Output answers Play, not a Cell, so its output is
@@ -442,7 +442,7 @@ impl PortalAccess {
     ///
     /// A value Function names its Output Portal on the Function whether it is
     /// a root or nested: a nested one writes there as a root would, and also
-    /// returns the same encoding to its parent. Jump and the feedback
+    /// returns the same encoding to its parent. A Copy and the feedback
     /// Functions also name an Input Portal. Terminal Output answers Play and
     /// demands no write Portal. A locking root names the root it locks, and a
     /// Source write states its declared bundle. A nested Function that answers
@@ -788,8 +788,8 @@ mod test {
     }
 
     #[test]
-    fn a_nested_jump_reads_its_input_portal_and_writes_its_output_portal() {
-        // A nested Jump writes its Output Portal as a root does, besides
+    fn a_nested_copy_reads_its_input_portal_and_writes_its_output_portal() {
+        // A nested Copy writes its Output Portal as a root does, besides
         // returning the unit to its parent, and still reads the opposite
         // Portal, so a producer of those Cells is ordered first.
         let grid = Grid::with_shape(8, 3);
@@ -800,7 +800,7 @@ mod test {
             .span(2)
             .expect("the input Portal fits the row")
             .range();
-        let access = PortalAccess::resolve(grid, anchor, lang::Function::JumpNorth, true);
+        let access = PortalAccess::resolve(grid, anchor, lang::Function::CopyNorth, true);
         assert!(access.writes_cells());
         assert_eq!(access.write_sites(), &[Ok(output)]);
         assert_eq!(access.read_spans(), &[expected]);
@@ -906,7 +906,7 @@ mod test {
 
     #[test]
     fn language_unit_of_a_cleaned_bang_is_empty() {
-        // Occupancy still names the Map unit. Jump copies working Source, so
+        // Occupancy still names the Map unit. A Copy copies working Source, so
         // a cleaned standalone Bang is Empty rather than Invalid.
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**  "));
@@ -942,9 +942,9 @@ mod test {
     #[test]
     fn language_unit_of_a_partial_pair_is_invalid() {
         let grid = Grid::with_shape(6, 1);
-        let map = LanguageMap::build(grid, Cells::of(b"0 &>xx"));
+        let map = LanguageMap::build(grid, Cells::of(b"0 =>xx"));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert_eq!(unit(portal, b"0 &>xx", &map), PortalUnit::Invalid);
+        assert_eq!(unit(portal, b"0 =>xx", &map), PortalUnit::Invalid);
     }
 
     #[test]
@@ -967,7 +967,7 @@ mod test {
 
     #[test]
     fn language_unit_alignment_does_not_decode_the_spelling() {
-        // "xx" is not an Atom. The Portal still admits the aligned pair; jump()
+        // "xx" is not an Atom. The Portal still admits the aligned pair; copy()
         // is the decoder that diagnoses it.
         let grid = Grid::with_shape(4, 1);
         let map = LanguageMap::build(grid, Cells::of(b"    "));

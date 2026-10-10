@@ -423,13 +423,13 @@ mod property {
 
 #[test]
 fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
-    // The Clock selects pair 0, 1 and 2 in turn. `&^` writes pair 1 from
+    // The Clock selects pair 0, 1 and 2 in turn. `=^` writes pair 1 from
     // below, so Track waits for it on every Tick that selects that pair and
     // on no other, while every Tick plans against one shared schedule.
     let grid = Grid::with_shape(16, 3);
     let mut source = source_of(
         grid,
-        &["@t~.010303C4  E4", "            &^  ", "            D4  "],
+        &["@t~.010303C4  E4", "            =^  ", "            D4  "],
     );
     agreeing_tick(&mut source, 0);
     let settled = source.shared_language_map();
@@ -450,19 +450,19 @@ fn a_track_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
 
 #[test]
 fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
-    // Jumps reading and writing each other's Cells, a Clock feeding an
+    // Copies reading and writing each other's Cells, a Clock feeding an
     // Addition, an Equality's Bang activating a Play, and an Addition and
-    // two Jumps that form a cycle on the first Tick.
+    // two Copies that form a cycle on the first Tick.
     let grid = Grid::with_shape(20, 6);
     let mut source = source_of(
         grid,
         &[
-            "~.0104  &>  .=0101",
-            ".+0001  &^",
+            "~.0104  =>  .=0101",
+            ".+0001  =^",
             "        D4  !>010AC4",
             "    .+0102",
-            "    &v",
-            "    &^",
+            "    =v",
+            "    =^",
         ],
     );
     let map = source.shared_language_map();
@@ -493,7 +493,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
         grid,
         &[
             "@t~.010303C4  E4",
-            "            &^    .+0102",
+            "            =^    .+0102",
             "            D4      .x0203",
             "",
         ],

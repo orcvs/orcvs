@@ -2123,10 +2123,10 @@ mod tests {
 
         ///
         /// The paint precedence where an Output Portal covers another
-        /// Expression's claimed Cells. `&v` (Jump South) and `.+0102` (Add)
+        /// Expression's claimed Cells. `=v` (Copy South) and `.+0102` (Add)
         /// reserve the two Cell pairs south of them, where `.+0304` (Add)
         /// stands as a second, independent root. That root's own two-Cell
-        /// spelling, under the Jump's Reservation, is a bound Function claim
+        /// spelling, under the Copy's Reservation, is a bound Function claim
         /// and keeps its Function paint outright — the "another root" case —
         /// while its first Number operand, under the upper Add's
         /// Reservation, takes the Output Portal colour and tint instead of
@@ -2136,7 +2136,7 @@ mod tests {
         #[tokio::test]
         async fn a_bound_function_spelling_wins_but_its_operands_take_the_output_portal() {
             let mut orcvs = running_orcvs(8, 2);
-            write_row(&mut orcvs, 0, "&v.+0102");
+            write_row(&mut orcvs, 0, "=v.+0102");
             write_row(&mut orcvs, 1, ".+0304");
             // Writing leaves the Cursor at the last Cell it wrote (row 1,
             // column 5) — one of the Cells this test asserts about. Move it
