@@ -485,6 +485,17 @@ pub struct Theme {
     )
 )]
 impl Theme {
+    ///
+    /// The fill of the Cursor's Cell while a Region spans more than one Cell:
+    /// `region.cursor.background` when it holds a colour, transparent
+    /// included, and `cursor.background` only where it is cleared. Painting
+    /// and the contrast check both read it here, so the fallback has one
+    /// statement.
+    ///
+    pub(crate) fn region_cursor_fill(&self) -> Option<Color32> {
+        self.region_cursor_background.or(self.cursor_background)
+    }
+
     fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
         match key {
             ColorKey::WindowBackground => &mut self.window_background,
@@ -1890,6 +1901,41 @@ mod tests {
             Some(Color32::TRANSPARENT)
         );
         assert_ne!(resolved.cursor_background, None);
+    }
+
+    ///
+    /// The Cursor inside a spanning Region is filled with
+    /// `region.cursor.background` whenever it holds a colour, transparent
+    /// included, and with `cursor.background` only where the Region's fill is
+    /// cleared. Both cleared leave the Cell unfilled.
+    ///
+    #[test]
+    fn the_region_cursor_fill_falls_back_to_the_cursor_fill_only_when_cleared() {
+        let cursor = Color32::from_rgb(1, 2, 3);
+        let region_cursor = Color32::from_rgb(4, 5, 6);
+        for (cursor_background, region_cursor_background, expected) in [
+            (Some(cursor), Some(region_cursor), Some(region_cursor)),
+            (
+                Some(cursor),
+                Some(Color32::TRANSPARENT),
+                Some(Color32::TRANSPARENT),
+            ),
+            (Some(cursor), None, Some(cursor)),
+            (None, Some(region_cursor), Some(region_cursor)),
+            (None, None, None),
+        ] {
+            let theme = super::Theme {
+                cursor_background,
+                region_cursor_background,
+                ..okabe_ito()
+            };
+            assert_eq!(
+                theme.region_cursor_fill(),
+                expected,
+                "cursor.background {cursor_background:?}, \
+                 region.cursor.background {region_cursor_background:?}"
+            );
+        }
     }
 
     #[test]

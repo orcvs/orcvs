@@ -327,7 +327,7 @@ fn painted(
         theme,
     );
 
-    let region_cursor_fill = theme.region_cursor_background.or(cursor_fill);
+    let region_cursor_fill = theme.region_cursor_fill();
     let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
     let base_fill = compose_cell_fill(theme.cell_background, None);
     let in_region = region_spans && !is_cursor;
