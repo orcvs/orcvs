@@ -1,6 +1,6 @@
 # Read, Write and Copy are separate families
 
-Status: accepted. Amends [ADR 0008](0008-preserve-symbolic-arithmetic-functions.md)'s `&` and `@` families, [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md)'s rows for Jump, Track, Push, Read, Query, Write, Generator and Konkat, [ADR 0049](0049-a-position-is-two-numbers.md)'s placement of the absolute Address Functions, and the wording of [ADR 0067](0067-track-reads-a-portal-as-jump-does.md), which names Jump and spells Track `@t`.
+Status: accepted. Amends [ADR 0008](0008-preserve-symbolic-arithmetic-functions.md)'s `&` and `@` families, [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md)'s rows for Jump, Track, Push, Read, Query, Write, Generator and Konkat, [ADR 0049](0049-a-position-is-two-numbers.md)'s placement of the absolute Address Functions, and the wording of [ADR 0067](0067-track-reads-a-portal-as-jump-does.md), which names Jump and spells Track `@t`. [ADR 0071](0071-a-bang-travels-as-its-glyph.md) amends the `**` value: a Write writes `**` over its destination, as Orca's `X` does, and activates the roots aligned with it.
 
 **A Function's family prefix names what it does to Source.** `&` reads Source, `@` writes Source, and `=` copies Source: it reads one Cell pair and writes another, leaving the first as it was. The action is what orders a Function's Turn: a Read waits on the writers of the Cells it reads, a Write is waited on by their readers, and a Copy does both. A reader can therefore tell from the first glyph which ordering rule applies.
 
