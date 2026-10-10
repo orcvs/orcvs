@@ -1,6 +1,6 @@
 # Put the behaviour family first in symbolic Function names
 
-Status: the `:` family is retired by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The family-first rule and the other families stand.
+Status: the `:` family is retired by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The family-first rule and the other families stand. The `&` and `@` families, the Address Functions and the reserved Source Functions are amended by [ADR 0070](0070-read-write-and-copy-are-separate-families.md) (2026-10-10 amendment below).
 
 Orcvs groups Functions by behaviour. A symbolic Function name puts its behaviour-family glyph first and its operation glyph second. Thus, related Functions share a visible prefix, and a reader can identify the evaluation family before the specific operation.
 
@@ -21,3 +21,7 @@ The Numeric Functions use `.+` for Addition, `.-` for Subtraction, `.|` for Abso
 The Time Functions use `~.` for Clock, `~*` for Delay, `~+` for Increment, `~?` for Random, `~%` for Euclidean, and `~>` for Interpolation. An operation glyph can recur in another family because the prefix identifies the behaviour first. Thus, `~+` and `~%` remain distinct from arithmetic Addition `.+` and Modulo `.%`.
 
 Function names continue to use standard ASCII. Unicode remains deferred because each Cell currently contains one ASCII byte.
+
+## Amendment, 2026-10-10: Read, Write and Copy families
+
+[ADR 0070](0070-read-write-and-copy-are-separate-families.md) replaces the address family `&` and the Source family `@` with three families named by action. `&` reads Source, `@` writes Source, and `=` copies Source: it reads one pair and writes another. The four directional Jump Functions are the Copy Functions `=^`, `=v`, `=<` and `=>`, with their behaviour unchanged. The `&` arrows are the directional Reads `&^ &v &< &> n`, and the `@` arrows the directional Writes `@^ @v @< @> n value`; in every family an arrow names the Cell the Function acts on. The absolute forms take `$` as their second glyph in every family: `&$ column row`, `@$ column row value` and `=$ src-column src-row dst-column dst-row`. `$` recurs from `!$`, as this decision allows an operation glyph to do. Track is `&t index count` and Push is `@t index count value`. The reservation of `@<` for Source Read and `@>` for Source Write, which read their arrows as data flow, is withdrawn: `@<` and `@>` are the west and east Writes.
