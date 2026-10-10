@@ -62,3 +62,5 @@ it was left alone. `console/src/theme_registry.rs:19-20` still says `SelectedThe
 Themes in the View menu's pickers. That is code, outside this ticket's scope.
 
 **The two ADR 0053 amendments change a decision record and need human review before merge.**
+
+**2026-10-10 — the pickers wording is kept, not replaced.** The user chose to keep the Consequences' picker sentences under a superseded marker rather than replace them as the pickers line says: the amendment states present behaviour and the marked text stays as the decision's record, as the 2026-10-01 amendment does. The `theme_registry.rs` module doc is corrected by `15`.
