@@ -1576,6 +1576,104 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
 }
 
 ///
+/// A Cell's border width is paint and never geometry: from a Theme whose
+/// Cell borders are 0 points wide to one whose borders are 1 point wide, at
+/// egui's zoom of 1.0 and stepped by the chords to 1.3, the Grid is presented
+/// at the same place and a click at a point selects the same Cell.
+///
+/// Each Cell is probed at its centre and just inside two opposite corners,
+/// where a border that took room from the Cell would move the answer first.
+///
+#[tokio::test]
+async fn hit_testing_holds_across_cell_border_widths_and_zoom_factors() {
+    use crate::theme_registry::tests_support::load;
+
+    const WIDTHS: [&str; 5] = ["0", "0.25", "0.5", "0.75", "1"];
+    const ZOOMS: [f32; 2] = [1.0, 1.3];
+    const CELLS: [(usize, usize); 4] = [(2, 1), (7, 4), (4, 6), (9, 2)];
+    // A fraction of the Cell inside each corner: off the shared edge, and
+    // well within the border a 1 point stroke would cover at either zoom.
+    const PROBES: [Vec2; 3] = [
+        Vec2::new(0.5, 0.5),
+        Vec2::new(0.04, 0.04),
+        Vec2::new(0.96, 0.96),
+    ];
+
+    let mut presented_at_first_width: Vec<GridViewport> = Vec::new();
+    for width in WIDTHS {
+        let mut themes = ThemeRegistry::built_in();
+        load(
+            &mut themes,
+            "borders.toml",
+            format!(
+                "format = \"orcvs-theme\"\nversion = 1\nname = \"Borders\"\n\
+                 inherits = \"okabe-ito\"\n[style]\n\
+                 \"grid.border.width\" = {width}\n\
+                 \"cell.selection.border.width\" = {width}\n\
+                 \"cursor.border.width\" = {width}\n"
+            )
+            .as_bytes(),
+        );
+        let config = crate::config::Config {
+            theme_selection: crate::theme_selection::ThemeSelection::new(
+                id("borders"),
+                crate::theme::ThemeIdentity::default_for(Appearance::Light),
+            ),
+            ..crate::config::Config::default()
+        };
+        let mut harness = configured_console_under_os_appearance(egui::Theme::Dark, themes, config);
+        let presented = harness.state().themes.presented(Appearance::Dark);
+        let expected: f32 = width.parse().expect("each width is a number");
+        assert_eq!(
+            (
+                presented.grid_border_width.points(),
+                presented.cell_selection_border_width.points(),
+                presented.cursor_border_width.points(),
+            ),
+            (expected, expected, expected),
+            "the console does not present the Borders Theme at width {width}"
+        );
+
+        for (step, zoom) in ZOOMS.into_iter().enumerate() {
+            while harness.ctx.zoom_factor() < zoom - 1e-3 {
+                harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+                harness.step();
+                harness.run_steps(1);
+            }
+            assert_eq!(
+                harness.ctx.zoom_factor(),
+                zoom,
+                "the chords did not step egui's zoom to {zoom}"
+            );
+
+            let viewport = presented_source(&harness);
+            match presented_at_first_width.get(step) {
+                Some(first) => assert_eq!(
+                    (viewport.rect, viewport.cell_size),
+                    (first.rect, first.cell_size),
+                    "Cell borders {width} points wide moved the Grid at zoom {zoom}"
+                ),
+                None => presented_at_first_width.push(viewport),
+            }
+
+            for probe in PROBES {
+                for (column, row) in CELLS {
+                    let cell = viewport.cell_rect(column, row);
+                    let point = cell.min + cell.size() * probe;
+                    click_at(&mut harness, point);
+                    assert_eq!(
+                        cursor(harness.state()),
+                        (column, row),
+                        "a click at {point:?} with Cell borders {width} points wide \
+                         at zoom {zoom}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+///
 /// The key eframe stores egui memory under in its storage, which it does not
 /// export (`eframe-0.36.2/src/native/epi_integration.rs`,
 /// `STORAGE_EGUI_MEMORY_KEY`). The console never reads or writes it: eframe
