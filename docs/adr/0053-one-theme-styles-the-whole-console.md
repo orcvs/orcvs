@@ -155,8 +155,9 @@ how far apart every pair of Source glyph channels stays.
   red–green deficiency and makes no tritan claim. Under simulated tritanopia
   `okabe-ito`'s Bang and Diagnostic measure 0.60 apart, and `orcvs-light`'s
   closest pair, Bang and Note, 1.54. A tritan gate at the floor would fail both
-  shipped Themes. `shipped_theme_colour_vision_gate` pins both tritan figures,
-  so a retune that makes either worse fails rather than passing unexamined.
+  shipped Themes. `shipped_theme_colour_vision_gate` pins both tritan figures
+  to within 0.05, so a retune that moves either fails rather than passing
+  unexamined.
 
 The gate is test-only. `shipped_theme_colour_vision_gate` runs it over both
 built-ins, and
