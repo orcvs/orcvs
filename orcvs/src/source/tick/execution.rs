@@ -548,14 +548,17 @@ impl<'a> Execution<'a> {
         };
         // Whether this answer can be Cells at all is a question about the
         // value, settled before any destination is asked: the Absence Marker
-        // plans no write and answers `Nothing`, and a rendering a Cell cannot
-        // hold refuses whole. Every other Atom renders as the Cell pair the
-        // schedule reserved.
+        // answers `Nothing`, and a rendering a Cell cannot hold refuses whole.
+        // Every other Atom renders as the Cell pair the schedule reserved.
         let encoding = match Encoding::render(atom) {
             Ok(Rendered::Nothing) => {
-                // A Copy answers Empty when its input is two spaces. That is a
-                // clear of the reserved output Portal, not an omitted write.
-                if self.states[index].function.copies_language_unit() {
+                // Two kinds of Function clear the reserved Output Portal rather
+                // than omit the write. A Copy answers Empty when its input is two
+                // spaces, and writes them. A Bang producer writes its answer
+                // on every Turn, so a Turn that does not Bang leaves its
+                // Output Portal empty. Every other Function writes nothing.
+                let function = self.states[index].function;
+                if function.copies_language_unit() || clears_when_absent(function) {
                     let cleared =
                         Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
                     for output in sites {
@@ -934,6 +937,17 @@ impl<'a> Execution<'a> {
         self.working.apply(kind, &write);
         self.effects.push(Effect::Write(write));
     }
+}
+
+/// Whether `function` answers only Bang or the Absence Marker, and so clears
+/// its Output Portal on a Turn that does not Bang, as Orca's bang ports write
+/// `.`. The two Cells it clears are the pair the schedule reserves for its
+/// Bang, root or nested, so clearing them orders nothing new.
+fn clears_when_absent(function: Function) -> bool {
+    matches!(
+        function,
+        Function::Equality | Function::Delay | Function::Euclidean
+    )
 }
 
 /// Why a destination refused the value sent to it.

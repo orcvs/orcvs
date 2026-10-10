@@ -2189,11 +2189,10 @@ mod test {
     }
 
     #[test]
-    fn an_equal_comparison_commits_a_bang_and_an_unequal_one_commits_nothing() {
-        // Equality answers a pulse, so its two answers reach the Source by two
-        // different paths: the equal case is an ordinary two-Cell result write
-        // that must render as `**`, and the unequal case rides the Empty
-        // signal and must leave the result row exactly as it found it.
+    fn an_equal_comparison_commits_a_bang_and_an_unequal_one_clears_its_pair() {
+        // Equality answers a pulse, so it writes its result pair on every
+        // Turn: the equal case renders as `**`, and the unequal case answers
+        // the Absence Marker and clears whatever stood in the pair.
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0303");
@@ -2207,11 +2206,12 @@ mod test {
 
         let at = src.cells();
         src.write(at(0), ".=0304");
+        src.write(at(10), "C4");
 
         let tick = src.execute();
 
         assert_eq!(src.row(1), "          ");
-        assert!(tick.writes.is_empty());
+        assert_eq!(tick.writes.len(), 2);
         assert!(tick.diagnostics.is_empty());
     }
 

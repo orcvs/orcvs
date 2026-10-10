@@ -61,9 +61,9 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
 /// The Atom a pulse answers with, which is a Bang or nothing at all.
 ///
 /// Both pulse Functions answer the same pair, so the pair is named once: the
-/// absence marker is what the Interpreter already reads as "no result write",
-/// and answering a Number for the silent Tick would put a Cell meaning "no" in
-/// the Source for the next Tick to read as an operand.
+/// absence marker leaves the Output Portal empty, and answering a Number for
+/// the silent Tick would put a Cell meaning "no" in the Source for the next
+/// Tick to read as an operand.
 ///
 #[inline(always)]
 fn pulse(banged: bool) -> Atom {

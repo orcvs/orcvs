@@ -247,7 +247,7 @@ mod tests {
 
     /// One example's expected written result: the Cells starting at
     /// `(column, row)`, read west to east, and the string one Tick writes
-    /// there — or a run of spaces when the example writes nothing there.
+    /// there.
     struct ExpectedResult {
         column: usize,
         row: usize,
@@ -283,7 +283,7 @@ mod tests {
             result(0, 20, "03"), // .<0305
             result(0, 23, "05"), // .>0305
             result(0, 26, "**"), // .=0505 (equal)
-            result(0, 29, "  "), // .=0506 (not equal: no Cell write)
+            result(0, 29, "  "), // .=0506 (not equal: clears its pair)
             // Conversion (column 16)
             result(16, 2, "C4"), // .^3C (Number to Note)
             result(16, 5, "3C"), // .vC4 (Note to Number)
@@ -447,29 +447,19 @@ mod tests {
                 .map(|offset| cell_index(grid, column + offset, row))
                 .collect();
 
-            if expected.trim().is_empty() {
-                for &cell in &cells {
-                    assert!(
-                        !plan.writes.iter().any(|write| write.cell == cell),
-                        "row {row}, column {column} was written despite expecting no result"
-                    );
-                }
-            } else {
-                for (offset, ch) in expected.chars().enumerate() {
-                    let content =
-                        CellContent::new(ch as u8).expect("a printable ASCII result Cell");
-                    let write = CellWrite {
-                        cell: cells[offset],
-                        content,
-                    };
-                    assert!(
-                        plan.writes.contains(&write),
-                        "row {row}, column {column} was not written by this Tick, \
-                         though the checked-in text reads {expected:?} — a Turn withheld \
-                         by a fault the Tick Plan never diagnosed would pass a read-back \
-                         check alone"
-                    );
-                }
+            for (offset, ch) in expected.chars().enumerate() {
+                let content = CellContent::new(ch as u8).expect("a printable ASCII result Cell");
+                let write = CellWrite {
+                    cell: cells[offset],
+                    content,
+                };
+                assert!(
+                    plan.writes.contains(&write),
+                    "row {row}, column {column} was not written by this Tick, \
+                     though the checked-in text reads {expected:?} — a Turn withheld \
+                     by a fault the Tick Plan never diagnosed would pass a read-back \
+                     check alone"
+                );
             }
 
             let actual: String = cells
