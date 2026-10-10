@@ -30,14 +30,15 @@ use orcvs::source::Source;
 pub const SOURCE_KEY: &str = "orcvs_source_rwc";
 
 ///
-/// The Storage key a Source stored under the grammar before the Read, Write
-/// and Copy families lives under.
+/// The Storage key whose value is never loaded: a start that finds a value
+/// under it reports that value as a Source that cannot load, and the next save
+/// removes it.
 ///
-/// Its value is never loaded: that grammar spelled `&<07`, `@<0201` and
-/// `@t0103C4D4E4` with other meanings, and the current grammar reads them as a
-/// Read, a Write and a Push, so restoring it would run writes its author never
-/// wrote (ADR 0070). A start that finds it, and nothing under [`SOURCE_KEY`],
-/// reports it as a Source that cannot load, and the next save removes it.
+/// The value is never loaded because it holds spellings such as `&<07`,
+/// `@<0201` and `@t0103C4D4E4` with other meanings, and the current grammar
+/// reads them as a Read, a Write and a Push, so restoring it would run writes
+/// its author never wrote (ADR 0070). It is reported whether or not
+/// [`SOURCE_KEY`] also holds a value, so no save removes it unreported.
 ///
 #[cfg(feature = "persistence")]
 pub const STALE_SOURCE_KEY: &str = "orcvs_source";
@@ -73,21 +74,28 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source 
 /// Source rather than a partly restored one, and its next save overwrites
 /// [`SOURCE_KEY`].
 ///
-/// A value under [`STALE_SOURCE_KEY`] alone is reported the same way: it is a
-/// Source the console cannot load, and the console starts an empty Source.
+/// A value under [`STALE_SOURCE_KEY`] is reported the same way, beside
+/// whatever [`SOURCE_KEY`] holds: it is a Source the console cannot load, so
+/// it never decides what the console starts.
 ///
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
     let Some(storage) = storage else {
         return default_source();
     };
-    if storage.get_string(SOURCE_KEY).is_none() {
-        if storage.get_string(STALE_SOURCE_KEY).is_some() {
-            crate::report::error!(
-                "{STALE_SOURCE_KEY}: the stored Source was written in spellings the current \
-                 grammar reads as other Functions and was discarded; starting an empty Grid"
-            );
-        }
+    let current = storage.get_string(SOURCE_KEY).is_some();
+    if storage.get_string(STALE_SOURCE_KEY).is_some() {
+        let starting = if current {
+            "starting the Source stored under the current key"
+        } else {
+            "starting an empty Grid"
+        };
+        crate::report::error!(
+            "{STALE_SOURCE_KEY}: the stored Source was written in spellings the current \
+             grammar reads as other Functions and was discarded; {starting}"
+        );
+    }
+    if !current {
         return default_source();
     }
     eframe::get_value::<Source>(storage, SOURCE_KEY).unwrap_or_else(|| {
@@ -502,6 +510,30 @@ mod stored_source_tests {
         assert!(
             report.is_empty(),
             "the start after the save reported again: {report:?}"
+        );
+    }
+
+    ///
+    /// A stale Source beside a current one is still reported before the save
+    /// that removes it: the start opens the current Source, and the stale
+    /// value is never removed unreported.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_stale_source_beside_a_current_one_is_reported_before_it_is_removed() {
+        use super::STALE_SOURCE_KEY;
+
+        let current = edited_source();
+        let mut storage = InMemoryStorage::default();
+        save(&mut storage, &current);
+        source_in_stale_spellings()
+            .read_source(|source| eframe::set_value(&mut storage, STALE_SOURCE_KEY, source));
+
+        let (started, report) = reported_by(|| starting_source(Some(&storage)));
+        assert_eq!(started.snapshot(), current.snapshot());
+        assert!(
+            report.contains(&format!("{STALE_SOURCE_KEY}:")) && report.contains("discarded"),
+            "the stale Source beside a current one was not reported: {report:?}"
         );
     }
 

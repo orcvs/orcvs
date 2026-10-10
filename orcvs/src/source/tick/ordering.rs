@@ -75,14 +75,13 @@ pub(super) fn schedule(
 ) -> Schedule {
     let nodes = lookup.nodes();
     let everything = vec![true; nodes.len()];
-    let known = Dependencies::new(nodes.len(), edges.iter().copied());
-    let mut dependencies = Dependencies::new(
-        nodes.len(),
-        edges
-            .iter()
-            .copied()
-            .chain(known.writers_first(&lookup, &writers, &everything)),
-    );
+    let mut known = Dependencies::new(nodes.len(), edges.iter().copied());
+    let writers_first = known.writers_first(&lookup, &writers, &everything);
+    // Ordering changes only `indegree`, so with no writers-first edges `known`
+    // is ordered itself and still holds the edges the schedule keeps.
+    let mut with_writers = (!writers_first.is_empty())
+        .then(|| Dependencies::new(nodes.len(), edges.iter().copied().chain(writers_first)));
+    let dependencies = with_writers.as_mut().unwrap_or(&mut known);
     let ready = dependencies.free(|_| true);
     let stopped = dependencies.cycle_closure(&lookup, &everything);
     let mut order = Vec::new();
