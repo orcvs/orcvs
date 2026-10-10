@@ -167,10 +167,23 @@ impl PortalCoords {
 pub enum InputPortal {
     /// A position at a fixed offset from the Function's anchor.
     Static(PortalCoords),
-    /// A position the operands select at the Turn: the Cell pair
-    /// `index % count` east of the end of the Function's last operand. Only
-    /// Track's Input Portal is dynamic.
-    Dynamic,
+    /// A position the operands select at the Turn, by the rule the
+    /// Function's definition names.
+    Dynamic(PairSelection),
+}
+
+/// How a dynamic Input Portal's operands select its Cell pair.
+///
+/// Each Function with a dynamic Input Portal names its rule in
+/// [`Function::input_portal`], and [`InputPortal::resolve`] asks the rule for
+/// the pair's offset from the end of the Function's last operand. A rule
+/// counts only east and south of that point, so the pair never lies under the
+/// Function's own operands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairSelection {
+    /// The pair `index % count` pairs east of the end of the last operand, on
+    /// the Function's own row. Track's selection.
+    IndexModuloCount,
 }
 
 /// Which validated effect bundle a Source-writing Function plans.

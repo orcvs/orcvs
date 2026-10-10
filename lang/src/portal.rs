@@ -5,8 +5,9 @@
 //! Evaluator receives beside resolved cell operands.
 
 use crate::{
-    Atom, Error, Function, InputPortal, InterpretationError, PortalCoords, Stack, TickInputs,
-    Token, expression::DEFAULT_TOKEN_LEN, functions::track::track_pair, stack::Operands,
+    Atom, Error, Function, InputPortal, InterpretationError, PairSelection, PortalCoords, Stack,
+    TickInputs, Token, expression::DEFAULT_TOKEN_LEN, functions::track::track_pair,
+    stack::Operands,
 };
 
 impl InputPortal {
@@ -17,8 +18,8 @@ impl InputPortal {
     /// how many columns east of the anchor the Function and its operands
     /// occupy, nested operands included: `orcvs` knows how they lie in the
     /// Grid. A static Input Portal is the offset it declares and reads
-    /// neither. A dynamic Input Portal is the Cell pair its operands select,
-    /// counted from zero east of `operand_columns`.
+    /// neither. A dynamic Input Portal is the Cell pair its operands select
+    /// by its [`PairSelection`], counted from `operand_columns`.
     ///
     /// # Errors
     ///
@@ -30,15 +31,38 @@ impl InputPortal {
     pub fn resolve(self, operands: &[Atom], operand_columns: usize) -> Result<PortalCoords, Error> {
         match self {
             Self::Static(coords) => Ok(coords),
-            Self::Dynamic => {
-                let pair = track_pair(operands)?;
+            Self::Dynamic(selection) => {
+                let (east, rows) = selection.offset(operands)?;
                 let columns = operand_columns
-                    .checked_add(usize::from(pair) * DEFAULT_TOKEN_LEN)
+                    .checked_add(east)
                     .and_then(|columns| i16::try_from(columns).ok())
                     .ok_or(InterpretationError::JumpInput {
-                        function: Function::Track,
+                        function: selection.function(),
                     })?;
-                Ok(PortalCoords { columns, rows: 0 })
+                Ok(PortalCoords {
+                    columns,
+                    rows: i16::from(rows),
+                })
+            }
+        }
+    }
+}
+
+impl PairSelection {
+    /// The Function whose definition names this rule, which a refused
+    /// resolution diagnoses.
+    const fn function(self) -> Function {
+        match self {
+            Self::IndexModuloCount => Function::Track,
+        }
+    }
+
+    /// The selected pair's offset from the end of the last operand: Cells
+    /// east, and rows south.
+    fn offset(self, operands: &[Atom]) -> Result<(usize, u8), Error> {
+        match self {
+            Self::IndexModuloCount => {
+                track_pair(operands).map(|pair| (usize::from(pair) * DEFAULT_TOKEN_LEN, 0))
             }
         }
     }

@@ -460,7 +460,7 @@ impl PortalAccess {
         // records no read here and execution orders it once its pair is known.
         let reads = match function.input_portal() {
             Some(InputPortal::Static(coords)) => Self::portal_reads(grid, anchor, coords),
-            Some(InputPortal::Dynamic) | None => Vec::new(),
+            Some(InputPortal::Dynamic(_)) | None => Vec::new(),
         };
         if function.performs_terminal_output() {
             return Self {

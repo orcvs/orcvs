@@ -867,10 +867,11 @@ impl Function {
     ///
     /// Jump names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
-    /// Those are static; Track's is dynamic, the pair its operands select
-    /// after them.
+    /// Those are static. Track's is dynamic, and names the rule by which its
+    /// operands select the pair after them.
     pub const fn input_portal(self) -> Option<crate::InputPortal> {
         use crate::InputPortal::{Dynamic, Static};
+        use crate::PairSelection::IndexModuloCount;
         match self {
             Self::JumpEast => Some(Static(crate::PortalCoords {
                 columns: -2,
@@ -885,7 +886,7 @@ impl Function {
                 columns: 0,
                 rows: -1,
             })),
-            Self::Track => Some(Dynamic),
+            Self::Track => Some(Dynamic(IndexModuloCount)),
             _ if self.portal_input().is_some() => Some(Static(crate::PortalCoords::SOUTH)),
             _ => None,
         }
@@ -1180,7 +1181,7 @@ mod test {
     fn every_function_names_its_portals() {
         use crate::{
             InputPortal::{Dynamic, Static},
-            PortalCoords,
+            PairSelection, PortalCoords,
         };
 
         for function in Function::ALL.iter().copied() {
@@ -1245,7 +1246,7 @@ mod test {
                 }
                 Function::Track => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(input, Some(Dynamic));
+                    assert_eq!(input, Some(Dynamic(PairSelection::IndexModuloCount)));
                 }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));

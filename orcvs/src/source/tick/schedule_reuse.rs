@@ -75,11 +75,12 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
 }
 
 ///
-/// Asserts that a Tick of `source`, which holds no Track, takes exactly the
-/// Turns its schedule orders, in that order, Turns that settle without an
-/// effect included. Only a Track finds a dependency at its Turn, so every
-/// other Function is ordered by the schedule alone. Answers whether the
-/// assertion applies to the parsed Functions in this Source.
+/// Asserts that a Tick of `source`, which holds no Function with a dynamic
+/// Input Portal, takes exactly the Turns its schedule orders, in that order,
+/// Turns that settle without an effect included. Only a dynamic Input Portal
+/// finds a dependency at its Turn, so every other Function is ordered by the
+/// schedule alone. Answers whether the assertion applies to the parsed
+/// Functions in this Source.
 ///
 fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let bytes = source.snapshot();
@@ -90,7 +91,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
         .lookup
         .nodes()
         .iter()
-        .any(|node| node.function.input_portal() == Some(InputPortal::Dynamic))
+        .any(|node| matches!(node.function.input_portal(), Some(InputPortal::Dynamic(_))))
     {
         return false;
     }
