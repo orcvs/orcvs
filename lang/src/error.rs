@@ -116,13 +116,15 @@ pub enum InterpretationError {
         role: &'static str,
     },
 
-    /// A Jump's input Portal did not hold one complete aligned Language Unit.
+    /// The Input Portal of a Function that copies a Language Unit, a Copy,
+    /// Track or a Read, did not hold one complete aligned Language Unit.
     ///
     /// Empty and Bang are legal inputs; a partial pair or a slice across two
-    /// units is not. `function` is the Jump the Source
-    /// wrote so the message names those Cells.
+    /// units is not, and neither is a Portal that lies outside any Grid.
+    /// `function` is the Function the Source wrote, so the message names
+    /// those Cells.
     #[error("{function} has partial or invalid input")]
-    JumpInput { function: crate::Function },
+    PartialInput { function: crate::Function },
 
     /// Increment or Interpolation computed a Number their answer cannot hold.
     ///
@@ -165,6 +167,11 @@ pub enum TypeError {
 
     #[error("expected a number, found {0:?}")]
     Number(String),
+
+    /// An untyped slot whose Cells spell no Language Unit, an empty pair
+    /// among them.
+    #[error("expected a Language Unit, found {0:?}")]
+    Unit(String),
 }
 
 #[derive(Error, Debug)]

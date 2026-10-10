@@ -800,7 +800,7 @@ mod discarded_revision {
 
 ///
 /// The shipped WASM backend is eframe `LocalStorage`: a thin wrapper over
-/// `window.localStorage` with the raw key `orcvs_source`. These tests drive
+/// `window.localStorage` with the raw key `orcvs_source_rwc`. These tests drive
 /// that backend, not a custom in-memory stand-in.
 ///
 #[cfg(feature = "persistence")]
@@ -828,6 +828,7 @@ mod product_path {
     fn clear_orcvs_keys() {
         let storage = window_local_storage();
         let _ = storage.remove_item(console::persistence::SOURCE_KEY);
+        let _ = storage.remove_item(console::persistence::STALE_SOURCE_KEY);
     }
 
     impl eframe::Storage for BrowserStorage {

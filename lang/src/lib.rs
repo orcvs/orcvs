@@ -161,16 +161,113 @@ impl PortalCoords {
 /// so scheduling orders its writers before the Tick. A dynamic Input Portal's
 /// position is known only at the Function's Turn, from its operands, so its
 /// writers are found then. [`InputPortal::resolve`] answers either kind's
-/// offset from the anchor at the Turn, and `orcvs` resolves that offset
-/// against the Grid, as it does [`PortalCoords`].
+/// [`PortalAddress`] at the Turn, and `orcvs` resolves that address against
+/// the Grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputPortal {
     /// A position at a fixed offset from the Function's anchor.
     Static(PortalCoords),
-    /// A position the operands select at the Turn: the Cell pair
-    /// `index % count` east of the end of the Function's last operand. Only
-    /// Track's Input Portal is dynamic.
-    Dynamic,
+    /// A position the operands select at the Turn, by the rule the
+    /// Function's definition names.
+    Dynamic(PairSelection),
+}
+
+/// Where an Input Portal stands once its Function's operands are resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortalAddress {
+    /// An offset from the Function's anchor.
+    Offset(PortalCoords),
+    /// A Position, column then row, counted in Cells from `00 00` at the
+    /// Grid's top-left, wherever the Function stands.
+    Position {
+        /// The Position's column.
+        column: u8,
+        /// The Position's row.
+        row: u8,
+    },
+}
+
+/// How a dynamic Portal's operands select its Cell pair.
+///
+/// Each Function with a dynamic Input Portal names its rule in
+/// [`Function::input_portal`], and each with a dynamic Output Portal in
+/// [`Function::dynamic_output_portal`]. [`PairSelection::resolve`] asks the
+/// rule where the pair stands. A rule takes the values of only its address
+/// operands: those that lead its Function's signature, except that the
+/// absolute Copy's destination rule takes its last two. The directional and
+/// absolute rules name the Read or Write they serve, whose signature states
+/// how many operands it takes; a Write's `value` follows its address, so a
+/// Write and the Read with the same arrow select the same pair.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairSelection {
+    /// The pair `index % count` pairs east of the end of the last operand, on
+    /// the Function's own row. Track's selection.
+    IndexModuloCount,
+    /// The pair `index % count` pairs east of the Function's default Output
+    /// Portal: a lane of `count` pairs on the row below the Function,
+    /// starting directly under its anchor, wherever its operands end. Push's
+    /// selection.
+    Lane,
+    /// The pair `n` Portals from the `n` operand's slot, the pair immediately
+    /// after the Function's spelling, in the [`Direction`] named. Each step is
+    /// one pair east or west, or one row north or south in the slot's
+    /// columns, so a distance of zero is the slot itself. A directional
+    /// Read's and a directional Write's selection, naming that Function,
+    /// whose signature its operands are checked against. Only
+    /// [`Function::input_portal`] and [`Function::dynamic_output_portal`]
+    /// build one.
+    #[non_exhaustive]
+    Distance(Direction, Function),
+    /// The pair at the Position its `column` and `row` operands name,
+    /// counted in Cells from `00 00` at the Grid's top-left, wherever the
+    /// Function stands. The absolute Read's and the absolute Write's
+    /// selection, naming that Function, whose signature its operands are
+    /// checked against. Only [`Function::input_portal`] and
+    /// [`Function::dynamic_output_portal`] build one.
+    #[non_exhaustive]
+    Position(Function),
+    /// The pair at the Position the absolute Copy's first two operands,
+    /// `src-column` and `src-row`, name: the pair it reads.
+    SourcePosition,
+    /// The pair at the Position the absolute Copy's last two operands,
+    /// `dst-column` and `dst-row`, name: the pair it writes.
+    DestinationPosition,
+}
+
+/// The direction a directional Read's or Write's arrow names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    /// Toward row zero.
+    North,
+    /// Away from row zero.
+    South,
+    /// Away from column zero.
+    East,
+    /// Toward column zero.
+    West,
+}
+
+impl Direction {
+    /// One Portal in this direction: a pair of Cells east or west, or a row
+    /// north or south.
+    pub(crate) const fn step(self) -> PortalCoords {
+        let pair = expression::DEFAULT_TOKEN_LEN as i16;
+        match self {
+            Self::North => PortalCoords {
+                columns: 0,
+                rows: -1,
+            },
+            Self::South => PortalCoords::SOUTH,
+            Self::East => PortalCoords {
+                columns: pair,
+                rows: 0,
+            },
+            Self::West => PortalCoords {
+                columns: -pair,
+                rows: 0,
+            },
+        }
+    }
 }
 
 /// Which validated effect bundle a Source-writing Function plans.

@@ -8,11 +8,21 @@
 //! a dependency found at a Turn joins the order there and a cycle it closes
 //! is diagnosed as one known before the Tick is.
 //!
+//! A dynamic writer's destination is known only at its Turn, so no reader
+//! can wait on it. Instead every dynamic writer goes before each computation
+//! that feeds neither it nor a dynamic writer ordered before it, and the
+//! writers are ordered among themselves by what feeds them, Grid position
+//! breaking ties. These writers-first edges follow from the dependencies:
+//! a Turn that finds one more recomputes them for the rest of its Tick, so
+//! a dependency a writer finds through what feeds it goes before the writer
+//! rather than closing a cycle.
+//!
 //! The schedule is shared by every Tick planned against the same scheduling
 //! inputs and is never changed by one. A Tick's progress through it is kept
 //! here, and the dependency graph a Turn that waits needs is rebuilt only
 //! when one does.
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ops::Range;
 
@@ -27,9 +37,13 @@ pub(super) struct Schedule {
     pub(super) lookup: Lookup,
     pub(super) order: Vec<usize>,
     pub(super) diagnostics: Vec<Diagnostic>,
-    /// Every dependency edge `order` was built from, by producer, so that a
-    /// Tick can continue ordering from a Turn that finds one more.
+    /// Every dependency edge known before the Tick, by producer, so that a
+    /// Tick can continue ordering from a Turn that finds one more. The
+    /// writers-first edges are not among them: they follow from these and
+    /// from what a Tick finds, so each ordering derives its own.
     outgoing: Vec<Vec<usize>>,
+    /// The dynamic writers activation can reach this Tick.
+    writers: Vec<usize>,
     /// Which roots activation can reach this Tick, by computation.
     active: Vec<bool>,
     /// Which computations a same-Tick dependency cycle stops: exactly those
@@ -37,9 +51,18 @@ pub(super) struct Schedule {
     pub(super) stopped: Vec<bool>,
 }
 
+#[cfg(test)]
+impl Schedule {
+    /// Whether activation known before the Tick reaches `root`.
+    pub(super) fn holds_active(&self, root: usize) -> bool {
+        self.active[root]
+    }
+}
+
 ///
 /// The schedule for `lookup`'s computations under `edges`, as `(producer,
-/// consumer)` pairs: the Turns in the order the edges and Grid position give
+/// consumer)` pairs, with each of `writers`, the dynamic writers, ordered
+/// writers first: the Turns in the order the edges and Grid position give
 /// them, less every Expression a same-Tick dependency cycle reaches, which
 /// takes no Turn and is diagnosed after `diagnostics`.
 ///
@@ -47,31 +70,45 @@ pub(super) fn schedule(
     lookup: Lookup,
     active: Vec<bool>,
     edges: BTreeSet<(usize, usize)>,
+    writers: Vec<usize>,
     mut diagnostics: Vec<Diagnostic>,
 ) -> Schedule {
     let nodes = lookup.nodes();
-    let mut dependencies = Dependencies::new(nodes.len(), edges);
+    let everything = vec![true; nodes.len()];
+    let mut known = Dependencies::new(nodes.len(), edges.iter().copied());
+    let writers_first = known.writers_first(&lookup, &writers, &everything);
+    // Ordering changes only `indegree`, so with no writers-first edges `known`
+    // is ordered itself and still holds the edges the schedule keeps.
+    let mut with_writers = (!writers_first.is_empty())
+        .then(|| Dependencies::new(nodes.len(), edges.iter().copied().chain(writers_first)));
+    let dependencies = with_writers.as_mut().unwrap_or(&mut known);
     let ready = dependencies.free(|_| true);
+    let stopped = dependencies.cycle_closure(&lookup, &everything);
     let mut order = Vec::new();
-    let stopped = dependencies.take_ready(&lookup, ready, vec![true; nodes.len()], |index| {
+    dependencies.take_ready(&lookup, ready, &stopped, |index| {
         order.push(index);
-        None
+        true
     });
-    let Dependencies { outgoing, .. } = dependencies;
     if order.len() != nodes.len() {
         let mut placed = vec![false; nodes.len()];
         for &index in &order {
             placed[index] = true;
         }
         diagnostics.extend(diagnose_cycles(
-            &lookup, &outgoing, &placed, &stopped, &active,
+            &lookup,
+            &dependencies.outgoing,
+            &placed,
+            &stopped,
+            &active,
         ));
     }
+    let Dependencies { outgoing, .. } = known;
     Schedule {
         lookup,
         order,
         diagnostics,
         outgoing,
+        writers,
         active,
         stopped,
     }
@@ -96,17 +133,34 @@ pub(super) fn input_writers<'a>(
 }
 
 ///
+/// What one attempt at a Turn did.
+///
+pub(super) enum Turn {
+    /// The Turn was taken, or settled without effect. `activated` names the
+    /// roots a dynamic write in it delivered activation to, which the
+    /// schedule could not know of.
+    Taken { activated: Vec<usize> },
+    /// The Turn must wait for these writers, which
+    /// [`Progress::unresolved_writers`] names, and is taken again once they
+    /// have been.
+    Waits(Vec<usize>),
+}
+
+///
 /// Takes one Tick's Turns through `schedule`, and answers the diagnostics for
 /// the Turns a cycle found during the Tick leaves untaken.
 ///
-/// `take` takes a computation's Turn and answers `None`, or answers the
-/// writers it must wait for, which [`Progress::unresolved_writers`] names. A
-/// Turn that waits leaves no effect and is taken again once its writers have
-/// been. Turns are taken in the schedule's order until one waits; from then
-/// on the computations still to take their Turn keep every edge the schedule
-/// ordered them by, the waiting Turn gains one from each writer, and they are
-/// taken by the loop the schedule was ordered by. A Tick that waits for
-/// nothing therefore takes its Turns in exactly the schedule's order.
+/// `take` takes a computation's Turn and answers what it did. A Turn that
+/// waits leaves no effect and is taken again once its writers have been.
+/// Turns are taken in the schedule's order until one waits, or until a
+/// dynamic write activates a root the schedule did not hold active. From
+/// then on the rest of the Tick is ordered by [`Progress`], as one found
+/// dependency orders it: the computations still to take their Turn keep
+/// every edge known before the Tick, a waiting Turn gains one from each
+/// writer, a root activated during the Tick joins with the edges its own
+/// Portals give, the writers-first edges are derived again from those, and
+/// the Turns are taken by the loop the schedule was ordered by. A Tick that
+/// finds nothing therefore takes its Turns in exactly the schedule's order.
 ///
 /// Turns still waiting when nothing is ready are on a same-Tick dependency
 /// cycle or wait on one. They are diagnosed and left untaken, and every other
@@ -114,16 +168,27 @@ pub(super) fn input_writers<'a>(
 ///
 pub(super) fn take_turns(
     schedule: &Schedule,
-    mut take: impl FnMut(usize, &Progress<'_>) -> Option<Vec<usize>>,
+    mut take: impl FnMut(usize, &Progress<'_>) -> Turn,
 ) -> Vec<Diagnostic> {
     let mut progress = Progress {
         schedule,
         waiting: schedule.stopped.iter().map(|stopped| !stopped).collect(),
+        active: Cow::Borrowed(&schedule.active),
+        joined_edges: Vec::new(),
+        joined_writers: Vec::new(),
     };
     for &index in &schedule.order {
         match take(index, &progress) {
-            None => progress.waiting[index] = false,
-            Some(writers) => return progress.continue_ordering(index, writers, take),
+            Turn::Taken { activated } => {
+                progress.waiting[index] = false;
+                if progress.activate(activated) {
+                    return progress.continue_ordering(Vec::new(), take);
+                }
+            }
+            Turn::Waits(writers) => {
+                let found = writers.into_iter().map(|writer| (writer, index)).collect();
+                return progress.continue_ordering(found, take);
+            }
         }
     }
     Vec::new()
@@ -137,6 +202,16 @@ pub(super) struct Progress<'a> {
     /// Which computations the schedule holds a Turn for that they have not
     /// yet taken.
     waiting: Vec<bool>,
+    /// Which roots activation can reach this Tick: the schedule's, and every
+    /// root a dynamic write has activated since, with what those reach.
+    active: Cow<'a, [bool]>,
+    /// The edges the roots activated during the Tick give: what their own
+    /// Portals reach and the static Input Portals their reservations cover.
+    /// Found once, when each root joins, because what a root's Portals give
+    /// does not change during the Tick.
+    joined_edges: Vec<(usize, usize)>,
+    /// The dynamic writers the roots activated during the Tick own.
+    joined_writers: Vec<usize>,
 }
 
 impl Progress<'_> {
@@ -145,65 +220,159 @@ impl Progress<'_> {
     /// which `reader`'s Turn must wait for.
     ///
     /// The writers are those [`input_writers`] orders a static Input Portal
-    /// after. A writer the schedule stopped never takes its Turn, so the
-    /// reader waits on it and is stopped with it, as a static reader of those
-    /// Cells is.
+    /// after, among the roots active this Tick. A writer the schedule stopped
+    /// never takes its Turn, so the reader waits on it and is stopped with
+    /// it, as a static reader of those Cells is.
     ///
     pub(super) fn unresolved_writers(&self, reader: usize, read: Range<usize>) -> Vec<usize> {
         let schedule = self.schedule;
-        let mut writers: Vec<usize> =
-            input_writers(&schedule.lookup, &schedule.active, reader, read)
-                .filter(|&writer| self.waiting[writer] || schedule.stopped[writer])
-                .collect();
+        let mut writers: Vec<usize> = input_writers(&schedule.lookup, &self.active, reader, read)
+            .filter(|&writer| self.waiting[writer] || schedule.stopped[writer])
+            .collect();
         writers.sort_unstable();
         writers.dedup();
         writers
     }
 
-    /// Orders the rest of the Tick from `waiter`'s Turn, which found
-    /// `writers` still to take theirs, as [`take_turns`] describes.
+    ///
+    /// Whether `index`'s root was activated during the Tick rather than held
+    /// active by the schedule.
+    ///
+    pub(super) fn joined(&self, index: usize) -> bool {
+        let owner = self.schedule.lookup.nodes()[index].owner;
+        self.active[owner] && !self.schedule.active[owner]
+    }
+
+    ///
+    /// Makes active this Tick each of `roots` the Tick does not hold active
+    /// yet, and every root those can deliver activation to. Answers whether
+    /// any was new.
+    ///
+    fn activate(&mut self, roots: Vec<usize>) -> bool {
+        let pending: Vec<usize> = roots
+            .into_iter()
+            .filter(|&root| !self.active[root])
+            .collect();
+        if pending.is_empty() {
+            return false;
+        }
+        let lookup = &self.schedule.lookup;
+        let active = self.active.to_mut();
+        for &root in &pending {
+            active[root] = true;
+        }
+        // A root activated during the Tick orders what its own Portals
+        // reach, as an active root's do before it, and its dynamic writers
+        // go writers first.
+        for root in super::activate(lookup, active, pending) {
+            for index in lookup.descendants(root) {
+                let mut edge = |producer, consumer| self.joined_edges.push((producer, consumer));
+                super::producer_edges(lookup, index, &mut edge);
+                super::reader_edges(lookup, index, &mut edge);
+                if lookup.nodes()[index]
+                    .function
+                    .dynamic_output_portal()
+                    .is_some()
+                {
+                    self.joined_writers.push(index);
+                }
+            }
+        }
+        true
+    }
+
+    /// Orders the rest of the Tick from the dependencies `found` so far, as
+    /// [`take_turns`] describes.
+    ///
+    /// Each dependency a Turn finds, and each root a Turn activates, can
+    /// change what is ordered after what, so the order is rebuilt from the
+    /// computations still waiting each time either happens.
     fn continue_ordering(
         mut self,
-        waiter: usize,
-        writers: Vec<usize>,
-        mut take: impl FnMut(usize, &Progress<'_>) -> Option<Vec<usize>>,
+        mut found: Vec<(usize, usize)>,
+        mut take: impl FnMut(usize, &Progress<'_>) -> Turn,
     ) -> Vec<Diagnostic> {
         let schedule = self.schedule;
-        let waiting = &self.waiting;
-        let mut dependencies = Dependencies::new(
-            waiting.len(),
-            schedule
-                .outgoing
-                .iter()
-                .enumerate()
-                .filter(|&(producer, _)| waiting[producer])
-                .flat_map(|(producer, consumers)| {
-                    consumers
-                        .iter()
-                        .filter(|&&consumer| waiting[consumer])
-                        .map(move |&consumer| (producer, consumer))
-                }),
-        );
-        dependencies.wait_on(waiter, writers);
-        let ready = dependencies.free(|index| waiting[index]);
-        dependencies.take_ready(&schedule.lookup, ready, self.waiting.clone(), |index| {
-            let writers = take(index, &self);
-            if writers.is_none() {
-                self.waiting[index] = false;
+        let lookup = &schedule.lookup;
+        let dependencies = loop {
+            let mut dependencies = self.dependencies(&found);
+            let stopped = dependencies.cycle_closure(lookup, &self.waiting);
+            let ready = dependencies.free(|index| self.waiting[index]);
+            let reordered = dependencies.take_ready(lookup, ready, &stopped, |index| {
+                match take(index, &self) {
+                    Turn::Taken { activated } => {
+                        self.waiting[index] = false;
+                        !self.activate(activated)
+                    }
+                    Turn::Waits(writers) => {
+                        found.extend(writers.into_iter().map(|writer| (writer, index)));
+                        false
+                    }
+                }
+            });
+            if !reordered {
+                break dependencies;
             }
-            writers
-        });
+        };
         if !self.waiting.contains(&true) {
             return Vec::new();
         }
         let placed: Vec<bool> = self.waiting.iter().map(|waiting| !waiting).collect();
         diagnose_cycles(
-            &schedule.lookup,
+            lookup,
             &dependencies.outgoing,
             &placed,
             &self.waiting,
-            &schedule.active,
+            &self.active,
         )
+    }
+
+    ///
+    /// The dependencies among the computations still waiting: the edges
+    /// known before the Tick, the dependencies `found` during it, and the
+    /// writers-first edges they give.
+    ///
+    /// A found writer that has taken its Turn orders nothing more. One the
+    /// schedule stopped never takes its Turn, so its edge is kept, and its
+    /// reader is stopped with it.
+    ///
+    fn dependencies(&self, found: &[(usize, usize)]) -> Dependencies {
+        let schedule = self.schedule;
+        let lookup = &schedule.lookup;
+        let waiting = &self.waiting;
+        let edges: Vec<(usize, usize)> = schedule
+            .outgoing
+            .iter()
+            .enumerate()
+            .filter(|&(producer, _)| waiting[producer])
+            .flat_map(|(producer, consumers)| {
+                consumers
+                    .iter()
+                    .filter(|&&consumer| waiting[consumer])
+                    .map(move |&consumer| (producer, consumer))
+            })
+            .chain(
+                found
+                    .iter()
+                    .copied()
+                    .filter(|&(writer, _)| waiting[writer] || schedule.stopped[writer]),
+            )
+            .chain(
+                self.joined_edges
+                    .iter()
+                    .copied()
+                    .filter(|&(producer, consumer)| waiting[producer] && waiting[consumer]),
+            )
+            .collect();
+        let writers: Vec<usize> = schedule
+            .writers
+            .iter()
+            .chain(&self.joined_writers)
+            .copied()
+            .collect();
+        let known = Dependencies::new(waiting.len(), edges.iter().copied());
+        let writers_first = known.writers_first(lookup, &writers, waiting);
+        Dependencies::new(waiting.len(), edges.into_iter().chain(writers_first))
     }
 }
 
@@ -240,34 +409,31 @@ impl Dependencies {
     ///
     /// Takes each computation in `ready`, and each one whose last dependency
     /// is then taken, in Grid order: the order a schedule is built in and a
-    /// Tick continues in.
+    /// Tick continues in, skipping each one `stopped` names.
     ///
-    /// `take` takes a computation's Turn, or answers the computations it must
-    /// wait for. One that waits is ordered after them and is taken again once
-    /// they have been, so a dependency found at a Turn joins the order there.
-    /// A computation whose dependencies are never all taken is left untaken.
-    /// Answers the stopped closure, shared with scheduling and diagnosis.
+    /// `take` takes a computation's Turn and answers whether the order still
+    /// holds. Taking stops at the first Turn that answers `false`, a Turn
+    /// that waits or one that changed what is ordered after what, and this
+    /// answers `true` so that the caller can order the rest again. `false`
+    /// once nothing more is ready: a computation whose dependencies are never
+    /// all taken is left untaken.
     ///
     fn take_ready(
         &mut self,
         lookup: &Lookup,
         ready: impl IntoIterator<Item = usize>,
-        mut remaining: Vec<bool>,
-        mut take: impl FnMut(usize) -> Option<Vec<usize>>,
-    ) -> Vec<bool> {
+        stopped: &[bool],
+        mut take: impl FnMut(usize) -> bool,
+    ) -> bool {
         let key = |index: usize| (lookup.grid.index(lookup.nodes()[index].anchor), index);
         let mut ready: BTreeSet<_> = ready.into_iter().map(key).collect();
-        let mut stopped = self.cycle_closure(lookup, &remaining);
         while let Some((_, index)) = ready.pop_first() {
             if stopped[index] {
                 continue;
             }
-            if let Some(writers) = take(index) {
-                self.wait_on(index, writers);
-                stopped = self.cycle_closure(lookup, &remaining);
-                continue;
+            if !take(index) {
+                return true;
             }
-            remaining[index] = false;
             for &consumer in &self.outgoing[index] {
                 self.indegree[consumer] -= 1;
                 if self.indegree[consumer] == 0 {
@@ -275,7 +441,89 @@ impl Dependencies {
                 }
             }
         }
-        stopped
+        false
+    }
+
+    ///
+    /// The writers-first edges these dependencies give `writers`, among the
+    /// computations `remaining` names.
+    ///
+    /// What feeds a computation is every computation with a path of
+    /// dependencies to it. The writers a cycle stops take no Turn and order
+    /// nothing; the rest are ordered by what feeds them, so a writer that
+    /// feeds another goes first, and otherwise by Grid position. Each writer
+    /// then goes before every remaining computation that feeds neither it nor
+    /// a writer ordered before it. A writer edge never closes a cycle: along
+    /// every edge the first writer a computation feeds, or is, comes no later,
+    /// and along a writer edge strictly later.
+    ///
+    fn writers_first(
+        &self,
+        lookup: &Lookup,
+        writers: &[usize],
+        remaining: &[bool],
+    ) -> Vec<(usize, usize)> {
+        if writers.is_empty() {
+            return Vec::new();
+        }
+        let stopped = self.cycle_closure(lookup, remaining);
+        let mut incoming = vec![vec![]; self.outgoing.len()];
+        for (producer, consumers) in self.outgoing.iter().enumerate() {
+            for &consumer in consumers {
+                incoming[consumer].push(producer);
+            }
+        }
+        let key = |index: usize| (lookup.grid.index(lookup.nodes()[index].anchor), index);
+        let mut seen = vec![false; self.outgoing.len()];
+        let mut pending: Vec<(usize, Vec<usize>)> = writers
+            .iter()
+            .copied()
+            .filter(|&writer| remaining[writer] && !stopped[writer])
+            .map(|writer| (writer, feeds(&incoming, writer, &mut seen)))
+            .collect();
+        pending.sort_unstable_by_key(|&(writer, _)| key(writer));
+        let mut is_pending = vec![false; self.outgoing.len()];
+        for &(writer, _) in &pending {
+            is_pending[writer] = true;
+        }
+        // Each writer goes before every remaining computation not yet
+        // covered, and the next writer is never fed by one placed before it,
+        // so it is uncovered when its predecessor is placed: the writers form
+        // a chain. Covered only grows, so a computation is uncovered for a
+        // prefix of the chain and the last writer of that prefix orders it
+        // after every earlier one through the chain. That one edge each keeps
+        // the order the whole prefix's edges give.
+        let mut covered = vec![false; remaining.len()];
+        let mut edges = Vec::new();
+        let mut placed = None;
+        while !pending.is_empty() {
+            // The first writer in Grid order that no other pending writer
+            // feeds.
+            let next = (0..pending.len())
+                .find(|&candidate| pending[candidate].1.iter().all(|&fed| !is_pending[fed]))
+                .expect(
+                    "pending writers are on no cycle, so what feeds them is acyclic \
+                     and one of them is fed by none of the others",
+                );
+            let (writer, fed) = pending.remove(next);
+            is_pending[writer] = false;
+            for index in fed.into_iter().chain([writer]) {
+                if !std::mem::replace(&mut covered[index], true)
+                    && let Some(previous) = placed.filter(|_| remaining[index])
+                {
+                    edges.push((previous, index));
+                }
+            }
+            placed = Some(writer);
+        }
+        if let Some(last) = placed {
+            edges.extend(
+                (0..remaining.len())
+                    .filter(|&consumer| remaining[consumer] && !covered[consumer])
+                    .map(|consumer| (last, consumer)),
+            );
+        }
+        edges
     }
 
     /// The unresolved computations a cycle stops, closed over whole
@@ -310,14 +558,28 @@ impl Dependencies {
         }
         stopped
     }
+}
 
-    /// Orders `waiter` after each of `writers`.
-    fn wait_on(&mut self, waiter: usize, writers: Vec<usize>) {
-        self.indegree[waiter] += writers.len();
-        for writer in writers {
-            self.outgoing[writer].push(waiter);
+///
+/// Which computations feed `writer`: those with a path of at least one edge
+/// to it, read from `incoming`, the edges by consumer.
+///
+/// `seen` is all `false` on entry and is left so, so one buffer serves every
+/// writer and each call costs what it visits rather than every computation.
+///
+fn feeds(incoming: &[Vec<usize>], writer: usize, seen: &mut [bool]) -> Vec<usize> {
+    let mut fed = Vec::new();
+    let mut pending = incoming[writer].clone();
+    while let Some(index) = pending.pop() {
+        if !std::mem::replace(&mut seen[index], true) {
+            fed.push(index);
+            pending.extend_from_slice(&incoming[index]);
         }
     }
+    for &index in &fed {
+        seen[index] = false;
+    }
+    fed
 }
 
 ///

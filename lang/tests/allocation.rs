@@ -492,9 +492,9 @@ fn a_turn_over_atoms_allocates_nothing() {
 }
 
 #[test]
-fn a_jump_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
-    // A Jump reads the two Cells at its input Portal as a Function, a Number
-    // or a Note, and refuses any other spelling with a `JumpInput` that owns
+fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
+    // A Copy reads the two Cells at its input Portal as a Function, a Number
+    // or a Note, and refuses any other spelling with a `PartialInput` that owns
     // no text. Asking which of the three the Cells spell borrows them, so a
     // Note or an unreadable spelling costs nothing on the way through the
     // readings it is not, and the refusal a Turn reports is itself no block.
@@ -502,9 +502,9 @@ fn a_jump_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
     // `G4` is the Note: a Note spelled in hexadecimal digits, such as `C4`,
     // reads as a Number first and never reaches the Note reading.
     let tick = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let jump = |cells: &str| {
+    let copy = |cells: &str| {
         Interpreter::execute_function(
-            black_box(Function::JumpEast),
+            black_box(Function::CopyEast),
             [],
             FunctionInputs::with_portal_source(tick, PortalSource::from_cells(Some(cells))),
         )
@@ -512,25 +512,25 @@ fn a_jump_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
 
     for cells in [".+", "0A", "G4", "xx"] {
         // Warm up, for the reason the call test gives.
-        let _ = black_box(jump(cells));
-        let (allocations, answer) = measure(|| jump(black_box(cells)));
+        let _ = black_box(copy(cells));
+        let (allocations, answer) = measure(|| copy(black_box(cells)));
         if cells == "xx" {
             assert!(
                 matches!(
                     answer,
-                    Err(Error::Interpretation(InterpretationError::JumpInput {
-                        function: Function::JumpEast
+                    Err(Error::Interpretation(InterpretationError::PartialInput {
+                        function: Function::CopyEast
                     }))
                 ),
                 "{cells:?} was copied: {answer:?}"
             );
         } else {
-            answer.expect("the Jump copies its Portal Cells");
+            answer.expect("the Copy copies its Portal Cells");
         }
         assert_eq!(
             allocations,
             Allocations::default(),
-            "a Jump over {cells:?} allocated"
+            "a Copy over {cells:?} allocated"
         );
     }
 }

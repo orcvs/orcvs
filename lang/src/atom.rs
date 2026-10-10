@@ -473,7 +473,7 @@ macro_rules! define_functions {
             "a Function spelling must be exactly two ASCII Cells",
         );)+
 
-        #[derive(Clone, Copy, Debug, PartialEq)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum Function {
             $($variant,)+
         }
@@ -600,7 +600,7 @@ macro_rules! define_functions {
             /// One name for a question both crates ask: `signature()` is
             /// `pub(crate)`, so `orcvs` cannot ask the slice. It is a fact
             /// about the declaration and not about a Function group — the
-            /// Jumps, Halt and the Directional Bang Functions declare no
+            /// Copies, Halt and the Directional Bang Functions declare no
             /// operand either — so a caller that means "is a Self-Banging
             /// Function" should ask [`Function::source_effect`] instead, and
             /// read the bundle it answers: both groups declare an effect, and
@@ -670,12 +670,19 @@ macro_rules! define_functions {
 }
 
 define_functions! {
+    AbsoluteCopy => ("=$", Value, Intrinsic, true, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
     AbsoluteDifference => (".|", Value, Intrinsic, false, [left: Number, right: Number]),
+    AbsoluteRead => ("&$", Value, Intrinsic, true, [column: Number, row: Number]),
+    AbsoluteWrite => ("@$", Value, Intrinsic, true, [column: Number, row: Number, value: Untyped]),
     Add => (".+", Value, Intrinsic, false, [left: Number, right: Number]),
     Clock => ("~.", Value, Intrinsic, false, [rate: Number, modulus: Number]),
     ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Intrinsic, false, [value: Number]),
     ConvertToNumber => (".v", Value, Intrinsic, false, [value: Note]),
+    CopyEast => ("=>", Value, Intrinsic, true, []),
+    CopyNorth => ("=^", Value, Intrinsic, true, []),
+    CopySouth => ("=v", Value, Intrinsic, true, []),
+    CopyWest => ("=<", Value, Intrinsic, true, []),
     Delay => ("~*", Value, Intrinsic, true, [rate: Number, modulus: Number]),
     DirectionalBangEast => ("*>", BangEast, Bang, false, []),
     DirectionalBangNorth => ("*^", BangNorth, Bang, false, []),
@@ -687,25 +694,30 @@ define_functions! {
     Halt => ("*!", Halt, Bang, false, []),
     Increment => ("~+", Value, Intrinsic, false, [step: Number, modulus: Number], portal: "previous value": Number),
     Interpolation => ("~>", Value, Intrinsic, false, [rate: Number, target: Number], portal: "previous value": Number),
-    JumpEast => ("&>", Value, Intrinsic, true, []),
-    JumpNorth => ("&^", Value, Intrinsic, true, []),
-    JumpSouth => ("&v", Value, Intrinsic, true, []),
-    JumpWest => ("&<", Value, Intrinsic, true, []),
     Maximum => (".>", Value, Intrinsic, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Intrinsic, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Intrinsic, false, [left: Number, right: Number]),
     MonophonicPlay => ("!%", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Intrinsic, false, [left: Number, right: Number]),
     PitchBend => ("!b", TerminalOutput, Bang, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Push => ("@t", Value, Intrinsic, true, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, false, [seed: Number, minimum: Number, maximum: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    ReadEast => ("&>", Value, Intrinsic, true, [n: Number]),
+    ReadNorth => ("&^", Value, Intrinsic, true, [n: Number]),
+    ReadSouth => ("&v", Value, Intrinsic, true, [n: Number]),
+    ReadWest => ("&<", Value, Intrinsic, true, [n: Number]),
     SelfBangingEast => (">>", SelfBangEast, Intrinsic, false, []),
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, false, []),
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, false, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
     Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Track => ("@t", Value, Intrinsic, true, [index: Number, count: Number]),
+    Track => ("&t", Value, Intrinsic, true, [index: Number, count: Number]),
+    WriteEast => ("@>", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    WriteNorth => ("@^", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    WriteSouth => ("@v", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    WriteWest => ("@<", Value, Intrinsic, true, [n: Number, value: Untyped]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -831,31 +843,37 @@ impl Function {
         (ReplacementChange::Write, |replacement, running| {
             replacement.source_effect() != running.source_effect()
                 || replacement.output_portal() != running.output_portal()
+                || replacement.dynamic_output_portal() != running.dynamic_output_portal()
                 || replacement.input_portal() != running.input_portal()
         }),
     ];
 
-    /// The Output Portal this Function names, or `None` when it names none.
+    /// The static Output Portal this Function names, or `None` when it names
+    /// none.
     ///
     /// Terminal Output and Source-writing Functions name none here: the former
     /// has no Cell destination, and the latter keeps its destinations on
-    /// [`Function::source_effect`]. Every other Function names one row south
-    /// unless it is a Jump, which names the Portal its direction writes
-    /// through.
+    /// [`Function::source_effect`]. A Write names none either: its Output
+    /// Portal is dynamic, [`Function::dynamic_output_portal`]. Every other
+    /// Function names one row south unless it is a Copy, which names the
+    /// Portal its direction writes through.
     pub const fn output_portal(self) -> Option<crate::PortalCoords> {
-        if self.performs_terminal_output() || self.source_effect().is_some() {
+        if self.performs_terminal_output()
+            || self.source_effect().is_some()
+            || self.dynamic_output_portal().is_some()
+        {
             return None;
         }
         Some(match self {
-            Self::JumpEast => crate::PortalCoords {
+            Self::CopyEast => crate::PortalCoords {
                 columns: 2,
                 rows: 0,
             },
-            Self::JumpWest => crate::PortalCoords {
+            Self::CopyWest => crate::PortalCoords {
                 columns: -2,
                 rows: 0,
             },
-            Self::JumpNorth => crate::PortalCoords {
+            Self::CopyNorth => crate::PortalCoords {
                 columns: 0,
                 rows: -1,
             },
@@ -863,29 +881,61 @@ impl Function {
         })
     }
 
+    /// How this Function's operands select the pair its dynamic Output Portal
+    /// writes, or `None` when its Output Portal, if any, is static.
+    ///
+    /// Each Write selects its pair by the rule the Read with the same arrow,
+    /// or the absolute Read, selects the pair it reads: the address operands
+    /// lead the signature and `value` follows them. Push selects a pair of
+    /// the lane below it, and the absolute Copy the destination Position its
+    /// last two operands name.
+    pub const fn dynamic_output_portal(self) -> Option<crate::PairSelection> {
+        use crate::Direction::{East, North, South, West};
+        use crate::PairSelection::{DestinationPosition, Distance, Lane, Position};
+        match self {
+            Self::AbsoluteCopy => Some(DestinationPosition),
+            Self::AbsoluteWrite => Some(Position(self)),
+            Self::Push => Some(Lane),
+            Self::WriteEast => Some(Distance(East, self)),
+            Self::WriteNorth => Some(Distance(North, self)),
+            Self::WriteSouth => Some(Distance(South, self)),
+            Self::WriteWest => Some(Distance(West, self)),
+            _ => None,
+        }
+    }
+
     /// The Input Portal this Function names, or `None` when it names none.
     ///
-    /// Jump names the Portal opposite its Output Portal. Increment and
+    /// Copy names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
-    /// Those are static; Track's is dynamic, the pair its operands select
-    /// after them.
+    /// Those are static. Track's, every Read's and the absolute Copy's are
+    /// dynamic, and each names the rule by which its operands select the pair
+    /// it reads.
     pub const fn input_portal(self) -> Option<crate::InputPortal> {
+        use crate::Direction::{East, North, South, West};
         use crate::InputPortal::{Dynamic, Static};
+        use crate::PairSelection::{Distance, IndexModuloCount, Position, SourcePosition};
         match self {
-            Self::JumpEast => Some(Static(crate::PortalCoords {
+            Self::AbsoluteCopy => Some(Dynamic(SourcePosition)),
+            Self::CopyEast => Some(Static(crate::PortalCoords {
                 columns: -2,
                 rows: 0,
             })),
-            Self::JumpWest => Some(Static(crate::PortalCoords {
+            Self::CopyWest => Some(Static(crate::PortalCoords {
                 columns: 2,
                 rows: 0,
             })),
-            Self::JumpNorth => Some(Static(crate::PortalCoords::SOUTH)),
-            Self::JumpSouth => Some(Static(crate::PortalCoords {
+            Self::CopyNorth => Some(Static(crate::PortalCoords::SOUTH)),
+            Self::CopySouth => Some(Static(crate::PortalCoords {
                 columns: 0,
                 rows: -1,
             })),
-            Self::Track => Some(Dynamic),
+            Self::AbsoluteRead => Some(Dynamic(Position(self))),
+            Self::ReadEast => Some(Dynamic(Distance(East, self))),
+            Self::ReadNorth => Some(Dynamic(Distance(North, self))),
+            Self::ReadSouth => Some(Dynamic(Distance(South, self))),
+            Self::ReadWest => Some(Dynamic(Distance(West, self))),
+            Self::Track => Some(Dynamic(IndexModuloCount)),
             _ if self.portal_input().is_some() => Some(Static(crate::PortalCoords::SOUTH)),
             _ => None,
         }
@@ -893,7 +943,8 @@ impl Function {
 
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
-    /// Jump and Track name an Input Portal and bind no typed Portal input.
+    /// The Copies, Track and the Reads name an Input Portal and bind no typed
+    /// Portal input.
     /// Increment and Interpolation name the same south site as a Number Portal
     /// input, so they are not this: the Cells they read are a value, not a
     /// Language Unit.
@@ -929,6 +980,21 @@ pub(crate) fn note_atom_from_spelling(s: &str) -> Option<Atom> {
 /// [`TypeError::Number`] only where a refusal is reported.
 pub(crate) fn number_atom_from_spelling(s: &str) -> Option<Atom> {
     crate::number_from_spelling(s).map(Atom::Number)
+}
+
+/// The Atom an untyped slot holds: the Language Unit two Cells spell, a Bang
+/// included.
+///
+/// The slot carries those Cells on and never interprets them. Every reading
+/// that can apply renders back as the same two Cells, so where two readings
+/// coincide, as `C4` spells both a Number and a Note, either carries the
+/// same encoding. Cells that spell no Language Unit, an empty pair among
+/// them, are not a value to carry.
+pub(crate) fn untyped_atom(s: &str) -> Result<Atom, Error> {
+    if s == "**" {
+        return Ok(Atom::Bang);
+    }
+    crate::functions::copy::copied_atom(s).ok_or_else(|| TypeError::Unit(s.to_string()).into())
 }
 
 #[inline(always)]
@@ -1015,6 +1081,9 @@ mod test {
         match token {
             crate::Token::Number => Atom::Number(0),
             crate::Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
+            // An untyped slot carries any Language Unit, so the lowest Number
+            // is one of the values it reads.
+            crate::Token::Untyped => Atom::Number(0),
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -1148,15 +1217,16 @@ mod test {
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
-        // result, and a Jump or Track copies a Bang from its Input Portal. Tick
-        // scheduling trusts the declaration to decide which roots can supply
-        // activation, so the list is stated whole — a Function that began
-        // returning Bang without declaring it would build no activation edge,
-        // and the neighbouring terminal root would fall silent with no
+        // result, a Copy, Track or Read copies a Bang from its Input
+        // Portal, and a Write carries a Bang in its `value`. Tick scheduling
+        // trusts the declaration to decide which roots
+        // can supply activation, so the list is stated whole — a Function that
+        // began returning Bang without declaring it would build no activation
+        // edge, and the neighbouring terminal root would fall silent with no
         // diagnostic anywhere.
         // `only_a_function_that_declares_it_ever_answers_with_bang` is the
-        // other half for operand-reading Functions; the Jumps and Track are
-        // exercised on their own path, because each reads its Portal.
+        // other half for operand-reading Functions; the Copies, Track and Read
+        // are exercised on their own path, because each reads its Portal.
         assert_eq!(
             Function::ALL
                 .iter()
@@ -1164,14 +1234,26 @@ mod test {
                 .filter(|function| function.can_emit_bang())
                 .collect::<Vec<_>>(),
             vec![
+                Function::AbsoluteCopy,
+                Function::AbsoluteRead,
+                Function::AbsoluteWrite,
+                Function::CopyEast,
+                Function::CopyNorth,
+                Function::CopySouth,
+                Function::CopyWest,
                 Function::Delay,
                 Function::Equality,
                 Function::Euclidean,
-                Function::JumpEast,
-                Function::JumpNorth,
-                Function::JumpSouth,
-                Function::JumpWest,
+                Function::Push,
+                Function::ReadEast,
+                Function::ReadNorth,
+                Function::ReadSouth,
+                Function::ReadWest,
                 Function::Track,
+                Function::WriteEast,
+                Function::WriteNorth,
+                Function::WriteSouth,
+                Function::WriteWest,
             ]
         );
     }
@@ -1179,15 +1261,42 @@ mod test {
     #[test]
     fn every_function_names_its_portals() {
         use crate::{
+            Direction,
             InputPortal::{Dynamic, Static},
-            PortalCoords,
+            PairSelection, PortalCoords,
         };
+        // The arrow each Read's and Write's spelling names.
+        const READS: [(Function, Direction); 4] = [
+            (Function::ReadEast, Direction::East),
+            (Function::ReadNorth, Direction::North),
+            (Function::ReadSouth, Direction::South),
+            (Function::ReadWest, Direction::West),
+        ];
+        const WRITES: [(Function, Direction); 4] = [
+            (Function::WriteEast, Direction::East),
+            (Function::WriteNorth, Direction::North),
+            (Function::WriteSouth, Direction::South),
+            (Function::WriteWest, Direction::West),
+        ];
 
         for function in Function::ALL.iter().copied() {
             let output = function.output_portal();
             let input = function.input_portal();
+            let dynamic_output = function.dynamic_output_portal();
+            if !matches!(
+                function,
+                Function::AbsoluteCopy
+                    | Function::AbsoluteWrite
+                    | Function::Push
+                    | Function::WriteEast
+                    | Function::WriteNorth
+                    | Function::WriteSouth
+                    | Function::WriteWest
+            ) {
+                assert_eq!(dynamic_output, None, "{function:?}");
+            }
             match function {
-                Function::JumpEast => {
+                Function::CopyEast => {
                     assert_eq!(
                         output,
                         Some(PortalCoords {
@@ -1203,7 +1312,7 @@ mod test {
                         }))
                     );
                 }
-                Function::JumpWest => {
+                Function::CopyWest => {
                     assert_eq!(
                         output,
                         Some(PortalCoords {
@@ -1219,7 +1328,7 @@ mod test {
                         }))
                     );
                 }
-                Function::JumpNorth => {
+                Function::CopyNorth => {
                     assert_eq!(
                         output,
                         Some(PortalCoords {
@@ -1229,7 +1338,7 @@ mod test {
                     );
                     assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
                 }
-                Function::JumpSouth => {
+                Function::CopySouth => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(
                         input,
@@ -1245,7 +1354,62 @@ mod test {
                 }
                 Function::Track => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(input, Some(Dynamic));
+                    assert_eq!(input, Some(Dynamic(PairSelection::IndexModuloCount)));
+                }
+                Function::ReadEast
+                | Function::ReadNorth
+                | Function::ReadSouth
+                | Function::ReadWest => {
+                    let (_, direction) = READS
+                        .iter()
+                        .find(|(read, _)| *read == function)
+                        .expect("every Read is listed");
+                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
+                    assert_eq!(
+                        input,
+                        Some(Dynamic(PairSelection::Distance(*direction, function))),
+                        "{function:?}"
+                    );
+                }
+                Function::AbsoluteRead => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, Some(Dynamic(PairSelection::Position(function))));
+                }
+                // A Write's Output Portal is the pair the Read with the same
+                // arrow, or the absolute Read, reads, and nothing south.
+                Function::WriteEast
+                | Function::WriteNorth
+                | Function::WriteSouth
+                | Function::WriteWest => {
+                    let (_, direction) = WRITES
+                        .iter()
+                        .find(|(write, _)| *write == function)
+                        .expect("every Write is listed");
+                    assert_eq!(output, None, "{function:?}");
+                    assert_eq!(input, None, "{function:?}");
+                    assert_eq!(
+                        dynamic_output,
+                        Some(PairSelection::Distance(*direction, function)),
+                        "{function:?}"
+                    );
+                }
+                Function::AbsoluteWrite => {
+                    assert_eq!(output, None);
+                    assert_eq!(input, None);
+                    assert_eq!(dynamic_output, Some(PairSelection::Position(function)));
+                }
+                // The absolute Copy reads one Position and writes another,
+                // and nothing south.
+                Function::AbsoluteCopy => {
+                    assert_eq!(output, None);
+                    assert_eq!(input, Some(Dynamic(PairSelection::SourcePosition)));
+                    assert_eq!(dynamic_output, Some(PairSelection::DestinationPosition));
+                }
+                // Push writes a pair of the lane below it.
+                Function::Push => {
+                    assert_eq!(output, None);
+                    assert_eq!(input, None);
+                    assert_eq!(dynamic_output, Some(PairSelection::Lane));
                 }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
@@ -1261,6 +1425,84 @@ mod test {
                     assert_eq!(input, None, "{function:?}");
                     assert!(!function.locks_root(), "{function:?}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_read_with_track_another_read_or_a_copy_is_a_write() {
+        // Each names its own rule for selecting its dynamic Input Portal, a
+        // directional Copy declares static Portals, and the absolute Copy
+        // also declares a dynamic Output Portal.
+        const READS: [Function; 5] = [
+            Function::AbsoluteRead,
+            Function::ReadEast,
+            Function::ReadNorth,
+            Function::ReadSouth,
+            Function::ReadWest,
+        ];
+        const COPIES: [Function; 5] = [
+            Function::AbsoluteCopy,
+            Function::CopyEast,
+            Function::CopyNorth,
+            Function::CopySouth,
+            Function::CopyWest,
+        ];
+        for read in READS {
+            assert_eq!(read.replacing(read), None, "{read:?}");
+            let others = READS
+                .into_iter()
+                .filter(|other| *other != read)
+                .chain(COPIES)
+                .chain([Function::Track]);
+            for other in others {
+                assert_eq!(
+                    other.replacing(read),
+                    Some(ReplacementChange::Write),
+                    "{other:?} replacing {read:?}"
+                );
+                assert_eq!(
+                    read.replacing(other),
+                    Some(ReplacementChange::Write),
+                    "{read:?} replacing {other:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_write_with_another_write_a_read_or_a_value_function_is_a_write() {
+        // Each Write, and the absolute Copy, names its own rule for selecting
+        // its dynamic Output Portal; a Read and Equality answer through a
+        // static one.
+        const WRITES: [Function; 7] = [
+            Function::AbsoluteCopy,
+            Function::AbsoluteWrite,
+            Function::Push,
+            Function::WriteEast,
+            Function::WriteNorth,
+            Function::WriteSouth,
+            Function::WriteWest,
+        ];
+        for write in WRITES {
+            assert_eq!(write.replacing(write), None, "{write:?}");
+            let others = WRITES.into_iter().filter(|other| *other != write).chain([
+                Function::AbsoluteRead,
+                Function::Track,
+                Function::ReadEast,
+                Function::Equality,
+            ]);
+            for other in others {
+                assert_eq!(
+                    other.replacing(write),
+                    Some(ReplacementChange::Write),
+                    "{other:?} replacing {write:?}"
+                );
+                assert_eq!(
+                    write.replacing(other),
+                    Some(ReplacementChange::Write),
+                    "{write:?} replacing {other:?}"
+                );
             }
         }
     }
@@ -1508,7 +1750,9 @@ mod test {
             // to it, and so does a Self-Banging Function that answers an
             // effect, so the third column is not the first one read again.
             let (answers_value, terminal_output, intrinsically_active) = match function {
-                Function::AbsoluteDifference
+                Function::AbsoluteCopy
+                | Function::AbsoluteDifference
+                | Function::AbsoluteRead
                 | Function::Add
                 | Function::Clock
                 | Function::ConvertToNote
@@ -1519,17 +1763,27 @@ mod test {
                 | Function::Euclidean
                 | Function::Increment
                 | Function::Interpolation
-                | Function::JumpEast
-                | Function::JumpNorth
-                | Function::JumpSouth
-                | Function::JumpWest
+                | Function::CopyEast
+                | Function::CopyNorth
+                | Function::CopySouth
+                | Function::CopyWest
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
                 | Function::Random
+                | Function::ReadEast
+                | Function::ReadNorth
+                | Function::ReadSouth
+                | Function::ReadWest
                 | Function::Subtract
-                | Function::Track => (true, false, true),
+                | Function::Track
+                | Function::AbsoluteWrite
+                | Function::Push
+                | Function::WriteEast
+                | Function::WriteNorth
+                | Function::WriteSouth
+                | Function::WriteWest => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend
@@ -1577,10 +1831,10 @@ mod test {
         assert_eq!(Atom::Function(Function::SelfBangingSouth).to_string(), "vv");
         assert_eq!(Atom::Function(Function::SelfBangingWest).to_string(), "<<");
         assert_eq!(Atom::Function(Function::SelfBangingEast).to_string(), ">>");
-        assert_eq!(Atom::Function(Function::JumpNorth).to_string(), "&^");
-        assert_eq!(Atom::Function(Function::JumpSouth).to_string(), "&v");
-        assert_eq!(Atom::Function(Function::JumpWest).to_string(), "&<");
-        assert_eq!(Atom::Function(Function::JumpEast).to_string(), "&>");
+        assert_eq!(Atom::Function(Function::CopyNorth).to_string(), "=^");
+        assert_eq!(Atom::Function(Function::CopySouth).to_string(), "=v");
+        assert_eq!(Atom::Function(Function::CopyWest).to_string(), "=<");
+        assert_eq!(Atom::Function(Function::CopyEast).to_string(), "=>");
     }
 
     #[test]

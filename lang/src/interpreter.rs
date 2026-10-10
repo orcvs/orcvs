@@ -1,5 +1,6 @@
 use crate::{
     Atom, Error, Function, FunctionInputs, PlayCommand, SourceEffect, Stack,
+    atom::operands,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -110,6 +111,7 @@ impl Interpreter {
             inputs,
         };
         let atom = match function {
+            Function::AbsoluteCopy => functions::copy::absolute_copy(&mut ctx)?,
             Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
             Function::Add => math::add(&mut ctx)?,
             Function::Clock => tick::clock(&mut ctx)?,
@@ -121,11 +123,24 @@ impl Interpreter {
             Function::Euclidean => tick::euclidean(&mut ctx)?,
             Function::Increment => tick::increment(&mut ctx)?,
             Function::Interpolation => tick::interpolation(&mut ctx)?,
-            Function::JumpEast | Function::JumpNorth | Function::JumpSouth | Function::JumpWest => {
-                functions::jump::jump(&mut ctx, function)?
+            Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
+                functions::copy::copy(&mut ctx, function)?
             }
             Function::Random => tick::random(&mut ctx)?,
+            Function::AbsoluteRead => functions::read::read::<operands::AbsoluteRead>(&mut ctx)?,
+            Function::ReadEast => functions::read::read::<operands::ReadEast>(&mut ctx)?,
+            Function::ReadNorth => functions::read::read::<operands::ReadNorth>(&mut ctx)?,
+            Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
+            Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
             Function::Track => functions::track::track(&mut ctx)?,
+            Function::AbsoluteWrite => {
+                functions::write::write::<operands::AbsoluteWrite>(&mut ctx)?
+            }
+            Function::Push => functions::write::write::<operands::Push>(&mut ctx)?,
+            Function::WriteEast => functions::write::write::<operands::WriteEast>(&mut ctx)?,
+            Function::WriteNorth => functions::write::write::<operands::WriteNorth>(&mut ctx)?,
+            Function::WriteSouth => functions::write::write::<operands::WriteSouth>(&mut ctx)?,
+            Function::WriteWest => functions::write::write::<operands::WriteWest>(&mut ctx)?,
             Function::Maximum => math::maximum(&mut ctx)?,
             Function::Minimum => math::minimum(&mut ctx)?,
             Function::Modulo => math::modulo(&mut ctx)?,
@@ -653,6 +668,10 @@ mod test {
                 atoms.extend(function.signature().iter().map(|token| match token {
                     Token::Number => Atom::Number(value),
                     Token::Note => Atom::Note(Note::try_from(value & 0x7F).expect("a MIDI note")),
+                    // A Write answers the value it carries, so the sweep
+                    // hands it a Bang there: a Write that carries one answers
+                    // it.
+                    Token::Untyped => Atom::Bang,
                     other => panic!("no operand is declared as {other:?}"),
                 }));
                 matches!(evaluate_cell(atoms), Ok(Atom::Bang))

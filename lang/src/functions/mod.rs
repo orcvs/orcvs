@@ -1,8 +1,10 @@
-pub(crate) mod jump;
+pub(crate) mod copy;
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
+pub(crate) mod read;
 pub(crate) mod tick;
 pub(crate) mod track;
+pub(crate) mod write;
 use crate::{Error, PlayCommand, atom::operands, interpreter::Context};
 
 // Each body states one Play Command for the operands `Stack::perform` binds.

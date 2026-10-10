@@ -1762,45 +1762,45 @@ mod tests {
         }
 
         #[test]
-        fn each_jump_is_covered_at_its_own_declared_direction() {
+        fn each_copy_is_covered_at_its_own_declared_direction() {
             let grid = Grid::with_shape(8, 3);
 
-            let east = build(grid, &["&>      ", "        ", "        "]);
+            let east = build(grid, &["=>      ", "        ", "        "]);
             assert!(covered(&east, grid, 2, 0));
             assert!(covered(&east, grid, 3, 0));
 
-            let west = build(grid, &["    &<  ", "        ", "        "]);
+            let west = build(grid, &["    =<  ", "        ", "        "]);
             assert!(covered(&west, grid, 2, 0));
             assert!(covered(&west, grid, 3, 0));
 
-            let south = build(grid, &["&v      ", "        ", "        "]);
+            let south = build(grid, &["=v      ", "        ", "        "]);
             assert!(covered(&south, grid, 0, 1));
             assert!(covered(&south, grid, 1, 1));
 
-            let north = build(grid, &["        ", "&^      ", "        "]);
+            let north = build(grid, &["        ", "=^      ", "        "]);
             assert!(covered(&north, grid, 0, 0));
             assert!(covered(&north, grid, 1, 0));
         }
 
         #[test]
-        fn a_jump_off_the_grid_is_never_covered() {
+        fn a_copy_off_the_grid_is_never_covered() {
             let grid = Grid::with_shape(6, 2);
 
-            // JumpNorth from the top row: one row up does not exist.
-            let north = build(grid, &["&^    ", "      "]);
+            // CopyNorth from the top row: one row up does not exist.
+            let north = build(grid, &["=^    ", "      "]);
             for x in 0..grid.columns() {
                 assert!(!covered(&north, grid, x, 0), "north column {x}");
             }
 
-            // JumpWest two columns west of the first column.
-            let west = build(grid, &["&<    ", "      "]);
+            // CopyWest two columns west of the first column.
+            let west = build(grid, &["=<    ", "      "]);
             for x in 0..grid.columns() {
                 assert!(!covered(&west, grid, x, 0), "west column {x}");
             }
 
-            // JumpEast whose destination itself leaves the Grid, not merely
+            // CopyEast whose destination itself leaves the Grid, not merely
             // a pair that would cross the row edge.
-            let east = build(grid, &["    &>", "      "]);
+            let east = build(grid, &["    =>", "      "]);
             for x in 0..grid.columns() {
                 assert!(!covered(&east, grid, x, 0), "east column {x}");
             }
@@ -1808,15 +1808,15 @@ mod tests {
 
         #[test]
         fn a_scalar_destination_the_row_edge_leaves_no_room_for_is_never_covered() {
-            // JumpEast anchored at column 3 of a 6-wide row: the destination
+            // CopyEast anchored at column 3 of a 6-wide row: the destination
             // column 5 exists, but the Cell pair it needs would run to
             // column 6, which does not — the same refusal
             // `Portal::reservation` gives an ordinary scalar at the row's
-            // last two Cells, reached here through a Jump because an
+            // last two Cells, reached here through a Copy because an
             // ordinary Function's south Portal shares its own row's width
             // and so never meets this edge on its own.
             let grid = Grid::with_shape(6, 1);
-            let map = build(grid, &["   &> "]);
+            let map = build(grid, &["   => "]);
 
             for x in 0..grid.columns() {
                 assert!(!covered(&map, grid, x, 0), "column {x}");

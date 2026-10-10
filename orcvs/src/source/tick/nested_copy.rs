@@ -1,8 +1,8 @@
-//! Characterization of nested Jumps, whose Output Portal is not one row
+//! Characterization of nested Copies, whose Output Portal is not one row
 //! south of their anchor.
 //!
 //! A nested Function writes through its own Output Portal as a root would
-//! (ADR 0061). A nested `&>` or `&<` therefore reads and writes Cells of the
+//! (ADR 0061). A nested `=>` or `=<` therefore reads and writes Cells of the
 //! Expression it stands in. These tests state what a performer sees for each
 //! layout, Tick after Tick: the Grid, the diagnostics and where they anchor,
 //! and whether unrelated Expressions still publish.

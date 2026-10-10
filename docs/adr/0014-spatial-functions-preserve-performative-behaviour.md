@@ -2,7 +2,7 @@
 
 Placement admission and its relationship to value readiness and overwrite ordering are amended by [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md). The cycle clause is amended by [ADR 0065](0065-an-error-never-stops-the-performance.md).
 
-Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force.
+Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force. The relay clause for a Jump's Bang, now a Copy's, is superseded by [ADR 0071](0071-a-bang-travels-as-its-glyph.md): a Copy writes `**` over its destination and activates the roots aligned with it.
 
 Orcvs represents visible directional motion with the root-only Self-Banging Functions `^^`, `vv`, `<<`, and `>>`. A Directional Bang Function emits the matching spelling into Source. The emitted Function first receives a turn from the next Source Snapshot, intrinsically receives Bang activation at that turn, and advances its complete two-Cell Span by one Cell.
 

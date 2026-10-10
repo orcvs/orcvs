@@ -57,6 +57,9 @@ impl RenderCell {
             Token::Function if claim.atom.is_some() => SourcePaint::Function,
             Token::Function => SourcePaint::Unclaimed,
             Token::Char => unreachable!("the Parser never creates a positioned Char claim"),
+            // An untyped slot has no type of its own, so its Cells paint as
+            // plain Source text whatever they spell.
+            Token::Untyped => SourcePaint::Unclaimed,
             token @ (Token::Number | Token::Note) => SourcePaint::Operand {
                 token,
                 state: if claim.atom.is_some() {
@@ -497,6 +500,23 @@ mod tests {
             second,
             frame.at(grid.position(5, 0).unwrap()).claim().expect("0G")
         ));
+    }
+
+    #[test]
+    fn a_writes_value_paints_as_plain_source_text() {
+        let grid = Grid::with_shape(6, 1);
+        for row in ["@>010A", "@>01G4", "@>01C4", "@>01**", "@>01  ", "@>01xy"] {
+            let source = SourceCommander::new(grid);
+            write_row(&source, grid, row);
+            let frame = derive_frame(&source, grid.origin());
+            for column in 4..6 {
+                assert_eq!(
+                    frame.at(grid.position(column, 0).unwrap()).source_paint(),
+                    SourcePaint::Unclaimed,
+                    "{row:?} column {column}",
+                );
+            }
+        }
     }
 
     #[test]

@@ -1,17 +1,18 @@
-use super::jump::jump;
+use super::copy::copy;
 use crate::{
     Atom, Error, Function, InterpretationError, atom::operands::Track, interpreter::Context,
     stack::Operands,
 };
 
-/// Track: `@t index count`.
+/// Track: `&t index count`.
 ///
-/// The Language Unit at the pair its operands select, read as a Jump reads its
+/// The Language Unit at the pair its operands select, read as a Copy reads its
 /// Input Portal. The Turn supplies the Cells of that pair, so evaluation binds
-/// the operands, refuses a zero `count`, and answers what Jump would.
+/// the operands, refuses a zero `count`, and answers what a Copy would.
 pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
-    selected_pair(ctx.stack.extract::<Track>()?)?;
-    jump(ctx, Function::Track)
+    let Track { index, count } = ctx.stack.extract::<Track>()?;
+    selected_pair(Function::Track, index, count)?;
+    copy(ctx, Function::Track)
 }
 
 /// The pair Track selects from the operands its Turn resolved, counted from
@@ -22,14 +23,15 @@ pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
 pub(crate) fn track_pair(operands: &[Atom]) -> Result<u8, Error> {
     <Track as Operands>::check(operands)
         .and_then(|()| <Track as Operands>::bind(operands))
-        .and_then(selected_pair)
+        .and_then(|Track { index, count }| selected_pair(Function::Track, index, count))
 }
 
-/// The pair Track's operands select, `index % count`.
-fn selected_pair(Track { index, count }: Track) -> Result<u8, Error> {
+/// The pair `index % count` that `function`'s operands select, Track's or
+/// Push's. A `count` of zero selects no pair and diagnoses as a wrap by zero.
+pub(crate) fn selected_pair(function: Function, index: u8, count: u8) -> Result<u8, Error> {
     if count == 0 {
         return Err(InterpretationError::ZeroWrap {
-            function: Function::Track,
+            function,
             role: "count",
         }
         .into());
@@ -95,15 +97,15 @@ mod test {
     }
 
     #[test]
-    fn track_answers_what_a_jump_answers_for_the_same_cells() {
+    fn track_answers_what_a_copy_answers_for_the_same_cells() {
         for cells in ["D4", "01", "**", "  ", ".+"] {
             assert_eq!(
                 track(1, 3, Some(cells)).unwrap(),
-                evaluate(Function::JumpEast, [], Some(cells)).unwrap(),
+                evaluate(Function::CopyEast, [], Some(cells)).unwrap(),
                 "{cells:?}"
             );
         }
-        // Read as a Jump reads it: Number before Note, so `D4` is `0xD4`
+        // Read as a Copy reads it: Number before Note, so `D4` is `0xD4`
         // and `G4`, which spells no Number, is the Note.
         assert_eq!(
             track(1, 3, Some("D4")).unwrap(),
@@ -116,7 +118,7 @@ mod test {
         assert!(matches!(
             track(1, 3, Some("xx")),
             Err(crate::Error::Interpretation(
-                InterpretationError::JumpInput {
+                InterpretationError::PartialInput {
                     function: Function::Track
                 }
             ))

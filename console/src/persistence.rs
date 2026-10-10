@@ -21,8 +21,27 @@ use orcvs::source::Source;
 /// the Console is a runtime coordinator rather than a serializable application
 /// value. This key stores only the Source payload.
 ///
+/// It is distinct from [`STALE_SOURCE_KEY`] because a Source File carries no
+/// version (ADR 0054): the key is the only thing that tells a Source stored
+/// under the Read, Write and Copy grammar from one whose spellings that
+/// grammar reads as other Functions.
+///
 #[cfg(feature = "persistence")]
-pub const SOURCE_KEY: &str = "orcvs_source";
+pub const SOURCE_KEY: &str = "orcvs_source_rwc";
+
+///
+/// The Storage key whose value is never loaded: a start that finds a value
+/// under it reports that value as a Source that cannot load, and the next save
+/// removes it.
+///
+/// The value is never loaded because it holds spellings such as `&<07`,
+/// `@<0201` and `@t0103C4D4E4` with other meanings, and the current grammar
+/// reads them as a Read, a Write and a Push, so restoring it would run writes
+/// its author never wrote (ADR 0070). It is reported whether or not
+/// [`SOURCE_KEY`] also holds a value, so no save removes it unreported.
+///
+#[cfg(feature = "persistence")]
+pub const STALE_SOURCE_KEY: &str = "orcvs_source";
 
 ///
 /// The Source a console starts from when it restores nothing, and the one
@@ -55,12 +74,28 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source 
 /// Source rather than a partly restored one, and its next save overwrites
 /// [`SOURCE_KEY`].
 ///
+/// A value under [`STALE_SOURCE_KEY`] is reported the same way, beside
+/// whatever [`SOURCE_KEY`] holds: it is a Source the console cannot load, so
+/// it never decides what the console starts.
+///
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
     let Some(storage) = storage else {
         return default_source();
     };
-    if storage.get_string(SOURCE_KEY).is_none() {
+    let current = storage.get_string(SOURCE_KEY).is_some();
+    if storage.get_string(STALE_SOURCE_KEY).is_some() {
+        let starting = if current {
+            "starting the Source stored under the current key"
+        } else {
+            "starting an empty Grid"
+        };
+        crate::report::error!(
+            "{STALE_SOURCE_KEY}: the stored Source was written in spellings the current \
+             grammar reads as other Functions and was discarded; {starting}"
+        );
+    }
+    if !current {
         return default_source();
     }
     eframe::get_value::<Source>(storage, SOURCE_KEY).unwrap_or_else(|| {
@@ -77,11 +112,20 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
 }
 
 ///
-/// Stores the current Source revision under [`SOURCE_KEY`].
+/// Stores the current Source revision under [`SOURCE_KEY`], and removes any
+/// value under [`STALE_SOURCE_KEY`], so a stale Source is reported on one start
+/// only.
+///
+/// The stale key is removed only when present: native storage marks itself
+/// dirty on every removal, and an unconditional one would rewrite its file on
+/// every autosave.
 ///
 #[cfg(feature = "persistence")]
 pub(crate) fn save(storage: &mut dyn eframe::Storage, source: &orcvs::source::SourceCommander) {
     source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
+    if storage.get_string(STALE_SOURCE_KEY).is_some() {
+        storage.remove_string(STALE_SOURCE_KEY);
+    }
 }
 
 ///
@@ -361,6 +405,157 @@ mod stored_source_tests {
             );
             assert_default_grid(&starting_source(Some(&storage)));
         }
+    }
+
+    ///
+    /// A Source holding `@<0201`, which the grammar under
+    /// [`super::STALE_SOURCE_KEY`] spelled with another meaning and the current
+    /// grammar reads as a Write.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn source_in_stale_spellings() -> SourceCommander {
+        use orcvs::grid::Grid;
+
+        let grid = Grid::new();
+        let source = SourceCommander::new(grid);
+        for (index, content) in "@<0201".chars().enumerate() {
+            source
+                .set(
+                    grid.cell_index(index).expect("inside the Grid"),
+                    &content.to_string(),
+                )
+                .expect("a Cell the Source accepts");
+        }
+        source
+    }
+
+    ///
+    /// The `tracing` output `action` produces, beside its result: the native
+    /// channel `crate::report` writes to.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reported_by<T>(action: impl FnOnce() -> T) -> (T, String) {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone, Default)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+
+        impl std::io::Write for Captured {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0
+                    .lock()
+                    .expect("no writer panics while holding the capture")
+                    .extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let value = {
+            let _scoped = tracing_subscriber::util::SubscriberInitExt::set_default(subscriber);
+            action()
+        };
+        let output = String::from_utf8(
+            captured
+                .0
+                .lock()
+                .expect("no writer panics while holding the capture")
+                .clone(),
+        )
+        .expect("tracing writes UTF-8");
+        (value, output)
+    }
+
+    ///
+    /// A Source stored under the stale key is discarded rather than read under
+    /// the current grammar: the first start reports it and opens the empty
+    /// Grid, the next save writes over it, and the start after that reports
+    /// nothing and opens what that save stored.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_source_stored_under_the_stale_key_is_discarded_once_and_reported() {
+        use super::STALE_SOURCE_KEY;
+
+        let mut storage = InMemoryStorage::default();
+        source_in_stale_spellings()
+            .read_source(|source| eframe::set_value(&mut storage, STALE_SOURCE_KEY, source));
+
+        let (started, report) = reported_by(|| starting_source(Some(&storage)));
+        assert_default_grid(&started);
+        assert!(
+            report.contains(STALE_SOURCE_KEY) && report.contains("discarded"),
+            "the stale Source was not reported: {report:?}"
+        );
+
+        let edited = edited_source();
+        save(&mut storage, &edited);
+        assert_eq!(
+            eframe::Storage::get_string(&storage, STALE_SOURCE_KEY),
+            None,
+            "the save left the stale Source in place"
+        );
+
+        let (restarted, report) = reported_by(|| starting_source(Some(&storage)));
+        assert_eq!(restarted.snapshot(), edited.snapshot());
+        assert!(
+            report.is_empty(),
+            "the start after the save reported again: {report:?}"
+        );
+    }
+
+    ///
+    /// A stale Source beside a current one is still reported before the save
+    /// that removes it: the start opens the current Source, and the stale
+    /// value is never removed unreported.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_stale_source_beside_a_current_one_is_reported_before_it_is_removed() {
+        use super::STALE_SOURCE_KEY;
+
+        let current = edited_source();
+        let mut storage = InMemoryStorage::default();
+        save(&mut storage, &current);
+        source_in_stale_spellings()
+            .read_source(|source| eframe::set_value(&mut storage, STALE_SOURCE_KEY, source));
+
+        let (started, report) = reported_by(|| starting_source(Some(&storage)));
+        assert_eq!(started.snapshot(), current.snapshot());
+        assert!(
+            report.contains(&format!("{STALE_SOURCE_KEY}:")) && report.contains("discarded"),
+            "the stale Source beside a current one was not reported: {report:?}"
+        );
+    }
+
+    ///
+    /// A Source stored under the current key loads unchanged and reports
+    /// nothing, stale spellings included: what it holds was written under the
+    /// current grammar, so its spellings mean what they meant when saved.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_source_stored_under_the_current_key_loads_unchanged() {
+        let saved = source_in_stale_spellings();
+        let mut storage = InMemoryStorage::default();
+        save(&mut storage, &saved);
+
+        let (started, report) = reported_by(|| starting_source(Some(&storage)));
+
+        assert_eq!(started.snapshot(), saved.snapshot());
+        assert!(
+            report.is_empty(),
+            "a current Source was reported: {report:?}"
+        );
     }
 
     #[test]

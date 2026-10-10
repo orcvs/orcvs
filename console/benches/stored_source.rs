@@ -1,5 +1,5 @@
 //! Benchmarks for the stored value: the whole Source eframe storage holds
-//! under `orcvs_source`, written by every autosave and read back at start.
+//! under `orcvs_source_rwc`, written by every autosave and read back at start.
 //!
 //! The stored value carries every Cell of the 256 by 256 Grid.
 //! These measure `eframe::set_value` and `eframe::get_value` over an
@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::hint::black_box;
 
 /// The key the console stores its Source under (`console::persistence::SOURCE_KEY`).
-const SOURCE_KEY: &str = "orcvs_source";
+const SOURCE_KEY: &str = "orcvs_source_rwc";
 
 /// The same tiling as `orcvs/benches/source.rs` and `paint.rs`.
 const EXPRESSIONS: &[&str] = &[

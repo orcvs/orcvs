@@ -193,7 +193,7 @@ fn fact_index(paint: SourcePaint) -> usize {
             let token = match token {
                 Token::Number => 0,
                 Token::Note => 1,
-                Token::Bang | Token::Comment | Token::Function | Token::Char => {
+                Token::Bang | Token::Comment | Token::Function | Token::Char | Token::Untyped => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
             };
@@ -483,7 +483,7 @@ fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
             let (colour, background) = match token {
                 Token::Number => (theme.source_number, theme.source_number_background),
                 Token::Note => (theme.source_note, theme.source_note_background),
-                Token::Bang | Token::Comment | Token::Function | Token::Char => {
+                Token::Bang | Token::Comment | Token::Function | Token::Char | Token::Untyped => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
             };
