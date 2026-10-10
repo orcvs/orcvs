@@ -8,19 +8,20 @@
 //! captured with its contents and checked again under the write lock the
 //! commit takes. A plan refused there is dropped whole.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use super::buffer::SourceBuffer;
 use super::language_map::LanguageMap;
 use super::tick;
 use super::{OPTIMISTIC_TICK_ATTEMPTS, RevisionId, Source, SourceCommander, Tick, TickPlan};
-use crate::grid::Grid;
+use crate::grid::{CellIndex, Grid};
 
 ///
-/// What a Tick is planned from: one Source revision's Grid, Cells and
-/// Language Map, and that revision's identity.
+/// What a Tick is planned from: one Source revision's Grid, Cells, Language
+/// Map and Bang display, and that revision's identity.
 ///
-/// All four are read from one `&Source`, so under one guard, which is what
+/// All five are read from one `&Source`, so under one guard, which is what
 /// makes the identity name the revision the contents came from. The Cells and
 /// the Language Map are shared rather than copied — the Map with the schedule
 /// every revision holding the same scheduling inputs shares, so planning reads
@@ -31,6 +32,7 @@ pub(super) struct PlanningSnapshot {
     grid: Grid,
     cells: SourceBuffer,
     language_map: Arc<LanguageMap>,
+    bang_display: Arc<BTreeSet<CellIndex>>,
     revision: RevisionId,
 }
 
@@ -40,6 +42,7 @@ impl PlanningSnapshot {
             grid: source.grid(),
             cells: source.shared_cells(),
             language_map: source.shared_language_map(),
+            bang_display: source.shared_bang_display(),
             revision: source.revision(),
         }
     }
@@ -47,7 +50,13 @@ impl PlanningSnapshot {
     /// Interprets this revision at `tick`. Touches no Source.
     pub(super) fn plan(&self, tick: Tick) -> PlannedTick {
         // Each computation's Turn is discarded, as `Source::execute` discards it.
-        let (plan, _) = tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
+        let (plan, _) = tick::plan(
+            self.grid,
+            self.cells.cells(),
+            &self.language_map,
+            &self.bang_display,
+            tick,
+        );
         PlannedTick {
             revision: self.revision,
             plan,

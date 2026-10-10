@@ -150,6 +150,10 @@ pub(super) enum Turn {
 /// Takes one Tick's Turns through `schedule`, and answers the diagnostics for
 /// the Turns a cycle found during the Tick leaves untaken.
 ///
+/// `fired` names the roots a Bang fired at the start of the Tick activates.
+/// One the schedule did not hold active joins the order before any Turn, as
+/// a root a dynamic write activates joins it at that write.
+///
 /// `take` takes a computation's Turn and answers what it did. A Turn that
 /// waits leaves no effect and is taken again once its writers have been.
 /// Turns are taken in the schedule's order until one waits, or until a
@@ -168,6 +172,7 @@ pub(super) enum Turn {
 ///
 pub(super) fn take_turns(
     schedule: &Schedule,
+    fired: Vec<usize>,
     mut take: impl FnMut(usize, &Progress<'_>) -> Turn,
 ) -> Vec<Diagnostic> {
     let mut progress = Progress {
@@ -177,6 +182,9 @@ pub(super) fn take_turns(
         joined_edges: Vec::new(),
         joined_writers: Vec::new(),
     };
+    if progress.activate(fired) {
+        return progress.continue_ordering(Vec::new(), take);
+    }
     for &index in &schedule.order {
         match take(index, &progress) {
             Turn::Taken { activated } => {
@@ -203,7 +211,8 @@ pub(super) struct Progress<'a> {
     /// yet taken.
     waiting: Vec<bool>,
     /// Which roots activation can reach this Tick: the schedule's, and every
-    /// root a dynamic write has activated since, with what those reach.
+    /// root a Bang fired at the start of the Tick or a dynamic write has
+    /// activated since, with what those reach.
     active: Cow<'a, [bool]>,
     /// The edges the roots activated during the Tick give: what their own
     /// Portals reach and the static Input Portals their reservations cover.

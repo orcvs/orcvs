@@ -1,7 +1,7 @@
 //! A Source Tick as a performer observes it: the Grid after the Tick, and
 //! each diagnostic with the Grid column and row of its first Cell.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
@@ -119,7 +119,13 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
     let source = source_of(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (_, states) = plan(
+        grid,
+        Cells::of(bytes.as_bytes()),
+        &map,
+        &BTreeSet::new(),
+        Tick::ZERO,
+    );
     map.schedule_cache()
         .schedule(grid, &map)
         .lookup

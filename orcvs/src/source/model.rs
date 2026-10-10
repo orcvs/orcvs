@@ -138,6 +138,16 @@ pub struct Source {
     inner: SourceBuffer,
     language_map: Arc<LanguageMap>,
     revision: RevisionId,
+    /// The anchors of the Bangs the last committed Tick wrote as display.
+    ///
+    /// Source state rather than Language Map state: it says who wrote a
+    /// `**`, which its spelling cannot. The next Tick clears these without
+    /// firing them, because their own Tick already delivered them, and fires
+    /// every other standalone `**` once. An edit that reaches one of these
+    /// Cells drops its anchor, so a `**` typed over display is typed.
+    /// Persistence stores spellings only, so a Source read back starts with
+    /// none and every `**` it holds fires.
+    bang_display: Arc<BTreeSet<CellIndex>>,
 }
 
 static NEXT_REVISION_ID: AtomicU64 = AtomicU64::new(1);
@@ -234,6 +244,7 @@ impl Source {
             inner,
             language_map,
             revision: RevisionId::mint(),
+            bang_display: Arc::default(),
         }
     }
 
@@ -286,6 +297,7 @@ impl Source {
     /// the console observes, so the edit reports nothing of its own.
     ///
     fn edit(&mut self, cell: CellIndex, byte: CellContent) {
+        self.forget_bang_display([cell]);
         self.set_source(cell, byte);
         // One Cell changes one row, and a row is the largest thing a Cell can
         // change: a run never crosses the row edge.
@@ -321,6 +333,12 @@ impl Source {
 
     pub(super) fn shared_language_map(&self) -> Arc<LanguageMap> {
         Arc::clone(&self.language_map)
+    }
+
+    /// The anchors of the Bangs the last committed Tick wrote as display,
+    /// shared with this revision rather than copied.
+    pub(super) fn shared_bang_display(&self) -> Arc<BTreeSet<CellIndex>> {
+        Arc::clone(&self.bang_display)
     }
 
     ///
@@ -381,6 +399,7 @@ impl Source {
             self.grid,
             self.inner.cells(),
             &self.language_map,
+            &self.bang_display,
             tick,
             destinations,
         );
@@ -389,15 +408,44 @@ impl Source {
     }
 
     fn plan_tick(&self, tick: Tick) -> (TickPlan, Vec<ComputationState>) {
-        tick::plan(self.grid, self.inner.cells(), &self.language_map, tick)
+        tick::plan(
+            self.grid,
+            self.inner.cells(),
+            &self.language_map,
+            &self.bang_display,
+            tick,
+        )
     }
 
     /// Visible across the Source module so a Tick planned without going
     /// through [`Source::execute`] — from a planning snapshot, or by a test in
-    /// the Tick module — is still committed the one way a Tick is committed,
-    /// through [`Source::write_cells`].
+    /// the Tick module — is still committed the one way a Tick is committed.
+    ///
+    /// A Tick's writes are not an edit, so the Bangs they leave are recorded
+    /// as display: each standalone `**` both of whose Cells this Tick wrote.
     pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan) {
-        self.write_cells(&plan.writes);
+        self.apply_writes(&plan.writes);
+        // A Tick Plan lists its writes in Cell order, one per Cell, so a
+        // Cell is found by search without collecting them again.
+        debug_assert!(
+            plan.writes
+                .windows(2)
+                .all(|pair| pair[0].cell.get() < pair[1].cell.get())
+        );
+        let written = |cell: &CellIndex| {
+            plan.writes
+                .binary_search_by_key(&cell.get(), |write| write.cell.get())
+                .is_ok()
+        };
+        let display: BTreeSet<CellIndex> = self
+            .language_map
+            .bangs()
+            .filter(|(_, span)| span.indices().all(|cell| written(&cell)))
+            .map(|(anchor, _)| self.grid.index(anchor))
+            .collect();
+        if !(display.is_empty() && self.bang_display.is_empty()) {
+            self.bang_display = Arc::new(display);
+        }
     }
 
     ///
@@ -409,7 +457,9 @@ impl Source {
     /// never runs against half of it, and the Language Map parses each row it
     /// touched once rather than once per Cell. Each write's content is a
     /// [`CellContent`], already proven to be a Cell, so nothing here can be
-    /// refused. A later write to the same Cell wins.
+    /// refused. A later write to the same Cell wins. It is an edit, so a
+    /// `**` it leaves over a Tick's Bang display fires on the next Tick as a
+    /// typed one does.
     ///
     /// ```
     /// use orcvs::{grid::Grid, source::{CellContent, CellWrite, Source}};
@@ -429,6 +479,15 @@ impl Source {
     /// ```
     ///
     pub fn write_cells(&mut self, writes: &[CellWrite]) {
+        self.forget_bang_display(writes.iter().map(|write| write.cell));
+        self.apply_writes(writes);
+    }
+
+    ///
+    /// Writes every Cell of `writes` and rebuilds the rows they touched once,
+    /// leaving the record of Bang display to the caller.
+    ///
+    fn apply_writes(&mut self, writes: &[CellWrite]) {
         let mut written = BTreeSet::new();
         for write in writes {
             self.set_source(write.cell, write.content);
@@ -462,6 +521,32 @@ impl Source {
             ));
         }
         self.revision = RevisionId::mint();
+    }
+
+    ///
+    /// Drops from the Bang display every Bang an edit of `cells` reaches, so
+    /// a `**` typed over display fires as any typed `**` does.
+    ///
+    /// A Bang spans its anchor and the Cell east of it, so an edited Cell
+    /// reaches the Bang anchored there and the one anchored one Cell west.
+    /// The Cell west of a row's first Cell ends the row before, where no
+    /// two-Cell Bang can be anchored, so dropping it removes nothing.
+    ///
+    fn forget_bang_display(&mut self, cells: impl IntoIterator<Item = CellIndex>) {
+        if self.bang_display.is_empty() {
+            return;
+        }
+        let display = Arc::make_mut(&mut self.bang_display);
+        for cell in cells {
+            display.remove(&cell);
+            if let Some(west) = cell
+                .get()
+                .checked_sub(1)
+                .and_then(|idx| self.grid.cell_index(idx))
+            {
+                display.remove(&west);
+            }
+        }
     }
 
     ///
@@ -1013,6 +1098,32 @@ mod test {
 
     #[cfg(feature = "persistence")]
     #[test]
+    fn a_source_read_back_fires_the_bang_display_it_was_saved_with() {
+        // Persistence stores spellings, not who wrote them, so the display
+        // Equality wrote reads back as a typed `**` and fires once, while the
+        // Source it was saved from clears it without firing.
+        let grid = Grid::new();
+        let mut source = Source::new(grid);
+        let at = |idx| grid.cell_index(idx).expect("inside the Grid");
+        for (idx, content) in ".=0101".chars().enumerate() {
+            source.set(at(idx), &content.to_string()).unwrap();
+        }
+        for (idx, content) in "!>007FC4".chars().enumerate() {
+            source.set(at(2 * 256 + idx), &content.to_string()).unwrap();
+        }
+        assert_eq!(source.execute(Tick::ZERO).play_commands, [raw_c4()]);
+        source.set(at(5), "2").unwrap();
+
+        let encoded = serde_json::to_string(&source).unwrap();
+        let mut restored: Source = serde_json::from_str(&encoded).unwrap();
+
+        assert!(source.execute(Tick::new(1)).play_commands.is_empty());
+        assert_eq!(restored.execute(Tick::new(1)).play_commands, [raw_c4()]);
+        assert!(restored.execute(Tick::new(2)).play_commands.is_empty());
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
     fn test_source_deserialization_rejects_a_grid_that_does_not_match_its_cells() {
         let grid = Grid::new();
         let mut source = Source::new(grid);
@@ -1545,6 +1656,8 @@ mod test {
         assert_eq!(first.play_commands.len(), 1);
         assert_eq!(src.row(1), "**    .^3C      ");
         // Stop the producer, leaving the generated Bang visible in Source.
+        // Its own Tick delivered it, so the next Tick clears the display
+        // without activating the Raw Play again.
         src.write(at(4), "02");
 
         let second = src.execute();
@@ -1553,8 +1666,17 @@ mod test {
         assert!(second.diagnostics.is_empty());
     }
 
+    /// The Play Command `!>007FC4` answers.
+    fn raw_c4() -> PlayCommand {
+        PlayCommand::Raw {
+            channel: MidiChannel::try_from(0).unwrap(),
+            velocity: Velocity::try_from(0x7F).unwrap(),
+            note: Note::try_from(60).unwrap(),
+        }
+    }
+
     #[test]
-    fn manually_entered_bang_is_display_only_and_never_activates_midi() {
+    fn a_typed_bang_activates_the_root_above_it_once_and_is_cleared() {
         let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
         let at = src.cells();
         src.write(at(10), "!>007FC4");
@@ -1562,9 +1684,101 @@ mod test {
 
         let tick = src.execute();
 
-        assert!(tick.play_commands.is_empty());
+        assert_eq!(tick.play_commands, [raw_c4()]);
         assert_eq!(src.row(2), "          ");
-        assert!(tick.diagnostics.is_empty());
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+
+        let after = src.execute();
+
+        assert!(after.play_commands.is_empty(), "{:?}", after.play_commands);
+        assert!(after.writes.is_empty(), "{:?}", after.writes);
+    }
+
+    #[test]
+    fn a_typed_bang_activates_its_root_after_the_writes_that_root_reads() {
+        // `.^3C` writes `C4` over the Raw Play's `D4` before the Raw Play's
+        // Turn, so the Bang typed above the Raw Play plays the note written
+        // this Tick, as a Bang a Function wrote there would.
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
+        let at = src.cells();
+        src.write(at(0), "**    .^3C");
+        src.write(at(10), "!>007FD4");
+
+        let tick = src.execute();
+
+        assert_eq!(tick.play_commands, [raw_c4()]);
+        assert_eq!(src.row(0), "      .^3C");
+        assert_eq!(src.row(1), "!>007FC4  ");
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    }
+
+    #[test]
+    fn a_bang_typed_over_bang_display_fires_once() {
+        // Equality writes `**` above the Raw Play and plays it. Equality is
+        // then made unequal, and the first Cell of its display is typed again
+        // with the `*` it already holds: the `**` is now typed, so the next
+        // Tick fires it once more, and the Tick after plays nothing.
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>007FC4");
+
+        let first = src.execute();
+        assert_eq!(first.play_commands, [raw_c4()]);
+        assert_eq!(src.row(1), "**        ");
+
+        src.write(at(4), "02");
+        src.write(at(10), "*");
+
+        let typed = src.execute();
+        assert_eq!(typed.play_commands, [raw_c4()]);
+        assert_eq!(src.row(1), "          ");
+        assert!(typed.diagnostics.is_empty(), "{:?}", typed.diagnostics);
+
+        let after = src.execute();
+        assert!(after.play_commands.is_empty(), "{:?}", after.play_commands);
+    }
+
+    #[test]
+    fn a_block_edit_over_bang_display_fires_the_bang_it_leaves() {
+        // A block edit is an edit: the `**` it writes over display is typed.
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>007FC4");
+        src.execute();
+        src.write(at(4), "02");
+
+        let star = crate::source::CellContent::new(b'*').unwrap();
+        src.write_cells(&[
+            CellWrite {
+                cell: at(10),
+                content: star,
+            },
+            CellWrite {
+                cell: at(11),
+                content: star,
+            },
+        ]);
+
+        assert_eq!(src.execute().play_commands, [raw_c4()]);
+        assert!(src.execute().play_commands.is_empty());
+    }
+
+    #[test]
+    fn a_bang_read_from_a_source_file_fires_once_on_the_first_tick() {
+        let mut src = crate::source::file::read(b"**\n!>007FC4\n").unwrap();
+
+        let first = src.execute(Tick::ZERO);
+        assert_eq!(first.play_commands, [raw_c4()]);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let second = src.execute(Tick::new(1));
+        assert!(
+            second.play_commands.is_empty(),
+            "{:?}",
+            second.play_commands
+        );
     }
 
     #[test]
@@ -2109,7 +2323,7 @@ mod test {
     }
 
     #[test]
-    fn test_manual_bang_is_inert_at_either_vertical_position() {
+    fn test_a_typed_bang_fires_once_at_either_vertical_position() {
         for (bang, root) in [(0, 10), (10, 0)] {
             let mut src = source();
             let at = src.cells();
@@ -2118,12 +2332,16 @@ mod test {
 
             let tick = src.execute();
 
-            assert!(
-                tick.play_commands.is_empty(),
+            assert_eq!(
+                tick.play_commands,
+                [raw_c4()],
                 "Bang at {bang}, root at {root}"
             );
             assert!(tick.diagnostics.is_empty(), "Bang at {bang}");
             assert_eq!(&src.snapshot()[bang..bang + 2], "  ");
+
+            let after = src.execute();
+            assert!(after.play_commands.is_empty(), "Bang at {bang}");
         }
     }
 
@@ -2148,16 +2366,18 @@ mod test {
     }
 
     #[test]
-    fn test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root() {
-        // Pins a limitation of Bang activation: its west and east anchors sit
-        // two Cells from the Bang, but a Raw Play's operands occupy those
-        // Cells, and the walk partitions a row by parse, so a Bang beside a
-        // Function is that Function's operand Source. The contiguous spellings
-        // form no root at all, and the space-separated ones put the Bang anchor
-        // three or more columns away from the root anchor. Every horizontal
-        // placement is inert; the day the partition Bang activation reads
-        // changes, this test says so.
-        for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
+    fn test_a_horizontal_bang_activates_a_terminal_root_anchored_two_columns_east() {
+        // A Bang's east anchor is two columns from its own: a Raw Play spelled
+        // directly after a typed `**` is aligned and plays. A Raw Play's
+        // operands occupy the Cells two columns from its east end, so a `**`
+        // after it is not at its anchor, and a space between the two puts the
+        // anchor three columns away: those placements are inert.
+        for (expression, plays) in [
+            ("**!>007FC4", true),
+            ("!>007FC4**", false),
+            ("** !>007FC4", false),
+            ("!>007FC4 **", false),
+        ] {
             // The Grid is as wide as the spelling it holds. The geometry under
             // test is horizontal, so a spelling that outran the row would wrap
             // onto the next one and pin nothing.
@@ -2169,10 +2389,8 @@ mod test {
 
             let tick = src.execute();
 
-            assert!(
-                tick.play_commands.is_empty(),
-                "{expression:?} emitted a command"
-            );
+            let expected = if plays { vec![raw_c4()] } else { vec![] };
+            assert_eq!(tick.play_commands, expected, "{expression:?}");
         }
     }
 

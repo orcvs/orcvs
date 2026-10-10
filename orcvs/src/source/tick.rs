@@ -450,16 +450,21 @@ impl PortalRelationships<'_> {
 /// Plans one Tick against `map`, through the schedule every revision holding
 /// the same scheduling inputs shares.
 ///
+/// `display` names the anchors of the Bangs the previous Tick wrote. Every
+/// other standalone `**` in `map` fires at the start of this Tick.
+///
 pub(super) fn plan(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
+    display: &BTreeSet<CellIndex>,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
     execution::execute(
         grid,
         cells,
         map,
+        display,
         tick,
         map.schedule_cache().schedule(grid, map),
     )
@@ -474,9 +479,10 @@ fn plan_unshared(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
+    display: &BTreeSet<CellIndex>,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    execution::execute(grid, cells, map, tick, &schedule(grid, map))
+    execution::execute(grid, cells, map, display, tick, &schedule(grid, map))
 }
 
 ///
@@ -585,6 +591,7 @@ pub(super) fn plan_carrying(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
+    display: &BTreeSet<CellIndex>,
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
@@ -592,6 +599,7 @@ pub(super) fn plan_carrying(
         grid,
         cells,
         map,
+        display,
         tick,
         &schedule_carrying(grid, map, destinations),
     )
@@ -1067,6 +1075,7 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
 mod test {
     use crate::source::Cells;
     use lang::{Atom, Token};
+    use std::collections::BTreeSet;
 
     use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
 
@@ -2737,6 +2746,29 @@ mod test {
     }
 
     #[test]
+    fn a_typed_bang_activates_halt_once() {
+        // A typed `**` two columns west of Halt fires at the start of Tick 0:
+        // Halt joins the Tick before any Turn and locks the Add below it. The
+        // `**` is cleared, so Tick 1 leaves Halt inert and the Add runs.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &["***!    ", "  .+0304", "        "],
+            2,
+        );
+
+        assert_eq!(grids[0], ["  *!    ", "  .+0304", "        "]);
+        assert_eq!(grids[1], ["  *!    ", "  .+0304", "  07    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 1).expect("inside the Grid")]
+        );
+        assert!(plans[1].locks.is_empty(), "{:?}", plans[1].locks);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
     fn an_empty_halt_target_is_a_noop() {
         // Off the last row, and an empty row that exists: neither diagnoses
         // and neither invents a lock.
@@ -2888,7 +2920,13 @@ mod test {
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (_, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (_, states) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
         let order = turns(&states);
         // Parser preorder: Equality, Halt, Add.
         assert_eq!(order, vec![Some(0), Some(1), Some(2)]);
@@ -2913,6 +2951,7 @@ mod test {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &schedule,
         );
@@ -3049,7 +3088,13 @@ mod test {
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!<<  ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (plan, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (plan, states) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -4335,6 +4380,7 @@ mod test {
                 grid,
                 Cells::of(bytes.as_bytes()),
                 &map,
+                &BTreeSet::new(),
                 Tick::ZERO,
                 &schedule,
             );
@@ -4502,6 +4548,7 @@ mod test {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &destinations,
         );
@@ -4664,7 +4711,13 @@ mod test {
         let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
 
         assert_eq!(plan.play_commands, vec![]);
         assert_eq!(planned(&plan), vec![(20, '*'), (21, '*')]);
@@ -4684,7 +4737,13 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "**", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::from([cell(grid, 16)]),
+            Tick::ZERO,
+        );
 
         assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
         assert_eq!(
@@ -4728,6 +4787,7 @@ mod test {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &destinations,
         );
@@ -4772,7 +4832,13 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         // The Bang the Equality writes, and the Addition's own `03` below it.
@@ -4794,7 +4860,13 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", "            .+01"]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -4819,7 +4891,13 @@ mod test {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-            let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+            let (plan, _) = super::plan(
+                grid,
+                Cells::of(bytes.as_bytes()),
+                &map,
+                &BTreeSet::new(),
+                Tick::ZERO,
+            );
 
             assert_eq!(plan.play_commands, commands, "{play:?}");
             assert!(
@@ -4851,7 +4929,13 @@ mod test {
             let bytes = snapshot(grid, &[".=0101", "", play, ""]);
             let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-            let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+            let (plan, _) = super::plan(
+                grid,
+                Cells::of(bytes.as_bytes()),
+                &map,
+                &BTreeSet::new(),
+                Tick::ZERO,
+            );
 
             assert_eq!(plan.play_commands, commands, "{play:?}");
             assert_eq!(
@@ -4930,7 +5014,13 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let tick = Tick::new(11);
 
-        let (_, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, tick);
+        let (_, states) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            tick,
+        );
         let interpreted = interpreted(&states);
 
         assert_eq!(interpreted.len(), 3, "each of the three roots is evaluated");
@@ -4966,7 +5056,13 @@ mod test {
         // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
         // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
         // Both answer the Absence Marker and clear their pair.
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::new(1),
+        );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -4986,7 +5082,13 @@ mod test {
         // hardcoded first Tick would write `00` here and a hardcoded Tick of
         // its own would move all three at once, so the pair of assertions is
         // what makes this about the Tick rather than about the formulas.
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(4));
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::new(4),
+        );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -5012,7 +5114,13 @@ mod test {
         let bytes = snapshot(grid, &["~*0300 ~%0400", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(3));
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::new(3),
+        );
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(
@@ -5055,6 +5163,7 @@ mod test {
                 grid,
                 Cells::of(bytes.as_bytes()),
                 &map,
+                &BTreeSet::new(),
                 Tick::new(banging),
                 &destinations,
             );
@@ -5070,6 +5179,7 @@ mod test {
                 grid,
                 Cells::of(bytes.as_bytes()),
                 &map,
+                &BTreeSet::new(),
                 Tick::new(silent),
                 &destinations,
             );
@@ -5311,8 +5421,20 @@ mod test {
         let grid = Grid::with_shape(10, 2);
         let bytes = snapshot(grid, &["~?010010", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let first = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-        let second = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let first = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
+        let second = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
         assert_eq!(first.0.writes, second.0.writes);
     }
 
@@ -5342,6 +5464,7 @@ mod test {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &destinations,
         );
@@ -5380,6 +5503,7 @@ mod test {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &destinations,
         );
@@ -5414,6 +5538,7 @@ mod test {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &destinations,
         );
@@ -5456,6 +5581,7 @@ mod test {
             conflict_grid,
             Cells::of(conflict_bytes.as_bytes()),
             &conflict_map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &conflict_destinations,
         );
@@ -5482,6 +5608,7 @@ mod test {
             cycle_grid,
             Cells::of(cycle_bytes.as_bytes()),
             &cycle_map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &cycle_destinations,
         );
@@ -5564,7 +5691,13 @@ mod test {
         let bytes = snapshot(grid, &["", ".+0102"]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (plan, _) = super::plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &BTreeSet::new(),
+            Tick::ZERO,
+        );
 
         assert!(plan.writes.is_empty());
         assert_eq!(
@@ -6042,7 +6175,13 @@ mod nested_property {
         let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (tick, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (tick, states) = plan(
+            grid,
+            Cells::of(bytes.as_bytes()),
+            &map,
+            &std::collections::BTreeSet::new(),
+            Tick::ZERO,
+        );
 
         prop_assert!(
             !tick
