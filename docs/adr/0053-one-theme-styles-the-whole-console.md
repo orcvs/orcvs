@@ -1,6 +1,6 @@
 # One Theme styles the whole console
 
-Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The 2026-10-10 amendment below records the colour-vision gate over the built-ins.
+Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker.
 
 **Every part of the console's presentation is themeable, and one Theme styles all of it.** ADR 0051 scoped theming to the Source Grid and left the page, panels, widgets, selection, Cell grid lines and Sector Seams to egui's dark/light `Visuals`: two fixed palettes, compiled in, with nothing a viewer can choose or load. That was never the requirement. The Source Grid and the console around it are never themed separately, so loading an Orcvs Theme restyles the menus as well as the Grid.
 
@@ -167,6 +167,34 @@ measures glyphs only: never background tints against each other, never text
 contrast, and never anomalous trichromacy. `console/src/theme.md` records every
 figure.
 
+## Amendment, 2026-10-10: Themes are selected in the config file
+
+The Consequences' Theme pickers are superseded. The console offers no Theme
+picker, and the `Theme → Source colours` and `Theme → Cursor effects` menu
+items do not become one.
+
+- **The two Theme selections are settings, not controls.** On native,
+  `~/.orcvs/config.toml` names them by identity in its `[theme]` table, as
+  `dark` and `light`, and the console reads the file once, at startup. An
+  absent key selects `okabe-ito` for dark and `orcvs-light` for light. The
+  console never writes either selection. The web reads no settings file and
+  runs on the built-ins.
+- **The mode is a control.** Follow the OS, Dark and Light are three icon
+  buttons at the right of the top bar. The mode is egui's `ThemePreference`,
+  which egui's memory stores and eframe restores.
+- **No menu offers a Theme setting.** `no_menu_offers_a_setting` asserts that
+  no menu offers a Theme, a Dark or Light Theme slot, or the Glitch settings.
+  Glitch amount and Glitch frequency are the same file's `[cursor_effects]`
+  `glitch_amount` and `glitch_frequency`.
+- **Theme documents are loaded at startup.** On native, the console reads
+  `~/.orcvs/themes/` at each launch, as "Native Theme files are authoritative
+  and read at startup" above states. There is no in-app load action.
+
+The Consequences' sequencing still holds without pickers: the selection
+restored at startup, operating-system appearance changes, the mode control and
+loaded documents each apply one Theme to the Source Grid and the chrome
+together.
+
 ## Rejected alternatives
 
 **Chrome as egui's dark/light `Visuals`.** This is what ADR 0051 did, and it left most of the console outside any Theme.
@@ -180,6 +208,8 @@ figure.
 **JSON and YAML Theme documents, beside TOML.** Accepted until 2026-09-24 and dropped then. Three representations of one model gave a viewer no Theme they could not write in TOML, and cost a third-party decoder per format that had to be made to agree: `serde-saphyr` parsed a quoted YAML scalar as a number on its typed paths and brought nine crates of its own, among them `unsafe` code and a proc macro, and `serde_json` kept the last of a repeated key and accepted a root array. Agreement took hand-written visitors for every scalar and for `style`, a root guard, and a test matrix run once per format, and four extensions let two files of one stem collide across formats. TOML is typed, always has a table root and refuses repeated keys, so a derived document type is strict without them. `serde_json` and `serde-saphyr` left the console with them.
 
 ## Consequences
+
+*The pickers in this paragraph, and the menu items that become pickers two paragraphs below, are superseded on 2026-10-10 by the second amendment above; kept as the decision's record.*
 
 Theme switching becomes available only when the Source Grid and chrome both
 follow the selected Theme. Foundation work may land in separate pull requests,
@@ -197,7 +227,7 @@ because this delivery sequence is agreed.
 
 `SourcePaintSettings`, `CursorEffectSettings`' colours, `ConsolePalette`, and the `source_paint` storage key are all replaced rather than migrated, for the reason ADR 0051 gave: a resolved value has no room for "unset". The `cursor_effects` key keeps only Glitch amount and Glitch frequency, or moves them into the settings document.
 
-`Theme → Source colours` and `Theme → Cursor effects` become a Theme picker for each of the two slots, a mode, and loading of externally authored Theme documents. "Reset to theme defaults" has nothing left to reset.
+*Its Theme pickers and menu items are superseded on 2026-10-10 by the second amendment above; kept as the decision's record.* `Theme → Source colours` and `Theme → Cursor effects` become a Theme picker for each of the two slots, a mode, and loading of externally authored Theme documents. "Reset to theme defaults" has nothing left to reset.
 
 `style()` builds egui's `Visuals` from the resolved Theme. It no longer reads a constant palette or Source defaults, so issue `05`'s borrow has nothing left to borrow.
 
