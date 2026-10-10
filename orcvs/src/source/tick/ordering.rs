@@ -174,6 +174,8 @@ pub(super) fn take_turns(
         schedule,
         waiting: schedule.stopped.iter().map(|stopped| !stopped).collect(),
         active: Cow::Borrowed(&schedule.active),
+        joined_edges: Vec::new(),
+        joined_writers: Vec::new(),
     };
     for &index in &schedule.order {
         match take(index, &progress) {
@@ -203,6 +205,13 @@ pub(super) struct Progress<'a> {
     /// Which roots activation can reach this Tick: the schedule's, and every
     /// root a dynamic write has activated since, with what those reach.
     active: Cow<'a, [bool]>,
+    /// The edges the roots activated during the Tick give: what their own
+    /// Portals reach and the static Input Portals their reservations cover.
+    /// Found once, when each root joins, because what a root's Portals give
+    /// does not change during the Tick.
+    joined_edges: Vec<(usize, usize)>,
+    /// The dynamic writers the roots activated during the Tick own.
+    joined_writers: Vec<usize>,
 }
 
 impl Progress<'_> {
@@ -247,11 +256,28 @@ impl Progress<'_> {
         if pending.is_empty() {
             return false;
         }
+        let lookup = &self.schedule.lookup;
         let active = self.active.to_mut();
         for &root in &pending {
             active[root] = true;
         }
-        super::activate(&self.schedule.lookup, active, pending);
+        // A root activated during the Tick orders what its own Portals
+        // reach, as an active root's do before it, and its dynamic writers
+        // go writers first.
+        for root in super::activate(lookup, active, pending) {
+            for index in lookup.descendants(root) {
+                let mut edge = |producer, consumer| self.joined_edges.push((producer, consumer));
+                super::producer_edges(lookup, index, &mut edge);
+                super::reader_edges(lookup, index, &mut edge);
+                if lookup.nodes()[index]
+                    .function
+                    .dynamic_output_portal()
+                    .is_some()
+                {
+                    self.joined_writers.push(index);
+                }
+            }
+        }
         true
     }
 
@@ -314,7 +340,7 @@ impl Progress<'_> {
         let schedule = self.schedule;
         let lookup = &schedule.lookup;
         let waiting = &self.waiting;
-        let mut edges: Vec<(usize, usize)> = schedule
+        let edges: Vec<(usize, usize)> = schedule
             .outgoing
             .iter()
             .enumerate()
@@ -331,33 +357,19 @@ impl Progress<'_> {
                     .copied()
                     .filter(|&(writer, _)| waiting[writer] || schedule.stopped[writer]),
             )
+            .chain(
+                self.joined_edges
+                    .iter()
+                    .copied()
+                    .filter(|&(producer, consumer)| waiting[producer] && waiting[consumer]),
+            )
             .collect();
-        let mut writers = schedule.writers.clone();
-        if let Cow::Owned(active) = &self.active {
-            // A root activated during the Tick orders what its own Portals
-            // reach, as an active root's do before it, and its dynamic
-            // writers go writers first.
-            let joined = |index: usize| {
-                let owner = lookup.nodes()[index].owner;
-                active[owner] && !schedule.active[owner]
-            };
-            let mut edge = |producer: usize, consumer: usize| {
-                if waiting[producer] && waiting[consumer] {
-                    edges.push((producer, consumer));
-                }
-            };
-            for index in (0..waiting.len()).filter(|&index| joined(index)) {
-                super::producer_edges(lookup, index, &mut edge);
-            }
-            for consumer in 0..waiting.len() {
-                super::input_edges(lookup, active, consumer, |producer, consumer| {
-                    if joined(producer) {
-                        edge(producer, consumer);
-                    }
-                });
-            }
-            writers.extend(super::dynamic_writers(lookup, active).filter(|&index| joined(index)));
-        }
+        let writers: Vec<usize> = schedule
+            .writers
+            .iter()
+            .chain(&self.joined_writers)
+            .copied()
+            .collect();
         let known = Dependencies::new(waiting.len(), edges.iter().copied());
         let writers_first = known.writers_first(lookup, &writers, waiting);
         Dependencies::new(waiting.len(), edges.into_iter().chain(writers_first))
@@ -462,36 +474,53 @@ impl Dependencies {
             }
         }
         let key = |index: usize| (lookup.grid.index(lookup.nodes()[index].anchor), index);
-        let mut pending: Vec<(usize, Vec<bool>)> = writers
+        let mut seen = vec![false; self.outgoing.len()];
+        let mut pending: Vec<(usize, Vec<usize>)> = writers
             .iter()
             .copied()
             .filter(|&writer| remaining[writer] && !stopped[writer])
-            .map(|writer| (writer, feeds(&incoming, writer)))
+            .map(|writer| (writer, feeds(&incoming, writer, &mut seen)))
             .collect();
         pending.sort_unstable_by_key(|&(writer, _)| key(writer));
+        let mut is_pending = vec![false; self.outgoing.len()];
+        for &(writer, _) in &pending {
+            is_pending[writer] = true;
+        }
+        // Each writer goes before every remaining computation not yet
+        // covered, and the next writer is never fed by one placed before it,
+        // so it is uncovered when its predecessor is placed: the writers form
+        // a chain. Covered only grows, so a computation is uncovered for a
+        // prefix of the chain and the last writer of that prefix orders it
+        // after every earlier one through the chain. That one edge each keeps
+        // the order the whole prefix's edges give.
         let mut covered = vec![false; remaining.len()];
         let mut edges = Vec::new();
+        let mut placed = None;
         while !pending.is_empty() {
             // The first writer in Grid order that no other pending writer
             // feeds.
             let next = (0..pending.len())
-                .find(|&candidate| {
-                    let fed = &pending[candidate].1;
-                    pending.iter().all(|(other, _)| !fed[*other])
-                })
+                .find(|&candidate| pending[candidate].1.iter().all(|&fed| !is_pending[fed]))
                 .expect(
                     "pending writers are on no cycle, so what feeds them is acyclic \
                      and one of them is fed by none of the others",
                 );
             let (writer, fed) = pending.remove(next);
-            covered[writer] = true;
-            for (index, fed) in fed.into_iter().enumerate() {
-                covered[index] |= fed;
+            is_pending[writer] = false;
+            for index in fed.into_iter().chain([writer]) {
+                if !std::mem::replace(&mut covered[index], true)
+                    && let Some(previous) = placed.filter(|_| remaining[index])
+                {
+                    edges.push((previous, index));
+                }
             }
+            placed = Some(writer);
+        }
+        if let Some(last) = placed {
             edges.extend(
                 (0..remaining.len())
                     .filter(|&consumer| remaining[consumer] && !covered[consumer])
-                    .map(|consumer| (writer, consumer)),
+                    .map(|consumer| (last, consumer)),
             );
         }
         edges
@@ -535,13 +564,20 @@ impl Dependencies {
 /// Which computations feed `writer`: those with a path of at least one edge
 /// to it, read from `incoming`, the edges by consumer.
 ///
-fn feeds(incoming: &[Vec<usize>], writer: usize) -> Vec<bool> {
-    let mut fed = vec![false; incoming.len()];
+/// `seen` is all `false` on entry and is left so, so one buffer serves every
+/// writer and each call costs what it visits rather than every computation.
+///
+fn feeds(incoming: &[Vec<usize>], writer: usize, seen: &mut [bool]) -> Vec<usize> {
+    let mut fed = Vec::new();
     let mut pending = incoming[writer].clone();
     while let Some(index) = pending.pop() {
-        if !std::mem::replace(&mut fed[index], true) {
+        if !std::mem::replace(&mut seen[index], true) {
+            fed.push(index);
             pending.extend_from_slice(&incoming[index]);
         }
+    }
+    for &index in &fed {
+        seen[index] = false;
     }
     fed
 }

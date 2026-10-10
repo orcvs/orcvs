@@ -97,12 +97,13 @@ impl Claims {
     }
 }
 
-/// Write reservations, bucketed by row.
+/// Write reservations, or static Input Portal reads, bucketed by row.
 ///
 /// [`Claims`] requires disjoint ranges. Producer destinations do not: two
 /// Portals may name the same Cells. A Span never leaves its row, so each Input Portal
 /// read searches only the writes that share it — naming an Input Portal on
-/// every Increment must not scan every other root.
+/// every Increment must not scan every other root. Reads overlap in the same
+/// way, and a writer searches only the reads that share its row.
 struct WriteClaims {
     columns: usize,
     by_row: Vec<Vec<Claim>>,
@@ -151,6 +152,9 @@ struct Lookup {
     operands: Claims,
     /// Destination Cells each producer reserved, including overlapping writes.
     writes: WriteClaims,
+    /// Cells each static Input Portal reads, by reader, so that a writer
+    /// whose root joins a Tick finds its readers without asking every one.
+    reads: WriteClaims,
     subtree_ends: Vec<usize>,
     /// Snapshot targets, shared by scheduling and execution. Only execution
     /// decides whether an active, unsuppressed Halt actually applies its lock.
@@ -241,6 +245,19 @@ impl Lookup {
                 }
             }
         }
+        let reads = nodes
+            .iter()
+            .enumerate()
+            .flat_map(|(index, node)| {
+                node.portal_access
+                    .read_spans()
+                    .iter()
+                    .map(move |read| Claim {
+                        cells: read.clone(),
+                        node: index,
+                    })
+            })
+            .collect();
         let mut lookup = Self {
             grid,
             nodes,
@@ -248,6 +265,7 @@ impl Lookup {
             literals: Claims::new(literals),
             operands: Claims::new(operands),
             writes: WriteClaims::new(grid, writes),
+            reads: WriteClaims::new(grid, reads),
             subtree_ends,
             locks: Vec::new(),
         };
@@ -624,9 +642,13 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
 /// `active`, can deliver activation to, and every root those can, as
 /// [`active_roots`] describes.
 ///
-fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) {
+/// Answers every root it reached, those in `pending` among them.
+///
+fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Vec<usize> {
     let nodes = lookup.nodes();
+    let mut reached = Vec::new();
     while let Some(owner) = pending.pop() {
+        reached.push(owner);
         for index in lookup.descendants(owner) {
             let function = nodes[index].function;
             if !function.can_emit_bang() && !advances(function) {
@@ -659,6 +681,7 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) {
             }
         }
     }
+    reached
 }
 
 ///
@@ -951,6 +974,22 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
                         order_after(consumer);
                     }
                 }
+            }
+        }
+    }
+}
+
+///
+/// Each `(producer, consumer)` edge a static Input Portal gives `producer`,
+/// once its root is active: one to every computation that reads Cells its
+/// reservation covers. These are the edges [`input_edges`] gives, found from
+/// the writer's side.
+///
+fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, usize)) {
+    for relationships in lookup.reservations(producer) {
+        for consumer in lookup.reads.touching(relationships.cells.clone()) {
+            if consumer != producer {
+                edge(producer, consumer);
             }
         }
     }
