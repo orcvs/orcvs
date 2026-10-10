@@ -126,6 +126,7 @@ impl Interpreter {
                 functions::copy::copy(&mut ctx, function)?
             }
             Function::Random => tick::random(&mut ctx)?,
+            Function::AbsoluteRead => functions::read::read::<operands::AbsoluteRead>(&mut ctx)?,
             Function::ReadEast => functions::read::read::<operands::ReadEast>(&mut ctx)?,
             Function::ReadNorth => functions::read::read::<operands::ReadNorth>(&mut ctx)?,
             Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,

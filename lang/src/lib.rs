@@ -161,8 +161,8 @@ impl PortalCoords {
 /// so scheduling orders its writers before the Tick. A dynamic Input Portal's
 /// position is known only at the Function's Turn, from its operands, so its
 /// writers are found then. [`InputPortal::resolve`] answers either kind's
-/// offset from the anchor at the Turn, and `orcvs` resolves that offset
-/// against the Grid, as it does [`PortalCoords`].
+/// [`PortalAddress`] at the Turn, and `orcvs` resolves that address against
+/// the Grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputPortal {
     /// A position at a fixed offset from the Function's anchor.
@@ -172,11 +172,26 @@ pub enum InputPortal {
     Dynamic(PairSelection),
 }
 
+/// Where an Input Portal stands once its Function's operands are resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortalAddress {
+    /// An offset from the Function's anchor.
+    Offset(PortalCoords),
+    /// A Position, column then row, counted in Cells from `00 00` at the
+    /// Grid's top-left, wherever the Function stands.
+    Position {
+        /// The Position's column.
+        column: u8,
+        /// The Position's row.
+        row: u8,
+    },
+}
+
 /// How a dynamic Input Portal's operands select its Cell pair.
 ///
 /// Each Function with a dynamic Input Portal names its rule in
-/// [`Function::input_portal`], and [`InputPortal::resolve`] asks the rule for
-/// the pair's offset from the Function's anchor.
+/// [`Function::input_portal`], and [`InputPortal::resolve`] asks the rule
+/// where the pair stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairSelection {
     /// The pair `index % count` pairs east of the end of the last operand, on
@@ -188,6 +203,10 @@ pub enum PairSelection {
     /// columns, so a distance of zero is the slot itself. A directional
     /// Read's selection.
     Distance(Direction),
+    /// The pair at the Position its `column` and `row` operands name,
+    /// counted in Cells from `00 00` at the Grid's top-left, wherever the
+    /// Function stands. The absolute Read's selection.
+    Position,
 }
 
 /// The direction a directional Read's arrow names.

@@ -671,6 +671,7 @@ macro_rules! define_functions {
 
 define_functions! {
     AbsoluteDifference => (".|", Value, Intrinsic, false, [left: Number, right: Number]),
+    AbsoluteRead => ("&$", Value, Intrinsic, true, [column: Number, row: Number]),
     Add => (".+", Value, Intrinsic, false, [left: Number, right: Number]),
     Clock => ("~.", Value, Intrinsic, false, [rate: Number, modulus: Number]),
     ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
@@ -871,12 +872,12 @@ impl Function {
     ///
     /// Copy names the Portal opposite its Output Portal. Increment and
     /// Interpolation name one row south, the same site as their Output Portal.
-    /// Those are static. Track's and each directional Read's are dynamic, and
-    /// each names the rule by which its operands select the pair it reads.
+    /// Those are static. Track's and every Read's are dynamic, and each names
+    /// the rule by which its operands select the pair it reads.
     pub const fn input_portal(self) -> Option<crate::InputPortal> {
         use crate::Direction::{East, North, South, West};
         use crate::InputPortal::{Dynamic, Static};
-        use crate::PairSelection::{Distance, IndexModuloCount};
+        use crate::PairSelection::{Distance, IndexModuloCount, Position};
         match self {
             Self::CopyEast => Some(Static(crate::PortalCoords {
                 columns: -2,
@@ -891,6 +892,7 @@ impl Function {
                 columns: 0,
                 rows: -1,
             })),
+            Self::AbsoluteRead => Some(Dynamic(Position)),
             Self::ReadEast => Some(Dynamic(Distance(East))),
             Self::ReadNorth => Some(Dynamic(Distance(North))),
             Self::ReadSouth => Some(Dynamic(Distance(South))),
@@ -903,8 +905,8 @@ impl Function {
 
     /// Whether this Function copies a Language Unit from its Input Portal.
     ///
-    /// Copy, Track and the directional Reads name an Input Portal and bind no
-    /// typed Portal input.
+    /// Copy, Track and the Reads name an Input Portal and bind no typed Portal
+    /// input.
     /// Increment and Interpolation name the same south site as a Number Portal
     /// input, so they are not this: the Cells they read are a value, not a
     /// Language Unit.
@@ -1175,6 +1177,7 @@ mod test {
                 .filter(|function| function.can_emit_bang())
                 .collect::<Vec<_>>(),
             vec![
+                Function::AbsoluteRead,
                 Function::Delay,
                 Function::Equality,
                 Function::Euclidean,
@@ -1285,6 +1288,10 @@ mod test {
                         "{function:?}"
                     );
                 }
+                Function::AbsoluteRead => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, Some(Dynamic(PairSelection::Position)));
+                }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, None);
@@ -1307,7 +1314,8 @@ mod test {
     fn replacing_a_read_with_track_another_read_or_a_copy_is_a_write() {
         // Each names its own rule for selecting its dynamic Input Portal, and a
         // Copy declares static Portals.
-        const READS: [Function; 4] = [
+        const READS: [Function; 5] = [
+            Function::AbsoluteRead,
             Function::ReadEast,
             Function::ReadNorth,
             Function::ReadSouth,
@@ -1585,6 +1593,7 @@ mod test {
             // effect, so the third column is not the first one read again.
             let (answers_value, terminal_output, intrinsically_active) = match function {
                 Function::AbsoluteDifference
+                | Function::AbsoluteRead
                 | Function::Add
                 | Function::Clock
                 | Function::ConvertToNote

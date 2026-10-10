@@ -531,6 +531,23 @@ fn a_north_read_plans_as_a_fresh_schedule_does() {
 }
 
 #[test]
+fn an_absolute_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
+    // `.+02~.0102` writes the Read's `row` as 2 and 3 in turn. `=<` writes
+    // the pair at column 6 of row 3 after the Read in Grid order, so the Read
+    // waits for it on every Tick that addresses that row and on no other.
+    let rows = [
+        "    .+02~.0102",
+        "&$06          ",
+        "      D4      ",
+        "        =<E4  ",
+    ];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(14, 4), &rows, 28..30, 4),
+        ["D4", "E4", "D4", "E4"]
+    );
+}
+
+#[test]
 fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
     // Copies reading and writing each other's Cells, a Clock feeding an
     // Addition, an Equality's Bang activating a Play, and an Addition and

@@ -1,16 +1,17 @@
 use super::copy::copy;
 use crate::{
     Atom, Direction, Error,
-    atom::operands::{ReadEast, ReadNorth, ReadSouth, ReadWest},
+    atom::operands::{AbsoluteRead, ReadEast, ReadNorth, ReadSouth, ReadWest},
     interpreter::Context,
     stack::Operands,
 };
 
-/// A directional Read: `&^ n`, `&v n`, `&< n` or `&> n`.
+/// A Read: `&^ n`, `&v n`, `&< n`, `&> n` or `&$ column row`.
 ///
-/// The Language Unit at the pair `n` Portals from the `n` operand in the
-/// Read's direction, read as a Copy reads its Input Portal. The Turn supplies
-/// the Cells of that pair, so evaluation binds the operand and answers what a
+/// The Language Unit at the pair its operands select, `n` Portals from the
+/// `n` operand in a directional Read's direction or at the absolute Read's
+/// Position, read as a Copy reads its Input Portal. The Turn supplies
+/// the Cells of that pair, so evaluation binds the operands and answers what a
 /// Copy would.
 pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack.extract::<O>()?;
@@ -23,17 +24,26 @@ pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
 /// Operands outside their domain diagnose as they would at evaluation.
 pub(crate) fn read_distance(direction: Direction, operands: &[Atom]) -> Result<u8, Error> {
     match direction {
-        Direction::North => distance(operands, |ReadNorth { n }| n),
-        Direction::South => distance(operands, |ReadSouth { n }| n),
-        Direction::East => distance(operands, |ReadEast { n }| n),
-        Direction::West => distance(operands, |ReadWest { n }| n),
+        Direction::North => bound(operands, |ReadNorth { n }| n),
+        Direction::South => bound(operands, |ReadSouth { n }| n),
+        Direction::East => bound(operands, |ReadEast { n }| n),
+        Direction::West => bound(operands, |ReadWest { n }| n),
     }
 }
 
-/// Checks and binds `operands` as `O`'s, answering the `n` that `n_of` reads.
-fn distance<O: Operands>(operands: &[Atom], n_of: fn(O) -> u8) -> Result<u8, Error> {
+/// The Position the absolute Read `&$ column row` addresses, from the
+/// operands its Turn resolved, as `(column, row)`.
+///
+/// Operands outside their domain diagnose as they would at evaluation.
+pub(crate) fn read_position(operands: &[Atom]) -> Result<(u8, u8), Error> {
+    bound(operands, |AbsoluteRead { column, row }| (column, row))
+}
+
+/// Checks and binds `operands` as `O`'s, answering what `read` takes from
+/// them.
+fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Result<T, Error> {
     O::check(operands)?;
-    O::bind(operands).map(n_of)
+    O::bind(operands).map(read)
 }
 
 #[cfg(test)]
@@ -86,6 +96,29 @@ mod test {
                 "{direction:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_absolute_read_addresses_column_then_row() {
+        let position =
+            |column, row| super::read_position(&[Atom::Number(column), Atom::Number(row)]);
+        assert_eq!(position(0, 0).unwrap(), (0, 0));
+        assert_eq!(position(0x3A, 0x18).unwrap(), (0x3A, 0x18));
+        assert_eq!(position(0xFF, 0xFF).unwrap(), (0xFF, 0xFF));
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        assert!(matches!(
+            super::read_position(&[Atom::Number(0), note]),
+            Err(crate::Error::Type(_))
+        ));
+        assert_eq!(
+            evaluate(
+                Function::AbsoluteRead,
+                [Atom::Number(0), Atom::Number(0)],
+                Some("G4")
+            )
+            .unwrap(),
+            Interpretation::Cell(Atom::Note(Note::try_from(67).unwrap()))
+        );
     }
 
     #[test]

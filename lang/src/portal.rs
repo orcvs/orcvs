@@ -5,25 +5,29 @@
 //! Evaluator receives beside resolved cell operands.
 
 use crate::{
-    Atom, Error, Function, InputPortal, InterpretationError, PairSelection, PortalCoords, Stack,
-    TickInputs, Token,
+    Atom, Error, Function, InputPortal, InterpretationError, PairSelection, PortalAddress,
+    PortalCoords, Stack, TickInputs, Token,
     expression::DEFAULT_TOKEN_LEN,
-    functions::{read::read_distance, track::track_pair},
+    functions::{
+        read::{read_distance, read_position},
+        track::track_pair,
+    },
     stack::Operands,
 };
 
 impl InputPortal {
     ///
-    /// This Input Portal's position from its Function's anchor at the Turn.
+    /// Where this Input Portal stands for its Function's Turn.
     ///
     /// `operands` are the values the Turn resolved, and `operand_columns` is
     /// how many columns east of the anchor the Function and its operands
     /// occupy, nested operands included: `orcvs` knows how they lie in the
     /// Grid. A static Input Portal is the offset it declares and reads
     /// neither. A dynamic Input Portal is the Cell pair its operands select
-    /// by its [`PairSelection`]: Track's counts from `operand_columns`, and a
+    /// by its [`PairSelection`]: Track's counts from `operand_columns`, a
     /// directional Read's from its `n` operand's slot, the pair after its
-    /// spelling, whatever that operand's width.
+    /// spelling, whatever that operand's width, and the absolute Read's is
+    /// the Position its operands name, which `orcvs` finds in its Grid.
     ///
     /// # Errors
     ///
@@ -32,23 +36,30 @@ impl InputPortal {
     /// or as a Read's `n`, is an [`Error::Type`], and Track's `count` of `00`
     /// is a wrap by zero. Track's pair can lie too far east to represent,
     /// which is a Portal outside any Grid and diagnoses as Track's partial or
-    /// invalid input, as a Portal past the row edge does. Every distance a
-    /// Read's `n` can state is representable, and is otherwise unchecked
-    /// here: a pair it places outside the Grid diagnoses when `orcvs`
-    /// resolves it.
+    /// invalid input, as a Portal past the row edge does. A Read's pair is
+    /// otherwise unchecked here: a pair it places outside the Grid diagnoses
+    /// when `orcvs` resolves it.
     ///
-    pub fn resolve(self, operands: &[Atom], operand_columns: usize) -> Result<PortalCoords, Error> {
+    pub fn resolve(
+        self,
+        operands: &[Atom],
+        operand_columns: usize,
+    ) -> Result<PortalAddress, Error> {
         match self {
-            Self::Static(coords) => Ok(coords),
-            Self::Dynamic(selection) => selection.coords(operands, operand_columns),
+            Self::Static(coords) => Ok(PortalAddress::Offset(coords)),
+            Self::Dynamic(selection) => selection.address(operands, operand_columns),
         }
     }
 }
 
 impl PairSelection {
-    /// The selected pair's offset from the Function's anchor.
-    fn coords(self, operands: &[Atom], operand_columns: usize) -> Result<PortalCoords, Error> {
+    /// Where the selected pair stands.
+    fn address(self, operands: &[Atom], operand_columns: usize) -> Result<PortalAddress, Error> {
         match self {
+            Self::Position => {
+                let (column, row) = read_position(operands)?;
+                Ok(PortalAddress::Position { column, row })
+            }
             Self::IndexModuloCount => {
                 let pair = track_pair(operands)?;
                 let columns = operand_columns
@@ -57,17 +68,17 @@ impl PairSelection {
                     .ok_or(InterpretationError::CopyInput {
                         function: Function::Track,
                     })?;
-                Ok(PortalCoords { columns, rows: 0 })
+                Ok(PortalAddress::Offset(PortalCoords { columns, rows: 0 }))
             }
             Self::Distance(direction) => {
                 // The slot is the pair after the spelling, and at most 255
                 // steps from it every offset fits.
                 let n = i16::from(read_distance(direction, operands)?);
                 let step = direction.step();
-                Ok(PortalCoords {
+                Ok(PortalAddress::Offset(PortalCoords {
                     columns: DEFAULT_TOKEN_LEN as i16 + n * step.columns,
                     rows: n * step.rows,
-                })
+                }))
             }
         }
     }
@@ -232,7 +243,7 @@ mod test {
     use super::{PortalInput, PortalNumber, PortalSource};
     use crate::{
         Anchor, Atom, Error, Function, FunctionInputs, InputPortal, InterpretationError,
-        Interpreter, Note, PortalCoords, Tick, TickInputs,
+        Interpreter, Note, PortalAddress, PortalCoords, Tick, TickInputs,
     };
 
     const INPUT: PortalInput = PortalInput::number("previous value");
@@ -297,15 +308,53 @@ mod test {
 
     /// Resolves `function`'s declared Input Portal over `operands`, which
     /// occupy `operand_columns` columns east of its anchor.
+    fn address(
+        function: Function,
+        operands: &[Atom],
+        operand_columns: usize,
+    ) -> Result<PortalAddress, Error> {
+        function
+            .input_portal()
+            .expect("the Function declares an Input Portal")
+            .resolve(operands, operand_columns)
+    }
+
+    /// The offset `function`'s declared Input Portal resolves to.
     fn resolve(
         function: Function,
         operands: &[Atom],
         operand_columns: usize,
     ) -> Result<PortalCoords, Error> {
-        function
-            .input_portal()
-            .expect("the Function declares an Input Portal")
-            .resolve(operands, operand_columns)
+        address(function, operands, operand_columns).map(|address| match address {
+            PortalAddress::Offset(coords) => coords,
+            PortalAddress::Position { .. } => panic!("{function:?} names a Position"),
+        })
+    }
+
+    #[test]
+    fn an_absolute_read_resolves_to_the_position_its_operands_name() {
+        let read = |column, row| {
+            address(
+                Function::AbsoluteRead,
+                &[Atom::Number(column), Atom::Number(row)],
+                6,
+            )
+            .unwrap()
+        };
+        let position = |column, row| PortalAddress::Position { column, row };
+        assert_eq!(read(0, 0), position(0, 0));
+        assert_eq!(read(0x0B, 0x02), position(0x0B, 0x02));
+        assert_eq!(read(0xFF, 0xFF), position(0xFF, 0xFF));
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        for operands in [[note, Atom::Number(0)], [Atom::Number(0), note]] {
+            assert!(
+                matches!(
+                    address(Function::AbsoluteRead, &operands, 6),
+                    Err(Error::Type(_))
+                ),
+                "{operands:?}"
+            );
+        }
     }
 
     #[test]

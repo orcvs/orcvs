@@ -1,8 +1,9 @@
-//! The directional Reads, `&^ &v &< &> n`, read as a performer sees them Tick
-//! after Tick.
+//! The Reads, `&^ &v &< &> n` and `&$ column row`, read as a performer sees
+//! them Tick after Tick.
 //!
-//! A Read reads the Cell pair `n` Portals from its `n` operand in its arrow's
-//! direction with Copy's rules, and writes what it reads through its Output
+//! A directional Read reads the Cell pair `n` Portals from its `n` operand in
+//! its arrow's direction, and the absolute Read the pair at a Position. Each
+//! reads with Copy's rules and writes what it reads through its Output
 //! Portal. The pair is known only at the Read's Turn, so these tests also
 //! state the order that Turn takes against the writers of the Cells it reads.
 
@@ -499,4 +500,218 @@ fn a_timed_play_plays_the_note_a_nested_read_supplies() {
             length: crate::source::Length::from(0x04),
         }]
     );
+}
+
+// The absolute Read, `&$ column row`.
+
+#[test]
+fn an_absolute_read_of_00_00_reads_the_top_left_wherever_it_stands() {
+    let below = first(Grid::with_shape(8, 3), &["C4", "  &$0000"]);
+    assert_eq!(below.rows[2], "  C4    ");
+    let east = first(Grid::with_shape(12, 2), &["C4    &$0000"]);
+    assert_eq!(east.rows[1], "      C4    ");
+    for tick in [below, east] {
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    }
+}
+
+#[test]
+fn an_absolute_read_counts_columns_in_cells() {
+    // Column 01 holds the `E4` that starts there.
+    let aligned = first(Grid::with_shape(6, 3), &["&$0102", "", " E4"]);
+    assert_eq!(aligned.rows[1], "E4    ");
+    assert!(aligned.diagnostics.is_empty(), "{:?}", aligned.diagnostics);
+    // Column 03 of row 1 is `+0`: the second Cell of `.+` and the first of
+    // its operand `01`. The Read's Output Portal keeps its `xx`.
+    let straddling = first(Grid::with_shape(8, 3), &["&$0301", "xx.+0102"]);
+    assert_eq!(straddling.rows, ["&$0301  ", "xx.+0102", "  03    "]);
+    assert_eq!(straddling.diagnostics, [diagnostic(0, 0, &invalid("&$"))]);
+    // No Language Unit claims a row of Cells that parses as nothing, so
+    // column 07 of it is the two Cells `4D`, read as the Number they spell.
+    let unclaimed = first(Grid::with_shape(10, 2), &["&$0701", "      C4D4"]);
+    assert_eq!(unclaimed.rows[1], "4D    C4D4");
+    assert!(
+        unclaimed.diagnostics.is_empty(),
+        "{:?}",
+        unclaimed.diagnostics
+    );
+}
+
+#[test]
+fn an_absolute_read_of_column_fe_reads_and_of_column_ff_is_cut_short() {
+    let grid = Grid::with_shape(256, 2);
+    let edge = format!("{:254}G4", "&$FE00");
+    let tick = first(grid, &[&edge]);
+    assert_eq!(&tick.rows[1][..2], "G4");
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    let cut = format!("{:255}G", "&$FF00");
+    let tick = first(grid, &[&cut, "xx"]);
+    assert_eq!(&tick.rows[1][..2], "xx");
+    assert_eq!(tick.diagnostics, [diagnostic(0, 0, &invalid("&$"))]);
+}
+
+#[test]
+fn an_absolute_read_outside_the_grid_diagnoses_and_writes_nothing() {
+    for row in ["&$0800", "&$0003", "&$FFFF"] {
+        let tick = first(Grid::with_shape(8, 2), &[row, "xx"]);
+        assert_eq!(tick.rows[1], "xx      ", "{row:?}");
+        assert_eq!(
+            tick.diagnostics,
+            [diagnostic(0, 0, &invalid("&$"))],
+            "{row:?}"
+        );
+    }
+}
+
+#[test]
+fn an_absolute_read_of_its_own_cells_reads_them_without_waiting_on_itself() {
+    let grid = Grid::with_shape(6, 2);
+    // Its own Output Portal: the Read reads what stands there before it
+    // writes, so `D4` stays `D4` and empty Cells stay empty, Tick after Tick.
+    for (rows, written) in [(["&$0001", "D4"], "D4    "), (["&$0001", ""], "      ")] {
+        for tick in observe_at(grid, &rows, 0..2) {
+            assert_eq!(tick.rows[1], written, "{rows:?}");
+            assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+        }
+        assert_eq!(turns(grid, &rows)[&(0, 0)], Some(0), "{rows:?}");
+    }
+    // Its own spelling and its own operand.
+    let spelling = first(grid, &["&$0000"]);
+    assert_eq!(spelling.rows[1], "&$    ");
+    let operand = first(grid, &["&$0200"]);
+    assert_eq!(operand.rows[1], "02    ");
+    for tick in [spelling, operand] {
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    }
+}
+
+#[test]
+fn an_absolute_read_answers_what_a_copy_answers_for_the_cells_it_reads() {
+    let grid = Grid::with_shape(10, 2);
+    let empty = first(grid, &["&$0600  D4", "xx"]);
+    assert_eq!(empty.rows[1], "          ");
+    assert!(empty.diagnostics.is_empty(), "{:?}", empty.diagnostics);
+    // A Comment introducer, a pair straddling one, and a partial pair are
+    // not one Language Unit.
+    for row in ["&$0600||E4", "&$0800C||4E4", "&$0800C4D 4"] {
+        let tick = first(Grid::with_shape(12, 2), &[row, "xx"]);
+        assert_eq!(tick.rows[1], "xx          ", "{row:?}");
+        assert_eq!(
+            tick.diagnostics,
+            [diagnostic(0, 0, &invalid("&$"))],
+            "{row:?}"
+        );
+    }
+    // A Function spelling answers that Function, which replaces the root it
+    // lands on.
+    let function = first(Grid::with_shape(14, 3), &["&$0800C4.+0101", ".-0302"]);
+    assert_eq!(function.rows[1], ".+0302  02    ");
+    assert_eq!(function.rows[2], "05            ");
+}
+
+#[test]
+fn a_bang_an_absolute_read_reads_is_relayed() {
+    let mut source = source_of(
+        Grid::with_shape(14, 3),
+        &["        .=0101", "&$0801", "!>007FC4"],
+    );
+    let plan = source.execute(Tick::ZERO);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    assert_eq!(plan.play_commands.len(), 1);
+}
+
+#[test]
+fn an_unwritten_column_or_row_makes_the_absolute_read_invalid() {
+    for row in ["&$  00", "&$00  ", "&$0 00"] {
+        let rows = [row, "xx"];
+        let source = source_of(Grid::with_shape(6, 2), &rows);
+        assert!(
+            source
+                .language_map()
+                .diagnostics()
+                .any(|diagnostic| diagnostic.start() == 0),
+            "{row:?}"
+        );
+        let tick = first(Grid::with_shape(6, 2), &rows);
+        assert_eq!(tick.rows[1], "xx    ", "{row:?}");
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    }
+}
+
+#[test]
+fn a_writer_north_of_an_absolute_read_takes_its_turn_first() {
+    // `.+0102` at (2, 0) writes `03` into (2, 1).
+    let grid = Grid::with_shape(8, 4);
+    let rows = ["  .+0102", "", "&$0201"];
+    assert_eq!(first(grid, &rows).rows[3], "03      ");
+    turn_before(&turns(grid, &rows), (2, 0), (0, 2));
+}
+
+#[test]
+fn a_writer_west_of_an_absolute_read_takes_its_turn_first() {
+    // `=>` at (2, 0) copies `D4` into (4, 0), west of the Read at (6, 0).
+    let grid = Grid::with_shape(12, 2);
+    let rows = ["D4=>  &$0400"];
+    let tick = first(grid, &rows);
+    assert_eq!(tick.rows[1], "      D4    ");
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    turn_before(&turns(grid, &rows), (2, 0), (6, 0));
+}
+
+#[test]
+fn writers_south_and_east_of_an_absolute_read_take_their_turn_first() {
+    // `=^` at (2, 2) copies `D4` into (2, 1).
+    let grid = Grid::with_shape(6, 4);
+    let rows = ["&$0201", "", "  =^", "  D4"];
+    assert_eq!(first(grid, &rows).rows[1], "D4D4  ");
+    turn_before(&turns(grid, &rows), (2, 2), (0, 0));
+    // `=<` at (10, 0) copies `D4` into (8, 0).
+    let grid = Grid::with_shape(14, 2);
+    let rows = ["&$0800C4  =<D4"];
+    assert_eq!(first(grid, &rows).rows[1], "D4            ");
+    turn_before(&turns(grid, &rows), (10, 0), (0, 0));
+}
+
+#[test]
+fn a_column_or_row_written_after_the_absolute_read_in_grid_order_is_read_at_the_turn() {
+    // `=^` at (2, 1) copies `06` into the empty `column`.
+    let grid = Grid::with_shape(8, 3);
+    let rows = ["&$  00C4", "  =^", "  06"];
+    let tick = first(grid, &rows);
+    assert_eq!(tick.rows[..2], ["&$0600C4", "C4=^    "]);
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    turn_before(&turns(grid, &rows), (2, 1), (0, 0));
+    // `=^` at (4, 1) copies `02` into the empty `row`.
+    let grid = Grid::with_shape(6, 3);
+    let rows = ["&$02  ", "    =^", "  E402"];
+    let tick = first(grid, &rows);
+    assert_eq!(tick.rows[..2], ["&$0202", "E4  =^"]);
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    turn_before(&turns(grid, &rows), (4, 1), (0, 0));
+}
+
+#[test]
+fn a_writer_that_waits_on_an_absolute_read_forms_a_cycle() {
+    // The Read writes (0, 1), which two `=>` carry over the `=^` at (8, 1),
+    // which writes the addressed pair (8, 0).
+    let tick = first(
+        Grid::with_shape(12, 5),
+        &["&$0800C4  E4", "  =>  =>=^=>", "        D4", ".+0102"],
+    );
+    assert_eq!(
+        tick.diagnostics,
+        [
+            diagnostic(0, 0, "same-Tick dependency cycle"),
+            diagnostic(10, 1, "waiting on a same-Tick dependency cycle"),
+        ]
+    );
+    assert_eq!(tick.rows[4], "03          ");
+}
+
+#[test]
+fn a_nested_absolute_read_returns_its_pair() {
+    // The nested Read returns the `05` at (6, 1), and `.+` adds `03`.
+    let tick = first(Grid::with_shape(10, 2), &[".+&$060103", "      05"]);
+    assert_eq!(tick.rows, [".+&$060103", "0805  05  "]);
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
 }

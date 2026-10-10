@@ -23,14 +23,14 @@
 //! group that stacks a second header inside its own band follows the same
 //! rule: that header's row must hold no Expression east of it either.
 //!
-//! | Columns   | Group                                                                      |
-//! |-----------|----------------------------------------------------------------------------|
-//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                   |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                                |
-//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                  |
-//! | `48..64`  | Copies and Halt: `=^ =v =< =>`, `*!`; from row 23, Reads: `&t &^ &v &< &>` |
-//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`           |
-//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                     |
+//! | Columns   | Group                                                                         |
+//! |-----------|-------------------------------------------------------------------------------|
+//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                      |
+//! | `16..32`  | Numeric Conversion: `.v .^`                                                   |
+//! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                     |
+//! | `48..64`  | Copies and Halt: `=^ =v =< =>`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
+//! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`              |
+//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                        |
 //!
 //! # Source Functions need an area, not just a row
 //!
@@ -308,6 +308,9 @@ mod tests {
             result(48, 30, "E4"), // &^01
             result(48, 32, "G4"), // &v02
             result(52, 35, "A4"), // &<03
+            // The absolute Read (column 48) reads the pair at Position
+            // `3A 18`, Track's pair 02.
+            result(48, 37, "E4"), // &$3A18
         ]
     }
 
@@ -332,7 +335,7 @@ mod tests {
             literal(48, 11, "08"), // =>'s input
             literal(54, 24, "C4"), // &t's pair 00
             literal(56, 24, "D4"), // &t's pair 01
-            literal(58, 24, "E4"), // &t's pair 02
+            literal(58, 24, "E4"), // &t's pair 02, and &$'s Position
             literal(52, 26, "C4"), // &>'s pair 01 east
             literal(50, 28, "E4"), // &^'s pair 01 north
             literal(50, 33, "G4"), // &v's pair 02 south

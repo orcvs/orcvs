@@ -7,7 +7,7 @@
 //! [`working::WorkingSource`]'s. Nothing here survives the Tick.
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalCoords, PortalSource,
+    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalAddress, PortalSource,
     SourceBundle, SourceEffect, Tick,
 };
 
@@ -309,10 +309,10 @@ impl<'a> Execution<'a> {
         // The schedule orders a static Input Portal after its writers, and a
         // Function Replacement keeps the declared Input Portal, so only a
         // dynamic one finds writers still to take their Turn here.
-        if let Some(coords) = portal
-            && let Some(read) = self.portal_cells(index, coords)
+        if let Some(Some(portal)) = portal
+            && let Ok(span) = portal.span(SCALAR_WIDTH)
         {
-            let writers = progress.unresolved_writers(index, read);
+            let writers = progress.unresolved_writers(index, span.range());
             if !writers.is_empty() {
                 return Some(writers);
             }
@@ -325,8 +325,7 @@ impl<'a> Execution<'a> {
             self.states[index].interpreted = Some(tick);
             self.states[index].interpretations += 1;
         }
-        let inputs =
-            FunctionInputs::with_portal_source(tick, self.portal_source(node, function, portal));
+        let inputs = FunctionInputs::with_portal_source(tick, self.portal_source(function, portal));
         match Interpreter::execute_function(function, operands, inputs) {
             Err(error) => self
                 .effects
@@ -340,12 +339,13 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// `function`'s Input Portal for `index`'s Turn, as an offset from its
-    /// anchor once its operands are resolved, or `None` where it declares
-    /// none.
+    /// `function`'s Input Portal for `index`'s Turn once its operands are
+    /// resolved: `None` where it declares none, and `Some(None)` where the
+    /// Portal it selects stands outside the Grid.
     ///
     /// `lang` resolves the declaration; the columns it is given are those
     /// `index`'s operands occupy east of its anchor, nested operands included.
+    /// An offset is taken from the anchor, and a Position is the Grid's own.
     /// A resolution that refuses diagnoses the Turn.
     ///
     fn turn_portal(
@@ -353,26 +353,24 @@ impl<'a> Execution<'a> {
         index: usize,
         function: Function,
         operands: &[Atom],
-    ) -> Result<Option<PortalCoords>, String> {
+    ) -> Result<Option<Option<Portal>>, String> {
         let Some(declared) = function.input_portal() else {
             return Ok(None);
         };
-        let anchor = self
-            .grid
-            .index(self.schedule.lookup.nodes()[index].anchor)
-            .get();
-        declared
-            .resolve(operands, self.operands_end(index) - anchor)
-            .map(Some)
-            .map_err(|error| error.to_string())
-    }
-
-    /// The Cells of the pair at `coords` from `index`'s anchor, or `None`
-    /// where no pair of the Grid stands there.
-    fn portal_cells(&self, index: usize, coords: PortalCoords) -> Option<std::ops::Range<usize>> {
         let anchor = self.schedule.lookup.nodes()[index].anchor;
-        let portal = Portal::named(self.grid, anchor, coords).ok()?;
-        Some(portal.span(SCALAR_WIDTH).ok()?.range())
+        let address = declared
+            .resolve(
+                operands,
+                self.operands_end(index) - self.grid.index(anchor).get(),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(Some(match address {
+            PortalAddress::Offset(coords) => Portal::named(self.grid, anchor, coords).ok(),
+            PortalAddress::Position { column, row } => self
+                .grid
+                .position(usize::from(column), usize::from(row))
+                .map(|position| Portal::at(self.grid, position)),
+        }))
     }
 
     fn syntax_blocks(&self, node: &Computation, function: Function) -> bool {
@@ -392,14 +390,13 @@ impl<'a> Execution<'a> {
     /// Language Unit reads the pair only when it is one complete aligned unit.
     fn portal_source(
         &self,
-        node: &Computation,
         function: Function,
-        portal: Option<PortalCoords>,
+        portal: Option<Option<Portal>>,
     ) -> PortalSource<'_> {
-        let Some(coords) = portal else {
+        let Some(portal) = portal else {
             return PortalSource::none();
         };
-        let Ok(portal) = Portal::named(self.grid, node.anchor, coords) else {
+        let Some(portal) = portal else {
             return PortalSource::from_cells(None);
         };
         PortalSource::from_cells(match function.portal_input() {
