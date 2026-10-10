@@ -1,6 +1,6 @@
 # One Theme styles the whole console
 
-Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception.
+Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The 2026-10-10 amendment below records the colour-vision gate over the built-ins.
 
 **Every part of the console's presentation is themeable, and one Theme styles all of it.** ADR 0051 scoped theming to the Source Grid and left the page, panels, widgets, selection, Cell grid lines and Sector Seams to egui's dark/light `Visuals`: two fixed palettes, compiled in, with nothing a viewer can choose or load. That was never the requirement. The Source Grid and the console around it are never themed separately, so loading an Orcvs Theme restyles the menus as well as the Grid.
 
@@ -116,6 +116,56 @@ The floor is unchanged. A failure a later change introduces is not covered by
 the superseded paragraph: it needs explicit review and an entry in the
 accepted-exception list at the exact colour pair it was accepted at.
 `console/src/theme.md` records every measured figure.
+
+## Amendment, 2026-10-10: the built-ins are gated for colour vision
+
+Text contrast does not assess whether two Token colours are distinguishable, so
+the built-in Themes carry a second measurement beside the contrast gate.
+`contrast::colour_vision::distinguish` simulates dichromatic vision and reports
+how far apart every pair of Source glyph channels stays.
+
+- **What it compares.** The glyph channels a reader reads meaning off: Ordinary,
+  Comment, Number, Note, Function, Bang, Diagnostic and Output Portal. Every
+  Invalid operand draws in Diagnostic, and every Cell inside an Output Portal
+  Reservation other than a Function or a Bang draws in Output Portal, so those
+  states are measured as the channel they paint. A fact channel with a
+  transparent foreground is measured as the Token it reveals. Each glyph is
+  taken at its displayed colour: its effective foreground composited over its
+  effective background, in the same reachable painted states the contrast
+  validator measures, role tints, the Region wash and the Portal-over-role tint
+  included. Two channels are compared only at the same Cursor placement, and a
+  pair's result is its closest placement.
+- **The simulation.** Viénot, Brettel & Mollon (1999): linearize sRGB, convert
+  to Smith–Pokorny LMS, replace the missing cone's response with the plane
+  through the anchor stimuli, and convert back. The protanopia and deuteranopia
+  planes are the paper's published ones. The paper gives no tritan plane, so
+  tritanopia uses the companion projection in the same LMS space, a weaker
+  model than the two gated ones.
+- **The metric.** CIEDE2000 (CIE 142-2001) at `kL = kC = kH = 1`, in CIE
+  L\*a\*b\* against D65, checked against Sharma, Wu & Dalal's published test
+  data.
+- **The floor.** `CONFUSION_FLOOR` is a ΔE00 of 5.0, where two colours are
+  ordinarily taken to be clearly distinct rather than merely measurably
+  different. It gates protanopia and deuteranopia for both built-ins, with no
+  exception list. It is not fitted to the light built-in: the published
+  Okabe–Ito assignment, unretuned, clears it at 6.65. The closest red–green
+  pairs are 14.16 (protanopia) and 6.65 (deuteranopia) for `okabe-ito`, and
+  9.20 and 7.19 for `orcvs-light`.
+- **Tritanopia is measured and not gated.** Okabe–Ito is published as safe for
+  red–green deficiency and makes no tritan claim. Under simulated tritanopia
+  `okabe-ito`'s Bang and Diagnostic measure 0.60 apart, and `orcvs-light`'s
+  closest pair, Bang and Note, 1.54. A tritan gate at the floor would fail both
+  shipped Themes. `shipped_theme_colour_vision_gate` pins both tritan figures,
+  so a retune that makes either worse fails rather than passing unexamined.
+
+The gate is test-only. `shipped_theme_colour_vision_gate` runs it over both
+built-ins, and
+`the_recorded_red_green_separations_are_what_the_built_ins_measure` pins the
+red–green figures. No shipped path runs it, so a loaded Theme document is not
+measured for colour vision and a custom Theme is not held to the floor. It
+measures glyphs only: never background tints against each other, never text
+contrast, and never anomalous trichromacy. `console/src/theme.md` records every
+figure.
 
 ## Rejected alternatives
 
