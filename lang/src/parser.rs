@@ -974,6 +974,51 @@ mod test {
     }
 
     #[test]
+    fn a_writes_value_slot_carries_any_language_unit_a_literal_spells() {
+        let note = |value| Atom::Note(crate::Note::try_from(value).unwrap());
+        for (source, value) in [
+            ("@>01C4", Atom::Number(0xC4)),
+            ("@>01G4", note(67)),
+            ("@>01c4", note(61)),
+            ("@>01**", Atom::Bang),
+        ] {
+            assert_eq!(
+                try_parse(source).unwrap().as_slice(),
+                &[Atom::Function(Function::WriteEast), Atom::Number(1), value],
+                "{source}"
+            );
+        }
+        // A Function spelling in `value` is a nested Function, as in every
+        // operand.
+        assert_eq!(
+            try_parse("@$0000.+0101").unwrap().as_slice(),
+            &[
+                Atom::Function(Function::AbsoluteWrite),
+                Atom::Number(0),
+                Atom::Number(0),
+                Atom::Function(Function::Add),
+                Atom::Number(1),
+                Atom::Number(1),
+            ]
+        );
+        // Cells that spell no Language Unit, an empty pair among them, are no
+        // value to carry.
+        for source in ["@>01  ", "@>01C ", "@>01xy", "@>010a"] {
+            assert!(
+                matches!(try_parse(source), Err(Error::Type(TypeError::Unit(_)))),
+                "{source:?} parsed"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bang_in_a_typed_operand_is_still_invalid_syntax() {
+        for source in ["@>**C4", "@$**00C4", ".+**01"] {
+            assert!(try_parse(source).is_err(), "{source:?} parsed");
+        }
+    }
+
+    #[test]
     fn test_parse_play_function() {
         trace();
 
@@ -994,9 +1039,10 @@ mod test {
 
     /// Every Atom of the domain a `Token` names, in Source order.
     ///
-    /// Both domains are small enough to enumerate — the 256 Numbers, and the
-    /// 128 MIDI Notes `C/` through `G9` — so the round trip below sweeps them
-    /// rather than sampling them.
+    /// Every domain is small enough to enumerate — the 256 Numbers, the 128
+    /// MIDI Notes `C/` through `G9`, and the untyped slot's union of them with
+    /// the Bang — so the round trip below sweeps them rather than sampling
+    /// them.
     ///
     /// `mod property`'s `literal_source` draws its Source text from here, so
     /// the two operand domains are declared once: a domain narrowed in this
@@ -1007,6 +1053,18 @@ mod test {
             Token::Number => (0..=u8::MAX).map(Atom::Number).collect(),
             Token::Note => (0x00..=0x7F)
                 .map(|value| Atom::Note(crate::Note::try_from(value).expect("a MIDI Note")))
+                .collect(),
+            // An untyped slot holds any Language Unit a literal can spell: a
+            // Bang, every Number, and every Note. A Note whose spelling is
+            // also a Number's, such as `C4`, is carried as that Number, which
+            // spells the same two Cells.
+            Token::Untyped => std::iter::once(Atom::Bang)
+                .chain(every_atom_of(Token::Number))
+                .chain(
+                    every_atom_of(Token::Note)
+                        .into_iter()
+                        .filter(|note| crate::str_to_num(&note.to_string()).is_err()),
+                )
                 .collect(),
             other => panic!("no operand is declared as {other:?}"),
         }
@@ -1341,6 +1399,7 @@ mod property {
                 | (Token::Number, Atom::Number(_))
                 | (Token::Note, Atom::Note(_))
                 | (Token::Bang, Atom::Bang)
+                | (Token::Untyped, Atom::Bang | Atom::Number(_) | Atom::Note(_))
         )
     }
 

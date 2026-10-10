@@ -19,6 +19,8 @@ mod read;
 mod schedule_reuse;
 #[cfg(test)]
 mod track;
+#[cfg(test)]
+mod write;
 
 use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
@@ -472,8 +474,9 @@ fn plan_unshared(
 ///   target is classified by. A unit records its kind and no value.
 ///
 /// Portal destinations are read from the Function's declaration, never from
-/// an operand. A dynamic Input Portal's position is found at the Turn and is
-/// no scheduling input. An Operand Literal's value, working
+/// an operand. A dynamic Portal's position is found at the Turn and is no
+/// scheduling input; which computations are dynamic writers, and what feeds
+/// each one, are. An Operand Literal's value, working
 /// Source and the Tick are execution's alone, so a Tick that writes new values
 /// into Cells whose units keep their Spans changes no scheduling input.
 /// Anything [`computations`] or [`Lookup::new`] reads from the Map is a
@@ -603,11 +606,22 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
         .iter()
         .map(|node| node.parent.is_none() && node.function.is_intrinsically_active())
         .collect();
-    let mut pending: Vec<_> = active
+    let pending: Vec<_> = active
         .iter()
         .enumerate()
         .filter_map(|(index, active)| active.then_some(index))
         .collect();
+    activate(lookup, &mut active, pending);
+    active
+}
+
+///
+/// Marks active every root the roots in `pending`, already marked in
+/// `active`, can deliver activation to, and every root those can, as
+/// [`active_roots`] describes.
+///
+fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) {
+    let nodes = lookup.nodes();
     while let Some(owner) = pending.pop() {
         for index in lookup.descendants(owner) {
             let function = nodes[index].function;
@@ -641,7 +655,6 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
             }
         }
     }
-    active
 }
 
 ///
@@ -814,103 +827,150 @@ fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
         if let Some(parent) = node.parent {
             edges.insert((index, parent));
         }
-        if !active[node.owner] {
-            continue;
+        if active[node.owner] {
+            producer_edges(&lookup, index, |producer, consumer| {
+                edges.insert((producer, consumer));
+            });
         }
-        if let Some(target) = locked_subtree(&lookup, index) {
-            edges.extend(target.clone().map(|consumer| (index, consumer)));
+    }
+    for consumer in 0..nodes.len() {
+        input_edges(&lookup, &active, consumer, |producer, consumer| {
+            edges.insert((producer, consumer));
+        });
+    }
+    let writers = dynamic_writers(&lookup, &active).collect();
+    ordering::schedule(lookup, active, edges, writers, diagnostics)
+}
+
+///
+/// The dynamic writers among the computations `active` roots own.
+///
+/// A dynamic writer's destination is known only at its Turn, so it reserves
+/// nothing and is ordered writers first instead.
+///
+fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<Item = usize> + 'a {
+    lookup
+        .nodes()
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| active[node.owner] && node.function.dynamic_output_portal().is_some())
+        .map(|(index, _)| index)
+}
+
+///
+/// Each `(producer, consumer)` edge `producer`'s own Portals give it, once
+/// its root is active: a lock before the subtree it locks, and each
+/// reservation before every computation whose Cells it covers and every
+/// root its Bang activates.
+///
+fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usize)) {
+    let nodes = lookup.nodes();
+    let node = &nodes[index];
+    if let Some(target) = locked_subtree(lookup, index) {
+        for consumer in target.clone() {
+            edge(index, consumer);
         }
-        for relationships in lookup.reservations(index) {
-            // A self-edge is an unsatisfiable indegree, so it is how a
-            // computation that writes over its own Cells reports itself as a
-            // same-Tick cycle: the reservation covering the producer and the
-            // Cell pair its write reaches are the same fact, and
-            // `live_cycles_stop_only_the_expressions_they_reach` holds that
-            // rule.
+    }
+    for relationships in lookup.reservations(index) {
+        // A self-edge is an unsatisfiable indegree, so it is how a
+        // computation that writes over its own Cells reports itself as a
+        // same-Tick cycle: the reservation covering the producer and the
+        // Cell pair its write reaches are the same fact, and
+        // `live_cycles_stop_only_the_expressions_they_reach` holds that
+        // rule.
+        //
+        // The one way a producer's own Cells are not a defect is one a
+        // declaration states outright: an advancing bundle clears the
+        // Span it stands in, so its first Portal covers its own spelling
+        // by design. Ordering it after itself would stop it every Tick it
+        // takes a Turn in. An emitting bundle plans nothing at
+        // its own Cells and needs no exception.
+        let clears_its_own_span = advances(node.function);
+        let mut order_after = |consumer: usize| {
+            if clears_its_own_span && consumer == index {
+                return;
+            }
+            if lock_covers(lookup, consumer, index) {
+                return;
+            }
+            edge(index, consumer);
+        };
+        for contact in relationships.functions() {
+            // An emission is admitted only into empty Cells and its
+            // producer never vacates. A mover with Cells in the
+            // destination whose own move reaches any Cell of the producer,
+            // flush or offset by one, is blocked by it and cannot leave:
+            // the emission is refused whichever Turn comes first. Ordering
+            // the producer first as well as after the mover's contact
+            // makes the pair a cycle that stops both Expressions.
+            // Other occupants keep emitter-before-occupant ordering until
+            // .scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md
+            // delivers Turn-local emission scheduling.
+            if emits_without_vacating(node.function)
+                && advances(nodes[contact.index].function)
+                && reserves_over(lookup, contact.index, index)
+            {
+                continue;
+            }
+            // A move is admitted only where the Cells it enters are empty,
+            // so a Source-writing Function's Portal never writes
+            // over the Language Unit it contacts: the contact blocks the
+            // move and the Function bangs its own Span instead. The one
+            // thing contact still delivers is Bang activation, and an
+            // intrinsically active root does not need it — which is the
+            // exemption the Bang emission arm below already makes, for the
+            // same reason.
             //
-            // The one way a producer's own Cells are not a defect is one a
-            // declaration states outright: an advancing bundle clears the
-            // Span it stands in, so its first Portal covers its own spelling
-            // by design. Ordering it after itself would stop it every Tick it
-            // takes a Turn in. An emitting bundle plans nothing at
-            // its own Cells and needs no exception.
-            let clears_its_own_span = advances(node.function);
-            let mut order_after = |consumer: usize| {
-                if clears_its_own_span && consumer == index {
-                    return;
-                }
-                if lock_covers(&lookup, consumer, index) {
-                    return;
-                }
-                edges.insert((index, consumer));
-            };
-            for contact in relationships.functions() {
-                // An emission is admitted only into empty Cells and its
-                // producer never vacates. A mover with Cells in the
-                // destination whose own move reaches any Cell of the producer,
-                // flush or offset by one, is blocked by it and cannot leave:
-                // the emission is refused whichever Turn comes first. Ordering
-                // the producer first as well as after the mover's contact
-                // makes the pair a cycle that stops both Expressions.
-                // Other occupants keep emitter-before-occupant ordering until
-                // .scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md
-                // delivers Turn-local emission scheduling.
-                if emits_without_vacating(node.function)
-                    && advances(nodes[contact.index].function)
-                    && reserves_over(&lookup, contact.index, index)
-                {
-                    continue;
-                }
-                // A move is admitted only where the Cells it enters are empty,
-                // so a Source-writing Function's Portal never writes
-                // over the Language Unit it contacts: the contact blocks the
-                // move and the Function bangs its own Span instead. The one
-                // thing contact still delivers is Bang activation, and an
-                // intrinsically active root does not need it — which is the
-                // exemption the Bang emission arm below already makes, for the
-                // same reason.
-                //
-                // Without it two Functions whose Portals cover each other name
-                // each other in reservations neither can write through, and
-                // ordering each after the other makes that pair a cycle that
-                // stops both, though two blocked moves are not a contested
-                // Cell.
-                if clears_its_own_span
-                    && nodes[nodes[contact.index].owner]
-                        .function
-                        .is_intrinsically_active()
-                {
-                    continue;
-                }
-                for descendant in contact.subtree {
-                    order_after(descendant);
-                }
+            // Without it two Functions whose Portals cover each other name
+            // each other in reservations neither can write through, and
+            // ordering each after the other makes that pair a cycle that
+            // stops both, though two blocked moves are not a contested
+            // Cell.
+            if clears_its_own_span
+                && nodes[nodes[contact.index].owner]
+                    .function
+                    .is_intrinsically_active()
+            {
+                continue;
             }
-            for consumer in relationships.literal_consumers() {
-                order_after(consumer);
+            for descendant in contact.subtree {
+                order_after(descendant);
             }
-            if node.function.can_emit_bang() {
-                for owner in relationships.bang_roots() {
-                    if !nodes[owner].function.is_intrinsically_active() {
-                        for consumer in lookup.descendants(owner) {
-                            order_after(consumer);
-                        }
+        }
+        for consumer in relationships.literal_consumers() {
+            order_after(consumer);
+        }
+        if node.function.can_emit_bang() {
+            for owner in relationships.bang_roots() {
+                if !nodes[owner].function.is_intrinsically_active() {
+                    for consumer in lookup.descendants(owner) {
+                        order_after(consumer);
                     }
                 }
             }
         }
     }
+}
+
+///
+/// Each `(producer, consumer)` edge `consumer`'s static Input Portal gives
+/// it: one from every writer `active` roots own whose reservation covers the
+/// Cells it reads.
+///
+fn input_edges(
+    lookup: &Lookup,
+    active: &[bool],
+    consumer: usize,
+    mut edge: impl FnMut(usize, usize),
+) {
     // An Input Portal reads working Source. Those Cells are often an operand
     // Span, so they cannot sit in `literals`; the edge is the same fact
     // `literal_consumers` records for a declared operand.
-    for (consumer, node) in nodes.iter().enumerate() {
-        for read in node.portal_access.read_spans() {
-            for producer in ordering::input_writers(&lookup, &active, consumer, read.clone()) {
-                edges.insert((producer, consumer));
-            }
+    for read in lookup.nodes()[consumer].portal_access.read_spans() {
+        for producer in ordering::input_writers(lookup, active, consumer, read.clone()) {
+            edge(producer, consumer);
         }
     }
-    ordering::schedule(lookup, active, edges, diagnostics)
 }
 
 ///
@@ -5705,6 +5765,13 @@ mod nested_property {
             Token::Note => (0x00u8..=0x7F)
                 .prop_map(|note| Atom::Note(Note::try_from(note).unwrap()).to_string())
                 .boxed(),
+            // An untyped slot carries any Language Unit a literal spells.
+            Token::Untyped => prop_oneof![
+                literal_source(Token::Number),
+                literal_source(Token::Note),
+                Just("**".to_owned()),
+            ]
+            .boxed(),
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -5793,6 +5860,7 @@ mod nested_property {
         match token {
             Token::Number => "01",
             Token::Note => "C4",
+            Token::Untyped => "G4",
             other => panic!("no literal spells {other:?}"),
         }
     }

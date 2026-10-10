@@ -187,11 +187,14 @@ pub enum PortalAddress {
     },
 }
 
-/// How a dynamic Input Portal's operands select its Cell pair.
+/// How a dynamic Portal's operands select its Cell pair.
 ///
 /// Each Function with a dynamic Input Portal names its rule in
-/// [`Function::input_portal`], and [`InputPortal::resolve`] asks the rule
-/// where the pair stands.
+/// [`Function::input_portal`], and each with a dynamic Output Portal in
+/// [`Function::dynamic_output_portal`]. [`PairSelection::resolve`] asks the
+/// rule where the pair stands. A rule reads only the address operands that
+/// lead its Function's signature, so a Write and the Read with the same arrow
+/// select the same pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairSelection {
     /// The pair `index % count` pairs east of the end of the last operand, on
@@ -201,15 +204,16 @@ pub enum PairSelection {
     /// after the Function's spelling, in the [`Direction`] named. Each step is
     /// one pair east or west, or one row north or south in the slot's
     /// columns, so a distance of zero is the slot itself. A directional
-    /// Read's selection.
+    /// Read's and a directional Write's selection.
     Distance(Direction),
     /// The pair at the Position its `column` and `row` operands name,
     /// counted in Cells from `00 00` at the Grid's top-left, wherever the
-    /// Function stands. The absolute Read's selection.
+    /// Function stands. The absolute Read's and the absolute Write's
+    /// selection.
     Position,
 }
 
-/// The direction a directional Read's arrow names.
+/// The direction a directional Read's or Write's arrow names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     /// Toward row zero.

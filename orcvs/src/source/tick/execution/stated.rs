@@ -21,7 +21,8 @@ use lang::Tick;
 
 use super::super::{Lookup, carry, computations, order_turns};
 use super::{
-    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, ordering, resolve,
+    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, Turn, ordering,
+    resolve,
 };
 use crate::grid::CellIndex;
 use crate::source::Cells;
@@ -70,17 +71,19 @@ pub(in crate::source::tick) fn plan_with_answers(
                 // Counted as production counts a Turn it takes: a stated
                 // answer replaces what one computation answers and nothing
                 // else, and the Turn it took is the Turn it would have taken.
-                execution.count_turn(index);
+                execution.settle(index);
                 execution.state_answer(index, answers[position].1);
-                None
+                Turn::Taken {
+                    activated: Vec::new(),
+                }
             }
             None => {
-                let writers = execution.take_turn(index, progress);
+                let turn = execution.take_turn(index, progress);
                 assert!(
-                    writers.is_none(),
+                    matches!(turn, Turn::Taken { .. }),
                     "a stated fixture holds no Turn that waits on a writer"
                 );
-                None
+                turn
             }
         }
     });
@@ -149,6 +152,6 @@ impl Execution<'_> {
             self.states[index].function.answers_value(),
             "a stated answer belongs to a computation that answers a value"
         );
-        self.deliver_value(index, atom);
+        self.deliver_value(index, atom, None, super::Delivery::Reserved);
     }
 }

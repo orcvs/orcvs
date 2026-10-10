@@ -715,3 +715,19 @@ fn a_nested_absolute_read_returns_its_pair() {
     assert_eq!(tick.rows, [".+&$060103", "0805  05  "]);
     assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
 }
+
+#[test]
+fn a_second_read_waits_only_on_writers_still_to_take_their_turn() {
+    // The west Read at (4, 0) waits for `=^` at (2, 1), which writes `03`
+    // into the pair it reads and into the south Read's `n`. The south Read
+    // then reads (2, 3) and waits for `=^` at (2, 4). That second wait must
+    // not hold the west Read on a writer that has already taken its Turn.
+    let tick = first(
+        Grid::with_shape(8, 6),
+        &[
+            "&v  &<02", "  =^    ", "  03    ", "", "  =^    ", "  E4    ",
+        ],
+    );
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    assert_eq!(&tick.rows[1][4..6], "03");
+}

@@ -132,6 +132,13 @@ impl Interpreter {
             Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
             Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
             Function::Track => functions::track::track(&mut ctx)?,
+            Function::AbsoluteWrite => {
+                functions::write::write::<operands::AbsoluteWrite>(&mut ctx)?
+            }
+            Function::WriteEast => functions::write::write::<operands::WriteEast>(&mut ctx)?,
+            Function::WriteNorth => functions::write::write::<operands::WriteNorth>(&mut ctx)?,
+            Function::WriteSouth => functions::write::write::<operands::WriteSouth>(&mut ctx)?,
+            Function::WriteWest => functions::write::write::<operands::WriteWest>(&mut ctx)?,
             Function::Maximum => math::maximum(&mut ctx)?,
             Function::Minimum => math::minimum(&mut ctx)?,
             Function::Modulo => math::modulo(&mut ctx)?,
@@ -659,6 +666,10 @@ mod test {
                 atoms.extend(function.signature().iter().map(|token| match token {
                     Token::Number => Atom::Number(value),
                     Token::Note => Atom::Note(Note::try_from(value & 0x7F).expect("a MIDI note")),
+                    // A Write answers the value it carries, so the sweep
+                    // hands it a Bang there: a Write that carries one answers
+                    // it.
+                    Token::Untyped => Atom::Bang,
                     other => panic!("no operand is declared as {other:?}"),
                 }));
                 matches!(evaluate_cell(atoms), Ok(Atom::Bang))

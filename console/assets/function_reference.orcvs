@@ -36,3 +36,16 @@
                                                     A4
                                                 &$3A18
                                                 E4
+
+                                                || Write
+                                                @>02E4E4
+                                                  G4
+                                                @^01G4
+                                                @v01A4
+                                                  A4
+                                                B4  @<03B4
+                                                @$3A2FC4
+                                                          C4
+                                                || Generator: a Read in value
+                                                @$3A32&$3A2F
+                                                      C4  C4

@@ -19,26 +19,13 @@ impl InputPortal {
     ///
     /// Where this Input Portal stands for its Function's Turn.
     ///
-    /// `operands` are the values the Turn resolved, and `operand_columns` is
-    /// how many columns east of the anchor the Function and its operands
-    /// occupy, nested operands included: `orcvs` knows how they lie in the
-    /// Grid. A static Input Portal is the offset it declares and reads
-    /// neither. A dynamic Input Portal is the Cell pair its operands select
-    /// by its [`PairSelection`]: Track's counts from `operand_columns`, a
-    /// directional Read's from its `n` operand's slot, the pair after its
-    /// spelling, whatever that operand's width, and the absolute Read's is
-    /// the Position its operands name, which `orcvs` finds in its Grid.
+    /// A static Input Portal is the offset it declares and reads neither
+    /// argument. A dynamic one is the pair its [`PairSelection`] selects,
+    /// which [`PairSelection::resolve`] describes.
     ///
     /// # Errors
     ///
-    /// A dynamic Input Portal diagnoses its operands as evaluation does: an
-    /// operand that is not a Number, such as a Note given as Track's `count`
-    /// or as a Read's `n`, is an [`Error::Type`], and Track's `count` of `00`
-    /// is a wrap by zero. Track's pair can lie too far east to represent,
-    /// which is a Portal outside any Grid and diagnoses as Track's partial or
-    /// invalid input, as a Portal past the row edge does. A Read's pair is
-    /// otherwise unchecked here: a pair it places outside the Grid diagnoses
-    /// when `orcvs` resolves it.
+    /// As [`PairSelection::resolve`].
     ///
     pub fn resolve(
         self,
@@ -47,14 +34,42 @@ impl InputPortal {
     ) -> Result<PortalAddress, Error> {
         match self {
             Self::Static(coords) => Ok(PortalAddress::Offset(coords)),
-            Self::Dynamic(selection) => selection.address(operands, operand_columns),
+            Self::Dynamic(selection) => selection.resolve(operands, operand_columns),
         }
     }
 }
 
 impl PairSelection {
-    /// Where the selected pair stands.
-    fn address(self, operands: &[Atom], operand_columns: usize) -> Result<PortalAddress, Error> {
+    ///
+    /// Where the selected pair stands for its Function's Turn.
+    ///
+    /// `operands` are the values the Turn resolved, and `operand_columns` is
+    /// how many columns east of the anchor the Function and its operands
+    /// occupy, nested operands included: `orcvs` knows how they lie in the
+    /// Grid. The rule reads only the address operands that lead the
+    /// signature, so a Write's `value` after them is never read here. Track's
+    /// pair
+    /// counts from `operand_columns`, a directional rule's from its `n`
+    /// operand's slot, the pair after its spelling, whatever that operand's
+    /// width, and the absolute rule's is the Position its operands name,
+    /// which `orcvs` finds in its Grid.
+    ///
+    /// # Errors
+    ///
+    /// The address operands diagnose as evaluation does: an operand that is
+    /// not a Number, such as a Note given as Track's `count` or as a Read's
+    /// `n`, is an [`Error::Type`], and Track's `count` of `00` is a wrap by
+    /// zero. Track's pair can lie too far east to represent, which is a
+    /// Portal outside any Grid and diagnoses as Track's partial or invalid
+    /// input, as a Portal past the row edge does. Any other pair is
+    /// unchecked here: a pair placed outside the Grid diagnoses when `orcvs`
+    /// resolves it.
+    ///
+    pub fn resolve(
+        self,
+        operands: &[Atom],
+        operand_columns: usize,
+    ) -> Result<PortalAddress, Error> {
         match self {
             Self::Position => {
                 let (column, row) = read_position(operands)?;
@@ -446,6 +461,57 @@ mod test {
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
             resolve(Function::ReadEast, &[note], 4),
+            Err(Error::Type(_))
+        ));
+    }
+
+    #[test]
+    fn a_write_selects_the_pair_the_read_with_the_same_arrow_selects() {
+        // The address leads the Write's operands and its `value` follows it,
+        // whatever that value is.
+        let value = Atom::Note(Note::try_from(67).unwrap());
+        let selected = |function: Function, operands: &[Atom], operand_columns| {
+            function
+                .dynamic_output_portal()
+                .expect("a Write declares a dynamic Output Portal")
+                .resolve(operands, operand_columns)
+                .unwrap()
+        };
+        for (read, write) in [
+            (Function::ReadEast, Function::WriteEast),
+            (Function::ReadNorth, Function::WriteNorth),
+            (Function::ReadSouth, Function::WriteSouth),
+            (Function::ReadWest, Function::WriteWest),
+        ] {
+            for n in [0, 1, 2, 0xFF] {
+                assert_eq!(
+                    selected(write, &[Atom::Number(n), value], 6),
+                    address(read, &[Atom::Number(n)], 4).unwrap(),
+                    "{write:?} {n}"
+                );
+            }
+        }
+        for (column, row) in [(0, 0), (0x3A, 0x18), (0xFF, 0xFF)] {
+            assert_eq!(
+                selected(
+                    Function::AbsoluteWrite,
+                    &[Atom::Number(column), Atom::Number(row), value],
+                    8
+                ),
+                address(
+                    Function::AbsoluteRead,
+                    &[Atom::Number(column), Atom::Number(row)],
+                    6
+                )
+                .unwrap()
+            );
+        }
+        let note = Atom::Note(Note::try_from(60).unwrap());
+        assert!(matches!(
+            Function::WriteEast
+                .dynamic_output_portal()
+                .unwrap()
+                .resolve(&[note, value], 6),
             Err(Error::Type(_))
         ));
     }

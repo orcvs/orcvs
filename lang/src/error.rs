@@ -165,6 +165,11 @@ pub enum TypeError {
 
     #[error("expected a number, found {0:?}")]
     Number(String),
+
+    /// An untyped slot whose Cells spell no Language Unit, an empty pair
+    /// among them.
+    #[error("expected a Language Unit, found {0:?}")]
+    Unit(String),
 }
 
 #[derive(Error, Debug)]

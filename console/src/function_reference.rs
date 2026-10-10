@@ -32,6 +32,11 @@
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`              |
 //! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                        |
 //!
+//! From row 39 the `48..64` band holds the Writes, `@> @^ @v @< @$`, under a
+//! second `|| Write` header, and then Generator under its own: a Read nested
+//! in a Write's `value`, which carries the pair the Read reads to the pair
+//! the Write addresses. Each header's row holds nothing east of it.
+//!
 //! # Source Functions need an area, not just a row
 //!
 //! Every value-answering group's example is stable after the one Tick that
@@ -311,6 +316,19 @@ mod tests {
             // The absolute Read (column 48) reads the pair at Position
             // `3A 18`, Track's pair 02.
             result(48, 37, "E4"), // &$3A18
+            // The Writes (column 48, from row 39) each write their `value`
+            // at the pair the Read with the same arrow, or the absolute
+            // Read, would read, and nothing south.
+            result(54, 40, "E4"), // @>02E4: two pairs east of its operand
+            result(50, 41, "G4"), // @^01G4: one row north of its operand
+            result(50, 44, "A4"), // @v01A4: one row south of its operand
+            result(48, 45, "B4"), // @<03B4: three pairs west of its operand
+            result(58, 47, "C4"), // @$3A2FC4: at Position 3A 2F
+            // Generator: the Read nested in the Write's value reads `C4` at
+            // 3A 2F, writes it south of itself, and returns it to the Write,
+            // which writes it at 3A 32.
+            result(54, 50, "C4"), // &$3A2F
+            result(58, 50, "C4"), // @$3A32&$3A2F
         ]
     }
 

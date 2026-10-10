@@ -1,7 +1,10 @@
 use super::copy::copy;
 use crate::{
     Atom, Direction, Error,
-    atom::operands::{AbsoluteRead, ReadEast, ReadNorth, ReadSouth, ReadWest},
+    atom::operands::{
+        AbsoluteRead, AbsoluteWrite, ReadEast, ReadNorth, ReadSouth, ReadWest, WriteEast,
+        WriteNorth, WriteSouth, WriteWest,
+    },
     interpreter::Context,
     stack::Operands,
 };
@@ -18,25 +21,37 @@ pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
     copy(ctx, O::FUNCTION)
 }
 
-/// The distance a directional Read in `direction` counts, from the operands
-/// its Turn resolved.
+/// The distance a directional Read or Write in `direction` counts, from the
+/// operands its Turn resolved.
 ///
-/// Operands outside their domain diagnose as they would at evaluation.
+/// A Read's one operand is its `n`; a Write's `n` leads the same way, with
+/// its `value` after it, so the operand count tells the two apart. Operands
+/// outside their domain diagnose as they would at evaluation.
 pub(crate) fn read_distance(direction: Direction, operands: &[Atom]) -> Result<u8, Error> {
-    match direction {
-        Direction::North => bound(operands, |ReadNorth { n }| n),
-        Direction::South => bound(operands, |ReadSouth { n }| n),
-        Direction::East => bound(operands, |ReadEast { n }| n),
-        Direction::West => bound(operands, |ReadWest { n }| n),
+    match (direction, operands) {
+        (Direction::North, [_]) => bound(operands, |ReadNorth { n }| n),
+        (Direction::North, _) => bound(operands, |WriteNorth { n, .. }| n),
+        (Direction::South, [_]) => bound(operands, |ReadSouth { n }| n),
+        (Direction::South, _) => bound(operands, |WriteSouth { n, .. }| n),
+        (Direction::East, [_]) => bound(operands, |ReadEast { n }| n),
+        (Direction::East, _) => bound(operands, |WriteEast { n, .. }| n),
+        (Direction::West, [_]) => bound(operands, |ReadWest { n }| n),
+        (Direction::West, _) => bound(operands, |WriteWest { n, .. }| n),
     }
 }
 
-/// The Position the absolute Read `&$ column row` addresses, from the
-/// operands its Turn resolved, as `(column, row)`.
+/// The Position the absolute Read `&$ column row` or the absolute Write
+/// `@$ column row value` addresses, from the operands its Turn resolved, as
+/// `(column, row)`.
 ///
-/// Operands outside their domain diagnose as they would at evaluation.
+/// The Write's `value` follows the Position, so the operand count tells the
+/// two apart. Operands outside their domain diagnose as they would at
+/// evaluation.
 pub(crate) fn read_position(operands: &[Atom]) -> Result<(u8, u8), Error> {
-    bound(operands, |AbsoluteRead { column, row }| (column, row))
+    match operands {
+        [_, _] => bound(operands, |AbsoluteRead { column, row }| (column, row)),
+        _ => bound(operands, |AbsoluteWrite { column, row, .. }| (column, row)),
+    }
 }
 
 /// Checks and binds `operands` as `O`'s, answering what `read` takes from

@@ -672,6 +672,7 @@ macro_rules! define_functions {
 define_functions! {
     AbsoluteDifference => (".|", Value, Intrinsic, false, [left: Number, right: Number]),
     AbsoluteRead => ("&$", Value, Intrinsic, true, [column: Number, row: Number]),
+    AbsoluteWrite => ("@$", Value, Intrinsic, true, [column: Number, row: Number, value: Untyped]),
     Add => (".+", Value, Intrinsic, false, [left: Number, right: Number]),
     Clock => ("~.", Value, Intrinsic, false, [rate: Number, modulus: Number]),
     ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
@@ -711,6 +712,10 @@ define_functions! {
     Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Track => ("&t", Value, Intrinsic, true, [index: Number, count: Number]),
+    WriteEast => ("@>", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    WriteNorth => ("@^", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    WriteSouth => ("@v", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    WriteWest => ("@<", Value, Intrinsic, true, [n: Number, value: Untyped]),
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -836,19 +841,25 @@ impl Function {
         (ReplacementChange::Write, |replacement, running| {
             replacement.source_effect() != running.source_effect()
                 || replacement.output_portal() != running.output_portal()
+                || replacement.dynamic_output_portal() != running.dynamic_output_portal()
                 || replacement.input_portal() != running.input_portal()
         }),
     ];
 
-    /// The Output Portal this Function names, or `None` when it names none.
+    /// The static Output Portal this Function names, or `None` when it names
+    /// none.
     ///
     /// Terminal Output and Source-writing Functions name none here: the former
     /// has no Cell destination, and the latter keeps its destinations on
-    /// [`Function::source_effect`]. Every other Function names one row south
-    /// unless it is a Copy, which names the Portal its direction writes
-    /// through.
+    /// [`Function::source_effect`]. A Write names none either: its Output
+    /// Portal is dynamic, [`Function::dynamic_output_portal`]. Every other
+    /// Function names one row south unless it is a Copy, which names the
+    /// Portal its direction writes through.
     pub const fn output_portal(self) -> Option<crate::PortalCoords> {
-        if self.performs_terminal_output() || self.source_effect().is_some() {
+        if self.performs_terminal_output()
+            || self.source_effect().is_some()
+            || self.dynamic_output_portal().is_some()
+        {
             return None;
         }
         Some(match self {
@@ -866,6 +877,25 @@ impl Function {
             },
             _ => crate::PortalCoords::SOUTH,
         })
+    }
+
+    /// How this Function's operands select the pair its dynamic Output Portal
+    /// writes, or `None` when its Output Portal, if any, is static.
+    ///
+    /// Each Write selects its pair by the rule the Read with the same arrow,
+    /// or the absolute Read, selects the pair it reads: the address operands
+    /// lead the signature and `value` follows them.
+    pub const fn dynamic_output_portal(self) -> Option<crate::PairSelection> {
+        use crate::Direction::{East, North, South, West};
+        use crate::PairSelection::{Distance, Position};
+        match self {
+            Self::AbsoluteWrite => Some(Position),
+            Self::WriteEast => Some(Distance(East)),
+            Self::WriteNorth => Some(Distance(North)),
+            Self::WriteSouth => Some(Distance(South)),
+            Self::WriteWest => Some(Distance(West)),
+            _ => None,
+        }
     }
 
     /// The Input Portal this Function names, or `None` when it names none.
@@ -942,6 +972,21 @@ pub(crate) fn note_atom_from_spelling(s: &str) -> Option<Atom> {
 /// [`TypeError::Number`] only where a refusal is reported.
 pub(crate) fn number_atom_from_spelling(s: &str) -> Option<Atom> {
     crate::number_from_spelling(s).map(Atom::Number)
+}
+
+/// The Atom an untyped slot holds: the Language Unit two Cells spell, a Bang
+/// included.
+///
+/// The slot carries those Cells on and never interprets them. Every reading
+/// that can apply renders back as the same two Cells, so where two readings
+/// coincide, as `C4` spells both a Number and a Note, either carries the
+/// same encoding. Cells that spell no Language Unit, an empty pair among
+/// them, are not a value to carry.
+pub(crate) fn untyped_atom(s: &str) -> Result<Atom, Error> {
+    if s == "**" {
+        return Ok(Atom::Bang);
+    }
+    crate::functions::copy::copied_atom(s).ok_or_else(|| TypeError::Unit(s.to_string()).into())
 }
 
 #[inline(always)]
@@ -1028,6 +1073,9 @@ mod test {
         match token {
             crate::Token::Number => Atom::Number(0),
             crate::Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
+            // An untyped slot carries any Language Unit, so the lowest Number
+            // is one of the values it reads.
+            crate::Token::Untyped => Atom::Number(0),
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -1161,8 +1209,9 @@ mod test {
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
-        // result, and a Copy, Track or Read copies a Bang from its Input
-        // Portal. Tick scheduling trusts the declaration to decide which roots
+        // result, a Copy, Track or Read copies a Bang from its Input
+        // Portal, and a Write carries a Bang in its `value`. Tick scheduling
+        // trusts the declaration to decide which roots
         // can supply activation, so the list is stated whole — a Function that
         // began returning Bang without declaring it would build no activation
         // edge, and the neighbouring terminal root would fall silent with no
@@ -1178,6 +1227,7 @@ mod test {
                 .collect::<Vec<_>>(),
             vec![
                 Function::AbsoluteRead,
+                Function::AbsoluteWrite,
                 Function::Delay,
                 Function::Equality,
                 Function::Euclidean,
@@ -1190,6 +1240,10 @@ mod test {
                 Function::ReadSouth,
                 Function::ReadWest,
                 Function::Track,
+                Function::WriteEast,
+                Function::WriteNorth,
+                Function::WriteSouth,
+                Function::WriteWest,
             ]
         );
     }
@@ -1201,17 +1255,34 @@ mod test {
             InputPortal::{Dynamic, Static},
             PairSelection, PortalCoords,
         };
-        // The arrow each Read's spelling names.
+        // The arrow each Read's and Write's spelling names.
         const READS: [(Function, Direction); 4] = [
             (Function::ReadEast, Direction::East),
             (Function::ReadNorth, Direction::North),
             (Function::ReadSouth, Direction::South),
             (Function::ReadWest, Direction::West),
         ];
+        const WRITES: [(Function, Direction); 4] = [
+            (Function::WriteEast, Direction::East),
+            (Function::WriteNorth, Direction::North),
+            (Function::WriteSouth, Direction::South),
+            (Function::WriteWest, Direction::West),
+        ];
 
         for function in Function::ALL.iter().copied() {
             let output = function.output_portal();
             let input = function.input_portal();
+            let dynamic_output = function.dynamic_output_portal();
+            if !matches!(
+                function,
+                Function::AbsoluteWrite
+                    | Function::WriteEast
+                    | Function::WriteNorth
+                    | Function::WriteSouth
+                    | Function::WriteWest
+            ) {
+                assert_eq!(dynamic_output, None, "{function:?}");
+            }
             match function {
                 Function::CopyEast => {
                     assert_eq!(
@@ -1292,6 +1363,29 @@ mod test {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Dynamic(PairSelection::Position)));
                 }
+                // A Write's Output Portal is the pair the Read with the same
+                // arrow, or the absolute Read, reads, and nothing south.
+                Function::WriteEast
+                | Function::WriteNorth
+                | Function::WriteSouth
+                | Function::WriteWest => {
+                    let (_, direction) = WRITES
+                        .iter()
+                        .find(|(write, _)| *write == function)
+                        .expect("every Write is listed");
+                    assert_eq!(output, None, "{function:?}");
+                    assert_eq!(input, None, "{function:?}");
+                    assert_eq!(
+                        dynamic_output,
+                        Some(PairSelection::Distance(*direction)),
+                        "{function:?}"
+                    );
+                }
+                Function::AbsoluteWrite => {
+                    assert_eq!(output, None);
+                    assert_eq!(input, None);
+                    assert_eq!(dynamic_output, Some(PairSelection::Position));
+                }
                 Function::Halt => {
                     assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, None);
@@ -1344,6 +1438,39 @@ mod test {
                     read.replacing(other),
                     Some(ReplacementChange::Write),
                     "{read:?} replacing {other:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_write_with_another_write_a_read_or_a_value_function_is_a_write() {
+        // Each Write names its own rule for selecting its dynamic Output
+        // Portal; a Read and Equality answer through a static one.
+        const WRITES: [Function; 5] = [
+            Function::AbsoluteWrite,
+            Function::WriteEast,
+            Function::WriteNorth,
+            Function::WriteSouth,
+            Function::WriteWest,
+        ];
+        for write in WRITES {
+            assert_eq!(write.replacing(write), None, "{write:?}");
+            let others = WRITES.into_iter().filter(|other| *other != write).chain([
+                Function::AbsoluteRead,
+                Function::ReadEast,
+                Function::Equality,
+            ]);
+            for other in others {
+                assert_eq!(
+                    other.replacing(write),
+                    Some(ReplacementChange::Write),
+                    "{other:?} replacing {write:?}"
+                );
+                assert_eq!(
+                    write.replacing(other),
+                    Some(ReplacementChange::Write),
+                    "{write:?} replacing {other:?}"
                 );
             }
         }
@@ -1618,7 +1745,12 @@ mod test {
                 | Function::ReadSouth
                 | Function::ReadWest
                 | Function::Subtract
-                | Function::Track => (true, false, true),
+                | Function::Track
+                | Function::AbsoluteWrite
+                | Function::WriteEast
+                | Function::WriteNorth
+                | Function::WriteSouth
+                | Function::WriteWest => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend

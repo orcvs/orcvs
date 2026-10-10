@@ -75,24 +75,35 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
 }
 
 ///
-/// Asserts that a Tick of `source`, which holds no Function with a dynamic
-/// Input Portal, takes exactly the Turns its schedule orders, in that order,
-/// Turns that settle without an effect included. Only a dynamic Input Portal
-/// finds a dependency at its Turn, so every other Function is ordered by the
-/// schedule alone. Answers whether the assertion applies to the parsed
-/// Functions in this Source.
+/// Asserts that a Tick of `source` takes exactly the Turns its schedule
+/// orders, in that order, Turns that settle without an effect included,
+/// where nothing can be found during the Tick. Answers whether the assertion
+/// applies to the parsed Functions in this Source.
+///
+/// Two things are found during a Tick and reorder the rest of it: a
+/// dependency a dynamic Input Portal finds at its Turn, and a root a dynamic
+/// writer's Bang activates that the schedule did not hold active. A Source
+/// with a Read, or with a Write and a root no activation known before the
+/// Tick reaches, is skipped; a Write that can activate no new root is
+/// ordered by the schedule alone.
 ///
 fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let bytes = source.snapshot();
     let grid = source.grid();
     let map = source.shared_language_map();
     let schedule = map.schedule_cache().schedule(grid, &map);
-    if schedule
-        .lookup
-        .nodes()
+    let nodes = schedule.lookup.nodes();
+    let reads = nodes
         .iter()
-        .any(|node| matches!(node.function.input_portal(), Some(InputPortal::Dynamic(_))))
-    {
+        .any(|node| matches!(node.function.input_portal(), Some(InputPortal::Dynamic(_))));
+    let writes = nodes
+        .iter()
+        .any(|node| node.function.dynamic_output_portal().is_some());
+    let inactive_root = nodes
+        .iter()
+        .enumerate()
+        .any(|(index, node)| node.parent.is_none() && !schedule.holds_active(index));
+    if reads || (writes && inactive_root) {
         return false;
     }
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
@@ -580,6 +591,18 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
 }
 
 #[test]
+fn writes_that_can_activate_no_new_root_take_their_turns_in_the_scheduled_order() {
+    // A Write onto `.+`'s spelling, a Write into empty Cells, `.+` itself
+    // and a Copy: every root is active before the Tick, so nothing is found
+    // during it.
+    let source = source_of(
+        Grid::with_shape(10, 4),
+        &["@$0002C4  ", "@$0201D4  ", ".+0102    ", "  E4=>    "],
+    );
+    assert!(takes_turns_in_the_scheduled_order(&source, 0));
+}
+
+#[test]
 fn a_track_spelling_in_a_comment_does_not_skip_the_order_assertion() {
     let source = source_of(Grid::with_shape(12, 2), &[".+0102 ||&t", ""]);
     assert!(takes_turns_in_the_scheduled_order(&source, 0));
@@ -639,4 +662,52 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
         turns(&plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1)).1),
         "fresh and cached ordering have identical continuation",
     );
+}
+
+#[test]
+fn a_write_onto_an_operand_plans_through_one_shared_schedule() {
+    // The Clock nested in the Write's value writes 0, 1, 2 and 3 in turn
+    // into the left operand of `.+`, below it. Only an Operand Literal's
+    // value changes, so every Tick plans against one shared schedule.
+    let rows = ["@$0201~.0104", ".+0001      ", "            "];
+    assert_eq!(
+        read_through_one_shared_schedule(Grid::with_shape(12, 3), &rows, 24..26, 5),
+        ["01", "02", "03", "04", "01"]
+    );
+}
+
+#[test]
+fn a_write_onto_a_function_spelling_orders_a_new_schedule() {
+    // The nested Read passes `.-` on to the anchor of `.+0302`, which this
+    // Tick it replaces and from the next is spelled as. A Function the
+    // schedule ordered has changed, so that revision is scheduled afresh; the
+    // Tick after rewrites `.-` where it stands and keeps the schedule.
+    let grid = Grid::with_shape(12, 5);
+    let mut source = source_of(
+        grid,
+        &[
+            "@$0001&$0003",
+            ".+0302      ",
+            "            ",
+            ".-0101      ",
+            "            ",
+        ],
+    );
+    let written = source.shared_language_map();
+    agreeing_tick(&mut source, 0);
+    assert_eq!(&source.snapshot()[12..18], ".-0302");
+    let replaced = source.shared_language_map();
+    assert!(
+        !replaced
+            .schedule_cache()
+            .is_shared_with(written.schedule_cache())
+    );
+    agreeing_tick(&mut source, 1);
+    assert!(
+        source
+            .language_map()
+            .schedule_cache()
+            .is_shared_with(replaced.schedule_cache())
+    );
+    agreeing_tick(&mut source, 2);
 }

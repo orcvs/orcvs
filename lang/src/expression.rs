@@ -50,6 +50,11 @@ pub enum Token {
     Function,
     Note,
     Number,
+    /// The one slot that takes no type: a Write's `value`. It holds any
+    /// two-Cell Language Unit spelling, a Bang among them, and carries it
+    /// unchanged; whatever later reads those Cells decodes them by its own
+    /// type.
+    Untyped,
     /// One Cell of leftover content: written, and claimed by no Language
     /// Unit. The Parser never labels an entry with it; `orcvs` answers it for
     /// such a Cell so its presentation can tell written Cells from blank ones.
@@ -137,6 +142,7 @@ impl Token {
         match self {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
+            Self::Untyped => crate::atom::untyped_atom(spelling),
             // The Parser fills these two positions structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
             // recognises `**` or a Function spelling, and labels the entry with
@@ -171,9 +177,12 @@ impl Token {
             // the only other thing that can stand at an operand position — is
             // exactly two by the compile-time assertion `define_functions!`
             // holds every spelling to.
-            Token::Bang | Token::Comment | Token::Function | Token::Note | Token::Number => {
-                DEFAULT_TOKEN_LEN
-            }
+            Token::Bang
+            | Token::Comment
+            | Token::Function
+            | Token::Note
+            | Token::Number
+            | Token::Untyped => DEFAULT_TOKEN_LEN,
         }
     }
 

@@ -153,6 +153,35 @@ impl Operand for Note {
     }
 }
 
+/// The untyped operand: any Language Unit, carried as the Atom its two Cells
+/// spell. Only a Write's `value` declares it.
+pub enum Untyped {}
+
+impl TokenKind for Untyped {
+    const TOKEN: Token = Token::Untyped;
+    type Payload = crate::Atom;
+
+    /// Every Atom but the Absence Marker is a Language Unit's encoding. The
+    /// Absence Marker spells no Cells, so it is nothing to carry.
+    #[inline(always)]
+    fn from_atom(atom: crate::Atom) -> Result<crate::Atom, Error> {
+        match atom {
+            crate::Atom::Empty => Err(TypeError::Unit(atom.into()).into()),
+            atom => Ok(atom),
+        }
+    }
+}
+
+impl Operand for Untyped {
+    type Token = Self;
+    type Bound = crate::Atom;
+
+    #[inline(always)]
+    fn bind(atom: crate::Atom) -> Result<crate::Atom, Error> {
+        Ok(atom)
+    }
+}
+
 /// A domain `D` read from a Number literal, admitted by `D`'s own conversion.
 ///
 /// The domain is a property of `D`, so its bind is `D::try_from`: a Number

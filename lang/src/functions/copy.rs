@@ -35,7 +35,7 @@ pub fn copy(ctx: &mut Context, function: Function) -> Result<Atom, Error> {
 /// Each reading borrows the Cells and builds nothing on refusal: the only
 /// error a Copy reports is `CopyInput`, so an error built by a reading the
 /// Cells fail would be discarded unread.
-fn copied_atom(cells: &str) -> Option<Atom> {
+pub(crate) fn copied_atom(cells: &str) -> Option<Atom> {
     Function::from_spelling(cells)
         .map(Atom::Function)
         .or_else(|| number_atom_from_spelling(cells))
