@@ -303,6 +303,18 @@ fn settled_source(cols: usize, rows: usize, text: fn(usize, usize) -> String) ->
     source
 }
 
+///
+/// The settled Source at each of `TICK_SIZES`. Built once and measured on both
+/// paths a Tick takes, because a 128x128 fixture is written one Cell at a
+/// time and takes seconds to build.
+///
+fn settled_sources(text: fn(usize, usize) -> String) -> Vec<Source> {
+    TICK_SIZES
+        .iter()
+        .map(|&(cols, rows)| settled_source(cols, rows, text))
+        .collect()
+}
+
 fn size(cols: usize, rows: usize) -> BenchmarkId {
     BenchmarkId::from_parameter(format!("{cols}x{rows}"))
 }
@@ -518,7 +530,7 @@ fn execute_tick(c: &mut Criterion) {
         c,
         "source_execute_tick",
         "source_commander_execute_tick",
-        playing_source_text,
+        settled_sources(playing_source_text),
     );
 }
 
@@ -537,7 +549,7 @@ fn execute_tick_with_edges(c: &mut Criterion) {
         c,
         "source_execute_tick_edges",
         "source_commander_execute_tick_edges",
-        edged_source_text,
+        settled_sources(edged_source_text),
     );
 }
 
@@ -554,7 +566,7 @@ fn execute_tick_with_portal_inputs(c: &mut Criterion) {
         c,
         "source_execute_tick_portal_inputs",
         "source_commander_execute_tick_portal_inputs",
-        |cols, rows| {
+        settled_sources(|cols, rows| {
             let mut text = String::with_capacity(cols * rows);
             for row in 0..rows {
                 let mut line = String::new();
@@ -567,7 +579,120 @@ fn execute_tick_with_portal_inputs(c: &mut Criterion) {
                 text.push_str(&line);
             }
             text
-        },
+        }),
+    );
+}
+
+///
+/// Columns and rows of one voice of the dynamic-writer fixture.
+///
+const VOICE_COLUMNS: usize = 16;
+const VOICE_ROWS: usize = 8;
+
+/// The Cells each voice writes per Tick: six pairs, the two `**` displays,
+/// the nested Write's `C4`, the `.^`'s `C4`, and the two Reads' answers.
+const VOICE_WRITES: usize = 12;
+
+/// The notes each voice plays per Tick: one per Raw Play.
+const VOICE_PLAYS: usize = 2;
+
+///
+/// The voices of the dynamic-writer fixture, tiled across the Grid.
+///
+/// Each voice holds two `@$` Writes whose `**` lands on the Cell above a Raw
+/// Play's anchor, activating that root during the Tick, so every Tick
+/// continues ordering from the Turn that delivers it. The first Raw Play
+/// holds a nested `@$`, a dynamic writer, and the `&$` beside the first
+/// Write reads the pair it writes, so it goes writers first. The second Raw
+/// Play's nested `.^3C` writes `C4` under itself, and the `&$` beside the
+/// second Write, which stands before it in Grid order, waits for it at its
+/// Turn. These are the shapes `write.rs`'s
+/// `a_write_nested_in_a_root_a_writes_bang_activates_goes_writers_first` and
+/// `a_root_a_writes_bang_activates_is_read_the_same_tick` state, with
+/// coordinates moved into each voice. The root the second Read waits on is
+/// the `!>007F.^3C` the Tick tests spell rather than a `*v`, which emits only
+/// into empty Cells and so would not write the same pair every Tick.
+///
+/// No `**` lands on a root's anchor or on an occupied Cell other than the
+/// display its own Write left there the Tick before.
+///
+fn dynamic_writer_voices(cols: usize, rows: usize) -> Vec<(usize, usize)> {
+    (0..rows / VOICE_ROWS)
+        .flat_map(|row| {
+            (0..cols / VOICE_COLUMNS).map(move |column| (column * VOICE_COLUMNS, row * VOICE_ROWS))
+        })
+        .collect()
+}
+
+fn dynamic_writer_source_text(cols: usize, rows: usize) -> String {
+    let mut grid = vec![vec![b' '; cols]; rows];
+    let mut place = |column: usize, row: usize, text: &str| {
+        grid[row][column..column + text.len()].copy_from_slice(text.as_bytes());
+    };
+
+    for (x, y) in dynamic_writer_voices(cols, rows) {
+        place(
+            x,
+            y,
+            &format!("@${x:02X}{:02X}**  &${:02X}{:02X}", y + 1, x + 10, y + 3),
+        );
+        place(x, y + 2, &format!("!>007F@${:02X}{:02X}C4", x + 10, y + 3));
+        place(
+            x,
+            y + 4,
+            &format!("@${x:02X}{:02X}**  &${:02X}{:02X}", y + 5, x + 6, y + 7),
+        );
+        place(x, y + 6, "!>007F.^3C");
+    }
+
+    grid.into_iter()
+        .map(|row| String::from_utf8(row).expect("benchmark Source is ASCII"))
+        .collect()
+}
+
+///
+/// The same Tick over voices whose roots join it: a Write's Bang activates a
+/// root the schedule did not hold active, and Reads wait on writers found at
+/// their Turn.
+///
+/// The settled schedule cannot serve these Ticks whole. From the first
+/// activation on, each Turn that activates a root or waits rebuilds the
+/// order of the rest of the Tick, with the edges of the roots that joined
+/// and the writers-first edges for every dynamic writer. Every voice adds two
+/// activations and one wait, so the rebuilds grow with the voices, and what
+/// each rebuild costs over every computation shows as growth faster than the
+/// Cell count across `TICK_SIZES`.
+///
+fn execute_tick_with_dynamic_writers(c: &mut Criterion) {
+    let sources = TICK_SIZES
+        .iter()
+        .map(|&(cols, rows)| {
+            let mut source = settled_source(cols, rows, dynamic_writer_source_text);
+            // Every voice must deliver. A Raw Play plays only once a Write's
+            // Bang joins it to the Tick, and a Read writes only what it read,
+            // so a fixture whose roots never joined, or whose Reads read
+            // nothing, fails here rather than measuring the settled schedule
+            // and reporting a plausible number.
+            let voices = dynamic_writer_voices(cols, rows).len();
+            let plan = source.execute(Tick::new(1));
+            assert!(
+                plan.diagnostics.is_empty(),
+                "the {cols}x{rows} dynamic-writer fixture is quiet: {:?}",
+                plan.diagnostics
+            );
+            assert_eq!(
+                (plan.play_commands.len(), plan.writes.len()),
+                (VOICE_PLAYS * voices, VOICE_WRITES * voices),
+                "every one of the {voices} voices plays both notes and writes every pair"
+            );
+            source
+        })
+        .collect();
+    tick_series(
+        c,
+        "source_execute_tick_dynamic_writers",
+        "source_commander_execute_tick_dynamic_writers",
+        sources,
     );
 }
 
@@ -585,19 +710,7 @@ fn execute_tick_with_portal_inputs(c: &mut Criterion) {
 /// locked series is that path's own overhead: two guards and a snapshot that
 /// shares the revision rather than copying it.
 ///
-fn tick_series(
-    c: &mut Criterion,
-    name: &str,
-    commander_name: &str,
-    text: fn(usize, usize) -> String,
-) {
-    // Built once and measured on both paths, because a 128x128 fixture is
-    // written one Cell at a time and takes seconds to build.
-    let mut sources = TICK_SIZES
-        .iter()
-        .map(|&(cols, rows)| settled_source(cols, rows, text))
-        .collect::<Vec<_>>();
-
+fn tick_series(c: &mut Criterion, name: &str, commander_name: &str, mut sources: Vec<Source>) {
     let mut group = c.benchmark_group(name);
     for source in &mut sources {
         let grid = source.grid();
@@ -729,6 +842,7 @@ criterion_group!(
     edit_rebuild_invalid,
     execute_tick,
     execute_tick_with_edges,
-    execute_tick_with_portal_inputs
+    execute_tick_with_portal_inputs,
+    execute_tick_with_dynamic_writers
 );
 criterion_main!(benches);
