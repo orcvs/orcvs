@@ -60,7 +60,7 @@ source = "Local criterion runs of execute_function at 30-31 ns on an Apple Silic
 
 # The four `paint_derive` floors below guard the fix
 # `.scratch/paint-cell-cost/issues/03-remove-the-paint-claim-cache-without-caching-paint-on-the-language-map.md`
-# made: `console/benches/paint.rs` times `Paint::derive_with_colours`, whose
+# made: `console/benches/paint.rs` times `Paint::derive_with_theme`, whose
 # pre-fix cost was a per-Cell HashMap lookup against a pointer-keyed claim
 # cache. `fitted/16x16` and `culled/16x16` guard that per-Cell rate at the
 # smallest Grid, where fitted and culled coincide. `fitted/256x256` guards the
