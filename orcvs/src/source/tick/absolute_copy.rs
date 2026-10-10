@@ -11,8 +11,8 @@
 use lang::Tick;
 
 use super::observed::{
-    MISSED_BANG, Observed, diagnostic, first, observe_at, observed, quiet, rows_of, source_of,
-    turn_before, turns,
+    MISSED_BANG, Observed, diagnostic, first, observe_at, observed, quiet, raw_play, rows_of,
+    source_of, turn_before, turns,
 };
 use crate::grid::Grid;
 use crate::source::{CellContent, CellWrite};
@@ -121,16 +121,32 @@ fn an_empty_source_clears_the_destination() {
 }
 
 #[test]
-fn a_bang_copied_onto_a_roots_anchor_activates_it_without_overwriting_it() {
-    // Equality writes `**` at (10, 1), and `=$` relays it onto Raw Play.
+fn a_bang_copied_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_aligned_with_it() {
+    // Equality writes `**` at (10, 1), and `=$` copies it over Raw Play C4's
+    // anchor, so C4 does not run, and activates Raw Play D4 south of it.
     let mut source = source_of(
-        Grid::with_shape(16, 3),
-        &["=$0A010002.=0101", "", "!>007FC4"],
+        Grid::with_shape(16, 4),
+        &["=$0A010002.=0101", "", "!>007FC4", "!>007FD4"],
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands.len(), 1);
-    assert_eq!(rows_of(&source)[2], "!>007FC4        ");
+    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(rows_of(&source)[2], "**007FC4        ");
+}
+
+#[test]
+fn a_root_whose_anchor_a_copied_bang_covers_takes_its_turn_after_the_copy() {
+    // Equality at (2, 0) stands before `=$` in Grid order and does not feed
+    // it, so `=$` goes first and Equality, covered, answers nothing south of
+    // it. The Equality at (10, 0) feeds `=$` and goes before it.
+    let grid = Grid::with_shape(16, 3);
+    let rows = ["  .=0101  .=0101", "", "=$0A010200"];
+    let tick = first(grid, &rows);
+    assert_eq!(tick.rows[..2], ["  **0101  .=0101", "          **    "]);
+    quiet(&tick);
+    let turns = turns(grid, &rows);
+    turn_before(&turns, (10, 0), (0, 2));
+    turn_before(&turns, (0, 2), (2, 0));
 }
 
 #[test]

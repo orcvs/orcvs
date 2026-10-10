@@ -10,8 +10,8 @@
 use lang::Tick;
 
 use super::observed::{
-    MISSED_BANG, diagnostic, first, observe_at, observed, quiet, rows_of, source_of, turn_before,
-    turns,
+    MISSED_BANG, diagnostic, first, observe_at, observed, quiet, raw_play, rows_of, source_of,
+    turn_before, turns,
 };
 use crate::grid::Grid;
 
@@ -45,24 +45,55 @@ fn a_bang_in_value_is_written_as_a_bang_and_activates_the_root_below_it() {
 }
 
 #[test]
-fn a_bang_written_onto_a_roots_anchor_activates_it_without_overwriting_it() {
-    // As a Copy's Bang does: Raw Play at (0, 2) plays and keeps its Cells.
-    let mut source = source_of(Grid::with_shape(8, 3), &["@$0002**", "", "!>007FC4"]);
+fn a_bang_written_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_aligned_with_it() {
+    // The `**` covers Raw Play C4's anchor at (0, 2), so C4 does not run,
+    // and activates Raw Play D4 south of it.
+    let mut source = source_of(
+        Grid::with_shape(8, 4),
+        &["@$0002**", "", "!>007FC4", "!>007FD4"],
+    );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands.len(), 1);
-    assert_eq!(rows_of(&source)[2], "!>007FC4");
+    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(rows_of(&source)[2], "**007FC4");
 }
 
 #[test]
-fn a_bang_written_onto_an_occupied_non_root_diagnoses_and_writes_nothing() {
-    // As a Copy's Bang does: the `C4` at (0, 1) is no root to activate.
-    let tick = first(Grid::with_shape(8, 2), &["@$0001**", "C4"]);
-    assert_eq!(tick.rows[1], "C4      ");
-    assert_eq!(
-        tick.diagnostics,
-        [diagnostic(0, 0, "@$ cannot activate an occupied non-root")]
-    );
+fn a_bang_written_onto_occupied_data_overwrites_it_and_activates_the_roots_aligned_with_it() {
+    let mut source = source_of(Grid::with_shape(8, 3), &["@$0001**", "C4", "!>007FD4"]);
+    let plan = source.execute(Tick::ZERO);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(rows_of(&source)[1], "**      ");
+}
+
+#[test]
+fn a_bang_written_outside_the_grid_or_cut_short_diagnoses_and_writes_nothing() {
+    for (row, message) in [
+        ("@$0800**", "result \"**\" falls outside the Grid"),
+        ("@$0700**", "result \"**\" crosses the row edge"),
+    ] {
+        let tick = first(Grid::with_shape(8, 2), &[row, "xxxxxxxx"]);
+        assert_eq!(
+            tick.rows,
+            [format!("{row:8}"), "xxxxxxxx".to_owned()],
+            "{row}"
+        );
+        assert_eq!(tick.diagnostics, [diagnostic(0, 0, message)], "{row}");
+    }
+}
+
+#[test]
+fn a_root_whose_anchor_a_writes_bang_covers_takes_its_turn_after_the_write() {
+    // Equality at (2, 0) stands before the Write in Grid order and does not
+    // feed it, so the Write goes first and Equality, covered, answers
+    // nothing south of it.
+    let grid = Grid::with_shape(10, 3);
+    let rows = ["  .=0101", "", "@$0200**"];
+    let tick = first(grid, &rows);
+    assert_eq!(tick.rows[..2], ["  **0101  ", "          "]);
+    quiet(&tick);
+    turn_before(&turns(grid, &rows), (0, 2), (2, 0));
 }
 
 #[test]

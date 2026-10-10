@@ -10,7 +10,7 @@
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::observed::{
-    diagnostic, first, observe_at, quiet_rows, rows_of, source_of, turn_before, turns,
+    diagnostic, first, observe_at, quiet_rows, raw_play, rows_of, source_of, turn_before, turns,
 };
 use crate::grid::Grid;
 
@@ -187,17 +187,18 @@ fn a_function_a_read_copies_replaces_the_function_where_it_lands() {
 }
 
 #[test]
-fn a_bang_a_read_reads_is_relayed_and_activates_the_root_it_lands_on() {
-    // Equality writes `**` into the selected pair this Tick. The Read relays
-    // it onto the anchor of Raw Play, which plays and keeps its Cells.
+fn a_bang_a_read_reads_overwrites_the_root_it_lands_on_and_activates_the_roots_aligned_with_it() {
+    // Equality writes `**` into the selected pair this Tick. The Read writes
+    // it over Raw Play C4's anchor, so C4 does not run, and activates Raw
+    // Play D4 south of it.
     let mut source = source_of(
-        Grid::with_shape(14, 3),
-        &["        .=0101", "&>03C4  E4", "!>007FC4"],
+        Grid::with_shape(14, 4),
+        &["        .=0101", "&>03C4  E4", "!>007FC4", "!>007FD4"],
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands.len(), 1);
-    assert_eq!(rows_of(&source)[2], "!>007FC4      ");
+    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(rows_of(&source)[2], "**007FC4      ");
 }
 
 #[test]
@@ -559,14 +560,15 @@ fn an_absolute_read_answers_what_a_copy_answers_for_the_cells_it_reads() {
 }
 
 #[test]
-fn a_bang_an_absolute_read_reads_is_relayed() {
+fn a_bang_an_absolute_read_reads_is_written_as_a_bang() {
     let mut source = source_of(
-        Grid::with_shape(14, 3),
-        &["        .=0101", "&$0801", "!>007FC4"],
+        Grid::with_shape(14, 4),
+        &["        .=0101", "&$0801", "!>007FC4", "!>007FD4"],
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands.len(), 1);
+    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(rows_of(&source)[2], "**007FC4      ");
 }
 
 #[test]

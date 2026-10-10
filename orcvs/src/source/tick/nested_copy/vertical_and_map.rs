@@ -270,7 +270,7 @@ fn a_nested_vertical_copy_overwrites_another_expression() {
 
 #[test]
 fn a_bang_in_the_source_is_gone_before_a_vertical_copy_reads_it() {
-    // A `**` the performer typed is not a Bang the Copy can relay: the Tick
+    // A `**` the performer typed is not a Bang the Copy can carry: the Tick
     // clears it, the Copy reads empty and copies the empty Cells to its
     // destination. Nested, it returns them and the parent is invalid; a root
     // says nothing. Either way an aligned `.=` loses its spelling.
@@ -301,32 +301,63 @@ fn a_bang_in_the_source_is_gone_before_a_vertical_copy_reads_it() {
 }
 
 #[test]
-fn a_nested_vertical_copy_relays_a_same_tick_bang_to_an_aligned_root() {
-    // `.=0101` Bangs into the Copy's Input Portal; the Copy activates `!>`
-    // without overwriting it, so it plays every Tick, as from a root Copy.
-    // The Return is `**`, which the parent cannot read as a Number.
-    let grid = Grid::with_shape(10, 4);
-    let nested = ["  .=0101", "", ".+=v01", "  !>007FC4"];
-    let rows = ["  .=0101  ", "  **      ", ".+=v01    ", "  !>007FC4"];
+fn a_nested_vertical_copy_writes_a_same_tick_bang_and_activates_the_root_aligned_with_it() {
+    // `.=0101` Bangs into the Copy's Input Portal; the Copy writes `**` at
+    // its Output Portal, which activates `!>` south of it on every Tick, as
+    // from a root Copy. The Return is `**`, which the parent cannot read as a
+    // Number.
+    let grid = Grid::with_shape(10, 5);
+    let nested = ["  .=0101", "", ".+=v01", "", "  !>007FC4"];
+    let rows = [
+        "  .=0101  ",
+        "  **      ",
+        ".+=v01    ",
+        "  **      ",
+        "  !>007FC4",
+    ];
     assert_eq!(
         observe(grid, &nested, 3),
         steady(&rows, &[(0, 2, "expected a number, found \"**\"")], 3)
     );
     assert_eq!(plays(grid, &nested, 3), [1, 1, 1]);
-    let root = ["  .=0101", "", "  =v", "  !>007FC4"];
-    let rows = ["  .=0101  ", "  **      ", "  =v      ", "  !>007FC4"];
+    let root = ["  .=0101", "", "  =v", "", "  !>007FC4"];
+    let rows = [
+        "  .=0101  ",
+        "  **      ",
+        "  =v      ",
+        "  **      ",
+        "  !>007FC4",
+    ];
     assert_eq!(observe(grid, &root, 3), steady(&rows, &[], 3));
     assert_eq!(plays(grid, &root, 3), [1, 1, 1]);
 
     // North: `=<` carries the Bang west into the Copy's Input Portal.
-    let grid = Grid::with_shape(12, 3);
-    let nested = ["  !>007FC4", ".+=^01.=0101", "    =<"];
-    let rows = ["  !>007FC4  ", ".+=^01.=0101", "  **=<**    "];
+    let grid = Grid::with_shape(12, 4);
+    let nested = ["  !>007FC4", "", ".+=^01.=0101", "    =<"];
+    let rows = [
+        "  !>007FC4  ",
+        "  **        ",
+        ".+=^01.=0101",
+        "  **=<**    ",
+    ];
     assert_eq!(
         observe(grid, &nested, 3),
-        steady(&rows, &[(0, 1, "expected a number, found \"**\"")], 3)
+        steady(&rows, &[(0, 2, "expected a number, found \"**\"")], 3)
     );
     assert_eq!(plays(grid, &nested, 3), [1, 1, 1]);
+}
+
+#[test]
+fn a_nested_vertical_copy_writes_a_same_tick_bang_over_a_roots_anchor() {
+    // The `**` covers `!>`'s anchor, so `!>` does not run.
+    let grid = Grid::with_shape(10, 4);
+    let nested = ["  .=0101", "", ".+=v01", "  !>007FC4"];
+    let rows = ["  .=0101  ", "  **      ", ".+=v01    ", "  **007FC4"];
+    assert_eq!(
+        observe(grid, &nested, 3),
+        steady(&rows, &[(0, 2, "expected a number, found \"**\"")], 3)
+    );
+    assert_eq!(plays(grid, &nested, 3), [0, 0, 0]);
 }
 
 #[test]
