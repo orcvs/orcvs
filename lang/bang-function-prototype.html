@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bang Function Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a sticky question index beside one long review column; each question pairs Tick-by-Tick Source Grids with its decision form. */
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --ink: #18202c; --muted: #5b6577; --line: #d6dbe4; --cell: #fbfcfd;
+  --accent: #3446c9; --new: #2f6feb; --fire-bg: #ffe29a; --fire-ink: #6b4a00; --bang: #b0186b;
+  --sup: #8a93a3; --portal: #0f8a7e; --diag: #c02a2a; --diag-bg: #fdecec; --rec: #1d7a45; --rec-bg: #e5f4ea;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --surface: #1a2029; --ink: #e6eaf1; --muted: #9aa4b5; --line: #2e3744; --cell: #151a22;
+  --accent: #8b98ff; --new: #6ea3ff; --fire-bg: #5a4612; --fire-ink: #ffe4a1; --bang: #ff7ab8;
+  --sup: #6d7686; --portal: #3cc4b5; --diag: #ff8a8a; --diag-bg: #3a1f22; --rec: #6fd39b; --rec-bg: #18352a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #1a2029; --ink: #e6eaf1; --muted: #9aa4b5; --line: #2e3744; --cell: #151a22;
+  --accent: #8b98ff; --new: #6ea3ff; --fire-bg: #5a4612; --fire-ink: #ffe4a1; --bang: #ff7ab8;
+  --sup: #6d7686; --portal: #3cc4b5; --diag: #ff8a8a; --diag-bg: #3a1f22; --rec: #6fd39b; --rec-bg: #18352a; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; }
+@media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); } nav.index { display: none; } }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2rem; font-weight: 600; }
+h2 { font-size: 1.4rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+.eyebrow { font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+
+nav.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; display: grid; gap: 4px; font-size: 0.9rem; }
+nav.index a { color: var(--muted); text-decoration: none; padding: 5px 8px; border-radius: 6px; display: flex; justify-content: space-between; gap: 8px; }
+nav.index a:hover, nav.index a:focus-visible { color: var(--ink); background: var(--surface); outline: none; }
+nav.index .state { font-family: var(--font-mono); font-size: 0.75rem; }
+nav.index .state.done { color: var(--rec); }
+
+main { display: grid; gap: 40px; min-width: 0; }
+header.top { display: grid; gap: 14px; }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; }
+.rule ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; max-width: 72ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.85rem; color: var(--muted); align-items: center; }
+.legend span.sw { display: inline-flex; align-items: center; gap: 6px; }
+
+section.q { display: grid; gap: 16px; scroll-margin-top: 16px; }
+.qhead { display: grid; gap: 6px; }
+.pill { display: inline-block; font-family: var(--font-display); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--rec-bg); color: var(--rec); }
+.pill.open { background: var(--diag-bg); color: var(--diag); }
+.pill.info { background: var(--surface); color: var(--muted); border: 1px solid var(--line); }
+.context { display: grid; gap: 8px; color: var(--ink); }
+.context .muted { color: var(--muted); }
+
+.demo { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.demo-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+button { font: 500 0.85rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:disabled { opacity: 0.4; cursor: default; }
+.timeline { display: flex; flex-wrap: wrap; gap: 4px; }
+.timeline button { font-family: var(--font-mono); font-size: 0.75rem; padding: 3px 8px; }
+.timeline button[aria-current="step"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.models { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.model { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.model-name { font-family: var(--font-display); font-weight: 600; font-size: 0.95rem; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.model-name .tag { font-family: var(--font-body); font-weight: 500; font-size: 0.75rem; color: var(--muted); }
+.gridbox { overflow-x: auto; }
+.grid { display: inline-grid; gap: 2px; padding: 6px; background: var(--bg); border-radius: 6px; font-family: var(--font-mono); font-size: 15px; }
+.grid .c { width: 1.55em; height: 1.75em; display: grid; place-items: center; background: var(--cell); border: 1px solid var(--line); border-radius: 3px; position: relative; color: var(--ink); }
+.grid .c.portal { border: 1.5px dashed var(--portal); }
+.grid .c.new { box-shadow: inset 0 0 0 2px var(--new); }
+.grid .c.bang { color: var(--bang); font-weight: 600; }
+.grid .c.fire { background: var(--fire-bg); color: var(--fire-ink); font-weight: 600; }
+.grid .c.sup .g, .grid .c.cleared .g { color: var(--sup); }
+.grid .c.sup .g { text-decoration: line-through; text-decoration-thickness: 2px; }
+.grid .c .g { opacity: 0.85; }
+.grid .c.sup { color: var(--sup); text-decoration: line-through; text-decoration-thickness: 2px; }
+.log { display: grid; gap: 6px; font-size: 0.88rem; }
+.log ul { margin: 0; padding-left: 1.1em; display: grid; gap: 3px; }
+.plays { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; }
+.plays .note { font-family: var(--font-mono); background: var(--fire-bg); color: var(--fire-ink); padding: 1px 8px; border-radius: 4px; font-weight: 600; }
+.plays .none { color: var(--muted); }
+.diag { font-size: 0.82rem; color: var(--diag); background: var(--diag-bg); border-radius: 6px; padding: 5px 9px; }
+.ok { font-size: 0.82rem; color: var(--muted); }
+
+form.decide { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; }
+form.decide fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+form.decide legend { font-family: var(--font-display); font-weight: 600; margin-bottom: 4px; }
+.opt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.opt:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.opt input { margin-top: 4px; accent-color: var(--accent); }
+.opt .lbl { font-weight: 500; }
+.opt .desc { color: var(--muted); font-size: 0.86rem; }
+.opt .recmark { color: var(--rec); font-size: 0.78rem; font-weight: 600; margin-left: 6px; }
+textarea { width: 100%; min-height: 64px; font: 0.9rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+textarea:focus-visible { outline: 2px solid var(--accent); }
+label.notes { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+
+.summary { display: grid; gap: 10px; }
+.summary pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow-x: auto; font: 0.85rem/1.5 var(--font-mono); white-space: pre-wrap; }
+.summary .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.copied { font-size: 0.85rem; color: var(--rec); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="index" id="index" aria-label="Questions"></nav>
+  <main>
+    <header class="top">
+      <div class="eyebrow">Orcvs · feat/bang-glyph · PR #213</div>
+      <h1>Bang Function walkthrough — historical</h1>
+      <p><strong>Superseded design walkthrough, not executable evidence.</strong> Read <a href="../.scratch/bang-function/spec.md">the revised spec</a> and <a href="../.scratch/bang-function/map.md">Orca comparison</a>. These authored frames include disproven parity claims and unresolved Halt/clearing outcomes. Ticket 07 blocks implementation; answers here do not override the revised contract.</p>
+      <p>A review of the proposal that a standalone <code>**</code> is a Function, with Tick-by-Tick Source Grids for each open question. Step through each example, choose an answer, then copy the answers back into the session.</p>
+      <div class="rule">
+        <h3>The proposed rule</h3>
+        <ol>
+          <li>A standalone <code>**</code> in Source is the <b>Bang Function</b> (proposed name). It has no operands and is always active. At its Turn it activates the roots aligned with it and clears its two Cells. This is Orca's <code>*</code>.</li>
+          <li>A Function that answers Bang writes <code>**</code> and activates its aligned roots in its own Turn, as today. The <code>**</code> it leaves is Source, so on the next Tick it is a Bang Function.</li>
+          <li>The writer takes its Turn first, because a Function always comes before what its Output Portal covers. It writes <code>**</code> again or clears, and either write suppresses the old Bang Function. That is how Orca's <code>D</code> clears its own <code>*</code>.</li>
+          <li>Nothing is remembered between Ticks. Whether a <code>**</code> fires depends only on the Grid.</li>
+        </ol>
+      </div>
+      <div class="legend" aria-label="Legend">
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c new">*</span></span> written or edited this step</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c bang">*</span></span> standalone <code>**</code></span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c fire">!</span></span> root activated</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c sup"><span class="g">*</span></span></span> suppressed before its Turn</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c cleared"><span class="g">*</span></span></span> cleared after it ran, or deleted</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c portal"> </span></span> a writer's Output Portal</span>
+      </div>
+    </header>
+    <div id="sections" style="display:grid;gap:48px"></div>
+    <section class="summary" id="summary">
+      <div class="eyebrow">Answers</div>
+      <h2>Copy your answers back</h2>
+      <p>This text updates as you choose. Paste it into the session to record the decisions in <code>.scratch/bang-function/map.md</code>.</p>
+      <div class="row"><button type="button" id="copy">Copy answers</button><span class="copied" id="copied" hidden>Copied</span></div>
+      <pre id="out"></pre>
+    </section>
+  </main>
+</div>
+
+<script>
+// A frame is one Source Grid after a Tick or an edit. Marks: [kind, row, col, len, ghost].
+function F(label, rows, o) {
+  o = o || {};
+  return { label: label, rows: rows, marks: o.m || [], log: o.log || [], plays: o.plays || [], diag: o.diag || [] };
+}
+const PORTAL = 'portal', NEW = 'new', BANG = 'bang', FIRE = 'fire', SUP = 'sup', CLR = 'cleared';
+
+const SECTIONS = [
+  {
+    id: 'rule', kind: 'intro', title: 'How the Bang Function works',
+    context: ['Two baseline cases. Both behave exactly as the branch does today; only the mechanism changes.'],
+    demos: [
+      { title: 'Equality bangs, then goes quiet', models: [{ name: 'Bang Function', tag: 'proposed', frames: [
+        F('Source', ['.=0101', '', '!>007FC4'], { m: [[PORTAL, 1, 0, 2]], log: ['Equality .= compares 01 with 01. Its Output Portal is the pair below it.', 'Raw Play !> waits for a Bang.'] }),
+        F('Tick 0', ['.=0101', '**', '!>007FC4'], { m: [[NEW, 1, 0, 2], [BANG, 1, 0, 2], [FIRE, 2, 0, 2]], plays: ['C4'], log: ['.= answers Bang: it writes ** and activates the root aligned with it, in this Tick.', 'The ** is now Source. It first becomes executable on Tick 1.'] }),
+        F('Edit', ['.=0102', '**', '!>007FC4'], { m: [[NEW, 0, 5, 1], [BANG, 1, 0, 2]], log: ['The performer changes the second operand to 02.'] }),
+        F('Tick 1', ['.=0102', '', '!>007FC4'], { m: [[SUP, 1, 0, 2, '**']], log: ['.= takes its Turn first, because its Output Portal covers the **.', '01 and 02 differ, so .= clears its Output Portal. That write suppresses the Bang Function before its Turn.', 'Nothing plays, and nothing was remembered.'] })
+      ] }] },
+      { title: 'A typed Bang fires once', models: [{ name: 'Bang Function', tag: 'proposed', frames: [
+        F('Edit', ['**', '!>007FC4'], { m: [[NEW, 0, 0, 2], [BANG, 0, 0, 2]], log: ['The performer types ** above Raw Play. No Output Portal covers it.'] }),
+        F('Tick 0', ['', '!>007FC4'], { m: [[CLR, 0, 0, 2, '**'], [FIRE, 1, 0, 2]], plays: ['C4'], log: ['The ** is a Bang Function. At its Turn it activates its aligned roots and clears its two Cells.'] }),
+        F('Tick 1', ['', '!>007FC4'], { log: ['Nothing stands, so nothing plays.'] })
+      ] }] }
+    ]
+  },
+  {
+    id: 'bugs', kind: 'intro', title: 'The two bugs it removes',
+    context: ['The branch tells typed and written ** apart with bang_display, a list of positions it wrote last Tick. Both failures below were reproduced through the real commit path.'],
+    demos: [
+      { title: 'A typed * beside a written Bang', models: [
+        { name: 'Today', tag: 'PR #213, bang_display', frames: [
+          F('Source', [' .=0101', '*', '!>007FC4'], { m: [[NEW, 1, 0, 1], [PORTAL, 1, 1, 2]], log: ['A lone * is typed at column 0. Equality is anchored at column 1.'] }),
+          F('Tick 0', [' .=0101', '***', '!>007FC4'], { m: [[NEW, 1, 1, 2]], log: ['.= writes ** at columns 1 and 2. No root is aligned with column 1, so nothing plays.', 'bang_display records column 1.'] }),
+          F('Tick 1', [' .=0101', ' **', '!>007FC4'], { m: [[CLR, 1, 0, 1, '*'], [FIRE, 2, 0, 2]], plays: ['C4'], diag: ['Phantom Bang: nobody typed it (reproduced).'], log: ['The parser pairs stars from the left, so it reads a Bang at columns 0 and 1.', 'Column 0 is not in bang_display, so it is treated as typed and fires.', 'The clear also erases the typed *.'] })
+        ] },
+        { name: 'Bang Function', tag: 'proposed', frames: [
+          F('Source', [' .=0101', '*', '!>007FC4'], { m: [[NEW, 1, 0, 1], [PORTAL, 1, 1, 2]], log: ['A lone * is typed at column 0. Equality is anchored at column 1.'] }),
+          F('Tick 0', [' .=0101', '***', '!>007FC4'], { m: [[NEW, 1, 1, 2]], log: ['.= writes ** at columns 1 and 2. Nothing plays, and nothing is recorded.'] }),
+          F('Tick 1', [' .=0101', '***', '!>007FC4'], { m: [[SUP, 1, 0, 1], [SUP, 1, 1, 1], [NEW, 1, 1, 2]], log: ['The parser reads a Bang Function at columns 0 and 1. It overlaps the Output Portal of .= at column 1, so .= goes first.', '.= writes ** at columns 1 and 2 again, which suppresses the Bang Function.', 'Nothing plays, and the typed * survives.'] })
+        ] }
+      ] },
+      { title: 'A Bang written into an operand, freed later', models: [
+        { name: 'Today', tag: 'PR #213, bang_display', frames: [
+          F('Source', ['  .=0101', '.+0101', '  !>007FC4'], { m: [[PORTAL, 1, 2, 2]], log: ['Equality at column 2 writes into row 1, which is the first operand of Add .+.'] }),
+          F('Tick 0', ['  .=0101', '.+**01', '  !>007FC4'], { m: [[NEW, 1, 2, 2]], log: ['.= writes ** into the operand. A Bang in an operand activates nothing.', 'bang_display records it anyway.'] }),
+          F('Edit', ['', '.+**01', '  !>007FC4'], { m: [[CLR, 0, 2, 6, '.=0101']], log: ['The performer deletes .=0101.'] }),
+          F('Tick 1', ['', '.+**01', '  !>007FC4'], { log: ['A quiet Tick. Commit replaces bang_display with an empty list.'] }),
+          F('Edit', ['', '  **01', '  !>007FC4'], { m: [[CLR, 1, 0, 2, '.+'], [BANG, 1, 2, 2]], log: ['The performer deletes .+, so the ** now stands alone.'] }),
+          F('Tick 2', ['', '    01', '  !>007FC4'], { m: [[CLR, 1, 2, 2, '**'], [FIRE, 2, 2, 2]], plays: ['C4'], diag: ['Timing decides: delete .+ one Tick earlier and it is cleared silently (reproduced).'], log: ['It is not in bang_display, so it fires as typed.'] })
+        ] },
+        { name: 'Bang Function', tag: 'proposed', frames: [
+          F('Source', ['  .=0101', '.+0101', '  !>007FC4'], { m: [[PORTAL, 1, 2, 2]], log: ['Equality at column 2 writes into row 1, which is the first operand of Add .+.'] }),
+          F('Tick 0', ['  .=0101', '.+**01', '  !>007FC4'], { m: [[NEW, 1, 2, 2]], log: ['.= writes ** into the operand. It activates nothing, so this Bang was never delivered.'] }),
+          F('Edit', ['', '.+**01', '  !>007FC4'], { m: [[CLR, 0, 2, 6, '.=0101']], log: ['The performer deletes .=0101.'] }),
+          F('Tick 1', ['', '.+**01', '  !>007FC4'], { log: ['A quiet Tick. The ** is inside an operand, so it is not a Bang Function.'] }),
+          F('Edit', ['', '  **01', '  !>007FC4'], { m: [[CLR, 1, 0, 2, '.+'], [BANG, 1, 2, 2]], log: ['The performer deletes .+, so the ** now stands alone.'] }),
+          F('Tick 2', ['', '    01', '  !>007FC4'], { m: [[CLR, 1, 2, 2, '**'], [FIRE, 2, 2, 2]], plays: ['C4'], log: ['The freed ** is a Bang Function and fires once. The result is the same whenever .+ is deleted.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'removed-writer', kind: 'decided', title: 'A removed writer fires once more',
+    question: 'Accepted. Recorded in the map.',
+    context: ['If a Bang\'s writer takes no Turn on the Tick right after it banged, nothing overwrites its **. That ** is a Bang Function, so its roots are hit a second time. A running program never removes its own writer; this needs an edit, or another Function overwriting the writer, in that one Tick.', 'Orca does the same when D is deleted, though there only the earlier-turn neighbour is hit again. Equality, Delay and Euclidean clear their Output Portal even when halted or invalid, so only removal is left.'],
+    demos: [
+      { title: 'The writer stays, or is deleted', models: [
+        { name: 'Writer stays and goes quiet', tag: '', frames: [
+          F('Source', ['.=0101', '', '!>007FC4'], { m: [[PORTAL, 1, 0, 2]] }),
+          F('Tick 0', ['.=0101', '**', '!>007FC4'], { m: [[NEW, 1, 0, 2], [BANG, 1, 0, 2], [FIRE, 2, 0, 2]], plays: ['C4'] }),
+          F('Edit', ['.=0102', '**', '!>007FC4'], { m: [[NEW, 0, 5, 1], [BANG, 1, 0, 2]], log: ['The operand changes to 02.'] }),
+          F('Tick 1', ['.=0102', '', '!>007FC4'], { m: [[SUP, 1, 0, 2, '**']], log: ['.= clears its Output Portal first, which suppresses the old **. Nothing plays.'] })
+        ] },
+        { name: 'Writer deleted', tag: 'accepted extra fire', frames: [
+          F('Source', ['.=0101', '', '!>007FC4'], { m: [[PORTAL, 1, 0, 2]] }),
+          F('Tick 0', ['.=0101', '**', '!>007FC4'], { m: [[NEW, 1, 0, 2], [BANG, 1, 0, 2], [FIRE, 2, 0, 2]], plays: ['C4'] }),
+          F('Edit', ['', '**', '!>007FC4'], { m: [[CLR, 0, 0, 6, '.=0101'], [BANG, 1, 0, 2]], log: ['The performer deletes .=0101 in the Tick right after it banged.'] }),
+          F('Tick 1', ['', '', '!>007FC4'], { m: [[CLR, 1, 0, 2, '**'], [FIRE, 2, 0, 2]], plays: ['C4'], log: ['Nothing overwrites the **, so it fires as a Bang Function. The one Bang is heard twice.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q1', kind: 'question', n: 1, title: 'Blocked mover',
+    question: 'When a Self-Banging Function is blocked, should its ** fire every aligned root on the next Tick?',
+    context: ['Today a blocked mover activates only a root it touches, in the same Tick. Its ** is then cleared without firing, so its other neighbours never hear it. That last point is read from the code, not run.', 'As a Bang Function, the explosion fires every aligned root once, one Tick after the collision. That is what Orca\'s E does.'],
+    options: [
+      { id: 'a', label: 'The explosion is a Bang Function', desc: 'Every aligned root fires, one Tick after the collision. Contact activation is removed.', rec: true },
+      { id: 'b', label: 'Keep contact activation', desc: 'Only a root it touches fires, in the same Tick. Other neighbours never fire.' }
+    ],
+    demos: [
+      { title: 'Blocked by a Comment', models: [
+        { name: 'Keep contact activation', tag: 'today', frames: [
+          F('Source', ['>>||', '!>007FC4'], { log: ['>> moves east one Cell per Tick. Column 2 starts a Comment, so the move is blocked.'] }),
+          F('Tick 0', ['**||', '!>007FC4'], { m: [[NEW, 0, 0, 2], [BANG, 0, 0, 2]], log: ['>> is blocked and its Span becomes **.', 'The Comment is not a root, so contact activates nothing.'] }),
+          F('Tick 1', ['  ||', '!>007FC4'], { m: [[CLR, 0, 0, 2, '**']], diag: ['!> below never plays (read from the code, not run).'], log: ['The ** is cleared as display without firing.'] })
+        ] },
+        { name: 'The explosion is a Bang Function', tag: 'proposed', frames: [
+          F('Source', ['>>||', '!>007FC4'], { log: ['>> moves east one Cell per Tick. Column 2 starts a Comment, so the move is blocked.'] }),
+          F('Tick 0', ['**||', '!>007FC4'], { m: [[NEW, 0, 0, 2], [BANG, 0, 0, 2]], log: ['>> is blocked and its Span becomes **. It activates nothing in this Turn.'] }),
+          F('Tick 1', ['  ||', '!>007FC4'], { m: [[CLR, 0, 0, 2, '**'], [FIRE, 1, 0, 2]], plays: ['C4'], log: ['The ** is a Bang Function and activates every aligned root, so !> plays.'] })
+        ] }
+      ] },
+      { title: 'Blocked by a root', models: [
+        { name: 'Keep contact activation', tag: 'today', frames: [
+          F('Source', ['!>007FC4', '^^'], { log: ['^^ moves north. !> stands directly above it.'] }),
+          F('Tick 0', ['!>007FC4', '**'], { m: [[NEW, 1, 0, 2], [BANG, 1, 0, 2], [FIRE, 0, 0, 2]], plays: ['C4'], log: ['^^ is blocked by !> and activates it by contact, in this Tick.'] }),
+          F('Tick 1', ['!>007FC4', ''], { m: [[CLR, 1, 0, 2, '**']], log: ['The ** is cleared as display without firing.'] })
+        ] },
+        { name: 'The explosion is a Bang Function', tag: 'proposed', frames: [
+          F('Source', ['!>007FC4', '^^'], { log: ['^^ moves north. !> stands directly above it.'] }),
+          F('Tick 0', ['!>007FC4', '**'], { m: [[NEW, 1, 0, 2], [BANG, 1, 0, 2]], log: ['^^ is blocked and its Span becomes **. There is no contact activation.'] }),
+          F('Tick 1', ['!>007FC4', ''], { m: [[CLR, 1, 0, 2, '**'], [FIRE, 0, 0, 2]], plays: ['C4'], log: ['The ** fires as a Bang Function, so !> plays one Tick later than today.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q2', kind: 'question', n: 2, title: 'Copy with partial input',
+    question: 'When a Copy\'s input holds only part of a Language Unit, should it clear its destination?',
+    context: ['Today it diagnoses and writes nothing. Its old ** is then not overwritten, so it fires again as a Bang Function. Clearing keeps the rule that a writer always overwrites its own **. Orca\'s carriers always write.'],
+    options: [
+      { id: 'a', label: 'Clear the destination', desc: 'The Copy still diagnoses, and also writes spaces through its Output Portal.', rec: true },
+      { id: 'b', label: 'Write nothing (today)', desc: 'The old ** stays and fires once more.' }
+    ],
+    demos: [
+      { title: 'A Copy chain loses half its input', models: [
+        { name: 'Write nothing', tag: 'today\'s rule', frames: [
+          F('Source', ['.=0101', '', '=v', '', '!>007FC4'], { m: [[PORTAL, 1, 0, 2], [PORTAL, 3, 0, 2]], log: ['.= bangs into row 1. Copy =v reads row 1 and writes row 3.'] }),
+          F('Tick 0', ['.=0101', '**', '=v', '**', '!>007FC4'], { m: [[NEW, 1, 0, 2], [NEW, 3, 0, 2], [FIRE, 4, 0, 2]], plays: ['C4'], log: ['.= writes **, =v carries it south, and !> plays.'] }),
+          F('Edit', ['', '*', '=v', '**', '!>007FC4'], { m: [[CLR, 0, 0, 6, '.=0101'], [CLR, 1, 1, 1, '*'], [BANG, 3, 0, 2]], log: ['The performer deletes .=0101 and one * of its output.'] }),
+          F('Tick 1', ['', '*', '=v', '', '!>007FC4'], { m: [[CLR, 3, 0, 2, '**'], [FIRE, 4, 0, 2]], plays: ['C4'], diag: ['=v: partial input, writes nothing.'], log: ['The old ** is not overwritten, so it fires as a Bang Function.'] })
+        ] },
+        { name: 'Clear the destination', tag: 'proposed', frames: [
+          F('Source', ['.=0101', '', '=v', '', '!>007FC4'], { m: [[PORTAL, 1, 0, 2], [PORTAL, 3, 0, 2]], log: ['.= bangs into row 1. Copy =v reads row 1 and writes row 3.'] }),
+          F('Tick 0', ['.=0101', '**', '=v', '**', '!>007FC4'], { m: [[NEW, 1, 0, 2], [NEW, 3, 0, 2], [FIRE, 4, 0, 2]], plays: ['C4'], log: ['.= writes **, =v carries it south, and !> plays.'] }),
+          F('Edit', ['', '*', '=v', '**', '!>007FC4'], { m: [[CLR, 0, 0, 6, '.=0101'], [CLR, 1, 1, 1, '*'], [BANG, 3, 0, 2]], log: ['The performer deletes .=0101 and one * of its output.'] }),
+          F('Tick 1', ['', '*', '=v', '', '!>007FC4'], { m: [[SUP, 3, 0, 2, '**']], diag: ['=v: partial input, clears its destination.'], log: ['=v clears row 3 first, which suppresses the old **. Nothing plays.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q3', kind: 'question', n: 3, title: 'Mover meets a typed Bang',
+    question: 'When a Self-Banging Function moves toward a typed **, is it blocked or does it enter?',
+    context: ['In Orca a moving operator is blocked by a *. Entering would need the Bang Function to take its Turn before the mover, an ordering rule that exists only for this case.'],
+    options: [
+      { id: 'a', label: 'Blocked, as in Orca', desc: 'The mover explodes in place. The typed ** still fires its own roots.', rec: true },
+      { id: 'b', label: 'Enters after the Bang fires', desc: 'The Bang Function runs first and clears, then the mover moves in.' }
+    ],
+    demos: [
+      { title: '>> beside a typed **', models: [
+        { name: 'Blocked', tag: 'proposed', frames: [
+          F('Source', ['>>**', '  !>007FC4'], { m: [[BANG, 0, 2, 2]], log: ['>> moves east. Its next Cell holds a typed **, and !> is aligned south of the **.'] }),
+          F('Tick 0', ['**', '  !>007FC4'], { m: [[NEW, 0, 0, 2], [BANG, 0, 0, 2], [CLR, 0, 2, 2, '**'], [FIRE, 1, 2, 2]], plays: ['C4'], log: ['>> finds column 2 occupied: it is blocked and its Span becomes **.', 'The typed ** takes its Turn, so !> plays and the ** clears itself.'] }),
+          F('Tick 1', ['', '  !>007FC4'], { m: [[CLR, 0, 0, 2, '**']], log: ['The explosion ** fires, but no root is aligned with it.'] })
+        ] },
+        { name: 'Enters', tag: 'alternative', frames: [
+          F('Source', ['>>**', '  !>007FC4'], { m: [[BANG, 0, 2, 2]], log: ['>> moves east. Its next Cell holds a typed **, and !> is aligned south of the **.'] }),
+          F('Tick 0', [' >>', '  !>007FC4'], { m: [[NEW, 0, 1, 2], [FIRE, 1, 2, 2]], plays: ['C4'], log: ['The typed ** takes its Turn first, so !> plays and the ** clears itself.', '>> then moves into the empty Cell.'] }),
+          F('Tick 1', ['  >>', '  !>007FC4'], { m: [[NEW, 0, 2, 2]], log: ['>> keeps moving east.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q4', kind: 'question', n: 4, title: 'Halt above a typed Bang',
+    question: 'When *! stands directly above a typed **, what happens?',
+    context: ['A Halt only locks when it is active, and here the **\'s own Bang is what activates it. So the Bang runs first, and the Halt\'s lock arrives after its target has already run. An existing rule already diagnoses that as a missed lock. This corrects my earlier suggestion that the Halt wins, which assumed the Halt was already active.', 'If something else activated the Halt first, it would lock the ** before its Turn. The ** would then stay standing, as Orca\'s locked * does.'],
+    options: [
+      { id: 'a', label: 'The Bang fires; the lock is diagnosed as missed', desc: 'No new rule: the existing missed-lock diagnostic applies.', rec: true },
+      { id: 'b', label: 'Diagnose a cycle', desc: 'Neither runs, and the ** stays until the performer edits it.' }
+    ],
+    demos: [
+      { title: '*! above a typed **', models: [
+        { name: 'Bang fires, lock missed', tag: 'proposed', frames: [
+          F('Source', ['*!', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], log: ['Halt *! would lock the root directly south of it, which is the **.', 'The ** is aligned with *! to the north and !> to the south.'] }),
+          F('Tick 0', ['*!', '', '!>007FC4'], { m: [[FIRE, 0, 0, 2], [CLR, 1, 0, 2, '**'], [FIRE, 2, 0, 2]], plays: ['C4'], diag: ['*!: lock missed, its root has already taken its Turn.'], log: ['The Bang Function activates *! and !>, then clears itself.', '*! is now active, but the root it would lock has already run.'] }),
+          F('Tick 1', ['*!', '', '!>007FC4'], { log: ['Nothing stands, so nothing plays.'] })
+        ] },
+        { name: 'Cycle', tag: 'alternative', frames: [
+          F('Source', ['*!', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], log: ['Halt *! would lock the root directly south of it, which is the **.', 'The ** is aligned with *! to the north and !> to the south.'] }),
+          F('Tick 0', ['*!', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], diag: ['Cycle: the ** activates *!, and *! must lock the ** first.'], log: ['The cycle stops the Expressions it reaches. Nothing plays.'] }),
+          F('Tick 1', ['*!', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], diag: ['Cycle: the ** activates *!, and *! must lock the ** first.'], log: ['The same cycle repeats every Tick until the performer edits it.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q5', kind: 'question', n: 5, title: 'Reach of a typed Bang',
+    question: 'Should a typed ** activate every aligned root?',
+    context: ['ADR 0071 says every aligned root. Orca\'s typed * reaches only the north and west neighbours, because they come before it in reading order and the * erases itself before the others look. That is a side effect of Orca\'s reading order, not a rule anyone wrote down.'],
+    options: [
+      { id: 'a', label: 'Every aligned root (ADR 0071)', desc: 'North, south, east and west all activate.', rec: true },
+      { id: 'b', label: 'North and west only, as in Orca', desc: 'Copies Orca\'s reading-order behaviour exactly.' }
+    ],
+    demos: [
+      { title: 'A typed ** with a root on every side', models: [
+        { name: 'Every aligned root', tag: 'proposed', frames: [
+          F('Source', ['  !>007FC4', '*v**!>007FD4', '  !>007FE4'], { m: [[BANG, 1, 2, 2]], log: ['North !> plays C4, east !> D4, south !> E4. West is *v, which emits vv south.'] }),
+          F('Tick 0', ['  !>007FC4', '*v  !>007FD4', 'vv!>007FE4'], { m: [[FIRE, 0, 2, 2], [FIRE, 1, 0, 2], [CLR, 1, 2, 2, '**'], [FIRE, 1, 4, 2], [FIRE, 2, 2, 2], [NEW, 2, 0, 2]], plays: ['C4', 'D4', 'E4'], log: ['Every aligned root activates: three notes play, and *v emits vv.'] })
+        ] },
+        { name: 'North and west only', tag: 'Orca', frames: [
+          F('Source', ['  !>007FC4', '*v**!>007FD4', '  !>007FE4'], { m: [[BANG, 1, 2, 2]], log: ['North !> plays C4, east !> D4, south !> E4. West is *v, which emits vv south.'] }),
+          F('Tick 0', ['  !>007FC4', '*v  !>007FD4', 'vv!>007FE4'], { m: [[FIRE, 0, 2, 2], [FIRE, 1, 0, 2], [CLR, 1, 2, 2, '**'], [NEW, 2, 0, 2]], plays: ['C4'], log: ['Only the roots that come before the ** in reading order activate: north and west.', 'East and south stay silent.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q6', kind: 'question', n: 6, title: 'Scheduling a Bang Function',
+    question: 'Should the scheduler treat a Bang Function as vacating its own Cells, as a mover does?',
+    context: ['A Directional Bang Function needs an empty destination. Here the ** in that destination is also the Bang that activates it. Unless the ** counts as leaving its Cells, the schedule has no valid order. This outcome is inferred from the scheduling rules, not run.'],
+    options: [
+      { id: 'a', label: 'Vacates its Cells', desc: 'It runs before anything that writes into its Span, as a mover leaving its Cells does.', rec: true },
+      { id: 'b', label: 'No special ordering', desc: 'This case is diagnosed as a cycle.' }
+    ],
+    demos: [
+      { title: '*v above a typed **', models: [
+        { name: 'Vacates its Cells', tag: 'proposed', frames: [
+          F('Source', ['*v', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], log: ['*v emits vv into the pair south of it, which must be empty. A typed ** stands there.'] }),
+          F('Tick 0', ['*v', 'vv', '!>007FC4'], { m: [[FIRE, 0, 0, 2], [NEW, 1, 0, 2], [FIRE, 2, 0, 2]], plays: ['C4'], log: ['The Bang Function runs first. It activates *v and !>, then clears itself.', '*v emits vv into the now-empty pair. vv first becomes executable on Tick 1.'] })
+        ] },
+        { name: 'No special ordering', tag: 'alternative', frames: [
+          F('Source', ['*v', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], log: ['*v emits vv into the pair south of it, which must be empty. A typed ** stands there.'] }),
+          F('Tick 0', ['*v', '**', '!>007FC4'], { m: [[BANG, 1, 0, 2]], diag: ['Cycle: *v must write the pair before the ** runs, but the ** must run first to activate *v.'], log: ['Nothing runs, and the ** stays.'] })
+        ] }
+      ] }
+    ]
+  },
+  {
+    id: 'q7', kind: 'question', n: 7, title: 'Name',
+    question: 'What should the standalone ** be called?',
+    context: ['It sits beside Directional Bang Function (*^ *v *< *>) and Self-Banging Function (^^ vv << >>). Bang stays the name of the value that a Function answers and that a pass-through carries.'],
+    options: [
+      { id: 'a', label: 'Bang Function', desc: 'Follows the pattern of the other two names.', rec: true },
+      { id: 'b', label: 'Standing Bang', desc: 'Names it by where it is, not by what kind of thing it is.' },
+      { id: 'c', label: 'Bang', desc: 'One name for both the value and the Function; context tells them apart.' }
+    ],
+    demos: []
+  }
+];
+
+// Per-viewer draft of answers; the page works without it.
+const KEY = 'orcvs-bang-function-answers';
+let answers = {};
+try { answers = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { answers = {}; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(answers)); } catch (e) {} }
+
+function el(tag, attrs, children) {
+  const n = document.createElement(tag);
+  for (const k in (attrs || {})) {
+    if (k === 'text') n.textContent = attrs[k];
+    else if (k === 'html') n.innerHTML = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  }
+  (children || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+
+function renderGrid(frame, width) {
+  const rows = frame.rows.length;
+  const cls = {}; const ghost = {};
+  frame.marks.forEach(function (m) {
+    const kind = m[0], r = m[1], c = m[2], len = m[3] || 1, g = m[4];
+    for (let i = 0; i < len; i++) {
+      const k = r + ':' + (c + i);
+      (cls[k] = cls[k] || []).push(kind);
+      if (g) ghost[k] = g[i] || '';
+    }
+  });
+  const grid = el('div', { class: 'grid', role: 'img', 'aria-label': frame.label + ': ' + frame.rows.map(function (r, i) { return 'row ' + i + ' "' + r + '"'; }).join(', ') });
+  grid.style.gridTemplateColumns = 'repeat(' + width + ', auto)';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < width; c++) {
+      const ch = frame.rows[r][c] || ' ';
+      const k = r + ':' + c;
+      const cell = el('span', { class: 'c ' + (cls[k] || []).join(' ') });
+      if (ch !== ' ') cell.textContent = ch;
+      else if (ghost[k] && ghost[k] !== ' ') cell.appendChild(el('span', { class: 'g', text: ghost[k] }));
+      grid.appendChild(cell);
+    }
+  }
+  return el('div', { class: 'gridbox' }, [grid]);
+}
+
+function renderFrameDetail(frame) {
+  const box = el('div', { class: 'log' });
+  const plays = el('div', { class: 'plays' }, [el('span', { class: 'eyebrow', text: 'Plays' })]);
+  if (frame.plays.length) frame.plays.forEach(function (p) { plays.appendChild(el('span', { class: 'note', text: p })); });
+  else plays.appendChild(el('span', { class: 'none', text: 'nothing' }));
+  box.appendChild(plays);
+  if (frame.diag.length) frame.diag.forEach(function (d) { box.appendChild(el('div', { class: 'diag', text: d })); });
+  else box.appendChild(el('div', { class: 'ok', text: 'No diagnostic.' }));
+  if (frame.log.length) box.appendChild(el('ul', {}, frame.log.map(function (l) { return el('li', { text: l }); })));
+  return box;
+}
+
+function renderDemo(demo) {
+  const steps = Math.max.apply(null, demo.models.map(function (m) { return m.frames.length; }));
+  const width = Math.max(10, Math.max.apply(null, demo.models.map(function (m) { return Math.max.apply(null, m.frames.map(function (f) { return Math.max.apply(null, f.rows.map(function (r) { return r.length; })); })); })));
+  let step = 0;
+  const wrap = el('div', { class: 'demo' });
+  const head = el('div', { class: 'demo-head' }, [el('h3', { text: demo.title })]);
+  const controls = el('div', { class: 'controls' });
+  const reset = el('button', { type: 'button', text: 'Reset' });
+  const back = el('button', { type: 'button', text: 'Back' });
+  const next = el('button', { type: 'button', text: 'Next' });
+  controls.append(reset, back, next);
+  head.appendChild(controls);
+  wrap.appendChild(head);
+  const timeline = el('div', { class: 'timeline', role: 'group', 'aria-label': 'Steps' });
+  const labels = demo.models[0].frames.map(function (f) { return f.label; });
+  const stepButtons = labels.map(function (l, i) {
+    const b = el('button', { type: 'button', text: l });
+    b.addEventListener('click', function () { step = i; draw(); });
+    timeline.appendChild(b);
+    return b;
+  });
+  wrap.appendChild(timeline);
+  const models = el('div', { class: 'models' });
+  wrap.appendChild(models);
+  function draw() {
+    models.innerHTML = '';
+    demo.models.forEach(function (m) {
+      const f = m.frames[Math.min(step, m.frames.length - 1)];
+      const name = el('div', { class: 'model-name' }, [el('span', { text: m.name }), m.tag ? el('span', { class: 'tag', text: m.tag }) : null]);
+      models.appendChild(el('div', { class: 'model' }, [name, renderGrid(f, width), renderFrameDetail(f)]));
+    });
+    stepButtons.forEach(function (b, i) { if (i === step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
+    back.disabled = step === 0; next.disabled = step === steps - 1;
+  }
+  reset.addEventListener('click', function () { step = 0; draw(); });
+  back.addEventListener('click', function () { if (step > 0) { step--; draw(); } });
+  next.addEventListener('click', function () { if (step < steps - 1) { step++; draw(); } });
+  draw();
+  return wrap;
+}
+
+function renderDecision(s) {
+  const form = el('form', { class: 'decide' });
+  form.addEventListener('submit', function (e) { e.preventDefault(); });
+  const fs = el('fieldset', {}, [el('legend', { text: 'Your answer' })]);
+  const a = answers[s.id] || {};
+  s.options.forEach(function (o) {
+    const id = s.id + '-' + o.id;
+    const input = el('input', { type: 'radio', name: s.id, id: id, value: o.id });
+    if (a.choice === o.id) input.checked = true;
+    input.addEventListener('change', function () { answers[s.id] = Object.assign({}, answers[s.id], { choice: o.id }); save(); update(); });
+    const text = el('span', {}, [el('span', { class: 'lbl', text: o.label }), o.rec ? el('span', { class: 'recmark', text: 'Recommended' }) : null, el('div', { class: 'desc', text: o.desc })]);
+    fs.appendChild(el('label', { class: 'opt', for: id }, [input, text]));
+  });
+  form.appendChild(fs);
+  const ta = el('textarea', { id: s.id + '-notes', placeholder: 'Notes, conditions, or a different answer' });
+  ta.value = a.notes || '';
+  ta.addEventListener('input', function () { answers[s.id] = Object.assign({}, answers[s.id], { notes: ta.value }); save(); update(); });
+  form.appendChild(el('label', { class: 'notes', for: s.id + '-notes' }, [el('span', { text: 'Notes' }), ta]));
+  return form;
+}
+
+function render() {
+  const host = document.getElementById('sections');
+  const nav = document.getElementById('index');
+  SECTIONS.forEach(function (s) {
+    const sec = el('section', { class: 'q', id: s.id });
+    const pill = s.kind === 'question' ? el('span', { class: 'pill open', text: 'Open question ' + s.n }) : s.kind === 'decided' ? el('span', { class: 'pill', text: 'Decided' }) : el('span', { class: 'pill info', text: 'Background' });
+    const head = el('div', { class: 'qhead' }, [el('div', {}, [pill]), el('h2', { text: s.title })]);
+    if (s.question) head.appendChild(el('p', { text: s.question, style: 'font-weight:500' }));
+    sec.appendChild(head);
+    if (s.context) sec.appendChild(el('div', { class: 'context' }, s.context.map(function (c) { return el('p', { text: c }); })));
+    (s.demos || []).forEach(function (d) { sec.appendChild(renderDemo(d)); });
+    if (s.options) sec.appendChild(renderDecision(s));
+    host.appendChild(sec);
+    const link = el('a', { href: '#' + s.id }, [el('span', { text: s.kind === 'question' ? s.n + '. ' + s.title : s.title })]);
+    if (s.kind === 'question') link.appendChild(el('span', { class: 'state', 'data-state': s.id, text: 'open' }));
+    nav.appendChild(link);
+  });
+}
+
+function update() {
+  const lines = ['## Bang Function: answers to the open questions', ''];
+  SECTIONS.filter(function (s) { return s.kind === 'question'; }).forEach(function (s) {
+    const a = answers[s.id] || {};
+    const o = s.options.find(function (x) { return x.id === a.choice; });
+    lines.push(s.n + '. ' + s.title + ': ' + (o ? o.label + (o.rec ? ' (recommended)' : '') : 'not answered'));
+    if (a.notes && a.notes.trim()) lines.push('   Notes: ' + a.notes.trim().replace(/\n+/g, ' '));
+    const st = document.querySelector('[data-state="' + s.id + '"]');
+    if (st) { st.textContent = o ? 'answered' : 'open'; st.className = 'state' + (o ? ' done' : ''); }
+  });
+  document.getElementById('out').textContent = lines.join('\n');
+}
+
+render();
+update();
+document.getElementById('copy').addEventListener('click', function () {
+  const text = document.getElementById('out').textContent;
+  const done = function () { const c = document.getElementById('copied'); c.hidden = false; setTimeout(function () { c.hidden = true; }, 1800); };
+  const fallback = function () { const r = document.createRange(); r.selectNodeContents(document.getElementById('out')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+});
+</script>
+</body>
+</html>
