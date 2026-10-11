@@ -301,6 +301,28 @@ pub enum SourceBundle {
     Fire,
 }
 
+impl SourceBundle {
+    /// Whether the bundle's first write is spaces over the producer's own
+    /// Span, so the producer leaves the Cells it stands in: an `Advance` and a
+    /// `Fire`.
+    pub const fn clears_own_span(self) -> bool {
+        match self {
+            Self::Advance | Self::Fire => true,
+            Self::Emit => false,
+        }
+    }
+
+    /// Whether the bundle writes its effect's spelling at the producer's Span
+    /// displaced: an `Advance` and an `Emit`. Only that write can be refused,
+    /// and a bundle that does both moves.
+    pub const fn writes_displaced(self) -> bool {
+        match self {
+            Self::Advance | Self::Emit => true,
+            Self::Fire => false,
+        }
+    }
+}
+
 /// The Number two uppercase hexadecimal Cells spell.
 ///
 /// Borrows the spelling and builds nothing on refusal, so a caller that only

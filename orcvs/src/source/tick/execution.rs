@@ -8,7 +8,7 @@
 
 use lang::{
     Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalAddress, PortalSource,
-    SourceBundle, SourceEffect, Tick,
+    SourceEffect, Tick,
 };
 
 use super::ordering::{self, Progress, Schedule, Turn};
@@ -705,31 +705,33 @@ impl<'a> Execution<'a> {
     ///
     /// The one validated effect bundle for a Source-writing Function.
     ///
-    /// The declared bundle decides which it is. A `Fire` is the Bang
-    /// Function's Turn, [`Execution::fire`]. An `Advance` moves:
-    /// an empty destination plans one validated Portal bundle, spaces over the
-    /// current Span followed by its own spelling at the shifted destination,
-    /// and a blocked or out-of-Grid move instead replaces its current Span with
-    /// `**`. An `Emit` emits: the complete initial destination must be empty
-    /// and inside the Grid, or the producer diagnoses and emits nothing.
+    /// The declared bundle's two facts decide which it is. A bundle that
+    /// writes nothing displaced is the Bang Function's `Fire`, whose Turn is
+    /// [`Execution::fire`]. One that writes displaced and clears its own Span
+    /// moves: an empty destination plans one validated Portal bundle, spaces
+    /// over the current Span followed by its own spelling at the shifted
+    /// destination, and a blocked or out-of-Grid move instead replaces its
+    /// current Span with `**`. One that writes displaced and leaves its own
+    /// Span standing emits: the complete initial destination must be empty and
+    /// inside the Grid, or the producer diagnoses and emits nothing.
     ///
     /// It is not [`Execution::deliver_value`] with a different destination. That
     /// path delivers one encoding through every Portal a computation resolved;
-    /// an `Advance` writes different Cells at each of its two, and what it
-    /// writes at the second decides what it writes at the first: spaces at its
-    /// origin when the destination admits its spelling, `**` when it does not.
+    /// a move writes different Cells at each of its two, and what it writes at
+    /// the second decides what it writes at the first: spaces at its origin
+    /// when the destination admits its spelling, `**` when it does not.
     ///
     /// The precondition is one rule and the refusal is two, which is why the
     /// groups share this path rather than each having one. What a refusal costs
-    /// follows from whether the bundle plans the producer's own Span: a
+    /// follows from whether the bundle clears the producer's own Span: a
     /// producer that was leaving those Cells reports in them, and a producer
     /// that is staying has nothing of its own to report in.
     ///
     /// Admission is atomic, as for ordinary value output, but empty-only
     /// placement cannot overwrite a standing Function. Snapshot ownership of
     /// vacated Cells therefore imposes no executed-computation guard here.
-    /// An advancing bundle also clears its own Span; the schedule excludes
-    /// that producer from its own overwrite dependency.
+    /// A moving bundle also clears its own Span; the schedule excludes that
+    /// producer from its own overwrite dependency.
     ///
     /// The displacement is the Interpreter's answer and the destination
     /// `computations` reserved is the same declaration read before the Turn.
@@ -738,7 +740,7 @@ impl<'a> Execution<'a> {
     /// every reservation has with the write it orders.
     ///
     fn deliver_source_effect(&mut self, index: usize, effect: SourceEffect) {
-        if effect.bundle == SourceBundle::Fire {
+        if !effect.bundle.writes_displaced() {
             self.fire(index);
             return;
         }
@@ -747,7 +749,7 @@ impl<'a> Execution<'a> {
         let spelling = Encoding::literal(
             effect
                 .spelling
-                .expect("an Advance or Emit declares the Function it writes"),
+                .expect("a bundle that writes displaced declares the Function it writes"),
         )
         .expect("a Function spelling is printable ASCII Cells");
         // What stands in the Source, which is not always what gets written. A
@@ -762,7 +764,11 @@ impl<'a> Execution<'a> {
         // every spelling a Source-writing Function writes is another
         // Function's, so the Span it occupies and the Span it writes are the
         // same width and one length serves both.
-        let advancing = effect.bundle == SourceBundle::Advance;
+        //
+        // Every bundle that reaches here writes displaced, so one that also
+        // clears its own Span moves: it leaves the Cells it stood in, so they
+        // are not newly entered and a refusal has them to leave `**` in.
+        let advancing = effect.bundle.clears_own_span();
         let start = self.grid.index(anchor).get();
         let own = start..start + spelling.len();
 
@@ -843,7 +849,7 @@ impl<'a> Execution<'a> {
                     "{producer} has no empty destination inside the Grid for {}",
                     effect
                         .spelling
-                        .expect("an Emit declares the Function it writes"),
+                        .expect("a bundle that writes displaced declares the Function it writes"),
                 ),
             ))),
         }

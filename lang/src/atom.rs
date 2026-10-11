@@ -1242,16 +1242,20 @@ mod test {
                 continue;
             };
             seen += 1;
-            let (columns, rows, spelling, bundle) = match function.spelling() {
-                "^^" => (0, -1, Some("^^"), crate::SourceBundle::Advance),
-                "vv" => (0, 1, Some("vv"), crate::SourceBundle::Advance),
-                "<<" => (-1, 0, Some("<<"), crate::SourceBundle::Advance),
-                ">>" => (1, 0, Some(">>"), crate::SourceBundle::Advance),
-                "*^" => (0, -1, Some("^^"), crate::SourceBundle::Emit),
-                "*v" => (0, 1, Some("vv"), crate::SourceBundle::Emit),
-                "*<" => (-2, 0, Some("<<"), crate::SourceBundle::Emit),
-                "*>" => (2, 0, Some(">>"), crate::SourceBundle::Emit),
-                "**" => (0, 0, None, crate::SourceBundle::Fire),
+            // The last two columns are the bundle's two facts: whether it
+            // clears the producer's own Span, and whether it writes a spelling
+            // at that Span displaced. Every bundle rule the Portal, the schedule
+            // and execution apply is one of them, its negation, or both.
+            let (columns, rows, spelling, bundle, clears, displaced) = match function.spelling() {
+                "^^" => (0, -1, Some("^^"), crate::SourceBundle::Advance, true, true),
+                "vv" => (0, 1, Some("vv"), crate::SourceBundle::Advance, true, true),
+                "<<" => (-1, 0, Some("<<"), crate::SourceBundle::Advance, true, true),
+                ">>" => (1, 0, Some(">>"), crate::SourceBundle::Advance, true, true),
+                "*^" => (0, -1, Some("^^"), crate::SourceBundle::Emit, false, true),
+                "*v" => (0, 1, Some("vv"), crate::SourceBundle::Emit, false, true),
+                "*<" => (-2, 0, Some("<<"), crate::SourceBundle::Emit, false, true),
+                "*>" => (2, 0, Some(">>"), crate::SourceBundle::Emit, false, true),
+                "**" => (0, 0, None, crate::SourceBundle::Fire, true, false),
                 other => panic!("{other} declares a Source write with no stated effect"),
             };
             assert_eq!(
@@ -1263,6 +1267,14 @@ mod test {
                     bundle,
                 },
                 "{function:?} writes something its spelling does not name",
+            );
+            assert_eq!(
+                (
+                    effect.bundle.clears_own_span(),
+                    effect.bundle.writes_displaced()
+                ),
+                (clears, displaced),
+                "{function:?}'s bundle states the wrong facts about its own Span",
             );
             assert!(
                 function.takes_no_operand(),

@@ -1,6 +1,6 @@
 # A Source Bundle states two facts
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

@@ -1,6 +1,6 @@
 # 01 — State a Source Bundle's two facts and derive every bundle rule from them
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: None (can start immediately)
 
 **What to build:**
@@ -18,11 +18,15 @@ No Grid plays differently, and no scheduling edge or ADR changes. See `../spec.m
 
 ## Acceptance criteria
 
-- [ ] `SourceBundle` answers both facts, each through an exhaustive match, so a new variant must state both.
-- [ ] The Portal module builds a Source-writing Function's writes from the two facts and no longer matches on the variants.
-- [ ] Tick scheduling's three bundle predicates are deleted, and the producer-edge rule reads the two facts directly, with comments stating each rule against its fact.
-- [ ] Execution chooses the refusal arm and the entered-Cells filter from `clears_own_span()` rather than comparing against `Advance`.
-- [ ] The per-Function Source-effect table test asserts both facts for every Source-writing Function.
-- [ ] Every existing Tick, placement, Bang Function and Function reference test passes unchanged.
-- [ ] `CONTEXT.md` has a Source Bundle entry that names Advance, Emit and Fire by the two facts and states that refusal cost follows from the first.
-- [ ] Gates pass: `cargo fmt --all -- --check`, clippy and nextest on `lang` and `orcvs` and their dependents, then the workspace runs and doctests, with `PROPTEST_CASES=32`.
+- [x] `SourceBundle` answers both facts, each through an exhaustive match, so a new variant must state both.
+- [x] The Portal module builds a Source-writing Function's writes from the two facts and no longer matches on the variants.
+- [x] Tick scheduling's three bundle predicates are deleted, and the producer-edge rule reads the two facts directly, with comments stating each rule against its fact.
+- [x] Execution chooses the refusal arm and the entered-Cells filter from `clears_own_span()` rather than comparing against `Advance`.
+- [x] The per-Function Source-effect table test asserts both facts for every Source-writing Function.
+- [x] Every existing Tick, placement, Bang Function and Function reference test passes unchanged.
+- [x] `CONTEXT.md` has a Source Bundle entry that names Advance, Emit and Fire by the two facts and states that refusal cost follows from the first.
+- [x] Gates pass: `cargo fmt --all -- --check`, clippy and nextest on `lang` and `orcvs` and their dependents, then the workspace runs and doctests, with `PROPTEST_CASES=32`.
+
+## Comments
+
+2026-10-11 — Implemented. `SourceBundle::clears_own_span` and `writes_displaced` state the facts. The Portal module builds a bundle's writes from them, and `producer_edges` reads three rules off them once per producer: the self-overlap exemption, whether contacts are ordered, and the mover's intrinsic exemption. Execution routes a bundle that writes nothing displaced to the Bang Function's Turn and reads the refusal arm off `clears_own_span`. No Tick test changed. `SourceEffect.spelling` still restates `writes_displaced`, held by the table test; folding the spelling into the variants is outside the spec, which keeps `SourceEffect`'s fields.
