@@ -6,6 +6,7 @@ use crate::{
     region::Region,
     source::{Claim, Diagnostic, OperandState, SourcePaint, SourceRevision, Span, Token},
 };
+use lang::{Atom, Function};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RenderFrameConfig {
@@ -52,7 +53,11 @@ impl RenderCell {
             return SourcePaint::Unclaimed;
         };
         match claim.token {
-            Token::Bang => SourcePaint::Bang,
+            // The Bang Function is the one Function painted as what it
+            // stands for rather than as a Function.
+            Token::Function if claim.atom == Some(Atom::Function(Function::Bang)) => {
+                SourcePaint::Bang
+            }
             Token::Comment => SourcePaint::Comment,
             Token::Function if claim.atom.is_some() => SourcePaint::Function,
             Token::Function => SourcePaint::Unclaimed,
@@ -401,14 +406,11 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            token_at(&frame, grid.position(0, 0).unwrap()),
-            Some(Token::Bang)
-        );
-        assert_eq!(
-            token_at(&frame, grid.position(1, 0).unwrap()),
-            Some(Token::Bang)
-        );
+        for x in 0..2 {
+            let position = grid.position(x, 0).unwrap();
+            assert_eq!(token_at(&frame, position), Some(Token::Function));
+            assert_eq!(frame.at(position).source_paint(), SourcePaint::Bang);
+        }
         // The third `*` is not half a Bang. It opens an Expression of its own
         // whose spelling `*x` the Function table does not hold, and the `x`
         // opens the one after that — each classified where a Function goes,
@@ -759,8 +761,8 @@ mod tests {
 
         let bang = frame.at(grid.position(0, 0).unwrap()).claim().expect("**");
         assert_eq!(bang.cells, 0..2);
-        assert_eq!(bang.token, Token::Bang);
-        assert_eq!(bang.atom, Some(lang::Atom::Bang));
+        assert_eq!(bang.token, Token::Function);
+        assert_eq!(bang.atom, Some(lang::Atom::Function(lang::Function::Bang)));
         assert!(std::ptr::eq(
             bang,
             frame.at(grid.position(1, 0).unwrap()).claim().expect("**")

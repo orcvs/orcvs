@@ -57,9 +57,8 @@ pub(super) struct Portal {
 /// What Language Units occupy Cells at a resolved destination.
 ///
 /// Occupancy is a fact about the Source Snapshot's Language Map, not about
-/// working Source: Bang cleanup clears a standalone `**` before any Turn, and
-/// a Comment never writes, so the Map still names an occupied non-root after
-/// those Cells look empty.
+/// working Source: it names the Language Unit the Snapshot parsed at the
+/// Cells, whatever a Turn has written there since.
 ///
 /// ADR 0006 and CONTEXT.md keep diagnose-versus-silent with the producer.
 /// Halt and a blocked Self-Banging move each read this answer and apply their
@@ -453,13 +452,17 @@ impl PortalAccess {
             // ADR 0004's effect bundle, in the emission order ADR 0020
             // resolves it by. An `Advance` clears the Cells the producer
             // stands in before it writes; an `Emit` plans nothing at its own
-            // Cells. The displacement is read from the declaration here and
+            // Cells; a `Fire` clears its own Cells and writes nothing else.
+            // The displacement is read from the declaration here and
             // answered again by the Interpreter at the Turn.
-            let destination = Portal::displaced(grid, anchor, effect.columns, effect.rows)
-                .map(|portal| portal.destination());
+            let destination = || {
+                Portal::displaced(grid, anchor, effect.columns, effect.rows)
+                    .map(|portal| portal.destination())
+            };
             let writes = match effect.bundle {
-                SourceBundle::Advance => vec![Ok(anchor), destination],
-                SourceBundle::Emit => vec![destination],
+                SourceBundle::Advance => vec![Ok(anchor), destination()],
+                SourceBundle::Emit => vec![destination()],
+                SourceBundle::Fire => vec![Ok(anchor)],
             };
             return Self {
                 output: PortalOutput::Writes(writes),

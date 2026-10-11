@@ -10,7 +10,7 @@
 //!
 //! Substituting one Turn is the one thing this does differently, and it
 //! records that Turn's ordinal as a production Turn records its own. The
-//! starting state, the Bang cleanup it performs, the schedule, the order its
+//! starting state, the schedule, the order its
 //! Turns are taken in, the resolution, and the Turn every other computation
 //! takes are all the production ones, reached through the same
 //! [`super::Execution::new`] and [`ordering::take_turns`] that

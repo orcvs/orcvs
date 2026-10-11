@@ -1,6 +1,6 @@
 # 01 — Carry a Bang through a pass-through as its glyph
 
-Status: done
+Status: resolved
 
 **What to build:**
 
@@ -23,3 +23,7 @@ ADR 0071's first decision. A Copy, Read, Track, Write or Push whose answer is a 
   - `orcvs/src/source/tick/write.rs`: `a_bang_written_onto_a_roots_anchor_activates_it_without_overwriting_it`, `a_bang_written_onto_an_occupied_non_root_diagnoses_and_writes_nothing`.
 - [x] CONTEXT.md's Bang and Copy entries state the rule; the Copy entry no longer says a Bang output "activates an Expression root without overwriting it" or "diagnoses at an occupied non-root".
 - [x] The dependency schedule orders a root whose anchor a dynamic `**` may cover after the writer, as for any value write onto an anchor; a test pins it for a Write and a Copy.
+
+## Comments
+
+- The criterion "The overwritten root does not run that Tick" holds when the writer goes first. A covered root that feeds the writer has already taken its Turn when the `**` lands, so the write is feedback and that root meets the `**` on the next Tick.

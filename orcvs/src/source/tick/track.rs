@@ -10,9 +10,7 @@ use std::collections::BTreeMap;
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::execution::ComputationState;
-use super::observed::{
-    diagnostic, first, observe_at, quiet_rows, raw_play, rows_of, source_of, turns,
-};
+use super::observed::{diagnostic, first, observe_at, quiet_rows, raw, rows_of, source_of, turns};
 use super::{plan, plan_carrying};
 use crate::grid::{CellIndex, Grid, Position};
 use crate::source::{Cells, Source};
@@ -100,7 +98,7 @@ fn a_bang_track_reads_overwrites_the_root_it_lands_on_and_activates_the_roots_al
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
     assert_eq!(rows_of(&source)[2], "**007FC4      ");
 }
 

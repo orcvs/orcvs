@@ -25,11 +25,12 @@ use crate::source::buffer::WorkingCells;
 /// What an admitted write does to placement geometry besides its Cells.
 #[derive(Clone, Copy)]
 pub(super) enum WriteKind {
-    /// Ordinary Source content: a value, a Copy's write, or the cleanup of a
-    /// prior Bang display. It obscures nothing, and an intact placement it
+    /// Ordinary Source content: a value, a Copy's write, or an Absence write.
+    /// It obscures nothing, and an intact placement it
     /// reaches stops being one unit.
     Output,
-    /// A Source effect clearing the Span a moving Function leaves. The
+    /// A Source effect clearing the Span a moving Function or a Bang Function
+    /// leaves. The
     /// Snapshot Cells it covers no longer hold the unit the Snapshot parsed.
     Vacate,
     /// A Source effect writing one whole generated unit: a moved or emitted

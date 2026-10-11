@@ -377,6 +377,39 @@ mod tests {
     }
 
     #[test]
+    fn a_planned_tick_fires_a_typed_bang_only_where_no_writer_covers_it() {
+        // A Tick planned away from the Source lock reads only the revision it
+        // plans from. Equality's `**` plays the Raw Play in its own Tick and
+        // its clear suppresses it after. A `**` typed in the quiet Equality's
+        // Output Portal is suppressed by the same clear; once the Equality is
+        // gone, a typed `**` plays once.
+        let grid = Grid::with_shape(10, 3);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        let type_at = |start: usize, text: &str| {
+            for (offset, content) in text.chars().enumerate() {
+                source
+                    .set(cell(start + offset), &content.to_string())
+                    .unwrap();
+            }
+        };
+        type_at(0, ".=0101");
+        type_at(20, "!>007FC4");
+
+        assert_eq!(source.execute(Tick::ZERO).play_commands.len(), 1);
+        type_at(4, "02");
+        assert!(source.execute(Tick::new(1)).play_commands.is_empty());
+
+        type_at(10, "**");
+        assert!(source.execute(Tick::new(2)).play_commands.is_empty());
+
+        type_at(0, "      ");
+        type_at(10, "**");
+        assert_eq!(source.execute(Tick::new(3)).play_commands.len(), 1);
+        assert!(source.execute(Tick::new(4)).play_commands.is_empty());
+    }
+
+    #[test]
     fn setting_clearing_and_reading_a_cell_all_take_a_grid_minted_index() {
         // The whole editing seam in one place. Addressing is settled before
         // the Source is asked anything, so the only rules left are about

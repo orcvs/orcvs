@@ -270,8 +270,8 @@ fn a_nested_vertical_copy_overwrites_another_expression() {
 
 #[test]
 fn a_bang_in_the_source_is_gone_before_a_vertical_copy_reads_it() {
-    // A `**` the performer typed is not a Bang the Copy can carry: the Tick
-    // clears it, the Copy reads empty and copies the empty Cells to its
+    // A typed `**` is a Bang Function, and the Copy reads its Cells after
+    // its Turn has cleared them, so it copies the empty Cells to its
     // destination. Nested, it returns them and the parent is invalid; a root
     // says nothing. Either way an aligned `.=` loses its spelling.
     let empty = "expected a number, found \"  \"";

@@ -247,7 +247,8 @@ fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions
 
     assert_eq!(expressions.len(), 2);
     assert_eq!(expressions[0].root(), grid.position(0, 0));
-    assert_eq!(expressions[1].root(), None);
+    // A standalone `**` is the Bang Function, a root like any other.
+    assert_eq!(expressions[1].root(), grid.position(0, 1));
     assert_eq!(
         map.expression_units(expressions[0])
             .iter()

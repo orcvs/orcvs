@@ -57,7 +57,7 @@ Ticket 02 reduces to tests for each row; the Absence clear already ships.
 
 Three read-only audits checked D1–D12 against the shipped language, under the constraint that the Bang Function is a new Function following existing Function rules and that every other rule emerges from composition. The Bang Function's Turn is today's start-of-Tick fire (`execution.rs:254-266`: blank the Span, activate `bang_roots`) moved into the dependency schedule. Most changes to existing behaviour follow from that move.
 
-- **D13 — No Bang-specific placement edge.** D5 is withdrawn. A mover or emission reaching a `**` has no edge to it beyond the existing ones (the intrinsic-contact skip, `tick.rs:973-979`), so Source order decides, as for a mover train under ADR 0060 rule 3b. `**<<` and a `vv` from the north enter after the `**` fires; `>>**` and a `^^` from the south are blocked and write `**`. This is Orca's reading order. It changes today's mover-into-`**` outcomes for east and south movers (`tick.rs:1646`).
+- **D13 — No Bang-specific placement edge.** D5 is withdrawn. A mover or emission reaching a `**` has no edge to it beyond the existing ones (the intrinsic-contact skip, `tick.rs:973-979`), so Source order decides, as for a mover train under ADR 0060 rule 3b. `**<<`, and a `^^` moving north from below, enter after the `**` fires; `>>**`, and a `vv` moving south from above, are blocked and write `**`. This is Orca's reading order. It changes today's mover-into-`**` outcomes for east and south movers (`tick.rs:1646`).
 - **D14 — Ticket 05 is dropped.** A Copy with partial input writes nothing (ADR 0069, CONTEXT.md Copy entry); its old `**` fires once (D4).
 - **D15 — The missed-Bang diagnostic loses its Selected-only restriction** (`execution.rs:657`). Every Bang delivered to a root that has taken its Turn is diagnosed "Bang reached a root that has taken its Turn", including a static Bang and a Bang reaching a locked root.
 - **D16 — Contact activation is removed.** A blocked mover writes `**` and activates nothing; the `**` fires on the next Tick. Keeping contact would fire the contacted root twice.
@@ -96,3 +96,14 @@ Model evidence: each edge list and outcome below is derived by hand from the sch
 **E8 — D17, Output Portal over a typed Bang.** `[".+0102  ", "**      ", "!>007FC4"]`: `.+` → `**` (writer before covered); `03` suppresses it; nothing plays. Today `!>` plays on Tick 0.
 
 **E9 — D16 and D17, first-step block.** `["***v", "    ", "  00"]`. Tick 0: the `**` activates `*v`, which emits `vv` at (2,1). Tick 1: `vv` is blocked by `00` and writes `**`; nothing is activated. Tick 2: `**` (2,1) → `*v`. Before placement-semantics 03 the emitter → occupant edge makes this a cycle; after it, the `**` fires and `*v` emits `vv` again, so row 1 alternates `vv` / `**`.
+
+## Comments
+
+2026-10-11 — Executed outcome contradicts D13's vertical example (found implementing ticket 03). D13 says a `vv` from the north enters after the `**` fires and a `^^` from the south is blocked; ticket 03's first two criteria repeat it. Executed, with no Bang-specific rule:
+
+- `["  vv      ", "  **      ", "  !>007FC4"]`, Tick 0: `vv` precedes the `**` in Source order, finds its Cells occupied and writes `**` over (2,0); the `**` at (2,1) fires and `!>` plays. Tick 1: the `**` at (2,0) fires with no aligned root.
+- `["  !>007FC4", "  **      ", "  ^^      "]`, Tick 0: the `**` fires first and `!>` plays; `^^` enters (2,1). Tick 1: `^^` is blocked by `!>` and writes `**`.
+
+The rule producing it is the one D13 names: Source order decides under ADR 0060 rule 3b, and Source order is row-major, as Orca's reading order is. A south-moving mover above a `**` therefore precedes it; a north-moving one below follows it. ADR 0072's consequence already states this outcome ("one moving west or north enters after it fires, one moving east or south is blocked"), so only D13's and ticket 03's vertical wording disagree. E6 is horizontal and executes as written. Awaiting the owner's confirmation before ticket 03's vertical tests and its CONTEXT.md wording land.
+
+2026-10-11 — The owner chose to correct the wording. D13 now states the executed vertical outcome, which ADR 0072 already states; ticket 03 pins it.

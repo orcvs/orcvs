@@ -11,8 +11,8 @@
 use lang::Tick;
 
 use super::observed::{
-    MISSED_BANG, Observed, diagnostic, first, observe_at, observed, quiet, raw_play, rows_of,
-    source_of, turn_before, turns,
+    MISSED_BANG, Observed, diagnostic, first, observe_at, observed, quiet, raw, rows_of, source_of,
+    turn_before, turns,
 };
 use crate::grid::Grid;
 use crate::source::{CellContent, CellWrite};
@@ -130,7 +130,7 @@ fn a_bang_copied_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_align
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
     assert_eq!(rows_of(&source)[2], "**007FC4        ");
 }
 

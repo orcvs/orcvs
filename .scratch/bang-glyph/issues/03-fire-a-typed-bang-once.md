@@ -1,6 +1,6 @@
 # 03 — Fire a typed Bang once
 
-Status: ready-for-agent
+Status: wontfix
 
 **What to build:**
 
@@ -16,3 +16,7 @@ ADR 0071's third decision. Source remembers which Cells the previous Tick wrote 
 - [ ] The tests pinning the inert manual Bang are flipped: `manually_entered_bang_is_display_only_and_never_activates_midi` and `test_manual_bang_is_inert_at_either_vertical_position` (`orcvs/src/source/model.rs`), `a_stale_bang_does_not_activate_halt` (`orcvs/src/source/tick.rs`) where its `**` was typed, and the typed case of `a_root_copy_relays_a_same_tick_bang_but_reads_a_typed_bang_as_empty` (`orcvs/src/source/tick/nested_copy/root_parity.rs`).
 - [ ] The remembered set is Source state that survives between Ticks and is reset by a Source replacement or load; persistence stores spellings only, so a reload treats every `**` as typed.
 - [ ] CONTEXT.md's Bang entry no longer says manually entering `**` is a no-op.
+
+## Comments
+
+2026-10-11 — Superseded by ADR 0072 before it shipped. A standalone `**` is the Bang Function (bang-function ticket 01), so a typed `**` fires on its own Turn and no record of the Cells a Tick wrote is kept.

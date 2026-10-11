@@ -231,7 +231,11 @@ impl<'a> Parser<'a> {
                     );
                     continue;
                 }
-                Some("**") => Ok((Token::Bang, Atom::Bang)),
+                // Where an Expression starts, `**` is the Bang Function. An
+                // operand slot takes the branch above, because `**` spells no
+                // Function there, and reads it as the Bang value its Token
+                // decodes.
+                Some("**") => Ok((Token::Function, Atom::Function(Function::Bang))),
                 Some(t) => Function::try_from(t)
                     .map(|function| (Token::Function, Atom::Function(function))),
                 None => Err(SyntaxError::ExpectedFunction.into()),
@@ -640,9 +644,26 @@ mod test {
         for function in Function::ALL {
             let spelling = function.spelling();
 
+            assert_eq!(function.to_string(), spelling);
+            assert_eq!(
+                Parser::from(spelling)
+                    .analyze()
+                    .expression()
+                    .positioned()
+                    .next()
+                    .and_then(|entry| entry.atom),
+                Some(Atom::Function(*function)),
+                "{spelling}"
+            );
+            if *function == Function::Bang {
+                // The Parser names the Bang Function where an Expression
+                // starts; wherever else a Function may stand, `**` is the Bang
+                // value.
+                assert_eq!(Function::from_spelling(spelling), None);
+                continue;
+            }
             assert_eq!(Function::try_from(spelling).unwrap(), *function);
             assert_eq!(Function::from_spelling(spelling), Some(*function));
-            assert_eq!(function.to_string(), spelling);
         }
     }
 
@@ -927,7 +948,10 @@ mod test {
 
     #[test]
     fn bang_and_self_banging_functions_parse_as_complete_language_units() {
-        assert_eq!(try_parse("**").unwrap().as_slice(), &[Atom::Bang]);
+        assert_eq!(
+            try_parse("**").unwrap().as_slice(),
+            &[Atom::Function(Function::Bang)]
+        );
         for (source, function) in [
             ("^^", Function::SelfBangingNorth),
             ("vv", Function::SelfBangingSouth),
@@ -1163,14 +1187,14 @@ mod test {
     #[test]
     fn every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it() {
         // A standalone Language Unit is a whole Expression, so it renders and
-        // parses back with no Function to type it.
-        for atom in std::iter::once(Atom::Bang).chain(
-            Function::ALL
-                .iter()
-                .copied()
-                .filter(|function| function.takes_no_operand())
-                .map(Atom::Function),
-        ) {
+        // parses back with no Function to type it. A standalone `**` is the
+        // Bang Function, so the Bang value renders as the Function's spelling.
+        for atom in Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| function.takes_no_operand())
+            .map(Atom::Function)
+        {
             let source = atom.to_string();
             assert_eq!(try_parse(&source).unwrap().as_slice(), &[atom]);
         }
@@ -1398,7 +1422,6 @@ mod property {
             (Token::Function, Atom::Function(_))
                 | (Token::Number, Atom::Number(_))
                 | (Token::Note, Atom::Note(_))
-                | (Token::Bang, Atom::Bang)
                 | (Token::Untyped, Atom::Bang | Atom::Number(_) | Atom::Note(_))
         )
     }
@@ -1745,7 +1768,12 @@ mod nesting_tests {
         // Every effect Function, nested where a value is required, is refused
         // by its declared kind. The layout still claims its own operands, so
         // the Expression keeps the extent its signatures give it.
-        for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
+        // The Bang Function is the one effect Function no operand slot reads
+        // as a Function: there `**` is the Bang value.
+        for function in Function::ALL
+            .iter()
+            .filter(|f| !f.answers_value() && **f != Function::Bang)
+        {
             let operands: String = function
                 .signature()
                 .iter()

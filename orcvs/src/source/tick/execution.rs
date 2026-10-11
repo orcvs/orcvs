@@ -189,12 +189,9 @@ struct Execution<'a> {
 
 impl<'a> Execution<'a> {
     ///
-    /// The state one Tick starts from, before any computation takes a Turn.
-    ///
-    /// Every computation begins untouched, the schedule's own diagnostics are
-    /// already recorded, and the previous revision's Bang display is cleared:
-    /// the clearing is part of starting a Tick rather than part of taking a
-    /// Turn, which is why it happens here and not in the loop that follows.
+    /// The state one Tick starts from, before any computation takes a Turn:
+    /// every computation untouched and the schedule's own diagnostics
+    /// recorded.
     ///
     fn new(
         grid: Grid,
@@ -208,7 +205,7 @@ impl<'a> Execution<'a> {
             diagnostics,
             ..
         } = schedule;
-        let mut execution = Self {
+        Self {
             grid,
             original: cells,
             working: WorkingSource::new(cells, map),
@@ -237,17 +234,7 @@ impl<'a> Execution<'a> {
                 .collect(),
             effects: diagnostics.iter().cloned().map(Effect::Diagnose).collect(),
             activated: Vec::new(),
-        };
-        // Source content rather than an answer, so it is stated here rather than
-        // rendered: a Bang occupies two Cells and clearing it writes two spaces.
-        let blank = Encoding::literal("  ").expect("a space is a printable Cell");
-        for (anchor, _) in map.bangs() {
-            let clear = Portal::at(grid, anchor)
-                .admit(&blank)
-                .expect("parsed Bang fits its Grid");
-            execution.write(WriteKind::Output, clear);
         }
-        execution
     }
 
     ///
@@ -556,9 +543,12 @@ impl<'a> Execution<'a> {
                 // than omit the write. A Copy answers Empty when its input is two
                 // spaces, and writes them. A Bang producer writes its answer
                 // on every Turn, so a Turn that does not Bang leaves its
-                // Output Portal empty. Every other Function writes nothing.
+                // Output Portal empty, as Orca's bang ports write `.`; the two
+                // Cells it clears are the pair the schedule reserves for its
+                // Bang, root or nested, so clearing them orders nothing new.
+                // Every other Function writes nothing.
                 let function = self.states[index].function;
-                if function.copies_language_unit() || clears_when_absent(function) {
+                if function.copies_language_unit() || function.answers_only_bang() {
                     let cleared =
                         Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
                     for output in sites {
@@ -594,10 +584,10 @@ impl<'a> Execution<'a> {
     /// replaced.
     ///
     /// A Bang's activation is the exception, because it lasts only for the
-    /// Tick that produces it: a selected Bang that reaches a root that has
-    /// already taken its Turn misses it, and that root is diagnosed as
-    /// missed. Nothing is stopped: the Bang still writes its display and
-    /// activates every other root still to take its Turn.
+    /// Tick that produces it: a Bang that reaches a root that has already
+    /// taken its Turn misses it, and that root is diagnosed as missed.
+    /// Nothing is stopped: the Bang is still written and activates every
+    /// other root still to take its Turn.
     ///
     fn deliver_output(
         &mut self,
@@ -633,7 +623,7 @@ impl<'a> Execution<'a> {
         let relationships = self.schedule.lookup.written_over(&write);
         if atom == Atom::Bang {
             for owner in relationships.bang_roots() {
-                if selected && self.misses_activation(owner) {
+                if self.misses_activation(owner) {
                     continue;
                 }
                 self.states[owner].activated = true;
@@ -715,7 +705,8 @@ impl<'a> Execution<'a> {
     ///
     /// The one validated effect bundle for a Source-writing Function.
     ///
-    /// The declared bundle decides which of the two it is. An `Advance` moves:
+    /// The declared bundle decides which it is. A `Fire` is the Bang
+    /// Function's Turn, [`Execution::fire`]. An `Advance` moves:
     /// an empty destination plans one validated Portal bundle, spaces over the
     /// current Span followed by its own spelling at the shifted destination,
     /// and a blocked or out-of-Grid move instead replaces its current Span with
@@ -747,6 +738,10 @@ impl<'a> Execution<'a> {
     /// every reservation has with the write it orders.
     ///
     fn deliver_source_effect(&mut self, index: usize, effect: SourceEffect) {
+        if effect.bundle == SourceBundle::Fire {
+            self.fire(index);
+            return;
+        }
         let node = &self.schedule.lookup.nodes()[index];
         let anchor = node.anchor;
         let spelling = Encoding::literal(
@@ -801,13 +796,7 @@ impl<'a> Execution<'a> {
                 // operand still waits for this supplier and decodes these Cells
                 // when its consumer executes.
                 if advancing {
-                    // Stated rather than built, for the reason `Execution::new`
-                    // states it. It clears `own`, which is always two Cells
-                    // because every spelling is, so two spaces cover it.
-                    let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
-                    let clear = Portal::at(self.grid, anchor)
-                        .admit(&cleared)
-                        .expect("a Function standing in the Source fits its own Span");
+                    let clear = self.own_span_clear(anchor);
                     self.write(WriteKind::Vacate, clear);
                 }
                 self.write(WriteKind::Place, write);
@@ -817,29 +806,25 @@ impl<'a> Execution<'a> {
             // destination is gone in every case, and what the producer does
             // instead is the bundle's to say.
             _ if advancing => {
-                // Source content rather than an answer: this Bang is the
-                // display a refused move leaves, so it is stated here the way
-                // the Bang cleanup in `Execution::new` is, and it reaches no
-                // Portal of a value.
+                // Source content rather than an answer: the Bang Function a
+                // refused move leaves, which activates nothing in this Turn
+                // and takes its own Turn from the next Snapshot. It is stated
+                // rather than rendered, and reaches no Portal of a value.
                 let bang =
                     Encoding::literal("**").expect("the Bang spelling is printable ASCII Cells");
-                let display = Portal::at(self.grid, anchor)
+                let left = Portal::at(self.grid, anchor)
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
-                self.write(WriteKind::Place, display);
+                self.write(WriteKind::Place, left);
                 let lookup = &self.schedule.lookup;
-                match self
+                if let Occupancy::Partial = self
                     .working
                     .contact(&entered, |anchor| lookup.root_at(anchor))
                 {
-                    // Only a surviving Snapshot root can receive activation.
-                    // A placed unit has no pending computation this Tick.
-                    Occupancy::Root(root) => self.states[root].activated = true,
-                    Occupancy::Partial => self.effects.push(Effect::Diagnose(diagnose(
+                    self.effects.push(Effect::Diagnose(diagnose(
                         node,
                         format!("{producer} contacts part of a Language Unit"),
-                    ))),
-                    Occupancy::Empty | Occupancy::NonRoot => {}
+                    )));
                 }
             }
             // An emitting Function stays where it is, so it has no Cells of its
@@ -862,6 +847,41 @@ impl<'a> Execution<'a> {
                 ),
             ))),
         }
+    }
+
+    ///
+    /// The Bang Function's Turn: it delivers Bang to the roots aligned with
+    /// its Span and clears its two Cells.
+    ///
+    /// The schedule ordered every producer that writes over those Cells, and
+    /// every root the Bang activates, by the same edges any producer's
+    /// reservation gives, so an overwrite has already suppressed this Turn
+    /// and a reader of the Cells waits for the clear.
+    ///
+    fn fire(&mut self, index: usize) {
+        let anchor = self.schedule.lookup.nodes()[index].anchor;
+        let clear = self.own_span_clear(anchor);
+        for owner in self.schedule.lookup.written_over(&clear).bang_roots() {
+            if self.misses_activation(owner) {
+                continue;
+            }
+            self.states[owner].activated = true;
+        }
+        self.write(WriteKind::Vacate, clear);
+    }
+
+    ///
+    /// The two spaces that clear the Span of the Function anchored at
+    /// `anchor`.
+    ///
+    /// Source content rather than an answer, so it is stated rather than
+    /// rendered. Every Function spelling is two Cells, so two spaces cover it.
+    ///
+    fn own_span_clear(&self, anchor: Position) -> SpanWrite {
+        let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
+        Portal::at(self.grid, anchor)
+            .admit(&cleared)
+            .expect("a Function standing in the Source fits its own Span")
     }
 
     ///
@@ -931,23 +951,11 @@ impl<'a> Execution<'a> {
     }
 
     /// Applying a write to working Source and recording its Effect are one
-    /// operation, including the cleanup of prior Bang display before any Turn
-    /// is attempted, so the Tick Plan writes exactly what later Turns read.
+    /// operation, so the Tick Plan writes exactly what later Turns read.
     fn write(&mut self, kind: WriteKind, write: SpanWrite) {
         self.working.apply(kind, &write);
         self.effects.push(Effect::Write(write));
     }
-}
-
-/// Whether `function` answers only Bang or the Absence Marker, and so clears
-/// its Output Portal on a Turn that does not Bang, as Orca's bang ports write
-/// `.`. The two Cells it clears are the pair the schedule reserves for its
-/// Bang, root or nested, so clearing them orders nothing new.
-fn clears_when_absent(function: Function) -> bool {
-    matches!(
-        function,
-        Function::Equality | Function::Delay | Function::Euclidean
-    )
 }
 
 /// Why a destination refused the value sent to it.

@@ -1621,7 +1621,7 @@ mod test {
         let token = match cell.source_paint() {
             SourcePaint::Unclaimed => None,
             SourcePaint::Function => Some(Token::Function),
-            SourcePaint::Bang => Some(Token::Bang),
+            SourcePaint::Bang => Some(Token::Function),
             SourcePaint::Comment => Some(Token::Comment),
             SourcePaint::Operand { token, .. } => Some(token),
         };

@@ -500,7 +500,11 @@ mod test {
             PlayCommand, Source, SourceError, Tick, TickPlan, Token, Velocity,
             encoding::{Encoding, Rendered},
             portal::Portal,
-            tick::{Effect, resolve},
+            tick::{
+                Effect,
+                observed::{raw, raw_c4},
+                resolve,
+            },
         },
         test::trace,
     };
@@ -1013,6 +1017,44 @@ mod test {
 
     #[cfg(feature = "persistence")]
     #[test]
+    fn a_source_read_back_plans_as_the_source_it_was_saved_from() {
+        // Persistence stores spellings, and spellings are all a Tick reads: a
+        // `**` Equality wrote fires, or is suppressed, the same way in the
+        // Source it was saved from and in the Source read back.
+        for (edit, fires) in [((5, "2"), false), ((1, " "), true)] {
+            let grid = Grid::new();
+            let mut source = Source::new(grid);
+            let at = |idx| grid.cell_index(idx).expect("inside the Grid");
+            for (idx, content) in ".=0101".chars().enumerate() {
+                source.set(at(idx), &content.to_string()).unwrap();
+            }
+            for (idx, content) in "!>007FC4".chars().enumerate() {
+                source
+                    .set(at(2 * grid.columns() + idx), &content.to_string())
+                    .unwrap();
+            }
+            assert_eq!(source.execute(Tick::ZERO).play_commands, [raw_c4()]);
+            source.set(at(edit.0), edit.1).unwrap();
+
+            let encoded = serde_json::to_string(&source).unwrap();
+            let mut restored: Source = serde_json::from_str(&encoded).unwrap();
+
+            let expected = if fires { vec![raw_c4()] } else { vec![] };
+            for tick in [Tick::new(1), Tick::new(2)] {
+                let live = source.execute(tick).play_commands;
+                assert_eq!(live, restored.execute(tick).play_commands);
+                let expected = if tick == Tick::new(1) {
+                    &expected[..]
+                } else {
+                    &[]
+                };
+                assert_eq!(live, expected, "{edit:?} at {tick:?}");
+            }
+        }
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
     fn test_source_deserialization_rejects_a_grid_that_does_not_match_its_cells() {
         let grid = Grid::new();
         let mut source = Source::new(grid);
@@ -1496,7 +1538,7 @@ mod test {
         assert_eq!(cell(&src, 11), (Some('3'), Some(Token::Function)));
     }
 
-    fn assert_only_bang_display(plan: &TickPlan, grid: Grid, anchors: &[usize]) {
+    fn assert_writes_only_bangs(plan: &TickPlan, grid: Grid, anchors: &[usize]) {
         let expected: Vec<_> = anchors
             .iter()
             .flat_map(|anchor| [*anchor, anchor + 1])
@@ -1521,11 +1563,7 @@ mod test {
 
             assert_eq!(
                 tick.play_commands,
-                vec![PlayCommand::Raw {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(0x7F).unwrap(),
-                    note: Note::try_from(60).unwrap(),
-                }],
+                vec![raw(0, 0x7F, 60)],
                 "{initial_call}: C4 and its Bang belong to this Tick"
             );
             assert!(tick.diagnostics.is_empty());
@@ -1544,7 +1582,9 @@ mod test {
         let first = src.execute();
         assert_eq!(first.play_commands.len(), 1);
         assert_eq!(src.row(1), "**    .^3C      ");
-        // Stop the producer, leaving the generated Bang visible in Source.
+        // Make the producer unequal, leaving the generated Bang visible in
+        // Source. Its clear suppresses that `**` before it fires, so the Raw
+        // Play does not play again.
         src.write(at(4), "02");
 
         let second = src.execute();
@@ -1554,7 +1594,7 @@ mod test {
     }
 
     #[test]
-    fn manually_entered_bang_is_display_only_and_never_activates_midi() {
+    fn a_typed_bang_activates_the_root_above_it_once_and_is_cleared() {
         let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
         let at = src.cells();
         src.write(at(10), "!>007FC4");
@@ -1562,9 +1602,100 @@ mod test {
 
         let tick = src.execute();
 
-        assert!(tick.play_commands.is_empty());
+        assert_eq!(tick.play_commands, [raw_c4()]);
         assert_eq!(src.row(2), "          ");
-        assert!(tick.diagnostics.is_empty());
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+
+        let after = src.execute();
+
+        assert!(after.play_commands.is_empty(), "{:?}", after.play_commands);
+        assert!(after.writes.is_empty(), "{:?}", after.writes);
+    }
+
+    #[test]
+    fn a_typed_bang_activates_its_root_after_the_writes_that_root_reads() {
+        // `.^3C` writes `C4` over the Raw Play's `D4` before the Raw Play's
+        // Turn, so the Bang typed above the Raw Play plays the note written
+        // this Tick, as a Bang a Function wrote there would.
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
+        let at = src.cells();
+        src.write(at(0), "**    .^3C");
+        src.write(at(10), "!>007FD4");
+
+        let tick = src.execute();
+
+        assert_eq!(tick.play_commands, [raw_c4()]);
+        assert_eq!(src.row(0), "      .^3C");
+        assert_eq!(src.row(1), "!>007FC4  ");
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    }
+
+    #[test]
+    fn a_bang_retyped_under_its_writer_is_still_suppressed() {
+        // Equality writes `**` above the Raw Play and plays it. Equality is
+        // then made unequal, and the first Cell of its `**` is typed again
+        // with the `*` it already holds. Nothing records who typed it: the
+        // unequal Equality clears its Output Portal before the `**` takes its
+        // Turn, so the `**` plays nothing.
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>007FC4");
+
+        let first = src.execute();
+        assert_eq!(first.play_commands, [raw_c4()]);
+        assert_eq!(src.row(1), "**        ");
+
+        src.write(at(4), "02");
+        src.write(at(10), "*");
+
+        let typed = src.execute();
+        assert!(typed.play_commands.is_empty(), "{:?}", typed.play_commands);
+        assert_eq!(src.row(1), "          ");
+        assert!(typed.diagnostics.is_empty(), "{:?}", typed.diagnostics);
+    }
+
+    #[test]
+    fn a_block_edit_of_a_bang_under_its_writer_is_still_suppressed() {
+        // A block edit writing `**` is an edit like any other, and the unequal
+        // Equality covering it clears it before its Turn.
+        let mut src = SourceUnderTest::new(Grid::with_shape(10, 3));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>007FC4");
+        src.execute();
+        src.write(at(4), "02");
+
+        let star = crate::source::CellContent::new(b'*').unwrap();
+        src.write_cells(&[
+            CellWrite {
+                cell: at(10),
+                content: star,
+            },
+            CellWrite {
+                cell: at(11),
+                content: star,
+            },
+        ]);
+
+        assert!(src.execute().play_commands.is_empty());
+        assert_eq!(src.row(1), "          ");
+    }
+
+    #[test]
+    fn a_bang_read_from_a_source_file_fires_once_on_the_first_tick() {
+        let mut src = crate::source::file::read(b"**\n!>007FC4\n").unwrap();
+
+        let first = src.execute(Tick::ZERO);
+        assert_eq!(first.play_commands, [raw_c4()]);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let second = src.execute(Tick::new(1));
+        assert!(
+            second.play_commands.is_empty(),
+            "{:?}",
+            second.play_commands
+        );
     }
 
     #[test]
@@ -1615,15 +1746,8 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(
-            tick.play_commands,
-            vec![PlayCommand::Raw {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7F).unwrap(),
-                note: Note::try_from(60).unwrap()
-            }]
-        );
-        assert_only_bang_display(&tick, src.grid, &[10]);
+        assert_eq!(tick.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert_writes_only_bangs(&tick, src.grid, &[10]);
         assert_eq!(src.row(1), "**        ");
     }
 
@@ -1649,7 +1773,7 @@ mod test {
                 length: Length::from(3),
             }]
         );
-        assert_only_bang_display(&tick, src.grid, &[10]);
+        assert_writes_only_bangs(&tick, src.grid, &[10]);
         assert!(tick.diagnostics.is_empty());
         assert_eq!(src.row(1), "**        ");
     }
@@ -1774,7 +1898,7 @@ mod test {
                 length: Length::from(3),
             }]
         );
-        assert_only_bang_display(&tick, src.grid, &[10]);
+        assert_writes_only_bangs(&tick, src.grid, &[10]);
         assert!(tick.diagnostics.is_empty());
         assert_eq!(src.row(1), "**        ");
     }
@@ -1811,7 +1935,7 @@ mod test {
             let tick = src.execute();
 
             assert_eq!(tick.play_commands, vec![expected], "{expression}");
-            assert_only_bang_display(&tick, src.grid, &[10]);
+            assert_writes_only_bangs(&tick, src.grid, &[10]);
             assert!(tick.diagnostics.is_empty(), "{expression}");
             assert_eq!(src.row(1), "**        ", "{expression}");
         }
@@ -1851,7 +1975,7 @@ mod test {
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert_only_bang_display(&tick, src.grid, &[10]);
+            assert_writes_only_bangs(&tick, src.grid, &[10]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }
@@ -1885,7 +2009,7 @@ mod test {
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert_only_bang_display(&tick, src.grid, &[10]);
+            assert_writes_only_bangs(&tick, src.grid, &[10]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }
@@ -1900,14 +2024,7 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(
-            tick.play_commands,
-            vec![PlayCommand::Raw {
-                channel: MidiChannel::try_from(0xF).unwrap(),
-                velocity: Velocity::try_from(0).unwrap(),
-                note: Note::try_from(21).unwrap()
-            }]
-        );
+        assert_eq!(tick.play_commands, vec![raw(0xF, 0, 21)]);
         assert!(tick.diagnostics.is_empty());
     }
 
@@ -1921,7 +2038,7 @@ mod test {
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
-        assert_only_bang_display(&tick, src.grid, &[10]);
+        assert_writes_only_bangs(&tick, src.grid, &[10]);
         assert_eq!(tick.diagnostics.len(), 1);
         assert_eq!(tick.diagnostics[0].start(), 20);
         assert_eq!(tick.diagnostics[0].end(), 27);
@@ -1941,7 +2058,7 @@ mod test {
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
-        assert_only_bang_display(&tick, src.grid, &[10]);
+        assert_writes_only_bangs(&tick, src.grid, &[10]);
         assert_eq!(tick.diagnostics.len(), 1);
         assert_eq!(
             tick.diagnostics[0].message,
@@ -1972,8 +2089,12 @@ mod test {
     fn every_effect_function_is_refused_where_a_value_is_required() {
         // The Parser asks the Function's declared kind, not which effect it
         // performs, so a Function declared with any effect is nested-invalid
-        // the day it exists.
-        for function in Function::ALL.iter().filter(|f| !f.answers_value()) {
+        // the day it exists. The Bang Function is named only where an
+        // Expression starts: nested, `**` is the Bang value.
+        for function in Function::ALL
+            .iter()
+            .filter(|f| !f.answers_value() && **f != Function::Bang)
+        {
             let mut expression = format!(".+{function}");
             for token in lang::Tokens::from(function) {
                 expression.push_str(match token {
@@ -2050,14 +2171,7 @@ mod test {
         let tick = src.execute();
 
         assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
-        assert_eq!(
-            tick.play_commands,
-            vec![PlayCommand::Raw {
-                channel: MidiChannel::try_from(0x0F).unwrap(),
-                velocity: Velocity::try_from(0x01).unwrap(),
-                note: Note::try_from(60).unwrap(),
-            }]
-        );
+        assert_eq!(tick.play_commands, vec![raw(0x0F, 0x01, 60)]);
     }
 
     #[test]
@@ -2073,23 +2187,12 @@ mod test {
         // means: the same commands at Tick `0` and again at Tick `1`.
         let first = src.execute();
         let second = src.execute();
-        let expected = vec![
-            PlayCommand::Raw {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(1).unwrap(),
-                note: Note::try_from(60).unwrap(),
-            },
-            PlayCommand::Raw {
-                channel: MidiChannel::try_from(1).unwrap(),
-                velocity: Velocity::try_from(0x7F).unwrap(),
-                note: Note::try_from(69).unwrap(),
-            },
-        ];
+        let expected = vec![raw(0, 1, 60), raw(1, 0x7F, 69)];
 
         assert_eq!(first.play_commands, expected);
         assert_eq!(second.play_commands, expected);
-        assert_only_bang_display(&first, src.grid, &[10, 40]);
-        assert_only_bang_display(&second, src.grid, &[10, 40]);
+        assert_writes_only_bangs(&first, src.grid, &[10, 40]);
+        assert_writes_only_bangs(&second, src.grid, &[10, 40]);
     }
 
     #[test]
@@ -2109,7 +2212,7 @@ mod test {
     }
 
     #[test]
-    fn test_manual_bang_is_inert_at_either_vertical_position() {
+    fn test_a_typed_bang_fires_once_at_either_vertical_position() {
         for (bang, root) in [(0, 10), (10, 0)] {
             let mut src = source();
             let at = src.cells();
@@ -2118,12 +2221,16 @@ mod test {
 
             let tick = src.execute();
 
-            assert!(
-                tick.play_commands.is_empty(),
+            assert_eq!(
+                tick.play_commands,
+                [raw_c4()],
                 "Bang at {bang}, root at {root}"
             );
             assert!(tick.diagnostics.is_empty(), "Bang at {bang}");
             assert_eq!(&src.snapshot()[bang..bang + 2], "  ");
+
+            let after = src.execute();
+            assert!(after.play_commands.is_empty(), "Bang at {bang}");
         }
     }
 
@@ -2136,28 +2243,23 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(
-            tick.play_commands,
-            vec![PlayCommand::Raw {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7F).unwrap(),
-                note: Note::try_from(60).unwrap()
-            }]
-        );
+        assert_eq!(tick.play_commands, vec![raw(0, 0x7F, 60)]);
         assert_eq!(src.row(1), "**        ");
     }
 
     #[test]
-    fn test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root() {
-        // Pins a limitation of Bang activation: its west and east anchors sit
-        // two Cells from the Bang, but a Raw Play's operands occupy those
-        // Cells, and the walk partitions a row by parse, so a Bang beside a
-        // Function is that Function's operand Source. The contiguous spellings
-        // form no root at all, and the space-separated ones put the Bang anchor
-        // three or more columns away from the root anchor. Every horizontal
-        // placement is inert; the day the partition Bang activation reads
-        // changes, this test says so.
-        for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
+    fn test_a_horizontal_bang_activates_a_terminal_root_anchored_two_columns_east() {
+        // A Bang's east anchor is two columns from its own: a Raw Play spelled
+        // directly after a typed `**` is aligned and plays. A Raw Play's
+        // operands occupy the Cells two columns from its east end, so a `**`
+        // after it is not at its anchor, and a space between the two puts the
+        // anchor three columns away: those placements are inert.
+        for (expression, plays) in [
+            ("**!>007FC4", true),
+            ("!>007FC4**", false),
+            ("** !>007FC4", false),
+            ("!>007FC4 **", false),
+        ] {
             // The Grid is as wide as the spelling it holds. The geometry under
             // test is horizontal, so a spelling that outran the row would wrap
             // onto the next one and pin nothing.
@@ -2169,10 +2271,8 @@ mod test {
 
             let tick = src.execute();
 
-            assert!(
-                tick.play_commands.is_empty(),
-                "{expression:?} emitted a command"
-            );
+            let expected = if plays { vec![raw_c4()] } else { vec![] };
+            assert_eq!(tick.play_commands, expected, "{expression:?}");
         }
     }
 
@@ -2564,21 +2664,7 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(
-            tick.play_commands,
-            vec![
-                PlayCommand::Raw {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(60).unwrap(),
-                },
-                PlayCommand::Raw {
-                    channel: MidiChannel::try_from(2).unwrap(),
-                    velocity: Velocity::try_from(0x7F).unwrap(),
-                    note: Note::try_from(69).unwrap(),
-                },
-            ]
-        );
+        assert_eq!(tick.play_commands, vec![raw(0, 1, 60), raw(2, 0x7F, 69),]);
         assert_eq!(
             tick.diagnostics
                 .iter()

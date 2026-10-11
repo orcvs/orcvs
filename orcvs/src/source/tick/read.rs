@@ -10,7 +10,7 @@
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::observed::{
-    diagnostic, first, observe_at, quiet_rows, raw_play, rows_of, source_of, turn_before, turns,
+    diagnostic, first, observe_at, quiet_rows, raw, rows_of, source_of, turn_before, turns,
 };
 use crate::grid::Grid;
 
@@ -197,7 +197,7 @@ fn a_bang_a_read_reads_overwrites_the_root_it_lands_on_and_activates_the_roots_a
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
     assert_eq!(rows_of(&source)[2], "**007FC4      ");
 }
 
@@ -567,7 +567,7 @@ fn a_bang_an_absolute_read_reads_is_written_as_a_bang() {
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands, [raw_play(62)]);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
     assert_eq!(rows_of(&source)[2], "**007FC4      ");
 }
 

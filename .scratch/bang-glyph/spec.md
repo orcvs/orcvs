@@ -1,6 +1,6 @@
 # A Bang travels as its glyph
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

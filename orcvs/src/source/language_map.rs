@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
+#[cfg(test)]
+use lang::Atoms;
+use lang::{Atom, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -196,6 +198,9 @@ pub struct ExpressionEntry<'a> {
 /// One Expression as its row derived it. Revisions share it.
 struct DerivedExpression {
     expression: Expression,
+    /// The Atoms of an executable Expression, which tests read to state what
+    /// the Parser found.
+    #[cfg(test)]
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
@@ -275,6 +280,7 @@ impl<'a> ExpressionEntry<'a> {
         self.derived.diagnostic.as_ref()
     }
 
+    #[cfg(test)]
     pub(super) fn atoms(self) -> Option<&'a Atoms> {
         self.derived.atoms.as_ref()
     }
@@ -385,27 +391,13 @@ impl LanguageMap {
         self.rows.iter().flat_map(|row| row.units.iter())
     }
 
-    /// Bang values from complete standalone Expressions, paired with their
-    /// spelling Spans. The parsed Atoms decide meaning; units supply geometry.
-    pub(super) fn bangs(&self) -> impl Iterator<Item = (Position, Span)> + '_ {
-        self.expressions().flat_map(move |expression| {
-            let atoms = expression.atoms().filter(|atoms| {
-                atoms.as_slice().iter().all(|atom| {
-                    matches!(atom, Atom::Bang)
-                        || matches!(atom, Atom::Function(function)
-                                if function.takes_no_operand())
-                })
-            });
-            atoms.into_iter().flat_map(move |atoms| {
-                atoms
-                    .as_slice()
-                    .iter()
-                    .zip(self.expression_units(expression))
-                    .filter_map(|(atom, unit)| {
-                        matches!(atom, Atom::Bang).then_some((unit.anchor(), unit.span()))
-                    })
-            })
-        })
+    /// The anchor and Span of every Bang Function, the standalone `**`, in
+    /// unit order.
+    #[cfg(test)]
+    pub(super) fn bang_functions(&self) -> impl Iterator<Item = (Position, Span)> + '_ {
+        self.units()
+            .filter(|unit| unit.kind() == LanguageUnitKind::Function(Function::Bang))
+            .map(|unit| (unit.anchor(), unit.span()))
     }
 
     /// Every parser and unmatched-character diagnostic in this revision.
@@ -725,9 +717,11 @@ impl DerivedRow {
                 .then_some(function_candidate)
                 .flatten()
                 .map(|(anchor, _)| anchor);
+            #[cfg(test)]
             let atoms = executable.then(|| expression.atoms()).flatten();
             row.expressions.push(DerivedExpression {
                 expression,
+                #[cfg(test)]
                 atoms,
                 diagnostic,
                 root,
@@ -924,7 +918,7 @@ mod tests {
         for source in ["!>00**C4", "!>**7F  "] {
             let grid = Grid::with_shape(8, 2);
             let map = LanguageMap::build(grid, Cells::of(format!("{source}        ").as_bytes()));
-            assert_eq!(map.bangs().count(), 0, "{source}");
+            assert_eq!(map.bang_functions().count(), 0, "{source}");
             assert!(
                 !map.units()
                     .any(|unit| unit.kind() == LanguageUnitKind::Bang),
@@ -942,7 +936,7 @@ mod tests {
         let map = LanguageMap::build(grid, Cells::of(b"**X0**"));
 
         assert_eq!(
-            map.bangs()
+            map.bang_functions()
                 .map(|(anchor, span)| (anchor.x(), span.start().get(), span.end().get()))
                 .collect::<Vec<_>>(),
             vec![(0, 0, 1), (4, 4, 5)],
@@ -996,7 +990,7 @@ mod tests {
         // that follows it is a candidate anchored where it is spelled, which
         // is what partitioning by parse buys a person mid-keystroke: a mistyped
         // Cell costs that Cell rather than the rest of the row.
-        for (source, column) in [("XX!>007FC4", 2), ("**!>007FC4", 2), ("0!>007FC4", 1)] {
+        for (source, column) in [("XX!>007FC4", 2), ("0!>007FC4", 1)] {
             let grid = Grid::with_shape(source.len(), 1);
             let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
             assert_eq!(
@@ -1015,7 +1009,7 @@ mod tests {
         let grid = Grid::with_shape(6, 1);
         let map = LanguageMap::build(grid, Cells::of(b"**>>**"));
         assert_eq!(
-            map.bangs()
+            map.bang_functions()
                 .map(|(anchor, span)| (anchor.x(), span.start().get(), span.end().get()))
                 .collect::<Vec<_>>(),
             vec![(0, 0, 1), (4, 4, 5)],
@@ -1233,7 +1227,10 @@ mod tests {
         );
         assert_eq!(
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
-            vec![LanguageUnitKind::Bang, LanguageUnitKind::Comment]
+            vec![
+                LanguageUnitKind::Function(Function::Bang),
+                LanguageUnitKind::Comment
+            ]
         );
         assert_eq!(map.diagnostics().count(), 0);
         // The Bang answers; the Comment is complete and answers with nothing.
@@ -1244,10 +1241,7 @@ mod tests {
             vec![true, false]
         );
         // And it is never a root, so no Turn is ever reserved for it.
-        assert!(
-            map.expressions()
-                .all(|expression| expression.root().is_none())
-        );
+        assert!(map.expressions().nth(1).unwrap().root().is_none());
         // The whole claim renders as a Comment, spaces and all.
         for column in 2..8 {
             assert_eq!(
@@ -1461,7 +1455,7 @@ mod tests {
 
     #[test]
     fn a_run_of_standalone_atoms_is_as_many_expressions_as_the_parser_finds() {
-        // `**^^` is a Bang and then a Self-Banging Function, and the partition
+        // `**^^` is a Bang Function and then a Self-Banging Function, and the partition
         // says so: each is a whole Expression with a Span of its own and Atoms
         // of its own, never one four-Cell Expression that no single parse
         // produced.
@@ -1477,7 +1471,7 @@ mod tests {
                 ))
                 .collect::<Vec<_>>(),
             vec![
-                (0, 1, Some(vec![Atom::Bang])),
+                (0, 1, Some(vec![Atom::Function(Function::Bang)])),
                 (2, 3, Some(vec![Atom::Function(Function::SelfBangingNorth)])),
             ],
         );
@@ -1486,7 +1480,7 @@ mod tests {
 
     #[test]
     fn an_odd_standalone_run_costs_one_cell_and_leaves_the_rest_readable() {
-        // `***` is a Bang and one invalid `*`. The Bang is a whole Expression
+        // `***` is a Bang Function and one invalid `*`. The Bang Function is a whole Expression
         // that answers with Atoms, so a Tick can execute it — the stray
         // character costs the Cell it occupies and nothing more, and never
         // refuses the Bang along with it.
@@ -1496,9 +1490,9 @@ mod tests {
             map.expressions()
                 .map(|expression| expression.atoms().map(|atoms| atoms.as_slice().to_vec()))
                 .collect::<Vec<_>>(),
-            vec![Some(vec![Atom::Bang]), None],
+            vec![Some(vec![Atom::Function(Function::Bang)]), None],
         );
-        assert_eq!(map.bangs().count(), 1);
+        assert_eq!(map.bang_functions().count(), 1);
     }
 
     #[test]
@@ -1507,7 +1501,7 @@ mod tests {
         let bangs = LanguageMap::build(bang_grid, Cells::of(b"****"));
         let activations = LanguageMap::build(Grid::with_shape(4, 1), Cells::of(b">>>>"));
 
-        // Two Bangs, and two Expressions: a standalone Atom is one whole
+        // Two Bang Functions, and two Expressions: a standalone unit is one whole
         // Expression, so a run of them is a run of Expressions rather than one
         // Expression holding several Atoms.
         assert_eq!(
@@ -1515,14 +1509,17 @@ mod tests {
                 .expressions()
                 .map(|expression| expression.atoms().unwrap().as_slice().to_vec())
                 .collect::<Vec<_>>(),
-            vec![vec![Atom::Bang], vec![Atom::Bang]]
+            vec![
+                vec![Atom::Function(Function::Bang)],
+                vec![Atom::Function(Function::Bang)]
+            ]
         );
         assert!(
             bang_grid
                 .positions_by_row()
                 .flatten()
                 .take(4)
-                .all(|position| bangs.token_at(position) == Some(Token::Bang))
+                .all(|position| bangs.token_at(position) == Some(Token::Function))
         );
         assert_eq!(bangs.diagnostics().count(), 0);
         assert_eq!(
@@ -1584,6 +1581,17 @@ mod tests {
             assert!(covered(&map, grid, 1, 1));
             assert!(!covered(&map, grid, 2, 1), "past the Reservation's pair");
             assert!(!covered(&map, grid, 0, 0), "the Expression's own row");
+        }
+
+        #[test]
+        fn a_bang_function_reserves_no_output_portal() {
+            // A root `**` clears its own Span and answers no value, so
+            // nothing south of it draws as an Output Portal.
+            let grid = Grid::with_shape(2, 2);
+            let map = build(grid, &["**"]);
+
+            assert!(!covered(&map, grid, 0, 1));
+            assert!(!covered(&map, grid, 1, 1));
         }
 
         #[test]

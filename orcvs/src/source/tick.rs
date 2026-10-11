@@ -9,11 +9,13 @@
 
 #[cfg(test)]
 mod absolute_copy;
+#[cfg(test)]
+mod bang_function;
 pub(super) mod execution;
 #[cfg(test)]
 mod nested_copy;
 #[cfg(test)]
-mod observed;
+pub(super) mod observed;
 mod ordering;
 #[cfg(test)]
 mod push;
@@ -280,7 +282,7 @@ impl Lookup {
                     if let Some(root) = lookup.root_at(destination) {
                         return LockTarget::Root(lookup.descendants(root));
                     }
-                    // Snapshot occupancy survives prior Bang display cleanup.
+                    // A site no root covers is judged by its Snapshot occupancy.
                     let portal = Portal::at(grid, destination);
                     if matches!(
                         portal.occupancy(map, |anchor| lookup.root_at(anchor)),
@@ -366,26 +368,6 @@ impl PortalRelationships<'_> {
         self.lookup.literals.touching(self.cells.clone())
     }
 
-    ///
-    /// The Expression roots a Source-writing Function's own Span could move
-    /// into at these Cells.
-    ///
-    /// Complete aligned root contact directly delivers Bang activation. This is
-    /// that question asked of the schedule, which knows the geometry and not
-    /// the Source — the Cells a move newly enters, and so which of these roots
-    /// is actually contacted, are settled at the Turn against working Source.
-    ///
-    /// It is the contacted Function rather than a cardinal neighbour, which is
-    /// what separates it from [`PortalRelationships::bang_roots`]: a
-    /// Self-Banging Function moves onto a root's Cells, while a Bang activates
-    /// roots it never touches.
-    fn contacted_roots(&self) -> impl Iterator<Item = usize> + '_ {
-        self.lookup
-            .functions
-            .touching(self.cells.clone())
-            .filter(|index| self.lookup.nodes()[*index].parent.is_none())
-    }
-
     /// Geometrically eligible roots, regardless of their activation policy or
     /// whether this producer actually returns Bang. Even a partial overlap
     /// with an operand excludes activation; nested operands count here too.
@@ -406,9 +388,11 @@ impl PortalRelationships<'_> {
     /// exactly that silence.
     ///
     /// A Self-Banging Function `^^ vv << >>` answers the arm with a root and
-    /// changes nothing by it, because both callers act on a root only where it
-    /// is not intrinsically active and those four take their Turn without a
-    /// Bang. The Directional Bang Functions are where it decides a Tick: `*^`
+    /// changes nothing by it: those four take their Turn without a Bang, so
+    /// scheduling orders nothing after an intrinsically active root, and a
+    /// Bang that reaches one, before its Turn or after it, neither starts nor
+    /// misses anything. The Directional Bang Functions are where it decides a
+    /// Tick: `*^`
     /// declares no operand and waits for activation, so a Bang two columns east
     /// of one is the only thing that starts it.
     /// `an_active_directional_bang_function_emits_its_self_banging_function`
@@ -449,6 +433,9 @@ impl PortalRelationships<'_> {
 ///
 /// Plans one Tick against `map`, through the schedule every revision holding
 /// the same scheduling inputs shares.
+///
+/// The Grid, its Cells, their Language Map and the Tick are everything a Tick
+/// depends on: two Sources holding the same Cells plan the same Tick.
 ///
 pub(super) fn plan(
     grid: Grid,
@@ -614,13 +601,12 @@ fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
 /// that no schedule has yet, so execution checks activation again once those
 /// producers have settled.
 ///
-/// Two declarations deliver, because activation has two paths. A Function that
-/// can return Bang delivers through the Bang it writes, to the cardinal anchors
-/// a Source-resident Bang activates. A Function whose bundle advances delivers
-/// on contact, to a complete root its own Span moves into. No row declares
-/// both, and the Directional Bang Functions declare neither: one emits into
-/// Cells it has already required to be empty, so there is nothing there to
-/// activate.
+/// One declaration delivers: a Function that can return Bang delivers through
+/// the Bang it writes, to the cardinal anchors a Source-resident Bang
+/// activates. The Bang Function declares it, and delivers to the anchors
+/// aligned with its own Span. A blocked Self-Banging Function delivers
+/// nothing in its Turn; the `**` it leaves is a Bang Function on the next
+/// Tick.
 ///
 fn active_roots(lookup: &Lookup) -> Vec<bool> {
     let nodes = lookup.nodes();
@@ -650,21 +636,11 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
     while let Some(owner) = pending.pop() {
         reached.push(owner);
         for index in lookup.descendants(owner) {
-            let function = nodes[index].function;
-            if !function.can_emit_bang() && !advances(function) {
+            if !nodes[index].function.can_emit_bang() {
                 continue;
             }
             for relationships in lookup.reservations(index) {
-                let banged = function
-                    .can_emit_bang()
-                    .then(|| relationships.bang_roots())
-                    .into_iter()
-                    .flatten();
-                let contacted = advances(function)
-                    .then(|| relationships.contacted_roots())
-                    .into_iter()
-                    .flatten();
-                for index in banged.chain(contacted).collect::<Vec<_>>() {
+                for index in relationships.bang_roots().collect::<Vec<_>>() {
                     if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
                         pending.push(index);
@@ -677,20 +653,39 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
 }
 
 ///
-/// Whether this Function's declared bundle vacates the Cells it stands in.
+/// Whether this Function's declared bundle moves the Span it stands in.
 ///
-/// Three rules of the schedule ask it, and all three are about the producer's
-/// own Span rather than about its destination: whether the bundle reserves that
-/// Span, whether ordering the producer after itself is a defect or the design,
-/// and whether a refused destination has somewhere to deliver activation from.
-/// Asking `source_effect().is_some()` instead would give a Directional Bang
-/// Function all three, and it earns none of them.
+/// One rule of the schedule asks it: whether a Function its reservation
+/// contacts is ordered after it. A move is admitted only into empty Cells, so
+/// contact writes over nothing and delivers no activation, and only a root
+/// that waits for a Bang is ordered after it. Asking
+/// `source_effect().is_some()` instead would give the same answer to a
+/// Directional Bang Function and the Bang Function, which do not move.
 ///
 fn advances(function: Function) -> bool {
     matches!(
         function.source_effect(),
         Some(SourceEffect {
             bundle: SourceBundle::Advance,
+            ..
+        })
+    )
+}
+
+///
+/// Whether this Function's declared bundle clears the Span it stands in, so
+/// that its first Portal covers its own spelling by design: a Self-Banging
+/// Function's `Advance` and the Bang Function's `Fire`.
+///
+/// One rule of the schedule asks it: whether a reservation covering the
+/// producer itself is a same-Tick cycle or the design. An emitting bundle plans
+/// nothing at its own Cells and needs no exemption.
+///
+fn clears_its_own_span(function: Function) -> bool {
+    matches!(
+        function.source_effect(),
+        Some(SourceEffect {
+            bundle: SourceBundle::Advance | SourceBundle::Fire,
             ..
         })
     )
@@ -727,8 +722,10 @@ fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
 /// Whether `locker` is a locking root whose Portal names `producer`.
 ///
 /// A planned write or Bang from that producer onto the locker is not a
-/// second ordering edge: the lock already withholds the Turn that would
-/// have produced it.
+/// second ordering edge: the lock orders the locker first. A lock that holds
+/// withholds the producer's Turn; one that does not, because nothing activated
+/// the locker in time, leaves the producer to take its Turn after it, and a
+/// Bang that producer delivers to the locker is missed.
 fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
     let node = &lookup.nodes()[locker];
     node.parent.is_none()
@@ -890,14 +887,11 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
         // rule.
         //
         // The one way a producer's own Cells are not a defect is one a
-        // declaration states outright: an advancing bundle clears the
-        // Span it stands in, so its first Portal covers its own spelling
-        // by design. Ordering it after itself would stop it every Tick it
-        // takes a Turn in. An emitting bundle plans nothing at
-        // its own Cells and needs no exception.
-        let clears_its_own_span = advances(node.function);
+        // declaration states outright: `clears_its_own_span`. Ordering such a
+        // producer after itself would stop it every Tick it takes a Turn in.
+        let exempt_from_itself = clears_its_own_span(node.function);
         let mut order_after = |consumer: usize| {
-            if clears_its_own_span && consumer == index {
+            if exempt_from_itself && consumer == index {
                 return;
             }
             if lock_covers(lookup, consumer, index) {
@@ -910,26 +904,27 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
         // delivers no activation there: occupancy alone orders nothing
         // (ADR 0060 rule 3b). An occupant that leaves first makes room; one
         // still standing refuses the emission.
+        let moves = advances(node.function);
         let contacts = (!emits_without_vacating(node.function))
             .then(|| relationships.functions())
             .into_iter()
             .flatten();
         for contact in contacts {
             // A move is admitted only where the Cells it enters are empty,
-            // so a Source-writing Function's Portal never writes
-            // over the Language Unit it contacts: the contact blocks the
-            // move and the Function bangs its own Span instead. The one
-            // thing contact still delivers is Bang activation, and an
-            // intrinsically active root does not need it — which is the
-            // exemption the Bang emission arm below already makes, for the
-            // same reason.
+            // so a Self-Banging Function's Portal never writes over the
+            // Language Unit it contacts: the contact blocks the move and the
+            // Function bangs its own Span instead. Its reservation still
+            // orders it before a contacted root that waits for a Bang, as any
+            // reservation does. An intrinsically active root is exempt, as in
+            // the Bang emission arm below, and meets the mover in Source
+            // order.
             //
             // Without it two Functions whose Portals cover each other name
             // each other in reservations neither can write through, and
             // ordering each after the other makes that pair a cycle that
             // stops both, though two blocked moves are not a contested
             // Cell.
-            if clears_its_own_span
+            if moves
                 && nodes[nodes[contact.index].owner]
                     .function
                     .is_intrinsically_active()
@@ -1052,6 +1047,7 @@ mod test {
     use crate::source::Cells;
     use lang::{Atom, Token};
 
+    use super::observed::raw;
     use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
 
     ///
@@ -1351,8 +1347,9 @@ mod test {
         //
         // No rule here is new. `>>` holds the earlier Turn by Source order,
         // finds `<` in the Cell it would enter, and reports in its own Span.
-        // `<<` then finds that fresh `*` and does the same. Both Bangs are
-        // display, so the Tick after clears them and the pair is gone.
+        // `<<` then finds that fresh `*` and does the same. Each `**` is a Bang
+        // Function on the next Tick, which fires and clears it, so the pair
+        // is gone.
         //
         // What this pins is the schedule. Each mover reserves Cells the other
         // stands in, which is an edge each way and an order no sort satisfies.
@@ -1627,12 +1624,14 @@ mod test {
         // One Cell of overlap between two movers, and Source order decides who
         // has it. `>>` takes the earlier Turn and enters the empty Cell; `<<`
         // then finds `>` where it would enter and replaces its own Span with
-        // `**`. The survivor goes on moving once the display is cleared.
+        // `**`. On the next Tick that `**` is a Bang Function later in Source
+        // order than `>>`, which meets it still standing and is blocked in
+        // turn; the `**` it leaves fires on the Tick after.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">> <<   "], 3);
 
         assert_eq!(grids[0], [" >>**   "]);
-        assert_eq!(grids[1], ["  >>    "]);
-        assert_eq!(grids[2], ["   >>   "]);
+        assert_eq!(grids[1], [" **     "]);
+        assert_eq!(grids[2], ["        "]);
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
@@ -1690,27 +1689,27 @@ mod test {
     fn a_mover_flush_against_a_directional_bang_function_bangs_rather_than_costing_the_tick() {
         // The mover stands in the emission's destination and moves back into
         // the Directional Bang Function, which never vacates. The mover is
-        // blocked whichever Turn comes first, so the emission is refused
-        // whichever Turn comes first: nothing is contested, and the Addition
-        // beside them answers. The mover's contact delivers Bang, so the
-        // Directional Bang Function diagnoses even with no other Bang to
-        // activate it.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &["  *><<  .+0102", ""], 1);
+        // blocked and bangs, nothing is contested, and the Addition beside
+        // them answers. The `**` it leaves activates nothing in that Tick; on
+        // the next it is a Bang Function aligned with the Directional Bang
+        // Function, which emits into the Cells it vacated.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 2), &["  *><<  .+0102", ""], 2);
         assert_eq!(grids[0], ["  *>**  .+0102", "        03    "]);
-        assert_eq!(
-            messages(&plans[0]),
-            vec!["*> has no empty destination inside the Grid for >>"]
-        );
+        assert_eq!(grids[1], ["  *>>>  .+0102", "        03    "]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
 
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &["  >>*<  "], 1);
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &["  >>*<  "], 2);
         assert_eq!(grids[0], ["  ***<  "]);
-        assert_eq!(
-            messages(&plans[0]),
-            vec!["*< has no empty destination inside the Grid for <<"]
-        );
+        assert_eq!(grids[1], ["  <<*<  "]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
 
-        // The vertical pair, and the Tick after: the Bang display is cleared,
-        // the destination is empty, and `*v` emits.
+        // The vertical pair, activated by an Equality as well: the emission
+        // finds the mover's `**` and is refused. On the Tick after, that `**`
+        // fires and clears before `*v`, which then emits.
         let (plans, grids, _) =
             tick_by_tick(Grid::with_shape(8, 3), &[".=0101", "  *v", "  ^^"], 2);
         assert_eq!(grids[0], [".=0101  ", "***v    ", "  **    "]);
@@ -1761,13 +1760,13 @@ mod test {
     #[test]
     fn an_emission_contest_follows_the_order_its_activation_imposes() {
         // The same contenders in both Grids: `*>` at column 2 emits into
-        // columns 4 and 5, and `<<` at column 6 wants column 5. Only the
-        // collision that activates `*>` moves. From above, its supplier takes
-        // the first Turn, the emission is ready before `<<` and wins, and
-        // `<<` is blocked.
+        // columns 4 and 5, and `<<` at column 6 wants column 5. Only the Bang
+        // that activates `*>` moves. From above, its supplier takes the first
+        // Turn, the emission is ready before `<<` and wins, and `<<` is
+        // blocked.
         let grid = Grid::with_shape(10, 3);
-        let (plans, grids, _) = tick_by_tick(grid, &["  vv", "  *>  <<", ""], 1);
-        assert_eq!(grids[0], ["  **      ", "  *>>>**  ", "          "]);
+        let (plans, grids, _) = tick_by_tick(grid, &["  **", "  *>  <<", ""], 1);
+        assert_eq!(grids[0], ["          ", "  *>>>**  ", "          "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -1777,8 +1776,8 @@ mod test {
         // From below, the supplier follows `<<` in Source order and the
         // emitter waits for it, so `<<` enters column 5 first and the
         // emission is refused.
-        let (plans, grids, _) = tick_by_tick(grid, &["", "  *>  <<", "  ^^"], 1);
-        assert_eq!(grids[0], ["          ", "  *> <<   ", "  **      "]);
+        let (plans, grids, _) = tick_by_tick(grid, &["", "  *>  <<", "  **"], 1);
+        assert_eq!(grids[0], ["          ", "  *> <<   ", "          "]);
         assert_eq!(
             messages(&plans[0]),
             vec!["*> has no empty destination inside the Grid for >>"]
@@ -1863,7 +1862,7 @@ mod test {
         //
         // Each fixture reaches its producer through a different arm of the
         // cardinal rule, because the emission has to land somewhere
-        // the Bang is not. Equality Bangs on every Tick, so the Bang display
+        // the Bang is not. Equality Bangs on every Tick, so the `**` it writes
         // and the emitted spelling are both in the Grid these compare.
         let tall = Grid::with_shape(8, 3);
         let (_, south, _) = tick_by_tick(tall, &[".=0101", "  *v", ""], 1);
@@ -2442,10 +2441,10 @@ mod test {
     }
 
     #[test]
-    fn a_nested_bang_writes_its_display_and_activates_its_aligned_roots() {
+    fn a_nested_bang_writes_its_bang_and_activates_its_aligned_roots() {
         // Nested Equality answers Bang: it writes `**` one row south of its
         // own anchor, which activates the Terminal Output root aligned east of
-        // that display. Its parent reads the returned `**` as a Number operand
+        // that `**`. Its parent reads the returned `**` as a Number operand
         // and diagnoses, which does not undo the child's write or activation.
         let (plans, grids, _) = tick_by_tick(
             Grid::with_shape(12, 3),
@@ -2458,8 +2457,8 @@ mod test {
     }
 
     #[test]
-    fn a_nested_bang_activates_the_root_aligned_south_of_its_display() {
-        // The display stands at the Equality's Output Portal, one row south of
+    fn a_nested_bang_activates_the_root_aligned_south_of_its_bang() {
+        // The `**` stands at the Equality's Output Portal, one row south of
         // its anchor, so the root one row further south is aligned with it.
         // The north anchor is the Equality's own, inside its parent
         // Expression, so no root can stand there.
@@ -2474,11 +2473,11 @@ mod test {
     }
 
     #[test]
-    fn a_nested_bang_activates_the_root_aligned_west_of_its_display() {
-        // A west root anchors two columns before the display, so only a
-        // two-Cell Expression leaves the display's Cells to it. The South
+    fn a_nested_bang_activates_the_root_aligned_west_of_its_bang() {
+        // A west root anchors two columns before the `**`, so only a
+        // two-Cell Expression leaves the `**`'s Cells to it. The South
         // Directional Bang there is inert until Bang activation, and the
-        // `vv` it emits is the trace that the display activated it.
+        // `vv` it emits is the trace that the `**` activated it.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 3), &[".+.=010101", "*v", ""], 1);
         assert_eq!(grids[0], [".+.=010101", "*v**      ", "vv        "]);
         assert_eq!(messages(&plans[0]), ["expected a number, found \"**\""]);
@@ -2630,41 +2629,45 @@ mod test {
     }
 
     #[test]
-    fn complete_aligned_root_contact_activates_the_root_it_blocked_against() {
-        // Complete aligned root contact also directly delivers Bang
-        // activation. The Raw Play north of `^^` is inert on its own, so the
-        // Play Command is the whole evidence that activation was delivered —
-        // and the `**` is the evidence the move was still blocked, because
-        // contact has both outcomes and not a choice between them.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["!>007FC4", "^^"], 1);
+    fn complete_aligned_root_contact_activates_nothing_until_the_bang_it_leaves_fires() {
+        // A blocked move writes `**` and delivers nothing in its Turn: the Raw
+        // Play north of `^^` is inert on its own, so no Play Command is the
+        // evidence. The `**` is a Bang Function on the next Tick and plays the
+        // Raw Play aligned north of it then.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["!>007FC4", "^^"], 2);
 
         assert_eq!(grids[0], ["!>007FC4", "**      "]);
-        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
-            plans[0].diagnostics.is_empty(),
+            plans[0].play_commands.is_empty(),
             "{:?}",
-            plans[0].diagnostics
+            plans[0].play_commands
         );
+        assert_eq!(grids[1], ["!>007FC4", "        "]);
+        assert_eq!(plans[1].play_commands, vec![raw(0, 0x7F, 60)]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
     }
 
     #[test]
-    fn a_horizontally_aligned_root_is_contacted_two_columns_away() {
+    fn a_horizontally_blocked_move_plays_the_root_two_columns_away_on_the_next_tick() {
         // The same rule where the geometry differs: a horizontal move enters
-        // one Cell, and the root whose Span holds that Cell is anchored two
-        // columns from the producer, because every Language Unit spells as a
-        // Cell pair. That is the east anchor `(x+2, y)` reached by
-        // contact rather than by a Source-resident Bang, and it is why the
-        // contact rule asks which unit covers the Cells entered rather than
-        // which unit begins at them.
-        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[">>!>007FC4", ""], 1);
+        // one Cell of the root anchored two columns from the producer, because
+        // every Language Unit spells as a Cell pair. The `**` the move leaves
+        // has that root as its east anchor `(x+2, y)`.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[">>!>007FC4", ""], 2);
 
         assert_eq!(grids[0], ["**!>007FC4", "          "]);
-        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
-            plans[0].diagnostics.is_empty(),
+            plans[0].play_commands.is_empty(),
             "{:?}",
-            plans[0].diagnostics
+            plans[0].play_commands
         );
+        assert_eq!(grids[1], ["  !>007FC4", "          "]);
+        assert_eq!(plans[1].play_commands, vec![raw(0, 0x7F, 60)]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
     }
 
     #[test]
@@ -2834,11 +2837,10 @@ mod test {
     }
 
     #[test]
-    fn a_stale_bang_does_not_activate_halt() {
-        // Prior `**` is display, not a new activation. Delay Bangs on Tick 0
-        // (a multiple of its cycle) and not on Tick 1, so Tick 0 locks the
-        // Add and Tick 1 clears that display with Halt inert, and the Add
-        // runs.
+    fn a_bang_its_producer_clears_does_not_activate_halt() {
+        // Delay Bangs on Tick 0 (a multiple of its cycle) and not on Tick 1,
+        // so Tick 0 locks the Add, and on Tick 1 the Delay's clear suppresses
+        // the `**` it left: Halt is inert and the Add runs.
         let (plans, grids, source) = tick_by_tick(
             Grid::with_shape(8, 4),
             &["~*0201  ", "  *!    ", "  .+0304", "        "],
@@ -2850,6 +2852,29 @@ mod test {
         assert_eq!(
             plans[0].locks,
             vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(plans[1].locks.is_empty(), "{:?}", plans[1].locks);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn a_typed_bang_activates_halt_once() {
+        // A typed `**` two columns west of Halt fires at the start of Tick 0:
+        // Halt joins the Tick before any Turn and locks the Add below it. The
+        // `**` is cleared, so Tick 1 leaves Halt inert and the Add runs.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::with_shape(8, 3),
+            &["***!    ", "  .+0304", "        "],
+            2,
+        );
+
+        assert_eq!(grids[0], ["  *!    ", "  .+0304", "        "]);
+        assert_eq!(grids[1], ["  *!    ", "  .+0304", "  07    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 1).expect("inside the Grid")]
         );
         assert!(plans[1].locks.is_empty(), "{:?}", plans[1].locks);
         for plan in &plans {
@@ -2890,9 +2915,11 @@ mod test {
 
     #[test]
     fn an_occupied_non_root_halt_target_diagnoses() {
-        // Comment, Bang display, and an operand Cell are each occupied and
-        // none is a root anchored one row south. Halt diagnoses and invents
-        // no lock — the Add whose operand sits south of Halt still writes.
+        // A Comment and an operand Cell are each occupied and neither is a
+        // root anchored one row south. Halt diagnoses and invents no lock —
+        // the Add whose operand sits south of Halt still writes. A `**` there
+        // is the Bang Function, a root, which `an_active_halt_locks_a_bang_function`
+        // locks.
         let comment = tick_by_tick(
             Grid::with_shape(8, 3),
             &[".=0101  ", "  *!    ", "  ||    "],
@@ -2902,18 +2929,6 @@ mod test {
         assert!(comment.0[0].locks.is_empty(), "{:?}", comment.0[0].locks);
         assert_eq!(
             messages(&comment.0[0]),
-            vec!["*! target is not an Expression root"]
-        );
-
-        let bang = tick_by_tick(
-            Grid::with_shape(8, 3),
-            &[".=0101  ", "  *!    ", "  **    "],
-            1,
-        );
-        assert_eq!(bang.1[0], [".=0101  ", "***!    ", "        "]);
-        assert!(bang.0[0].locks.is_empty(), "{:?}", bang.0[0].locks);
-        assert_eq!(
-            messages(&bang.0[0]),
             vec!["*! target is not an Expression root"]
         );
 
@@ -2931,6 +2946,26 @@ mod test {
             messages(&operand.0[0]),
             vec!["*! target is not an Expression root"]
         );
+    }
+
+    #[test]
+    fn an_active_halt_locks_a_bang_function() {
+        // The `**` south of the Halt is a root, so the Halt locks it: it
+        // stands, takes no Turn, and activates nothing.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::with_shape(10, 4),
+            &[".=0101", "  *!", "  **", "  !>007FC4"],
+            2,
+        );
+        for (plan, grid) in plans.iter().zip(&grids) {
+            assert_eq!(grid[2], "  **      ");
+            assert_eq!(
+                plan.locks,
+                vec![source.grid().position(2, 2).expect("inside the Grid")]
+            );
+            assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
     }
 
     #[test]
@@ -3685,7 +3720,7 @@ mod test {
                 .token_at(source.grid().position(4, 1).unwrap()),
             Some(Token::Number)
         );
-        assert_eq!(source.language_map().bangs().count(), 0);
+        assert_eq!(source.language_map().bang_functions().count(), 0);
     }
 
     #[test]
@@ -4089,8 +4124,8 @@ mod test {
     fn an_unequal_root_equality_clears_the_pair_south_and_an_equal_one_bangs_there() {
         // Equality answers only Bang or the Absence Marker, so it writes its
         // answer through its Output Portal on every Turn: `**` when its
-        // operands are equal, which activates the root aligned south of the
-        // display, and two empty Cells when they are not.
+        // operands are equal, which activates the root aligned south of it,
+        // and two empty Cells when they are not.
         let grid = Grid::with_shape(8, 3);
         let unequal = super::observed::first(grid, &[".=0102", "C4", "!>007FC4"]);
         super::observed::quiet(&unequal);
@@ -4124,6 +4159,49 @@ mod test {
                 assert_eq!(observed.rows[1], expected, "{function} at Tick {tick}");
             }
         }
+    }
+
+    #[test]
+    fn nested_delay_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
+        // Nested as the Addition's left operand, each Bang producer's Output
+        // Portal is the pair one row south of its own anchor, which holds `C4`
+        // at the start of every Tick. `~*0201` Bangs on every second Tick and
+        // `~%0304` on steps 0, 2 and 3, so on Tick 1 neither Bangs.
+        let grid = Grid::with_shape(10, 2);
+        for function in ["~*0201", "~%0304"] {
+            let row = format!(".+{function}01");
+            let observed = super::observed::observe_at(grid, &[&row, "  C4"], [1]).remove(0);
+            assert_eq!(observed.rows[1], "          ", "{function}");
+        }
+    }
+
+    #[test]
+    fn a_bang_written_into_a_copied_operand_fires_once_freed() {
+        // Equality's `**` plays the Raw Play aligned east of it, but the `.+`
+        // copied in the same Tick makes the `**` that Addition's operand by
+        // the commit. An edit then removes the Equality, the Copy and the
+        // `.+` without reaching the `**`: it is a root again, so the next
+        // Tick fires it as a Bang Function and plays the Raw Play once more.
+        let grid = Grid::with_shape(14, 4);
+        let mut source =
+            super::observed::source_of(grid, &["  .=0101", "    !>007FC4", "=^", ".+"]);
+        let first = source.execute(Tick::ZERO);
+        assert_eq!(first.play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(super::observed::rows_of(&source)[1], ".+**!>007FC4  ");
+
+        for idx in [2, 3, 4, 5, 6, 7, 14, 15, 28, 29, 42, 43] {
+            source
+                .set(grid.cell_index(idx).expect("inside the Grid"), " ")
+                .unwrap();
+        }
+        assert_eq!(super::observed::rows_of(&source)[1], "  **!>007FC4  ");
+
+        let freed = source.execute(Tick::new(1));
+        assert_eq!(freed.play_commands, [raw(0, 0x7F, 60)]);
+        assert_eq!(super::observed::rows_of(&source)[1], "    !>007FC4  ");
+
+        let after = source.execute(Tick::new(2));
+        assert!(after.play_commands.is_empty(), "{:?}", after.play_commands);
     }
 
     #[test]
@@ -4431,7 +4509,7 @@ mod test {
         for target in [".+0101", "./0100", ".+01??"] {
             let grid = Grid::with_shape(16, 11);
             let rows = [
-                "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "**", "", "",
+                "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "", "", "",
             ];
             let bytes = snapshot(grid, &rows);
             let map = LanguageMap::derive(grid, &bytes).unwrap();
@@ -4777,7 +4855,7 @@ mod test {
     #[test]
     fn a_bang_rejected_in_a_typed_operand_never_activates() {
         // A `**` rejected in a typed operand is still invalid syntax and
-        // neither activates nor receives display cleanup. The Bang lands in
+        // neither activates nor is a Bang Function. The Bang lands in
         // `.+`'s left Number slot, so it is a rejected operand spelling and not
         // an activation event, even though it is Cell-aligned with the terminal
         // root below it.
@@ -4799,8 +4877,9 @@ mod test {
     }
 
     #[test]
-    fn a_result_written_where_stale_bang_display_stood_joins_nothing() {
-        // Cleared display may be rewritten successfully in the same Tick.
+    fn a_result_written_over_a_standing_bang_joins_nothing() {
+        // The Equality's write is ordered before the `**` it covers, which it
+        // suppresses, so the `**` it writes is its own and nothing else.
         let grid = Grid::with_shape(16, 3);
         let bytes = snapshot(grid, &[".=0101", "**", ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -4823,7 +4902,7 @@ mod test {
         assert_eq!(&source.snapshot()[8..14], "**0102");
         assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
         assert!(plan.diagnostics.is_empty());
-        assert_eq!(source.language_map().bangs().count(), 1);
+        assert_eq!(source.language_map().bang_functions().count(), 1);
         let (plan, source) =
             carried_source(Grid::with_shape(10, 3), &["    .=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[10..16], "  01**");
@@ -5653,17 +5732,6 @@ mod test {
             .collect()
     }
 
-    ///
-    /// One Raw Play Command, stated as the three Numbers a Source writes.
-    ///
-    fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
-        PlayCommand::Raw {
-            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
-            velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
-            note: Note::try_from(note).expect("a MIDI note"),
-        }
-    }
-
     fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
         let cell = |idx: usize| grid.cell_index(idx).expect("inside the Grid");
         Effect::Diagnose(Diagnostic::for_range(
@@ -6176,7 +6244,10 @@ mod nested_property {
         // An Expression that parsed has no syntax error for a block to defer
         // to. A Copy inside it that copies empty Cells into the operand chain
         // leaves a slot unwritten, which makes the root invalid and diagnoses.
-        let root = Function::try_from(&source[..2]).unwrap();
+        let (_, root) = map
+            .expressions()
+            .find_map(|expression| expression.function_candidate())
+            .expect("a parsed Expression has a leading Function");
         if root.is_intrinsically_active() {
             prop_assert!(
                 states

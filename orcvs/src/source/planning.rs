@@ -196,9 +196,8 @@ impl Attempt<'_, '_> {
 mod tests {
     use super::{StalePlan, TickCommit};
     use crate::grid::{CellIndex, Grid};
-    use crate::source::{
-        MidiChannel, Note, OPTIMISTIC_TICK_ATTEMPTS, PlayCommand, SourceCommander, Tick, Velocity,
-    };
+    use crate::source::tick::observed::raw_c4;
+    use crate::source::{OPTIMISTIC_TICK_ATTEMPTS, SourceCommander, Tick};
 
     fn cell(grid: Grid, idx: usize) -> CellIndex {
         grid.cell_index(idx).expect("inside the Grid")
@@ -216,14 +215,6 @@ mod tests {
     fn row(source: &SourceCommander, y: usize) -> String {
         let columns = source.grid().columns();
         source.snapshot()[y * columns..(y + 1) * columns].to_owned()
-    }
-
-    fn c4() -> PlayCommand {
-        PlayCommand::Raw {
-            channel: MidiChannel::try_from(0).unwrap(),
-            velocity: Velocity::try_from(0x7F).unwrap(),
-            note: Note::try_from(60).unwrap(),
-        }
     }
 
     #[test]
@@ -294,7 +285,7 @@ mod tests {
         type_at(&source, 20, "!>007FC4");
 
         let planned = source.planning_snapshot().plan(Tick::ZERO);
-        assert_eq!(planned.plan.play_commands, vec![c4()]);
+        assert_eq!(planned.plan.play_commands, vec![raw_c4()]);
         assert!(!planned.plan.writes.is_empty());
         // The Raw Play is deleted while the plan that sounds it is made.
         source.unset(cell(grid, 20));
