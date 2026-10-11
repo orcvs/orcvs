@@ -1,6 +1,6 @@
 # A standalone Bang is a Function
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -14,7 +14,7 @@ A performer expects visible Bangs and predictable activation. To let a typed `**
 
 A standalone `**` in Source is the **Bang Function**, as Orca's `*` is an operator. It is a new Function that follows the rules every Function follows: no operands, root-only, intrinsically active, can emit Bang. Its Turn does what every standalone `**` already does before the first Turn — activate its aligned roots and clear its two Cells — inside the dependency schedule instead of before it. Every other outcome emerges from existing rules applied to that root; nothing is remembered between Ticks.
 
-The decisions are D1–D17 in `issues/07-settle-clearing-and-halt-precedence.md`, with worked Grids E1–E9. The language decision is `docs/adr/0072-a-standalone-bang-is-a-function.md` (Proposed). The historical walkthrough (`lang/bang-function-prototype.html`) is not authoritative.
+The decisions are D1–D17 in `issues/07-settle-clearing-and-halt-precedence.md`, with worked Grids E1–E9. The language decision is `docs/adr/0072-a-standalone-bang-is-a-function.md` (accepted). The historical walkthrough (`lang/bang-function-prototype.html`) is not authoritative.
 
 ## User Stories
 

@@ -2,7 +2,7 @@
 
 Placement admission and its relationship to value readiness and overwrite ordering are amended by [ADR 0060](0060-value-inputs-wait-placement-tests-occupancy.md).
 
-Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force.
+Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force. Contact activation, and the clause that a Halt over an occupied non-root diagnoses as it applies to `**`, are superseded by [ADR 0072](0072-a-standalone-bang-is-a-function.md): a blocked Self-Banging Function writes `**` and activates nothing until that Bang Function fires on the next Tick, and a Halt over a `**` locks it.
 
 Bang is the two-Cell Atom `**`, and every Function has one canonical spelling. An ordinary root Expression is inert until Bang activation. A Self-Banging Function is the explicit exception in activation source: at its own Source-order turn it intrinsically receives Bang activation without creating a Source-resident `**`. This preserves one evaluation rule—an active root evaluates—while making autonomous motion visible in the Function spelling rather than in Function case.
 

@@ -1,6 +1,6 @@
 # Bang Function — reviewed proposal
 
-**State:** settled by ticket 07 (D1–D17); ready for implementation. `spec.md` is the implementation contract and `docs/adr/0072-a-standalone-bang-is-a-function.md` the language decision. Existing ADRs remain authoritative for shipped behaviour until implementation accepts ADR 0072.
+**State:** settled by ticket 07 (D1–D17) and implemented; ADR 0072 is accepted. `spec.md` is the implementation contract and `docs/adr/0072-a-standalone-bang-is-a-function.md` the language decision.
 
 ## Design constraint
 

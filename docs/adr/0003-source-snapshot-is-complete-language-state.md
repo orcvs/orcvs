@@ -1,6 +1,6 @@
 # Source Snapshot is the complete language state
 
-Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force.
+Timing, ordering, and Bang-lifetime clauses below are superseded where they conflict with [ADR 0032](0032-schedule-tick-execution-by-dependency.md). Other decisions remain in force. [ADR 0072](0072-a-standalone-bang-is-a-function.md) restores this decision where ADR 0071's Bang display record broke it: whether a `**` fires depends on the Source Snapshot and absolute Tick alone.
 
 Every Tick starts from a Source Snapshot that is both a complete executable Orcvs program and the accumulated output of preceding Ticks. Under [ADR 0032](0032-schedule-tick-execution-by-dependency.md), turns observe earlier admitted writes in working Source; the starting Snapshot is complete initial state, not a restriction to frozen reads. Functions may observe the current Tick but keep no hidden persistent state in the Interpreter or Playback Engine; stateful behaviour must remain reproducible from the Source Snapshot and Tick, preserving live inspectability and tracker-style self-modification. A Function Atom returned at Tick T is generated code written into the Source, and becomes executable—including as a nested Function—only when parsed from a later Source Snapshot; returning it does not invoke it again during Tick T.
 

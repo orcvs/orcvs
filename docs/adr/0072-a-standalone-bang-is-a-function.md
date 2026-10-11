@@ -1,6 +1,6 @@
 # A standalone Bang is a Function, as Orca's `*` is an operator
 
-Status: proposed. On acceptance, supersedes [ADR 0071](0071-a-bang-travels-as-its-glyph.md)'s third decision and the consequences that follow from it, [ADR 0032](0032-schedule-tick-execution-by-dependency.md)'s clause that a Bang is not a standalone Function (its value half stands), [ADR 0006](0006-bang-activation-includes-self-banging-functions.md)'s contact activation and its clause that a Halt over an occupied non-root diagnoses, as it applies to `**`, and [ADR 0067](0067-track-reads-a-portal-as-jump-does.md)'s restriction of the missed-Bang diagnostic to dynamic writes; restores [ADR 0003](0003-source-snapshot-is-complete-language-state.md). Settled in `.scratch/bang-function/issues/07-settle-clearing-and-halt-precedence.md`.
+Status: accepted. Supersedes [ADR 0071](0071-a-bang-travels-as-its-glyph.md)'s third decision and the consequences that follow from it, [ADR 0032](0032-schedule-tick-execution-by-dependency.md)'s clause that a Bang is not a standalone Function (its value half stands), [ADR 0006](0006-bang-activation-includes-self-banging-functions.md)'s contact activation and its clause that a Halt over an occupied non-root diagnoses, as it applies to `**`, and [ADR 0067](0067-track-reads-a-portal-as-jump-does.md)'s restriction of the missed-Bang diagnostic to dynamic writes; restores [ADR 0003](0003-source-snapshot-is-complete-language-state.md). Settled in `.scratch/bang-function/issues/07-settle-clearing-and-halt-precedence.md`.
 
 ADR 0071 told a typed `**` from a written one by having Source remember which Cells the previous Tick wrote as Bang display. That record broke ADR 0003: two identical Source Snapshots at the same absolute Tick could plan differently, a reloaded Source fired a Bang the live one would not, a lone `*` typed beside a written `**` reparsed one Cell west and fired a Bang nobody typed, and a Bang written into an operand was forgotten after one quiet Tick.
 
@@ -26,6 +26,7 @@ Orca's `*` erases itself at its own turn, and neighbours detect the glyph at the
 
 - A typed Bang activates aligned roots on every side, where Orca's later south and east neighbours miss the erased glyph. This already ships.
 - A blocked mover's collision activates every aligned root on the next Tick, where Orca's south neighbour runs in the collision frame and the others the next.
+- A writer removed, halted, invalidated or redirected after it banged leaves a `**` that fires once and activates every aligned root, where Orca's surviving `*` bangs only the neighbours whose turn comes before it erases itself.
 - A Halt above its activating Bang misses it, where Orca's `H` locks the `*` first.
 - A locked Bang delivers no activation while locked, where Orca's standing glyph is detected every frame.
 
@@ -44,7 +45,7 @@ Each is an existing rule applied to the new root; none has an exception.
 - A Halt whose activator depends on its target is a same-Tick dependency cycle, while a Halt directly above its activating `**` misses it: `lock_covers` reaches only producers inside the locked subtree.
 - Collisions sound one Tick later, and collisions with a Comment or the Grid edge now sound. A Directional Bang Function whose mover is blocked on its first step is re-activated by that `**` and re-emits, alternating every Tick.
 - A mover meets a `**` in Source order: one moving west or north enters after it fires, one moving east or south is blocked.
-- An emission into a Bang Function's Cells relies on Turn-local emission occupancy (`.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md`); until then an emitter aligned with a `**` it would enter forms a cycle with it.
+- An emission into a Bang Function's Cells follows Turn-local emission occupancy (ADR 0060): it enters if the `**` has fired, and is refused otherwise.
 
 ## Considered options
 
