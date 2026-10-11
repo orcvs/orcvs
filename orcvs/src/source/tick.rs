@@ -708,11 +708,11 @@ fn advances(function: Function) -> bool {
 /// Whether this Function's declared bundle writes beside it and never vacates
 /// the Cells it stands in.
 ///
-/// One rule of the schedule asks it: whether a mover the producer's
-/// reservation contacts is blocked by the producer for as long as the Tick
-/// lasts, which holds only for a producer that stays put. As with
+/// One rule of the schedule asks it: whether the Functions the producer's
+/// reservation contacts are ordered after it. An emission tests occupancy at
+/// its Turn and delivers nothing to an occupant, so they are not. As with
 /// [`advances`], the bundle check is exact: `source_effect().is_some()` would
-/// also admit every Self-Banging Function.
+/// also admit every Self-Banging Function, whose contact delivers activation.
 ///
 fn emits_without_vacating(function: Function) -> bool {
     matches!(
@@ -722,15 +722,6 @@ fn emits_without_vacating(function: Function) -> bool {
             ..
         })
     )
-}
-
-/// Whether any reservation `writer`'s Portals make covers the Function `target`.
-fn reserves_over(lookup: &Lookup, writer: usize, target: usize) -> bool {
-    lookup.reservations(writer).any(|relationships| {
-        relationships
-            .functions()
-            .any(|contact| contact.index == target)
-    })
 }
 
 /// The complete subtree a locking Function's Portal names.
@@ -922,23 +913,16 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
             }
             edge(index, consumer);
         };
-        for contact in relationships.functions() {
-            // An emission is admitted only into empty Cells and its
-            // producer never vacates. A mover with Cells in the
-            // destination whose own move reaches any Cell of the producer,
-            // flush or offset by one, is blocked by it and cannot leave:
-            // the emission is refused whichever Turn comes first. Ordering
-            // the producer first as well as after the mover's contact
-            // makes the pair a cycle that stops both Expressions.
-            // Other occupants keep emitter-before-occupant ordering until
-            // .scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md
-            // delivers Turn-local emission scheduling.
-            if emits_without_vacating(node.function)
-                && advances(nodes[contact.index].function)
-                && reserves_over(lookup, contact.index, index)
-            {
-                continue;
-            }
+        // An emission is admitted only into Cells empty at its Turn, so it
+        // never writes over a Function its reservation contacts, and it
+        // delivers no activation there: occupancy alone orders nothing
+        // (ADR 0060 rule 3b). An occupant that leaves first makes room; one
+        // still standing refuses the emission.
+        let contacts = (!emits_without_vacating(node.function))
+            .then(|| relationships.functions())
+            .into_iter()
+            .flatten();
+        for contact in contacts {
             // A move is admitted only where the Cells it enters are empty,
             // so a Source-writing Function's Portal never writes
             // over the Language Unit it contacts: the contact blocks the
@@ -1557,28 +1541,91 @@ mod test {
     // table that declares proptest, so a WASM build never sees the dependency.
     #[cfg(not(target_arch = "wasm32"))]
     mod placement_property {
-        use super::{Grid, messages, tick_by_tick};
+        use super::{Grid, TickPlan, messages, tick_by_tick};
         use proptest::prelude::*;
         use proptest::sample::select;
 
+        /// Fails on any placement-caused ordering defect or cycle in `plans`.
+        fn no_defect_or_cycle(rows: &[String], plans: &[TickPlan]) -> Result<(), TestCaseError> {
+            for plan in plans {
+                for message in messages(plan) {
+                    prop_assert!(
+                        !message.contains("reached an executed computation"),
+                        "{rows:?}: {message}"
+                    );
+                    prop_assert!(
+                        !message.contains("same-Tick dependency cycle"),
+                        "{rows:?}: {message}"
+                    );
+                }
+            }
+            Ok(())
+        }
+
+        /// The anchor and spelling of a Self-Banging Function aimed at the
+        /// emitter at `(5, 2)` from `side`, about `gap` Cells short of it.
+        fn aimed_mover(side: usize, gap: usize) -> (usize, usize, &'static str) {
+            match side {
+                0 => (5, 1usize.saturating_sub(gap), "vv"),
+                1 => (5, 3 + gap.min(1), "^^"),
+                2 => (3 - gap, 2, ">>"),
+                _ => (7 + gap, 2, "<<"),
+            }
+        }
+
         proptest! {
             #[test]
-            fn movers_never_meet_an_ordering_defect_or_a_cycle(
+            fn placements_never_meet_an_ordering_defect_or_a_cycle(
                 rows in prop::collection::vec(
-                    prop::collection::vec(select(vec![" ", "  ", "^^", "vv", "<<", ">>"]), 0..=6),
+                    prop::collection::vec(
+                        select(vec![" ", "  ", "^^", "vv", "<<", ">>", "*^", "*v", "*<", "*>"]),
+                        0..=6,
+                    ),
                     4,
                 ),
             ) {
-                // Whole spellings and single spaces give both aligned and offset movers.
+                // Whole spellings and single spaces give both aligned and offset
+                // placements. Nothing here bangs except a blocked mover, so every
+                // emitter is activated by collision or not at all.
                 let rows: Vec<String> = rows.iter().map(|row| row.concat()).collect();
                 let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
                 let (plans, _, _) = tick_by_tick(Grid::with_shape(12, 4), &refs, 5);
-                for plan in plans {
-                    for message in messages(&plan) {
-                        prop_assert!(!message.contains("reached an executed computation"), "{rows:?}: {message}");
-                        prop_assert!(!message.contains("same-Tick dependency cycle"), "{rows:?}: {message}");
-                    }
+                no_defect_or_cycle(&rows, &plans)?;
+            }
+
+            #[test]
+            fn collision_activated_emissions_never_meet_an_ordering_defect_or_a_cycle(
+                emitter in select(vec!["*^", "*v", "*<", "*>"]),
+                side in 0..4usize,
+                gap in 0..3usize,
+                destination in select(vec!["  ", "xx", "^^", "vv", "<<", ">>"]),
+            ) {
+                // A mover aimed at an emitter activates it by collision, and the
+                // emitter's destination is empty, static, or another mover, so
+                // activated emissions both succeed and are refused.
+                let mut grid = vec![vec![b' '; 12]; 5];
+                let mut put = |x: usize, y: usize, spelling: &str| {
+                    grid[y][x..x + 2].copy_from_slice(spelling.as_bytes());
+                };
+                put(5, 2, emitter);
+                let (x, y) = match emitter {
+                    "*^" => (5, 1),
+                    "*v" => (5, 3),
+                    "*<" => (3, 2),
+                    _ => (7, 2),
+                };
+                put(x, y, destination);
+                let (mx, my, mover) = aimed_mover(side, gap);
+                if (mx..mx + 2).all(|cell| !(x..x + 2).contains(&cell)) || my != y {
+                    put(mx, my, mover);
                 }
+                let rows: Vec<String> = grid
+                    .into_iter()
+                    .map(|row| String::from_utf8(row).expect("ASCII Source"))
+                    .collect();
+                let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+                let (plans, _, _) = tick_by_tick(Grid::with_shape(12, 5), &refs, 5);
+                no_defect_or_cycle(&rows, &plans)?;
             }
         }
     }
@@ -1688,17 +1735,91 @@ mod test {
     }
 
     #[test]
-    fn an_emission_waits_for_no_mover_that_would_vacate_its_destination() {
-        // `^^` stands in the destination of `*^` and moves away from it, so
-        // the two do not block each other. The emission's reservation orders
-        // `*^` before the occupant, so it refuses before the mover leaves.
+    fn an_emission_enters_cells_a_mover_vacated_earlier_in_the_tick() {
+        // `^^` stands in the destination of `*^` and moves away from it. It
+        // holds the earlier Turn by Source order and nothing orders the
+        // emitter before it, so it leaves first and `*^` emits into the Cells
+        // it vacated.
         let (plans, grids, _) =
             tick_by_tick(Grid::with_shape(10, 3), &["", "  ^^.=0101", "  *^"], 1);
 
-        assert_eq!(grids[0], ["  ^^      ", "    .=0101", "  *^**    "]);
+        assert_eq!(grids[0], ["  ^^      ", "  ^^.=0101", "  *^**    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_emission_waits_for_no_occupant_to_leave() {
+        // `vv` stands in the destination of `*v` and would move away from it,
+        // but takes its Turn later in Source order. The emission finds the
+        // Cells occupied at its own Turn and is refused; the mover then moves.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 4), &[".=0101", "  *v", "  vv", ""], 1);
+
+        assert_eq!(grids[0], [".=0101  ", "***v    ", "        ", "  vv    "]);
         assert_eq!(
             messages(&plans[0]),
-            vec!["*^ has no empty destination inside the Grid for ^^"]
+            vec!["*v has no empty destination inside the Grid for vv"]
+        );
+    }
+
+    #[test]
+    fn an_emission_contest_follows_the_order_its_activation_imposes() {
+        // The same contenders in both Grids: `*>` at column 2 emits into
+        // columns 4 and 5, and `<<` at column 6 wants column 5. Only the
+        // collision that activates `*>` moves. From above, its supplier takes
+        // the first Turn, the emission is ready before `<<` and wins, and
+        // `<<` is blocked.
+        let grid = Grid::with_shape(10, 3);
+        let (plans, grids, _) = tick_by_tick(grid, &["  vv", "  *>  <<", ""], 1);
+        assert_eq!(grids[0], ["  **      ", "  *>>>**  ", "          "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // From below, the supplier follows `<<` in Source order and the
+        // emitter waits for it, so `<<` enters column 5 first and the
+        // emission is refused.
+        let (plans, grids, _) = tick_by_tick(grid, &["", "  *>  <<", "  ^^"], 1);
+        assert_eq!(grids[0], ["          ", "  *> <<   ", "  **      "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*> has no empty destination inside the Grid for >>"]
+        );
+    }
+
+    #[test]
+    fn an_emission_into_a_claimed_operand_settles_before_its_consumer() {
+        // `*v` emits `vv` into the empty first operand of the Addition below
+        // it. The Addition waits for that supplier and reads what it wrote,
+        // which is no number, so the Addition diagnoses its operand.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &[".=0101", "  *v", ".+  02"], 1);
+
+        assert_eq!(grids[0], [".=0101  ", "***v    ", ".+vv02  "]);
+        assert_eq!(messages(&plans[0]), vec!["expected a number, found \"vv\""]);
+    }
+
+    #[test]
+    fn an_emission_reserving_its_activators_operand_is_a_cycle() {
+        // The Equality's Bang can activate `*^`, and `*^`'s destination
+        // reserves the Equality's first operand, so each waits for the other.
+        // Placement adds neither edge; the value-input and activation edges
+        // make the cycle that
+        // .scratch/placement-semantics/issues/04-investigate-emission-activation-operand-cycles.md
+        // investigates.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 3), &[".=0101", ">>*^", ""], 1);
+
+        assert_eq!(grids[0], [".=0101  ", ">>*^    ", "        "]);
+        assert!(
+            messages(&plans[0]).contains(&"same-Tick dependency cycle"),
+            "{:?}",
+            plans[0].diagnostics
         );
     }
 

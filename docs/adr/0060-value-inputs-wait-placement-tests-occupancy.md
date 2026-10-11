@@ -1,6 +1,6 @@
 # Value inputs wait; placement tests occupancy at its Turn
 
-Status: accepted. Delivery is split between the [mover](../../.scratch/placement-semantics/issues/02-let-movers-enter-vacated-cells.md) and [emission](../../.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md) slices; emission scheduling remains pending after the mover slice. The cycle clause is amended by [ADR 0065](0065-an-error-never-stops-the-performance.md).
+Status: accepted. Delivered by the [mover](../../.scratch/placement-semantics/issues/02-let-movers-enter-vacated-cells.md) and [emission](../../.scratch/placement-semantics/issues/03-apply-turn-local-occupancy-to-emissions.md) slices. The cycle clause is amended by [ADR 0065](0065-an-error-never-stops-the-performance.md).
 
 Orcvs keeps one dependency-ordered Tick against working Source. Snapshot ownership identifies
 computations; it does not reserve their original Cells after they move. This amends the placement
