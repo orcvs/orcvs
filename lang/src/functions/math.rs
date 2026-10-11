@@ -49,7 +49,7 @@ pub fn divide(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// A predicate that answers a pulse rather than a truth value:
 /// equal operands produce one Bang, and unequal operands produce `Atom::Empty`,
-/// which is the Interpreter's "no result write" signal. Answering a
+/// the Absence Marker, which leaves the Output Portal empty. Answering a
 /// Number for the unequal case would put a Cell meaning "false" into the
 /// Source, where the next Tick would read it as an ordinary operand.
 #[inline(always)]

@@ -369,6 +369,16 @@ macro_rules! function_kind {
             bundle: crate::SourceBundle::Emit,
         }))
     };
+    // The Bang Function writes no spelling and is displaced nowhere: its one
+    // Portal is its own Span, which it clears.
+    (Fire) => {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
+            columns: 0,
+            rows: 0,
+            spelling: None,
+            bundle: crate::SourceBundle::Fire,
+        }))
+    };
     (Halt) => {
         FunctionKind::Effect(EffectKind::Lock)
     };
@@ -376,12 +386,13 @@ macro_rules! function_kind {
 
 /// Where a root Function's activation comes from.
 ///
-/// An ordinary root Expression is inert until Bang activation. A Self-Banging
-/// Function is the one exception: at its own Source-order turn it receives Bang
-/// activation without a Source-resident `**`. That asymmetry is a property of
-/// the Function and of nothing else, so it is declared beside every other
-/// property rather than derived from one of them: `^^` and `*^` write the same
-/// spelling to the same geometry and differ here.
+/// A root that answers an effect is inert until Bang activation, with two
+/// exceptions that take their Turn with nothing delivered: a Self-Banging
+/// Function, which receives Bang activation at its own turn without a
+/// Source-resident `**`, and the Bang Function `**` itself. That asymmetry is a
+/// property of the Function and of nothing else, so it is declared beside every
+/// other property rather than derived from one of them: `^^` and `*^` write the
+/// same spelling to the same geometry and differ here.
 ///
 /// It is not [`FunctionKind`]. `^^` answers an effect and takes its Turn
 /// without a Bang, so whether a Function answers a value does not say where
@@ -393,10 +404,23 @@ macro_rules! function_kind {
 enum ActivationSource {
     /// The root takes a Turn at its own Source-order turn with nothing
     /// delivered to it. Every Function that answers a value declares this,
-    /// and so does every Self-Banging Function.
+    /// and so do every Self-Banging Function and the Bang Function.
     Intrinsic,
     /// The root is inert until a Bang reaches it, which is the ordinary rule.
     Bang,
+}
+
+/// Whether a Function's answer can be a Bang: one column of the Function
+/// table, read by [`Function::can_emit_bang`] and
+/// [`Function::answers_only_bang`].
+#[derive(Clone, Copy)]
+enum BangAnswer {
+    /// It never answers Bang.
+    Never,
+    /// A Bang is one of the answers it can give.
+    May,
+    /// Every answer it gives is a Bang or the Absence Marker.
+    Only,
 }
 
 // The declared type of a Portal input, mapped to the input it decodes. Number
@@ -466,8 +490,24 @@ macro_rules! bind_declared {
     }};
 }
 
+// Two tables: the Functions a spelling names wherever a Function may stand,
+// and the Functions the Parser names itself. Both mint variants and every
+// declared fact alike; only the first reaches `from_spelling`. The Bang
+// Function is the second kind: `**` is also the Bang value an untyped operand
+// carries, so an operand slot must not read it as a nested Function, and the
+// Parser names it only where an Expression starts.
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
+    (
+        spelled: { $($s_variant:ident => ($s_spelling:literal, $($s_row:tt)*)),+ $(,)? }
+        named: { $($n_variant:ident => ($n_spelling:literal, $($n_row:tt)*)),+ $(,)? }
+    ) => {
+        define_functions! {
+            @spelled [$($s_spelling => $s_variant),+]
+            $($s_variant => ($s_spelling, $($s_row)*)),+,
+            $($n_variant => ($n_spelling, $($n_row)*)),+
+        }
+    };
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -488,7 +528,9 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The Function `spelling` spells, if it spells one.
+            /// The Function `spelling` spells, if it spells one wherever a
+            /// Function may stand. The Bang Function is not among them: the
+            /// Parser names it where an Expression starts.
             ///
             /// Borrows the spelling and builds nothing on refusal, so a caller
             /// that only asks whether two Cells spell a Function allocates
@@ -505,7 +547,7 @@ macro_rules! define_functions {
             #[inline(always)]
             pub(crate) fn from_spelling(spelling: &str) -> Option<Self> {
                 match spelling {
-                    $($spelling => Some(Self::$variant),)+
+                    $($from => Some(Self::$to),)+
                     _ => None,
                 }
             }
@@ -591,7 +633,20 @@ macro_rules! define_functions {
             /// wait for activation producers before deciding whether to perform.
             pub const fn can_emit_bang(self) -> bool {
                 match self {
-                    $(Self::$variant => $bang,)+
+                    $(Self::$variant => !matches!(BangAnswer::$bang, BangAnswer::Never),)+
+                }
+            }
+
+            /// Whether every answer this Function gives is a Bang or the
+            /// Absence Marker.
+            ///
+            /// Equality, Delay and Euclidean are Orca's bang ports: each
+            /// answers whether it bangs this Tick and nothing else, so a Turn
+            /// that does not Bang still has an answer to show at its Output
+            /// Portal, which is two empty Cells.
+            pub const fn answers_only_bang(self) -> bool {
+                match self {
+                    $(Self::$variant => matches!(BangAnswer::$bang, BangAnswer::Only),)+
                 }
             }
 
@@ -600,8 +655,8 @@ macro_rules! define_functions {
             /// One name for a question both crates ask: `signature()` is
             /// `pub(crate)`, so `orcvs` cannot ask the slice. It is a fact
             /// about the declaration and not about a Function group — the
-            /// Copies, Halt and the Directional Bang Functions declare no
-            /// operand either — so a caller that means "is a Self-Banging
+            /// Copies, Halt, the Bang Function and the Directional Bang
+            /// Functions declare no operand either — so a caller that means "is a Self-Banging
             /// Function" should ask [`Function::source_effect`] instead, and
             /// read the bundle it answers: both groups declare an effect, and
             /// it is the `Advance` a Self-Banging Function declares that tells
@@ -670,54 +725,59 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteCopy => ("=$", Value, Intrinsic, true, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
-    AbsoluteDifference => (".|", Value, Intrinsic, false, [left: Number, right: Number]),
-    AbsoluteRead => ("&$", Value, Intrinsic, true, [column: Number, row: Number]),
-    AbsoluteWrite => ("@$", Value, Intrinsic, true, [column: Number, row: Number, value: Untyped]),
-    Add => (".+", Value, Intrinsic, false, [left: Number, right: Number]),
-    Clock => ("~.", Value, Intrinsic, false, [rate: Number, modulus: Number]),
-    ControlChange => ("!c", TerminalOutput, Bang, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Intrinsic, false, [value: Number]),
-    ConvertToNumber => (".v", Value, Intrinsic, false, [value: Note]),
-    CopyEast => ("=>", Value, Intrinsic, true, []),
-    CopyNorth => ("=^", Value, Intrinsic, true, []),
-    CopySouth => ("=v", Value, Intrinsic, true, []),
-    CopyWest => ("=<", Value, Intrinsic, true, []),
-    Delay => ("~*", Value, Intrinsic, true, [rate: Number, modulus: Number]),
-    DirectionalBangEast => ("*>", BangEast, Bang, false, []),
-    DirectionalBangNorth => ("*^", BangNorth, Bang, false, []),
-    DirectionalBangSouth => ("*v", BangSouth, Bang, false, []),
-    DirectionalBangWest => ("*<", BangWest, Bang, false, []),
-    Divide => ("./", Value, Intrinsic, false, [left: Number, right: Number]),
-    Equality => (".=", Value, Intrinsic, true, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Intrinsic, true, [hits: Number, steps: Number]),
-    Halt => ("*!", Halt, Bang, false, []),
-    Increment => ("~+", Value, Intrinsic, false, [step: Number, modulus: Number], portal: "previous value": Number),
-    Interpolation => ("~>", Value, Intrinsic, false, [rate: Number, target: Number], portal: "previous value": Number),
-    Maximum => (".>", Value, Intrinsic, false, [left: Number, right: Number]),
-    Minimum => (".<", Value, Intrinsic, false, [left: Number, right: Number]),
-    Modulo => (".%", Value, Intrinsic, false, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Multiply => (".x", Value, Intrinsic, false, [left: Number, right: Number]),
-    PitchBend => ("!b", TerminalOutput, Bang, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    Push => ("@t", Value, Intrinsic, true, [index: Number, count: Number, value: Untyped]),
-    Random => ("~?", Value, Intrinsic, false, [seed: Number, minimum: Number, maximum: Number]),
-    RawPlay => ("!>", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    ReadEast => ("&>", Value, Intrinsic, true, [n: Number]),
-    ReadNorth => ("&^", Value, Intrinsic, true, [n: Number]),
-    ReadSouth => ("&v", Value, Intrinsic, true, [n: Number]),
-    ReadWest => ("&<", Value, Intrinsic, true, [n: Number]),
-    SelfBangingEast => (">>", SelfBangEast, Intrinsic, false, []),
-    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, false, []),
-    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, false, []),
-    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, false, []),
-    Subtract => (".-", Value, Intrinsic, false, [left: Number, right: Number]),
-    TimedPlay => ("!~", TerminalOutput, Bang, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Track => ("&t", Value, Intrinsic, true, [index: Number, count: Number]),
-    WriteEast => ("@>", Value, Intrinsic, true, [n: Number, value: Untyped]),
-    WriteNorth => ("@^", Value, Intrinsic, true, [n: Number, value: Untyped]),
-    WriteSouth => ("@v", Value, Intrinsic, true, [n: Number, value: Untyped]),
-    WriteWest => ("@<", Value, Intrinsic, true, [n: Number, value: Untyped]),
+    spelled: {
+    AbsoluteCopy => ("=$", Value, Intrinsic, May, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
+    AbsoluteDifference => (".|", Value, Intrinsic, Never, [left: Number, right: Number]),
+    AbsoluteRead => ("&$", Value, Intrinsic, May, [column: Number, row: Number]),
+    AbsoluteWrite => ("@$", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped]),
+    Add => (".+", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Clock => ("~.", Value, Intrinsic, Never, [rate: Number, modulus: Number]),
+    ControlChange => ("!c", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", Value, Intrinsic, Never, [value: Number]),
+    ConvertToNumber => (".v", Value, Intrinsic, Never, [value: Note]),
+    CopyEast => ("=>", Value, Intrinsic, May, []),
+    CopyNorth => ("=^", Value, Intrinsic, May, []),
+    CopySouth => ("=v", Value, Intrinsic, May, []),
+    CopyWest => ("=<", Value, Intrinsic, May, []),
+    Delay => ("~*", Value, Intrinsic, Only, [rate: Number, modulus: Number]),
+    DirectionalBangEast => ("*>", BangEast, Bang, Never, []),
+    DirectionalBangNorth => ("*^", BangNorth, Bang, Never, []),
+    DirectionalBangSouth => ("*v", BangSouth, Bang, Never, []),
+    DirectionalBangWest => ("*<", BangWest, Bang, Never, []),
+    Divide => ("./", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Equality => (".=", Value, Intrinsic, Only, [left: Number, right: Number]),
+    Euclidean => ("~%", Value, Intrinsic, Only, [hits: Number, steps: Number]),
+    Halt => ("*!", Halt, Bang, Never, []),
+    Increment => ("~+", Value, Intrinsic, Never, [step: Number, modulus: Number], portal: "previous value": Number),
+    Interpolation => ("~>", Value, Intrinsic, Never, [rate: Number, target: Number], portal: "previous value": Number),
+    Maximum => (".>", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Minimum => (".<", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Modulo => (".%", Value, Intrinsic, Never, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Multiply => (".x", Value, Intrinsic, Never, [left: Number, right: Number]),
+    PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
+    Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
+    RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    ReadEast => ("&>", Value, Intrinsic, May, [n: Number]),
+    ReadNorth => ("&^", Value, Intrinsic, May, [n: Number]),
+    ReadSouth => ("&v", Value, Intrinsic, May, [n: Number]),
+    ReadWest => ("&<", Value, Intrinsic, May, [n: Number]),
+    SelfBangingEast => (">>", SelfBangEast, Intrinsic, Never, []),
+    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Never, []),
+    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
+    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
+    Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
+    TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
+    WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped]),
+    WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped]),
+    WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped]),
+    WriteWest => ("@<", Value, Intrinsic, May, [n: Number, value: Untyped]),
+    }
+    named: {
+    Bang => ("**", Fire, Intrinsic, May, []),
+    }
 }
 
 /// Declares every fact a Function replacement is refused for changing, minting
@@ -1191,6 +1251,7 @@ mod test {
                 "*v" => (0, 1, Some("vv"), crate::SourceBundle::Emit),
                 "*<" => (-2, 0, Some("<<"), crate::SourceBundle::Emit),
                 "*>" => (2, 0, Some(">>"), crate::SourceBundle::Emit),
+                "**" => (0, 0, None, crate::SourceBundle::Fire),
                 other => panic!("{other} declares a Source write with no stated effect"),
             };
             assert_eq!(
@@ -1209,8 +1270,24 @@ mod test {
             );
         }
         assert_eq!(
-            seen, 8,
-            "the Source-writing rows are no longer the eight expected"
+            seen, 9,
+            "the Source-writing rows are no longer the nine expected"
+        );
+    }
+
+    #[test]
+    fn exactly_the_bang_ports_answer_only_bang() {
+        // A Tick clears the Output Portal of each of these on every Turn that
+        // does not Bang, so the list is stated whole: a Function added here
+        // would erase what stands south of it, and one missing would leave
+        // its last `**` standing to fire again.
+        assert_eq!(
+            Function::ALL
+                .iter()
+                .copied()
+                .filter(|function| function.answers_only_bang())
+                .collect::<Vec<_>>(),
+            vec![Function::Delay, Function::Equality, Function::Euclidean]
         );
     }
 
@@ -1218,7 +1295,8 @@ mod test {
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or Absence as their
         // result, a Copy, Track or Read copies a Bang from its Input
-        // Portal, and a Write carries a Bang in its `value`. Tick scheduling
+        // Portal, a Write carries a Bang in its `value`, and the Bang
+        // Function's Turn delivers the Bang it stands for. Tick scheduling
         // trusts the declaration to decide which roots
         // can supply activation, so the list is stated whole — a Function that
         // began returning Bang without declaring it would build no activation
@@ -1254,6 +1332,7 @@ mod test {
                 Function::WriteNorth,
                 Function::WriteSouth,
                 Function::WriteWest,
+                Function::Bang,
             ]
         );
     }
@@ -1796,6 +1875,9 @@ mod test {
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => (false, false, true),
+                // Taken without a Bang too: the Bang Function's Turn is what
+                // delivers one.
+                Function::Bang => (false, false, true),
                 // The same effect kind, waiting for a Bang. These four and the
                 // four above are the table's whole record of the activation
                 // asymmetry, and reading them as one group is the mistake this

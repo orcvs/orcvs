@@ -91,8 +91,12 @@
 //!   operand always reaches into the same one or two Cells a second,
 //!   permanently active Bang source would need in order to keep the
 //!   mover's own Halt lit — every placement that avoids one collision runs
-//!   into the other. `*v`, `*<`, and `*>` therefore emit into an ordinary
-//!   blocking Cell and clear the Tick after.
+//!   into the other. `*v`, `*<`, and `*>` therefore emit beside an ordinary
+//!   blocking Cell. The emitted mover is blocked on its first step and
+//!   leaves `**`, which fires on the next Tick, activates the Directional
+//!   Bang aligned with it, and so emits again: each of the three alternates
+//!   between its emitted mover and `**`, every Tick, for as long as it
+//!   plays.
 //!
 //! # MIDI activation needs no area, only a Bang source
 //!
@@ -107,11 +111,11 @@
 //!
 //! Activation is vertical, the same alignment
 //! `orcvs::source::tick::a_bang_activates_its_aligned_neighbours_and_no_further_root`
-//! proves for an Equality's Bang: each Euclidean's Expression, its own
-//! Bang-display Cells one row south, and the gated Terminal Output
+//! proves for an Equality's Bang: each Euclidean's Expression, the `**`
+//! it writes one row south, and the gated Terminal Output
 //! Function's root one row further south all share one column. A blank row
 //! then separates one example from the next, so each spans four rows
-//! (Euclidean Expression, its Bang display, the gated Function, and a blank
+//! (Euclidean Expression, its `**`, the gated Function, and a blank
 //! row) rather than the three-row cadence a value-answering group uses,
 //! since a Terminal Output Function's own row replaces a result row rather
 //! than sitting beside one.
@@ -247,11 +251,13 @@ mod tests {
 
     /// One example's expected written result: the Cells starting at
     /// `(column, row)`, read west to east, and the string one Tick writes
-    /// there — or a run of spaces when the example writes nothing there.
+    /// there — or, where `written` is false, the blank pair an example
+    /// leaves without writing it.
     struct ExpectedResult {
         column: usize,
         row: usize,
         expected: &'static str,
+        written: bool,
     }
 
     /// Every result row the Arithmetic, Conversion, and Tick groups' examples
@@ -271,6 +277,13 @@ mod tests {
             column,
             row,
             expected,
+            written: true,
+        };
+        let unwritten = |column, row| ExpectedResult {
+            column,
+            row,
+            expected: "  ",
+            written: false,
         };
         vec![
             // Arithmetic (column 0)
@@ -283,7 +296,7 @@ mod tests {
             result(0, 20, "03"), // .<0305
             result(0, 23, "05"), // .>0305
             result(0, 26, "**"), // .=0505 (equal)
-            result(0, 29, "  "), // .=0506 (not equal: no Cell write)
+            result(0, 29, "  "), // .=0506 (not equal: clears its pair)
             // Conversion (column 16)
             result(16, 2, "C4"), // .^3C (Number to Note)
             result(16, 5, "3C"), // .vC4 (Note to Number)
@@ -312,6 +325,7 @@ mod tests {
             // `34 13`, below its operands, to `34 14`, directly below that,
             // and writes nothing south of its own anchor.
             result(52, 20, "F4"), // =$34133414
+            unwritten(48, 19),    // =$34133414: nothing south of its anchor
             // Track (column 48) reads pair 01 % 03 of the three after its
             // operands, as a Copy reads its Input Portal, so `D4` is the
             // Number it spells.
@@ -334,6 +348,7 @@ mod tests {
             result(50, 44, "A4"), // @v01A4: one row south of its operand
             result(48, 45, "B4"), // @<03B4: three pairs west of its operand
             result(58, 47, "C4"), // @$3A2FC4: at Position 3A 2F
+            unwritten(48, 47),    // @$3A2FC4: nothing south of its anchor
             // Generator: the Read nested in the Write's value reads `C4` at
             // 3A 2F, writes it south of itself, and returns it to the Write,
             // which writes it at 3A 32.
@@ -359,6 +374,7 @@ mod tests {
             column,
             row,
             expected,
+            written: true,
         };
         vec![
             literal(48, 3, "05"),  // =^'s input
@@ -406,6 +422,7 @@ mod tests {
             column,
             row,
             expected,
+            ..
         } in expected_results()
         {
             let checked_in = read_row(&source, column, row, expected.chars().count());
@@ -441,20 +458,14 @@ mod tests {
                 column,
                 row,
                 expected,
+                written,
             } = result;
             let width = expected.chars().count();
             let cells: Vec<CellIndex> = (0..width)
                 .map(|offset| cell_index(grid, column + offset, row))
                 .collect();
 
-            if expected.trim().is_empty() {
-                for &cell in &cells {
-                    assert!(
-                        !plan.writes.iter().any(|write| write.cell == cell),
-                        "row {row}, column {column} was written despite expecting no result"
-                    );
-                }
-            } else {
+            if written {
                 for (offset, ch) in expected.chars().enumerate() {
                     let content =
                         CellContent::new(ch as u8).expect("a printable ASCII result Cell");
@@ -468,6 +479,13 @@ mod tests {
                          though the checked-in text reads {expected:?} — a Turn withheld \
                          by a fault the Tick Plan never diagnosed would pass a read-back \
                          check alone"
+                    );
+                }
+            } else {
+                for &cell in &cells {
+                    assert!(
+                        !plan.writes.iter().any(|write| write.cell == cell),
+                        "row {row}, column {column} was written despite expecting no write"
                     );
                 }
             }
@@ -567,7 +585,7 @@ mod tests {
                 directional_south: Area {
                     columns: 64..70,
                     rows: 7..11,
-                }, // *v: Delay, *v, emission, blocker (cannot be walled — see module doc)
+                }, // *v: Delay, *v, emission, blocker (cannot be walled; alternates — see module doc)
                 directional_west: Area {
                     columns: 64..76,
                     rows: 12..14,
@@ -656,7 +674,7 @@ mod tests {
     /// The column the MIDI group's band starts at.
     const MIDI_BAND_COLUMN: usize = 80;
 
-    /// The MIDI group's own five Bang-display Cells, one pair per Terminal
+    /// The MIDI group's own five Bang Cells, one pair per Terminal
     /// Output example — column `80..82`, one row south of that example's
     /// Euclidean root, exactly the default output Portal every Value
     /// Function that can emit Bang uses. `~% 01 04` Bangs on the "X..."
@@ -698,13 +716,15 @@ mod tests {
     /// Playing the reference is not a one-Tick affair for the Copy, Halt,
     /// Directional Bang, and Self-Banging examples: a Directional Bang's
     /// emission and a Self-Banging Function's own Span move every Tick until
-    /// something stops them. This ticks the reference five
-    /// times — Ticks 0 through 4 — and asserts three things: no Cell outside
+    /// something stops them. This ticks the reference six
+    /// times — Ticks 0 through 5 — and asserts three things: no Cell outside
     /// an example's own area ever changes (excepting the Tick group's own
-    /// dynamic result rows and the MIDI group's own Bang-display Cells,
+    /// dynamic result rows and the MIDI group's own Bang Cells,
     /// unrelated to Source Functions); every mover Halt can wall in still
-    /// shows its own glyph at rest by the Tick indexed 2; and nothing in any
-    /// Source Function area changes again after that.
+    /// shows its own glyph at rest by the Tick indexed 2; and from then on
+    /// every Source Function area repeats with a period of two Ticks: the
+    /// walled movers stand still, and the three Directional Bangs Halt
+    /// cannot wall alternate between their emitted mover and `**`.
     ///
     #[test]
     fn playing_the_reference_repeatedly_changes_only_each_examples_own_area() {
@@ -732,9 +752,9 @@ mod tests {
         let index_of = |x: usize, y: usize| y * grid.columns() + x;
 
         let before = snapshot(&source);
-        let mut settled: Option<Vec<Option<String>>> = None;
+        let mut settled: Vec<Vec<Option<String>>> = Vec::new();
 
-        for tick in 0..5u64 {
+        for tick in 0..6u64 {
             let plan = source.execute(Tick::new(tick));
             assert!(
                 plan.diagnostics.is_empty(),
@@ -756,14 +776,42 @@ mod tests {
                 }
             }
 
-            if tick == 2 {
-                // Every mover Halt can wall in has been locked in place by
-                // now, and every mover it cannot has been written, blocked,
-                // and cleared — see the module doc's "Source Functions need
-                // an area, not just a row" — so this is the snapshot later
-                // Ticks must not move away from.
-                settled = Some(now);
+            let expect_area = |area: &Area, expected: &[&str]| {
+                assert_eq!(
+                    area_text(&source, grid, area),
+                    expected,
+                    "area {:?}x{:?} did not read as settled at Tick {tick}",
+                    area.columns,
+                    area.rows
+                );
+            };
 
+            if tick == 3 {
+                // The Directional Bangs Halt cannot wall: each emitted mover
+                // was blocked on its first step and left `**`.
+                expect_area(
+                    &source_functions.directional_south,
+                    &["~*1001", "  *v  ", "  **  ", "  00  "],
+                );
+                expect_area(
+                    &source_functions.directional_west,
+                    &["      ~*1001", "00***<      "],
+                );
+                expect_area(
+                    &source_functions.directional_east,
+                    &["~*1001  ", "  *>**00"],
+                );
+            }
+
+            if tick >= 2 {
+                // Every mover Halt can wall in has been locked in place by
+                // now, and every mover it cannot alternates — see the module
+                // doc's "Source Functions need an area, not just a row" — so
+                // each later Tick repeats the one two Ticks before it.
+                settled.push(now);
+            }
+
+            if tick == 2 {
                 for glyph in walled_resting_glyphs() {
                     let width = glyph.expected.chars().count();
                     let actual: String = (0..width)
@@ -779,15 +827,18 @@ mod tests {
                     );
                 }
 
-                let expect_area = |area: &Area, expected: &[&str]| {
-                    assert_eq!(
-                        area_text(&source, grid, area),
-                        expected,
-                        "area {:?}x{:?} did not read as settled at Tick 2",
-                        area.columns,
-                        area.rows
-                    );
-                };
+                expect_area(
+                    &source_functions.directional_south,
+                    &["~*1001", "  *v  ", "  vv  ", "  00  "],
+                );
+                expect_area(
+                    &source_functions.directional_west,
+                    &["      ~*1001", "00<<*<      "],
+                );
+                expect_area(
+                    &source_functions.directional_east,
+                    &["~*1001  ", "  *>>>00"],
+                );
                 expect_area(&source_functions.copy_north, &["05", "=^", "05"]);
                 expect_area(&source_functions.copy_south, &["06", "=v", "06"]);
                 expect_area(&source_functions.copy_west, &["07=<07"]);
@@ -799,16 +850,19 @@ mod tests {
             }
         }
 
-        let settled = settled.expect("Tick 2 ran");
-        let after = snapshot(&source);
-        for area in source_functions.all() {
-            for y in area.rows.clone() {
-                for x in area.columns.clone() {
-                    assert_eq!(
-                        after[index_of(x, y)],
-                        settled[index_of(x, y)],
-                        "Cell ({x}, {y}), in a settled Source Function area, changed after Tick 2"
-                    );
+        for (offset, window) in settled.windows(3).enumerate() {
+            let tick = offset + 4;
+            for area in source_functions.all() {
+                for y in area.rows.clone() {
+                    for x in area.columns.clone() {
+                        assert_eq!(
+                            window[2][index_of(x, y)],
+                            window[0][index_of(x, y)],
+                            "Cell ({x}, {y}), in a settled Source Function area, \
+                             differs on Tick {tick} from Tick {}",
+                            tick - 2
+                        );
+                    }
                 }
             }
         }
@@ -878,7 +932,7 @@ mod tests {
     /// (CONTEXT.md's Terminal Output Function entry), so no row is set aside
     /// south of any of these five Expressions — unlike every value-answering
     /// group's own result row — and the only Cells that ever change while
-    /// ticking this group are the Euclidean sources' own Bang-display Cells,
+    /// ticking this group are the Euclidean sources' own Bang Cells,
     /// [`midi_bang_result_areas`], which this test names explicitly and
     /// excludes rather than asserting fixed content for, since each toggles
     /// between `**` and blank forever rather than settling.
@@ -886,7 +940,7 @@ mod tests {
     /// This ticks the reference across two full Euclidean cycles (Ticks `0`
     /// through `8`) and asserts, at every Tick: no diagnostic; no
     /// [`orcvs::source::CellWrite`] whose Position falls inside the MIDI
-    /// band outside the five Bang-display Cells; and no Cell inside the
+    /// band outside the five Bang Cells; and no Cell inside the
     /// MIDI band changes except those same five Cells. Across the whole run
     /// it also asserts every one of the five expected [`PlayCommand`]s was
     /// emitted on at least one Tick — proof the group plays, not merely
@@ -925,13 +979,13 @@ mod tests {
             for write in &plan.writes {
                 let position = grid.position_at(write.cell);
                 let in_midi_band = position.x() >= MIDI_BAND_COLUMN;
-                let is_bang_display = bang_cells
+                let is_bang_cell = bang_cells
                     .iter()
                     .any(|area| area.contains(position.x(), position.y()));
                 assert!(
-                    !in_midi_band || is_bang_display,
+                    !in_midi_band || is_bang_cell,
                     "Tick {tick} wrote Cell {position:?} inside the MIDI band \
-                     but outside a Euclidean Bang-display Cell — no Terminal \
+                     but outside a Euclidean Bang Cell — no Terminal \
                      Output Function ever writes a Cell"
                 );
             }
@@ -953,7 +1007,7 @@ mod tests {
                 assert_eq!(
                     now[offset], before[offset],
                     "Cell ({x}, {y}), in the MIDI band but outside a Euclidean \
-                     Bang-display Cell, changed on Tick {tick}"
+                     Bang Cell, changed on Tick {tick}"
                 );
             }
         }

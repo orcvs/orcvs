@@ -6,7 +6,7 @@ still commit. Ordinary overwrites continue to interact with movers in actual Tur
 
 **Blocked by:** None — can start immediately.
 
-**Status:** claimed
+**Status:** resolved
 
 **Parent:** [01 — Reconcile placement with value readiness](01-reconcile-placement-with-value-readiness.md).
 
@@ -129,3 +129,11 @@ deferred to CI under repository policy.
 Risks: no public API, unsafe, dependency, feature or concurrency change. Contact metadata adds
 Tick-local span storage and scans; no performance improvement is claimed. Emission scheduling
 remains issue 03 work.
+
+### 2026-10-11 — Resolved
+
+Checked against `main` (`712578a`): ADR 0060 is accepted, the west and north train, converging,
+south-follower, mixed overwrite, claimed-operand and Input Portal regressions and
+`movers_never_meet_an_ordering_defect_or_a_cycle` are in `orcvs/src/source/tick.rs`, and the
+successful-placement path in `Execution::deliver_source_effect` carries no Snapshot-owner guard.
+The CI verification above covers the acceptance criteria. Emission scheduling remains issue 03.

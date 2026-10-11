@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use lang::Tick;
+use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::plan;
 use crate::grid::Grid;
@@ -11,6 +11,21 @@ use crate::source::{Cells, Source, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
 pub(super) const MISSED_BANG: &str = "Bang reached a root that has taken its Turn";
+
+/// One Raw Play Command, stated as the three Numbers a Source writes.
+pub(in crate::source) fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
+    PlayCommand::Raw {
+        channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+        velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
+        note: Note::try_from(note).expect("a MIDI note"),
+    }
+}
+
+/// The Raw Play Command `!>007FC4` answers: C4 on channel 0 at full
+/// velocity.
+pub(in crate::source) fn raw_c4() -> PlayCommand {
+    raw(0, 0x7F, 0x3C)
+}
 
 /// One observed Tick.
 #[derive(Debug, PartialEq)]

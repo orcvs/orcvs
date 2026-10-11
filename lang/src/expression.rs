@@ -36,12 +36,10 @@ type Record = PositionedEntry;
 /// equally what a signature requires at that position. The two readings
 /// coincide for the literal
 /// operands — a Number position holds two hexadecimal Cells and an entry
-/// holding them is labelled `Number` — and come apart for the rest: `Bang`,
-/// `Comment`, and `Function` are labels the Parser applies to Cells no
-/// signature declares.
+/// holding them is labelled `Number` — and come apart for the rest: `Comment`
+/// and `Function` are labels the Parser applies to Cells no signature declares.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
-    Bang,
     /// The rest of the Source, claimed by the `||` introducer and never
     /// decoded — a Grid row, wherever one supplied the Source. A Comment
     /// records this and no Atom, which is what lets it carry text:
@@ -143,11 +141,11 @@ impl Token {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
             Self::Untyped => crate::atom::untyped_atom(spelling),
-            // The Parser fills these two positions structurally rather than by
+            // The Parser fills this position structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
-            // recognises `**` or a Function spelling, and labels the entry with
-            // what it found. Nothing asks them to decode.
-            Self::Bang | Self::Function => Err(crate::SyntaxError::ExpectedToken.into()),
+            // recognises a Function spelling, and labels the entry with what
+            // it found. Nothing asks it to decode.
+            Self::Function => Err(crate::SyntaxError::ExpectedToken.into()),
             // A Comment records no Atom at all: its claim is the
             // rest of the Source, a Grid row rather than a fixed-width value,
             // and nothing asks it to decode one.
@@ -177,12 +175,9 @@ impl Token {
             // the only other thing that can stand at an operand position — is
             // exactly two by the compile-time assertion `define_functions!`
             // holds every spelling to.
-            Token::Bang
-            | Token::Comment
-            | Token::Function
-            | Token::Note
-            | Token::Number
-            | Token::Untyped => DEFAULT_TOKEN_LEN,
+            Token::Comment | Token::Function | Token::Note | Token::Number | Token::Untyped => {
+                DEFAULT_TOKEN_LEN
+            }
         }
     }
 

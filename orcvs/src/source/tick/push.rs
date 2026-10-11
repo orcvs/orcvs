@@ -7,8 +7,10 @@
 //! only at its Turn, so these tests also state the order that Turn takes
 //! against what feeds Push and against the readers of that pair.
 
+use lang::Tick;
+
 use super::observed::{
-    MISSED_BANG, diagnostic, first, observe_at, quiet, source_of, turn_before, turns,
+    MISSED_BANG, diagnostic, first, observe_at, quiet, raw, rows_of, source_of, turn_before, turns,
 };
 use crate::grid::Grid;
 
@@ -27,6 +29,20 @@ fn push_writes_its_value_into_the_selected_pair_of_the_lane_below_it() {
         assert_eq!(tick.rows, [format!("{row:10}"), lane.to_owned()], "{row}");
         quiet(&tick);
     }
+}
+
+#[test]
+fn a_bang_pushed_overwrites_its_whole_pair_and_activates_the_roots_aligned_with_it() {
+    // Pair 01 is (2, 1); the `**` replaces the `xx` there and activates Raw
+    // Play C4 south of it.
+    let mut source = source_of(
+        Grid::with_shape(10, 3),
+        &["@t0103**", "xxxxxx", "  !>007FC4"],
+    );
+    let plan = source.execute(Tick::ZERO);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 60)]);
+    assert_eq!(rows_of(&source)[1], "xx**xx    ");
 }
 
 #[test]

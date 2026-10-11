@@ -126,7 +126,8 @@ pub struct SourceEffect {
     pub columns: i16,
     /// Rows to displace vertically, positive to the south.
     pub rows: i16,
-    /// The characters written at the displaced Span.
+    /// The characters written at the displaced Span, or `None` for a bundle
+    /// that writes no spelling of its own.
     pub spelling: Option<&'static str>,
     /// Which validated bundle this effect plans.
     pub bundle: SourceBundle,
@@ -276,7 +277,8 @@ impl Direction {
 /// source, and in nothing else: `*^` and `^^` write the same spelling at the
 /// same kind of declared Portal. ADR 0029 refuses to collapse the activation
 /// asymmetry, and this is the other half of the same statement — what a
-/// producer does with the Cells it is standing in.
+/// producer does with the Cells it is standing in. The Bang Function `**`
+/// declares the third: it writes nothing but the clear of its own Span.
 ///
 /// Each variant fixes what a refusal costs as well as what a success writes,
 /// because the two are one fact: a bundle that plans the producer's own Span
@@ -293,6 +295,10 @@ pub enum SourceBundle {
     /// because this bundle plans nothing at the producer's own Cells to say it
     /// with.
     Emit,
+    /// One Portal: spaces over the producer's own Span, with Bang delivered
+    /// to the roots aligned with that Span. The producer vacates the Cells it
+    /// stood in and writes nothing elsewhere, so it can be refused nothing.
+    Fire,
 }
 
 /// The Number two uppercase hexadecimal Cells spell.

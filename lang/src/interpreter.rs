@@ -100,8 +100,8 @@ impl Interpreter {
         if let Some(effect) = function.source_effect() {
             // The Source-writing Functions take no operand and read no
             // Context: the whole of the effect is declared in the table, so
-            // this reads the declaration rather than repeating eight offsets
-            // and two bundles. The two groups' asymmetry lives in the
+            // this reads the declaration rather than repeating nine offsets
+            // and three bundles. The two groups' asymmetry lives in the
             // activation column and the bundle, and both are settled before
             // this.
             return Ok(Interpretation::Source(effect));
@@ -162,6 +162,7 @@ impl Interpreter {
                 return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
             }
             Function::Halt
+            | Function::Bang
             | Function::DirectionalBangEast
             | Function::DirectionalBangNorth
             | Function::DirectionalBangSouth
@@ -690,8 +691,8 @@ mod test {
     #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
-        // `Atom::Empty`, the Interpreter's "no result write" signal, so
-        // the Source never gains a Cell meaning "false".
+        // `Atom::Empty`, the Absence Marker, which leaves the Output Portal
+        // empty, so the Source never gains a Cell meaning "false".
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {
                 let expected = if left == right {

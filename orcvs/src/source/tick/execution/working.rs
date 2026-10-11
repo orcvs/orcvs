@@ -25,11 +25,12 @@ use crate::source::buffer::WorkingCells;
 /// What an admitted write does to placement geometry besides its Cells.
 #[derive(Clone, Copy)]
 pub(super) enum WriteKind {
-    /// Ordinary Source content: a value, a Copy's write, or the cleanup of a
-    /// prior Bang display. It obscures nothing, and an intact placement it
+    /// Ordinary Source content: a value, a Copy's write, or an Absence write.
+    /// It obscures nothing, and an intact placement it
     /// reaches stops being one unit.
     Output,
-    /// A Source effect clearing the Span a moving Function leaves. The
+    /// A Source effect clearing the Span a moving Function or a Bang Function
+    /// leaves. The
     /// Snapshot Cells it covers no longer hold the unit the Snapshot parsed.
     Vacate,
     /// A Source effect writing one whole generated unit: a moved or emitted
@@ -100,12 +101,6 @@ impl<'a> WorkingSource<'a> {
     /// Whether every Cell in `cells` is empty in working Source.
     pub(super) fn vacant(&self, cells: &[usize]) -> bool {
         cells.iter().all(|&cell| self.cells.is_empty_at(cell))
-    }
-
-    /// Whether the pair one Atom occupies at `portal` holds a non-space in
-    /// working Source.
-    pub(super) fn occupied(&self, portal: Portal) -> bool {
-        portal.occupied_in(self.cells.cells())
     }
 
     /// The `width` Cells at `portal`, or `None` where the row edge cuts them.
