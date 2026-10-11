@@ -63,24 +63,23 @@ fn a_root_copy_overwrites_whatever_its_output_portal_lands_on() {
 }
 
 #[test]
-fn a_root_copy_relays_a_same_tick_bang_but_reads_a_typed_bang_as_empty() {
-    // A root Copy answers a value, so it takes its Turn with no Bang. Bang
-    // that Equality writes this Tick reaches the Addition root as activation
-    // and leaves its spelling in place.
-    let relayed = [".=0101", "**=>.+0102", "    03"];
+fn a_root_copy_writes_a_same_tick_bang_over_a_root_and_reads_a_typed_bang_as_empty_once_it_fires() {
+    // A root Copy answers a value, so it takes its Turn with no Bang. The
+    // Bang that Equality writes this Tick is written over the Addition's
+    // spelling, so the Addition answers nothing.
+    let written = [".=0101", "**=>**0102", ""];
     assert_eq!(
         observe(Grid::with_shape(10, 3), &[".=0101", "  =>.+0102", ""], 2),
-        vec![seen(10, &relayed, &[]), seen(10, &relayed, &[])]
+        vec![seen(10, &written, &[]), seen(10, &written, &[])]
     );
 
-    // A `**` typed into the Input Portal is gone by the Copy's Turn: the Copy
-    // copies empty Cells and erases the Addition's spelling without a word.
+    // A `**` typed into the Input Portal fires at the start of the Tick and
+    // is cleared before the Copy's Turn: it activates the `*v` aligned south
+    // of it, which emits `vv`, and the Copy copies empty Cells over the
+    // Addition's spelling without a word.
     assert_eq!(
-        observe(Grid::with_shape(10, 1), &["**=>.+0102"], 2),
-        vec![
-            seen(10, &["  =>  0102"], &[]),
-            seen(10, &["  =>  0102"], &[]),
-        ]
+        observe(Grid::with_shape(10, 3), &["**=>.+0102", "*v", ""], 1),
+        vec![seen(10, &["  =>  0102", "*v", "vv"], &[])]
     );
 }
 

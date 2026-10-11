@@ -59,11 +59,11 @@ pub(super) struct Portal {
 /// Occupancy is a fact about the Source Snapshot's Language Map, not about
 /// working Source: Bang cleanup clears a standalone `**` before any Turn, and
 /// a Comment never writes, so the Map still names an occupied non-root after
-/// those Cells look empty. Working Source vacancy is [`Portal::occupied_in`].
+/// those Cells look empty.
 ///
 /// ADR 0006 and CONTEXT.md keep diagnose-versus-silent with the producer.
-/// Halt, a Copy's Bang output, and a blocked Self-Banging move each read this answer and
-/// apply their own policy.
+/// Halt and a blocked Self-Banging move each read this answer and apply their
+/// own policy.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Occupancy {
@@ -245,26 +245,6 @@ impl Portal {
     }
 
     ///
-    /// Whether either Cell of the pair one Atom occupies from this destination
-    /// holds a non-space in working Source.
-    ///
-    /// A span that cannot fit answers false: the write path refuses the row
-    /// edge itself. A Copy's Bang output asks this after a root at the destination has
-    /// already been offered activation, which is why a cleaned standalone
-    /// Bang — empty in working Source, still a unit on the Map — writes
-    /// rather than diagnosing.
-    ///
-    pub(super) fn occupied_in(self, working: Cells<'_>) -> bool {
-        self.reservation().is_some_and(|span| {
-            working
-                .slice(span.range())
-                .bytes()
-                .iter()
-                .any(|&byte| byte != b' ')
-        })
-    }
-
-    ///
     /// The Language Unit a Copy may read from the Cell pair one Atom occupies in
     /// working Source.
     ///
@@ -320,9 +300,10 @@ impl Portal {
     /// The write retains validated CellContent values through resolution and
     /// commit.
     ///
-    /// A value that plans no write renders to [`super::encoding::Rendered::Nothing`]
-    /// and never reaches a Portal; that is a rule about results, and it belongs
-    /// where results are read.
+    /// A value with no Cells of its own renders to
+    /// [`super::encoding::Rendered::Nothing`] and never reaches a Portal as
+    /// itself; what a Function writes for it instead is a rule about results,
+    /// and it belongs where results are read.
     ///
     pub(super) fn admit(&self, encoding: &Encoding) -> Result<SpanWrite, PortalError> {
         let content: Vec<CellContent> = encoding.content();
@@ -883,17 +864,6 @@ mod test {
             portal.occupancy(&map, |anchor| (anchor == root).then_some(0)),
             Occupancy::Root(0)
         );
-    }
-
-    #[test]
-    fn occupied_in_answers_working_source_spaces() {
-        let grid = Grid::with_shape(4, 1);
-        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        assert!(!portal.occupied_in(Cells::of(b"    ")));
-        assert!(portal.occupied_in(Cells::of(b"x   ")));
-        assert!(portal.occupied_in(Cells::of(b" x  ")));
-        let last = Portal::at(grid, grid.position(3, 0).unwrap());
-        assert!(!last.occupied_in(Cells::of(b"   x")));
     }
 
     #[test]

@@ -26,7 +26,7 @@ use super::{
 };
 use crate::grid::CellIndex;
 use crate::source::Cells;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 ///
 /// Plans one Tick, delivering the value stated for a computation's anchor
@@ -61,9 +61,16 @@ pub(in crate::source::tick) fn plan_with_answers(
         );
     }
     let schedule = order_turns(lookup, diagnostics);
-    let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
+    let (mut execution, fired) = Execution::new(
+        grid,
+        Cells::of(bytes),
+        map,
+        &BTreeSet::new(),
+        tick,
+        &schedule,
+    );
     let mut stated = vec![false; answers.len()];
-    ordering::take_turns(&schedule, |index, progress| {
+    ordering::take_turns(&schedule, fired, |index, progress| {
         let anchor = grid.index(schedule.lookup.nodes()[index].anchor);
         match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {

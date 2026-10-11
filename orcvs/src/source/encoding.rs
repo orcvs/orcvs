@@ -31,7 +31,7 @@ use super::CellContent;
 ///
 /// Non-emptiness and printable content are properties of the type rather than
 /// checks a caller repeats: [`Encoding::render`] answers [`Rendered::Nothing`]
-/// for the value that plans no write at all, so an `Encoding` that exists
+/// for the value that has no Cells of its own, so an `Encoding` that exists
 /// places at least one Cell. [`super::portal::Portal`] relies on that, and it
 /// is held here, where the invariant is established.
 ///
@@ -42,12 +42,13 @@ pub(super) struct Encoding(Vec<CellContent>);
 /// What one answered value becomes at a Portal.
 ///
 /// The Absence Marker is answered here rather than by a caller matching on it:
-/// CONTEXT.md says it "is not a language value ... an Expression answering it
-/// plans no Cell write".
+/// CONTEXT.md says it "has no Source encoding of its own" and "is not a
+/// language value". Whether a Function clears its Output Portal for it is a
+/// fact about the Function, decided where the answer is delivered.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Rendered {
-    /// The value plans no Cell write and reaches no Portal.
+    /// The value has no Cells of its own to write.
     Nothing,
     /// The Cells this value occupies, wherever it is delivered.
     Cells(Encoding),

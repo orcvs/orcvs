@@ -17,7 +17,9 @@ use super::{
     PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite, TickPlan, diagnose,
     resolve, tick_inputs,
 };
+use crate::grid::CellIndex;
 use crate::source::buffer::Cells;
+use std::collections::BTreeSet;
 use working::{WorkingSource, WriteKind};
 
 mod operands;
@@ -79,11 +81,12 @@ pub(super) fn execute(
     grid: Grid,
     cells: Cells<'_>,
     map: &LanguageMap,
+    bang_display: &BTreeSet<CellIndex>,
     tick: Tick,
     schedule: &Schedule,
 ) -> (TickPlan, Vec<ComputationState>) {
-    let mut execution = Execution::new(grid, cells, map, tick, schedule);
-    let diagnostics = ordering::take_turns(schedule, |index, progress| {
+    let (mut execution, fired) = Execution::new(grid, cells, map, bang_display, tick, schedule);
+    let diagnostics = ordering::take_turns(schedule, fired, |index, progress| {
         execution.take_turn(index, progress)
     });
     execution
@@ -189,20 +192,28 @@ struct Execution<'a> {
 
 impl<'a> Execution<'a> {
     ///
-    /// The state one Tick starts from, before any computation takes a Turn.
+    /// The state one Tick starts from, before any computation takes a Turn,
+    /// and the roots the Bangs fired at its start activate.
     ///
     /// Every computation begins untouched, the schedule's own diagnostics are
-    /// already recorded, and the previous revision's Bang display is cleared:
-    /// the clearing is part of starting a Tick rather than part of taking a
-    /// Turn, which is why it happens here and not in the loop that follows.
+    /// already recorded, and every standalone `**` is cleared: the clearing
+    /// is part of starting a Tick rather than part of taking a Turn, which is
+    /// why it happens here and not in the loop that follows.
+    ///
+    /// A `**` whose anchor `bang_display` names is the display of a Bang the
+    /// previous Tick produced. Dependency order delivered that Bang to its
+    /// aligned roots in its own Tick, so it is cleared without activating
+    /// them again. Every other `**` was typed or read in, and fires once: it
+    /// activates the roots aligned with it as a Bang written there would.
     ///
     fn new(
         grid: Grid,
         cells: Cells<'a>,
         map: &'a LanguageMap,
+        bang_display: &BTreeSet<CellIndex>,
         tick: Tick,
         schedule: &'a Schedule,
-    ) -> Self {
+    ) -> (Self, Vec<usize>) {
         let Schedule {
             lookup,
             diagnostics,
@@ -241,13 +252,20 @@ impl<'a> Execution<'a> {
         // Source content rather than an answer, so it is stated here rather than
         // rendered: a Bang occupies two Cells and clearing it writes two spaces.
         let blank = Encoding::literal("  ").expect("a space is a printable Cell");
+        let mut fired = Vec::new();
         for (anchor, _) in map.bangs() {
             let clear = Portal::at(grid, anchor)
                 .admit(&blank)
                 .expect("parsed Bang fits its Grid");
+            if !bang_display.contains(&grid.index(anchor)) {
+                for owner in schedule.lookup.written_over(&clear).bang_roots() {
+                    execution.states[owner].activated = true;
+                    fired.push(owner);
+                }
+            }
             execution.write(WriteKind::Output, clear);
         }
-        execution
+        (execution, fired)
     }
 
     ///
@@ -548,14 +566,20 @@ impl<'a> Execution<'a> {
         };
         // Whether this answer can be Cells at all is a question about the
         // value, settled before any destination is asked: the Absence Marker
-        // plans no write and answers `Nothing`, and a rendering a Cell cannot
-        // hold refuses whole. Every other Atom renders as the Cell pair the
-        // schedule reserved.
+        // answers `Nothing`, and a rendering a Cell cannot hold refuses whole.
+        // Every other Atom renders as the Cell pair the schedule reserved.
         let encoding = match Encoding::render(atom) {
             Ok(Rendered::Nothing) => {
-                // A Copy answers Empty when its input is two spaces. That is a
-                // clear of the reserved output Portal, not an omitted write.
-                if self.states[index].function.copies_language_unit() {
+                // Two kinds of Function clear the reserved Output Portal rather
+                // than omit the write. A Copy answers Empty when its input is two
+                // spaces, and writes them. A Bang producer writes its answer
+                // on every Turn, so a Turn that does not Bang leaves its
+                // Output Portal empty, as Orca's bang ports write `.`; the two
+                // Cells it clears are the pair the schedule reserves for its
+                // Bang, root or nested, so clearing them orders nothing new.
+                // Every other Function writes nothing.
+                let function = self.states[index].function;
+                if function.copies_language_unit() || function.answers_only_bang() {
                     let cleared =
                         Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
                     for output in sites {
@@ -616,29 +640,6 @@ impl<'a> Execution<'a> {
                 return;
             }
         };
-        // A Function that passes a pair through, as a Copy or Read does, or
-        // as a Write carries its `value`, relays a Bang: it activates the
-        // root it lands on rather than covering it.
-        if atom == Atom::Bang && (selected || self.states[index].function.copies_language_unit()) {
-            if let Some(root) = self.schedule.lookup.root_at(destination) {
-                if selected && self.misses_activation(root) {
-                    return;
-                }
-                self.states[root].activated = true;
-                if selected {
-                    self.activated.push(root);
-                }
-                return;
-            }
-            if self.working.occupied(Portal::at(self.grid, destination)) {
-                let producer = self.states[index].function;
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    format!("{producer} cannot activate an occupied non-root"),
-                )));
-                return;
-            }
-        }
         let write = match Portal::at(self.grid, destination).admit(encoding) {
             Ok(write) => write,
             Err(reason) => {

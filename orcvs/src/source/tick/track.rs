@@ -5,13 +5,13 @@
 //! pair is known only at Track's Turn, so these tests also state the order
 //! that Turn takes against the writers of the Cells it reads.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::execution::ComputationState;
-use super::observed::{diagnostic, first, observe_at, quiet_rows, rows_of, source_of, turns};
-use super::{plan, plan_carrying};
+use super::observed::{diagnostic, first, observe_at, quiet_rows, raw, rows_of, source_of, turns};
+use super::{plan_carrying, plan_first};
 use crate::grid::{CellIndex, Grid, Position};
 use crate::source::{Cells, Source};
 
@@ -88,17 +88,18 @@ fn a_function_track_copies_replaces_the_function_where_it_lands() {
 }
 
 #[test]
-fn a_bang_track_reads_is_relayed_and_activates_the_root_it_lands_on() {
-    // Equality writes `**` into pair 1 this Tick. Track relays it onto the
-    // anchor of Raw Play, which plays and keeps its Cells.
+fn a_bang_track_reads_overwrites_the_root_it_lands_on_and_activates_the_roots_aligned_with_it() {
+    // Equality writes `**` into pair 1 this Tick. Track writes it over Raw
+    // Play C4's anchor, so C4 does not run, and activates Raw Play D4 south
+    // of it.
     let mut source = source_of(
-        Grid::with_shape(14, 3),
-        &["        .=0101", "&t0103C4  E4", "!>007FC4"],
+        Grid::with_shape(14, 4),
+        &["        .=0101", "&t0103C4  E4", "!>007FC4", "!>007FD4"],
     );
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(plan.play_commands.len(), 1);
-    assert_eq!(rows_of(&source)[2], "!>007FC4      ");
+    assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
+    assert_eq!(rows_of(&source)[2], "**007FC4      ");
 }
 
 #[test]
@@ -298,6 +299,7 @@ fn a_writer_that_waits_on_track_forms_a_cycle_and_the_rest_of_the_tick_runs() {
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
+        &BTreeSet::new(),
         Tick::ZERO,
         &destinations,
     );
@@ -414,7 +416,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
     let source = source_of(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (_, states) = plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     let schedule = map.schedule_cache().schedule(grid, &map);
     let nodes = schedule.lookup.nodes();
     let interpretations: BTreeMap<_, _> = nodes
@@ -580,7 +582,7 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     let source = source_of(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (plan, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, states) = plan_first(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     let nodes = map.schedule_cache().schedule(grid, &map).lookup.nodes();
     let addition = nodes
@@ -647,6 +649,7 @@ fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
+        &BTreeSet::new(),
         Tick::ZERO,
         &destinations,
     );
@@ -681,6 +684,7 @@ fn a_late_cycle_preserves_a_completed_nested_operands_write() {
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
+        &BTreeSet::new(),
         Tick::ZERO,
         &destinations,
     );
@@ -743,6 +747,7 @@ fn a_completed_operands_consumer_survives_a_late_cycle_after_an_earlier_wait() {
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
+            &BTreeSet::new(),
             Tick::ZERO,
             &destinations,
         );
