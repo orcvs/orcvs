@@ -832,6 +832,10 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
     // alone orders nothing (ADR 0060 rule 3b). An occupant that leaves first
     // makes room; one still standing refuses the emission.
     let orders_contacts = bundle.is_none_or(SourceBundle::clears_own_span);
+    // A bundle that clears its own Span and writes displaced moves, and a
+    // move meets an intrinsically active root it contacts in Source order.
+    // Both facts are named although only bundles that clear their own Span
+    // order contacts at all, so the rule reads the same wherever a move is.
     let moves = bundle.is_some_and(|bundle| bundle.clears_own_span() && bundle.writes_displaced());
     if let Some(target) = locked_subtree(lookup, index) {
         for consumer in target.clone() {
@@ -854,9 +858,9 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
             .flatten();
         for contact in contacts {
             // A move is admitted only where the Cells it enters are empty,
-            // so a Self-Banging Function's Portal never writes over the
-            // Language Unit it contacts: the contact blocks the move and the
-            // Function bangs its own Span instead. Its reservation still
+            // so a moving bundle's Portal never writes over the Language Unit
+            // it contacts: the contact blocks the move and the producer
+            // leaves `**` in its own Span instead. Its reservation still
             // orders it before a contacted root that waits for a Bang, as any
             // reservation does. An intrinsically active root is exempt, as in
             // the Bang emission arm below, and meets the mover in Source

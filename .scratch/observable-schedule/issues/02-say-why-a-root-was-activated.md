@@ -79,3 +79,5 @@ Re-read against the code; the body is corrected in place.
   time from three sites (`:496-499` Jump landing, `:531-535` Bang write, `:743` advance contact).
   Which of the two should carry provenance is now the first question for triage.
 - Status stays `needs-triage`; blocker `01` is resolved.
+
+2026-10-12 — Source-bundle ticket 01 deleted `advances(function)`. Where this ticket quotes it, read `SourceBundle::clears_own_span() && writes_displaced()` on the Function's declared bundle, which `producer_edges` names `moves`.

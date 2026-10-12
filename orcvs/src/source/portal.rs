@@ -449,7 +449,7 @@ impl PortalAccess {
             };
         }
         if let Some(effect) = function.source_effect() {
-            // ADR 0004's effect bundle, in the emission order ADR 0020
+            // ADR 0004's Source Bundle, in the emission order ADR 0020
             // resolves it by: the producer's own Span first when the bundle
             // clears it, then the displaced destination when it writes one.
             // The displacement is read from the declaration here and
