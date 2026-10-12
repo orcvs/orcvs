@@ -572,7 +572,7 @@ mod test {
     use crate::source::tick::{Lookup, computations};
 
     /// The Lookup for `rows`, each padded to the Grid's width, and its locks.
-    fn lookup(grid: Grid, rows: &[&str]) -> (Lookup, Locks) {
+    fn fixture(grid: Grid, rows: &[&str]) -> (Lookup, Locks) {
         let bytes: String = (0..grid.rows())
             .map(|row| {
                 format!(
@@ -604,14 +604,14 @@ mod test {
 
     #[test]
     fn a_lock_goes_before_the_subtree_it_locks() {
-        let (lookup, locks) = lookup(Grid::with_shape(8, 3), &HALT);
+        let (lookup, locks) = fixture(Grid::with_shape(8, 3), &HALT);
         let (halt, add) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
         assert!(derive(&lookup, &locks).edges.contains(&(halt, add)));
     }
 
     #[test]
     fn a_bang_goes_before_the_root_it_activates() {
-        let (lookup, locks) = lookup(Grid::with_shape(8, 3), &HALT);
+        let (lookup, locks) = fixture(Grid::with_shape(8, 3), &HALT);
         let (equality, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 1));
         let derived = derive(&lookup, &locks);
         assert!(
@@ -625,7 +625,7 @@ mod test {
     fn a_locked_producer_is_not_ordered_before_the_lock_it_reaches() {
         // `^^` reserves the Cells Halt stands in, but Halt locks it, so the
         // lock alone orders the pair.
-        let (lookup, locks) = lookup(
+        let (lookup, locks) = fixture(
             Grid::with_shape(8, 3),
             &[".=0101  ", "  *!    ", "  ^^    "],
         );
@@ -639,7 +639,7 @@ mod test {
     fn a_bundle_that_clears_its_own_span_is_not_ordered_after_itself() {
         // The Bang Function reserves the Cells it stands in and does not
         // move, so only the exemption keeps it from being its own cycle.
-        let (lookup, locks) = lookup(Grid::with_shape(6, 1), &["**    "]);
+        let (lookup, locks) = fixture(Grid::with_shape(6, 1), &["**    "]);
         let bang = at(&lookup, 0, 0);
         let derived = derive(&lookup, &locks);
         assert!(derived.active[bang]);
@@ -648,7 +648,7 @@ mod test {
 
     #[test]
     fn a_reservation_goes_before_the_function_it_contacts() {
-        let (lookup, locks) = lookup(Grid::with_shape(6, 2), &[".+0101", ".-0202"]);
+        let (lookup, locks) = fixture(Grid::with_shape(6, 2), &[".+0101", ".-0202"]);
         let (writer, contacted) = (at(&lookup, 0, 0), at(&lookup, 0, 1));
         assert!(derive(&lookup, &locks).edges.contains(&(writer, contacted)));
     }
@@ -657,25 +657,25 @@ mod test {
     fn a_mover_meets_an_intrinsically_active_root_in_source_order() {
         // `>>` reserves the Cells `^^` stands in, and `^^` takes its Turn
         // with nothing delivered to it, so Source order decides between them.
-        let (lookup, locks) = lookup(Grid::with_shape(6, 1), &[">>^^  "]);
+        let (lookup, locks) = fixture(Grid::with_shape(6, 1), &[">>^^  "]);
         let (mover, active) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
         assert!(!derive(&lookup, &locks).edges.contains(&(mover, active)));
         // A root that waits for a Bang is still ordered after the mover.
-        let (lookup, locks) = self::lookup(Grid::with_shape(6, 1), &[">>*!  "]);
+        let (lookup, locks) = fixture(Grid::with_shape(6, 1), &[">>*!  "]);
         let (mover, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
         assert!(derive(&lookup, &locks).edges.contains(&(mover, halt)));
     }
 
     #[test]
     fn a_reservation_goes_before_the_literal_it_covers() {
-        let (lookup, locks) = lookup(Grid::with_shape(10, 2), &["    .+0101", "  .-0101  "]);
+        let (lookup, locks) = fixture(Grid::with_shape(10, 2), &["    .+0101", "  .-0101  "]);
         let (writer, consumer) = (at(&lookup, 4, 0), at(&lookup, 2, 1));
         assert!(derive(&lookup, &locks).edges.contains(&(writer, consumer)));
     }
 
     #[test]
     fn a_joining_root_brings_what_its_bang_activates() {
-        let (lookup, locks) = lookup(Grid::with_shape(8, 3), &HALT);
+        let (lookup, locks) = fixture(Grid::with_shape(8, 3), &HALT);
         let (equality, halt, add) = (at(&lookup, 0, 0), at(&lookup, 2, 1), at(&lookup, 2, 2));
         let mut active = vec![false; lookup.nodes().len()];
         active[equality] = true;
