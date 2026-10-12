@@ -28,7 +28,7 @@ mod track;
 #[cfg(test)]
 mod write;
 
-use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, SourceEffect, Tick, TickInputs};
+use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
@@ -652,65 +652,6 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
     reached
 }
 
-///
-/// Whether this Function's declared bundle moves the Span it stands in.
-///
-/// One rule of the schedule asks it: whether a Function its reservation
-/// contacts is ordered after it. A move is admitted only into empty Cells, so
-/// contact writes over nothing and delivers no activation, and only a root
-/// that waits for a Bang is ordered after it. Asking
-/// `source_effect().is_some()` instead would give the same answer to a
-/// Directional Bang Function and the Bang Function, which do not move.
-///
-fn advances(function: Function) -> bool {
-    matches!(
-        function.source_effect(),
-        Some(SourceEffect {
-            bundle: SourceBundle::Advance,
-            ..
-        })
-    )
-}
-
-///
-/// Whether this Function's declared bundle clears the Span it stands in, so
-/// that its first Portal covers its own spelling by design: a Self-Banging
-/// Function's `Advance` and the Bang Function's `Fire`.
-///
-/// One rule of the schedule asks it: whether a reservation covering the
-/// producer itself is a same-Tick cycle or the design. An emitting bundle plans
-/// nothing at its own Cells and needs no exemption.
-///
-fn clears_its_own_span(function: Function) -> bool {
-    matches!(
-        function.source_effect(),
-        Some(SourceEffect {
-            bundle: SourceBundle::Advance | SourceBundle::Fire,
-            ..
-        })
-    )
-}
-
-///
-/// Whether this Function's declared bundle writes beside it and never vacates
-/// the Cells it stands in.
-///
-/// One rule of the schedule asks it: whether the Functions the producer's
-/// reservation contacts are ordered after it. An emission tests occupancy at
-/// its Turn and delivers nothing to an occupant, so they are not. As with
-/// [`advances`], the bundle check is exact: `source_effect().is_some()` would
-/// also admit every Self-Banging Function, whose contact delivers activation.
-///
-fn emits_without_vacating(function: Function) -> bool {
-    matches!(
-        function.source_effect(),
-        Some(SourceEffect {
-            bundle: SourceBundle::Emit,
-            ..
-        })
-    )
-}
-
 /// The complete subtree a locking Function's Portal names.
 fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
     match &lookup.locks[locker] {
@@ -873,23 +814,35 @@ fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<
 fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usize)) {
     let nodes = lookup.nodes();
     let node = &nodes[index];
+    let bundle = node.function.source_effect().map(|effect| effect.bundle);
+    // A self-edge is an unsatisfiable indegree, so it is how a computation
+    // that writes over its own Cells reports itself as a same-Tick cycle: the
+    // reservation covering the producer and the Cell pair its write reaches
+    // are the same fact, and `live_cycles_stop_only_the_expressions_they_reach`
+    // holds that rule.
+    //
+    // The one way a producer's own Cells are not a defect is one a declaration
+    // states outright: a bundle that clears its own Span, which a Self-Banging
+    // Function's and the Bang Function's do. Ordering such a producer after
+    // itself would stop it every Tick it takes a Turn in.
+    let exempt_from_itself = bundle.is_some_and(SourceBundle::clears_own_span);
+    // A bundle that leaves its producer standing, an emission, is admitted
+    // only into Cells empty at its Turn, so it never writes over a Function
+    // its reservation contacts, and it delivers no activation there: occupancy
+    // alone orders nothing (ADR 0060 rule 3b). An occupant that leaves first
+    // makes room; one still standing refuses the emission.
+    let orders_contacts = bundle.is_none_or(SourceBundle::clears_own_span);
+    // A bundle that clears its own Span and writes displaced moves, and a
+    // move meets an intrinsically active root it contacts in Source order.
+    // Both facts are named although only bundles that clear their own Span
+    // order contacts at all, so the rule reads the same wherever a move is.
+    let moves = bundle.is_some_and(|bundle| bundle.clears_own_span() && bundle.writes_displaced());
     if let Some(target) = locked_subtree(lookup, index) {
         for consumer in target.clone() {
             edge(index, consumer);
         }
     }
     for relationships in lookup.reservations(index) {
-        // A self-edge is an unsatisfiable indegree, so it is how a
-        // computation that writes over its own Cells reports itself as a
-        // same-Tick cycle: the reservation covering the producer and the
-        // Cell pair its write reaches are the same fact, and
-        // `live_cycles_stop_only_the_expressions_they_reach` holds that
-        // rule.
-        //
-        // The one way a producer's own Cells are not a defect is one a
-        // declaration states outright: `clears_its_own_span`. Ordering such a
-        // producer after itself would stop it every Tick it takes a Turn in.
-        let exempt_from_itself = clears_its_own_span(node.function);
         let mut order_after = |consumer: usize| {
             if exempt_from_itself && consumer == index {
                 return;
@@ -899,21 +852,15 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
             }
             edge(index, consumer);
         };
-        // An emission is admitted only into Cells empty at its Turn, so it
-        // never writes over a Function its reservation contacts, and it
-        // delivers no activation there: occupancy alone orders nothing
-        // (ADR 0060 rule 3b). An occupant that leaves first makes room; one
-        // still standing refuses the emission.
-        let moves = advances(node.function);
-        let contacts = (!emits_without_vacating(node.function))
+        let contacts = orders_contacts
             .then(|| relationships.functions())
             .into_iter()
             .flatten();
         for contact in contacts {
             // A move is admitted only where the Cells it enters are empty,
-            // so a Self-Banging Function's Portal never writes over the
-            // Language Unit it contacts: the contact blocks the move and the
-            // Function bangs its own Span instead. Its reservation still
+            // so a moving bundle's Portal never writes over the Language Unit
+            // it contacts: the contact blocks the move and the producer
+            // leaves `**` in its own Span instead. Its reservation still
             // orders it before a contacted root that waits for a Bang, as any
             // reservation does. An intrinsically active root is exempt, as in
             // the Bang emission arm below, and meets the mover in Source

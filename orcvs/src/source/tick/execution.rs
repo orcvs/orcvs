@@ -703,33 +703,34 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// The one validated effect bundle for a Source-writing Function.
+    /// The one validated Source Bundle for a Source-writing Function.
     ///
-    /// The declared bundle decides which it is. A `Fire` is the Bang
-    /// Function's Turn, [`Execution::fire`]. An `Advance` moves:
-    /// an empty destination plans one validated Portal bundle, spaces over the
-    /// current Span followed by its own spelling at the shifted destination,
-    /// and a blocked or out-of-Grid move instead replaces its current Span with
-    /// `**`. An `Emit` emits: the complete initial destination must be empty
-    /// and inside the Grid, or the producer diagnoses and emits nothing.
+    /// The Bang Function's `Fire` takes its Turn in [`Execution::fire`]. Every
+    /// other bundle writes displaced, and its two facts decide the rest. One
+    /// that also clears its own Span moves: an empty destination plans one validated Portal bundle, spaces
+    /// over the current Span followed by its own spelling at the shifted
+    /// destination, and a blocked or out-of-Grid move instead replaces its
+    /// current Span with `**`. One that writes displaced and leaves its own
+    /// Span standing emits: the complete initial destination must be empty and
+    /// inside the Grid, or the producer diagnoses and emits nothing.
     ///
     /// It is not [`Execution::deliver_value`] with a different destination. That
     /// path delivers one encoding through every Portal a computation resolved;
-    /// an `Advance` writes different Cells at each of its two, and what it
-    /// writes at the second decides what it writes at the first: spaces at its
-    /// origin when the destination admits its spelling, `**` when it does not.
+    /// a move writes different Cells at each of its two, and what it writes at
+    /// the second decides what it writes at the first: spaces at its origin
+    /// when the destination admits its spelling, `**` when it does not.
     ///
     /// The precondition is one rule and the refusal is two, which is why the
     /// groups share this path rather than each having one. What a refusal costs
-    /// follows from whether the bundle plans the producer's own Span: a
+    /// follows from whether the bundle clears the producer's own Span: a
     /// producer that was leaving those Cells reports in them, and a producer
     /// that is staying has nothing of its own to report in.
     ///
     /// Admission is atomic, as for ordinary value output, but empty-only
     /// placement cannot overwrite a standing Function. Snapshot ownership of
     /// vacated Cells therefore imposes no executed-computation guard here.
-    /// An advancing bundle also clears its own Span; the schedule excludes
-    /// that producer from its own overwrite dependency.
+    /// A moving bundle also clears its own Span; the schedule excludes that
+    /// producer from its own overwrite dependency.
     ///
     /// The displacement is the Interpreter's answer and the destination
     /// `computations` reserved is the same declaration read before the Turn.
@@ -747,7 +748,7 @@ impl<'a> Execution<'a> {
         let spelling = Encoding::literal(
             effect
                 .spelling
-                .expect("an Advance or Emit declares the Function it writes"),
+                .expect("a bundle that writes displaced declares the Function it writes"),
         )
         .expect("a Function spelling is printable ASCII Cells");
         // What stands in the Source, which is not always what gets written. A
@@ -762,19 +763,24 @@ impl<'a> Execution<'a> {
         // every spelling a Source-writing Function writes is another
         // Function's, so the Span it occupies and the Span it writes are the
         // same width and one length serves both.
-        let advancing = effect.bundle == SourceBundle::Advance;
+        //
+        // A bundle that writes displaced and clears its own Span moves: it
+        // leaves the Cells it stood in, so they are not newly entered and a
+        // refusal has them to leave `**` in. One that only writes displaced
+        // stays standing.
+        let moves = effect.bundle.clears_own_span() && effect.bundle.writes_displaced();
         let start = self.grid.index(anchor).get();
         let own = start..start + spelling.len();
 
-        // Which Cells the precondition is asked about, and the one place the
-        // two bundles read differently. An advancing Function tests only the
-        // Cells newly entered by a one-Cell move — the whole destination for a
+        // Which Cells the precondition is asked about, and the one place a
+        // move and an emission read differently. A move tests only the Cells
+        // newly entered by a one-Cell step — the whole destination for a
         // vertical move and one Cell of it for a horizontal one — and an
-        // emitting one tests the complete initial destination. The two
+        // emission tests the complete initial destination. The two
         // coincide for every offset declared, because no emission overlaps its
         // producer, so the distinction is stated rather than relied on.
         //
-        // The asymmetry is not carved into the write either way: an advancing
+        // The asymmetry is not carved into the write either way: a move's
         // clear covers the complete old Span, and later-write-wins settles the
         // Cell the two share.
         let admitted = Portal::displaced(self.grid, anchor, effect.columns, effect.rows)
@@ -783,7 +789,7 @@ impl<'a> Execution<'a> {
             Ok(write) => write
                 .cells()
                 .map(|(cell, _)| cell.get())
-                .filter(|cell| !advancing || !own.contains(cell))
+                .filter(|cell| !moves || !own.contains(cell))
                 .collect(),
             Err(_) => vec![],
         };
@@ -795,7 +801,7 @@ impl<'a> Execution<'a> {
                 // No standing Function is overwritten or suppressed. A claimed
                 // operand still waits for this supplier and decodes these Cells
                 // when its consumer executes.
-                if advancing {
+                if moves {
                     let clear = self.own_span_clear(anchor);
                     self.write(WriteKind::Vacate, clear);
                 }
@@ -805,7 +811,7 @@ impl<'a> Execution<'a> {
             // that are not empty. No partial write is admitted, so the whole
             // destination is gone in every case, and what the producer does
             // instead is the bundle's to say.
-            _ if advancing => {
+            _ if moves => {
                 // Source content rather than an answer: the Bang Function a
                 // refused move leaves, which activates nothing in this Turn
                 // and takes its own Turn from the next Snapshot. It is stated
@@ -843,7 +849,7 @@ impl<'a> Execution<'a> {
                     "{producer} has no empty destination inside the Grid for {}",
                     effect
                         .spelling
-                        .expect("an Emit declares the Function it writes"),
+                        .expect("a bundle that writes displaced declares the Function it writes"),
                 ),
             ))),
         }

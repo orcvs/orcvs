@@ -21,7 +21,7 @@
 
 use std::ops::Range;
 
-use lang::{Function, InputPortal, PortalCoords, SourceBundle};
+use lang::{Function, InputPortal, PortalCoords};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -449,21 +449,18 @@ impl PortalAccess {
             };
         }
         if let Some(effect) = function.source_effect() {
-            // ADR 0004's effect bundle, in the emission order ADR 0020
-            // resolves it by. An `Advance` clears the Cells the producer
-            // stands in before it writes; an `Emit` plans nothing at its own
-            // Cells; a `Fire` clears its own Cells and writes nothing else.
+            // ADR 0004's Source Bundle, in the emission order ADR 0020
+            // resolves it by: the producer's own Span first when the bundle
+            // clears it, then the displaced destination when it writes one.
             // The displacement is read from the declaration here and
             // answered again by the Interpreter at the Turn.
-            let destination = || {
+            let bundle = effect.bundle;
+            let own = bundle.clears_own_span().then_some(Ok(anchor));
+            let destination = bundle.writes_displaced().then(|| {
                 Portal::displaced(grid, anchor, effect.columns, effect.rows)
                     .map(|portal| portal.destination())
-            };
-            let writes = match effect.bundle {
-                SourceBundle::Advance => vec![Ok(anchor), destination()],
-                SourceBundle::Emit => vec![destination()],
-                SourceBundle::Fire => vec![Ok(anchor)],
-            };
+            });
+            let writes = own.into_iter().chain(destination).collect();
             return Self {
                 output: PortalOutput::Writes(writes),
                 reads: Vec::new(),

@@ -1,7 +1,7 @@
 # 08 — Decide whether a mover still precedes the root it contacts
 
 Status: ready-for-human
-Blocked by: 01
+Blocked by: 01, source-bundle/01
 
 **What to build:**
 
@@ -14,9 +14,10 @@ The owner decides whether the edge goes. It is a scheduling change, so it is not
 ## Acceptance criteria
 
 - [ ] The owner decides whether the mover → contacted-root edge stays or goes.
-- [ ] If it goes: the edge and the `advances` predicate's last caller are removed, a test pins a mover meeting a Bang-activated root in Source order, and a property shows removing the edge introduces no ordering defect or cycle.
+- [ ] If it goes: the mover's intrinsic-root exemption and the `moves` rule in `producer_edges` that serves it are removed, leaving contacts ordered only by `SourceBundle::clears_own_span`, a test pins a mover meeting a Bang-activated root in Source order, and a property shows removing the edge introduces no ordering defect or cycle.
 - [ ] If it stays: its comment states the ordering it keeps and why, without referring to contact activation.
 
 ## Comments
 
 2026-10-11 — Raised as finding 2 of the `/code-review` run on PR #213 and filed for a decision at the owner's request.
+2026-10-12 — Source-bundle ticket 01 replaced the `advances` predicate with `SourceBundle::clears_own_span` and `writes_displaced`. The edge is now the `moves` rule over those two facts in `producer_edges`, so either outcome edits that one rule.
