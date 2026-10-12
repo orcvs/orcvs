@@ -1,11 +1,13 @@
 //! Every Dependency a Tick's Turns are ordered by, derived from a [`Lookup`].
 //!
 //! A Dependency comes from a Reservation, a lock, a Bang, an Input Portal or
-//! nesting. This module states each rule once and answers two questions:
+//! nesting. This module states each rule once. Ordering asks two questions:
 //! [`derive()`], every Dependency and dynamic writer known before the Tick, and
 //! [`join()`], those a root activated during the Tick brings with it. Which
 //! roots activation reaches is derived here too, because a Bang's
-//! Reservation is what delivers it. Ordering sorts what this answers.
+//! Reservation is what delivers it. Execution asks three: [`reached()`], what
+//! an admitted write covers; [`Locks::lock_target`], what a lock reaches; and
+//! [`input_writers`], which writers a dynamic Input Portal waits on.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -25,7 +27,7 @@ use crate::source::portal::{Occupancy, Portal, SpanWrite};
 ///
 pub(super) struct Derived {
     pub(super) active: Vec<bool>,
-    pub(super) edges: BTreeSet<(usize, usize)>,
+    pub(super) dependencies: BTreeSet<(usize, usize)>,
     pub(super) writers: Vec<usize>,
 }
 
@@ -37,26 +39,26 @@ pub(super) struct Derived {
 pub(super) fn derive(lookup: &Lookup, locks: &Locks) -> Derived {
     let nodes = lookup.nodes();
     let active = active_roots(lookup);
-    let mut edges = BTreeSet::new();
+    let mut dependencies = BTreeSet::new();
     for (index, node) in nodes.iter().enumerate() {
         if let Some(parent) = node.parent {
-            edges.insert((index, parent));
+            dependencies.insert((index, parent));
         }
         if active[node.owner] {
             producer_edges(lookup, locks, index, |producer, consumer| {
-                edges.insert((producer, consumer));
+                dependencies.insert((producer, consumer));
             });
         }
     }
     for consumer in 0..nodes.len() {
         input_edges(lookup, &active, consumer, |producer, consumer| {
-            edges.insert((producer, consumer));
+            dependencies.insert((producer, consumer));
         });
     }
     let writers = dynamic_writers(lookup, &active).collect();
     Derived {
         active,
-        edges,
+        dependencies,
         writers,
     }
 }
@@ -93,11 +95,14 @@ pub(super) fn join(
 }
 
 /// [`join()`] over one Lookup and its locks, as ordering asks it.
-pub(super) struct Joining<'a>(pub(super) &'a Lookup, pub(super) &'a Locks);
+pub(super) struct Joining<'a> {
+    pub(super) lookup: &'a Lookup,
+    pub(super) locks: &'a Locks,
+}
 
 impl Join for Joining<'_> {
     fn join(&self, active: &mut [bool], roots: Vec<usize>) -> Joined {
-        join(self.0, self.1, active, roots)
+        join(self.lookup, self.locks, active, roots)
     }
 }
 
@@ -176,7 +181,7 @@ fn locked_subtree(locks: &Locks, locker: usize) -> Option<&Range<usize>> {
 /// Whether `locker` is a locking root whose Portal names `producer`.
 ///
 /// A planned write or Bang from that producer onto the locker is not a
-/// second ordering edge: the lock orders the locker first. A lock that holds
+/// second Dependency: the lock orders the locker first. A lock that holds
 /// withholds the producer's Turn; one that does not, because nothing activated
 /// the locker in time, leaves the producer to take its Turn after it, and a
 /// Bang that producer delivers to the locker is missed.
@@ -202,7 +207,7 @@ fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<
 }
 
 ///
-/// Each `(producer, consumer)` edge `producer`'s own Portals give it, once
+/// Each `(producer, consumer)` Dependency `producer`'s own Portals give it, once
 /// its root is active: a lock before the subtree it locks, and each
 /// reservation before every computation whose Cells it covers and every
 /// root its Bang activates.
@@ -299,9 +304,9 @@ fn producer_edges(
 }
 
 ///
-/// Each `(producer, consumer)` edge a static Input Portal gives `producer`,
+/// Each `(producer, consumer)` Dependency a static Input Portal gives `producer`,
 /// once its root is active: one to every computation that reads Cells its
-/// reservation covers. These are the edges [`input_edges`] gives, found from
+/// reservation covers. These are the Dependencies [`input_edges`] gives, found from
 /// the writer's side.
 ///
 fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, usize)) {
@@ -315,7 +320,7 @@ fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, us
 }
 
 ///
-/// Each `(producer, consumer)` edge `consumer`'s static Input Portal gives
+/// Each `(producer, consumer)` Dependency `consumer`'s static Input Portal gives
 /// it: one from every writer `active` roots own whose reservation covers the
 /// Cells it reads.
 ///
@@ -326,7 +331,7 @@ fn input_edges(
     mut edge: impl FnMut(usize, usize),
 ) {
     // An Input Portal reads working Source. Those Cells are often an operand
-    // Span, so they cannot sit in `literals`; the edge is the same fact
+    // Span, so they cannot sit in `literals`; the Dependency is the same fact
     // `literal_consumers` records for a declared operand.
     for read in lookup.nodes()[consumer].portal_access.read_spans() {
         for producer in input_writers(lookup, active, consumer, read.clone()) {
@@ -606,7 +611,7 @@ mod test {
     fn a_lock_goes_before_the_subtree_it_locks() {
         let (lookup, locks) = fixture(Grid::with_shape(8, 3), &HALT);
         let (halt, add) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
-        assert!(derive(&lookup, &locks).edges.contains(&(halt, add)));
+        assert!(derive(&lookup, &locks).dependencies.contains(&(halt, add)));
     }
 
     #[test]
@@ -618,7 +623,7 @@ mod test {
             derived.active[halt],
             "the Bang reaches Halt before the Tick"
         );
-        assert!(derived.edges.contains(&(equality, halt)));
+        assert!(derived.dependencies.contains(&(equality, halt)));
     }
 
     #[test]
@@ -630,9 +635,9 @@ mod test {
             &[".=0101  ", "  *!    ", "  ^^    "],
         );
         let (halt, mover) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
-        let edges = derive(&lookup, &locks).edges;
-        assert!(edges.contains(&(halt, mover)));
-        assert!(!edges.contains(&(mover, halt)));
+        let dependencies = derive(&lookup, &locks).dependencies;
+        assert!(dependencies.contains(&(halt, mover)));
+        assert!(!dependencies.contains(&(mover, halt)));
     }
 
     #[test]
@@ -643,14 +648,18 @@ mod test {
         let bang = at(&lookup, 0, 0);
         let derived = derive(&lookup, &locks);
         assert!(derived.active[bang]);
-        assert!(!derived.edges.contains(&(bang, bang)));
+        assert!(!derived.dependencies.contains(&(bang, bang)));
     }
 
     #[test]
     fn a_reservation_goes_before_the_function_it_contacts() {
         let (lookup, locks) = fixture(Grid::with_shape(6, 2), &[".+0101", ".-0202"]);
         let (writer, contacted) = (at(&lookup, 0, 0), at(&lookup, 0, 1));
-        assert!(derive(&lookup, &locks).edges.contains(&(writer, contacted)));
+        assert!(
+            derive(&lookup, &locks)
+                .dependencies
+                .contains(&(writer, contacted))
+        );
     }
 
     #[test]
@@ -659,18 +668,30 @@ mod test {
         // with nothing delivered to it, so Source order decides between them.
         let (lookup, locks) = fixture(Grid::with_shape(6, 1), &[">>^^  "]);
         let (mover, active) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
-        assert!(!derive(&lookup, &locks).edges.contains(&(mover, active)));
+        assert!(
+            !derive(&lookup, &locks)
+                .dependencies
+                .contains(&(mover, active))
+        );
         // A root that waits for a Bang is still ordered after the mover.
         let (lookup, locks) = fixture(Grid::with_shape(6, 1), &[">>*!  "]);
         let (mover, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
-        assert!(derive(&lookup, &locks).edges.contains(&(mover, halt)));
+        assert!(
+            derive(&lookup, &locks)
+                .dependencies
+                .contains(&(mover, halt))
+        );
     }
 
     #[test]
     fn a_reservation_goes_before_the_literal_it_covers() {
         let (lookup, locks) = fixture(Grid::with_shape(10, 2), &["    .+0101", "  .-0101  "]);
         let (writer, consumer) = (at(&lookup, 4, 0), at(&lookup, 2, 1));
-        assert!(derive(&lookup, &locks).edges.contains(&(writer, consumer)));
+        assert!(
+            derive(&lookup, &locks)
+                .dependencies
+                .contains(&(writer, consumer))
+        );
     }
 
     #[test]
@@ -681,9 +702,23 @@ mod test {
         active[equality] = true;
         let joined = join(&lookup, &locks, &mut active, vec![equality]);
         assert!(active[halt], "the Bang reaches Halt");
-        assert!(!active[add], "a lock activates nothing");
         assert!(joined.edges.contains(&(equality, halt)));
         assert!(joined.edges.contains(&(halt, add)));
         assert!(joined.writers.is_empty());
+    }
+
+    #[test]
+    fn a_lock_activates_nothing() {
+        // The upper Halt locks the lower one, which waits for a Bang that
+        // nothing delivers, so only activation could make it active.
+        let (lookup, locks) = fixture(
+            Grid::with_shape(8, 3),
+            &[".=0101  ", "  *!    ", "  *!    "],
+        );
+        let (upper, lower) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
+        let derived = derive(&lookup, &locks);
+        assert!(derived.active[upper], "the Bang reaches the upper Halt");
+        assert!(!derived.active[lower], "a lock activates nothing");
+        assert!(derived.dependencies.contains(&(upper, lower)));
     }
 }

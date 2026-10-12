@@ -90,7 +90,10 @@ fn take_turns(
 ) -> Vec<Diagnostic> {
     let stalls = ordering::take_turns(
         &schedule.ordered,
-        &dependencies::Joining(&schedule.lookup, &schedule.locks),
+        &dependencies::Joining {
+            lookup: &schedule.lookup,
+            locks: &schedule.locks,
+        },
         take,
     );
     word_stalls(&schedule.lookup, &stalls)
@@ -601,10 +604,10 @@ fn order_turns(lookup: Lookup, map: &LanguageMap, diagnostics: Vec<Diagnostic>) 
     let locks = dependencies::Locks::new(&lookup, map);
     let dependencies::Derived {
         active,
-        edges,
+        dependencies,
         writers,
     } = dependencies::derive(&lookup, &locks);
-    let ordered = ordering::schedule(ordering_nodes(&lookup), active, edges, writers);
+    let ordered = ordering::schedule(ordering_nodes(&lookup), active, dependencies, writers);
     Schedule::new(lookup, locks, ordered, diagnostics)
 }
 

@@ -96,7 +96,9 @@ pub(super) enum Stall {
 pub(super) struct Order {
     nodes: Nodes,
     pub(super) order: Vec<usize>,
-    /// The cycles the order stops, in the order they are diagnosed.
+    /// Why the order stops what it stops, in the order it is diagnosed: each
+    /// cycle by its first node, then each root stopped only because it waits
+    /// on one.
     pub(super) stalls: Vec<Stall>,
     /// Every dependency edge known before the Tick, by producer, so that a
     /// Tick can continue ordering from a Turn that finds one more. The

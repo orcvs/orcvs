@@ -100,3 +100,10 @@ No Grid plays differently. No scheduling edge, activation, diagnostic or ADR cha
 ## Further Notes
 
 The design was settled by grilling architecture candidate 3 on 2026-10-12. The Source Bundle change (source-bundle/01) already rewrote the bundle rules in `producer_edges` against named facts, which makes moving them mostly mechanical.
+
+## As built
+
+- `derive` and `join` also take the `Locks`, which `Locks::new(lookup, map)` builds once per schedule and the Schedule keeps beside the Lookup. `lock_target(index)` is a method on `Locks`, answering a two-variant `Lock`: the locked subtree, or a site something other than a root occupies.
+- `PortalRelationships` and `FunctionContact` are visible to execution through `reached()`, but only the module constructs them.
+- `input_writers` is a fifth export: execution asks it for the writers a dynamic Input Portal waits on, against the activation `Progress` holds.
+- A cycle is named by its first node (`Stall::Cycle`), which is all the diagnostics word.
