@@ -1,6 +1,6 @@
 # 02 — Derive every Dependency in one module
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 **What to build:**
@@ -14,10 +14,12 @@ Blocked by: 01
 
 ## Acceptance criteria
 
-- [ ] `tick.rs` builds the schedule from `derive` and holds no edge or activation rule.
-- [ ] The join trait's production side is `join`.
-- [ ] The dependency module has one named test per producer rule, each through `derive` on a small Grid: lock subtree, self exemption, lock cover, contact ordering, mover exemption, literal consumers, Bang roots. It also has one test of `join`.
-- [ ] Every existing Tick, schedule-reuse and property test passes unchanged.
-- [ ] Gates pass with `PROPTEST_CASES=32`: fmt, clippy and nextest on `orcvs` and `console`.
+- [x] `tick.rs` builds the schedule from `derive` and holds no edge or activation rule.
+- [x] The join trait's production side is `join`.
+- [x] The dependency module has one named test per producer rule, each through `derive` on a small Grid: lock subtree, self exemption, lock cover, contact ordering, mover exemption, literal consumers, Bang roots. It also has one test of `join`.
+- [x] Every existing Tick, schedule-reuse and property test passes unchanged.
+- [x] Gates pass with `PROPTEST_CASES=32`: fmt, clippy and nextest on `orcvs` and `console`.
 
 ## Comments
+
+2026-10-12 — Implemented. `tick/dependencies.rs` holds `derive`, `join` and `Joining`, with `active_roots`, `activate`, `producer_edges`, `reader_edges`, `input_edges`, `input_writers`, `dynamic_writers`, `lock_covers` and `locked_subtree` moved in unchanged. `order_turns` reads `derive`. Eight tests, one per rule plus `join`; each was checked by disabling its rule and seeing it fail. The self-exemption test uses the Bang Function, because a Self-Banging Function's own Span is already skipped by the mover exemption.

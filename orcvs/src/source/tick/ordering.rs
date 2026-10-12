@@ -178,7 +178,7 @@ pub(super) enum Turn {
     /// schedule could not know of.
     Taken { activated: Vec<usize> },
     /// The Turn must wait for these writers, which
-    /// [`Progress::unresolved_writers`] names, and is taken again once they
+    /// [`Progress::unresolved`] names, and is taken again once they
     /// have been.
     Waits(Vec<usize>),
 }

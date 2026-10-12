@@ -358,7 +358,7 @@ impl<'a> Execution<'a> {
         if let InputSite::At(portal) = portal
             && let Ok(span) = portal.span(SCALAR_WIDTH)
         {
-            let writers = progress.unresolved(super::input_writers(
+            let writers = progress.unresolved(super::dependencies::input_writers(
                 lookup,
                 progress.active(),
                 index,
