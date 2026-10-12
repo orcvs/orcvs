@@ -239,7 +239,7 @@ impl Paint {
         // the uniform Cell base fallback, each already composited over
         // `theme.cell_background`.
         let cursor_fill = theme.cursor_background;
-        let region_cursor_fill = theme.region_cursor_background.or(cursor_fill);
+        let region_cursor_fill = theme.region_cursor_fill();
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
