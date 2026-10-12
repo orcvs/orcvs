@@ -218,6 +218,10 @@ _Avoid_: Pass, visit, step
 The Cells one computation's result may reach, settled while a Tick is scheduled and before any Function has evaluated. Per ADR 0063 every value Function answers one Atom, so every value Function, root or nested, reserves one Atom's Cell pair at each of its write Portals, and a Source-writing Function reserves the Spans its declared bundle names. A Reservation orders Turns and decides nothing else: the write a Portal admits is what decides whether a Cell was written, a computation suppressed, or a root activated.
 _Avoid_: Footprint, allocation, reserved Span, write window
 
+**Dependency**:
+An order between two Turns, known before the Turn it constrains. A Producer goes before every computation its Reservation, lock or Bang reaches, including one that reads Cells its Reservation covers, and a nested Function goes before the Function it answers. A root activated during a Tick brings its Dependencies with it. A cycle of Dependencies stops every Expression it reaches.
+_Avoid_: Edge, ordering constraint
+
 **Effect**:
 One thing a Producer contributes to the Tick Plan: a Cell write, an activation delivery, a root lock, a diagnostic, or the Play Command one terminal root performs. Effects follow execution order — ADR 0020's dependency order, with Position breaking ties — and then the order their Producer emits them, so a chord of several terminal roots one Bang activates plays its notes in that order. Cell writes validate their whole destination before any Cell of them is emitted, and resolve Cell-wise, so a later Effect wins each Cell it overlaps and leaves the rest of an earlier write standing.
 _Avoid_: Action, mutation, command
