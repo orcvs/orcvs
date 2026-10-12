@@ -1,7 +1,7 @@
 # 08 — Decide whether a mover still precedes the root it contacts
 
 Status: ready-for-human
-Blocked by: 01, source-bundle/01
+Blocked by: 01, source-bundle/01, dependency-derivation/02
 
 **What to build:**
 

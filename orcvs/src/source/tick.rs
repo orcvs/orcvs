@@ -11,6 +11,7 @@
 mod absolute_copy;
 #[cfg(test)]
 mod bang_function;
+mod dependencies;
 pub(super) mod execution;
 #[cfg(test)]
 mod nested_copy;
@@ -28,8 +29,8 @@ mod track;
 #[cfg(test)]
 mod write;
 
-use lang::{Anchor, Atom, Function, PlayCommand, SourceBundle, Tick, TickInputs};
-use std::collections::{BTreeMap, BTreeSet};
+use lang::{Anchor, Atom, Function, PlayCommand, Tick, TickInputs};
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
@@ -39,7 +40,97 @@ pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
-use ordering::Schedule;
+use ordering::{Order, Stall};
+
+///
+/// One revision's computations and the order their Turns are taken in. No
+/// Tick changes it: every Tick planned against the same scheduling inputs
+/// executes the one schedule they share.
+///
+pub(super) struct Schedule {
+    lookup: Lookup,
+    locks: dependencies::Locks,
+    ordered: Order,
+    /// The layout diagnostics the computations owe, then the cycles the order
+    /// stops.
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Schedule {
+    fn new(
+        lookup: Lookup,
+        locks: dependencies::Locks,
+        ordered: Order,
+        mut diagnostics: Vec<Diagnostic>,
+    ) -> Self {
+        diagnostics.extend(word_stalls(&lookup, &ordered.stalls));
+        Self {
+            lookup,
+            locks,
+            ordered,
+            diagnostics,
+        }
+    }
+
+    /// Whether activation known before the Tick reaches `root`.
+    #[cfg(test)]
+    fn holds_active(&self, root: usize) -> bool {
+        self.ordered.holds_active(root)
+    }
+}
+
+///
+/// Takes one Tick's Turns through `schedule`, as [`ordering::take_turns`]
+/// does, and answers the diagnostics for the Turns a cycle found during the
+/// Tick leaves untaken.
+///
+fn take_turns(
+    schedule: &Schedule,
+    take: impl FnMut(usize, &ordering::Progress<'_>) -> ordering::Turn,
+) -> Vec<Diagnostic> {
+    let stalls = ordering::take_turns(
+        &schedule.ordered,
+        &dependencies::Joining {
+            lookup: &schedule.lookup,
+            locks: &schedule.locks,
+        },
+        take,
+    );
+    word_stalls(&schedule.lookup, &stalls)
+}
+
+/// The diagnostic each [`Stall`] owes, at the computation it names.
+fn word_stalls(lookup: &Lookup, stalls: &[Stall]) -> Vec<Diagnostic> {
+    let nodes = lookup.nodes();
+    stalls
+        .iter()
+        .map(|stall| match *stall {
+            Stall::Cycle(index) => diagnose(&nodes[index], "same-Tick dependency cycle"),
+            Stall::Waiting(root) => {
+                diagnose(&nodes[root], "waiting on a same-Tick dependency cycle")
+            }
+        })
+        .collect()
+}
+
+///
+/// What ordering knows of `lookup`'s computations: each one's Grid position
+/// and the Expression it belongs to.
+///
+fn ordering_nodes(lookup: &Lookup) -> ordering::Nodes {
+    let computations = lookup.nodes();
+    ordering::Nodes {
+        keys: computations
+            .iter()
+            .map(|node| lookup.grid.index(node.anchor).get())
+            .collect(),
+        owners: computations.iter().map(|node| node.owner).collect(),
+        expressions: computations
+            .iter()
+            .map(|node| lookup.descendants(node.owner))
+            .collect(),
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
@@ -158,42 +249,10 @@ struct Lookup {
     /// whose root joins a Tick finds its readers without asking every one.
     reads: WriteClaims,
     subtree_ends: Vec<usize>,
-    /// Snapshot targets, shared by scheduling and execution. Only execution
-    /// decides whether an active, unsuppressed Halt actually applies its lock.
-    locks: Vec<Option<LockTarget>>,
-}
-
-/// Classification against the Source Snapshot, before any Turn can change it.
-enum LockTarget {
-    /// Parser preorder makes the complete root a contiguous subtree.
-    Root(Range<usize>),
-    Empty,
-    Outside,
-    Occupied,
-}
-
-/// Relationships of one fixed Portal destination, and of the Cells following it
-/// along its row, to the original computations. A Portal names where a result
-/// begins rather than how wide it is, so how many Cells to ask about is the
-/// caller's to state: scheduling asks over the Cells it reserved and execution
-/// asks over the Cells an admitted write actually covers. The phases share these
-/// facts, but decide separately whether a producer can activate, must precede,
-/// or suppresses a contacted computation.
-struct PortalRelationships<'a> {
-    lookup: &'a Lookup,
-    output: Position,
-    cells: Range<usize>,
-}
-
-struct FunctionContact {
-    index: usize,
-    at_anchor: bool,
-    /// Includes the contacted Function itself, in Parser preorder.
-    subtree: Range<usize>,
 }
 
 impl Lookup {
-    fn new(grid: Grid, nodes: Vec<Computation>, map: &LanguageMap) -> Self {
+    fn new(grid: Grid, nodes: Vec<Computation>) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
@@ -220,7 +279,7 @@ impl Lookup {
                 }
             }
             // Copy input Cells are recorded on the computation and become
-            // dependency edges in `order_turns`. They are not literal claims:
+            // Dependencies in `dependencies::derive`. They are not literal claims:
             // an aligned input often overlaps an operand Span, and `Claims`
             // are disjoint.
         }
@@ -260,7 +319,7 @@ impl Lookup {
                     })
             })
             .collect();
-        let mut lookup = Self {
+        Self {
             grid,
             nodes,
             functions: Claims::new(functions),
@@ -269,33 +328,7 @@ impl Lookup {
             writes: WriteClaims::new(grid, writes),
             reads: WriteClaims::new(grid, reads),
             subtree_ends,
-            locks: Vec::new(),
-        };
-        lookup.locks = lookup
-            .nodes
-            .iter()
-            .map(|node| {
-                node.portal_access.lock_site().map(|site| {
-                    let Ok(destination) = site else {
-                        return LockTarget::Outside;
-                    };
-                    if let Some(root) = lookup.root_at(destination) {
-                        return LockTarget::Root(lookup.descendants(root));
-                    }
-                    // A site no root covers is judged by its Snapshot occupancy.
-                    let portal = Portal::at(grid, destination);
-                    if matches!(
-                        portal.occupancy(map, |anchor| lookup.root_at(anchor)),
-                        Occupancy::Empty
-                    ) {
-                        LockTarget::Empty
-                    } else {
-                        LockTarget::Occupied
-                    }
-                })
-            })
-            .collect();
-        lookup
+        }
     }
 
     fn nodes(&self) -> &[Computation] {
@@ -311,122 +344,6 @@ impl Lookup {
         self.functions
             .touching(cell..cell + 1)
             .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
-    }
-
-    /// A fixed destination has relationships only if the Cell pair reserved
-    /// from it fits the row ([`Portal::reservation`]). Actual writes still go
-    /// through `Portal::admit`, which also validates their encoding and
-    /// supplies the producer's diagnostic.
-    fn reserved_at(&self, output: Position) -> Option<PortalRelationships<'_>> {
-        let cells = Portal::at(self.grid, output).reservation()?.range();
-        Some(PortalRelationships {
-            lookup: self,
-            output,
-            cells,
-        })
-    }
-
-    /// The relationships of every reservation `index`'s write Portals make,
-    /// skipping a Portal whose destination is refused or does not fit the row.
-    fn reservations(&self, index: usize) -> impl Iterator<Item = PortalRelationships<'_>> {
-        self.nodes()[index]
-            .portal_access
-            .write_sites()
-            .iter()
-            .filter_map(|output| output.as_ref().ok())
-            .filter_map(move |output| self.reserved_at(*output))
-    }
-
-    /// The relationships of the Cells an admitted write actually covers.
-    ///
-    /// A value answer renders as one Atom's Cell pair, which is exactly the
-    /// reservation its schedule ordered, so every contact execution acts on
-    /// is one a dependency edge already names.
-    fn written_over(&self, write: &SpanWrite) -> PortalRelationships<'_> {
-        let span = write.span();
-        PortalRelationships {
-            lookup: self,
-            output: self.grid.position_at(span.start()),
-            cells: span.range(),
-        }
-    }
-}
-
-impl PortalRelationships<'_> {
-    fn functions(&self) -> impl Iterator<Item = FunctionContact> + '_ {
-        self.lookup
-            .functions
-            .touching(self.cells.clone())
-            .map(|index| FunctionContact {
-                index,
-                at_anchor: self.lookup.nodes()[index].anchor == self.output,
-                subtree: self.lookup.descendants(index),
-            })
-    }
-
-    fn literal_consumers(&self) -> impl Iterator<Item = usize> + '_ {
-        self.lookup.literals.touching(self.cells.clone())
-    }
-
-    /// Geometrically eligible roots, regardless of their activation policy or
-    /// whether this producer actually returns Bang. Even a partial overlap
-    /// with an operand excludes activation; nested operands count here too.
-    ///
-    /// Operand contact is a fact about the whole destination rather than about
-    /// any one anchor, so it decides the empty answer up front instead of
-    /// filtering the four cardinal anchors one at a time.
-    ///
-    /// "The whole destination" is the Cell pair a Bang occupies: alignment is
-    /// a fact about a Bang's own two Cells.
-    ///
-    /// The four anchors are one geometric fact and are stated as one. The west
-    /// arm answers a root only for a Function that declares no operand: a root
-    /// anchored two columns west with an operand claims this destination for
-    /// that operand, so a Bang landing here is operand contact rather than an
-    /// anchor — the `(6, 2)` row of
-    /// `fixed_bang_destinations_respect_alignment_and_operand_contact` asserts
-    /// exactly that silence.
-    ///
-    /// A Self-Banging Function `^^ vv << >>` answers the arm with a root and
-    /// changes nothing by it: those four take their Turn without a Bang, so
-    /// scheduling orders nothing after an intrinsically active root, and a
-    /// Bang that reaches one, before its Turn or after it, neither starts nor
-    /// misses anything. The Directional Bang Functions are where it decides a
-    /// Tick: `*^`
-    /// declares no operand and waits for activation, so a Bang two columns east
-    /// of one is the only thing that starts it.
-    /// `an_active_directional_bang_function_emits_its_self_banging_function`
-    /// drives that arm, and deleting it leaves the north and west halves of
-    /// that test emitting nothing.
-    ///
-    /// The asymmetry the arm states is the language's and not this function's:
-    /// a horizontally aligned root anchors two columns away because every
-    /// Language Unit spells as a Cell pair.
-    fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
-        let in_operand = self
-            .lookup
-            .operands
-            .touching(self.cells.clone())
-            .next()
-            .is_some();
-        let (column, row) = (self.output.x(), self.output.y());
-        let anchors = if in_operand {
-            [None, None, None, None]
-        } else {
-            [
-                row.checked_sub(1)
-                    .and_then(|north| self.lookup.grid.position(column, north)),
-                self.lookup.grid.position(column, row + 1),
-                column
-                    .checked_sub(2)
-                    .and_then(|west| self.lookup.grid.position(west, row)),
-                self.lookup.grid.position(column + 2, row),
-            ]
-        };
-        anchors
-            .into_iter()
-            .flatten()
-            .filter_map(|anchor| self.lookup.root_at(anchor))
     }
 }
 
@@ -488,7 +405,7 @@ fn plan_unshared(
 /// each one, are. An Operand Literal's value, working
 /// Source and the Tick are execution's alone, so a Tick that writes new values
 /// into Cells whose units keep their Spans changes no scheduling input.
-/// Anything [`computations`] or [`Lookup::new`] reads from the Map is a
+/// Anything [`computations`] or [`dependencies::Locks::new`] reads from the Map is a
 /// scheduling input and must be compared by `DerivedRow::schedules_as` too.
 /// [`LanguageMap::rebuild`] compares these inputs row by row and carries this
 /// cache to the new revision when every row it re-derived holds the inputs it
@@ -558,7 +475,7 @@ fn schedule_carrying(
 ) -> Schedule {
     let (mut nodes, diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, destinations);
-    order_turns(Lookup::new(grid, nodes, map), diagnostics)
+    order_turns(Lookup::new(grid, nodes), map, diagnostics)
 }
 
 ///
@@ -589,91 +506,6 @@ fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
 }
 
 ///
-/// Which roots this Tick must order effects for: the ones that take a Turn
-/// with nothing delivered to them, closed over every root those can deliver
-/// activation to.
-///
-/// An inactive root contributes no Portal, so a schedule that left one out
-/// would order nothing against the writes it turns out to make. The seed is
-/// exact — a root declares its activation source and nothing else decides
-/// it — and the closure is deliberately wider than the Tick: which
-/// root a delivery actually reaches depends on values and on working Source
-/// that no schedule has yet, so execution checks activation again once those
-/// producers have settled.
-///
-/// One declaration delivers: a Function that can return Bang delivers through
-/// the Bang it writes, to the cardinal anchors a Source-resident Bang
-/// activates. The Bang Function declares it, and delivers to the anchors
-/// aligned with its own Span. A blocked Self-Banging Function delivers
-/// nothing in its Turn; the `**` it leaves is a Bang Function on the next
-/// Tick.
-///
-fn active_roots(lookup: &Lookup) -> Vec<bool> {
-    let nodes = lookup.nodes();
-    let mut active: Vec<_> = nodes
-        .iter()
-        .map(|node| node.parent.is_none() && node.function.is_intrinsically_active())
-        .collect();
-    let pending: Vec<_> = active
-        .iter()
-        .enumerate()
-        .filter_map(|(index, active)| active.then_some(index))
-        .collect();
-    activate(lookup, &mut active, pending);
-    active
-}
-
-///
-/// Marks active every root the roots in `pending`, already marked in
-/// `active`, can deliver activation to, and every root those can, as
-/// [`active_roots`] describes.
-///
-/// Answers every root it reached, those in `pending` among them.
-///
-fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Vec<usize> {
-    let nodes = lookup.nodes();
-    let mut reached = Vec::new();
-    while let Some(owner) = pending.pop() {
-        reached.push(owner);
-        for index in lookup.descendants(owner) {
-            if !nodes[index].function.can_emit_bang() {
-                continue;
-            }
-            for relationships in lookup.reservations(index) {
-                for index in relationships.bang_roots().collect::<Vec<_>>() {
-                    if !nodes[index].function.is_intrinsically_active() && !active[index] {
-                        active[index] = true;
-                        pending.push(index);
-                    }
-                }
-            }
-        }
-    }
-    reached
-}
-
-/// The complete subtree a locking Function's Portal names.
-fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
-    match &lookup.locks[locker] {
-        Some(LockTarget::Root(subtree)) => Some(subtree),
-        _ => None,
-    }
-}
-
-/// Whether `locker` is a locking root whose Portal names `producer`.
-///
-/// A planned write or Bang from that producer onto the locker is not a
-/// second ordering edge: the lock orders the locker first. A lock that holds
-/// withholds the producer's Turn; one that does not, because nothing activated
-/// the locker in time, leaves the producer to take its Turn after it, and a
-/// Bang that producer delivers to the locker is missed.
-fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
-    let node = &lookup.nodes()[locker];
-    node.parent.is_none()
-        && locked_subtree(lookup, locker).is_some_and(|target| target.contains(&producer))
-}
-
-///
 /// The order one revision's Turns are taken in, and the diagnostics its
 /// layout and cycles owe.
 ///
@@ -682,7 +514,7 @@ fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
 ///
 fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
     let (nodes, diagnostics) = computations(grid, map);
-    order_turns(Lookup::new(grid, nodes, map), diagnostics)
+    order_turns(Lookup::new(grid, nodes), map, diagnostics)
 }
 
 ///
@@ -765,173 +597,18 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 
 ///
 /// The schedule for the reservations a [`Lookup`] has already derived: every
-/// dependency edge they name, ordered by [`ordering::schedule`].
+/// Dependency [`dependencies::derive`] finds, ordered by [`ordering::schedule`], and the
+/// diagnostics its cycles owe after `diagnostics`.
 ///
-fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
-    let nodes = lookup.nodes();
-    let active = active_roots(&lookup);
-    let mut edges = BTreeSet::new();
-    for (index, node) in nodes.iter().enumerate() {
-        if let Some(parent) = node.parent {
-            edges.insert((index, parent));
-        }
-        if active[node.owner] {
-            producer_edges(&lookup, index, |producer, consumer| {
-                edges.insert((producer, consumer));
-            });
-        }
-    }
-    for consumer in 0..nodes.len() {
-        input_edges(&lookup, &active, consumer, |producer, consumer| {
-            edges.insert((producer, consumer));
-        });
-    }
-    let writers = dynamic_writers(&lookup, &active).collect();
-    ordering::schedule(lookup, active, edges, writers, diagnostics)
-}
-
-///
-/// The dynamic writers among the computations `active` roots own.
-///
-/// A dynamic writer's destination is known only at its Turn, so it reserves
-/// nothing and is ordered writers first instead.
-///
-fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<Item = usize> + 'a {
-    lookup
-        .nodes()
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| active[node.owner] && node.function.dynamic_output_portal().is_some())
-        .map(|(index, _)| index)
-}
-
-///
-/// Each `(producer, consumer)` edge `producer`'s own Portals give it, once
-/// its root is active: a lock before the subtree it locks, and each
-/// reservation before every computation whose Cells it covers and every
-/// root its Bang activates.
-///
-fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usize)) {
-    let nodes = lookup.nodes();
-    let node = &nodes[index];
-    let bundle = node.function.source_effect().map(|effect| effect.bundle);
-    // A self-edge is an unsatisfiable indegree, so it is how a computation
-    // that writes over its own Cells reports itself as a same-Tick cycle: the
-    // reservation covering the producer and the Cell pair its write reaches
-    // are the same fact, and `live_cycles_stop_only_the_expressions_they_reach`
-    // holds that rule.
-    //
-    // The one way a producer's own Cells are not a defect is one a declaration
-    // states outright: a bundle that clears its own Span, which a Self-Banging
-    // Function's and the Bang Function's do. Ordering such a producer after
-    // itself would stop it every Tick it takes a Turn in.
-    let exempt_from_itself = bundle.is_some_and(SourceBundle::clears_own_span);
-    // A bundle that leaves its producer standing, an emission, is admitted
-    // only into Cells empty at its Turn, so it never writes over a Function
-    // its reservation contacts, and it delivers no activation there: occupancy
-    // alone orders nothing (ADR 0060 rule 3b). An occupant that leaves first
-    // makes room; one still standing refuses the emission.
-    let orders_contacts = bundle.is_none_or(SourceBundle::clears_own_span);
-    // A bundle that clears its own Span and writes displaced moves, and a
-    // move meets an intrinsically active root it contacts in Source order.
-    // Both facts are named although only bundles that clear their own Span
-    // order contacts at all, so the rule reads the same wherever a move is.
-    let moves = bundle.is_some_and(|bundle| bundle.clears_own_span() && bundle.writes_displaced());
-    if let Some(target) = locked_subtree(lookup, index) {
-        for consumer in target.clone() {
-            edge(index, consumer);
-        }
-    }
-    for relationships in lookup.reservations(index) {
-        let mut order_after = |consumer: usize| {
-            if exempt_from_itself && consumer == index {
-                return;
-            }
-            if lock_covers(lookup, consumer, index) {
-                return;
-            }
-            edge(index, consumer);
-        };
-        let contacts = orders_contacts
-            .then(|| relationships.functions())
-            .into_iter()
-            .flatten();
-        for contact in contacts {
-            // A move is admitted only where the Cells it enters are empty,
-            // so a moving bundle's Portal never writes over the Language Unit
-            // it contacts: the contact blocks the move and the producer
-            // leaves `**` in its own Span instead. Its reservation still
-            // orders it before a contacted root that waits for a Bang, as any
-            // reservation does. An intrinsically active root is exempt, as in
-            // the Bang emission arm below, and meets the mover in Source
-            // order.
-            //
-            // Without it two Functions whose Portals cover each other name
-            // each other in reservations neither can write through, and
-            // ordering each after the other makes that pair a cycle that
-            // stops both, though two blocked moves are not a contested
-            // Cell.
-            if moves
-                && nodes[nodes[contact.index].owner]
-                    .function
-                    .is_intrinsically_active()
-            {
-                continue;
-            }
-            for descendant in contact.subtree {
-                order_after(descendant);
-            }
-        }
-        for consumer in relationships.literal_consumers() {
-            order_after(consumer);
-        }
-        if node.function.can_emit_bang() {
-            for owner in relationships.bang_roots() {
-                if !nodes[owner].function.is_intrinsically_active() {
-                    for consumer in lookup.descendants(owner) {
-                        order_after(consumer);
-                    }
-                }
-            }
-        }
-    }
-}
-
-///
-/// Each `(producer, consumer)` edge a static Input Portal gives `producer`,
-/// once its root is active: one to every computation that reads Cells its
-/// reservation covers. These are the edges [`input_edges`] gives, found from
-/// the writer's side.
-///
-fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, usize)) {
-    for relationships in lookup.reservations(producer) {
-        for consumer in lookup.reads.touching(relationships.cells.clone()) {
-            if consumer != producer {
-                edge(producer, consumer);
-            }
-        }
-    }
-}
-
-///
-/// Each `(producer, consumer)` edge `consumer`'s static Input Portal gives
-/// it: one from every writer `active` roots own whose reservation covers the
-/// Cells it reads.
-///
-fn input_edges(
-    lookup: &Lookup,
-    active: &[bool],
-    consumer: usize,
-    mut edge: impl FnMut(usize, usize),
-) {
-    // An Input Portal reads working Source. Those Cells are often an operand
-    // Span, so they cannot sit in `literals`; the edge is the same fact
-    // `literal_consumers` records for a declared operand.
-    for read in lookup.nodes()[consumer].portal_access.read_spans() {
-        for producer in ordering::input_writers(lookup, active, consumer, read.clone()) {
-            edge(producer, consumer);
-        }
-    }
+fn order_turns(lookup: Lookup, map: &LanguageMap, diagnostics: Vec<Diagnostic>) -> Schedule {
+    let locks = dependencies::Locks::new(&lookup, map);
+    let dependencies::Derived {
+        active,
+        dependencies,
+        writers,
+    } = dependencies::derive(&lookup, &locks);
+    let ordered = ordering::schedule(ordering_nodes(&lookup), active, dependencies, writers);
+    Schedule::new(lookup, locks, ordered, diagnostics)
 }
 
 ///
@@ -1300,7 +977,7 @@ mod test {
         //
         // What this pins is the schedule. Each mover reserves Cells the other
         // stands in, which is an edge each way and an order no sort satisfies.
-        // `order_turns` drops one of them: keeping both makes a cycle that
+        // `dependencies::derive` drops one of them: keeping both makes a cycle that
         // stops both movers, and neither moves again.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[">>  <<  "], 3);
 
@@ -3011,7 +2688,7 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let mut schedule = super::schedule(grid, &map);
         // Parser preorder: Equality, Halt, Add.
-        schedule.order = vec![0, 2, 1];
+        schedule.ordered.order = vec![0, 2, 1];
         let (plan, states) = super::execution::execute(
             grid,
             Cells::of(bytes.as_bytes()),
@@ -4466,7 +4143,7 @@ mod test {
             // Supply a broken order at the execution seam: the scheduler must
             // never produce this, but execution promises to refuse the one
             // write it gets wrong rather than panic or drop the Tick.
-            schedule.order = [32, 16, 48, 64, 80, 112]
+            schedule.ordered.order = [32, 16, 48, 64, 80, 112]
                 .into_iter()
                 .map(|anchor| {
                     schedule
@@ -4730,7 +4407,7 @@ mod test {
                 // A destination whose pair leaves the row is refused at the
                 // Portal, and a terminal wide enough to sound cannot be
                 // cardinally aligned with one, so this case cannot separate
-                // `Lookup::reserved_at`'s row-fit guard from `Portal::admit`'s
+                // `dependencies::reserved_at`'s row-fit guard from `Portal::admit`'s
                 // refusal.
                 // `competing_writers_preserve_an_independent_rejected_destination_diagnostic`
                 // is what holds that guard.
@@ -5177,7 +4854,7 @@ mod test {
     #[test]
     fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
         // Delay and Euclidean declare `can_emit_bang`, and that declaration is
-        // what `active_roots` and `order_turns` read to decide which roots can
+        // what `dependencies::derive` reads to decide which roots can
         // supply activation. Nothing else asserts the edge is built:
         // the tests above watch the two Cells a pulse writes, which a Function
         // that Banged into no activation edge would still satisfy while the
@@ -5851,7 +5528,7 @@ mod output_portal_exclusion {
     ///
     fn source_writing_reservation_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
         let (nodes, _diagnostics) = computations(grid, map);
-        let lookup = Lookup::new(grid, nodes, map);
+        let lookup = Lookup::new(grid, nodes);
         let mut cells = vec![false; grid.count()];
         for node in lookup.nodes() {
             if node.function.source_effect().is_none() {
@@ -5909,7 +5586,7 @@ mod output_portal_exclusion {
             let source = format!("{row}{:14}", "");
             let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
             let (nodes, _diagnostics) = computations(grid, &map);
-            let lookup = Lookup::new(grid, nodes, &map);
+            let lookup = Lookup::new(grid, nodes);
             let mut scheduled = vec![false; grid.count()];
             for node in lookup.nodes() {
                 for output in node

@@ -439,6 +439,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
     // the `=^` taking the earlier Turn is Track's wait.
     let scheduled = |x, y| {
         schedule
+            .ordered
             .order
             .iter()
             .position(|&index| (nodes[index].anchor.x(), nodes[index].anchor.y()) == (x, y))

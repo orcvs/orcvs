@@ -1,6 +1,6 @@
 # 02 — Say why a root was activated
 
-**Blocked by:** 01
+**Blocked by:** 01, dependency-derivation/02
 
 **Status:** needs-triage
 
