@@ -108,7 +108,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     }
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     let mut scheduled = vec![None; states.len()];
-    for (turn, &index) in schedule.order.iter().enumerate() {
+    for (turn, &index) in schedule.ordered.order.iter().enumerate() {
         scheduled[index] = Some(turn);
     }
     assert_eq!(turns(&states), scheduled, "the Turns Tick {tick} took");
@@ -579,6 +579,7 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
     assert!(
         map.schedule_cache()
             .schedule(grid, &map)
+            .ordered
             .stopped
             .contains(&true),
         "the first Tick holds a cycle"
@@ -622,7 +623,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
     );
     let map = source.shared_language_map();
     let schedule = map.schedule_cache().schedule(grid, &map);
-    let cached_order = schedule.order.clone();
+    let cached_order = schedule.ordered.order.clone();
     let at = |x, y| {
         schedule
             .lookup
@@ -654,7 +655,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
         "Grid position breaks independent ties"
     );
     assert_eq!(
-        schedule.order, cached_order,
+        schedule.ordered.order, cached_order,
         "a wait never changes the cached schedule"
     );
     assert_eq!(

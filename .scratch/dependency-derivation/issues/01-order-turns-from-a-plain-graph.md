@@ -1,6 +1,6 @@
 # 01 — Order Turns from a plain graph
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: None (can start immediately)
 
 **What to build:**
@@ -20,11 +20,13 @@ Ordering's private `Dependencies` struct is renamed `Graph`. No Turn order, stop
 
 ## Acceptance criteria
 
-- [ ] `tick/ordering.rs` no longer names `Lookup` and calls nothing in `tick.rs`.
-- [ ] `take_turns` takes the join trait. Production implements it, and ordering's tests implement it with a fixed table.
-- [ ] Cycle diagnostics are worded in Tick scheduling from what ordering answers, with the same messages, Positions and order as before.
-- [ ] Ordering has unit tests on hand-built graphs covering Grid tie-breaks, cycle closure by Expression, writers-first order, and rebuilding the order when a root joins.
-- [ ] Every existing Tick, schedule-reuse and property test passes unchanged.
-- [ ] Gates pass with `PROPTEST_CASES=32`: fmt, clippy and nextest on `orcvs` and `console`.
+- [x] `tick/ordering.rs` no longer names `Lookup` and calls nothing in `tick.rs`.
+- [x] `take_turns` takes the join trait. Production implements it, and ordering's tests implement it with a fixed table.
+- [x] Cycle diagnostics are worded in Tick scheduling from what ordering answers, with the same messages, Positions and order as before.
+- [x] Ordering has unit tests on hand-built graphs covering Grid tie-breaks, cycle closure by Expression, writers-first order, and rebuilding the order when a root joins.
+- [x] Every existing Tick, schedule-reuse and property test passes unchanged.
+- [x] Gates pass with `PROPTEST_CASES=32`: fmt, clippy and nextest on `orcvs` and `console`.
 
 ## Comments
+
+2026-10-12 — Implemented. `ordering::schedule` takes `Nodes` (Grid keys, owners, Expressions), the edges, the writers and the active roots, and answers an `Order` with `Stall`s that Tick scheduling words as diagnostics. `Schedule` now lives in `tick.rs` and holds the Lookup beside the `Order`. `take_turns` takes a `Join`, which `tick::Joining` implements over the existing `activate`, `producer_edges` and `reader_edges` until ticket 02 moves them. A waiting reader's writers are found by `tick::input_writers` and filtered by `Progress::unresolved`.

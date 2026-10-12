@@ -39,7 +39,108 @@ pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
-use ordering::Schedule;
+use ordering::{Join, Joined, Order, Stall};
+
+///
+/// One revision's computations and the order their Turns are taken in. No
+/// Tick changes it: every Tick planned against the same scheduling inputs
+/// executes the one schedule they share.
+///
+pub(super) struct Schedule {
+    lookup: Lookup,
+    ordered: Order,
+    /// The layout diagnostics the computations owe, then the cycles the order
+    /// stops.
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Schedule {
+    fn new(lookup: Lookup, ordered: Order, mut diagnostics: Vec<Diagnostic>) -> Self {
+        diagnostics.extend(word_stalls(&lookup, &ordered.stalls));
+        Self {
+            lookup,
+            ordered,
+            diagnostics,
+        }
+    }
+
+    /// Whether activation known before the Tick reaches `root`.
+    #[cfg(test)]
+    fn holds_active(&self, root: usize) -> bool {
+        self.ordered.holds_active(root)
+    }
+}
+
+///
+/// Takes one Tick's Turns through `schedule`, as [`ordering::take_turns`]
+/// does, and answers the diagnostics for the Turns a cycle found during the
+/// Tick leaves untaken.
+///
+fn take_turns(
+    schedule: &Schedule,
+    take: impl FnMut(usize, &ordering::Progress<'_>) -> ordering::Turn,
+) -> Vec<Diagnostic> {
+    let stalls = ordering::take_turns(&schedule.ordered, &Joining(&schedule.lookup), take);
+    word_stalls(&schedule.lookup, &stalls)
+}
+
+/// The diagnostic each [`Stall`] owes, at the computation it names.
+fn word_stalls(lookup: &Lookup, stalls: &[Stall]) -> Vec<Diagnostic> {
+    let nodes = lookup.nodes();
+    stalls
+        .iter()
+        .map(|stall| match *stall {
+            Stall::Cycle(index) => diagnose(&nodes[index], "same-Tick dependency cycle"),
+            Stall::Waiting(root) => {
+                diagnose(&nodes[root], "waiting on a same-Tick dependency cycle")
+            }
+        })
+        .collect()
+}
+
+///
+/// What ordering knows of `lookup`'s computations: each one's Grid position
+/// and the Expression it belongs to.
+///
+fn ordering_nodes(lookup: &Lookup) -> ordering::Nodes {
+    let computations = lookup.nodes();
+    ordering::Nodes {
+        keys: computations
+            .iter()
+            .map(|node| lookup.grid.index(node.anchor).get())
+            .collect(),
+        owners: computations.iter().map(|node| node.owner).collect(),
+        expressions: computations
+            .iter()
+            .map(|node| lookup.descendants(node.owner))
+            .collect(),
+    }
+}
+
+/// The Dependencies roots joining a Tick bring, derived from `lookup`.
+struct Joining<'a>(&'a Lookup);
+
+impl Join for Joining<'_> {
+    fn join(&self, active: &mut [bool], roots: Vec<usize>) -> Joined {
+        let lookup = self.0;
+        let mut joined = Joined::default();
+        for root in activate(lookup, active, roots) {
+            for index in lookup.descendants(root) {
+                let mut edge = |producer, consumer| joined.edges.push((producer, consumer));
+                producer_edges(lookup, index, &mut edge);
+                reader_edges(lookup, index, &mut edge);
+                if lookup.nodes()[index]
+                    .function
+                    .dynamic_output_portal()
+                    .is_some()
+                {
+                    joined.writers.push(index);
+                }
+            }
+        }
+        joined
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
@@ -765,7 +866,8 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 
 ///
 /// The schedule for the reservations a [`Lookup`] has already derived: every
-/// dependency edge they name, ordered by [`ordering::schedule`].
+/// dependency edge they name, ordered by [`ordering::schedule`], and the
+/// diagnostics its cycles owe after `diagnostics`.
 ///
 fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
     let nodes = lookup.nodes();
@@ -787,7 +889,8 @@ fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
         });
     }
     let writers = dynamic_writers(&lookup, &active).collect();
-    ordering::schedule(lookup, active, edges, writers, diagnostics)
+    let ordered = ordering::schedule(ordering_nodes(&lookup), active, edges, writers);
+    Schedule::new(lookup, ordered, diagnostics)
 }
 
 ///
@@ -928,10 +1031,28 @@ fn input_edges(
     // Span, so they cannot sit in `literals`; the edge is the same fact
     // `literal_consumers` records for a declared operand.
     for read in lookup.nodes()[consumer].portal_access.read_spans() {
-        for producer in ordering::input_writers(lookup, active, consumer, read.clone()) {
+        for producer in input_writers(lookup, active, consumer, read.clone()) {
             edge(producer, consumer);
         }
     }
+}
+
+///
+/// The computations an Input Portal reading `read` is ordered after: every
+/// writer whose reservation covers those Cells, other than `reader` itself
+/// and those activation cannot reach this Tick. A Portal declared before the
+/// Tick and one found at a Turn are ordered by this one rule.
+///
+fn input_writers<'a>(
+    lookup: &'a Lookup,
+    active: &'a [bool],
+    reader: usize,
+    read: Range<usize>,
+) -> impl Iterator<Item = usize> + 'a {
+    lookup
+        .writes
+        .touching(read)
+        .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner])
 }
 
 ///
@@ -3011,7 +3132,7 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let mut schedule = super::schedule(grid, &map);
         // Parser preorder: Equality, Halt, Add.
-        schedule.order = vec![0, 2, 1];
+        schedule.ordered.order = vec![0, 2, 1];
         let (plan, states) = super::execution::execute(
             grid,
             Cells::of(bytes.as_bytes()),
@@ -4466,7 +4587,7 @@ mod test {
             // Supply a broken order at the execution seam: the scheduler must
             // never produce this, but execution promises to refuse the one
             // write it gets wrong rather than panic or drop the Tick.
-            schedule.order = [32, 16, 48, 64, 80, 112]
+            schedule.ordered.order = [32, 16, 48, 64, 80, 112]
                 .into_iter()
                 .map(|anchor| {
                     schedule

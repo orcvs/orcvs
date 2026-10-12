@@ -11,7 +11,8 @@ use lang::{
     SourceBundle, SourceEffect, Tick,
 };
 
-use super::ordering::{self, Progress, Schedule, Turn};
+use super::Schedule;
+use super::ordering::{Progress, Turn};
 use super::{
     Computation, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal, PortalError,
     PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite, TickPlan, diagnose,
@@ -72,7 +73,7 @@ enum InputSite {
 ///
 /// The schedule is borrowed and left as it was: every Tick planned against the
 /// same scheduling inputs executes the one schedule they share.
-/// [`ordering::take_turns`] decides which Turn is taken next, and each Turn
+/// [`super::take_turns`] decides which Turn is taken next, and each Turn
 /// answers whether it was taken or must wait for writers.
 ///
 pub(super) fn execute(
@@ -83,7 +84,7 @@ pub(super) fn execute(
     schedule: &Schedule,
 ) -> (TickPlan, Vec<ComputationState>) {
     let mut execution = Execution::new(grid, cells, map, tick, schedule);
-    let diagnostics = ordering::take_turns(schedule, |index, progress| {
+    let diagnostics = super::take_turns(schedule, |index, progress| {
         execution.take_turn(index, progress)
     });
     execution
@@ -357,7 +358,12 @@ impl<'a> Execution<'a> {
         if let InputSite::At(portal) = portal
             && let Ok(span) = portal.span(SCALAR_WIDTH)
         {
-            let writers = progress.unresolved_writers(index, span.range());
+            let writers = progress.unresolved(super::input_writers(
+                lookup,
+                progress.active(),
+                index,
+                span.range(),
+            ));
             if !writers.is_empty() {
                 return Some(writers);
             }

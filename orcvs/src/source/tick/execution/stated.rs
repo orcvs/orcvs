@@ -13,16 +13,15 @@
 //! starting state, the schedule, the order its
 //! Turns are taken in, the resolution, and the Turn every other computation
 //! takes are all the production ones, reached through the same
-//! [`super::Execution::new`] and [`ordering::take_turns`] that
+//! [`super::Execution::new`] and [`take_turns`] that
 //! [`super::execute`] reaches them through.
 //!
 
 use lang::Tick;
 
-use super::super::{Lookup, carry, computations, order_turns};
+use super::super::{Lookup, carry, computations, order_turns, take_turns};
 use super::{
-    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, Turn, ordering,
-    resolve,
+    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, Turn, resolve,
 };
 use crate::grid::CellIndex;
 use crate::source::Cells;
@@ -63,7 +62,7 @@ pub(in crate::source::tick) fn plan_with_answers(
     let schedule = order_turns(lookup, diagnostics);
     let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
-    ordering::take_turns(&schedule, |index, progress| {
+    take_turns(&schedule, |index, progress| {
         let anchor = grid.index(schedule.lookup.nodes()[index].anchor);
         match answers.iter().position(|(stated, _)| *stated == anchor) {
             Some(position) => {
