@@ -49,6 +49,7 @@ use ordering::{Order, Stall};
 ///
 pub(super) struct Schedule {
     lookup: Lookup,
+    locks: dependencies::Locks,
     ordered: Order,
     /// The layout diagnostics the computations owe, then the cycles the order
     /// stops.
@@ -56,10 +57,16 @@ pub(super) struct Schedule {
 }
 
 impl Schedule {
-    fn new(lookup: Lookup, ordered: Order, mut diagnostics: Vec<Diagnostic>) -> Self {
+    fn new(
+        lookup: Lookup,
+        locks: dependencies::Locks,
+        ordered: Order,
+        mut diagnostics: Vec<Diagnostic>,
+    ) -> Self {
         diagnostics.extend(word_stalls(&lookup, &ordered.stalls));
         Self {
             lookup,
+            locks,
             ordered,
             diagnostics,
         }
@@ -83,7 +90,7 @@ fn take_turns(
 ) -> Vec<Diagnostic> {
     let stalls = ordering::take_turns(
         &schedule.ordered,
-        &dependencies::Joining(&schedule.lookup),
+        &dependencies::Joining(&schedule.lookup, &schedule.locks),
         take,
     );
     word_stalls(&schedule.lookup, &stalls)
@@ -239,42 +246,10 @@ struct Lookup {
     /// whose root joins a Tick finds its readers without asking every one.
     reads: WriteClaims,
     subtree_ends: Vec<usize>,
-    /// Snapshot targets, shared by scheduling and execution. Only execution
-    /// decides whether an active, unsuppressed Halt actually applies its lock.
-    locks: Vec<Option<LockTarget>>,
-}
-
-/// Classification against the Source Snapshot, before any Turn can change it.
-enum LockTarget {
-    /// Parser preorder makes the complete root a contiguous subtree.
-    Root(Range<usize>),
-    Empty,
-    Outside,
-    Occupied,
-}
-
-/// Relationships of one fixed Portal destination, and of the Cells following it
-/// along its row, to the original computations. A Portal names where a result
-/// begins rather than how wide it is, so how many Cells to ask about is the
-/// caller's to state: scheduling asks over the Cells it reserved and execution
-/// asks over the Cells an admitted write actually covers. The phases share these
-/// facts, but decide separately whether a producer can activate, must precede,
-/// or suppresses a contacted computation.
-struct PortalRelationships<'a> {
-    lookup: &'a Lookup,
-    output: Position,
-    cells: Range<usize>,
-}
-
-struct FunctionContact {
-    index: usize,
-    at_anchor: bool,
-    /// Includes the contacted Function itself, in Parser preorder.
-    subtree: Range<usize>,
 }
 
 impl Lookup {
-    fn new(grid: Grid, nodes: Vec<Computation>, map: &LanguageMap) -> Self {
+    fn new(grid: Grid, nodes: Vec<Computation>) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
@@ -341,7 +316,7 @@ impl Lookup {
                     })
             })
             .collect();
-        let mut lookup = Self {
+        Self {
             grid,
             nodes,
             functions: Claims::new(functions),
@@ -350,33 +325,7 @@ impl Lookup {
             writes: WriteClaims::new(grid, writes),
             reads: WriteClaims::new(grid, reads),
             subtree_ends,
-            locks: Vec::new(),
-        };
-        lookup.locks = lookup
-            .nodes
-            .iter()
-            .map(|node| {
-                node.portal_access.lock_site().map(|site| {
-                    let Ok(destination) = site else {
-                        return LockTarget::Outside;
-                    };
-                    if let Some(root) = lookup.root_at(destination) {
-                        return LockTarget::Root(lookup.descendants(root));
-                    }
-                    // A site no root covers is judged by its Snapshot occupancy.
-                    let portal = Portal::at(grid, destination);
-                    if matches!(
-                        portal.occupancy(map, |anchor| lookup.root_at(anchor)),
-                        Occupancy::Empty
-                    ) {
-                        LockTarget::Empty
-                    } else {
-                        LockTarget::Occupied
-                    }
-                })
-            })
-            .collect();
-        lookup
+        }
     }
 
     fn nodes(&self) -> &[Computation] {
@@ -392,122 +341,6 @@ impl Lookup {
         self.functions
             .touching(cell..cell + 1)
             .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
-    }
-
-    /// A fixed destination has relationships only if the Cell pair reserved
-    /// from it fits the row ([`Portal::reservation`]). Actual writes still go
-    /// through `Portal::admit`, which also validates their encoding and
-    /// supplies the producer's diagnostic.
-    fn reserved_at(&self, output: Position) -> Option<PortalRelationships<'_>> {
-        let cells = Portal::at(self.grid, output).reservation()?.range();
-        Some(PortalRelationships {
-            lookup: self,
-            output,
-            cells,
-        })
-    }
-
-    /// The relationships of every reservation `index`'s write Portals make,
-    /// skipping a Portal whose destination is refused or does not fit the row.
-    fn reservations(&self, index: usize) -> impl Iterator<Item = PortalRelationships<'_>> {
-        self.nodes()[index]
-            .portal_access
-            .write_sites()
-            .iter()
-            .filter_map(|output| output.as_ref().ok())
-            .filter_map(move |output| self.reserved_at(*output))
-    }
-
-    /// The relationships of the Cells an admitted write actually covers.
-    ///
-    /// A value answer renders as one Atom's Cell pair, which is exactly the
-    /// reservation its schedule ordered, so every contact execution acts on
-    /// is one a dependency edge already names.
-    fn written_over(&self, write: &SpanWrite) -> PortalRelationships<'_> {
-        let span = write.span();
-        PortalRelationships {
-            lookup: self,
-            output: self.grid.position_at(span.start()),
-            cells: span.range(),
-        }
-    }
-}
-
-impl PortalRelationships<'_> {
-    fn functions(&self) -> impl Iterator<Item = FunctionContact> + '_ {
-        self.lookup
-            .functions
-            .touching(self.cells.clone())
-            .map(|index| FunctionContact {
-                index,
-                at_anchor: self.lookup.nodes()[index].anchor == self.output,
-                subtree: self.lookup.descendants(index),
-            })
-    }
-
-    fn literal_consumers(&self) -> impl Iterator<Item = usize> + '_ {
-        self.lookup.literals.touching(self.cells.clone())
-    }
-
-    /// Geometrically eligible roots, regardless of their activation policy or
-    /// whether this producer actually returns Bang. Even a partial overlap
-    /// with an operand excludes activation; nested operands count here too.
-    ///
-    /// Operand contact is a fact about the whole destination rather than about
-    /// any one anchor, so it decides the empty answer up front instead of
-    /// filtering the four cardinal anchors one at a time.
-    ///
-    /// "The whole destination" is the Cell pair a Bang occupies: alignment is
-    /// a fact about a Bang's own two Cells.
-    ///
-    /// The four anchors are one geometric fact and are stated as one. The west
-    /// arm answers a root only for a Function that declares no operand: a root
-    /// anchored two columns west with an operand claims this destination for
-    /// that operand, so a Bang landing here is operand contact rather than an
-    /// anchor — the `(6, 2)` row of
-    /// `fixed_bang_destinations_respect_alignment_and_operand_contact` asserts
-    /// exactly that silence.
-    ///
-    /// A Self-Banging Function `^^ vv << >>` answers the arm with a root and
-    /// changes nothing by it: those four take their Turn without a Bang, so
-    /// scheduling orders nothing after an intrinsically active root, and a
-    /// Bang that reaches one, before its Turn or after it, neither starts nor
-    /// misses anything. The Directional Bang Functions are where it decides a
-    /// Tick: `*^`
-    /// declares no operand and waits for activation, so a Bang two columns east
-    /// of one is the only thing that starts it.
-    /// `an_active_directional_bang_function_emits_its_self_banging_function`
-    /// drives that arm, and deleting it leaves the north and west halves of
-    /// that test emitting nothing.
-    ///
-    /// The asymmetry the arm states is the language's and not this function's:
-    /// a horizontally aligned root anchors two columns away because every
-    /// Language Unit spells as a Cell pair.
-    fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
-        let in_operand = self
-            .lookup
-            .operands
-            .touching(self.cells.clone())
-            .next()
-            .is_some();
-        let (column, row) = (self.output.x(), self.output.y());
-        let anchors = if in_operand {
-            [None, None, None, None]
-        } else {
-            [
-                row.checked_sub(1)
-                    .and_then(|north| self.lookup.grid.position(column, north)),
-                self.lookup.grid.position(column, row + 1),
-                column
-                    .checked_sub(2)
-                    .and_then(|west| self.lookup.grid.position(west, row)),
-                self.lookup.grid.position(column + 2, row),
-            ]
-        };
-        anchors
-            .into_iter()
-            .flatten()
-            .filter_map(|anchor| self.lookup.root_at(anchor))
     }
 }
 
@@ -569,7 +402,7 @@ fn plan_unshared(
 /// each one, are. An Operand Literal's value, working
 /// Source and the Tick are execution's alone, so a Tick that writes new values
 /// into Cells whose units keep their Spans changes no scheduling input.
-/// Anything [`computations`] or [`Lookup::new`] reads from the Map is a
+/// Anything [`computations`] or [`dependencies::Locks::new`] reads from the Map is a
 /// scheduling input and must be compared by `DerivedRow::schedules_as` too.
 /// [`LanguageMap::rebuild`] compares these inputs row by row and carries this
 /// cache to the new revision when every row it re-derived holds the inputs it
@@ -639,7 +472,7 @@ fn schedule_carrying(
 ) -> Schedule {
     let (mut nodes, diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, destinations);
-    order_turns(Lookup::new(grid, nodes, map), diagnostics)
+    order_turns(Lookup::new(grid, nodes), map, diagnostics)
 }
 
 ///
@@ -678,7 +511,7 @@ fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
 ///
 fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
     let (nodes, diagnostics) = computations(grid, map);
-    order_turns(Lookup::new(grid, nodes, map), diagnostics)
+    order_turns(Lookup::new(grid, nodes), map, diagnostics)
 }
 
 ///
@@ -764,14 +597,15 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
 /// Dependency [`dependencies::derive`] finds, ordered by [`ordering::schedule`], and the
 /// diagnostics its cycles owe after `diagnostics`.
 ///
-fn order_turns(lookup: Lookup, diagnostics: Vec<Diagnostic>) -> Schedule {
+fn order_turns(lookup: Lookup, map: &LanguageMap, diagnostics: Vec<Diagnostic>) -> Schedule {
+    let locks = dependencies::Locks::new(&lookup, map);
     let dependencies::Derived {
         active,
         edges,
         writers,
-    } = dependencies::derive(&lookup);
+    } = dependencies::derive(&lookup, &locks);
     let ordered = ordering::schedule(ordering_nodes(&lookup), active, edges, writers);
-    Schedule::new(lookup, ordered, diagnostics)
+    Schedule::new(lookup, locks, ordered, diagnostics)
 }
 
 ///
@@ -4570,7 +4404,7 @@ mod test {
                 // A destination whose pair leaves the row is refused at the
                 // Portal, and a terminal wide enough to sound cannot be
                 // cardinally aligned with one, so this case cannot separate
-                // `Lookup::reserved_at`'s row-fit guard from `Portal::admit`'s
+                // `dependencies::reserved_at`'s row-fit guard from `Portal::admit`'s
                 // refusal.
                 // `competing_writers_preserve_an_independent_rejected_destination_diagnostic`
                 // is what holds that guard.
@@ -5691,7 +5525,7 @@ mod output_portal_exclusion {
     ///
     fn source_writing_reservation_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
         let (nodes, _diagnostics) = computations(grid, map);
-        let lookup = Lookup::new(grid, nodes, map);
+        let lookup = Lookup::new(grid, nodes);
         let mut cells = vec![false; grid.count()];
         for node in lookup.nodes() {
             if node.function.source_effect().is_none() {
@@ -5749,7 +5583,7 @@ mod output_portal_exclusion {
             let source = format!("{row}{:14}", "");
             let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
             let (nodes, _diagnostics) = computations(grid, &map);
-            let lookup = Lookup::new(grid, nodes, &map);
+            let lookup = Lookup::new(grid, nodes);
             let mut scheduled = vec![false; grid.count()];
             for node in lookup.nodes() {
                 for output in node

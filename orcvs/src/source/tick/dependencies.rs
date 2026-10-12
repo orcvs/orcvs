@@ -12,8 +12,11 @@ use std::ops::Range;
 
 use lang::SourceBundle;
 
+use super::Lookup;
 use super::ordering::{Join, Joined};
-use super::{LockTarget, Lookup};
+use crate::grid::Position;
+use crate::source::language_map::LanguageMap;
+use crate::source::portal::{Occupancy, Portal, SpanWrite};
 
 ///
 /// What a schedule is ordered from: which roots activation reaches before the
@@ -31,7 +34,7 @@ pub(super) struct Derived {
 /// Function before the Function it answers, and each active root's
 /// Reservations, locks, Bangs and Input Portals.
 ///
-pub(super) fn derive(lookup: &Lookup) -> Derived {
+pub(super) fn derive(lookup: &Lookup, locks: &Locks) -> Derived {
     let nodes = lookup.nodes();
     let active = active_roots(lookup);
     let mut edges = BTreeSet::new();
@@ -40,7 +43,7 @@ pub(super) fn derive(lookup: &Lookup) -> Derived {
             edges.insert((index, parent));
         }
         if active[node.owner] {
-            producer_edges(lookup, index, |producer, consumer| {
+            producer_edges(lookup, locks, index, |producer, consumer| {
                 edges.insert((producer, consumer));
             });
         }
@@ -65,12 +68,17 @@ pub(super) fn derive(lookup: &Lookup) -> Derived {
 /// what its own Portals reach, as an active root's do before it, and its
 /// dynamic writers go writers first.
 ///
-pub(super) fn join(lookup: &Lookup, active: &mut [bool], roots: Vec<usize>) -> Joined {
+pub(super) fn join(
+    lookup: &Lookup,
+    locks: &Locks,
+    active: &mut [bool],
+    roots: Vec<usize>,
+) -> Joined {
     let mut joined = Joined::default();
     for root in activate(lookup, active, roots) {
         for index in lookup.descendants(root) {
             let mut edge = |producer, consumer| joined.edges.push((producer, consumer));
-            producer_edges(lookup, index, &mut edge);
+            producer_edges(lookup, locks, index, &mut edge);
             reader_edges(lookup, index, &mut edge);
             if lookup.nodes()[index]
                 .function
@@ -84,12 +92,12 @@ pub(super) fn join(lookup: &Lookup, active: &mut [bool], roots: Vec<usize>) -> J
     joined
 }
 
-/// [`join()`] over one Lookup, as ordering asks it.
-pub(super) struct Joining<'a>(pub(super) &'a Lookup);
+/// [`join()`] over one Lookup and its locks, as ordering asks it.
+pub(super) struct Joining<'a>(pub(super) &'a Lookup, pub(super) &'a Locks);
 
 impl Join for Joining<'_> {
     fn join(&self, active: &mut [bool], roots: Vec<usize>) -> Joined {
-        join(self.0, active, roots)
+        join(self.0, self.1, active, roots)
     }
 }
 
@@ -144,7 +152,7 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
             if !nodes[index].function.can_emit_bang() {
                 continue;
             }
-            for relationships in lookup.reservations(index) {
+            for relationships in reservations(lookup, index) {
                 for index in relationships.bang_roots().collect::<Vec<_>>() {
                     if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
@@ -158,9 +166,9 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
 }
 
 /// The complete subtree a locking Function's Portal names.
-fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
-    match &lookup.locks[locker] {
-        Some(LockTarget::Root(subtree)) => Some(subtree),
+fn locked_subtree(locks: &Locks, locker: usize) -> Option<&Range<usize>> {
+    match locks.lock_target(locker) {
+        Some(Lock::Root(subtree)) => Some(subtree),
         _ => None,
     }
 }
@@ -172,10 +180,10 @@ fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
 /// withholds the producer's Turn; one that does not, because nothing activated
 /// the locker in time, leaves the producer to take its Turn after it, and a
 /// Bang that producer delivers to the locker is missed.
-fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
+fn lock_covers(lookup: &Lookup, locks: &Locks, locker: usize, producer: usize) -> bool {
     let node = &lookup.nodes()[locker];
     node.parent.is_none()
-        && locked_subtree(lookup, locker).is_some_and(|target| target.contains(&producer))
+        && locked_subtree(locks, locker).is_some_and(|target| target.contains(&producer))
 }
 
 ///
@@ -199,7 +207,12 @@ fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<
 /// reservation before every computation whose Cells it covers and every
 /// root its Bang activates.
 ///
-fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usize)) {
+fn producer_edges(
+    lookup: &Lookup,
+    locks: &Locks,
+    index: usize,
+    mut edge: impl FnMut(usize, usize),
+) {
     let nodes = lookup.nodes();
     let node = &nodes[index];
     let bundle = node.function.source_effect().map(|effect| effect.bundle);
@@ -225,17 +238,17 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
     // Both facts are named although only bundles that clear their own Span
     // order contacts at all, so the rule reads the same wherever a move is.
     let moves = bundle.is_some_and(|bundle| bundle.clears_own_span() && bundle.writes_displaced());
-    if let Some(target) = locked_subtree(lookup, index) {
+    if let Some(target) = locked_subtree(locks, index) {
         for consumer in target.clone() {
             edge(index, consumer);
         }
     }
-    for relationships in lookup.reservations(index) {
+    for relationships in reservations(lookup, index) {
         let mut order_after = |consumer: usize| {
             if exempt_from_itself && consumer == index {
                 return;
             }
-            if lock_covers(lookup, consumer, index) {
+            if lock_covers(lookup, locks, consumer, index) {
                 return;
             }
             edge(index, consumer);
@@ -292,7 +305,7 @@ fn producer_edges(lookup: &Lookup, index: usize, mut edge: impl FnMut(usize, usi
 /// the writer's side.
 ///
 fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, usize)) {
-    for relationships in lookup.reservations(producer) {
+    for relationships in reservations(lookup, producer) {
         for consumer in lookup.reads.touching(relationships.cells.clone()) {
             if consumer != producer {
                 edge(producer, consumer);
@@ -340,16 +353,226 @@ pub(super) fn input_writers<'a>(
         .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner])
 }
 
+///
+/// What one Halt's lock reaches in the Source Snapshot, before any Turn can
+/// change it.
+///
+pub(super) enum Lock {
+    /// The complete subtree of the Expression root at the lock site, which
+    /// Parser preorder makes contiguous.
+    Root(Range<usize>),
+    /// A site something other than an Expression root occupies.
+    NotARoot,
+}
+
+///
+/// The [`Lock`] each computation's Portal reaches, shared by scheduling and
+/// execution. Only execution decides whether an active, unsuppressed Halt
+/// actually applies it.
+///
+pub(super) struct Locks(Vec<Option<Lock>>);
+
+impl Locks {
+    pub(super) fn new(lookup: &Lookup, map: &LanguageMap) -> Self {
+        Self(
+            lookup
+                .nodes()
+                .iter()
+                .map(|node| {
+                    // A site outside the Grid locks nothing.
+                    let destination = node.portal_access.lock_site()?.ok()?;
+                    if let Some(root) = lookup.root_at(destination) {
+                        return Some(Lock::Root(lookup.descendants(root)));
+                    }
+                    // A site no root covers is judged by its Snapshot
+                    // occupancy, and an empty one locks nothing.
+                    let portal = Portal::at(lookup.grid, destination);
+                    (!matches!(
+                        portal.occupancy(map, |anchor| lookup.root_at(anchor)),
+                        Occupancy::Empty
+                    ))
+                    .then_some(Lock::NotARoot)
+                })
+                .collect(),
+        )
+    }
+
+    ///
+    /// What `index`'s lock reaches: nothing for a computation that declares
+    /// no lock, or one whose site is outside the Grid or empty.
+    ///
+    pub(super) fn lock_target(&self, index: usize) -> Option<&Lock> {
+        self.0[index].as_ref()
+    }
+}
+
+///
+/// The Functions and Bang roots the Cells an admitted write actually covers
+/// reach.
+///
+/// A value answer renders as one Atom's Cell pair, which is exactly the
+/// Reservation its schedule ordered, so every contact execution acts on is
+/// one a Dependency already names.
+///
+pub(super) fn reached<'a>(lookup: &'a Lookup, write: &SpanWrite) -> PortalRelationships<'a> {
+    let span = write.span();
+    PortalRelationships {
+        lookup,
+        output: lookup.grid.position_at(span.start()),
+        cells: span.range(),
+    }
+}
+
+/// A fixed destination has relationships only if the Cell pair reserved
+/// from it fits the row ([`Portal::reservation`]). Actual writes still go
+/// through `Portal::admit`, which also validates their encoding and
+/// supplies the producer's diagnostic.
+fn reserved_at(lookup: &Lookup, output: Position) -> Option<PortalRelationships<'_>> {
+    let cells = Portal::at(lookup.grid, output).reservation()?.range();
+    Some(PortalRelationships {
+        lookup,
+        output,
+        cells,
+    })
+}
+
+/// The relationships of every Reservation `index`'s write Portals make,
+/// skipping a Portal whose destination is refused or does not fit the row.
+fn reservations(lookup: &Lookup, index: usize) -> impl Iterator<Item = PortalRelationships<'_>> {
+    lookup.nodes()[index]
+        .portal_access
+        .write_sites()
+        .iter()
+        .filter_map(|output| output.as_ref().ok())
+        .filter_map(move |output| reserved_at(lookup, *output))
+}
+
+/// Relationships of one fixed Portal destination, and of the Cells following it
+/// along its row, to the original computations. A Portal names where a result
+/// begins rather than how wide it is, so how many Cells to ask about is the
+/// caller's to state: scheduling asks over the Cells it reserved and execution
+/// asks over the Cells an admitted write actually covers. The phases share these
+/// facts, but decide separately whether a producer can activate, must precede,
+/// or suppresses a contacted computation.
+pub(super) struct PortalRelationships<'a> {
+    lookup: &'a Lookup,
+    output: Position,
+    cells: Range<usize>,
+}
+
+/// A Function whose Cells a write or Reservation covers.
+pub(super) struct FunctionContact {
+    index: usize,
+    at_anchor: bool,
+    /// Includes the contacted Function itself, in Parser preorder.
+    subtree: Range<usize>,
+}
+
+impl PortalRelationships<'_> {
+    pub(super) fn functions(&self) -> impl Iterator<Item = FunctionContact> + '_ {
+        self.lookup
+            .functions
+            .touching(self.cells.clone())
+            .map(|index| FunctionContact {
+                index,
+                at_anchor: self.lookup.nodes()[index].anchor == self.output,
+                subtree: self.lookup.descendants(index),
+            })
+    }
+
+    fn literal_consumers(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lookup.literals.touching(self.cells.clone())
+    }
+
+    /// Geometrically eligible roots, regardless of their activation policy or
+    /// whether this producer actually returns Bang. Even a partial overlap
+    /// with an operand excludes activation; nested operands count here too.
+    ///
+    /// Operand contact is a fact about the whole destination rather than about
+    /// any one anchor, so it decides the empty answer up front instead of
+    /// filtering the four cardinal anchors one at a time.
+    ///
+    /// "The whole destination" is the Cell pair a Bang occupies: alignment is
+    /// a fact about a Bang's own two Cells.
+    ///
+    /// The four anchors are one geometric fact and are stated as one. The west
+    /// arm answers a root only for a Function that declares no operand: a root
+    /// anchored two columns west with an operand claims this destination for
+    /// that operand, so a Bang landing here is operand contact rather than an
+    /// anchor — the `(6, 2)` row of
+    /// `fixed_bang_destinations_respect_alignment_and_operand_contact` asserts
+    /// exactly that silence.
+    ///
+    /// A Self-Banging Function `^^ vv << >>` answers the arm with a root and
+    /// changes nothing by it: those four take their Turn without a Bang, so
+    /// scheduling orders nothing after an intrinsically active root, and a
+    /// Bang that reaches one, before its Turn or after it, neither starts nor
+    /// misses anything. The Directional Bang Functions are where it decides a
+    /// Tick: `*^`
+    /// declares no operand and waits for activation, so a Bang two columns east
+    /// of one is the only thing that starts it.
+    /// `an_active_directional_bang_function_emits_its_self_banging_function`
+    /// drives that arm, and deleting it leaves the north and west halves of
+    /// that test emitting nothing.
+    ///
+    /// The asymmetry the arm states is the language's and not this function's:
+    /// a horizontally aligned root anchors two columns away because every
+    /// Language Unit spells as a Cell pair.
+    pub(super) fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
+        let in_operand = self
+            .lookup
+            .operands
+            .touching(self.cells.clone())
+            .next()
+            .is_some();
+        let (column, row) = (self.output.x(), self.output.y());
+        let anchors = if in_operand {
+            [None, None, None, None]
+        } else {
+            [
+                row.checked_sub(1)
+                    .and_then(|north| self.lookup.grid.position(column, north)),
+                self.lookup.grid.position(column, row + 1),
+                column
+                    .checked_sub(2)
+                    .and_then(|west| self.lookup.grid.position(west, row)),
+                self.lookup.grid.position(column + 2, row),
+            ]
+        };
+        anchors
+            .into_iter()
+            .flatten()
+            .filter_map(|anchor| self.lookup.root_at(anchor))
+    }
+}
+
+impl FunctionContact {
+    pub(super) fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Whether the write begins at the contacted Function's anchor.
+    pub(super) fn at_anchor(&self) -> bool {
+        self.at_anchor
+    }
+
+    /// The contacted Function and every computation nested in it, in Parser
+    /// preorder.
+    pub(super) fn subtree(&self) -> Range<usize> {
+        self.subtree.clone()
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use super::{derive, join};
+    use super::{Locks, derive, join};
     use crate::grid::Grid;
     use crate::source::Cells;
     use crate::source::language_map::LanguageMap;
     use crate::source::tick::{Lookup, computations};
 
-    /// The Lookup for `rows`, each padded to the Grid's width.
-    fn lookup(grid: Grid, rows: &[&str]) -> Lookup {
+    /// The Lookup for `rows`, each padded to the Grid's width, and its locks.
+    fn lookup(grid: Grid, rows: &[&str]) -> (Lookup, Locks) {
         let bytes: String = (0..grid.rows())
             .map(|row| {
                 format!(
@@ -361,7 +584,9 @@ mod test {
             .collect();
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let (nodes, _) = computations(grid, &map);
-        Lookup::new(grid, nodes, &map)
+        let lookup = Lookup::new(grid, nodes);
+        let locks = Locks::new(&lookup, &map);
+        (lookup, locks)
     }
 
     /// The computation anchored at `(x, y)`.
@@ -379,16 +604,16 @@ mod test {
 
     #[test]
     fn a_lock_goes_before_the_subtree_it_locks() {
-        let lookup = lookup(Grid::with_shape(8, 3), &HALT);
+        let (lookup, locks) = lookup(Grid::with_shape(8, 3), &HALT);
         let (halt, add) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
-        assert!(derive(&lookup).edges.contains(&(halt, add)));
+        assert!(derive(&lookup, &locks).edges.contains(&(halt, add)));
     }
 
     #[test]
     fn a_bang_goes_before_the_root_it_activates() {
-        let lookup = lookup(Grid::with_shape(8, 3), &HALT);
+        let (lookup, locks) = lookup(Grid::with_shape(8, 3), &HALT);
         let (equality, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 1));
-        let derived = derive(&lookup);
+        let derived = derive(&lookup, &locks);
         assert!(
             derived.active[halt],
             "the Bang reaches Halt before the Tick"
@@ -400,12 +625,12 @@ mod test {
     fn a_locked_producer_is_not_ordered_before_the_lock_it_reaches() {
         // `^^` reserves the Cells Halt stands in, but Halt locks it, so the
         // lock alone orders the pair.
-        let lookup = lookup(
+        let (lookup, locks) = lookup(
             Grid::with_shape(8, 3),
             &[".=0101  ", "  *!    ", "  ^^    "],
         );
         let (halt, mover) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
-        let edges = derive(&lookup).edges;
+        let edges = derive(&lookup, &locks).edges;
         assert!(edges.contains(&(halt, mover)));
         assert!(!edges.contains(&(mover, halt)));
     }
@@ -414,47 +639,47 @@ mod test {
     fn a_bundle_that_clears_its_own_span_is_not_ordered_after_itself() {
         // The Bang Function reserves the Cells it stands in and does not
         // move, so only the exemption keeps it from being its own cycle.
-        let lookup = lookup(Grid::with_shape(6, 1), &["**    "]);
+        let (lookup, locks) = lookup(Grid::with_shape(6, 1), &["**    "]);
         let bang = at(&lookup, 0, 0);
-        let derived = derive(&lookup);
+        let derived = derive(&lookup, &locks);
         assert!(derived.active[bang]);
         assert!(!derived.edges.contains(&(bang, bang)));
     }
 
     #[test]
     fn a_reservation_goes_before_the_function_it_contacts() {
-        let lookup = lookup(Grid::with_shape(6, 2), &[".+0101", ".-0202"]);
+        let (lookup, locks) = lookup(Grid::with_shape(6, 2), &[".+0101", ".-0202"]);
         let (writer, contacted) = (at(&lookup, 0, 0), at(&lookup, 0, 1));
-        assert!(derive(&lookup).edges.contains(&(writer, contacted)));
+        assert!(derive(&lookup, &locks).edges.contains(&(writer, contacted)));
     }
 
     #[test]
     fn a_mover_meets_an_intrinsically_active_root_in_source_order() {
         // `>>` reserves the Cells `^^` stands in, and `^^` takes its Turn
         // with nothing delivered to it, so Source order decides between them.
-        let lookup = lookup(Grid::with_shape(6, 1), &[">>^^  "]);
+        let (lookup, locks) = lookup(Grid::with_shape(6, 1), &[">>^^  "]);
         let (mover, active) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
-        assert!(!derive(&lookup).edges.contains(&(mover, active)));
+        assert!(!derive(&lookup, &locks).edges.contains(&(mover, active)));
         // A root that waits for a Bang is still ordered after the mover.
-        let lookup = self::lookup(Grid::with_shape(6, 1), &[">>*!  "]);
+        let (lookup, locks) = self::lookup(Grid::with_shape(6, 1), &[">>*!  "]);
         let (mover, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
-        assert!(derive(&lookup).edges.contains(&(mover, halt)));
+        assert!(derive(&lookup, &locks).edges.contains(&(mover, halt)));
     }
 
     #[test]
     fn a_reservation_goes_before_the_literal_it_covers() {
-        let lookup = lookup(Grid::with_shape(10, 2), &["    .+0101", "  .-0101  "]);
+        let (lookup, locks) = lookup(Grid::with_shape(10, 2), &["    .+0101", "  .-0101  "]);
         let (writer, consumer) = (at(&lookup, 4, 0), at(&lookup, 2, 1));
-        assert!(derive(&lookup).edges.contains(&(writer, consumer)));
+        assert!(derive(&lookup, &locks).edges.contains(&(writer, consumer)));
     }
 
     #[test]
     fn a_joining_root_brings_what_its_bang_activates() {
-        let lookup = lookup(Grid::with_shape(8, 3), &HALT);
+        let (lookup, locks) = lookup(Grid::with_shape(8, 3), &HALT);
         let (equality, halt, add) = (at(&lookup, 0, 0), at(&lookup, 2, 1), at(&lookup, 2, 2));
         let mut active = vec![false; lookup.nodes().len()];
         active[equality] = true;
-        let joined = join(&lookup, &mut active, vec![equality]);
+        let joined = join(&lookup, &locks, &mut active, vec![equality]);
         assert!(active[halt], "the Bang reaches Halt");
         assert!(!active[add], "a lock activates nothing");
         assert!(joined.edges.contains(&(equality, halt)));

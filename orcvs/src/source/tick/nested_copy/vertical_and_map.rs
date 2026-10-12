@@ -73,7 +73,7 @@ fn scheduled(grid: Grid, rows: &[&str]) -> Vec<String> {
     let text = padded(grid, rows);
     let map = LanguageMap::build(grid, Cells::of(text.as_bytes()));
     let (nodes, _diagnostics) = computations(grid, &map);
-    let lookup = Lookup::new(grid, nodes, &map);
+    let lookup = Lookup::new(grid, nodes);
     let mut cells = vec![false; grid.count()];
     for node in lookup.nodes() {
         for output in node

@@ -41,7 +41,7 @@ pub(in crate::source::tick) fn plan_with_answers(
 ) -> (TickPlan, Vec<ComputationState>) {
     let (mut nodes, diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, destinations);
-    let lookup = Lookup::new(grid, nodes, map);
+    let lookup = Lookup::new(grid, nodes);
     // Every fixture error the schedule can be asked about is asked here,
     // before an order exists. A cycle leaves the computations it stops out
     // of the order, which is indistinguishable from the little a mistyped
@@ -59,7 +59,7 @@ pub(in crate::source::tick) fn plan_with_answers(
             "one computation is stated one answer: two are stated here for the same anchor"
         );
     }
-    let schedule = order_turns(lookup, diagnostics);
+    let schedule = order_turns(lookup, map, diagnostics);
     let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
     take_turns(&schedule, |index, progress| {

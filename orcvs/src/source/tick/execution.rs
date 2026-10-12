@@ -12,6 +12,7 @@ use lang::{
 };
 
 use super::Schedule;
+use super::dependencies::{self, Lock};
 use super::ordering::{Progress, Turn};
 use super::{
     Computation, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal, PortalError,
@@ -358,7 +359,7 @@ impl<'a> Execution<'a> {
         if let InputSite::At(portal) = portal
             && let Ok(span) = portal.span(SCALAR_WIDTH)
         {
-            let writers = progress.unresolved(super::dependencies::input_writers(
+            let writers = progress.unresolved(dependencies::input_writers(
                 lookup,
                 progress.active(),
                 index,
@@ -625,10 +626,9 @@ impl<'a> Execution<'a> {
                 return;
             }
         };
-        // The Cells this write actually covers: `Lookup::written_over`.
-        let relationships = self.schedule.lookup.written_over(&write);
+        let reached = dependencies::reached(&self.schedule.lookup, &write);
         if atom == Atom::Bang {
-            for owner in relationships.bang_roots() {
+            for owner in reached.bang_roots() {
                 if self.misses_activation(owner) {
                     continue;
                 }
@@ -639,9 +639,9 @@ impl<'a> Execution<'a> {
             }
         }
         if let Atom::Function(replacement) = atom
-            && let Some(change) = relationships.functions().find_map(|contact| {
-                if !contact.at_anchor
-                    || (delivery.feeds_back() && self.states[contact.index].attempted)
+            && let Some(change) = reached.functions().find_map(|contact| {
+                if !contact.at_anchor()
+                    || (delivery.feeds_back() && self.states[contact.index()].attempted)
                 {
                     return None;
                 }
@@ -656,7 +656,7 @@ impl<'a> Execution<'a> {
                 // force. No test can pin the choice: the guard keeps the
                 // parsed and the running Function agreeing on every fact it
                 // compares.
-                let running = self.states[contact.index].function;
+                let running = self.states[contact.index()].function;
                 replacement.replacing(running)
             })
         {
@@ -671,9 +671,9 @@ impl<'a> Execution<'a> {
             return;
         }
         if !delivery.feeds_back()
-            && relationships.functions().any(|mut contact| {
+            && reached.functions().any(|contact| {
                 contact
-                    .subtree
+                    .subtree()
                     .any(|descendant| self.states[descendant].attempted)
             })
         {
@@ -687,19 +687,19 @@ impl<'a> Execution<'a> {
         }
         // A covered Expression is suppressed: its spelling is no longer the
         // one that was scheduled. What has taken its Turn keeps it.
-        for contact in relationships.functions() {
-            let target = contact.index;
+        for contact in reached.functions() {
+            let target = contact.index();
             if self.states[target].attempted {
                 continue;
             }
-            if contact.at_anchor
+            if contact.at_anchor()
                 && !self.states[target].suppressed
                 && let Atom::Function(replacement) = atom
             {
                 self.states[target].function = replacement;
                 continue;
             }
-            for descendant in contact.subtree {
+            for descendant in contact.subtree() {
                 if !self.states[descendant].attempted {
                     self.states[descendant].suppressed = true;
                 }
@@ -873,7 +873,7 @@ impl<'a> Execution<'a> {
     fn fire(&mut self, index: usize) {
         let anchor = self.schedule.lookup.nodes()[index].anchor;
         let clear = self.own_span_clear(anchor);
-        for owner in self.schedule.lookup.written_over(&clear).bang_roots() {
+        for owner in dependencies::reached(&self.schedule.lookup, &clear).bang_roots() {
             if self.misses_activation(owner) {
                 continue;
             }
@@ -928,8 +928,8 @@ impl<'a> Execution<'a> {
     ///
     fn lock_portal(&mut self, index: usize, delivery: Delivery) {
         let node = &self.schedule.lookup.nodes()[index];
-        match &self.schedule.lookup.locks[index] {
-            Some(super::LockTarget::Root(target)) => {
+        match self.schedule.locks.lock_target(index) {
+            Some(Lock::Root(target)) => {
                 if target
                     .clone()
                     .any(|descendant| self.states[descendant].attempted)
@@ -952,13 +952,13 @@ impl<'a> Execution<'a> {
                     self.schedule.lookup.nodes()[target.start].anchor,
                 ));
             }
-            Some(super::LockTarget::Occupied) => {
+            Some(Lock::NotARoot) => {
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
                     format!("{} target is not an Expression root", node.function),
                 )));
             }
-            None | Some(super::LockTarget::Empty | super::LockTarget::Outside) => {}
+            None => {}
         }
     }
 

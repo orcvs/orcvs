@@ -1,6 +1,6 @@
 # Derive a Tick's Dependencies in one module
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
