@@ -1,28 +1,36 @@
-# 01 — Diagnose a root its own nested write suppresses
+# 01 — Diagnose a dynamic write that lands on its own Expression
 
-Status: ready-for-human
+Status: ready-for-agent
 Blocked by: None (can start immediately)
 
 **What to build:**
 
-A nested Write can reach back over its own Expression. In `.<.|00.v~?000000=$35BA@<.x64FBE506`, placed in the middle row of a Grid, the nested `@<` writes west over Cells of the Functions still to come in the same Expression. ADR 0034 and ADR 0067 say a write onto a Function whose Turn is still to come suppresses it quietly. Suppression climbs to the root `.<`: it takes no Turn, reaches no Interpreter, and the Tick reports nothing.
+A dynamic writer can write over the Expression it belongs to. In `.<.|00.v~?000000=$35BA@<.x64FBE506`, placed in the middle row of a 34-column Grid, the root is a Minimum `.<` at column 0. The nested `@<` (Write West) answers 229 and writes `E5` over Cells 0–1, which are the root's own spelling. Its destination is known only at its Turn, so no Dependency orders anything against it. When the root's Turn arrives, ADR 0067 suppresses it and every unattempted Function beneath it. The Tick Plan holds the `E5` write and no diagnostic.
 
-The owner decided (2026-10-12) that this case diagnoses. A root that its own Expression's write suppresses reports why, rather than going silent. Suppression by any other writer stays quiet, as `a_write_onto_a_function_still_to_come_suppresses_or_replaces_it` asserts.
+A static writer that does the same thing is already diagnosed. Its Reservation covers a Function whose subtree contains the writer, so `producer_edges` orders the writer after itself, and the Tick reports "same-Tick dependency cycle". The dynamic version differs only in when its destination becomes known. The owner decided (2026-10-12) that the two agree: a dynamic write that lands on a Function of its own Expression is diagnosed.
+
+Rule: when a dynamic write's covered Cells contact a Function whose root is the writer's own root, and that Function's Turn is still to come, the write is refused and diagnosed at the writer. The rest of the Expression continues as if the write had not been made, in the same way `spatial output reached an executed computation` refuses only the write that reached too late.
+
+A dynamic write from any other Expression stays quiet feedback under ADR 0067, as `a_write_onto_a_function_still_to_come_suppresses_or_replaces_it` asserts.
 
 The property `a_tick_over_every_nested_expression_the_parser_accepts_settles_its_root` (`orcvs/src/source/tick.rs`) already demands this: an intrinsically active root is interpreted or diagnosed. Today it fails on about 1 run in 30 at `PROPTEST_CASES=32`, and it removed PR #214 from the merge queue.
 
-Proposed defaults, for the owner to confirm:
+Defaults, for the implementer to keep unless the owner says otherwise:
 
-- The diagnostic is reported at the root's anchor, and it names the writer's Position.
-- It is raised only when the suppressing write comes from a Function in the same Expression as the root. A suppression inside the Expression that leaves the root able to take its Turn does not diagnose.
-- ADR 0034's suppression rule gains the exception, through an amendment or a short new ADR.
+- The diagnostic is reported at the writer's anchor. Its message names the case as a same-Tick dependency cycle found at the Turn, so it reads as the static case does.
+- Only a Function in the writer's own Expression triggers the rule; owner equality decides that.
+- ADR 0067's feedback rule gains the exception, through an amendment or a short new ADR.
+- Start by giving Turn state an `activate` and a `suppress` verb. Execution writes the suppression loop twice today (`deliver` and `lock_portal`), and this rule belongs at the one place both would call. This is candidate 6 of the Tick architecture review.
 
 ## Acceptance criteria
 
-- [ ] A root suppressed by a write from a Function in its own Expression produces one diagnostic, and the Source writes are otherwise unchanged.
-- [ ] A Function suppressed by a write from outside its Expression is still quiet.
-- [ ] The shrunk case above is pinned as a stated example beside the property.
+- [ ] A dynamic write landing on a Function of its own Expression whose Turn is still to come is refused and produces one diagnostic at the writer.
+- [ ] The shrunk case above is pinned as a stated example beside the property. In that example the root is interpreted, and the Tick Plan holds no `E5` write.
+- [ ] A dynamic write from another Expression onto a Function still to come is still quiet feedback.
+- [ ] A static writer landing on its own Expression is still diagnosed as a same-Tick dependency cycle, unchanged.
 - [ ] The nested-expression property passes at the merge tier's case count.
 - [ ] The ADR text covers the exception.
 
 ## Comments
+
+2026-10-12 — Re-scoped from "a root its own nested write suppresses" after tracing the shrunk case on `main` (d5d2ff4). The trace showed the writer is dynamic and lands on the root's own anchor, and that the static equivalent already diagnoses as a cycle. The owner confirmed the narrowed rule.
