@@ -5919,6 +5919,16 @@ mod nested_property {
     }
 
     ///
+    /// A nested dynamic Write whose destination is its own root's spelling
+    /// suppresses that root, and the Tick says why rather than leaving the
+    /// root silent. `@<` answers 229 and writes `E5` over `.<`.
+    ///
+    #[test]
+    fn a_nested_write_over_its_own_root_leaves_the_root_diagnosed() {
+        settle(".<.|00.v~?000000=$35BA@<.x64FBE506").unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    ///
     /// The property's checks hold where nesting is certain rather than drawn:
     /// every intrinsically active root over a chain one link longer than the
     /// widest signature makes more Interpreter calls than any flat Expression
