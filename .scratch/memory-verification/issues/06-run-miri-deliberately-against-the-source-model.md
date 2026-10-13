@@ -8,10 +8,7 @@ interprets.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human — the task, the workflow, the contract rules and the documentation are
-written and their static gates pass, but Miri itself has never been run: the interpreter has not
-executed a single one of the selected tests, here or in CI. The first real execution belongs to the
-manual dispatch this issue exists to create.
+**Status:** resolved
 
 - [x] A task runs Miri over the Source model tests, installing the nightly toolchain it needs rather
       than changing the pinned channel. `mise.toml` `[tasks.miri]` installs `nightly` with the `miri`
@@ -81,3 +78,23 @@ allocators are outside the filter, but `orcvs/src/lib.rs:38-87` installs a `#[gl
 under `cfg(all(test, not(target_arch = "wasm32")))` with no `not(miri)`, in the same lib unit-test
 binary the `source::model::test::` filter selects, so Miri interprets it. Correct the comment or add
 `not(miri)` when dispatching.
+
+### First dispatches — 2026-10-13
+
+- Run 1, on `main` at `602f10b6`
+  ([38330757550](https://github.com/orcvs/orcvs/actions/runs/38330757550)), failed after 3m 15s.
+  `test_an_edit_classifies_the_cells_it_affects` and
+  `test_an_overwritten_root_loses_its_reserved_turn` aborted inside `trace()`: the subscriber's
+  timestamp reads the wall clock, which Miri's isolation rejects. This was an unsupported
+  operation, not undefined behaviour. nextest's fail-fast stopped the run at 38 of 80 tests, and
+  the 36 that ran passed.
+- The fix: both crates' test `trace()` helpers log `without_time()` on every target, so native runs
+  use the subscriber Miri sees. `docs/tooling.md` states the constraint.
+- Run 2, on the fix branch
+  ([38333501077](https://github.com/orcvs/orcvs/actions/runs/38333501077)), passed: 80 of 80
+  selected tests in 6m 32s for the job. Setup took about 40s, the nightly install, `cargo miri setup`
+  and build took about 1m 45s, and the tests took 4m 05s at 6 to 11s each.
+- The 2026-10-01 audit's allocator point holds: the counting allocator in `orcvs`'s lib unit-test
+  binary has no `not(miri)` and runs under the interpreter, and run 2 passes with it there. The
+  `miri.yml` comment now says so instead of placing every counting allocator outside the filter.
+- Whether Miri should run on pull requests is `07`.

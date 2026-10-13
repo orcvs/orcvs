@@ -389,7 +389,9 @@ actually runs rather than what the crate links, so a dependency no selected test
 a problem, where `cargo miri nextest run --package orcvs` would also select the `#[tokio::test]`
 tests that start that runtime. The run goes through `nextest` for the
 reason every gate here does, with one addition: process-per-test gives each test its own interpreter
-context, so Miri's leak check at termination reports per test rather than per binary. The job's
+context, so Miri's leak check at termination reports per test rather than per binary. Miri's
+isolation also rejects a wall-clock read, so the crates' test `trace()` helpers log without
+timestamps; a subscriber that stamps the time aborts any selected test that logs. The job's
 `timeout-minutes` is longer than any other job in this repository carries, because interpretation
 costs roughly two orders of magnitude over native execution and `cargo miri setup` builds a MIR
 standard library before any of it starts. `scripts/check-tooling-contract.sh` pins the filter, pins

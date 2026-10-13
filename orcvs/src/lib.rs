@@ -19,10 +19,12 @@ mod test {
 
     pub fn trace() {
         INIT.call_once(|| {
+            // No timestamps: Miri's isolation rejects the wall-clock read one makes.
             tracing_subscriber::fmt()
                 .with_env_filter("debug")
                 .with_file(true)
                 .with_line_number(true)
+                .without_time()
                 .pretty()
                 .init();
         });
