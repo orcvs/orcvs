@@ -9,6 +9,12 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+# Read only by `cargo flux`, an opt-in local check that no CI tier runs. Only the
+# Grid's index arithmetic is annotated; see docs/tooling.md.
+[package.metadata.flux]
+enabled = true
+include = ["src/grid.rs"]
+
 [lib]
 # `--benches` selects the library too, and its unit-test harness does not
 # understand criterion's arguments.

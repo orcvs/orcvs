@@ -65,6 +65,10 @@ impl SectorSeamSpacing {
         NonZeroUsize::new(cells).map(Self)
     }
 
+    // Trusted under Flux, which has no spec for `NonZeroUsize`: the spacing is
+    // non-zero by construction, and the Grid's Sector division relies on it.
+    #[cfg_attr(flux, flux::trusted)]
+    #[cfg_attr(flux, flux::spec(fn(Self) -> usize{v: v > 0}))]
     pub fn cells(self) -> usize {
         self.0.get()
     }

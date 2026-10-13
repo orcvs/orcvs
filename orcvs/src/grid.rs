@@ -8,6 +8,9 @@ static NEXT_GRID_ID: AtomicU64 = AtomicU64::new(1);
 struct GridId(u64);
 
 impl GridId {
+    // Trusted under Flux: the `expect` is a deliberate panic on an exhausted
+    // counter, which no refinement can rule out.
+    #[cfg_attr(flux, flux::trusted)]
     fn new() -> Self {
         let id = NEXT_GRID_ID
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
@@ -21,9 +24,12 @@ impl GridId {
 /// Grid that contains it, so a Position outside its Grid cannot exist.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(flux, flux::refined_by(x: int, y: int))]
 pub struct Position {
     grid_id: GridId,
+    #[cfg_attr(flux, flux::field(usize[x]))]
     x: usize,
+    #[cfg_attr(flux, flux::field(usize[y]))]
     y: usize,
 }
 
@@ -55,8 +61,10 @@ impl Position {
 /// alone; an ordering across Grids is arbitrary but total, which is what
 /// ordered collections require of `Ord`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(flux, flux::refined_by(idx: int))]
 pub struct CellIndex {
     grid_id: GridId,
+    #[cfg_attr(flux, flux::field(usize[idx]))]
     idx: usize,
 }
 
@@ -98,9 +106,16 @@ pub struct GridIdentity(GridId);
     serde(try_from = "PersistedGrid", into = "PersistedGrid")
 )]
 #[derive(Clone, Copy, Debug, PartialEq)]
+// Under `cargo flux` (see docs/tooling.md) the shape is a refinement, so the
+// index arithmetic below is proved against it. 256 is `COL_COUNT` and
+// `ROW_COUNT`, which a refinement cannot name.
+#[cfg_attr(flux, flux::refined_by(cols: int, rows: int))]
+#[cfg_attr(flux, flux::invariant(0 < cols && cols <= 256 && 0 < rows && rows <= 256))]
 pub struct Grid {
     id: GridId,
+    #[cfg_attr(flux, flux::field(usize[cols]))]
     cols: usize,
+    #[cfg_attr(flux, flux::field(usize[rows]))]
     rows: usize,
 }
 
@@ -198,6 +213,7 @@ impl Grid {
     ///
     /// The only way to obtain a Position. `None` when (x, y) is outside this Grid.
     ///
+    #[cfg_attr(flux, flux::spec(fn(&Grid[@c, @r], x: usize, y: usize) -> Option<Position[x, y]>[x < c && y < r]))]
     pub fn position(&self, x: usize, y: usize) -> Option<Position> {
         if x < self.cols && y < self.rows {
             Some(Position {
@@ -228,6 +244,7 @@ impl Grid {
     /// A foreign Position is refused: its identity names the Grid that minted it.
     ///
     #[inline]
+    #[cfg_attr(flux, flux::spec(fn(&Grid[@c, @r], Position{p: p.x < c && p.y < r}) -> CellIndex{i: i.idx < c * r}))]
     pub fn index(&self, pos: Position) -> CellIndex {
         self.assert_owns(pos);
         CellIndex {
@@ -242,11 +259,17 @@ impl Grid {
     /// never comes into being.
     ///
     #[inline]
+    #[cfg_attr(flux, flux::spec(fn(&Grid[@c, @r], idx: usize) -> Option<CellIndex[idx]>[idx < c * r]))]
     pub fn cell_index(&self, idx: usize) -> Option<CellIndex> {
-        (idx < self.count()).then_some(CellIndex {
-            grid_id: self.id,
-            idx,
-        })
+        // An `if` rather than `bool::then_some`, which Flux cannot see through.
+        if idx < self.count() {
+            Some(CellIndex {
+                grid_id: self.id,
+                idx,
+            })
+        } else {
+            None
+        }
     }
 
     ///
@@ -258,8 +281,9 @@ impl Grid {
     #[inline]
     pub fn offset_in_row(&self, pos: Position, offset: usize) -> Option<CellIndex> {
         self.assert_owns(pos);
-        self.position(pos.x.checked_add(offset)?, pos.y)
-            .map(|pos| self.index(pos))
+        // `?` rather than `Option::map`: Flux loses the refinement in a closure.
+        let pos = self.position(pos.x.checked_add(offset)?, pos.y)?;
+        Some(self.index(pos))
     }
 
     /// Whether `pos` was minted by this Grid or one of its copies.
@@ -276,6 +300,7 @@ impl Grid {
     /// Grid that minted it. A foreign index is refused.
     ///
     #[inline]
+    #[cfg_attr(flux, flux::spec(fn(&Grid[@c, @r], CellIndex{i: i.idx < c * r}) -> Position{p: p.x < c && p.y < r}))]
     pub fn position_at(&self, idx: CellIndex) -> Position {
         self.assert_owns_index(idx);
         self.position(idx.idx % self.cols, idx.idx / self.cols)
@@ -418,6 +443,8 @@ impl Grid {
     /// bottom, each yielding that row's Positions left to right. The render
     /// path states no bound of its own, so a swapped axis is not expressible.
     ///
+    // Flux does not support a nested `impl Iterator` return.
+    #[cfg_attr(flux, flux::ignore)]
     pub fn positions_by_row(&self) -> impl Iterator<Item = impl Iterator<Item = Position>> {
         // Captured by value: Grid and Position are allocation-free Copy values,
         // so the returned iterators borrow nothing.
@@ -449,6 +476,7 @@ impl Grid {
     /// How many Cells this Grid has: one per Position it yields.
     ///
     #[inline]
+    #[cfg_attr(flux, flux::spec(fn(&Grid[@c, @r]) -> usize[c * r]))]
     pub fn count(&self) -> usize {
         self.cols * self.rows
     }
