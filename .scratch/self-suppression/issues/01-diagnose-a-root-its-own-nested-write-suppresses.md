@@ -28,7 +28,7 @@ Defaults, for the implementer to keep unless the owner says otherwise:
 - [x] The shrunk case above is pinned as a stated example beside the property. In that example the Tick Plan holds the `E5` write and the diagnostic, and the root is not interpreted.
 - [x] A dynamic write from another Expression onto a Function still to come is still quiet feedback.
 - [x] A static writer landing on its own Expression is still diagnosed as a same-Tick dependency cycle, unchanged.
-- [x] The nested-expression property passes at the merge tier's case count.
+- [x] The nested-expression property passes at the merge tier's case count. It also passed without the fix, so it is not evidence for it; the pinned example is.
 - [x] The ADR text covers the exception.
 
 ## Comments
@@ -38,3 +38,5 @@ Defaults, for the implementer to keep unless the owner says otherwise:
 2026-10-12 — The owner chose "applied and diagnosed" over refusing the write.
 
 2026-10-13 — Implemented. `deliver_output` diagnoses `dynamic output reached its own Expression` at a dynamic writer whose write suppresses a Function with the writer's own owner, after applying the write. Tests: `write::a_write_onto_its_own_expression_still_to_come_is_applied_and_diagnosed`, and the shrunk case pinned as `a_nested_write_over_its_own_root_leaves_the_root_diagnosed`; both fail without the check. ADR 0067 gains the paragraph. The `activate`/`suppress` verbs were not needed: the rule sits in the one suppression loop a write passes through, since a lock's suppression in `lock_portal` is not a write. The property passes eight runs at 256 cases, but also passed four runs without the fix, so the pinned example is the evidence. Other-Expression writes stay quiet (`a_write_onto_a_function_still_to_come_suppresses_or_replaces_it`), and static self-writes stay cycles (`live_cycles_stop_only_the_expressions_they_reach`).
+
+2026-10-13 — Review fixes. The rule now covers replacement as well as suppression, since the Rule's "contact" includes it and a static self-replacement is a cycle too (`write::a_replacement_in_its_own_expression_is_applied_and_diagnosed`). A Function another write already suppressed no longer counts (`write::a_write_onto_its_own_expression_already_suppressed_is_quiet`). The guard asks the running delivery (`Delivery::Selected`) rather than the parsed Function. The pinned example, now `a_nested_write_over_its_own_root_is_diagnosed_at_the_write`, asserts the `E5` write, the one diagnostic at (22, 1), and that the root is not interpreted, which the earlier box claimed but the test did not check.
