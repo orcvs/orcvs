@@ -687,13 +687,14 @@ impl<'a> Execution<'a> {
         }
         // A covered Expression is suppressed: its spelling is no longer the
         // one that was scheduled. What has taken its Turn keeps it.
+        let mut reaches_own_expression = false;
         for contact in reached.functions() {
             let target = contact.index();
-            if self.states[target].attempted {
+            if self.states[target].attempted || self.states[target].suppressed {
                 continue;
             }
+            reaches_own_expression |= self.schedule.lookup.nodes()[target].owner == node.owner;
             if contact.at_anchor()
-                && !self.states[target].suppressed
                 && let Atom::Function(replacement) = atom
             {
                 self.states[target].function = replacement;
@@ -704,6 +705,17 @@ impl<'a> Execution<'a> {
                     self.states[descendant].suppressed = true;
                 }
             }
+        }
+        // A static writer whose Reservation covers its own Expression is a
+        // same-Tick cycle and never takes its Turn. A dynamic writer's
+        // destination is known only here, so a write that suppresses or
+        // replaces a Function of its own Expression still to come is applied
+        // as feedback and diagnosed.
+        if reaches_own_expression && selected {
+            self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                "dynamic output reached its own Expression",
+            )));
         }
         self.write(WriteKind::Output, write);
     }

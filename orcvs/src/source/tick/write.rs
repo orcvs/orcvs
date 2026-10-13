@@ -446,6 +446,57 @@ fn a_write_onto_a_function_still_to_come_suppresses_or_replaces_it() {
 }
 
 #[test]
+fn a_write_onto_its_own_expression_still_to_come_is_applied_and_diagnosed() {
+    // The Write nested in `.+` puts `C4` over the root's own spelling before
+    // the root's Turn. ADR 0067 suppresses the root, so nothing is answered
+    // south of it, and the Write says why.
+    let tick = first(Grid::with_shape(12, 2), &[".+@$0000C401"]);
+    assert_eq!(tick.rows, ["C4@$0000C401", "            "]);
+    assert_eq!(
+        tick.diagnostics,
+        [diagnostic(
+            2,
+            0,
+            "dynamic output reached its own Expression"
+        )]
+    );
+}
+
+#[test]
+fn a_replacement_in_its_own_expression_is_applied_and_diagnosed() {
+    // The Write nested in `.+` replaces the root with the `.-` its nested
+    // Read passes on, before the root's Turn. The root then takes its Turn
+    // as `.-`, and the Function the Write answers is not a number it takes.
+    let tick = first(Grid::with_shape(16, 3), &[".+@$0000&$000201", "", ".-"]);
+    assert_eq!(
+        tick.rows,
+        [".-@$0000&$000201", "        .-      ", ".-              "]
+    );
+    assert_eq!(
+        tick.diagnostics,
+        [
+            diagnostic(2, 0, "dynamic output reached its own Expression"),
+            diagnostic(0, 0, "expected a number, found \".-\""),
+        ]
+    );
+}
+
+#[test]
+fn a_write_onto_its_own_expression_already_suppressed_is_quiet() {
+    // Row 0 suppresses the nested `.-` before the nested Write reaches it,
+    // so the Write stops nothing that was still to come.
+    let tick = first(Grid::with_shape(16, 2), &["@$0201C4", ".+.-0101@$0201C5"]);
+    assert!(
+        !tick
+            .diagnostics
+            .iter()
+            .any(|(_, _, message)| message == "dynamic output reached its own Expression"),
+        "{:?}",
+        tick.diagnostics
+    );
+}
+
+#[test]
 fn a_write_onto_a_function_that_has_taken_its_turn_is_seen_next_tick() {
     // The nested `.+` feeds the Write and has taken its Turn when the Write
     // puts `02` over its spelling: it answers this Tick, and from the next

@@ -5700,6 +5700,7 @@ mod property {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod nested_property {
+    use super::observed::{diagnostic, first};
     use super::{Cells, Tick, plan};
     use crate::grid::{COL_COUNT, Grid};
     use crate::source::language_map::LanguageMap;
@@ -5916,6 +5917,34 @@ mod nested_property {
     #[test]
     fn a_nested_copy_of_empty_cells_leaves_its_root_answered_or_diagnosed() {
         settle(".-.|00./.|0000=^~*~>.-~>6C56D82B.+AC0A").unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    ///
+    /// A nested dynamic Write whose destination is its own root's spelling
+    /// suppresses that root, and the Tick diagnoses the Write. `@<` answers
+    /// 229 and writes `E5` over `.<`.
+    ///
+    #[test]
+    fn a_nested_write_over_its_own_root_is_diagnosed_at_the_write() {
+        let source = ".<.|00.v~?000000=$35BA@<.x64FBE506";
+        settle(source).unwrap_or_else(|error| panic!("{error}"));
+
+        let width = source.len();
+        let grid = Grid::with_shape(width, 3);
+        let tick = first(grid, &["", source, ""]);
+        assert_eq!(&tick.rows[1][..2], "E5");
+        assert_eq!(
+            tick.diagnostics,
+            [diagnostic(
+                22,
+                1,
+                "dynamic output reached its own Expression"
+            )]
+        );
+        let bytes = format!("{:width$}{source}{:width$}", "", "");
+        let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
+        let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        assert_eq!(states[0].interpreted(), None);
     }
 
     ///
