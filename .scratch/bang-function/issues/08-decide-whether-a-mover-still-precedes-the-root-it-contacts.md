@@ -14,7 +14,7 @@ The owner decides whether the edge goes. It is a scheduling change, so it is not
 ## Acceptance criteria
 
 - [ ] The owner decides whether the mover → contacted-root edge stays or goes.
-- [ ] If it goes: the mover's intrinsic-root exemption and the `moves` rule in `producer_edges` that serves it are removed, leaving contacts ordered only by `SourceBundle::clears_own_span`, a test pins a mover meeting a Bang-activated root in Source order, and a property shows removing the edge introduces no ordering defect or cycle.
+- [ ] If it goes: a moving bundle orders no contacts (`orders_contacts` excludes `clears_own_span() && writes_displaced()`), so the `moves` exemption becomes unnecessary and is removed; a test pins a mover meeting a Bang-activated root in Source order; and the placement property shows no ordering defect or cycle.
 - [ ] If it stays: its comment states the ordering it keeps and why, without referring to contact activation.
 
 ## Comments
@@ -30,3 +30,5 @@ intrinsic-root exemption, which would add edges rather than remove one: the comm
 `dependencies.rs:271-275` says ordering two mutually covering movers after each other makes the
 pair a cycle. Removing the mover → contacted-root edge means a moving bundle orders no contacts
 (`orders_contacts`, `:239`). Restating the criterion is the owner's decision.
+
+2026-10-13 — Criterion 2 restated: as first written it removed the intrinsic-root exemption, which would add edges and recreate the mutual-cover cycle (`orcvs/src/source/tick/dependencies.rs:271-275`). It now removes the edge by having a moving bundle order no contacts. Decided 2026-10-13 by Toby. Whether the edge goes is still the owner's call, so Status stays `ready-for-human`.

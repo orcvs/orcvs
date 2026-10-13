@@ -85,3 +85,13 @@ and `live_inactive_ownership_and_terminal_portal_configuration_are_independent` 
 `..._emissions_follow_their_destinations` and
 `live_inactive_ownership_and_a_refused_terminal_portal_are_independent`: with `Configuration` gone
 the word named nothing the crate still holds.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+Criterion 3 and the 2026-09-10 "there are now zero of those" no longer hold. `#[cfg(test)]` sits
+on fields of `ComputationState` (`orcvs/src/source/tick/execution.rs:115,124,134`) and `Execution`
+(`:183`), and on statements inside the shipped `Execution::new` (`:216-233`), `settle` (`:322`) and
+`turn` (`:375`). These record what a Turn did and steer nothing, so the rule criterion 5 recorded
+in `AGENTS.md` permits them; see test-only-seams/10's 2026-10-13 comment.
+
+Decided 2026-10-13 by Toby: the code is right. The per-Turn record stays `#[cfg(test)]`.

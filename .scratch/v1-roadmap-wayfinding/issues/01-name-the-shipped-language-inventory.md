@@ -29,8 +29,8 @@ member. Every Function named below is a row of `define_functions!` (`lang/src/at
 Evidence names positive behaviour and the principal refusals; it is the starting point for that
 mapping, not a claim that every applicable proof the definition of done asks for is already present.
 
-The First Release Candidate ships the complete accepted numeric, Tick, spatial (including the
-directional Copies) and MIDI slice below. Release membership follows this inventory, not mere appearance in `CONTEXT.md` or
+The First Release Candidate ships the complete accepted numeric, Tick, spatial, Read/Write/Copy and
+MIDI slice below. Release membership follows this inventory, not mere appearance in `CONTEXT.md` or
 ADR 0019. “Satisfied” means the current implementation substantially provides the release behavior;
 “partial” and “missing” remain implementation work even where syntax or a legacy approximation
 already exists.
@@ -73,18 +73,17 @@ All eleven are satisfied. The binary laws run exhaustively over every byte pair.
 
 ### Read, Write and Copy families
 
-The directional Copies `=^`, `=v`, `=<`, `=>` are FRC members as the renamed directional Jumps.
-Main also ships the absolute Copy `=$`; the directional Reads `&^`, `&v`, `&<`, `&>`, the absolute
-Read `&$` and Track `&t`; and the directional Writes `@^`, `@v`, `@<`, `@>`, the absolute Write
-`@$` and Push `@t` (ADR 0067, ADR 0070). Whether the Functions added by ADR 0070 join the release
-contract is an open decision (audit 2026-10-13).
+The FRC ships the directional Copies `=^`, `=v`, `=<`, `=>` (the renamed directional Jumps) and
+the absolute Copy `=$`; the directional Reads `&^`, `&v`, `&<`, `&>`, the absolute Read `&$` and
+Track `&t`; and the directional Writes `@^`, `@v`, `@<`, `@>`, the absolute Write `@$` and Push `@t`
+(ADR 0067, ADR 0070).
 The family prefix names what a Function does to Source: `&` reads, `@` writes and `=` copies.
 A Read waits on every writer of the pair it selects that has not taken its Turn; a Write and the
 absolute Copy take their Turn before every computation that does not feed them; a pass-through
 carries `**` as a Bang. A Read nested in a Write's `value` is Orca's Generator, and Orca's Read,
 Query and Konkat lookups are Reads of visible Source.
 
-All six rows' Current state is satisfied on main.
+All six rows are satisfied.
 
 | Member | Current state | Evidence |
 | --- | --- | --- |
@@ -201,3 +200,10 @@ Euclidean to clear their Output Portal; the conversions are no longer idempotent
 Numeric Conversion Function). 57 cited tests no longer existed and were replaced; every remaining
 citation was checked by script against the file named beside it. The Self-Banging collision gap
 closed with `spatial-tick-planning/07`.
+
+### Decided 2026-10-13 by Toby
+
+The Functions ADR 0070 added — the absolute Copy `=$`, the Reads `&^ &v &< &> &$`, Track `&t`,
+the Writes `@^ @v @< @> @$` and Push `@t` — join the release contract, alongside the directional
+Copies. The Read, Write and Copy section now states their membership, and no addressing deferral
+remains.

@@ -55,9 +55,11 @@ the pair collapses into two feature-off runs and nothing compiles the storage pa
 The browser suite and `mise run test_persistence` take no feature flag decision from this.
 `test_wasm` runs the default configuration, which is the one a browser loads, and spending a second
 headless Firefox run on a build `check_wasm` already compiles buys nothing. `test_persistence` keeps
-its explicit `--features persistence`: `persistence` is not in the `orcvs` default set, so its
-`cargo check --package orcvs --lib` line has no other way to reach the feature, and the task keeps
-its meaning if the `console` default ever moves.
+its explicit `--features persistence`, so the task keeps its meaning if the `console` default ever
+moves. Its `cargo clippy --package orcvs --lib --features persistence` line is the one lint of
+`orcvs`'s shipped library with `persistence` on and the test-only features off: every
+`--all-targets` invocation builds `orcvs`'s own tests, and its dev-dependency on itself unifies
+`test-grid-shapes` and `test-output-adapter` into the library those lines compile.
 
 `mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
 is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the

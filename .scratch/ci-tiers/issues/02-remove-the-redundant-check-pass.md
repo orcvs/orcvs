@@ -23,3 +23,5 @@ The 48 seconds moves to clippy rather than disappearing.
 
 `mise run check` and `bash scripts/tests/check-tooling-contract.sh` passed before the PR. The
 pull-request tier also passed twice in hosted CI.
+
+**2026-10-13 — Audit against origin/main cf01e3c.** Criterion 2 had regressed: `test_persistence` ran `cargo check --package orcvs --lib --features persistence --locked`, justified by a reason that did not hold (other lines reach the feature). Decided 2026-10-13 by Toby: the line becomes `cargo clippy --package orcvs --lib --features persistence --locked -- -D warnings`. It is kept because it is the one compilation of `orcvs`'s shipped library with `persistence` and without the test-only features, which every `--all-targets` line unifies in through `orcvs`'s dev-dependency on itself. `mise.toml`, its pin in `scripts/check-tooling-contract.sh`, the meta-test and `docs/tooling.md` now say so. No mise task runs `cargo check` again.

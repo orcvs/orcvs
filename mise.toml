@@ -329,14 +329,17 @@ cargo deny --locked check
 description = "Test persistence features"
 # `persistence` is a default feature of `console`, so every `--features
 # persistence` below names a feature the workspace runs would enable anyway. It
-# is kept explicit rather than trimmed: this task is what `orcvs`'s own
-# persistence is verified through — `orcvs` still declares `default = []` and the
-# `--package orcvs --lib` line has no other way to reach the feature — and the
-# task keeps its meaning if the console default ever moves. What is merge-only
-# here is the case count: `check_pull_request` sets PROPTEST_CASES to 32 and this
-# runs proptest's 256-case default. Rustdoc lives in `check_pull_request`.
+# is kept explicit rather than trimmed, so the task keeps its meaning if the
+# console default ever moves. The `--package orcvs --lib` line is the one
+# compilation here of `orcvs`'s shipped library with `persistence` and without
+# the test-only features: every `--all-targets` line unifies `orcvs`'s own
+# dev-dependency features (`test-grid-shapes`, `test-output-adapter`) into the
+# library. It is clippy rather than a check pass because clippy performs the
+# same compilation and adds the lints. What is merge-only here is the case
+# count: `check_pull_request` sets PROPTEST_CASES to 32 and this runs proptest's
+# 256-case default. Rustdoc lives in `check_pull_request`.
 run = '''
-cargo check --package orcvs --lib --features persistence --locked
+cargo clippy --package orcvs --lib --features persistence --locked -- -D warnings
 cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
 # `--all-targets` keeps every target compiling and linking under the feature,
 # and `-E` keeps the benchmark targets from being *run*. nextest executes a

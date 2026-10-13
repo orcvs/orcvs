@@ -8,7 +8,7 @@ discovery and port opening moved to the console in `03`.
 
 **Blocked by:** None — 03 landed; the install path exists.
 
-**Status:** ready-for-agent
+**Status:** needs-triage
 
 - [ ] A test starts a running Orcvs with playback active, queues a destination installation, and
       asserts that a Tick still lands on schedule while the installation is processed.
@@ -45,3 +45,10 @@ References re-checked: `install_connection` is `orcvs/src/midi.rs:169-184` (safe
 enumeration premise in the body was obsolete and is replaced in What to build. Both earlier audits
 say the bounded fake-connection timing scenario must be pinned before an agent can start, so
 `ready-for-agent` overstates readiness.
+
+### Decided 2026-10-13 by Toby
+
+Status `ready-for-agent` → `needs-triage`. The bounded fake-connection timing scenario and the
+design for a bounded or relocated safety-reset `send` are still open, so the guarantee is not yet
+specified well enough for an agent. The ticket stays untagged: `v1-release/04` records the
+destination change as a hardware observation and does not wait on it.

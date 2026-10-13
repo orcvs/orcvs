@@ -360,7 +360,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^native_midi_tree=
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' "^if printf '%s.n' \"[\$]native_midi_tree\" [|] grep -E"
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^  exit 1$'
 assert_contains "$root_dir/mise.toml" 'orcvs still carries a platform MIDI or system audio binding'
-assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --package orcvs --lib --features persistence --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 # The `-E` is the point of the assertion, not decoration on it. Without the
 # filter this line runs the criterion benchmarks as tests, unbudgeted, which is

@@ -11,10 +11,9 @@ evidence-backed, and ready for implementation sessions to execute.
 ## Notes
 
 - This effort plans and may correct issue-tracker artifacts; it does not change production code.
-- The release includes the accepted numeric, Tick, spatial (including the directional Copies), and
-  MIDI slice; ADR 0063 retired the Sequence value. Whether the Functions ADR 0070 added (the Reads,
-  Writes, Track, Push and the absolute Copy) join it is an open decision (audit 2026-10-13).
-  Messaging transports and cross-version backward compatibility are not release promises.
+- The release includes the accepted numeric, Tick, spatial, Read/Write/Copy, and MIDI slice;
+  ADR 0063 retired the Sequence value. Messaging transports and cross-version backward
+  compatibility are not release promises.
 - `CONTEXT.md` and accepted ADRs constrain the route. A concrete contradiction becomes its own
   decision rather than an incidental documentation edit.
 - An `Improvement` joins the release route only when correctness, safe implementation, or measured
@@ -89,3 +88,9 @@ and `05` later removed: `orcvs/Cargo.toml` has no `native-midi` feature and `mid
 dependency (`console/Cargo.toml:130-131`). The "Designing concrete Source Read/Write addressing"
 line under Out of scope bounded this effort, not the language. `01`'s inventory was refreshed on
 the same date.
+
+### Decided 2026-10-13 by Toby
+
+The Functions ADR 0070 added (the Reads, Writes, Track, Push and the absolute Copy) join the
+release contract; the Notes bullet and `01`'s inventory state it, and Source Read/Write addressing
+is no longer a deferral.

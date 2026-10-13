@@ -107,3 +107,17 @@ half is already asserted through results by
 `the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at`, and that the anchor half
 has no result to be visible in only because no built Function reads its anchor yet — when one
 does, that test asserts through the Function's answer and stops reading states.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+Criterion 3 no longer describes main. `ComputationState::turn`, `::interpreted` and
+`::interpretations` are `#[cfg(test)]` fields (`orcvs/src/source/tick/execution.rs:115-135`), read
+through a `#[cfg(test)] impl` (`:140-174`) rather than the `#[allow(dead_code)]` accessor described
+above. The executor writes them only in a test build: in `Execution::new` (`:216-234`), in `settle`
+(`:322`) and beside the Interpreter call in `turn` (`:375-379`). `Execution::turns` (`:183`) is a
+test-only field. This shape is already present at `ae30df7` (2026-09-25), the oldest commit
+available to this audit. The record takes no input a test supplies and steers no branch, so the
+repository contract (`AGENTS.md`, "Keep test-only inputs out of shipped code") permits it. The
+states `execute` returns still carry it in the test build, and the ten tests read it there.
+
+Decided 2026-10-13 by Toby: the code is right. The per-Turn record stays `#[cfg(test)]`.

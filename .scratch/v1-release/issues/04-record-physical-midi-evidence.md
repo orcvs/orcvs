@@ -18,7 +18,8 @@ contract.
       every channel (`orcvs/src/midi.rs:221-251`, delivered by `midi-output-family/06`), so the
       hardware observation and the fake adapter describe the same implementation.
 - [ ] Change the destination mid-run on the physical device and record whether playback continued
-      without an audible gap or an Overrun diagnostic (`midi-port-ownership/08`).
+      without an audible gap or an Overrun diagnostic. This is a hardware observation; the automated
+      guarantee is `midi-port-ownership/08`, which is outside the release.
 - [ ] Link the deterministic fake-adapter results that prove exact bytes, ordering, zero cases,
       scheduling, ownership, and failure cleanup.
 - [ ] Hardware evidence supplements rather than replaces automated protocol and lifecycle tests.
@@ -38,3 +39,9 @@ now states the shipped action. The reference in the 2026-10-01 comment, `orcvs/s
 has moved: All Notes Off is `:221`, Reset All Controllers `:226`, and `safety_reset_messages`
 `:244-251`. The mid-run destination-change line still cites `midi-port-ownership/08`, which remains
 untagged and outside the Gate closure.
+
+### Decided 2026-10-13 by Toby
+
+The mid-run destination-change box is a standalone hardware observation. Its automated
+counterpart, `midi-port-ownership/08`, stays untagged and outside the Gate closure (now
+`needs-triage`), so this ticket does not wait on it.

@@ -374,8 +374,8 @@ test_shell_debug_package_is_rejected() {
 
 test_missing_orcvs_persistence_check_is_rejected() {
   make_fixture
-  perl -pi -e 's/^cargo check --package orcvs --lib --features persistence --locked\n$//' "$fixture_dir/mise.toml"
-  assert_rejected "a missing per-package orcvs persistence check"
+  perl -pi -e 's/^cargo clippy --package orcvs --lib --features persistence --locked -- -D warnings\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a missing per-package orcvs persistence lint"
 }
 
 test_persistence_command_in_wrong_task_is_rejected() {

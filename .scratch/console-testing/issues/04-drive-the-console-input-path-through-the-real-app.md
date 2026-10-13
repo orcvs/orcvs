@@ -29,8 +29,10 @@ drawn.
       mostly blank, so a label query cannot address them unambiguously. *(That premise is obsolete:
       the Grid is one painted interact rect. The tests assert against state, e.g.
       `cursor(harness.state())`.)*
-- [ ] The tests run inside the existing `cargo nextest run --workspace --profile ci --locked` line.
-      No feature gate, no new mise task, and `scripts/check-tooling-contract.sh` is untouched.
+- [x] The tests run inside the existing `cargo nextest run --workspace --profile ci --locked` line.
+      No feature gate, no new mise task~~, and `scripts/check-tooling-contract.sh` is untouched~~.
+      *(Struck 2026-10-13: `scripts/check-tooling-contract.sh:640` pins `egui_kittest = "=0.36.2"` so
+      the harness stays the egui it drives. The tests run in `mise.toml:288`.)*
 
 ## Comments
 
@@ -98,3 +100,5 @@ The menus and state-assertion criteria are ticked with annotations: the Tempo an
 Still open: arrow keys clamping at all four Grid edges (no test presses ArrowUp, and none reaches an edge), Backspace on ordinary Source, an ignored Enter or key release (every `pressed: false` in the file is a pointer release), and the `mise run audit_deps` record. The dependency rationale is at `console/Cargo.toml:200-237`.
 
 The last criterion stays unticked. The tests do run inside `cargo nextest run --workspace --profile ci --locked` (`mise.toml:288`), with no feature gate and no new task, but `scripts/check-tooling-contract.sh:640` now pins `egui_kittest = "=0.36.2"`, so the script is not untouched. That pin is harmless — it holds the harness to the egui it drives.
+
+**2026-10-13 — decision.** Decided 2026-10-13 by Toby: the "`scripts/check-tooling-contract.sh` is untouched" clause is struck, because the `egui_kittest` version pin at `scripts/check-tooling-contract.sh:640` belongs there. The rest of the last criterion is met: the tests run inside `cargo nextest run --workspace --profile ci --locked` (`mise.toml:288`), with no feature gate and no new mise task, so the box is ticked.
