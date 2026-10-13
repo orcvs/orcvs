@@ -15,8 +15,8 @@ Play that is invalid writes nothing, so the next Bang replays its last answer
 
 ## Solution
 
-Track `@t index count` reads one pair of the ordinary Source Cells east of its
-last operand each Tick, through an Input Portal it reads exactly as a Jump does
+Track `&t index count` reads one pair of the ordinary Source Cells east of its
+last operand each Tick, through an Input Portal it reads exactly as a Copy does
 (ADR 0067). A Clock drives the index, and a trigger activates Timed Play
 receiving what Track reads. Occupied pairs are editable two-Cell Notes; Track
 copies an empty pair's Cells as it copies any others. The Source File contains
@@ -92,8 +92,8 @@ Nested Track uses the same receiving-operand interpretation as spatial delivery.
    the Parser parses, paints and edits as any other. The Parser has no
    Track-specific rule.
 4. At its Turn Track reads the pair `index % count` pairs east of its last
-   operand through the Portal read Jump uses, and answers what it reads as a
-   Jump does. A `count` of `00` diagnoses at the Turn; a pair past the row
+   operand through the Portal read a Copy uses, and answers what it reads as a
+   Copy does. A `count` of `00` diagnoses at the Turn; a pair past the row
    edge diagnoses.
 5. Order Track's read by ADR 0032's rule, completed at its Turn: once `index`
    and `count` settle, every writer of the selected pair that has not taken
@@ -116,7 +116,7 @@ Nested Track uses the same receiving-operand interpretation as spatial delivery.
    invalid Function fails its parent. Its Output Portal keeps the Cells it
    held. An unwritten operand does not give the Absence Marker a Source
    encoding.
-10. Track reading an empty pair copies its Cells as a Jump does: it clears its
+10. Track reading an empty pair copies its Cells as a Copy does: it clears its
     Output Portal and, nested, returns the empty Cells, so its parent is
     invalid (ADR 0069). Copying empty Cells is a successful evaluation.
 11. A Bang reaching a Timed Play whose note slot is empty finds it invalid,
@@ -163,7 +163,7 @@ Nested Track uses the same receiving-operand interpretation as spatial delivery.
   selected pair that waits on Track, which forms a diagnosed cycle.
 - Write count during a Tick, including `00`, and check selection that Tick.
 - Cover nested `index` and `count`, row-edge arithmetic, a count of one,
-  all-empty pairs, and the Jump reading rules for what Track reads: `**`
+  all-empty pairs, and the Copy reading rules for what Track reads: `**`
   relays a Bang, a Function spelling answers that Function, and a partial pair,
   a Comment or Cells straddling two Language Units diagnose.
 - Compare reused scheduling with fresh scheduling for Sources holding Track.
@@ -200,10 +200,8 @@ superseded it and the pending clauses of ticket 04.
 implemented the invalid-input behaviour Decisions 9–11 describe, and its
 Comments name the tests that cover it.
 
-The selected `@t` spelling follows existing lowercase second-Cell spellings
-such as Control Change `!c` and Pitch Bend `!b`; no family-wide rename is needed
-for Track. The general spelling rule and its directional-glyph exception belong to the
-separate spelling effort.
+Track is spelled `&t` (ADR 0070): `&` is the Read family's prefix, and the
+lowercase second Cell follows Control Change `!c` and Pitch Bend `!b`.
 
 The worked tracker places Delay above a Bang aligned with Timed Play, Clock
 above Track's index, and Track above Timed Play's Note operand. Its eight pairs
@@ -229,3 +227,13 @@ language on the main branch.
 | 04 | Track reads a Portal as Jump does | 02, 03 |
 | 05 | Real console editing and file workflows | 04 |
 | 06 | Shipped example and acceptance evidence | 03, 05 |
+
+## Comments
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Respelled for ADR 0070: Track is `&t` (`lang/src/atom.rs:772`; `@t` is now Push, `:759`), and the
+Function this spec compared Track's read with is the Copy (`CONTEXT.md:119-121` lists Jump as an
+Avoid term). Ticket 04's title in the delivery table keeps ADR 0067's wording. Decision 6's
+"Cycles preserve atomic Tick publication" predates ADR 0068, under which a cycle stops only the
+Expressions it reaches.

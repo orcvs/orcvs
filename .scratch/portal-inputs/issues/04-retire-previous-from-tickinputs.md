@@ -14,7 +14,7 @@ binding.
 - [x] The `Previous` enum and one-off Portal read helpers used only for that channel are removed.
 - [x] Turn execution supplies Portal inputs exclusively through the binding introduced in ticket
       03.
-- [ ] Workspace tests and gates pass with no remaining references to the retired path.
+- [ ] Workspace tests and gates pass with no remaining references to the retired path. *(References: none remain, verified 2026-10-13. Workspace tests: left to CI.)*
 
 ## Comments
 
@@ -39,3 +39,9 @@ during compilation at the user's request. Workspace doctests, rustdoc, full feat
 verification, full-case proptest, and benchmark comparisons are deferred to CI. No dependencies,
 features, unsafe code, or concurrency changes were introduced; this is internal binding API and
 active language design work. No performance improvement has been measured locally.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+No `Previous`, `previous_number` or `portal_previous` remains in `lang`, `orcvs` or `console`; the
+one `Previous` is egui's `FocusDirection::Previous` (`console/src/console/input.rs:184`). The
+workspace test run was left to CI, as the comment above records, so the last box stays unticked.

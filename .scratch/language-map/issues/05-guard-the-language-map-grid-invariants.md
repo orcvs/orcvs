@@ -86,3 +86,10 @@ reads as unfinished work to anything scanning checkboxes. It is not:
 Note also that this file carries no `Tags:` line, so it is not one of the `release/v1` issues and
 does not appear in the roadmap's release view. That is correct — it is ordinary effort work — and it
 is recorded here so a future audit does not read the absence as a missing tag.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+`glyph_at` is now `LanguageMap::token_at` (`orcvs/src/source/language_map.rs:457`). It still
+refuses a foreign Position through `entry_at` and `Grid::index` (`:436-437`). The test is
+`token_at_refuses_a_position_minted_by_another_grid` (`orcvs/tests/language_map.rs:41`). The
+`parse_range` box stays void, as recorded above.

@@ -1,6 +1,6 @@
 # Add first-class Sequence values and Portal result writes
 
-**Status:** ready-for-agent
+**Status:** superseded by ADR 0063 — delivered by issues 01–07, then retired by `cell-tracker/01`
 
 ## Goal
 
@@ -28,3 +28,14 @@ behavior, structural Sequence Functions, and complete-fit result delivery throug
 - Source Read and Source Write operands, deferred by ADR 0005.
 - UDP, OSC, and Application Command message values.
 - Hidden variables or persistent state outside Source Snapshot.
+
+## Comments
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Retired. ADR 0063 superseded ADR 0007 and retired the Sequence value, pervasive extension and the
+`:` family; `cell-tracker/01` (PR #199, `eca29a15`) removed them. On `cf01e3c` no `:`-spelled
+Function is in `define_functions!` (`lang/src/atom.rs:727-781`), `lang/src/sequence.rs` and
+`lang/src/functions/sequence.rs` do not exist, and no `Sequence` type remains. The Required
+behavior above records what this spec's issues delivered; none of it describes main, and the
+Sequence tests its issues name no longer exist.

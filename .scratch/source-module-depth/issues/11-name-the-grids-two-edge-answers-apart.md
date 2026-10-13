@@ -39,10 +39,10 @@ counterpart, so "one row up, or nothing" and "one column left, or nothing" are n
 caller who needs them has to compare coordinates against the dimensions by hand, which is the
 arithmetic `source-playback-engine/10` moved into the Grid in the first place.
 
-**A tagged open issue needs the missing half.** `spatial-tick-planning/03` requires that "blocked
+**A tagged issue needed the missing half.** `spatial-tick-planning/03` (resolved 2026-09-15) required that "blocked
 or out-of-Grid movement replaces the current Span with Bang", for all four directions and at row
 edges. On the vertical axis that is `below`, and `Portal::below`
-(`orcvs/src/source/portal.rs:158-162`) already reads exactly that way: `None` from `Grid::below` *is*
+(`orcvs/src/source/portal.rs:154-158`) already reads exactly that way: `None` from `Grid::below` *is*
 the bottom-row diagnostic (`PortalError::BelowSource`). On the horizontal axis there is nothing to read, and `left`/`right` answer a
 silent clamp — the same Position back — which a mover cannot distinguish from a successful step of
 zero Cells. Whatever this ticket decides about names, `spatial-tick-planning/03` will otherwise add
@@ -91,3 +91,11 @@ Renumbered from `10`, which the resolved `10-own-tick-local-execution-transition
 holds; `property-testing/02`'s references follow. Status set to `needs-triage`: the body leaves the
 naming shape undecided (clamp, `below`, and `displaced`/`offset_in_row` on the public Grid API), so
 an agent cannot start until that is chosen. Citations hold: `orcvs/src/grid.rs:259,291,311,337`.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+`Portal::below` is now at `orcvs/src/source/portal.rs:154-158` and `Portal::displaced` at
+`:173-182`; the 2026-09-29 audit above cites `:158-162` and `:177-186`. The body's reference is
+updated. `spatial-tick-planning/03` has been resolved since 2026-09-15, and the body now says so.
+The `orcvs/src/grid.rs` citations (259, 291, 311, 322, 337, 345, 358, 911, 1337) hold. No
+criterion is met; Status stays `needs-triage`.

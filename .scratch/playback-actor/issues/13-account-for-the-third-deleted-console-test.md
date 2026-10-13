@@ -21,10 +21,10 @@ Comments sections exist to prevent.
 
 **Status:** resolved
 
-- [ ] Ticket `04`'s Comments account for all three deleted tests, or this ticket's answer does.
-- [ ] A decision is recorded on whether `StartFailure` reaching the status line needs its own
+- [x] Ticket `04`'s Comments account for all three deleted tests, or this ticket's answer does.
+- [x] A decision is recorded on whether `StartFailure` reaching the status line needs its own
       coverage beyond `backend_errors_are_exposed_as_status`.
-- [ ] If it does, the test is restored in a shape that works with a fallible `Orcvs::new`.
+- [x] If it does, the test is restored in a shape that works with a fallible `Orcvs::new`.
 
 ## Verification
 
@@ -55,3 +55,7 @@ remains reachable: a `StartFailure` handed to `observe_diagnostics` reaches the
 status line. Asserted over `observe_diagnostics` rather than over a staged
 refusal, because staging one would mean inventing a caller the console does not
 have.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes ticked against main. The three deletions are accounted for in the Resolved section, the decision to restore the coverage in another shape is recorded there, and `a_refused_start_reaches_the_status_line` is at `console/src/midi.rs:1002`.

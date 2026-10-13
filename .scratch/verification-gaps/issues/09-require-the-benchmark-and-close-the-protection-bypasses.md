@@ -6,7 +6,7 @@
 
 **Status:** ready-for-human
 
-- [ ] The benchmark comparison is a required status context, or a recorded decision says why it stays advisory.
+- [x] The benchmark comparison is a required status context, or a recorded decision says why it stays advisory.
 - [ ] Administrator enforcement and the review requirement are set deliberately, and the settings are recorded in this issue.
 - [x] The intended protection is written down in the repository, so the intent survives the setting.
 
@@ -62,3 +62,5 @@ Three notes for whoever runs this:
 A required floor check faces the path-filter trap above: "Check bench floors" runs inside the path-filtered Benchmark jobs, so it needs the same stub. Record the decision in `docs/tooling.md`.
 
 **2026-09-24 — decided: advisory for v1.** Recorded in `v1-release/01`. The benchmark gate stays advisory and branch protection is unchanged for the first release; this issue remains open as post-v1 work.
+
+**2026-10-13 — Audit against origin/main cf01e3c.** Box 1 ticked for v1: the 2026-09-24 decision (`.scratch/v1-release/issues/01-prove-the-first-release-candidate.md:56`) says why the gate stays advisory, and `docs/tooling.md`'s tier description now states it, as the 2026-09-23 comment asked. Making it required after v1 is the open half of this issue. Box 2 is unchanged.

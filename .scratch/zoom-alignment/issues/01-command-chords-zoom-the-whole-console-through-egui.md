@@ -1,6 +1,6 @@
 # 01: Command chords zoom the whole console through egui
 
-**What to build:** Command `+` (or `=`) and command `-` step egui's whole-UI zoom, and command `0` resets it, exactly as in any egui app. The Source Grid grows with the menus, the Panel and the Diagnostics because its Cells are sized in points. View → Zoom In, Zoom Out and Reset offer the same actions with their chords shown. The chosen zoom survives a restart in a persistence build. The Source View's own Zoom no longer responds to any input: it stays at 1.0 until `02` deletes it. See `../spec.md`.
+**What to build:** Command `+` (or `=`) and command `-` step egui's whole-UI zoom, and command `0` resets it, exactly as in any egui app. The Source Grid grows with the menus, the Panel and the Diagnostics because its Cells are sized in points. View → Zoom In, Zoom Out and Reset offer the same actions with their chords shown. The chosen zoom survives a restart in a persistence build. The Source View's own Zoom no longer responds to any input: it stays at 1.0 until `02` deletes it. *(`02` has since deleted it — b58d5d1.)* See `../spec.md`.
 
 **Blocked by:** None (can start immediately).
 
@@ -52,3 +52,7 @@ The web line stays unticked. What would close it: the merge tier's headless run 
 Every automated criterion is met on main. Only the manual browser check is open: command `+` zooms
 the page once, command `0` restores it, and Diagnostics' Pixels per point follows. `02` has since
 removed the Source View's own zoom (b58d5d18), so "until `02` deletes it" is history.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Every automated criterion is still met on main: `console/src/console/kittest_tests.rs:1370`, `:1489`, `:1752` and `:2095`, `console/tests/wasm.rs:965` and `:1006`, and the native-only zoom items at `console/src/console/menu_bar.rs:202-206`. Only the manual real-browser check remains.

@@ -331,7 +331,7 @@ Moving the Source View across the Source, as far as the margin past the Grid's e
 _Avoid_: Scroll, drag
 
 **Zoom**:
-egui's whole-UI zoom: enlarging or shrinking the whole console, Source Grid included, in egui's steps.
+Enlarging or shrinking the whole console, Source Grid included, in fixed steps.
 _Avoid_: Scale, pinch, fit
 
 **Panel**:

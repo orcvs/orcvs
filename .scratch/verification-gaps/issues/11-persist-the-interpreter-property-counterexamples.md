@@ -45,3 +45,7 @@ deleted; it is a counterexample for a fake failure and does not belong in the re
 `git check-ignore` answers 1 for the path, so no ignore rule excludes it. The contract's loop over
 regression paths now names it alongside `lang/proptest-regressions/parser.txt` and
 `orcvs/proptest-regressions/grid.txt`, so a later ignore rule fails the gate.
+
+## Comments
+
+**2026-10-13 — Audit against origin/main cf01e3c.** The interpreter property this ticket fixed was deleted in PR #156 (15334c4), so `lang/proptest-regressions/interpreter.txt` names no property. It is removed from the contract's regression-path loop and from `docs/tooling.md`, and the two properties the loop did not name (`orcvs/src/source/file.rs`, `orcvs/src/source/tick/schedule_reuse.rs`) are added. The resolution above is history.

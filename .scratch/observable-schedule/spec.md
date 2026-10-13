@@ -14,7 +14,7 @@ A Tick computes two facts about itself — which computations may take a Turn, a
 
 ## Why this is not a test-only seam
 
-The repository contract forbids a shipped function reaching a branch that only a test populates. This is the adjacent shape and it is already settled here: `test-only-seams/10` — the effort whose purpose was removing test-only seams — added `ComputationState::interpreted` and `::interpretations` in exactly this form. The field is written unconditionally by production code, on a value `Source::execute` already returns; only the accessor is unused in the library build. `interpreted`'s doc comment states the reasoning, including why the suppression is `allow` rather than `expect`: the method is dead in the library build and live in the test build, so an expectation would go unfulfilled in the second and fail the gate that compiles both.
+The repository contract forbids a shipped function reaching a branch that only a test populates. This shape is not that, and it is settled here: `ComputationState::interpreted` and `::interpretations` are `#[cfg(test)]` fields that the executor writes only in a test build, on the states execution already returns, and that a `#[cfg(test)] impl` reads. They record what a Turn did and change nothing a Tick computes.
 
 Follow that shape exactly. It also states the future this has beyond tests — "what a console or a diagnostic view will ask for".
 
@@ -29,7 +29,7 @@ Follow that shape exactly. It also states the future this has beyond tests — "
 ## Decisions
 
 - Two tickets. The ordinal is `01` and lands without touching `active_roots`. The activation reason is `02` and changes a fixpoint; it does not hold `01` hostage.
-- `turn: Option<usize>` on `ComputationState`, written in `execute`'s loop, read through a `pub(in crate::source)` accessor carrying `#[allow(dead_code, reason = "an output the shipped callers discard")]`.
+- `turn: Option<usize>` on `ComputationState`, a `#[cfg(test)]` field set as each Turn settles and read through the `#[cfg(test)] impl` beside `interpreted`.
 - The Turn order itself is unchanged. This effort records what already happens and changes nothing about what happens.
 - No bulk rewrite of the ~80 byte-offset assertions. `01` adds the capability and demonstrates it on a handful of cases; converting the rest is opportunistic work for whoever next touches each test.
 - No new ADR. Nothing about the language, the schedule or the Tick Plan changes; this publishes a fact the Tick already computes.

@@ -1,6 +1,6 @@
 # Value inputs wait; placement tests occupancy at its Turn
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Problem Statement
 

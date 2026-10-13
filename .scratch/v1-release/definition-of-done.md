@@ -23,13 +23,16 @@ implementation and this evidence agree; glossary presence alone does not make a 
 ## Shipped Function inventory
 
 - [ ] Numeric `.+`, `.-`, `.|`, `.x`, `./`, `.%`, `.<`, `.>`, `.=`, `.v`, and `.^` implement the
-      complete byte, diagnostic, Bang, conversion, and identity laws.
-- [ ] Flat Sequences permit Bang Atoms, broadcast compatible Atomic Functions, and implement `:-`,
-      `:#`, `:<`, `:&`, `:?`, and `:=` deterministically without nesting or partial results.
+      complete byte, diagnostic, Bang and conversion laws; each conversion refuses a value of the
+      type it answers, so conversions compose only in opposite directions.
+- [ ] Copy `=^`, `=v`, `=<`, `=>`, `=$`, Read `&^`, `&v`, `&<`, `&>`, `&$`, Track `&t`, Write
+      `@^`, `@v`, `@<`, `@>`, `@$` and Push `@t` read and write one complete aligned Cell pair, wait
+      on and order their writers per ADR 0067 and ADR 0070, carry `**` as a Bang, and diagnose pairs
+      outside the Grid or cut short by the row edge.
 - [ ] Tick Functions `~.`, `~*`, `~+`, `~?`, `~%`, and `~>` use explicit Tick/Position inputs,
       deterministic randomness, and visible Source feedback without hidden cross-Tick state.
 - [ ] Spatial behavior covers Bang activation and expiry, all four Directional Bang forms and
-      Self-Banging Function movements, Jump chains `&^`, `&v`, `&<`, `&>`, Halt `*!`,
+      Self-Banging Function movements, the Bang Function `**`, Copy chains, Halt `*!`,
       dependency-ordered turns with Position breaking ties per ADR 0032, atomic writes, conflicts,
       activation of the reached root, and boundary diagnostics.
 - [ ] MIDI terminal output covers Raw `!>`, Timed `!~`, Monophonic `!%`, Control Change `!c`, and
@@ -81,10 +84,19 @@ implementation and this evidence agree; glossary presence alone does not make a 
 
 ## Accepted deferrals
 
-- Concrete Source Read `@<` and Source Write `@>` addressing beyond directional Jump.
 - UDP `!u`, OSC `!o`, and their text/message values and transports.
 - Application Command `!$` and its command value encoding.
 - Cross-version Source, persistence-format, and Rust-interface compatibility while Orcvs remains
   pre-release.
 - Tickets tagged only `Improvement`, unless correctness, safe implementation, or measured release
   evidence later requires one to join `release/v1` through a recorded roadmap decision.
+
+## Comments
+
+### Decided 2026-10-13 by Toby
+
+The inventory refresh in `v1-roadmap-wayfinding/01` (audit against `cf01e3c`) retired the Sequence
+family (ADR 0063), dropped conversion idempotence (`CONTEXT.md`, Numeric Conversion Function),
+renamed the Jumps to Copies and added the Read, Write, Track and Push Functions (ADR 0070), and made
+`**` the Bang Function (ADR 0072). Toby decided the ADR 0070 Functions join the release, so this
+checklist names them and no longer defers Source Read/Write addressing.

@@ -8,37 +8,29 @@
 
 **What it would build:** activation is recorded twice, as a bare `bool` both times, and neither record can say which producer activated a root or by which path.
 
-- **At schedule time**, `active_roots` (`orcvs/src/source/tick.rs:813-865`) returns `Vec<bool>`: the fixpoint closure the schedule orders against. Its doc (`:800-804`) says it is deliberately wider than the Tick, because which root a delivery actually reaches depends on values no schedule has yet.
-- **At run time**, `ComputationState.activated` (`orcvs/src/source/tick/execution.rs:72`) is set from three sites: a Bang write to a root's cardinal anchors (`:531-535`), a Jump landing on a root (`:496-499`), and an advancing Function's complete contact with a root (`:743`). Those writes are idempotent; nothing distinguishes a first writer from a later one.
+- **At schedule time**, `active_roots` (`orcvs/src/source/tick/dependencies.rs:129-142`) returns `Vec<bool>`: the fixpoint closure the schedule orders against. Its doc (`:109-120`) says it is deliberately wider than the Tick, because which root a delivery actually reaches depends on values no schedule has yet.
+- **At run time**, `ComputationState.activated` (`orcvs/src/source/tick/execution.rs:105`) is set from two sites: a Bang write to a root's cardinal anchors (`:635`), and a Bang Function firing over its own Span (`:892`). `Turn::Taken { activated }` (`orcvs/src/source/tick/ordering.rs:181`) already carries the roots a dynamic write activated in the Turn that took it. Those writes are idempotent; nothing distinguishes a first writer from a later one.
 
-`active_roots` branches on three paths, not ADR 0006's two, and then collapses them (`tick.rs:840-858`):
+`active_roots` closes over one delivery declaration, `can_emit_bang` over `bang_roots`, in `activate` (`dependencies.rs:150-170`), and the guard `!active[index]` keeps the first (`:157-163`):
 
 ```rust
-let banged = function.can_emit_bang()
-    .then(|| relationships.bang_roots()).into_iter().flatten();
-let contacted = advances(function)
-    .then(|| relationships.contacted_roots()).into_iter().flatten();
-// A Jump writes Bang through its output Portal. A root at
-// that Portal is activated without a write.
-let landed = function.copies_language_unit()
-    .then(|| relationships.contacted_roots()).into_iter().flatten();
-
-for index in banged.chain(contacted).chain(landed).collect::<Vec<_>>() {
-    if !nodes[index].function.is_intrinsically_active() && !active[index] {
-        active[index] = true;
-        pending.push(index);
-    }
+if !nodes[index].function.can_emit_bang() {
+    continue;
 }
+for relationships in reservations(lookup, index) {
+    for index in relationships.bang_roots().collect::<Vec<_>>() {
+        if !nodes[index].function.is_intrinsically_active() && !active[index] {
+            active[index] = true;
+            pending.push(index);
+        }
 ```
 
-The chain is where the schedule's provenance goes; the three `activated = true` sites are where the execution's goes. The function doc at `:806-812` still says "activation has two paths". The shape it wants is roughly:
+The fixpoint is where the schedule's provenance goes; the two `activated = true` sites are where the execution's goes. Its doc (`:121-126`) states the one declaration. The shape it wants is roughly:
 
 ```rust
 enum Activation {
     Intrinsic,
     Banged { by: usize },
-    Contacted { by: usize },
-    Landed { by: usize },
 }
 
 fn active_roots(lookup: &Lookup) -> Vec<Option<Activation>>
@@ -54,7 +46,7 @@ fn active_roots(lookup: &Lookup) -> Vec<Option<Activation>>
 
 Today the fixpoint stops at the first writer because a `bool` cannot hold a second. That is an accident of the type, not a decision anyone made — and naming the fact forces the choice. It is a language question rather than an implementation one: it asks whether "this root was activated" is one event with an owner, or a set of deliveries that happen to converge.
 
-ADR 0006 gives activation two delivery paths and does not say; the code now has a third, the Jump landing. Answer it — in this ticket's comments, or in an ADR if the answer needs explaining to a future reader — before any code is written.
+ADR 0006 gives activation two delivery paths and does not say; ADR 0072 removed contact activation, leaving one. Answer it — in this ticket's comments, or in an ADR if the answer needs explaining to a future reader — before any code is written.
 
 Note also that in `active_roots` the guard reads `!active[index]`, so under a first-writer-wins rule the fixpoint's `pending` push is what decides whose delivery is recorded, and that depends on `pending.pop()` order. If the answer is "the first", the ticket owes a statement of what "first" means that does not rest on the traversal order of a work list.
 
@@ -62,7 +54,7 @@ Note also that in `active_roots` the guard reads `!active[index]`, so under a fi
 
 - Nothing about which roots are active may change. The set is the same; only the record beside it is new.
 - The accessor follows `01`'s form and `interpreted`'s.
-- `can_emit_bang`, `advances` and `copies_language_unit` stay the only questions that decide delivery — this records what they already decide.
+- `can_emit_bang` stays the only question that decides delivery — this records what it already decides.
 
 ## Comments
 
@@ -81,3 +73,11 @@ Re-read against the code; the body is corrected in place.
 - Status stays `needs-triage`; blocker `01` is resolved.
 
 2026-10-12 — Source-bundle ticket 01 deleted `advances(function)`. Where this ticket quotes it, read `SourceBundle::clears_own_span() && writes_displaced()` on the Function's declared bundle, which `producer_edges` names `moves`.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+Body corrected in place for `7960ba1` (ADR 0072 removed contact activation), `25ebc77` (Jump
+renamed) and `a8ca4cf` (`active_roots` moved to `orcvs/src/source/tick/dependencies.rs:129`).
+Activation now has one delivery declaration and two run-time sites, so the `Contacted` and
+`Landed` variants are gone from the sketch. Both questions still stand. Both blockers are resolved;
+Status stays `needs-triage`.

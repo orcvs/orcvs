@@ -9,7 +9,7 @@ Blocked by: None — can start immediately
 
 The Language Map diagnoses a syntax error in the Source revision. During a Tick, `syntax_blocks` in `orcvs/src/source/tick/execution.rs` keeps the Turn silent about that error only while the Function is unchanged and every operand's working Cells equal the original. When a Portal write changes any one operand, the whole Expression is re-decoded, and an operand that is still unchanged and still invalid is diagnosed a second time.
 
-Reproduction (found while reviewing PR #207, finding F6): `[".+  01","    &^","    05"]`. The Map reports `expected a number, found "  "` for the unwritten first operand; the Jump writes `05` over the second; the Tick reports the same `expected a number, found "  "` again. A partly written slot such as `" 1"` gets the same pair, so this predates ADR 0069 and applies to all invalid input.
+Reproduction (found while reviewing PR #207, finding F6): `[".+  01","    =^","    05"]`. The Map reports `expected a number, found "  "` for the unwritten first operand; the Copy `=^` writes `05` over the second; the Tick reports the same `expected a number, found "  "` again. A partly written slot such as `" 1"` gets the same pair, so this predates ADR 0069 and applies to all invalid input.
 
 The console shows no Source or Tick diagnostic messages today (ADR 0069), so no performer sees the duplicate. This matters once diagnostics are presented.
 
@@ -31,3 +31,10 @@ Test each operand separately: the Tick stays silent about an operand that the Ma
 ## Comments
 
 Accepted as intended behaviour for PR #207: `syntax_blocks` is unchanged there, and that PR's test `an_unwritten_operand_in_the_source_blocks_its_function_as_the_map_reports` claims silence only when nothing writes the Expression.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The original repro used the directional Jump `&^`, which ADR 0070 respelled as the Copy `=^`; `&^`
+is now a Read that writes south (`lang/src/atom.rs:763`). Re-pinned with `=^` (`:739`, Output
+Portal north `:936-939`, Input Portal south `:988`). Inferred from the Function table, not run in
+this audit. `syntax_blocks` is unchanged (`orcvs/src/source/tick/execution.rs:478`).

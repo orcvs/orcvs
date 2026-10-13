@@ -360,7 +360,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^native_midi_tree=
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' "^if printf '%s.n' \"[\$]native_midi_tree\" [|] grep -E"
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^  exit 1$'
 assert_contains "$root_dir/mise.toml" 'orcvs still carries a platform MIDI or system audio binding'
-assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --package orcvs --lib --features persistence --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 # The `-E` is the point of the assertion, not decoration on it. Without the
 # filter this line runs the criterion benchmarks as tests, unbudgeted, which is
@@ -950,7 +950,7 @@ fi
 # ignore file that a substring match would miss.
 # This pins non-ignoredness and nothing else. It is deliberately not an existence
 # check: a counterexample exists only for a property that has failed, so requiring
-# these paths would fail every green checkout, and four of the five name files
+# these paths would fail every green checkout, and three of the six name files
 # that have never been committed. A counterexample generated locally and deleted
 # before a commit is invisible here and to CI alike — it was never tracked, so
 # there is no deletion to find. docs/tooling.md states the discipline this cannot
@@ -960,10 +960,11 @@ fi
 # wherever git cannot answer, so only 1 is accepted as the clean result.
 for regressions_path in \
   lang/proptest-regressions/parser.txt \
-  lang/proptest-regressions/interpreter.txt \
   orcvs/proptest-regressions/grid.txt \
+  orcvs/proptest-regressions/source/file.txt \
   orcvs/proptest-regressions/source/language_map.txt \
-  orcvs/proptest-regressions/source/tick.txt; do
+  orcvs/proptest-regressions/source/tick.txt \
+  orcvs/proptest-regressions/source/tick/schedule_reuse.txt; do
   ignore_status=0
   git -C "$root_dir" check-ignore -q "$regressions_path" || ignore_status=$?
   case "$ignore_status" in

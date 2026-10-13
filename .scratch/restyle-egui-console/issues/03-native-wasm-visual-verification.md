@@ -35,3 +35,5 @@ off the frontier. No capture workflow exists yet: `.github/workflows/` holds onl
 `bench`, `miri`, `test` and `tooling`.
 
 **2026-09-30 — the native capture workflow exists.** #184 added `.github/workflows/release-captures.yml` (dispatch-only, SHA input), which runs `mise run capture_native` for the four native captures. The four web captures wait on `release-captures/02`, and no dispatched run has been recorded (`release-captures/01`). The `Blocked by:` line still holds: `v1-release/03`, `release-captures/01`, `release-captures/02` and `theming/18` are open.
+
+**2026-10-13 — Audit against origin/main cf01e3c.** theming/18 is resolved (d1dec74, merged in #188 as e955a5b). The ticket is still blocked by v1-release/03, release-captures/01 and release-captures/02, all open.

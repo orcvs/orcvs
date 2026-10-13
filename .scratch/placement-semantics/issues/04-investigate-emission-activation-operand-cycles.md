@@ -51,3 +51,18 @@ The concrete case was executed against the current branch and returned the depen
 diagnostic without committing effects. The same cycle was reported on main by the earlier design
 investigation; that provenance needs a pinned reproduction before being treated as independently
 verified. This ticket records the question without absorbing it into placement delivery.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+The reproduction is pinned on main by `an_emission_reserving_its_activators_operand_is_a_cycle`
+(`orcvs/src/source/tick.rs:1424`, PR #213). It asserts the unchanged Grid and the same-Tick cycle
+diagnostic; the first box still owes its write-up. Read the framing above against current ADRs:
+
+- A cycle no longer rejects the Tick or withholds its committed effects. Under ADR 0065 and ADR
+  0068 it stops only the Expressions it reaches, and Turns already completed keep their effects, so
+  "rejected", "without committing effects" and "genuine cycle atomicity" mean the Expressions the
+  cycle stops.
+- Issue 03 already removed the occupancy-only contact edges that the second box asks to be told
+  apart.
+- Under ADR 0072 a collision activates nothing directly: a blocked mover writes `**`, which fires
+  on the next Tick. "Collision activation" in the last box means activation from that `**`.

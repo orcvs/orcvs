@@ -44,3 +44,5 @@ same way on a major bump. That is the forced review working rather than a defect
 knowing before the first bump lands, because the failure will look like a broken gate rather than a
 prompt. If the friction proves worse than the review is worth, the replacement is a version-agnostic
 tail such as `# v[0-9]+([.][0-9]+){0,2}$`, which keeps the sha-pinning property and drops the prompt.
+
+**2026-10-13 — Audit against origin/main cf01e3c.** The exact-version decision above was later relaxed to major-version pins. `scripts/check-tooling-contract.sh:717-720` asserts `actions/checkout` as `# v7([.][0-9]+)*`, `jdx/mise-action` as `# v5([.][0-9]+)*` and `Swatinem/rust-cache` as `# v2`; `dtolnay/rust-toolchain` stays exact because it names the toolchain. The reason is at `:713-716`: Dependabot rewrites the version comment on every bump, and with this script first in `check_pull_request` a patch pin turns each bump pull request red, while the major is where an action's inputs and node runtime move. 59bed77 moved mise-action to v5 under that rule. The Decision section above is history.

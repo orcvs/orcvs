@@ -25,13 +25,13 @@ instead of a poll.
 
 **Status:** resolved
 
-- [ ] Neither condvar wait can block forever; a harness that is never released fails the test.
-- [ ] The blocking adapter no longer occupies a Tokio worker for the duration of a submission, or it
+- [x] Neither condvar wait can block forever; a harness that is never released fails the test.
+- [x] The blocking adapter no longer occupies a Tokio worker for the duration of a submission, or it
       is documented why work-stealing across two workers is sufficient and what would break it.
-- [ ] The `yield_now` spin at `:2956-2958` is bounded.
-- [ ] The two ~1s polling budgets either carry a stated margin for the macOS tier under parallelism,
+- [x] The `yield_now` spin at `:2956-2958` is bounded.
+- [x] The two ~1s polling budgets either carry a stated margin for the macOS tier under parallelism,
       or wait on a signal instead of polling.
-- [ ] The tests still assert what they assert now; this changes how they fail, not what they prove.
+- [x] The tests still assert what they assert now; this changes how they fail, not what they prove.
 
 ## Verification
 
@@ -73,3 +73,7 @@ calls inline, so holding it is the only way to stage "the engine is mid-Tick" �
 `spawn_blocking` would move a different call. What makes two workers enough,
 and the two things that would break it — a third party wanting a worker at that
 moment, or a second engine held here concurrently — are written beside it.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes ticked against main. `HARNESS_TIMEOUT` (`orcvs/src/playback.rs:1883`) bounds every wait, `wait_until` (`:1893`) replaces the polling budgets against a `std::time::Instant` deadline, both condvar waits use `wait_timeout_while` (`:1935`, `:2048`), the blocking adapter's worker rationale is written beside it (`:2029-2038`), and the remaining `yield_now` loops (`:4377`, `:4390-4392`) are bounded.

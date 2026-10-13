@@ -30,12 +30,12 @@ the destructor exists to prevent, so whichever is chosen needs its reason writte
 
 **Status:** resolved
 
-- [ ] A panic out of `OutputAdapter::safety_reset`, reached through the drop of `PlaybackInner`
+- [x] A panic out of `OutputAdapter::safety_reset`, reached through the drop of `PlaybackInner`
       during an unwind started by the same adapter, does not abort the process.
-- [ ] A test stages it. Today's `PanickingOutputAdapter` cannot: its `safety_reset` returns `Ok(())`.
-- [ ] `clock_failure_remains_observable_after_output_panics` still holds — the `ClockFailure` report
+- [x] A test stages it. Today's `PanickingOutputAdapter` cannot: its `safety_reset` returns `Ok(())`.
+- [x] `clock_failure_remains_observable_after_output_panics` still holds — the `ClockFailure` report
       at `:834` happens before the stop at `:837`, so closing this window must not cost the report.
-- [ ] The choice between suppressing the safety action and catching its panic is recorded beside the
+- [x] The choice between suppressing the safety action and catching its panic is recorded beside the
       code, because the trade is audible: a suppressed safety action leaves a note sounding.
 
 ## Verification
@@ -72,3 +72,7 @@ being dropped.
 Before the fix the test aborted the process with `SIGABRT` — "panic in a
 destructor during cleanup" — so this was demonstrated rather than reasoned
 about. `clock_failure_remains_observable_after_output_panics` still holds.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes ticked against main. `Drop for PlaybackInner` (`orcvs/src/playback.rs:882`) attempts the safety action inside `catch_unwind` (`:910`), with the choice and why `AssertUnwindSafe` is sound recorded beside it (`:880-909`). `DoublyPanickingOutputAdapter` (`:1969`) stages the double panic, used by `a_backend_that_panics_being_silenced_does_not_abort_the_process` (`:4704`). `clock_failure_remains_observable_after_output_panics` (`:4561`) still holds.

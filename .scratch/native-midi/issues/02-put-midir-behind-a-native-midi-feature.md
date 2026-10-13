@@ -175,3 +175,12 @@ changes the dependency tree `cargo deny --locked check` sees, so this must land 
 `v1-release/03` cuts the candidate SHA — never inside the window between the cut and
 `v1-release/01`'s GO decision, where it would leave the recorded audit describing a build that is
 no longer the candidate.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The `native-midi` feature this ticket delivered no longer exists. `midi-port-ownership/03` moved
+port opening and `midir` into the console (`ca781e51`, per `native-midi/03`'s 2026-09-29 audit) and
+`midi-port-ownership/05` removed the remaining platform dispatch dependency. On `cf01e3c`
+`orcvs/Cargo.toml:17-22` has no `native-midi` feature and no `midir`, `midir` is a native target
+dependency of `console` (`console/Cargo.toml:130-131`), and `orcvs/src/native_midi.rs` holds only
+`SilentMidiBackend`. The criteria above record what landed; none holds on main.

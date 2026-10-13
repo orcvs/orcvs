@@ -58,8 +58,9 @@ cargo nextest run --package <crate> --locked
 ```
 
 `cargo check` is deliberately absent: clippy performs the same compilation and adds the lints,
-which is why `.scratch/ci-tiers/issues/02-remove-the-redundant-check-pass.md` removed it from
-`mise.toml`. Asking for both here would have restored the pass that issue deleted.
+which is why `.scratch/ci-tiers/issues/02-remove-the-redundant-check-pass.md` removed the workspace
+check pass from `mise.toml`'s `check` task. Asking for both here would have restored the pass that
+issue deleted.
 
 Once, before opening a pull request, so the crate-scoped runs above are not repeated per crate:
 
@@ -94,9 +95,10 @@ Then run only the gates whose inputs the change actually touched:
   ships on nightly only, so it is a path you take on purpose rather than a check a change owes:
   `mise run miri` interprets the Source model tests locally, and the `Miri` workflow runs the same
   task on manual dispatch. Neither is a required status context, and no tier calls the task. Reach
-  for it when the byte write in `Source::set_source`, or the Grid indexing that mints the index it
-  takes, changes — it installs a nightly toolchain and interprets at roughly a hundred times native
-  cost, which is why it is not on the list above.
+  for it when an `unsafe` block enters shipped code (none does today), or when the copy-on-write
+  Cell write `Source::set_source` makes through `SourceBuffer::write`, or the Grid indexing that
+  mints the index it takes, changes — it installs a nightly toolchain and interprets at roughly a
+  hundred times native cost, which is why it is not on the list above.
 - public API: doctests, examples, rustdoc warnings, and human API review
 - concurrency: cancellation, shutdown, ownership, backpressure, ordering, and race-sensitive tests
 - parser/protocol boundary: boundary or property tests; fuzz when exposure warrants it

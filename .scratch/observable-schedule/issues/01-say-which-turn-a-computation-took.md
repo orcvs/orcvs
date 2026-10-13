@@ -26,7 +26,7 @@ Nothing about ordering changes. The same computations take the same Turns in the
 
 - [x] `ComputationState` carries `turn: Option<usize>`, written in `execute`'s loop.
 - [x] A computation the Tick never reached keeps `None`, and a test proves it through a rejected Tick.
-- [x] The accessor matches `interpreted`'s form, including a doc comment explaining the `allow`.
+- [x] The accessor matches `interpreted`'s form, including a doc comment explaining the `allow`. *(On main the form is `#[cfg(test)]`, not `allow`; see the 2026-10-13 comment.)*
 - [x] Three or four ordering tests assert the Turn alongside their existing byte assertion.
 - [x] No test's expectation about Source bytes, writes, Play Commands or diagnostics changes.
 
@@ -35,3 +35,16 @@ Nothing about ordering changes. The same computations take the same Turns in the
 `cargo fmt --all -- --check`, then `cargo clippy --package <crate> --all-targets --locked -- -D warnings` and `PROPTEST_CASES=32 cargo nextest run --package <crate> --locked` for `orcvs` and `console`, which depends on it. `.scratch/` edits also owe `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null`.
 
 No benchmark is owed: one `Option<usize>` write per Turn on a path that already walks every computation, and the ticket claims no performance effect.
+
+## Comments
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+The `#[allow(dead_code, reason = …)]` form this ticket prescribes (above, and in the third box) is
+not what main holds. `turn` is a `#[cfg(test)]` field (`orcvs/src/source/tick/execution.rs:115`),
+set as each Turn settles in `settle` (`:322`) under `#[cfg(test)]` rather than in `execute`'s
+loop, and read through the `#[cfg(test)] impl` (`:140-174`) beside `interpreted` and
+`interpretations`, which share that form. The accessor still matches `interpreted`'s form; that
+form is no longer `allow`.
+
+Decided 2026-10-13 by Toby: the code is right. The per-Turn record stays `#[cfg(test)]`.

@@ -2,12 +2,13 @@
 
 **What to build:** A performer changing MIDI destination mid-run can trust that Ticks keep landing
 on time while the engine's task processes the installation request. The suite states this guarantee
-explicitly, replacing the old design's implicit hope that enumeration is fast enough not to miss a
-deadline.
+explicitly. The hazard is the safety reset `install_connection` sends synchronously to the outgoing
+connection (`orcvs/src/midi.rs:174-178`) inside the Tick-owning loop (`orcvs/src/playback.rs:1514`);
+discovery and port opening moved to the console in `03`.
 
 **Blocked by:** None — 03 landed; the install path exists.
 
-**Status:** ready-for-agent
+**Status:** needs-triage
 
 - [ ] A test starts a running Orcvs with playback active, queues a destination installation, and
       asserts that a Tick still lands on schedule while the installation is processed.
@@ -35,3 +36,19 @@ Still open; no test asserts a Tick landing across a mid-run installation. Refere
 2026-09-29 comment moved: `orcvs/src/midi.rs:172-183` (`install_connection`, safety reset at
 `:174-178`), `:999` and `:1079`; `orcvs/tests/midi_selection_handle.rs:117`. `playback.rs:1514`
 holds. Pin the bounded fake-connection timing scenario before an agent picks this up.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+References re-checked: `install_connection` is `orcvs/src/midi.rs:169-184` (safety reset
+`:174-178`), `playback.rs:1514` holds, `midi_selection_handle.rs:117` is now `:118` (install
+`:134-136`, playback starts `:147`), and the reconnect tests at `midi.rs:999` and `:1079` hold. The
+enumeration premise in the body was obsolete and is replaced in What to build. Both earlier audits
+say the bounded fake-connection timing scenario must be pinned before an agent can start, so
+`ready-for-agent` overstates readiness.
+
+### Decided 2026-10-13 by Toby
+
+Status `ready-for-agent` → `needs-triage`. The bounded fake-connection timing scenario and the
+design for a bounded or relocated safety-reset `send` are still open, so the guarantee is not yet
+specified well enough for an agent. The ticket stays untagged: `v1-release/04` records the
+destination change as a hardware observation and does not wait on it.

@@ -17,7 +17,7 @@
 - [x] ADR 0028 records that transposing two role names inside the single declaration cannot be compiler-checked, and names what carries it instead.
 - [x] Only the domain predicate moves into the new types' constructors; every test asserting which operand reaches which role survives, and `play_carries_each_operand_into_the_role_its_signature_names` is extended to run from Source text, keeping operand values that differ from one another so a transposition changes the answer.
 - [x] The coverage gaps named below are closed, and each new type's conversion is tested exhaustively over all 256 inputs.
-- [ ] `PlayCommand` is a public type across three crates: the evaluator benchmark is run before and after with its command and results recorded, and the changed signature gets human API review. — benchmark done; human API review outstanding.
+- [x] `PlayCommand` is a public type across three crates: the evaluator benchmark is run before and after with its command and results recorded, and the changed signature gets human API review. — benchmark done; human API review waived 2026-10-13 by Toby: the workspace is `publish = false` and the language has no compatibility contract.
 
 ## Comments
 
@@ -97,3 +97,19 @@ Unmoved, as expected of `Copy` newtypes over a byte. Two runs taken while anothe
 **Carried forward to `midi-output-family/04`.** Because `controller`, `value`, `lsb`, and `msb` are not minted here, nothing in the code stops `!c` arriving with one shared data-byte type for its two same-domain operands — the failure this ticket exists to prevent, arriving one ticket later. `define_data_byte_roles!` makes the right answer one line each, but it is a convention, not a compile error. That ticket now carries the requirement as three checkboxes of its own, and the naming call for its value role, which cannot be `Value`.
 
 **Review surface.** The human API review this ticket defers covers four public types, not one: `PlayCommand`'s changed field types, plus `MidiChannel` and `Velocity` newly exported from `lang` and re-exported through `orcvs::source` alongside `Note`.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Box 10's human API review is still unrecorded. The surface it covers has grown since the Review
+surface note: `PlayCommand` now has `ControlChange` and `PitchBend` variants
+(`lang/src/lib.rs:80-100`), and `Controller`, `ControlValue`, `BendLsb`, `BendMsb`
+(`lang/src/atom.rs:129-155`) and `Length` (`:165`) join `MidiChannel`, `Velocity` and `Note`
+as public types exported from `lang` (`lang/src/lib.rs:12-15`) and re-exported through
+`orcvs::source` (`orcvs/src/source/mod.rs:22-25`). The workspace is `publish = false`
+(`Cargo.toml:8`). A review or an explicit waiver is owed before the box is ticked.
+
+### Decided 2026-10-13 by Toby
+
+The human API review in box 10 is waived: the workspace is `publish = false` (`Cargo.toml:8`) and
+the Orcvs language is pre-release with no public compatibility contract (`CLAUDE.md`). The box is
+ticked on that waiver; the benchmark half was already met.

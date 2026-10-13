@@ -19,11 +19,11 @@ actionable Language Units and Expression roots.
 
 ## Downstream integration
 
-- [ ] The `order_by_anchor` guard cannot be tested end to end from this ticket, and issue 02 now
-      carries the checkbox that pins it. See "What did not get pinned" below.
-- [ ] Cell-conflict resolution over genuinely overlapping bundles is exercised by
-      `issues/03-add-directional-bang-movement.md` and `issues/04-add-directional-jump-chains.md`.
-- [ ] The activation and lock Effect variants arrive with `issues/02-...` and `issues/05-...`.
+- [x] The `order_by_anchor` guard cannot be tested end to end from this ticket, and issue 02 now
+      carries the checkbox that pins it. See "What did not get pinned" below. *(02 pinned the tie-break guard: see its comment, `02-add-source-bang-activation-and-expiry.md:51-53`.)*
+- [x] Cell-conflict resolution over genuinely overlapping bundles is exercised by
+      `issues/03-add-directional-bang-movement.md` and `issues/04-add-directional-jump-chains.md`. *(03 and 04 resolved.)*
+- [x] The activation and lock Effect variants arrive with `issues/02-...` and `issues/05-...`. *(02 and 05 resolved. `Effect::Lock` is at `orcvs/src/source/tick.rs:141`; activation is recorded on `ComputationState`, not as an Effect.)*
 
 ## Comments
 
@@ -61,3 +61,11 @@ and ADR 0020 does not require it. ADR 0020's first paragraph, ordering scheduled
 Tick's new Play Commands, is the Playback Engine's obligation; `orcvs/src/playback.rs` has no
 scheduled-expiry concept yet, and this ticket's only playback obligation — that the seam stays
 intact — holds.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+`order_by_anchor` no longer exists. ADR 0032's dependency schedule replaced the row-major pass,
+and its Grid-position tie-break is pinned, as issue 02's comment records. The owners of the
+Downstream boxes, 02 to 05, are all resolved, so the boxes are ticked. `Effect` is now at
+`orcvs/src/source/tick.rs:135-142` and has no `Activate` variant. `turns`, `Producer` and
+`plan_tick` in the comments above describe the code as it was then.

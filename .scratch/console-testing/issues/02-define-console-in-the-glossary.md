@@ -8,7 +8,7 @@ and stop the `Snapshot` overload before it spreads.
 **Status:** ready-for-agent
 
 - [ ] `CONTEXT.md` gains a **Console** entry in the presentation block that runs from **Cursor**
-      to **Panel**, beside **Render Frame**.
+      to **Run Clock**, beside **Render Frame**.
 - [ ] The entry says what a Console is in domain terms — the editing and presentation surface that
       draws one Orcvs's Source, owns the Cursor's blink, and offers its presentation options — and
       names no toolkit, module or type.
@@ -48,3 +48,9 @@ The Console entry is still missing; the presentation block runs Cursor (`CONTEXT
 is reworded or this ticket's "no toolkit" rule is relaxed. `docs/agents/domain.md` has no rule
 keeping the glossary free of implementation detail, so the rationale above rests on an unwritten
 rule.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Still no **Console** entry. The presentation block now runs Cursor (`CONTEXT.md:293`) to Run Clock (`:349`), with Readout (`:341`) and BPM (`:345`) after Panel (`:337`), so the first criterion's anchor is updated. Zoom (`CONTEXT.md:333-335`) still names egui, and Panel's _Avoid_ line names "egui Panel". `docs/agents/domain.md` still states no rule keeping implementation detail out of the glossary. Whether Zoom is reworded or this ticket's "no toolkit" criterion is relaxed is still the owner's decision.
+
+**2026-10-13 — decision.** Decided 2026-10-13 by Toby: the glossary names no toolkit, and this ticket's criterion stands. The **Zoom** entry (`CONTEXT.md:333-335`) now reads "Enlarging or shrinking the whole console, Source Grid included, in fixed steps", with its _Avoid_ line unchanged. `docs/agents/domain.md` now states the rule: an entry defines a domain term without naming the toolkit, crate, module or type that implements it, and an _Avoid_ line may name a colliding toolkit word. Panel's _Avoid_ entry "egui Panel" is kept under that rule, because it names a word not to use rather than defining Panel by it. The **Console** entry itself is still this ticket's work.

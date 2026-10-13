@@ -29,6 +29,8 @@ When output names a domain concept—in an issue title, refactor proposal, hypot
 
 If the concept isn't in the glossary, reconsider whether it belongs to the project or note the gap for `/domain-modeling`.
 
+A glossary entry defines a domain term without naming the toolkit, crate, module or type that implements it. An `_Avoid_` line may still name a toolkit's word when that word collides with the term, because it names what not to say.
+
 ## Flag ADR conflicts
 
 If output contradicts an existing ADR, surface it explicitly rather than silently overriding:

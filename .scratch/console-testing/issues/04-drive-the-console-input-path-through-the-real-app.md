@@ -20,13 +20,19 @@ drawn.
 - [ ] Backspace, Delete and Space each do what `translate_event` claims they do, end to end.
 - [ ] A key egui delivers that `translate_event` drops — Enter, or a key release — changes nothing.
 - [x] Clicking a Cell selects that Cell's Position (the Grid is one painted interact rect, not a field of Cell buttons; `kittest_tests.rs:1385`).
-- [ ] The menus are exercised by label: File and its Quit item, View, the Tempo drag-commit, and the
-      MIDI menu opening.
-- [ ] Assertions are made against `Console` and `Orcvs` state and the Render Frame, not by querying
+- [x] The menus are exercised by label: File and its Quit item, View, the Tempo drag-commit, and the
+      MIDI menu opening. *(The Tempo and MIDI menus have since been removed —
+      `console/src/console/tests.rs:1068-1077` asserts they are gone. File/Quit:
+      `kittest_tests.rs:2062`; View: `:261`; File/View/Help: `:503`.)*
+- [x] Assertions are made against `Console` and `Orcvs` state and the Render Frame, not by querying
       grid Cell labels. The Source Grid is a field of Buttons whose labels are single characters and
-      mostly blank, so a label query cannot address them unambiguously.
-- [ ] The tests run inside the existing `cargo nextest run --workspace --profile ci --locked` line.
-      No feature gate, no new mise task, and `scripts/check-tooling-contract.sh` is untouched.
+      mostly blank, so a label query cannot address them unambiguously. *(That premise is obsolete:
+      the Grid is one painted interact rect. The tests assert against state, e.g.
+      `cursor(harness.state())`.)*
+- [x] The tests run inside the existing `cargo nextest run --workspace --profile ci --locked` line.
+      No feature gate, no new mise task~~, and `scripts/check-tooling-contract.sh` is untouched~~.
+      *(Struck 2026-10-13: `scripts/check-tooling-contract.sh:640` pins `egui_kittest = "=0.36.2"` so
+      the harness stays the egui it drives. The tests run in `mise.toml:288`.)*
 
 ## Comments
 
@@ -86,3 +92,13 @@ Source Backspace, ignored Enter and key release. #184 enables `egui_kittest/snap
 under the opt-in `release-capture` feature only; the dev-dependency (`console/Cargo.toml:237`)
 stays eframe-only. The rationale is at `console/Cargo.toml:207-236`; the `audit_deps` result is
 still unrecorded.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The menus and state-assertion criteria are ticked with annotations: the Tempo and MIDI menus no longer exist, and the Grid is no longer a field of Buttons. References in `console/src/console/kittest_tests.rs` have moved: arrow test `:1268`, Pan-follow `:1313`, menu-suppressed Backspace `:2620`, modal Enter `:3280`, ArrowLeft+Delete `:3397-3398`, Space `:2917`.
+
+Still open: arrow keys clamping at all four Grid edges (no test presses ArrowUp, and none reaches an edge), Backspace on ordinary Source, an ignored Enter or key release (every `pressed: false` in the file is a pointer release), and the `mise run audit_deps` record. The dependency rationale is at `console/Cargo.toml:200-237`.
+
+The last criterion stays unticked. The tests do run inside `cargo nextest run --workspace --profile ci --locked` (`mise.toml:288`), with no feature gate and no new task, but `scripts/check-tooling-contract.sh:640` now pins `egui_kittest = "=0.36.2"`, so the script is not untouched. That pin is harmless — it holds the harness to the egui it drives.
+
+**2026-10-13 — decision.** Decided 2026-10-13 by Toby: the "`scripts/check-tooling-contract.sh` is untouched" clause is struck, because the `egui_kittest` version pin at `scripts/check-tooling-contract.sh:640` belongs there. The rest of the last criterion is met: the tests run inside `cargo nextest run --workspace --profile ci --locked` (`mise.toml:288`), with no feature gate and no new mise task, so the box is ticked.

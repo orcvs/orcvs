@@ -15,12 +15,11 @@ The semantics are settled, and every option below keeps them unchanged:
 
 - An empty Cell is a character like any other (ADR 0033). It sits between Expressions at no cost,
   and inside a claim it is Source that nobody has written.
-- Copying Functions move empty Cells as they move any other character. A Jump whose aligned input
-  is empty clears its destination. A Track whose selected Item is blank writes two empty Cells
-  (ADR 0063, ADR 0066).
-- A Function that reads an operand slot whose Cells are all empty is pending. It does not evaluate,
-  writes nothing, returns nothing and is not diagnosed. A slot with some Cells written and others
-  empty is malformed and diagnoses (ADR 0066).
+- Copying Functions move empty Cells as they move any other character. A Copy whose aligned input
+  is empty clears its destination, and a Track whose selected pair is empty copies its two empty
+  Cells (ADR 0067, ADR 0069).
+- An operand slot whose Cells are all empty is invalid input: the Function does not evaluate,
+  writes nothing, returns nothing and is diagnosed, as a partly written slot is (ADR 0069).
 
 Only the glyph is open: how those rules look on the Grid and in the file.
 
@@ -53,8 +52,8 @@ Source, Source File and console all use a space.
 
 - Cost: none.
 - What the Grid shows: unwritten operand slots are visible only through their Token tint. In plain
-  text (a file, a diff, a terminal, an ADR code span) a pending `.+01` and a finished `.+01` look
-  the same unless the trailing spaces survive. A blank List Item is two spaces, which reads as
+  text (a file, a diff, a terminal, an ADR code span) an unwritten `.+01` slot and a finished one look
+  the same unless the trailing spaces survive. An empty pair Track reads is two spaces, which reads as
   separation rather than as a rest.
 
 ### 2. Space in Source and file, `.` painted by the console
@@ -87,7 +86,7 @@ An empty Cell holds `.` in Source, in the file and on screen.
   - Every saved Source File changes meaning. Under the old reading, a file that uses `.+` contains
     empty Cells where the numeric Functions were.
   - Comment text loses its spaces, because a space in a Comment is an empty Cell and is drawn as `.`.
-- Gain: the file, the diff and the screen agree. A blank List Item is visibly `..`, and an
+- Gain: the file, the diff and the screen agree. An empty pair Track reads is visibly `..`, and an
   unwritten operand is visibly unwritten in plain text.
 - This option needs a replacement numeric sigil, which is itself a design question. The prototype
   uses `#` (and `~:` for Clock) as a **placeholder** only, so the Grids can be drawn.
@@ -97,3 +96,12 @@ An empty Cell holds `.` in Source, in the file and on screen.
 `issues/01-prototype-the-empty-cell-glyph.md`: a syntax prototype that draws the same Source Grids
 under all three options, so the user can choose by looking at them. The follow-up issues depend on
 which option is chosen and are filed once it is.
+
+## Comments
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+"What is not in question" cited ADR 0066's pending state, which ADR 0069 superseded, and ADR 0063's
+Lists and Items, which ADR 0067 superseded; it now states the current rules, and the options use
+the same vocabulary. The prototype the Deliverable names was never committed (`e1c1643` added only
+the ticket and this spec). The glyph question itself is unchanged.

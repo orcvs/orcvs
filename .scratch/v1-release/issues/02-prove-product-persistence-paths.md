@@ -70,14 +70,15 @@ deferred to CI. `mise run bench` is not a persistence gate.
 
 Model (`orcvs/src/source/model.rs`, `cfg(feature = "persistence")`):
 
-- `test_source_round_trip_restores_shape_contents_and_derived_state` — 10×3 non-square,
-  `.+0102` plus `"x"` at index 15; snapshot and Grid shape; Language Map units by kind and
+- `test_source_round_trip_restores_shape_contents_and_derived_state` — the one 256×256 Grid
+  (ADR 0054), `.+0102` plus `"x"` at index 261; snapshot and Grid shape; Language Map units by kind and
   relative col/row (not Position identity); Token presentation per Cell; both Sources
   `execute(Tick::ZERO)` and write `03` into Cells 10–11.
 - `test_source_deserialization_rejects_a_grid_that_does_not_match_its_cells` — well-formed
   encoding whose `cols` no longer matches its Cells, refused at the model Deserialize seam.
 - `test_source_deserialization_rejects_an_empty_grid`
-- `test_source_deserialization_rejects_overflowing_grid_dimensions`
+- `test_source_deserialization_rejects_a_grid_wider_than_a_number_addresses`
+- `test_source_deserialization_refuses_a_source_stored_at_another_shape`
 
 What `Source` serializes is unchanged: `Grid` plus inner Cells. Language Map, Tokens,
 diagnostics, and execution are rebuilt.
@@ -90,18 +91,18 @@ Native product path (`console::storage_tests::a_console_save_restarts_from_the_n
 - Isolated under a unique temp directory. Never writes
   `~/Library/Application Support/Orcvs`.
 - `Console::save` → `Storage::flush` → drop the session → `RonFileStorage::from_file` →
-  `starting_source` / `Console::new` restores the edited 6×3 Source.
+  `starting_source` / `Console::new` restores the edited Source on the one 256×256 Grid.
 
 WASM product path (`console/tests/wasm.rs` `product_path`):
 
-- `a_console_save_restarts_from_the_browser_local_storage` — clears `orcvs_source` and
-  `orcvs_source_refused` from `window.localStorage`, implements `eframe::Storage` as the
-  shipped LocalStorage wrapper, `Console::save`s an edited 6×3 `.+0102`, drops the Console,
+- `a_console_save_restarts_from_the_browser_local_storage` — clears `orcvs_source_rwc`
+  (`SOURCE_KEY`) and the stale `orcvs_source` (`STALE_SOURCE_KEY`) from `window.localStorage`, implements `eframe::Storage` as the
+  shipped LocalStorage wrapper, `Console::save`s an edited `.+0102`, drops the Console,
   constructs a fresh `CreationContext` over the same localStorage, and asserts Grid, Cells,
   and `Token::Function` at the Add root.
-- `a_malformed_local_storage_revision_is_refused_and_starts_the_default_grid` — a malformed
-  `orcvs_source` in real localStorage is refused, starts the default Grid, and the first
-  save moves the refused payload to `orcvs_source_refused`.
+- `a_malformed_local_storage_revision_is_discarded_and_overwritten_by_the_next_save` — a
+  malformed `orcvs_source_rwc` in real localStorage is discarded, the console starts the empty
+  default Grid, and the next save overwrites it.
 
 ### Native binary procedure (host integration; needs a display)
 
@@ -112,7 +113,7 @@ needs a display:
 1. From a checkout of the nominated SHA, `cargo run --package console --locked` (or
    `mise run run`). App id is `"Orcvs"` (`eframe::run_native("Orcvs", ...)` in
    `console/src/main.rs`).
-2. Edit a non-square Source (a 6×3 `.+0102` is the fixture the automated test uses).
+2. Edit a Source (an `.+0102` on the one 256×256 Grid is the fixture the automated test uses).
 3. Quit. Native FileStorage flushes `eframe::storage_dir("Orcvs")/app.ron`
    (`~/Library/Application Support/Orcvs/app.ron` on macOS).
 4. Reopen the same binary. The Grid and Cells of the last saved revision are restored;
@@ -127,8 +128,10 @@ Result: not exercised interactively in this worktree. The automated replacement 
 `window.localStorage`, both `product_path` tests passed. That replaces a manual
 save / browser restart / reload smoke.
 
-The existing `refused_revision` module still covers developer-console reporting through
-custom Storage impls; it is not the product-path localStorage proof.
+Undecodable and stale stored values are covered natively by
+`console/src/console/storage_tests.rs` `an_undecodable_value_is_discarded_and_overwritten_by_the_next_save`
+and `a_stale_source_is_discarded_and_removed_by_the_next_save`; they are not the product-path
+localStorage proof.
 
 ### How 03 links this
 
@@ -144,3 +147,18 @@ ticket: `product-persistence/01` already wired `Source` through eframe storage. 
   codec FileStorage itself does not expose. `web-sys` `Storage` is a wasm32 dev-dependency
   so the WASM proof can call `window.localStorage` without shipping that feature on the
   application binary.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The Evidence section named tests, keys and a module that have since changed, and `v1-release/03`
+links it as current, so the names were corrected in place. Earlier names:
+`a_malformed_local_storage_revision_is_refused_and_starts_the_default_grid` is now
+`a_malformed_local_storage_revision_is_discarded_and_overwritten_by_the_next_save`
+(`console/tests/wasm.rs:910`); the stored key is `orcvs_source_rwc` (`console/src/persistence.rs:30`)
+with `orcvs_source` as the stale key (`:44`), and `orcvs_source_refused` no longer exists; the
+`refused_revision` module is gone; `test_source_deserialization_rejects_overflowing_grid_dimensions`
+is now `test_source_deserialization_rejects_a_grid_wider_than_a_number_addresses`
+(`orcvs/src/source/model.rs:1118`), beside `test_source_deserialization_refuses_a_source_stored_at_another_shape`
+(`:1093`). The 10×3 and 6×3 fixtures are now the one 256×256 Grid (ADR 0054), so criterion 1's
+"non-square" round trip and "malformed dimensions" are met by ADR 0054's refusal of every other
+shape. The SHA and command results above are history and unchanged.

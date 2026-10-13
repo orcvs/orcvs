@@ -15,9 +15,9 @@ cannot overflow where `TickTiming`'s can.
 
 **Status:** resolved
 
-- [ ] Both deadline computations answer overflow the same way, or the difference is explained where
+- [x] Both deadline computations answer overflow the same way, or the difference is explained where
       the unchecked one lives.
-- [ ] The existing documented reason at `orcvs/src/playback.rs:165-167` still reads correctly after
+- [x] The existing documented reason at `orcvs/src/playback.rs:165-167` still reads correctly after
       the change.
 
 ## Verification
@@ -46,3 +46,7 @@ waiting for one.
 `start` and `retune` also refuse an unschedulable period up front, as
 `PlaybackStartError::UnschedulableTickPeriod`, so the loop's arm is the second
 line rather than the first.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes ticked against main. `TickClock::deadline` (`orcvs/src/playback.rs:1323`) returns `Option<ClockInstant>`, with its doc explaining the difference; `None` becomes `PlaybackEvent::Unschedulable` (`:1353`, handled at `:1518`), and `start` and `retune` refuse an unschedulable period as `PlaybackStartError::UnschedulableTickPeriod` (`:236`). The documented reason the second box names, cited as `:165-167`, is now at `TickTiming::deadline` (`:278-283`) and reads correctly.

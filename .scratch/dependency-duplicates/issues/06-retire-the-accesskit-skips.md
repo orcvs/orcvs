@@ -2,7 +2,7 @@
 
 **What to build:** Once egui's `accesskit_winit` is on 0.34 or later, which lines every platform adapter up on `accesskit_consumer ^0.39` and `hashbrown ^0.17`, and `kittest` has a release on the same `accesskit_consumer`, the older AccessKit copies leave the graph and their skip entries come out of `deny.toml`.
 
-Waiting on: an egui/eframe release carrying the AccessKit bump (`emilk/egui#8496` is open as of 2026-09-25) and a `kittest` release after 0.4.0.
+Waiting on: an egui/eframe release carrying the AccessKit bump (`emilk/egui#8496` is open as of 2026-09-25) and a `kittest` release after 0.4.0 (kittest 0.5.0 is out, 2026-10-05).
 
 **Blocked by:** None — 05 is resolved; the wait is upstream (see below).
 
@@ -18,3 +18,7 @@ Waiting on: an egui/eframe release carrying the AccessKit bump (`emilk/egui#8496
 
 `05` is resolved, so `Blocked by:` now names the upstream wait instead. `emilk/egui#8496` is still
 open, `kittest` is still 0.4.0, and the skips are at `deny.toml:69-71`.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The skips are still at `deny.toml:69-71`, and `Cargo.lock` still holds eframe and egui_kittest 0.36.2, kittest 0.4.0 and accesskit_winit 0.32.2. From crates.io, checked 2026-10-13: kittest 0.5.0 (2026-10-05) requires `accesskit_consumer ^0.39.0` and `accesskit ^0.25.0`, and accesskit_winit 0.34.1 (2026-09-25) is out. eframe and egui_kittest are still 0.36.2, so the remaining wait is an egui/eframe release that adopts both. The state of `emilk/egui#8496` was not re-checked.
