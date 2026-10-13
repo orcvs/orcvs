@@ -358,6 +358,8 @@ fn trace() {
             .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
             .with_line_number(true)
             .with_target(true)
+            // No timestamps: Miri's isolation rejects the wall-clock read one makes.
+            .without_time()
             .finish();
 
         tracing::subscriber::set_global_default(subscriber)

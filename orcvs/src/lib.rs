@@ -19,16 +19,14 @@ mod test {
 
     pub fn trace() {
         INIT.call_once(|| {
-            let subscriber = tracing_subscriber::fmt()
+            // No timestamps: Miri's isolation rejects the wall-clock read one makes.
+            tracing_subscriber::fmt()
                 .with_env_filter("debug")
                 .with_file(true)
                 .with_line_number(true)
-                .pretty();
-            // Miri's isolation rejects the wall-clock read a timestamp makes.
-            #[cfg(miri)]
-            subscriber.without_time().init();
-            #[cfg(not(miri))]
-            subscriber.init();
+                .without_time()
+                .pretty()
+                .init();
         });
     }
 }
