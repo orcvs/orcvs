@@ -18,11 +18,11 @@ has two, and neither crosses a crate boundary, so narrowing its visibility costs
 
 **Status:** resolved
 
-- [ ] `MidiOutputAdapter::destinations` is no longer `pub`, or is gone.
-- [ ] The two test call sites still compile and still assert the same thing.
-- [ ] `MidiOutputAdapter::published_destinations` and `refresh_destinations` — the path production
+- [x] `MidiOutputAdapter::destinations` is no longer `pub`, or is gone.
+- [x] The two test call sites still compile and still assert the same thing.
+- [ ] *(Moot since: `refresh_destinations` moved to the console, `console/src/midi.rs:157`, with midi-port-ownership; `published_destinations` remains at `orcvs/src/midi.rs:145`.)* `MidiOutputAdapter::published_destinations` and `refresh_destinations` — the path production
       actually uses — are untouched.
-- [ ] Whatever `01`'s reasoning was for leaving `select_midi_destination` still holds; it is not in
+- [x] Whatever `01`'s reasoning was for leaving `select_midi_destination` still holds; it is not in
       scope here.
 
 ## Verification
@@ -51,3 +51,7 @@ well as the discovery.
 `select_midi_destination` is out of scope here: it was deleted separately, as
 part of the review pass, for the reason `01` left it standing no longer holding
 — its twelve test call sites now route through `MidiSelectionHandle`.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes 1, 2 and 4 ticked against main. `MidiOutputAdapter` (`orcvs/src/midi.rs:120-160`) has no `destinations` method; the one at `:103` belongs to the `MidiBackend` trait. The Resolved section records both test callers moving to the production path, and `select_midi_destination` no longer exists. Box 3 is moot, and is annotated rather than ticked.

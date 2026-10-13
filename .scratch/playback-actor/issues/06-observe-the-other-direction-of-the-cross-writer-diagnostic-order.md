@@ -21,11 +21,11 @@ from a live run, followed by a refused `start`, drained once.
 
 **Status:** resolved
 
-- [ ] A test records a diagnostic from the task first and from the handle second, and asserts the
+- [x] A test records a diagnostic from the task first and from the handle second, and asserts the
       drain returns them in that order.
-- [ ] It goes red under a mutation that gives the handle its own buffer drained before the channel,
+- [x] It goes red under a mutation that gives the handle its own buffer drained before the channel,
       which neither existing test catches.
-- [ ] `diagnostics_drain_in_order_and_exactly_once` keeps its existing direction; this adds to it
+- [x] `diagnostics_drain_in_order_and_exactly_once` keeps its existing direction; this adds to it
       rather than replacing it.
 
 ## Verification
@@ -54,3 +54,7 @@ with the handle's reports in their own `Arc<Mutex<Vec<_>>>` drained ahead of
 the channel, `diagnostics_drain_in_order_and_exactly_once` and
 `start_is_idempotent_and_draining_takes_the_diagnostics` both stay green and
 only the new test goes red.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes ticked against main. `a_task_recorded_diagnostic_drains_before_a_handle_recorded_one` (`orcvs/src/playback.rs:3953`) records the task's diagnostic first and the handle's second. The Resolved section records the mutation turning only that test red. `diagnostics_drain_in_order_and_exactly_once` (`:3891`) keeps its direction.

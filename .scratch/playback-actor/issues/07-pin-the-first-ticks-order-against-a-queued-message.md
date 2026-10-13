@@ -21,10 +21,10 @@ at `:1212` is the deterministic half and is the one a test can pin outright.
 
 **Status:** resolved
 
-- [ ] A test queues a message before a run's immediate first Tick and asserts the message was applied
+- [x] A test queues a message before a run's immediate first Tick and asserts the message was applied
       to that Tick, not to the one after it.
-- [ ] It goes red with `due_on_arrival` returning `Deadline` unconditionally.
-- [ ] What the test does and does not prove about `biased;` is stated in its doc: a green run under a
+- [x] It goes red with `due_on_arrival` returning `Deadline` unconditionally.
+- [x] What the test does and does not prove about `biased;` is stated in its doc: a green run under a
       randomised poll order is evidence, not proof, and the number of repeats is part of the claim.
 
 ## Verification
@@ -59,3 +59,7 @@ mutation is now caught by this test and by
 The doc states what the test does and does not prove: it pins the
 deterministic `try_recv` half only, and says nothing about the `biased;` tie,
 where a randomised poll order makes a green run evidence rather than proof.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes ticked against main. `a_message_queued_before_a_run_begins_is_applied_to_its_first_tick` (`orcvs/src/playback.rs:3120`) pins the queued message. The Resolved section records it going red when `due_on_arrival` returns `Deadline` unconditionally. Its doc (`:3098-3118`) says it pins the deterministic `try_recv` half and claims nothing about the `biased;` tie, so no repeat count is part of its claim.

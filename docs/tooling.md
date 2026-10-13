@@ -257,10 +257,13 @@ pull-request tier rather than quietly filling the quota again.
 Two gates advise rather than block, and both are recorded here rather than assumed. The benchmark
 comparison in `.github/workflows/bench.yml` fails on a threefold regression but is not a required
 status context, and `main`'s branch protection does not enforce against administrators, so a direct
-push skips every required context. Closing either needs repository administration rather than a
-change to a checkout, so
+push skips every required context. Both stay as they are for the first release: on 2026-09-24 the
+benchmark gate was accepted as advisory and branch protection left unchanged, recorded in
+`.scratch/v1-release/issues/01-prove-the-first-release-candidate.md`, whose benchmark series and
+floor review stand in for enforcement. Closing either after v1 needs repository administration
+rather than a change to a checkout, so
 `.scratch/verification-gaps/issues/09-require-the-benchmark-and-close-the-protection-bypasses.md`
-records the intended settings and holds the decision.
+records the intended settings and holds that decision.
 
 A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
 in `lang`, `orcvs`, and `console` and prints them in the bencher output format. `lang` covers language
@@ -371,10 +374,11 @@ remains a decision rather than a cost every change pays.
 The workspace's shipped code holds no `unsafe` block. What the task covers is the Source's
 copy-on-write Cell write — `Source::set_source` in `orcvs/src/source/model.rs`, through
 `SourceBuffer::write` in `orcvs/src/source/buffer.rs` — and the standard-library `unsafe` beneath it. The workspace's own `unsafe` lives only in the counting allocators its test builds
-install, such as those of `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, and the filter
-leaves them out on purpose — each is an `unsafe impl GlobalAlloc` forwarding to `System`, which is
-the one thing Miri replaces with its own allocator rather than interpreting, and no shipped target
-links any of them. The `undocumented_unsafe_blocks` and `unsafe_op_in_unsafe_fn` denials in
+install — `lang/tests/allocation.rs`, `orcvs/tests/allocation.rs` and the `allocation` module of
+`orcvs/src/lib.rs` — each an `unsafe impl GlobalAlloc` forwarding to `System`, and no shipped target
+links any of them. The filter leaves the two integration-test allocators out; the one in `orcvs`'s
+lib unit-test binary shares a binary with the selected tests, so Miri runs it, with its own allocator
+standing in for `System`. The `undocumented_unsafe_blocks` and `unsafe_op_in_unsafe_fn` denials in
 `[workspace.lints]` check on every clippy run that an `unsafe` block states its invariant; they
 cannot check that the invariant holds. Miri can, and the moment to spend it is when an `unsafe`
 block enters shipped code, or when that Cell write, or the Grid indexing that mints the index it
@@ -495,9 +499,9 @@ contract script pins the exact text of those lines.
 Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
 directory beside each crate's `src`, one file per module, and no ignore rule excludes them. The
 contract script pins the path for each property — `lang/proptest-regressions/parser.txt`,
-`lang/proptest-regressions/interpreter.txt`, `orcvs/proptest-regressions/grid.txt`,
-`orcvs/proptest-regressions/source/language_map.txt`, and
-`orcvs/proptest-regressions/source/tick.txt` — by asking
+`orcvs/proptest-regressions/grid.txt`, `orcvs/proptest-regressions/source/file.txt`,
+`orcvs/proptest-regressions/source/language_map.txt`, `orcvs/proptest-regressions/source/tick.txt`,
+and `orcvs/proptest-regressions/source/tick/schedule_reuse.txt` — by asking
 `git check-ignore` rather than reading
 `.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule. A
 counterexample that CI can see and a developer cannot reproduce is worse than no property at all, so

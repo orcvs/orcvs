@@ -33,3 +33,11 @@ Sequence operations preserve its type and encoding. Only the first is about this
 operations named in the second are Reverse, Concatenate, Select, and Replace, which issue 03 builds.
 The item is narrowed here to the half this issue owns and tested; the structural half moved to
 issue 03, which is the issue that can close it.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Retired. ADR 0063 superseded ADR 0007 and retired the Sequence value, pervasive extension and the
+`:` family; `cell-tracker/01` (PR #199, `eca29a15`) removed them. On `cf01e3c` no `:`-spelled
+Function is in `define_functions!` (`lang/src/atom.rs:727-781`), `lang/src/sequence.rs` and
+`lang/src/functions/sequence.rs` do not exist, and no `Sequence` type remains. The boxes above
+record what this ticket delivered; none describes main, and the tests named above no longer exist.

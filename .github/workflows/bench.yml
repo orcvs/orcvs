@@ -85,8 +85,9 @@ jobs:
           # own keyed on the job id, so the same bytes are stored twice.
           shared-key: bench
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `orcvs` depends on `midir`, which links ALSA on Linux. Without this the bench
-      # jobs fail while building `alsa-sys` and publish nothing.
+      # `console` depends on `midir`, which links ALSA on Linux, and the bench tasks build
+      # the console's benchmarks. Without this the bench jobs fail while building
+      # `alsa-sys` and publish nothing.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       # The two bench tasks need only cargo, which the toolchain step provides. Without
@@ -319,8 +320,9 @@ jobs:
           # own keyed on the job id, so the same bytes are stored twice.
           shared-key: bench
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `orcvs` depends on `midir`, which links ALSA on Linux. Without this the bench
-      # jobs fail while building `alsa-sys` and publish nothing.
+      # `console` depends on `midir`, which links ALSA on Linux, and the bench tasks build
+      # the console's benchmarks. Without this the bench jobs fail while building
+      # `alsa-sys` and publish nothing.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       # The two bench tasks need only cargo, which the toolchain step provides. Without

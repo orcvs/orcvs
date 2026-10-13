@@ -18,6 +18,6 @@ Track selects, clear it and restore it while Playback runs.
 
 ## Comments
 
-Rewritten for ADR 0067 and ADR 0069, which replaced the List claim, its Items, the Blank Answer and the pending state. Track's pairs are ordinary Source, and an empty pair is copied as a Jump copies empty Cells.
+Rewritten for ADR 0067 and ADR 0069, which replaced the List claim, its Items, the Blank Answer and the pending state. Track's pairs are ordinary Source, and an empty pair is copied as a Copy copies empty Cells (ADR 0069).
 
 The console presents no Source or Tick diagnostic yet (ADR 0069), so the presentation criterion needs that path first. Building it settles whether a standalone Operand Literal is diagnosed: the Language Map reports every pair east of Track as an unknown Function, two diagnostics per Cell, because a refused Function advances one Cell. Not diagnosing a Unit that spells a Number or a Note is a change to `Parser::analyze` and the Language Map's row walk, and needs an ADR answering ADR 0067's open question; its cost is that operands left behind by a deleted or replaced Function are no longer diagnosed.

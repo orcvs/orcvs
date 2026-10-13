@@ -5,7 +5,7 @@ Blocked by: 01, source-bundle/01, dependency-derivation/02
 
 **What to build:**
 
-`producer_edges` (`orcvs/src/source/tick.rs`) still orders a Self-Banging Function before every root its reservation contacts that waits for a Bang. The edge existed so that contact could deliver activation; ticket 01 removed contact activation (D16), so a blocked mover now writes `**` and activates nothing in its Turn. The edge was kept because the handoff fixed the existing scheduling edges as unchanged.
+`producer_edges` (`orcvs/src/source/tick/dependencies.rs:215`; the `moves` rule at `:243-245`, the contact loop at `:263-284`) still orders a Self-Banging Function before every root its reservation contacts that waits for a Bang. The edge existed so that contact could deliver activation; ticket 01 removed contact activation (D16), so a blocked mover now writes `**` and activates nothing in its Turn. The edge was kept because the handoff fixed the existing scheduling edges as unchanged.
 
 What the edge still does is order: it makes a mover's Turn precede a contacted Terminal Output root, Halt or Directional Bang. No case was found where it closes a cycle, but nothing in the language now asks for it. Removing it would let Source order decide between a mover and the root it meets, as it already does for an intrinsically active root (ADR 0060 rule 3b).
 
@@ -21,3 +21,12 @@ The owner decides whether the edge goes. It is a scheduling change, so it is not
 
 2026-10-11 — Raised as finding 2 of the `/code-review` run on PR #213 and filed for a decision at the owner's request.
 2026-10-12 — Source-bundle ticket 01 replaced the `advances` predicate with `SourceBundle::clears_own_span` and `writes_displaced`. The edge is now the `moves` rule over those two facts in `producer_edges`, so either outcome edits that one rule.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+`producer_edges` moved to `orcvs/src/source/tick/dependencies.rs:215` in `a8ca4cf`; the body's
+path is updated. All three blockers are resolved. Criterion 2 as written removes the
+intrinsic-root exemption, which would add edges rather than remove one: the comment at
+`dependencies.rs:271-275` says ordering two mutually covering movers after each other makes the
+pair a cycle. Removing the mover → contacted-root edge means a moving bundle orders no contacts
+(`orders_contacts`, `:239`). Restating the criterion is the owner's decision.

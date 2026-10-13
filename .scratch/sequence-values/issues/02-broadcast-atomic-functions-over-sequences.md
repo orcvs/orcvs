@@ -104,3 +104,11 @@ had thinner cover here than the widened one and that is what let the regression 
 The remaining 4.7x over the pre-broadcast base belongs to the seam, not to this fix, and is left
 standing deliberately. It is recorded against ADR 0026 in `sequence-values/03`, with the baseline
 numbers, the measurement method, and what a uniform value model has to do to recover it.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Retired. ADR 0063 superseded ADR 0007 and retired the Sequence value, pervasive extension and the
+`:` family; `cell-tracker/01` (PR #199, `eca29a15`) removed them. On `cf01e3c` no `:`-spelled
+Function is in `define_functions!` (`lang/src/atom.rs:727-781`), `lang/src/sequence.rs` and
+`lang/src/functions/sequence.rs` do not exist, and no `Sequence` type remains. The boxes above
+record what this ticket delivered; none describes main, and the tests named above no longer exist.

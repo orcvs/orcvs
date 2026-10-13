@@ -97,3 +97,13 @@ Unmoved, as expected of `Copy` newtypes over a byte. Two runs taken while anothe
 **Carried forward to `midi-output-family/04`.** Because `controller`, `value`, `lsb`, and `msb` are not minted here, nothing in the code stops `!c` arriving with one shared data-byte type for its two same-domain operands — the failure this ticket exists to prevent, arriving one ticket later. `define_data_byte_roles!` makes the right answer one line each, but it is a convention, not a compile error. That ticket now carries the requirement as three checkboxes of its own, and the naming call for its value role, which cannot be `Value`.
 
 **Review surface.** The human API review this ticket defers covers four public types, not one: `PlayCommand`'s changed field types, plus `MidiChannel` and `Velocity` newly exported from `lang` and re-exported through `orcvs::source` alongside `Note`.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Box 10's human API review is still unrecorded. The surface it covers has grown since the Review
+surface note: `PlayCommand` now has `ControlChange` and `PitchBend` variants
+(`lang/src/lib.rs:80-100`), and `Controller`, `ControlValue`, `BendLsb`, `BendMsb`
+(`lang/src/atom.rs:129-155`) and `Length` (`:165`) join `MidiChannel`, `Velocity` and `Note`
+as public types exported from `lang` (`lang/src/lib.rs:12-15`) and re-exported through
+`orcvs::source` (`orcvs/src/source/mod.rs:22-25`). The workspace is `publish = false`
+(`Cargo.toml:8`). A review or an explicit waiver is owed before the box is ticked.

@@ -11,9 +11,10 @@ evidence-backed, and ready for implementation sessions to execute.
 ## Notes
 
 - This effort plans and may correct issue-tracker artifacts; it does not change production code.
-- The release includes the accepted numeric, Sequence, Tick, spatial, and MIDI slice. Source
-  Read/Write addressing, messaging transports, and cross-version backward compatibility are not
-  release promises.
+- The release includes the accepted numeric, Tick, spatial (including the directional Copies), and
+  MIDI slice; ADR 0063 retired the Sequence value. Whether the Functions ADR 0070 added (the Reads,
+  Writes, Track, Push and the absolute Copy) join it is an open decision (audit 2026-10-13).
+  Messaging transports and cross-version backward compatibility are not release promises.
 - `CONTEXT.md` and accepted ADRs constrain the route. A concrete contradiction becomes its own
   decision rather than an incidental documentation edit.
 - An `Improvement` joins the release route only when correctness, safe implementation, or measured
@@ -74,3 +75,17 @@ evidence-backed, and ready for implementation sessions to execute.
 - Promising Source, persistence-format, or Rust-API compatibility across pre-release versions.
 - Reopening accepted language semantics without a concrete contradiction.
 - Pulling independent cleanup into the release solely because it is inexpensive.
+
+## Comments
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The Notes bullet on release scope was corrected for ADR 0063 and ADR 0070. Three Decisions entries
+are history that later ADRs and tickets overtook. The first entry's Sequence slice, its Bangs in
+Sequences and its "General Source addressing" deferral predate ADR 0063, which retired the Sequence
+value, and ADR 0070, which shipped Read and Write Functions on main. The `07` entry's
+"`native-midi/02` records the WASM feature matrix" records a feature that `midi-port-ownership/03`
+and `05` later removed: `orcvs/Cargo.toml` has no `native-midi` feature and `midir` is a `console`
+dependency (`console/Cargo.toml:130-131`). The "Designing concrete Source Read/Write addressing"
+line under Out of scope bounded this effort, not the language. `01`'s inventory was refreshed on
+the same date.

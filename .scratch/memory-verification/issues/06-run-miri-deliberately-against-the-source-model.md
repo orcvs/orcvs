@@ -13,7 +13,7 @@ interprets.
 - [x] A task runs Miri over the Source model tests, installing the nightly toolchain it needs rather
       than changing the pinned channel. `mise.toml` `[tasks.miri]` installs `nightly` with the `miri`
       component and runs `cargo +nightly miri nextest run`; `rust-toolchain.toml` is untouched.
-      **Written, never executed** — see the Status above.
+      First executed 2026-10-13: run 2 ([38333501077](https://github.com/orcvs/orcvs/actions/runs/38333501077)) passed 80 of 80 — see First dispatches below.
 - [x] The run is scoped by test filter, not by crate. `-E 'test(/^source::model::test::/)'` selected
       68 tests when this was written, confirmed then by `cargo nextest list`, all in the `orcvs` lib
       unit-test binary and all in `orcvs/src/source/model.rs`. The module has grown since; the count
@@ -98,3 +98,7 @@ binary the `source::model::test::` filter selects, so Miri interprets it. Correc
   binary has no `not(miri)` and runs under the interpreter, and run 2 passes with it there. The
   `miri.yml` comment now says so instead of placing every counting allocator outside the filter.
 - Whether Miri should run on pull requests is `07`.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Criterion 1's "never executed" is corrected from the First dispatches record. AGENTS.md's Miri bullet (`AGENTS.md:91-100`) no longer names the byte write in `Source::set_source`: it names an `unsafe` block entering shipped code, or the copy-on-write Cell write through `SourceBuffer::write`. `docs/tooling.md` now places the lib unit-test allocator inside the filter, matching `.github/workflows/miri.yml`.

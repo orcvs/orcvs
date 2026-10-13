@@ -7,27 +7,29 @@ Blocked by: None — can start immediately
 
 A syntax prototype that draws the same Source Grids under each of the three options in
 [`../spec.md`](../spec.md), so the user can choose the empty Cell glyph by looking at them. The
-semantics are fixed by ADR 0033, ADR 0063 and ADR 0066 and are the same in every option. Only the
+semantics are fixed by ADR 0033, ADR 0067 and ADR 0069 and are the same in every option. Only the
 glyph differs.
 
-The prototype is [`../prototype.html`](../prototype.html). It is a self-contained interactive page,
-as `docs/agents/syntax-prototypes.md` requires. It has three scenarios, each a sequence of Grids with
+The prototype has not been built: `e1c1643` committed only this ticket and `spec.md`. The page
+described below is still owed, as `docs/agents/syntax-prototypes.md` requires, before the first
+criterion can be met. It is a self-contained interactive page. It has three scenarios, each a sequence of Grids with
 one frame per Tick or edit. Each frame shows the three options side by side. Every Grid has its
-diagnostic beside it: the evaluation when one succeeds, **pending, no diagnostic** when an operand
-is unwritten, and the error when a slot is malformed. Every Grid also shows the Source File line it
+diagnostic beside it: the evaluation when one succeeds, the diagnostic for an unwritten operand,
+which ADR 0069 makes invalid input, and the error when a slot is malformed. Every Grid also shows the Source File line it
 would save. Changed Cells are outlined. Reset, previous and next walk each scenario
 deterministically. A **Plain text** view drops the tint and shows what a file, a diff or a terminal
 shows. It is the view where options 1 and 2 coincide.
 
-- **A. One-row nested tracker.** `!~0064@t0208C4D4E4  G4C5  E404`, with a Delay above it supplying
-  the Bang. The performer edits the index onto a blank Item (a rest), fills the Item in, then
-  deletes half of it (malformed).
+- **A. One-row nested tracker.** `!~0064&t0208C4D4E4  G4C5  E404`, with a Delay above it supplying
+  the Bang. The performer edits the index onto an empty pair (a rest), fills the pair in, then
+  deletes half of it (malformed). Under ADR 0067 Track claims only its operands, so this row needs
+  redrawing: `!~`'s length operand would be the first pair after Track's operands.
 - **B. Track feeds Timed Play through a Portal.** A Clock writes Track's index, a root Track writes
-  the selected Item south into Timed Play's note slot, and a Delay Bangs Timed Play. Ticks 0–4 run
-  over the List `C4 __ E4 G4`. The Source File is loaded with both slots unwritten.
-- **C. Arithmetic with a pending operand.** `.+01` typed one Cell at a time, from pending to
-  malformed `0 ` to `03`, then retyped as `.+01 02` (ADR 0033's example). A Comment row shows what
-  each option does to spaces in Comment text.
+  the selected pair south into Timed Play's note slot, and a Delay Bangs Timed Play. Ticks 0–4 run
+  over the pairs `C4 __ E4 G4`. The Source File is loaded with both slots unwritten.
+- **C. Arithmetic with an unwritten operand.** `.+01` typed one Cell at a time, from unwritten
+  (invalid, ADR 0069) to malformed `0 ` to `03`, then retyped as `.+01 02` (ADR 0033's example).
+  A Comment row shows what each option does to spaces in Comment text.
 
 Option 3 needs a respelling of the numeric `.` family and of the Clock `~.`. The prototype uses
 **`#` (`#+`, `#x`, `#v` …) and `~:` as placeholders**, labelled as hypothetical in the page, only so
@@ -42,22 +44,22 @@ against it as design input, as `syntax-prototypes.md` says.
 Each Grid is bracketed so its trailing empty Cells are visible. Option 2 is drawn as the console
 would paint it. Its file is identical to option 1's.
 
-#### A, edit 1: index 03 selects the blank Item
+#### A, edit 1: index 03 selects the empty pair
 
 ```text
 1 space   [~*0101                          ]
           [**                              ]
-          [!~0064@t0308C4D4E4  G4C5  E404  ]
+          [!~0064&t0308C4D4E4  G4C5  E404  ]
           [                                ]
 
 2 painted [~*0101..........................]
           [**..............................]
-          [!~0064@t0308C4D4E4..G4C5..E404..]
+          [!~0064&t0308C4D4E4..G4C5..E404..]
           [................................]
 
 3 Source  [~*0101..........................]
           [**..............................]
-          [!~0064@t0308C4D4E4..G4C5..E404..]
+          [!~0064&t0308C4D4E4..G4C5..E404..]
           [................................]
 ```
 
@@ -65,31 +67,31 @@ would paint it. Its file is identical to option 1's.
 
 ```text
 1 space   [~*0101  ~.0104      ]
-          [      @t  04C4  E4G4]
+          [      &t  04C4  E4G4]
           [!~0064  02          ]
 
 2 painted [~*0101..~.0104......]
-          [......@t..04C4..E4G4]
+          [......&t..04C4..E4G4]
           [!~0064..02..........]
 
 3 Source  [~*0101..~:0104......]
-          [......@t..04C4..E4G4]
+          [......&t..04C4..E4G4]
           [!~0064..02..........]
 ```
 
-#### B, Tick 1: Clock answers 01, Track copies the blank Item
+#### B, Tick 1: Clock answers 01, Track copies the empty pair
 
 ```text
 1 space   [~*0101  ~.0104      ]
-          [**    @t0104C4  E4G4]
+          [**    &t0104C4  E4G4]
           [!~0064  02          ]
 
 2 painted [~*0101..~.0104......]
-          [**....@t0104C4..E4G4]
+          [**....&t0104C4..E4G4]
           [!~0064..02..........]
 
 3 Source  [~*0101..~:0104......]
-          [**....@t0104C4..E4G4]
+          [**....&t0104C4..E4G4]
           [!~0064..02..........]
 ```
 
@@ -127,7 +129,7 @@ would paint it. Its file is identical to option 1's.
 
 What to look at:
 
-- **A, B.** Under options 2 and 3, a blank List Item reads as `..`, a visible rest. Under option 1
+- **A, B.** Under options 2 and 3, an empty pair that Track reads shows as `..`, a visible rest. Under option 1
   it is a gap that reads as spacing.
 - **B, loaded.** Under option 1 the unwritten index and note slots are invisible in the file. Under
   option 3 they are visible in the file. Under option 2 they are visible only in the console.
@@ -150,3 +152,14 @@ What to look at:
     trailing-empty trimming and whether a space is read as empty; and to migrate or refuse
     existing Source Files.
 - [ ] The prototype is deleted once the decision is recorded.
+
+## Comments
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The `../prototype.html` this ticket described was never committed: `e1c1643` added only this ticket
+and `spec.md`, and no such file exists. ADR 0069 superseded ADR 0066's pending state, and ADR 0067
+superseded ADR 0063's List claim and Items, so the semantics line, the scenarios and their wording
+were updated. Track is spelled `&t` (`lang/src/atom.rs:772`); `@t` is now Push (`:759`). Scenario A's
+redrawing note is inferred from the Track entry in `CONTEXT.md`, not run. The glyph question
+itself is unchanged.

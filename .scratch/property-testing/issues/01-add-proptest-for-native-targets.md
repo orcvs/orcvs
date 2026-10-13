@@ -18,8 +18,8 @@ Wire the case count to the verification tier, and commit the counterexample file
 
 ## Downstream integration
 
-- [ ] The full Grid and Position suite is owned by `issues/02-grid-position-round-trip.md`.
-- [ ] The full parser totality suite is owned by `issues/03-parser-totality-on-ascii-input.md`.
+- [x] The full Grid and Position suite is owned by `issues/02-grid-position-round-trip.md`. *(02 resolved.)*
+- [x] The full parser totality suite is owned by `issues/03-parser-totality-on-ascii-input.md`. *(03 resolved.)*
 
 ## Comments
 
@@ -94,3 +94,8 @@ states what the script checks and why it asks git rather than reading `.gitignor
 
 The Downstream integration boxes stay unchecked. `issues/02` and `issues/03` are both still
 `ready-for-agent` and own those suites.
+
+### 2026-10-13 — Audit against origin/main cf01e3c
+
+`issues/02` and `issues/03` are both resolved, so the note above that they are still
+`ready-for-agent` is out of date, and the Downstream integration boxes are ticked.

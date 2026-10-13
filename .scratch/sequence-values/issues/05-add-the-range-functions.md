@@ -101,3 +101,11 @@ blockers listed above no longer apply.
   `a_non_pervasive_parent_does_not_widen_over_a_declared_number_range_child` (`:?00:-0003` stays
   `Pair`). Ordering: `live_a_declared_number_range_reservation_orders_computations_it_covers` and
   the Note sibling — the Range in row 1 takes Turn 0, the covered `.+` in row 0 takes Turn 1.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Retired. ADR 0063 superseded ADR 0007 and retired the Sequence value, pervasive extension and the
+`:` family; `cell-tracker/01` (PR #199, `eca29a15`) removed them. On `cf01e3c` no `:`-spelled
+Function is in `define_functions!` (`lang/src/atom.rs:727-781`), `lang/src/sequence.rs` and
+`lang/src/functions/sequence.rs` do not exist, and no `Sequence` type remains. The boxes above
+record what this ticket delivered; none describes main, and the tests named above no longer exist.

@@ -79,3 +79,20 @@ The table is stale. #185 added `console/src/web_midi.rs` (19 `#[tokio::test]`), 
 (84), `kittest_tests.rs` (62), `paint.rs` (39) and `midi.rs` (22) have grown: about 235
 runtime-carrying tests against the table's 202. The recount stays part of this ticket, and should
 say whether `web_midi.rs`'s tests need a runtime for their own reasons.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+The table above (202, at `cad296df`) and the 2026-10-01 figure (about 235) are history. Counted by grep for `#[tokio::test`:
+
+| File | `#[tokio::test]` | `#[test]` |
+|---|---|---|
+| `console/src/console/tests.rs` | 84 | 11 |
+| `console/src/console/kittest_tests.rs` | 67 | 3 |
+| `console/src/console/kittest_tests/capture.rs` | 1 | 0 |
+| `console/src/console/storage_tests.rs` | 8 | 0 |
+| `console/src/paint.rs` | 37 | 5 |
+| `console/src/midi.rs` | 22 | 4 |
+| `console/src/web_midi.rs` | 19 | 3 |
+| `console/src/marks.rs` | 1 | 3 |
+
+That is 239 console tests carrying a runtime. How many carry one only because `Orcvs::new` spawns the engine is still to be re-derived.

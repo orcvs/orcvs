@@ -24,10 +24,10 @@ device call delays it by the length of that call.
 
 **Status:** resolved
 
-- [ ] The doc at `orcvs/src/playback.rs:2977-2979` and the code agree.
-- [ ] If the fix is in the doc, it names the `Drop` path as the scope of the guarantee and says what
+- [x] The doc at `orcvs/src/playback.rs:2977-2979` and the code agree. *(The doc is now `diagnostics_once_stopped`'s, `orcvs/src/playback.rs:4835-4849`.)*
+- [x] If the fix is in the doc, it names the `Drop` path as the scope of the guarantee and says what
       a caller after an ordinary stop may still be waiting for.
-- [ ] If the fix is in `stop()`, the delay the publish now sits behind is stated, because the
+- [ ] *(Not taken: the fix is in the doc.)* If the fix is in `stop()`, the delay the publish now sits behind is stated, because the
       published state is what gates the console's Space handling.
 
 ## Verification
@@ -55,3 +55,7 @@ diagnostics arrive, the way
 The ordering in `stop()` is left as it is, and the reason is now written down:
 the published state is what the console gates Space on, so moving the publish
 behind a device call would delay it by the length of that call.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Boxes 1 and 2 ticked against main: `diagnostics_once_stopped`'s doc (`orcvs/src/playback.rs:4835-4849`) names the `Drop` path as the scope of its guarantee and says what a caller after an ordinary stop may still be waiting for. Box 3 was the branch not taken, and stays unticked with a note.

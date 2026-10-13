@@ -64,8 +64,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `orcvs` links ALSA through `midir`, so the crate has to *build* on Linux
-      # even though no test selected below asks Miri to call into it.
+      # `midir`, which links ALSA on Linux, is a `console` dependency and not one of
+      # `orcvs`'s, and this job builds `orcvs` alone, so its graph may not need ALSA.
+      # The step stays until a dispatched run without it shows the build passes.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1

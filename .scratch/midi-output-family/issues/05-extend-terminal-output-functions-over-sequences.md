@@ -22,7 +22,7 @@ Add the Range Functions, without which no Source text can spell a Sequence opera
       validated.
 - [x] Timed Play schedules one Note Off per element at that element's own length.
 - [ ] Monophonic Play leaves the last element owning the channel, per ADR 0016, and needs no
-      separate diagnostic.
+      separate diagnostic. — void: ADR 0063 retired pervasive extension.
 - [x] The `lang` to `orcvs` seam carries the group, and the Playback Engine and output adapter
       deliver it in order.
 - [x] `CONTEXT.md` records that Terminal Output Functions extend, replacing the claim that they take
@@ -58,3 +58,10 @@ here: `Stack::checked` answers each scalar operand's declared domain at width ze
 element binds to answer it. Without that, `!> FF 7F <empty>` performed nothing and said nothing,
 while `!> FF 7F <one note>` diagnosed the channel, so whether the Source was told about an
 out-of-range byte depended on the length of an unrelated operand.
+
+### Audit against origin/main cf01e3c — 2026-10-13
+
+Retired by ADR 0063, which superseded ADR 0030; `cell-tracker/01` removed the pervasion this ticket
+built. On `cf01e3c` each Expression performs exactly one Play Command (`CONTEXT.md:266`), and a
+chord is several roots one Bang activates (`orcvs/src/source/tick.rs:4343`,
+`orcvs/src/playback/schedule.rs:439`). The ticked boxes record what landed; none describes main.
