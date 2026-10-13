@@ -232,17 +232,15 @@ fn producer_edges(
     // Function's and the Bang Function's do. Ordering such a producer after
     // itself would stop it every Tick it takes a Turn in.
     let exempt_from_itself = bundle.is_some_and(SourceBundle::clears_own_span);
-    // A bundle that leaves its producer standing, an emission, is admitted
-    // only into Cells empty at its Turn, so it never writes over a Function
-    // its reservation contacts, and it delivers no activation there: occupancy
+    // A bundle that writes displaced, an emission or a move, is admitted only
+    // into Cells empty at its Turn, so it never writes over a Function its
+    // reservation contacts, and it delivers no activation there: occupancy
     // alone orders nothing (ADR 0060 rule 3b). An occupant that leaves first
-    // makes room; one still standing refuses the emission.
-    let orders_contacts = bundle.is_none_or(SourceBundle::clears_own_span);
-    // A bundle that clears its own Span and writes displaced moves, and a
-    // move meets an intrinsically active root it contacts in Source order.
-    // Both facts are named although only bundles that clear their own Span
-    // order contacts at all, so the rule reads the same wherever a move is.
-    let moves = bundle.is_some_and(|bundle| bundle.clears_own_span() && bundle.writes_displaced());
+    // makes room; one still standing refuses the placement, and a refused
+    // move leaves `**` in its own Span instead. Its reservation orders none
+    // of the Functions it contacts, whether they wait for a Bang or not, so
+    // Source order decides between them.
+    let orders_contacts = bundle.is_none_or(|bundle| !bundle.writes_displaced());
     if let Some(target) = locked_subtree(locks, index) {
         for consumer in target.clone() {
             edge(index, consumer);
@@ -263,27 +261,6 @@ fn producer_edges(
             .into_iter()
             .flatten();
         for contact in contacts {
-            // A move is admitted only where the Cells it enters are empty,
-            // so a moving bundle's Portal never writes over the Language Unit
-            // it contacts: the contact blocks the move and the producer
-            // leaves `**` in its own Span instead. Its reservation still
-            // orders it before a contacted root that waits for a Bang, as any
-            // reservation does. An intrinsically active root is exempt, as in
-            // the Bang emission arm below, and meets the mover in Source
-            // order.
-            //
-            // Without it two Functions whose Portals cover each other name
-            // each other in reservations neither can write through, and
-            // ordering each after the other makes that pair a cycle that
-            // stops both, though two blocked moves are not a contested
-            // Cell.
-            if moves
-                && nodes[nodes[contact.index].owner]
-                    .function
-                    .is_intrinsically_active()
-            {
-                continue;
-            }
             for descendant in contact.subtree {
                 order_after(descendant);
             }
@@ -663,24 +640,20 @@ mod test {
     }
 
     #[test]
-    fn a_mover_meets_an_intrinsically_active_root_in_source_order() {
-        // `>>` reserves the Cells `^^` stands in, and `^^` takes its Turn
-        // with nothing delivered to it, so Source order decides between them.
-        let (lookup, locks) = fixture(Grid::with_shape(6, 1), &[">>^^  "]);
-        let (mover, active) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
-        assert!(
-            !derive(&lookup, &locks)
-                .dependencies
-                .contains(&(mover, active))
-        );
-        // A root that waits for a Bang is still ordered after the mover.
-        let (lookup, locks) = fixture(Grid::with_shape(6, 1), &[">>*!  "]);
-        let (mover, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
-        assert!(
-            derive(&lookup, &locks)
-                .dependencies
-                .contains(&(mover, halt))
-        );
+    fn a_mover_meets_every_root_it_contacts_in_source_order() {
+        // `>>` reserves the Cells the root east of it stands in, whether that
+        // root takes its Turn with nothing delivered to it, as `^^` does, or
+        // waits for a Bang, as `*!` does. Neither is ordered after the mover.
+        for rows in [[">>^^  "], [">>*!  "]] {
+            let (lookup, locks) = fixture(Grid::with_shape(6, 1), &rows);
+            let (mover, contacted) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
+            assert!(
+                !derive(&lookup, &locks)
+                    .dependencies
+                    .contains(&(mover, contacted)),
+                "{rows:?}"
+            );
+        }
     }
 
     #[test]

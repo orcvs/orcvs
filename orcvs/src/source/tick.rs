@@ -1191,15 +1191,18 @@ mod test {
             fn placements_never_meet_an_ordering_defect_or_a_cycle(
                 rows in prop::collection::vec(
                     prop::collection::vec(
-                        select(vec![" ", "  ", "^^", "vv", "<<", ">>", "*^", "*v", "*<", "*>"]),
+                        select(vec![
+                            " ", "  ", "^^", "vv", "<<", ">>", "*^", "*v", "*<", "*>", "**", "*!",
+                        ]),
                         0..=6,
                     ),
                     4,
                 ),
             ) {
                 // Whole spellings and single spaces give both aligned and offset
-                // placements. Nothing here bangs except a blocked mover, so every
-                // emitter is activated by collision or not at all.
+                // placements. A blocked mover and a typed `**` are what bang, so
+                // an emitter or a Halt a mover contacts may be activated in the
+                // Tick it is contacted, or not at all.
                 let rows: Vec<String> = rows.iter().map(|row| row.concat()).collect();
                 let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
                 let (plans, _, _) = tick_by_tick(Grid::with_shape(12, 4), &refs, 5);
