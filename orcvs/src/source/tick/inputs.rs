@@ -2,12 +2,16 @@
 //!
 //! A schedule is shared by every revision whose scheduling inputs are equal,
 //! so schedule construction must read nothing that equality does not compare.
-//! This module is where both come from: construction reads a revision through
-//! [`ScheduleInputs`] and nothing else, and reuse compares rows through the
+//! This module is where both come from: construction reads a revision's Map
+//! through [`ScheduleInputs`] and nothing else, beside the Grid every
+//! revision of one Source shares, and reuse compares rows through the
 //! [`PartialEq`] of what this module projects. Each projection's accessors
 //! read only the facts its `PartialEq` compares: a fact construction needs is
 //! added as an accessor here and to that `PartialEq` together, never read
-//! from the borrowed Parser structure anywhere else.
+//! from the borrowed Parser structure anywhere else. The Language Map only
+//! hands over what a row derived; a fact it does not already hand over is
+//! the one case that also widens what `DerivedExpression::scheduled` or
+//! `DerivedRow` passes in.
 //!
 //! The projection borrows the Parser structure each row already holds. It
 //! stores nothing and allocates nothing: an Operand Literal's value, a Token,

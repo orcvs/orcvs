@@ -226,7 +226,7 @@ impl Portal {
     }
 
     ///
-    /// Language-Map occupancy of up to the Cell pair one Atom occupies from
+    /// Occupancy among `units` of up to the Cell pair one Atom occupies from
     /// this destination.
     ///
     /// A destination in the last column still answers the one Cell it holds,
