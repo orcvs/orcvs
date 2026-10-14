@@ -1,6 +1,6 @@
 # Decide each Contact's Consequence in one module
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -72,3 +72,11 @@ No Grid plays differently. No Dependency, activation, diagnostic or ADR changes.
 ## Further Notes
 
 The design was settled by grilling architecture candidates 1 and 4 of the fourth pass on 2026-10-14.
+
+## As built
+
+- `activate(root)` answers `Delivered` or `Missed`. Ordering already filters roots it holds active, so a third outcome had no caller.
+- Refusal is its own question, `refusal`, because it is decided over every Contact before any of them changes. Contacts are then asked one at a time, because one Contact's suppression can cover a later one.
+- `Phase::Turn` carries the `Delivery`, the written Atom as an `Option` (a lock writes nothing), and a `TurnFacts` view. `Turns` implements the view, and the dependency tests implement it with stated facts.
+- The schedule-only filters stay in `producer_edges`: a bundle that clears its own Span is exempt from its own Cells, and `lock_covers`, which now asks `lock_verdict`.
+- The pre-Tick activation closure asks `bang_root`, so which roots a Bang can reach is one rule.

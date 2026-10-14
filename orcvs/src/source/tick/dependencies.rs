@@ -81,11 +81,12 @@ pub(super) enum Phase<'a> {
     /// its producer first: a Reservation orders Turns and decides nothing
     /// else.
     Schedule,
-    /// During the Tick, for an admitted write carrying `written` whose place
-    /// `delivery` decided, against the Turns taken so far.
+    /// During the Tick, for a Turn whose place `delivery` decided, against
+    /// the Turns taken so far. `written` is the Atom its admitted write
+    /// carries, and `None` for a lock, which writes nothing.
     Turn {
         delivery: Delivery,
-        written: Atom,
+        written: Option<Atom>,
         turns: &'a dyn TurnFacts,
     },
 }
@@ -125,6 +126,27 @@ pub(super) enum Refusal {
     /// A write the schedule ordered first reaches a computation that has
     /// taken its Turn, so the schedule ordered it wrongly.
     OrderingDefect,
+}
+
+/// What one locking Function's lock means in a [`Phase`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(super) enum Locked {
+    /// The Function locks nothing: it declares no lock, or its site is
+    /// outside the Grid or empty.
+    Unchanged,
+    /// The locker takes its Turn before every computation in the locked
+    /// subtree.
+    OrderAfter(Range<usize>),
+    /// The locked subtree is suppressed and its root locked for the Tick.
+    Lock(Range<usize>),
+    /// The locked root has taken its Turn, so a lock whose place the Tick
+    /// decided misses it.
+    Missed(usize),
+    /// A lock the schedule ordered first finds its subtree has taken a Turn,
+    /// so the schedule ordered it wrongly.
+    OrderingDefect,
+    /// The site holds something other than an Expression root.
+    NotARoot,
 }
 
 ///
@@ -273,15 +295,39 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
     reached
 }
 
-/// The complete subtree a locking Function's Portal names.
-fn locked_subtree(locks: &Locks, locker: usize) -> Option<&Range<usize>> {
-    match locks.lock_target(locker) {
-        Some(Lock::Root(subtree)) => Some(subtree),
-        _ => None,
+///
+/// What `locker`'s lock means in `phase`.
+///
+/// Before the Tick a lock orders the locker before the whole subtree it
+/// locks. During its Turn a lock that finds that subtree untouched
+/// suppresses it and locks its root for the Tick. One the schedule held
+/// active was placed ahead of that root, so finding it taken is an ordering
+/// defect; one the Tick joined took its place during the Tick, and a lock
+/// lasts only for its Tick, so it misses a root that has taken its Turn.
+///
+pub(super) fn lock_verdict(locks: &Locks, locker: usize, phase: Phase<'_>) -> Locked {
+    match (locks.lock_target(locker), phase) {
+        (None, _) | (Some(Lock::NotARoot), Phase::Schedule) => Locked::Unchanged,
+        (Some(Lock::NotARoot), Phase::Turn { .. }) => Locked::NotARoot,
+        (Some(Lock::Root(target)), Phase::Schedule) => Locked::OrderAfter(target.clone()),
+        (
+            Some(Lock::Root(target)),
+            Phase::Turn {
+                delivery, turns, ..
+            },
+        ) => {
+            if !target.clone().any(|descendant| turns.attempted(descendant)) {
+                Locked::Lock(target.clone())
+            } else if delivery.feeds_back() {
+                Locked::Missed(target.start)
+            } else {
+                Locked::OrderingDefect
+            }
+        }
     }
 }
 
-/// Whether `locker` is a locking root whose Portal names `producer`.
+/// Whether `locker` is a locking root whose lock covers `producer`.
 ///
 /// A planned write or Bang from that producer onto the locker is not a
 /// second Dependency: the lock orders the locker first. A lock that holds
@@ -289,9 +335,11 @@ fn locked_subtree(locks: &Locks, locker: usize) -> Option<&Range<usize>> {
 /// the locker in time, leaves the producer to take its Turn after it, and a
 /// Bang that producer delivers to the locker is missed.
 fn lock_covers(lookup: &Lookup, locks: &Locks, locker: usize, producer: usize) -> bool {
-    let node = &lookup.nodes()[locker];
-    node.parent.is_none()
-        && locked_subtree(locks, locker).is_some_and(|target| target.contains(&producer))
+    lookup.nodes()[locker].parent.is_none()
+        && matches!(
+            lock_verdict(locks, locker, Phase::Schedule),
+            Locked::OrderAfter(target) if target.contains(&producer)
+        )
 }
 
 ///
@@ -336,8 +384,8 @@ fn producer_edges(
     // Function's and the Bang Function's do. Ordering such a producer after
     // itself would stop it every Tick it takes a Turn in.
     let exempt_from_itself = bundle.is_some_and(SourceBundle::clears_own_span);
-    if let Some(target) = locked_subtree(locks, index) {
-        for consumer in target.clone() {
+    if let Locked::OrderAfter(target) = lock_verdict(locks, index, Phase::Schedule) {
+        for consumer in target {
             edge(index, consumer);
         }
     }
@@ -418,7 +466,9 @@ pub(super) fn contact(
             Consequence::Unchanged
         }
         Phase::Turn { written, .. } => match written {
-            Atom::Function(replacement) if contacted.at_anchor => Consequence::Replace(replacement),
+            Some(Atom::Function(replacement)) if contacted.at_anchor => {
+                Consequence::Replace(replacement)
+            }
             _ => Consequence::Suppress(contacted.subtree()),
         },
     };
@@ -462,7 +512,7 @@ pub(super) fn bang_root(
             Consequence::OrderAfter(lookup.descendants(root))
         }
         Phase::Turn {
-            written: Atom::Bang,
+            written: Some(Atom::Bang),
             ..
         } => Consequence::Activate(root),
         _ => Consequence::Unchanged,
@@ -483,11 +533,11 @@ pub(super) fn bang_root(
 ///
 pub(super) fn refusal(
     relationships: &PortalRelationships<'_>,
-    written: Atom,
+    written: Option<Atom>,
     delivery: Delivery,
     turns: &dyn TurnFacts,
 ) -> Option<Refusal> {
-    if let Atom::Function(replacement) = written
+    if let Some(Atom::Function(replacement)) = written
         && let Some(change) = relationships.functions().find_map(|contacted| {
             if !contacted.at_anchor || (delivery.feeds_back() && turns.attempted(contacted.index)) {
                 return None;
@@ -773,8 +823,8 @@ mod test {
     use lang::{Atom, Function, ReplacementChange};
 
     use super::{
-        Consequence, Delivery, FunctionContact, Locks, Phase, Refusal, TurnFacts, bang_root,
-        contact, derive, join, refusal, reservations,
+        Consequence, Delivery, FunctionContact, Locked, Locks, Phase, Refusal, TurnFacts,
+        bang_root, contact, derive, join, lock_verdict, refusal, reservations,
     };
     use crate::grid::Grid;
     use crate::source::Cells;
@@ -991,7 +1041,7 @@ mod test {
                 &touched,
                 Phase::Turn {
                     delivery,
-                    written,
+                    written: Some(written),
                     turns,
                 },
             )
@@ -1053,7 +1103,7 @@ mod test {
                 &touched,
                 Phase::Turn {
                     delivery,
-                    written: number(3),
+                    written: Some(number(3)),
                     turns: &fresh,
                 },
             )
@@ -1102,7 +1152,7 @@ mod test {
                 halt,
                 Phase::Turn {
                     delivery: Delivery::Reserved,
-                    written,
+                    written: Some(written),
                     turns: &fresh,
                 },
             )
@@ -1131,17 +1181,17 @@ mod test {
         let mut taken = Stated::new(&lookup);
         taken.attempted.push(below);
         assert!(matches!(
-            refusal(&relationships, number(3), Delivery::Reserved, &taken),
+            refusal(&relationships, Some(number(3)), Delivery::Reserved, &taken),
             Some(Refusal::OrderingDefect)
         ));
         // A write whose place the Tick decided lands there as feedback.
         for delivery in [Delivery::Joined, Delivery::Selected] {
-            assert!(refusal(&relationships, number(3), delivery, &taken).is_none());
+            assert!(refusal(&relationships, Some(number(3)), delivery, &taken).is_none());
         }
         assert!(
             refusal(
                 &relationships,
-                number(3),
+                Some(number(3)),
                 Delivery::Reserved,
                 &Stated::new(&lookup)
             )
@@ -1161,7 +1211,7 @@ mod test {
         assert!(matches!(
             refusal(
                 &relationships,
-                Atom::Function(Function::Halt),
+                Some(Atom::Function(Function::Halt)),
                 Delivery::Reserved,
                 &fresh
             ),
@@ -1170,11 +1220,73 @@ mod test {
         assert!(
             refusal(
                 &relationships,
-                Atom::Function(Function::Multiply),
+                Some(Atom::Function(Function::Multiply)),
                 Delivery::Reserved,
                 &fresh
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn a_lock_orders_then_locks_and_a_late_one_misses_or_is_refused() {
+        let (lookup, locks) = fixture(Grid::with_shape(8, 3), &HALT);
+        let (halt, add) = (at(&lookup, 2, 1), at(&lookup, 2, 2));
+        let subtree = lookup.descendants(add);
+        let turn = |delivery, turns: &'_ Stated| {
+            lock_verdict(
+                &locks,
+                halt,
+                Phase::Turn {
+                    delivery,
+                    written: None,
+                    turns,
+                },
+            )
+        };
+        assert_eq!(
+            lock_verdict(&locks, halt, Phase::Schedule),
+            Locked::OrderAfter(subtree.clone())
+        );
+        assert_eq!(
+            turn(Delivery::Reserved, &Stated::new(&lookup)),
+            Locked::Lock(subtree)
+        );
+        let mut taken = Stated::new(&lookup);
+        taken.attempted.push(add);
+        assert_eq!(turn(Delivery::Reserved, &taken), Locked::OrderingDefect);
+        assert_eq!(turn(Delivery::Joined, &taken), Locked::Missed(add));
+        // A Function that declares no lock locks nothing.
+        let equality = at(&lookup, 0, 0);
+        assert_eq!(
+            lock_verdict(&locks, equality, Phase::Schedule),
+            Locked::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_lock_on_something_other_than_a_root_is_diagnosed_only_at_its_turn() {
+        // Halt's site holds an operand of `.+`, not an Expression root.
+        let (lookup, locks) = fixture(
+            Grid::with_shape(8, 3),
+            &[".=0101  ", "  *!    ", ".+0101  "],
+        );
+        let halt = at(&lookup, 2, 1);
+        assert_eq!(
+            lock_verdict(&locks, halt, Phase::Schedule),
+            Locked::Unchanged
+        );
+        assert_eq!(
+            lock_verdict(
+                &locks,
+                halt,
+                Phase::Turn {
+                    delivery: Delivery::Reserved,
+                    written: None,
+                    turns: &Stated::new(&lookup),
+                },
+            ),
+            Locked::NotARoot
         );
     }
 }

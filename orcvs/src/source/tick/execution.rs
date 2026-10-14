@@ -12,7 +12,7 @@ use lang::{
 };
 
 use super::Schedule;
-use super::dependencies::{self, Consequence, Delivery, Lock, Phase, Refusal};
+use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
     Computation, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal, PortalError,
@@ -474,7 +474,7 @@ impl<'a> Execution<'a> {
         let lookup = &self.schedule.lookup;
         let reached = dependencies::reached(lookup, &write);
         for root in reached.bang_roots() {
-            let phase = self.phase(delivery, atom);
+            let phase = self.phase(delivery, Some(atom));
             if let Consequence::Activate(root) = dependencies::bang_root(lookup, index, root, phase)
                 && self.activate(root) == Activation::Delivered
                 && delivery == Delivery::Selected
@@ -482,7 +482,7 @@ impl<'a> Execution<'a> {
                 self.activated.push(root);
             }
         }
-        match dependencies::refusal(&reached, atom, delivery, &self.turns) {
+        match dependencies::refusal(&reached, Some(atom), delivery, &self.turns) {
             // The fact that differed, not the list of facts that could have.
             // Each is argued on `ReplacementChange`, and the wording is
             // CONTEXT.md's, so the diagnostic continues the glossary's own
@@ -509,7 +509,7 @@ impl<'a> Execution<'a> {
         for contacted in reached.functions() {
             let target = contacted.index();
             let contacted =
-                dependencies::contact(lookup, index, &contacted, self.phase(delivery, atom));
+                dependencies::contact(lookup, index, &contacted, self.phase(delivery, Some(atom)));
             reaches_own_expression |= contacted.own_expression;
             match contacted.consequence {
                 Consequence::Replace(replacement) => self.turns.replace(target, replacement),
@@ -692,7 +692,7 @@ impl<'a> Execution<'a> {
         let lookup = &self.schedule.lookup;
         let clear = self.own_span_clear(lookup.nodes()[index].anchor);
         for root in dependencies::reached(lookup, &clear).bang_roots() {
-            let phase = self.phase(delivery, Atom::Bang);
+            let phase = self.phase(delivery, Some(Atom::Bang));
             if let Consequence::Activate(root) = dependencies::bang_root(lookup, index, root, phase)
             {
                 let _ = self.activate(root);
@@ -701,9 +701,9 @@ impl<'a> Execution<'a> {
         self.write(WriteKind::Vacate, clear);
     }
 
-    /// The Turn phase a write carrying `written`, whose place `delivery`
-    /// decided, asks the reach rules in.
-    fn phase(&self, delivery: Delivery, written: Atom) -> Phase<'_> {
+    /// The Turn phase a Turn whose place `delivery` decided, writing
+    /// `written`, asks the reach rules in.
+    fn phase(&self, delivery: Delivery, written: Option<Atom>) -> Phase<'_> {
         Phase::Turn {
             delivery,
             written,
@@ -741,49 +741,35 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// Applies a lock to the Expression root at the Function's Output Portal.
-    ///
-    /// The schedule already placed a Halt it held active ahead of that root,
-    /// so a lock from one that finds it executed is a scheduler defect,
-    /// refused and diagnosed the same way a late spatial write is. A Halt
-    /// the Tick joined took its place during the Tick, and a lock lasts only
-    /// for its Tick, so one that finds its root executed misses it and is
-    /// diagnosed as missed at that root. An empty target is a no-op; an
-    /// occupied non-root diagnoses and invents no lock. Halt itself is not
-    /// suppressed here — `opens_turn` already refused a suppressed Halt, so
-    /// reaching this arm means this Halt locks.
+    /// Applies a lock to the Expression root at the Function's Output Portal,
+    /// as [`dependencies::lock_verdict`] answers it, and words its
+    /// diagnostics. An ordering defect is diagnosed at the Halt, as a late
+    /// spatial write is, and a missed lock at the root it missed. Halt itself
+    /// is not suppressed here — `opens_turn` already refused a suppressed
+    /// Halt, so reaching this arm means this Halt locks.
     ///
     fn lock_portal(&mut self, index: usize, delivery: Delivery) {
-        let node = &self.schedule.lookup.nodes()[index];
-        match self.schedule.locks.lock_target(index) {
-            Some(Lock::Root(target)) => {
-                if target
-                    .clone()
-                    .any(|descendant| self.turns.attempted(descendant))
-                {
-                    self.effects
-                        .push(Effect::Diagnose(if delivery.feeds_back() {
-                            diagnose(
-                                &self.schedule.lookup.nodes()[target.start],
-                                "lock reached a root that has taken its Turn",
-                            )
-                        } else {
-                            diagnose(node, "spatial output reached an executed computation")
-                        }));
-                    return;
-                }
-                self.turns.suppress(target.clone());
-                self.effects.push(Effect::Lock(
-                    self.schedule.lookup.nodes()[target.start].anchor,
-                ));
+        let lookup = &self.schedule.lookup;
+        let node = &lookup.nodes()[index];
+        match dependencies::lock_verdict(&self.schedule.locks, index, self.phase(delivery, None)) {
+            Locked::Lock(target) => {
+                let root = lookup.nodes()[target.start].anchor;
+                self.turns.suppress(target);
+                self.effects.push(Effect::Lock(root));
             }
-            Some(Lock::NotARoot) => {
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    format!("{} target is not an Expression root", node.function),
-                )));
-            }
-            None => {}
+            Locked::Missed(root) => self.effects.push(Effect::Diagnose(diagnose(
+                &lookup.nodes()[root],
+                "lock reached a root that has taken its Turn",
+            ))),
+            Locked::OrderingDefect => self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                "spatial output reached an executed computation",
+            ))),
+            Locked::NotARoot => self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                format!("{} target is not an Expression root", node.function),
+            ))),
+            Locked::Unchanged | Locked::OrderAfter(_) => {}
         }
     }
 
