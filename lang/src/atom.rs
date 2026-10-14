@@ -901,12 +901,52 @@ impl Function {
             replacement.can_emit_bang() != running.can_emit_bang()
         }),
         (ReplacementChange::Write, |replacement, running| {
-            replacement.source_effect() != running.source_effect()
-                || replacement.output_portal() != running.output_portal()
-                || replacement.dynamic_output_portal() != running.dynamic_output_portal()
+            replacement.output() != running.output()
                 || replacement.input_portal() != running.input_portal()
         }),
     ];
+
+    ///
+    /// What this Function does through its Output Portal.
+    ///
+    /// The kind column decides it for every effect: Terminal Output writes no
+    /// Cell, a Source write writes its declared effect, and a lock locks
+    /// through the Portal one row south. A value answer is written at the pair
+    /// its operands select when the Function declares a selection rule, and
+    /// otherwise at its static offset: one row south unless it is a Copy,
+    /// which writes through the Portal its direction names.
+    ///
+    pub const fn output(self) -> crate::Output {
+        use crate::Output;
+        match self.kind() {
+            FunctionKind::Effect(EffectKind::TerminalOutput) => Output::Terminal,
+            FunctionKind::Effect(EffectKind::SourceWrite(effect)) => Output::Source(effect),
+            FunctionKind::Effect(EffectKind::Lock) => Output::Lock(self.static_offset()),
+            FunctionKind::Value => match self.dynamic_output_portal() {
+                Some(selection) => Output::Dynamic(selection),
+                None => Output::Static(self.static_offset()),
+            },
+        }
+    }
+
+    /// The offset a static Output Portal stands at.
+    const fn static_offset(self) -> crate::PortalCoords {
+        match self {
+            Self::CopyEast => crate::PortalCoords {
+                columns: 2,
+                rows: 0,
+            },
+            Self::CopyWest => crate::PortalCoords {
+                columns: -2,
+                rows: 0,
+            },
+            Self::CopyNorth => crate::PortalCoords {
+                columns: 0,
+                rows: -1,
+            },
+            _ => crate::PortalCoords::SOUTH,
+        }
+    }
 
     /// The static Output Portal this Function names, or `None` when it names
     /// none.
@@ -1238,7 +1278,7 @@ mod test {
         // writing them out.
         let mut seen = 0;
         for function in Function::ALL.iter().copied() {
-            let Some(effect) = function.source_effect() else {
+            let crate::Output::Source(effect) = function.output() else {
                 continue;
             };
             seen += 1;
@@ -1350,101 +1390,50 @@ mod test {
     }
 
     #[test]
-    fn every_function_names_its_portals() {
+    fn every_function_names_its_input_portal() {
         use crate::{
             Direction,
             InputPortal::{Dynamic, Static},
             PairSelection, PortalCoords,
         };
-        // The arrow each Read's and Write's spelling names.
+        // The arrow each Read's spelling names.
         const READS: [(Function, Direction); 4] = [
             (Function::ReadEast, Direction::East),
             (Function::ReadNorth, Direction::North),
             (Function::ReadSouth, Direction::South),
             (Function::ReadWest, Direction::West),
         ];
-        const WRITES: [(Function, Direction); 4] = [
-            (Function::WriteEast, Direction::East),
-            (Function::WriteNorth, Direction::North),
-            (Function::WriteSouth, Direction::South),
-            (Function::WriteWest, Direction::West),
-        ];
 
         for function in Function::ALL.iter().copied() {
-            let output = function.output_portal();
             let input = function.input_portal();
-            let dynamic_output = function.dynamic_output_portal();
-            if !matches!(
-                function,
-                Function::AbsoluteCopy
-                    | Function::AbsoluteWrite
-                    | Function::Push
-                    | Function::WriteEast
-                    | Function::WriteNorth
-                    | Function::WriteSouth
-                    | Function::WriteWest
-            ) {
-                assert_eq!(dynamic_output, None, "{function:?}");
-            }
             match function {
-                Function::CopyEast => {
-                    assert_eq!(
-                        output,
-                        Some(PortalCoords {
-                            columns: 2,
-                            rows: 0
-                        })
-                    );
-                    assert_eq!(
-                        input,
-                        Some(Static(PortalCoords {
-                            columns: -2,
-                            rows: 0
-                        }))
-                    );
-                }
-                Function::CopyWest => {
-                    assert_eq!(
-                        output,
-                        Some(PortalCoords {
-                            columns: -2,
-                            rows: 0
-                        })
-                    );
-                    assert_eq!(
-                        input,
-                        Some(Static(PortalCoords {
-                            columns: 2,
-                            rows: 0
-                        }))
-                    );
-                }
-                Function::CopyNorth => {
-                    assert_eq!(
-                        output,
-                        Some(PortalCoords {
-                            columns: 0,
-                            rows: -1
-                        })
-                    );
-                    assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
-                }
-                Function::CopySouth => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(
-                        input,
-                        Some(Static(PortalCoords {
-                            columns: 0,
-                            rows: -1
-                        }))
-                    );
-                }
+                Function::CopyEast => assert_eq!(
+                    input,
+                    Some(Static(PortalCoords {
+                        columns: -2,
+                        rows: 0
+                    }))
+                ),
+                Function::CopyWest => assert_eq!(
+                    input,
+                    Some(Static(PortalCoords {
+                        columns: 2,
+                        rows: 0
+                    }))
+                ),
+                Function::CopyNorth => assert_eq!(input, Some(Static(PortalCoords::SOUTH))),
+                Function::CopySouth => assert_eq!(
+                    input,
+                    Some(Static(PortalCoords {
+                        columns: 0,
+                        rows: -1
+                    }))
+                ),
+                // Increment and Interpolation read where they write.
                 Function::Increment | Function::Interpolation => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
                 }
                 Function::Track => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Dynamic(PairSelection::IndexModuloCount)));
                 }
                 Function::ReadEast
@@ -1455,7 +1444,6 @@ mod test {
                         .iter()
                         .find(|(read, _)| *read == function)
                         .expect("every Read is listed");
-                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
                     assert_eq!(
                         input,
                         Some(Dynamic(PairSelection::Distance(*direction, function))),
@@ -1463,59 +1451,80 @@ mod test {
                     );
                 }
                 Function::AbsoluteRead => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Dynamic(PairSelection::Position(function))));
                 }
-                // A Write's Output Portal is the pair the Read with the same
-                // arrow, or the absolute Read, reads, and nothing south.
-                Function::WriteEast
-                | Function::WriteNorth
-                | Function::WriteSouth
-                | Function::WriteWest => {
-                    let (_, direction) = WRITES
-                        .iter()
-                        .find(|(write, _)| *write == function)
-                        .expect("every Write is listed");
-                    assert_eq!(output, None, "{function:?}");
-                    assert_eq!(input, None, "{function:?}");
-                    assert_eq!(
-                        dynamic_output,
-                        Some(PairSelection::Distance(*direction, function)),
-                        "{function:?}"
-                    );
-                }
-                Function::AbsoluteWrite => {
-                    assert_eq!(output, None);
-                    assert_eq!(input, None);
-                    assert_eq!(dynamic_output, Some(PairSelection::Position(function)));
-                }
-                // The absolute Copy reads one Position and writes another,
-                // and nothing south.
+                // The absolute Copy reads one Position and writes another.
                 Function::AbsoluteCopy => {
-                    assert_eq!(output, None);
                     assert_eq!(input, Some(Dynamic(PairSelection::SourcePosition)));
-                    assert_eq!(dynamic_output, Some(PairSelection::DestinationPosition));
                 }
-                // Push writes a pair of the lane below it.
-                Function::Push => {
-                    assert_eq!(output, None);
-                    assert_eq!(input, None);
-                    assert_eq!(dynamic_output, Some(PairSelection::Lane));
+                _ => assert_eq!(input, None, "{function:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn every_function_does_one_thing_through_its_output_portal() {
+        use crate::{Direction, Output, PairSelection, PortalCoords};
+        let east = PortalCoords {
+            columns: 2,
+            rows: 0,
+        };
+        let west = PortalCoords {
+            columns: -2,
+            rows: 0,
+        };
+        let north = PortalCoords {
+            columns: 0,
+            rows: -1,
+        };
+
+        for function in Function::ALL.iter().copied() {
+            let output = function.output();
+            match function {
+                Function::RawPlay
+                | Function::TimedPlay
+                | Function::MonophonicPlay
+                | Function::ControlChange
+                | Function::PitchBend => assert_eq!(output, Output::Terminal, "{function:?}"),
+                Function::SelfBangingEast
+                | Function::SelfBangingNorth
+                | Function::SelfBangingSouth
+                | Function::SelfBangingWest
+                | Function::DirectionalBangEast
+                | Function::DirectionalBangNorth
+                | Function::DirectionalBangSouth
+                | Function::DirectionalBangWest
+                | Function::Bang => {
+                    assert!(matches!(output, Output::Source(_)), "{function:?}");
                 }
-                Function::Halt => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(input, None);
-                    assert!(function.locks_root());
+                Function::Halt => assert_eq!(output, Output::Lock(PortalCoords::SOUTH)),
+                Function::CopyEast => assert_eq!(output, Output::Static(east)),
+                Function::CopyWest => assert_eq!(output, Output::Static(west)),
+                Function::CopyNorth => assert_eq!(output, Output::Static(north)),
+                Function::WriteEast => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::East, function))
+                ),
+                Function::WriteNorth => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::North, function))
+                ),
+                Function::WriteSouth => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::South, function))
+                ),
+                Function::WriteWest => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::West, function))
+                ),
+                Function::AbsoluteWrite => {
+                    assert_eq!(output, Output::Dynamic(PairSelection::Position(function)));
                 }
-                _ if function.performs_terminal_output() || function.source_effect().is_some() => {
-                    assert_eq!(output, None, "{function:?}");
-                    assert_eq!(input, None, "{function:?}");
+                Function::Push => assert_eq!(output, Output::Dynamic(PairSelection::Lane)),
+                Function::AbsoluteCopy => {
+                    assert_eq!(output, Output::Dynamic(PairSelection::DestinationPosition));
                 }
-                _ => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
-                    assert_eq!(input, None, "{function:?}");
-                    assert!(!function.locks_root(), "{function:?}");
-                }
+                _ => assert_eq!(output, Output::Static(PortalCoords::SOUTH), "{function:?}"),
             }
         }
     }
@@ -1906,7 +1915,7 @@ mod test {
 
             assert_eq!(function.answers_value(), answers_value, "{function:?}");
             assert_eq!(
-                function.performs_terminal_output(),
+                function.output() == crate::Output::Terminal,
                 terminal_output,
                 "{function:?}"
             );

@@ -94,17 +94,16 @@ impl Interpreter {
             }
             .into());
         }
-        if function.locks_root() {
-            return Ok(Interpretation::Lock);
-        }
-        if let Some(effect) = function.source_effect() {
+        match function.output() {
+            crate::Output::Lock(_) => return Ok(Interpretation::Lock),
             // The Source-writing Functions take no operand and read no
             // Context: the whole of the effect is declared in the table, so
             // this reads the declaration rather than repeating nine offsets
             // and three bundles. The two groups' asymmetry lives in the
             // activation column and the bundle, and both are settled before
             // this.
-            return Ok(Interpretation::Source(effect));
+            crate::Output::Source(effect) => return Ok(Interpretation::Source(effect)),
+            crate::Output::Static(_) | crate::Output::Dynamic(_) | crate::Output::Terminal => {}
         }
         let mut ctx = Context {
             stack: Stack::with_operands(operands)?,
@@ -459,34 +458,31 @@ mod test {
         // Halt names no coordinates: its Output Portal is one row south, the
         // same Portal Add writes. The lock is the Effect, not a second geometry.
         assert_eq!(
-            Function::Halt.output_portal(),
-            Some(crate::PortalCoords::SOUTH)
+            Function::Halt.output(),
+            crate::Output::Lock(crate::PortalCoords::SOUTH)
         );
         assert_eq!(Function::Halt.input_portal(), None);
-        assert!(Function::Halt.locks_root());
         assert_eq!(evaluate(Function::Halt, &[]).unwrap(), Interpretation::Lock);
         assert!(!Function::Halt.answers_value());
         assert!(!Function::Halt.can_emit_bang());
         assert!(!Function::Halt.is_intrinsically_active());
-        assert!(Function::Halt.source_effect().is_none());
-        assert!(!Function::Halt.performs_terminal_output());
     }
 
     #[test]
     fn locking_and_source_writing_functions_are_interpreted_from_their_kind() {
         for function in Function::ALL {
-            if function.locks_root() {
-                assert_eq!(
+            match function.output() {
+                crate::Output::Lock(_) => assert_eq!(
                     evaluate(*function, &[]).unwrap(),
                     Interpretation::Lock,
                     "{function:?}"
-                );
-            } else if let Some(effect) = function.source_effect() {
-                assert_eq!(
+                ),
+                crate::Output::Source(effect) => assert_eq!(
                     evaluate(*function, &[]).unwrap(),
                     Interpretation::Source(effect),
                     "{function:?}"
-                );
+                ),
+                crate::Output::Static(_) | crate::Output::Dynamic(_) | crate::Output::Terminal => {}
             }
         }
     }
