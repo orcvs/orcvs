@@ -20,10 +20,14 @@ use super::{
     resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
+use turns::{Activation, Turns};
 use working::{WorkingSource, WriteKind};
 
 mod operands;
+mod turns;
 mod working;
+
+pub(in crate::source) use turns::ComputationState;
 
 /// The two empty Cells a Function that copies Cells writes and returns for an
 /// empty pair.
@@ -91,86 +95,7 @@ pub(super) fn execute(
     execution
         .effects
         .extend(diagnostics.into_iter().map(Effect::Diagnose));
-    (resolve(execution.effects), execution.states)
-}
-
-/// These facts are independent: an attempted Turn can be syntax-blocked, and
-/// a successful answer, returned to a parent, can coexist with a rejected
-/// spatial delivery.
-/// Keeping them together does not turn them into an exclusive lifecycle enum.
-pub(in crate::source) struct ComputationState {
-    function: Function,
-    result: Option<Atom>,
-    syntax_blocked: bool,
-    activated: bool,
-    suppressed: bool,
-    /// Whether this computation's Turn opened: it was active and not
-    /// suppressed, whatever its operands then made of it.
-    attempted: bool,
-    /// Whether this computation's Turn has been taken, or settled without
-    /// effect, so that it takes none again this Tick.
-    taken: bool,
-    /// Which Turn this computation took, counted from zero, or `None` where
-    /// its order holds no Turn for it.
-    #[cfg(test)]
-    turn: Option<usize>,
-    /// The explicit inputs the Interpreter was handed for this computation, or
-    /// `None` where it was never called for it. A Turn that was suppressed,
-    /// refused by its own prologue, or stopped by operands it could not
-    /// resolve reaches no Interpreter and keeps `None`.
-    ///
-    /// One slot records the Tick and anchor of this computation. Portal Cells
-    /// are borrowed separately from working Source when its Turn binds.
-    #[cfg(test)]
-    interpreted: Option<lang::TickInputs>,
-    /// How many times the Interpreter ran for this computation.
-    ///
-    /// A Turn is taken once, so a Tick that behaves leaves this `0` or `1` and
-    /// `interpreted` alone would say everything. It is counted anyway because
-    /// the one thing `interpreted` cannot say is "twice": a second call
-    /// overwrites the slot with equal inputs, and a computation that ran twice
-    /// writes the same value twice, so the Source cannot tell either. Without
-    /// this field a double projection has no witness anywhere.
-    #[cfg(test)]
-    interpretations: usize,
-}
-
-/// What a Turn did, read only by `source::tick`'s tests: a Tick Plan carries
-/// what to apply, and no shipped caller asks how it was reached.
-#[cfg(test)]
-impl ComputationState {
-    ///
-    /// Which Turn this computation took, or `None` where its order holds no
-    /// Turn for it.
-    ///
-    /// The order a schedule establishes is consumed by the loop that walks it
-    /// and survives nowhere else, so a claim about which computation took the
-    /// earlier Turn is asserted here rather than inferred from the Cells the
-    /// later write won.
-    ///
-    pub(in crate::source) fn turn(&self) -> Option<usize> {
-        self.turn
-    }
-
-    ///
-    /// The inputs the Interpreter received for this computation, or `None`
-    /// where it never ran for it.
-    ///
-    pub(in crate::source) fn interpreted(&self) -> Option<lang::TickInputs> {
-        self.interpreted
-    }
-
-    ///
-    /// How many times the Interpreter ran for this computation.
-    ///
-    /// Read beside [`ComputationState::interpreted`] rather than in place of
-    /// it: the pair is the record of one call per unit, which is what a caller
-    /// counting Interpreter calls needs and what `interpreted` alone cannot
-    /// give it.
-    ///
-    pub(in crate::source) fn interpretations(&self) -> usize {
-        self.interpretations
-    }
+    (resolve(execution.effects), execution.turns.into_states())
 }
 
 struct Execution<'a> {
@@ -179,10 +104,7 @@ struct Execution<'a> {
     working: WorkingSource<'a>,
     tick: Tick,
     schedule: &'a Schedule,
-    /// How many Turns have been taken, which is the next Turn's ordinal.
-    #[cfg(test)]
-    turns: usize,
-    states: Vec<ComputationState>,
+    turns: Turns,
     effects: Vec<Effect>,
     /// The roots the Turn being taken has activated through a dynamic
     /// write, which only the Turn can know of.
@@ -213,27 +135,7 @@ impl<'a> Execution<'a> {
             working: WorkingSource::new(cells, map),
             tick,
             schedule,
-            #[cfg(test)]
-            turns: 0,
-            states: lookup
-                .nodes()
-                .iter()
-                .map(|node| ComputationState {
-                    function: node.function,
-                    result: None,
-                    syntax_blocked: false,
-                    activated: false,
-                    suppressed: false,
-                    attempted: false,
-                    taken: false,
-                    #[cfg(test)]
-                    turn: None,
-                    #[cfg(test)]
-                    interpreted: None,
-                    #[cfg(test)]
-                    interpretations: 0,
-                })
-                .collect(),
+            turns: Turns::new(lookup),
             effects: diagnostics.iter().cloned().map(Effect::Diagnose).collect(),
             activated: Vec::new(),
         }
@@ -251,23 +153,11 @@ impl<'a> Execution<'a> {
     ///
     fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
         let node = &self.schedule.lookup.nodes()[index];
-        // Activation is the owner's to declare, and the declaration that
-        // decides it is the one the owner is running: the Function the Parser
-        // found until an earlier replacement in this same Tick changed it. It
-        // is independent of whether this computation will produce a typed
-        // answer — a Self-Banging Function answers none and takes its Turn
-        // anyway, which is why this asks the activation source rather than
-        // `answers_value`.
-        if self.states[index].suppressed
-            || (!self.states[node.owner].function.is_intrinsically_active()
-                && !self.states[node.owner].activated)
-        {
+        if !self.turns.may_open(index, node.owner) {
             return None;
         }
-        // Taking a Turn precedes syntax and evaluation checks. A later writer
-        // must not reach a computation even when its attempted Turn failed.
-        self.states[index].attempted = true;
-        let function = self.states[index].function;
+        self.turns.open(index);
+        let function = self.turns.function(index);
         // A nested Function that answers no value has no Return for its
         // parent. The Parser reports that against the Expression from Source
         // alone, so the Turn is blocked as an unparsed operand's is, without
@@ -276,7 +166,7 @@ impl<'a> Execution<'a> {
             || (node.parent.is_some() && !function.answers_value())
             || self.blocked_by_child(node)
         {
-            self.states[index].syntax_blocked = true;
+            self.turns.block_syntax(index);
             return None;
         }
         let signature = lang::Tokens::from(&function);
@@ -318,18 +208,7 @@ impl<'a> Execution<'a> {
     /// Records that `index` has taken its Turn this Tick, settled with or
     /// without effect.
     fn settle(&mut self, index: usize) {
-        self.states[index].taken = true;
-        #[cfg(test)]
-        self.count_turn(index);
-    }
-
-    /// Records the ordinal of the Turn `index` has taken. The ordinal counts
-    /// Turns as they are taken, which is not a position in the schedule's
-    /// order once a Turn waits.
-    #[cfg(test)]
-    fn count_turn(&mut self, index: usize) {
-        self.states[index].turn = Some(self.turns);
-        self.turns += 1;
+        self.turns.settle(index);
     }
 
     /// Every failure settles this Turn and records its diagnostic, a violated
@@ -339,7 +218,7 @@ impl<'a> Execution<'a> {
         let signature = self.opens_turn(index)?;
         let lookup = &self.schedule.lookup;
         let node = &lookup.nodes()[index];
-        let function = self.states[index].function;
+        let function = self.turns.function(index);
         let tick = tick_inputs(self.tick, node.anchor);
         let result = self.decode(node, signature).and_then(|operands| {
             let portal = self.turn_portal(index, function, &operands)?;
@@ -373,10 +252,7 @@ impl<'a> Execution<'a> {
         // operands would not resolve is one the Interpreter never ran for, and
         // the record says which of the two happened.
         #[cfg(test)]
-        {
-            self.states[index].interpreted = Some(tick);
-            self.states[index].interpretations += 1;
-        }
+        self.turns.interpret(index, tick);
         let delivery = if destination.is_some() {
             Delivery::Selected
         } else if progress.joined(index) {
@@ -514,7 +390,7 @@ impl<'a> Execution<'a> {
     ) {
         self.project_value(index, atom, destination, delivery);
         // A successful nested answer survives every refusal to project it.
-        self.states[index].result = Some(atom);
+        self.turns.answer(index, atom);
     }
 
     /// Plans the Cell writes, activation, or clear one answer makes, whether
@@ -554,7 +430,7 @@ impl<'a> Execution<'a> {
                 // Cells it clears are the pair the schedule reserves for its
                 // Bang, root or nested, so clearing them orders nothing new.
                 // Every other Function writes nothing.
-                let function = self.states[index].function;
+                let function = self.turns.function(index);
                 if function.copies_language_unit() || function.answers_only_bang() {
                     let cleared =
                         Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
@@ -629,11 +505,7 @@ impl<'a> Execution<'a> {
         let reached = dependencies::reached(&self.schedule.lookup, &write);
         if atom == Atom::Bang {
             for owner in reached.bang_roots() {
-                if self.misses_activation(owner) {
-                    continue;
-                }
-                self.states[owner].activated = true;
-                if selected {
+                if self.activate(owner) == Activation::Delivered && selected {
                     self.activated.push(owner);
                 }
             }
@@ -641,7 +513,7 @@ impl<'a> Execution<'a> {
         if let Atom::Function(replacement) = atom
             && let Some(change) = reached.functions().find_map(|contact| {
                 if !contact.at_anchor()
-                    || (delivery.feeds_back() && self.states[contact.index()].attempted)
+                    || (delivery.feeds_back() && self.turns.attempted(contact.index()))
                 {
                     return None;
                 }
@@ -656,7 +528,7 @@ impl<'a> Execution<'a> {
                 // force. No test can pin the choice: the guard keeps the
                 // parsed and the running Function agreeing on every fact it
                 // compares.
-                let running = self.states[contact.index()].function;
+                let running = self.turns.function(contact.index());
                 replacement.replacing(running)
             })
         {
@@ -674,7 +546,7 @@ impl<'a> Execution<'a> {
             && reached.functions().any(|contact| {
                 contact
                     .subtree()
-                    .any(|descendant| self.states[descendant].attempted)
+                    .any(|descendant| self.turns.attempted(descendant))
             })
         {
             // A computation that has taken its Turn is past changing, so the
@@ -690,21 +562,17 @@ impl<'a> Execution<'a> {
         let mut reaches_own_expression = false;
         for contact in reached.functions() {
             let target = contact.index();
-            if self.states[target].attempted || self.states[target].suppressed {
+            if self.turns.attempted(target) || self.turns.suppressed(target) {
                 continue;
             }
             reaches_own_expression |= self.schedule.lookup.nodes()[target].owner == node.owner;
             if contact.at_anchor()
                 && let Atom::Function(replacement) = atom
             {
-                self.states[target].function = replacement;
+                self.turns.replace(target, replacement);
                 continue;
             }
-            for descendant in contact.subtree() {
-                if !self.states[descendant].attempted {
-                    self.states[descendant].suppressed = true;
-                }
-            }
+            self.turns.suppress(contact.subtree());
         }
         // A static writer whose Reservation covers its own Expression is a
         // same-Tick cycle and never takes its Turn. A dynamic writer's
@@ -775,7 +643,7 @@ impl<'a> Execution<'a> {
         // one names the Cells the author would go and fix. `Function` displays
         // as its spelling, which is how every other diagnostic in this file
         // names one.
-        let producer = self.states[index].function;
+        let producer = self.turns.function(index);
         // The Cells this Function stands in. Every Function spelling is two
         // ASCII Cells, which `define_functions!` asserts at compile time, and
         // every spelling a Source-writing Function writes is another
@@ -886,10 +754,7 @@ impl<'a> Execution<'a> {
         let anchor = self.schedule.lookup.nodes()[index].anchor;
         let clear = self.own_span_clear(anchor);
         for owner in dependencies::reached(&self.schedule.lookup, &clear).bang_roots() {
-            if self.misses_activation(owner) {
-                continue;
-            }
-            self.states[owner].activated = true;
+            let _ = self.activate(owner);
         }
         self.write(WriteKind::Vacate, clear);
     }
@@ -909,20 +774,18 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// Whether a Bang reaching `root` misses it: `root` has taken its Turn
-    /// without the activation it needed, which no later Tick can deliver.
-    /// A missed root is diagnosed as missed, and nothing else is stopped.
+    /// Delivers a Bang's activation to `root`, and diagnoses at `root` a Bang
+    /// that misses it. Nothing else is stopped.
     ///
-    fn misses_activation(&mut self, root: usize) -> bool {
-        let state = &self.states[root];
-        if !state.taken || state.activated || state.function.is_intrinsically_active() {
-            return false;
+    fn activate(&mut self, root: usize) -> Activation {
+        let activation = self.turns.activate(root);
+        if activation == Activation::Missed {
+            self.effects.push(Effect::Diagnose(diagnose(
+                &self.schedule.lookup.nodes()[root],
+                "Bang reached a root that has taken its Turn",
+            )));
         }
-        self.effects.push(Effect::Diagnose(diagnose(
-            &self.schedule.lookup.nodes()[root],
-            "Bang reached a root that has taken its Turn",
-        )));
-        true
+        activation
     }
 
     ///
@@ -944,7 +807,7 @@ impl<'a> Execution<'a> {
             Some(Lock::Root(target)) => {
                 if target
                     .clone()
-                    .any(|descendant| self.states[descendant].attempted)
+                    .any(|descendant| self.turns.attempted(descendant))
                 {
                     self.effects
                         .push(Effect::Diagnose(if delivery.feeds_back() {
@@ -957,9 +820,7 @@ impl<'a> Execution<'a> {
                         }));
                     return;
                 }
-                for descendant in target.clone() {
-                    self.states[descendant].suppressed = true;
-                }
+                self.turns.suppress(target.clone());
                 self.effects.push(Effect::Lock(
                     self.schedule.lookup.nodes()[target.start].anchor,
                 ));

@@ -103,7 +103,7 @@ pub(in crate::source::tick) fn plan_with_answers(
         stated.iter().all(|stated| *stated),
         "every stated answer reached the Turn of the computation it names"
     );
-    (resolve(execution.effects), execution.states)
+    (resolve(execution.effects), execution.turns.into_states())
 }
 
 ///
@@ -148,7 +148,7 @@ impl Execution<'_> {
         // every other. Delivering a value there would plan a write from a
         // computation production can only ever hear a Play Command from.
         assert!(
-            self.states[index].function.answers_value(),
+            self.turns.function(index).answers_value(),
             "a stated answer belongs to a computation that answers a value"
         );
         self.deliver_value(index, atom, None, super::Delivery::Reserved);

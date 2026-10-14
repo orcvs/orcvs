@@ -32,7 +32,7 @@ No Grid plays differently. No Dependency, activation, diagnostic or ADR changes.
 ## Implementation Decisions
 
 - **Turn verbs (01).** A private `tick/execution/turns.rs` owns the `ComputationState` vector as `Turns`. Its fields are private to it; `execution.rs` and `operands.rs` ask it. Two verbs carry the duplicated rules:
-  - `activate(root)` answers whether the root was newly activated, was already active, or missed the Bang because it has taken its Turn without the activation it needed. An intrinsically active root is never missed.
+  - `activate(root)` answers whether the Bang was delivered or missed because the root has taken its Turn without the activation it needed. An intrinsically active or already activated root is never missed.
   - `suppress(subtree)` suppresses every computation in the subtree that has not attempted its Turn.
 
   The verbs return outcomes and push no Effects. Execution words the diagnostics and keeps the roots a Selected write activated. They take no producer: observable-schedule/02 decides provenance.
