@@ -222,6 +222,10 @@ _Avoid_: Footprint, allocation, reserved Span, write window
 An order between two Turns, known before the Turn it constrains. A Producer goes before every computation its Reservation, lock or Bang reaches, including one that reads Cells its Reservation covers, and a nested Function goes before the Function it answers. A root activated during a Tick brings its Dependencies with it. A cycle of Dependencies stops every Expression it reaches.
 _Avoid_: Edge, ordering constraint
 
+**Contact**:
+A Function whose Cells a Reservation or an admitted write covers, together with every computation nested in it. A Contact that begins at the Function's anchor is where a Function Replacement lands. Scheduling and execution ask the same rule what a Contact means: before the Tick it can only order the producer first, and during the Tick it decides whether the Function is replaced, suppressed, or reached too late. A Bang reaching a root it aligns with is activation, not Contact.
+_Avoid_: Overlap, hit, collision
+
 **Effect**:
 One thing a Producer contributes to the Tick Plan: a Cell write, an activation delivery, a root lock, a diagnostic, or the Play Command one terminal root performs. Effects follow execution order — ADR 0020's dependency order, with Position breaking ties — and then the order their Producer emits them, so a chord of several terminal roots one Bang activates plays its notes in that order. Cell writes validate their whole destination before any Cell of them is emitted, and resolve Cell-wise, so a later Effect wins each Cell it overlaps and leaves the rest of an earlier write standing.
 _Avoid_: Action, mutation, command
