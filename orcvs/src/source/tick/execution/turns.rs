@@ -13,6 +13,7 @@ use std::ops::Range;
 use lang::{Atom, Function};
 
 use super::super::Lookup;
+use super::super::dependencies::TurnFacts;
 
 /// What one computation's Turn has done so far this Tick.
 pub(in crate::source) struct ComputationState {
@@ -256,5 +257,19 @@ impl Turns {
     pub(super) fn interpret(&mut self, index: usize, tick: lang::TickInputs) {
         self.states[index].interpreted = Some(tick);
         self.states[index].interpretations += 1;
+    }
+}
+
+impl TurnFacts for Turns {
+    fn attempted(&self, index: usize) -> bool {
+        Turns::attempted(self, index)
+    }
+
+    fn suppressed(&self, index: usize) -> bool {
+        Turns::suppressed(self, index)
+    }
+
+    fn running(&self, index: usize) -> Function {
+        self.function(index)
     }
 }

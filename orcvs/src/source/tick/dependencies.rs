@@ -5,14 +5,21 @@
 //! [`derive()`], every Dependency and dynamic writer known before the Tick, and
 //! [`join()`], those a root activated during the Tick brings with it. Which
 //! roots activation reaches is derived here too, because a Bang's
-//! Reservation is what delivers it. Execution asks three: [`reached()`], what
-//! an admitted write covers; [`Locks::lock_target`], what a lock reaches; and
-//! [`input_writers`], which writers a dynamic Input Portal waits on.
+//! Reservation is what delivers it. Execution asks what an admitted write
+//! covers ([`reached()`]), whether it is refused ([`refusal`]), and what each
+//! Contact and aligned root it covers means ([`contact`], [`bang_root`]); what
+//! a lock reaches ([`Locks::lock_target`]); and which writers a dynamic Input
+//! Portal waits on ([`input_writers`]).
+//!
+//! A Contact means one thing in each [`Phase`]. Scheduling asks before the
+//! Tick, when a Contact can only order its producer first; execution asks
+//! during it, against the Turns taken so far. Each rule answers both phases in
+//! one place, so a rule cannot order one thing and decide another.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use lang::SourceBundle;
+use lang::{Atom, Function, ReplacementChange, SourceBundle};
 
 use super::Lookup;
 use super::ordering::{Join, Joined};
@@ -29,6 +36,95 @@ pub(super) struct Derived {
     pub(super) active: Vec<bool>,
     pub(super) dependencies: BTreeSet<(usize, usize)>,
     pub(super) writers: Vec<usize>,
+}
+
+///
+/// How a write's place in the Tick was decided, which decides what it may
+/// reach.
+///
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Delivery {
+    /// A static Output Portal of a root the schedule held active: the
+    /// schedule ordered it before every computation whose Cells it reaches.
+    Reserved,
+    /// A static Output Portal of a root activated during the Tick: its place
+    /// in the order was decided during the Tick.
+    Joined,
+    /// A dynamic Output Portal, whose destination its Turn selected.
+    Selected,
+}
+
+impl Delivery {
+    /// Whether a computation this write reaches may already have taken its
+    /// Turn, which then meets the write next Tick as feedback.
+    pub(super) fn feeds_back(self) -> bool {
+        self != Self::Reserved
+    }
+}
+
+/// What the Turns taken so far this Tick have done, as the reach rules read
+/// it.
+pub(super) trait TurnFacts {
+    /// Whether `index`'s Turn has opened.
+    fn attempted(&self, index: usize) -> bool;
+    /// Whether a write covered `index` before its Turn.
+    fn suppressed(&self, index: usize) -> bool;
+    /// The Function `index` is running: the one the Parser found, until a
+    /// Function Replacement in this Tick changes it.
+    fn running(&self, index: usize) -> Function;
+}
+
+/// When a reach rule is asked what a Contact or an aligned root means.
+#[derive(Clone, Copy)]
+pub(super) enum Phase<'a> {
+    /// Before the Tick. Nothing has a Turn yet, so a Contact can only order
+    /// its producer first: a Reservation orders Turns and decides nothing
+    /// else.
+    Schedule,
+    /// During the Tick, for an admitted write carrying `written` whose place
+    /// `delivery` decided, against the Turns taken so far.
+    Turn {
+        delivery: Delivery,
+        written: Atom,
+        turns: &'a dyn TurnFacts,
+    },
+}
+
+/// What one Contact, or one root a Bang aligns with, means in a [`Phase`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(super) enum Consequence {
+    /// Nothing follows from it.
+    Unchanged,
+    /// The producer takes its Turn before every computation in the range.
+    OrderAfter(Range<usize>),
+    /// The contacted computation runs this Function for the rest of the
+    /// Tick.
+    Replace(Function),
+    /// Every computation in the range that has not attempted its Turn is
+    /// suppressed.
+    Suppress(Range<usize>),
+    /// The root is activated, unless it has taken its Turn without it.
+    Activate(usize),
+}
+
+/// One Contact's [`Consequence`] during a Turn, and whether it lands on the
+/// producer's own Expression as feedback the producer is diagnosed for.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(super) struct Contacted {
+    pub(super) consequence: Consequence,
+    pub(super) own_expression: bool,
+}
+
+/// Why an admitted write is refused whole, before any Contact it covers
+/// changes.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Refusal {
+    /// A Function written at a contacted anchor differs from the running
+    /// Function in a fact the schedule was ordered by.
+    Replacement(ReplacementChange),
+    /// A write the schedule ordered first reaches a computation that has
+    /// taken its Turn, so the schedule ordered it wrongly.
+    OrderingDefect,
 }
 
 ///
@@ -154,14 +250,21 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
     while let Some(owner) = pending.pop() {
         reached.push(owner);
         for index in lookup.descendants(owner) {
+            // Only a Function that can return Bang delivers, which `bang_root`
+            // also answers; asking first spares every other Function's
+            // Reservations.
             if !nodes[index].function.can_emit_bang() {
                 continue;
             }
             for relationships in reservations(lookup, index) {
-                for index in relationships.bang_roots().collect::<Vec<_>>() {
-                    if !nodes[index].function.is_intrinsically_active() && !active[index] {
-                        active[index] = true;
-                        pending.push(index);
+                for root in relationships.bang_roots().collect::<Vec<_>>() {
+                    let delivers = matches!(
+                        bang_root(lookup, index, root, Phase::Schedule),
+                        Consequence::OrderAfter(_)
+                    );
+                    if delivers && !active[root] {
+                        active[root] = true;
+                        pending.push(root);
                     }
                 }
             }
@@ -218,9 +321,10 @@ fn producer_edges(
     index: usize,
     mut edge: impl FnMut(usize, usize),
 ) {
-    let nodes = lookup.nodes();
-    let node = &nodes[index];
-    let bundle = node.function.source_effect().map(|effect| effect.bundle);
+    let bundle = lookup.nodes()[index]
+        .function
+        .source_effect()
+        .map(|effect| effect.bundle);
     // A self-edge is an unsatisfiable indegree, so it is how a computation
     // that writes over its own Cells reports itself as a same-Tick cycle: the
     // reservation covering the producer and the Cell pair its write reaches
@@ -232,15 +336,6 @@ fn producer_edges(
     // Function's and the Bang Function's do. Ordering such a producer after
     // itself would stop it every Tick it takes a Turn in.
     let exempt_from_itself = bundle.is_some_and(SourceBundle::clears_own_span);
-    // A bundle that writes displaced, an emission or a move, is admitted only
-    // into Cells empty at its Turn, so it never writes over a Function its
-    // reservation contacts, and it delivers no activation there: occupancy
-    // alone orders nothing (ADR 0060 rule 3b). An occupant that leaves first
-    // makes room; one still standing refuses the placement, and a refused
-    // move leaves `**` in its own Span instead. Its reservation orders none
-    // of the Functions it contacts, whether they wait for a Bang or not, so
-    // Source order decides between them.
-    let orders_contacts = bundle.is_none_or(|bundle| !bundle.writes_displaced());
     if let Some(target) = locked_subtree(locks, index) {
         for consumer in target.clone() {
             edge(index, consumer);
@@ -256,28 +351,162 @@ fn producer_edges(
             }
             edge(index, consumer);
         };
-        let contacts = orders_contacts
-            .then(|| relationships.functions())
-            .into_iter()
-            .flatten();
-        for contact in contacts {
-            for descendant in contact.subtree {
-                order_after(descendant);
+        for contacted in relationships.functions() {
+            let contacted = contact(lookup, index, &contacted, Phase::Schedule);
+            if let Consequence::OrderAfter(consumers) = contacted.consequence {
+                consumers.for_each(&mut order_after);
             }
         }
         for consumer in relationships.literal_consumers() {
             order_after(consumer);
         }
-        if node.function.can_emit_bang() {
-            for owner in relationships.bang_roots() {
-                if !nodes[owner].function.is_intrinsically_active() {
-                    for consumer in lookup.descendants(owner) {
-                        order_after(consumer);
-                    }
-                }
+        for root in relationships.bang_roots() {
+            if let Consequence::OrderAfter(consumers) =
+                bang_root(lookup, index, root, Phase::Schedule)
+            {
+                consumers.for_each(&mut order_after);
             }
         }
     }
+}
+
+///
+/// What `contacted`, a Contact of `producer`'s Reservation or admitted
+/// write, means in `phase`.
+///
+/// Before the Tick a Contact orders its producer before the whole contacted
+/// subtree, unless the producer's Source Bundle writes displaced. An emission
+/// or a move is admitted only into Cells empty at its Turn, so it never
+/// writes over a Function its reservation contacts, and it delivers no
+/// activation there: occupancy alone orders nothing (ADR 0060 rule 3b). An
+/// occupant that leaves first makes room; one still standing refuses the
+/// placement, and a refused move leaves `**` in its own Span instead. Its
+/// reservation orders none of the Functions it contacts, whether they wait
+/// for a Bang or not, so Source order decides between them.
+///
+/// During a Turn, what has attempted its Turn keeps it and what is already
+/// suppressed stays so. Otherwise a Function written at the contacted anchor
+/// replaces the one running there, and anything else written over a
+/// Function suppresses its whole subtree: its spelling is no longer the one
+/// that was scheduled. A static writer whose Reservation covers its own
+/// Expression is a same-Tick cycle and never takes its Turn. A dynamic
+/// writer's destination is known only at its Turn, so a write that reaches
+/// a Function of its own Expression still to come is applied as feedback and
+/// diagnosed.
+///
+pub(super) fn contact(
+    lookup: &Lookup,
+    producer: usize,
+    contacted: &FunctionContact,
+    phase: Phase<'_>,
+) -> Contacted {
+    let nodes = lookup.nodes();
+    let target = contacted.index;
+    let consequence = match phase {
+        Phase::Schedule => {
+            let displaced = nodes[producer]
+                .function
+                .source_effect()
+                .is_some_and(|effect| effect.bundle.writes_displaced());
+            if displaced {
+                Consequence::Unchanged
+            } else {
+                Consequence::OrderAfter(contacted.subtree())
+            }
+        }
+        Phase::Turn { turns, .. } if turns.attempted(target) || turns.suppressed(target) => {
+            Consequence::Unchanged
+        }
+        Phase::Turn { written, .. } => match written {
+            Atom::Function(replacement) if contacted.at_anchor => Consequence::Replace(replacement),
+            _ => Consequence::Suppress(contacted.subtree()),
+        },
+    };
+    let own_expression = matches!(
+        phase,
+        Phase::Turn {
+            delivery: Delivery::Selected,
+            ..
+        }
+    ) && consequence != Consequence::Unchanged
+        && nodes[target].owner == nodes[producer].owner;
+    Contacted {
+        consequence,
+        own_expression,
+    }
+}
+
+///
+/// What `root`, a root aligned with a Bang `producer` may write, means in
+/// `phase`.
+///
+/// Only a Function that can return Bang delivers activation through the
+/// Cells it writes. Before the Tick its Reservation orders it before every
+/// root waiting for that Bang, whatever its operands turn out to answer. A
+/// root that is intrinsically active waits for no Bang, so nothing orders it.
+/// During a Turn a written Bang activates every root it aligns with, and one
+/// that has taken its Turn without it misses it.
+///
+pub(super) fn bang_root(
+    lookup: &Lookup,
+    producer: usize,
+    root: usize,
+    phase: Phase<'_>,
+) -> Consequence {
+    let nodes = lookup.nodes();
+    match phase {
+        Phase::Schedule
+            if nodes[producer].function.can_emit_bang()
+                && !nodes[root].function.is_intrinsically_active() =>
+        {
+            Consequence::OrderAfter(lookup.descendants(root))
+        }
+        Phase::Turn {
+            written: Atom::Bang,
+            ..
+        } => Consequence::Activate(root),
+        _ => Consequence::Unchanged,
+    }
+}
+
+///
+/// Why an admitted write from `producer` carrying `written` is refused whole
+/// during a Turn, if it is.
+///
+/// A Function written at a contacted anchor still to take its Turn must
+/// agree with the Function running there on every fact the schedule was
+/// ordered by. A [`Delivery::Reserved`] write was ordered before every
+/// computation whose Cells it reaches, so reaching one that has attempted
+/// its Turn is an ordering defect: only this write is refused, and every
+/// other Turn of the Tick still takes place. A write whose place was decided
+/// during the Tick lands on such a computation as feedback instead.
+///
+pub(super) fn refusal(
+    relationships: &PortalRelationships<'_>,
+    written: Atom,
+    delivery: Delivery,
+    turns: &dyn TurnFacts,
+) -> Option<Refusal> {
+    if let Atom::Function(replacement) = written
+        && let Some(change) = relationships.functions().find_map(|contacted| {
+            if !contacted.at_anchor || (delivery.feeds_back() && turns.attempted(contacted.index)) {
+                return None;
+            }
+            // The Function the contacted computation is running, which is the
+            // one a replacement replaces: a second replacement reaching one
+            // anchor in a Tick compares against the first.
+            replacement.replacing(turns.running(contacted.index))
+        })
+    {
+        return Some(Refusal::Replacement(change));
+    }
+    let reaches_attempted = relationships.functions().any(|contacted| {
+        contacted
+            .subtree
+            .clone()
+            .any(|descendant| turns.attempted(descendant))
+    });
+    (!delivery.feeds_back() && reaches_attempted).then_some(Refusal::OrderingDefect)
 }
 
 ///
@@ -433,9 +662,8 @@ fn reservations(lookup: &Lookup, index: usize) -> impl Iterator<Item = PortalRel
 /// along its row, to the original computations. A Portal names where a result
 /// begins rather than how wide it is, so how many Cells to ask about is the
 /// caller's to state: scheduling asks over the Cells it reserved and execution
-/// asks over the Cells an admitted write actually covers. The phases share these
-/// facts, but decide separately whether a producer can activate, must precede,
-/// or suppresses a contacted computation.
+/// asks over the Cells an admitted write actually covers. What each fact means
+/// in either phase is [`contact`]'s and [`bang_root`]'s to answer.
 pub(super) struct PortalRelationships<'a> {
     lookup: &'a Lookup,
     output: Position,
@@ -533,11 +761,6 @@ impl FunctionContact {
         self.index
     }
 
-    /// Whether the write begins at the contacted Function's anchor.
-    pub(super) fn at_anchor(&self) -> bool {
-        self.at_anchor
-    }
-
     /// The contacted Function and every computation nested in it, in Parser
     /// preorder.
     pub(super) fn subtree(&self) -> Range<usize> {
@@ -547,7 +770,12 @@ impl FunctionContact {
 
 #[cfg(test)]
 mod test {
-    use super::{Locks, derive, join};
+    use lang::{Atom, Function, ReplacementChange};
+
+    use super::{
+        Consequence, Delivery, FunctionContact, Locks, Phase, Refusal, TurnFacts, bang_root,
+        contact, derive, join, refusal, reservations,
+    };
     use crate::grid::Grid;
     use crate::source::Cells;
     use crate::source::language_map::LanguageMap;
@@ -693,5 +921,260 @@ mod test {
         assert!(derived.active[upper], "the Bang reaches the upper Halt");
         assert!(!derived.active[lower], "a lock activates nothing");
         assert!(derived.dependencies.contains(&(upper, lower)));
+    }
+
+    /// What the Turns taken so far have done, stated by a test rather than
+    /// taken: every computation runs its parsed Function until `running`
+    /// names another.
+    struct Stated {
+        attempted: Vec<usize>,
+        suppressed: Vec<usize>,
+        running: Vec<(usize, Function)>,
+        parsed: Vec<Function>,
+    }
+
+    impl Stated {
+        fn new(lookup: &Lookup) -> Self {
+            Self {
+                attempted: vec![],
+                suppressed: vec![],
+                running: vec![],
+                parsed: lookup.nodes().iter().map(|node| node.function).collect(),
+            }
+        }
+    }
+
+    impl TurnFacts for Stated {
+        fn attempted(&self, index: usize) -> bool {
+            self.attempted.contains(&index)
+        }
+
+        fn suppressed(&self, index: usize) -> bool {
+            self.suppressed.contains(&index)
+        }
+
+        fn running(&self, index: usize) -> Function {
+            self.running
+                .iter()
+                .find_map(|&(running, function)| (running == index).then_some(function))
+                .unwrap_or(self.parsed[index])
+        }
+    }
+
+    /// The Contact `writer`'s first Reservation makes with `contacted`.
+    fn contact_of(lookup: &Lookup, writer: usize, contacted: usize) -> FunctionContact {
+        reservations(lookup, writer)
+            .flat_map(|relationships| relationships.functions().collect::<Vec<_>>())
+            .find(|candidate| candidate.index() == contacted)
+            .unwrap_or_else(|| panic!("{writer} reserves no Cells of {contacted}"))
+    }
+
+    fn number(value: u8) -> Atom {
+        Atom::Number(value)
+    }
+
+    // `.+` reserves one row south of itself, where `.-` is anchored.
+    const STACKED: [&str; 2] = [".+0101", ".-0202"];
+
+    #[test]
+    fn each_reach_rule_answers_its_consequence_in_each_phase() {
+        let grid = Grid::with_shape(10, 2);
+        let (lookup, _) = fixture(grid, &STACKED);
+        let (writer, below) = (at(&lookup, 0, 0), at(&lookup, 0, 1));
+        let touched = contact_of(&lookup, writer, below);
+        let subtree = lookup.descendants(below);
+        let fresh = Stated::new(&lookup);
+        let turn = |delivery, written, turns: &'_ Stated| -> Consequence {
+            contact(
+                &lookup,
+                writer,
+                &touched,
+                Phase::Turn {
+                    delivery,
+                    written,
+                    turns,
+                },
+            )
+            .consequence
+        };
+
+        // Before the Tick a Contact orders its producer before the subtree.
+        assert_eq!(
+            contact(&lookup, writer, &touched, Phase::Schedule).consequence,
+            Consequence::OrderAfter(subtree.clone())
+        );
+        // A value written over a Function suppresses its subtree.
+        assert_eq!(
+            turn(Delivery::Reserved, number(3), &fresh),
+            Consequence::Suppress(subtree.clone())
+        );
+        // A Function written at its anchor replaces the running one.
+        assert_eq!(
+            turn(
+                Delivery::Reserved,
+                Atom::Function(Function::Multiply),
+                &fresh
+            ),
+            Consequence::Replace(Function::Multiply)
+        );
+        // What has attempted its Turn keeps it, and what is suppressed stays so.
+        let mut taken = Stated::new(&lookup);
+        taken.attempted.push(below);
+        assert_eq!(
+            turn(Delivery::Joined, number(3), &taken),
+            Consequence::Unchanged
+        );
+        let mut covered = Stated::new(&lookup);
+        covered.suppressed.push(below);
+        assert_eq!(
+            turn(Delivery::Selected, number(3), &covered),
+            Consequence::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_dynamic_write_onto_its_own_expression_is_diagnosed_as_feedback() {
+        // `.-` is nested in `.+`, so a write from the root that reaches it
+        // reaches the root's own Expression. Only a dynamic writer's
+        // destination is unknown until its Turn.
+        let (lookup, _) = fixture(Grid::with_shape(10, 2), &[".+01.-0101"]);
+        let (root, child) = (at(&lookup, 0, 0), at(&lookup, 4, 0));
+        assert_eq!(lookup.nodes()[child].owner, lookup.nodes()[root].owner);
+        let touched = FunctionContact {
+            index: child,
+            at_anchor: false,
+            subtree: lookup.descendants(child),
+        };
+        let fresh = Stated::new(&lookup);
+        let own = |delivery| {
+            contact(
+                &lookup,
+                root,
+                &touched,
+                Phase::Turn {
+                    delivery,
+                    written: number(3),
+                    turns: &fresh,
+                },
+            )
+            .own_expression
+        };
+        assert!(own(Delivery::Selected));
+        assert!(!own(Delivery::Reserved));
+        assert!(!own(Delivery::Joined));
+    }
+
+    #[test]
+    fn an_emission_orders_nothing_by_occupancy() {
+        // `*>` emits into the two Cells east of it, where `.+` stands.
+        let (lookup, _) = fixture(Grid::with_shape(10, 1), &["*>.+0101"]);
+        let (emitter, occupant) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
+        let touched = contact_of(&lookup, emitter, occupant);
+        assert_eq!(
+            contact(&lookup, emitter, &touched, Phase::Schedule).consequence,
+            Consequence::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_mover_orders_no_root_it_contacts() {
+        for row in [">>^^  ", ">>*!  "] {
+            let (lookup, _) = fixture(Grid::with_shape(6, 1), &[row]);
+            let (mover, contacted) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
+            let touched = contact_of(&lookup, mover, contacted);
+            assert_eq!(
+                contact(&lookup, mover, &touched, Phase::Schedule).consequence,
+                Consequence::Unchanged,
+                "{row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bang_orders_and_then_activates_the_root_it_aligns_with() {
+        let (lookup, _) = fixture(Grid::with_shape(8, 3), &HALT);
+        let (equality, halt) = (at(&lookup, 0, 0), at(&lookup, 2, 1));
+        let fresh = Stated::new(&lookup);
+        let written = |written| {
+            bang_root(
+                &lookup,
+                equality,
+                halt,
+                Phase::Turn {
+                    delivery: Delivery::Reserved,
+                    written,
+                    turns: &fresh,
+                },
+            )
+        };
+        assert_eq!(
+            bang_root(&lookup, equality, halt, Phase::Schedule),
+            Consequence::OrderAfter(lookup.descendants(halt))
+        );
+        assert_eq!(written(Atom::Bang), Consequence::Activate(halt));
+        assert_eq!(written(number(1)), Consequence::Unchanged);
+        // A producer that cannot answer Bang delivers no activation.
+        let add = at(&lookup, 2, 2);
+        assert_eq!(
+            bang_root(&lookup, add, halt, Phase::Schedule),
+            Consequence::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_reserved_write_onto_an_attempted_computation_is_an_ordering_defect() {
+        let (lookup, _) = fixture(Grid::with_shape(10, 2), &STACKED);
+        let (writer, below) = (at(&lookup, 0, 0), at(&lookup, 0, 1));
+        let relationships = reservations(&lookup, writer)
+            .next()
+            .expect("`.+` reserves one row south");
+        let mut taken = Stated::new(&lookup);
+        taken.attempted.push(below);
+        assert!(matches!(
+            refusal(&relationships, number(3), Delivery::Reserved, &taken),
+            Some(Refusal::OrderingDefect)
+        ));
+        // A write whose place the Tick decided lands there as feedback.
+        for delivery in [Delivery::Joined, Delivery::Selected] {
+            assert!(refusal(&relationships, number(3), delivery, &taken).is_none());
+        }
+        assert!(
+            refusal(
+                &relationships,
+                number(3),
+                Delivery::Reserved,
+                &Stated::new(&lookup)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_replacement_that_changes_a_scheduled_fact_is_refused() {
+        let (lookup, _) = fixture(Grid::with_shape(10, 2), &STACKED);
+        let writer = at(&lookup, 0, 0);
+        let relationships = reservations(&lookup, writer)
+            .next()
+            .expect("`.+` reserves one row south");
+        let fresh = Stated::new(&lookup);
+        // Halt answers no value, which the schedule ordered `.-` by.
+        assert!(matches!(
+            refusal(
+                &relationships,
+                Atom::Function(Function::Halt),
+                Delivery::Reserved,
+                &fresh
+            ),
+            Some(Refusal::Replacement(ReplacementChange::AnswerKind))
+        ));
+        assert!(
+            refusal(
+                &relationships,
+                Atom::Function(Function::Multiply),
+                Delivery::Reserved,
+                &fresh
+            )
+            .is_none()
+        );
     }
 }
