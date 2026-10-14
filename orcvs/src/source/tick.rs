@@ -418,13 +418,6 @@ fn plan_unshared(
 pub(super) struct ScheduleCache(Arc<OnceLock<Schedule>>);
 
 impl ScheduleCache {
-    /// The schedule `inputs` admit, ordered now if no Tick has asked for it.
-    /// `inputs` are those of the Map this cache belongs to, which
-    /// [`shared_schedule`] guarantees by taking both from one Map.
-    fn schedule(&self, grid: Grid, inputs: ScheduleInputs<'_>) -> &Schedule {
-        self.0.get_or_init(|| schedule(grid, inputs))
-    }
-
     /// Whether `other` is this cache, rather than one ordered separately.
     #[cfg(test)]
     fn is_shared_with(&self, other: &Self) -> bool {
@@ -440,14 +433,16 @@ impl ScheduleCache {
 
 ///
 /// The schedule `map` shares with every revision holding equal scheduling
-/// inputs, ordered now if no Tick has asked for it.
+/// inputs, ordered now from `map`'s inputs if no Tick has asked for it.
 ///
-/// The cache and the inputs it is filled from both come from `map`, so a
-/// schedule ordered from one revision's inputs is never stored in a cache
-/// another revision holds.
+/// The cache and the inputs that fill it are both read from `map`, and no
+/// other path fills a cache, so a cache only ever holds a schedule ordered
+/// from inputs equal to those of every revision that shares it.
 ///
 fn shared_schedule(grid: Grid, map: &LanguageMap) -> &Schedule {
-    map.schedule_cache().schedule(grid, map.schedule_inputs())
+    map.schedule_cache()
+        .0
+        .get_or_init(|| schedule(grid, map.schedule_inputs()))
 }
 
 ///

@@ -243,6 +243,13 @@ fn changing_only_a_language_units_kind_orders_a_new_schedule() {
     assert_eq!(cells, earlier_cells);
     assert_ne!(kind, earlier_kind);
     assert!(
+        current
+            .schedule_inputs()
+            .expressions()
+            .eq(earlier.schedule_inputs().expressions()),
+        "the edit leaves every Expression a schedule computes unchanged"
+    );
+    assert!(
         !current
             .schedule_cache()
             .is_shared_with(earlier.schedule_cache())

@@ -4,9 +4,10 @@
 //! so schedule construction must read nothing that equality does not compare.
 //! This module is where both come from: construction reads a revision through
 //! [`ScheduleInputs`] and nothing else, and reuse compares rows through the
-//! [`PartialEq`] of what this module projects. A fact that construction starts
-//! reading is a fact equality compares, because there is no second
-//! description of either.
+//! [`PartialEq`] of what this module projects. Each projection's accessors
+//! read only the facts its `PartialEq` compares: a fact construction needs is
+//! added as an accessor here and to that `PartialEq` together, never read
+//! from the borrowed Parser structure anywhere else.
 //!
 //! The projection borrows the Parser structure each row already holds. It
 //! stores nothing and allocates nothing: an Operand Literal's value, a Token,
@@ -130,6 +131,8 @@ impl<'a> ScheduledExpression<'a> {
     }
 }
 
+/// Compares every fact an accessor above reads. An accessor reading more of
+/// `expression` than [`Self::entries`] does widens this comparison with it.
 impl PartialEq for ScheduledExpression<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.span == other.span
@@ -156,6 +159,7 @@ pub(super) enum Parsed {
     Unparsed,
     /// It bound an Atom that is not a Function.
     Value,
+    /// It bound this Function.
     Function(Function),
 }
 
