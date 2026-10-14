@@ -283,6 +283,15 @@ mod test {
         Interpreter, Note, PortalAddress, PortalCoords, Tick, TickInputs,
     };
 
+    /// The rule by which `function`'s operands select the pair its Output
+    /// Portal writes.
+    fn selection(function: Function) -> crate::PairSelection {
+        match function.output() {
+            crate::Output::Dynamic(selection) => selection,
+            output => panic!("{function:?} writes {output:?}, not a selected pair"),
+        }
+    }
+
     const INPUT: PortalInput = PortalInput::number("previous value");
 
     #[test]
@@ -523,9 +532,7 @@ mod test {
         // whatever that value is.
         let value = Atom::Note(Note::try_from(67).unwrap());
         let selected = |function: Function, operands: &[Atom], operand_columns| {
-            function
-                .dynamic_output_portal()
-                .expect("a Write declares a dynamic Output Portal")
+            selection(function)
                 .resolve(operands, operand_columns)
                 .unwrap()
         };
@@ -560,10 +567,7 @@ mod test {
         }
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            Function::WriteEast
-                .dynamic_output_portal()
-                .unwrap()
-                .resolve(&[note, value], 6),
+            selection(Function::WriteEast).resolve(&[note, value], 6),
             Err(Error::Type(_))
         ));
     }
@@ -576,9 +580,7 @@ mod test {
         let copy = |operands: [u8; 4]| {
             let operands = operands.map(Atom::Number);
             let read = address(Function::AbsoluteCopy, &operands, 10).unwrap();
-            let written = Function::AbsoluteCopy
-                .dynamic_output_portal()
-                .expect("the absolute Copy declares a dynamic Output Portal")
+            let written = selection(Function::AbsoluteCopy)
                 .resolve(&operands, 10)
                 .unwrap();
             (read, written)
@@ -614,10 +616,7 @@ mod test {
             );
             assert!(
                 matches!(
-                    Function::AbsoluteCopy
-                        .dynamic_output_portal()
-                        .unwrap()
-                        .resolve(&operands, 10),
+                    selection(Function::AbsoluteCopy).resolve(&operands, 10),
                     Err(Error::Type(_))
                 ),
                 "{slot}"
@@ -631,13 +630,10 @@ mod test {
         // count` steps east by pairs, wherever the operands end.
         let value = Atom::Note(Note::try_from(67).unwrap());
         let push = |index, count, operand_columns| {
-            Function::Push
-                .dynamic_output_portal()
-                .expect("Push declares a dynamic Output Portal")
-                .resolve(
-                    &[Atom::Number(index), Atom::Number(count), value],
-                    operand_columns,
-                )
+            selection(Function::Push).resolve(
+                &[Atom::Number(index), Atom::Number(count), value],
+                operand_columns,
+            )
         };
         let at = |columns, rows| PortalAddress::Offset(PortalCoords { columns, rows });
         for operand_columns in [8, 12, 256] {
@@ -657,10 +653,7 @@ mod test {
         ));
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            Function::Push
-                .dynamic_output_portal()
-                .unwrap()
-                .resolve(&[note, Atom::Number(3), value], 8),
+            selection(Function::Push).resolve(&[note, Atom::Number(3), value], 8),
             Err(Error::Type(_))
         ));
     }

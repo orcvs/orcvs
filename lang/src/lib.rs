@@ -154,6 +154,32 @@ impl PortalCoords {
     };
 }
 
+/// What a Function does through its Output Portal.
+///
+/// Every Function does exactly one of these, so there is no variant for
+/// none. A value answer is written at a static or a dynamic Output Portal,
+/// Halt locks the root through its Output Portal, a Source-writing Function
+/// writes its declared [`SourceEffect`] instead, and a Terminal Output
+/// Function performs a Play Command and writes no Cell, so its Portal is
+/// never addressed and carries no coordinates. A consumer matches on this
+/// once rather than asking narrower questions in an order of its own, so a
+/// new kind of output fails to compile at every consumer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Output {
+    /// The value answer is written at a fixed offset from the anchor.
+    Static(PortalCoords),
+    /// The value answer is written at the pair the operands select at the
+    /// Turn, by the rule the Function's definition names.
+    Dynamic(PairSelection),
+    /// The declared Source write, resolved against the Grid by `orcvs`.
+    Source(SourceEffect),
+    /// The Expression root is locked through the Portal at this offset.
+    Lock(PortalCoords),
+    /// A Play Command delivered to the Playback Engine, with nothing written
+    /// back into the Source.
+    Terminal,
+}
+
 /// Where a Function's Input Portal stands, and when that position is known.
 ///
 /// It is the Portal's position that is static or dynamic, not its contents:
@@ -192,7 +218,7 @@ pub enum PortalAddress {
 ///
 /// Each Function with a dynamic Input Portal names its rule in
 /// [`Function::input_portal`], and each with a dynamic Output Portal in
-/// [`Function::dynamic_output_portal`]. [`PairSelection::resolve`] asks the
+/// [`Function::output`]'s [`Output::Dynamic`]. [`PairSelection::resolve`] asks the
 /// rule where the pair stands. A rule takes the values of only its address
 /// operands: those that lead its Function's signature, except that the
 /// absolute Copy's destination rule takes its last two. The directional and
@@ -215,7 +241,7 @@ pub enum PairSelection {
     /// columns, so a distance of zero is the slot itself. A directional
     /// Read's and a directional Write's selection, naming that Function,
     /// whose signature its operands are checked against. Only
-    /// [`Function::input_portal`] and [`Function::dynamic_output_portal`]
+    /// [`Function::input_portal`] and [`Function::output`]
     /// build one.
     #[non_exhaustive]
     Distance(Direction, Function),
@@ -224,7 +250,7 @@ pub enum PairSelection {
     /// Function stands. The absolute Read's and the absolute Write's
     /// selection, naming that Function, whose signature its operands are
     /// checked against. Only [`Function::input_portal`] and
-    /// [`Function::dynamic_output_portal`] build one.
+    /// [`Function::output`] build one.
     #[non_exhaustive]
     Position(Function),
     /// The pair at the Position the absolute Copy's first two operands,

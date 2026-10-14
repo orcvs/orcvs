@@ -21,7 +21,7 @@
 
 use std::ops::Range;
 
-use lang::{Function, InputPortal, PortalCoords};
+use lang::{Function, InputPortal, Output, PortalCoords};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -442,43 +442,33 @@ impl PortalAccess {
             Some(InputPortal::Static(coords)) => Self::portal_reads(grid, anchor, coords),
             Some(InputPortal::Dynamic(_)) | None => Vec::new(),
         };
-        if function.performs_terminal_output() {
-            return Self {
-                output: PortalOutput::None,
-                reads: Vec::new(),
-            };
-        }
-        if let Some(effect) = function.source_effect() {
-            // ADR 0004's Source Bundle, in the emission order ADR 0020
-            // resolves it by: the producer's own Span first when the bundle
-            // clears it, then the displaced destination when it writes one.
-            // The displacement is read from the declaration here and
-            // answered again by the Interpreter at the Turn.
-            let bundle = effect.bundle;
-            let own = bundle.clears_own_span().then_some(Ok(anchor));
-            let destination = bundle.writes_displaced().then(|| {
-                Portal::displaced(grid, anchor, effect.columns, effect.rows)
-                    .map(|portal| portal.destination())
-            });
-            let writes = own.into_iter().chain(destination).collect();
-            return Self {
-                output: PortalOutput::Writes(writes),
-                reads: Vec::new(),
-            };
-        }
-        if let Some(coords) = function.output_portal() {
-            let site = Portal::named(grid, anchor, coords).map(|portal| portal.destination());
-            let output = if function.locks_root() {
-                PortalOutput::Lock(site)
-            } else {
-                PortalOutput::Writes(vec![site])
-            };
-            return Self { output, reads };
-        }
-        Self {
-            output: PortalOutput::None,
-            reads,
-        }
+        let output = match function.output() {
+            Output::Static(coords) => PortalOutput::Writes(vec![Self::site(grid, anchor, coords)]),
+            Output::Lock(coords) => PortalOutput::Lock(Self::site(grid, anchor, coords)),
+            // A dynamic Output Portal's pair is found at the Turn, as a
+            // dynamic Input Portal's is.
+            Output::Dynamic(_) | Output::Terminal => PortalOutput::None,
+            Output::Source(effect) => {
+                // ADR 0004's Source Bundle, in the emission order ADR 0020
+                // resolves it by: the producer's own Span first when the
+                // bundle clears it, then the displaced destination when it
+                // writes one. The displacement is read from the declaration
+                // here and answered again by the Interpreter at the Turn.
+                let bundle = effect.bundle;
+                let own = bundle.clears_own_span().then_some(Ok(anchor));
+                let destination = bundle.writes_displaced().then(|| {
+                    Portal::displaced(grid, anchor, effect.columns, effect.rows)
+                        .map(|portal| portal.destination())
+                });
+                PortalOutput::Writes(own.into_iter().chain(destination).collect())
+            }
+        };
+        Self { output, reads }
+    }
+
+    /// The Cell pair the Portal at `coords` from `anchor` names.
+    fn site(grid: Grid, anchor: Position, coords: PortalCoords) -> Result<Position, PortalError> {
+        Portal::named(grid, anchor, coords).map(|portal| portal.destination())
     }
 
     fn portal_reads(grid: Grid, anchor: Position, coords: PortalCoords) -> Vec<Range<usize>> {

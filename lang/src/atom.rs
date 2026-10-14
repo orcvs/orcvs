@@ -227,25 +227,6 @@ impl FunctionKind {
     const fn answers_value(self) -> bool {
         matches!(self, Self::Value)
     }
-
-    #[inline(always)]
-    const fn performs_terminal_output(self) -> bool {
-        matches!(self, Self::Effect(EffectKind::TerminalOutput))
-    }
-
-    /// The Source write this Function performs, or `None` for a Function that
-    /// performs none.
-    #[inline(always)]
-    const fn source_effect(self) -> Option<crate::SourceEffect> {
-        match self {
-            Self::Effect(EffectKind::SourceWrite(effect)) => Some(effect),
-            _ => None,
-        }
-    }
-
-    const fn locks_root(self) -> bool {
-        matches!(self, Self::Effect(EffectKind::Lock))
-    }
 }
 
 /// Which effect a Function that answers an effect performs.
@@ -591,43 +572,6 @@ macro_rules! define_functions {
                 matches!(self.activation_source(), ActivationSource::Intrinsic)
             }
 
-            /// Whether this Function performs the Terminal Output effect: a
-            /// Play Command delivered to the Playback Engine, with nothing
-            /// written back into the Source.
-            ///
-            /// This is the narrow question, and it is asked only where the rule
-            /// is about Terminal Output rather than about answering an effect.
-            /// Having no Cell destination is such a rule: a Source-writing
-            /// Function writes where its [`crate::SourceEffect`] resolves, and
-            /// Halt locks through its Output Portal, so a gate that refused a
-            /// Portal to every Function answering an effect would deny them
-            /// their destinations. Ask
-            /// [`Function::answers_value`] instead wherever the rule is that
-            /// nothing consumes the answer.
-            #[inline(always)]
-            pub const fn performs_terminal_output(self) -> bool {
-                self.kind().performs_terminal_output()
-            }
-
-            /// The Source write this Function performs, or `None` for a
-            /// Function that performs none.
-            ///
-            /// `orcvs` resolves the displacement against the Grid, as
-            /// [`crate::SourceEffect`] describes. Advance and Emit declare the
-            /// whole write: scheduling reserves the displaced Span, and the
-            /// Interpreter answers the same declaration.
-            #[inline(always)]
-            pub const fn source_effect(self) -> Option<crate::SourceEffect> {
-                self.kind().source_effect()
-            }
-
-            /// Whether this Function locks the Expression root at its Output
-            /// Portal.
-            #[inline(always)]
-            pub const fn locks_root(self) -> bool {
-                self.kind().locks_root()
-            }
-
             /// Whether this Function can return Bang, even when the current
             /// operands produce no result. Scheduling uses this declaration to
             /// wait for activation producers before deciding whether to perform.
@@ -657,8 +601,8 @@ macro_rules! define_functions {
             /// about the declaration and not about a Function group — the
             /// Copies, Halt, the Bang Function and the Directional Bang
             /// Functions declare no operand either — so a caller that means "is a Self-Banging
-            /// Function" should ask [`Function::source_effect`] instead, and
-            /// read the bundle it answers: both groups declare an effect, and
+            /// Function" should match [`Function::output`]'s
+            /// [`crate::Output::Source`] instead, and read the bundle it carries: both groups declare an effect, and
             /// it is the `Advance` a Self-Banging Function declares that tells
             /// it from the `Emit` of a Directional Bang one.
             #[inline(always)]
@@ -901,30 +845,35 @@ impl Function {
             replacement.can_emit_bang() != running.can_emit_bang()
         }),
         (ReplacementChange::Write, |replacement, running| {
-            replacement.source_effect() != running.source_effect()
-                || replacement.output_portal() != running.output_portal()
-                || replacement.dynamic_output_portal() != running.dynamic_output_portal()
+            replacement.output() != running.output()
                 || replacement.input_portal() != running.input_portal()
         }),
     ];
 
-    /// The static Output Portal this Function names, or `None` when it names
-    /// none.
+    /// What this Function does through its Output Portal.
     ///
-    /// Terminal Output and Source-writing Functions name none here: the former
-    /// has no Cell destination, and the latter keeps its destinations on
-    /// [`Function::source_effect`]. A Write names none either: its Output
-    /// Portal is dynamic, [`Function::dynamic_output_portal`]. Every other
-    /// Function names one row south unless it is a Copy, which names the
-    /// Portal its direction writes through.
-    pub const fn output_portal(self) -> Option<crate::PortalCoords> {
-        if self.performs_terminal_output()
-            || self.source_effect().is_some()
-            || self.dynamic_output_portal().is_some()
-        {
-            return None;
+    /// The kind column decides it for every effect: Terminal Output writes no
+    /// Cell, a Source write writes its declared effect, and a lock locks
+    /// through the Portal one row south. A value answer is written at the pair
+    /// its operands select when the Function declares a selection rule, and
+    /// otherwise at its static offset: one row south unless it is a Copy,
+    /// which writes through the Portal its direction names.
+    pub const fn output(self) -> crate::Output {
+        use crate::Output;
+        match self.kind() {
+            FunctionKind::Effect(EffectKind::TerminalOutput) => Output::Terminal,
+            FunctionKind::Effect(EffectKind::SourceWrite(effect)) => Output::Source(effect),
+            FunctionKind::Effect(EffectKind::Lock) => Output::Lock(self.static_offset()),
+            FunctionKind::Value => match self.selection() {
+                Some(selection) => Output::Dynamic(selection),
+                None => Output::Static(self.static_offset()),
+            },
         }
-        Some(match self {
+    }
+
+    /// The offset a static Output Portal stands at.
+    const fn static_offset(self) -> crate::PortalCoords {
+        match self {
             Self::CopyEast => crate::PortalCoords {
                 columns: 2,
                 rows: 0,
@@ -938,7 +887,7 @@ impl Function {
                 rows: -1,
             },
             _ => crate::PortalCoords::SOUTH,
-        })
+        }
     }
 
     /// How this Function's operands select the pair its dynamic Output Portal
@@ -949,7 +898,7 @@ impl Function {
     /// lead the signature and `value` follows them. Push selects a pair of
     /// the lane below it, and the absolute Copy the destination Position its
     /// last two operands name.
-    pub const fn dynamic_output_portal(self) -> Option<crate::PairSelection> {
+    const fn selection(self) -> Option<crate::PairSelection> {
         use crate::Direction::{East, North, South, West};
         use crate::PairSelection::{DestinationPosition, Distance, Lane, Position};
         match self {
@@ -1238,7 +1187,7 @@ mod test {
         // writing them out.
         let mut seen = 0;
         for function in Function::ALL.iter().copied() {
-            let Some(effect) = function.source_effect() else {
+            let crate::Output::Source(effect) = function.output() else {
                 continue;
             };
             seen += 1;
@@ -1350,101 +1299,50 @@ mod test {
     }
 
     #[test]
-    fn every_function_names_its_portals() {
+    fn every_function_names_its_input_portal() {
         use crate::{
             Direction,
             InputPortal::{Dynamic, Static},
             PairSelection, PortalCoords,
         };
-        // The arrow each Read's and Write's spelling names.
+        // The arrow each Read's spelling names.
         const READS: [(Function, Direction); 4] = [
             (Function::ReadEast, Direction::East),
             (Function::ReadNorth, Direction::North),
             (Function::ReadSouth, Direction::South),
             (Function::ReadWest, Direction::West),
         ];
-        const WRITES: [(Function, Direction); 4] = [
-            (Function::WriteEast, Direction::East),
-            (Function::WriteNorth, Direction::North),
-            (Function::WriteSouth, Direction::South),
-            (Function::WriteWest, Direction::West),
-        ];
 
         for function in Function::ALL.iter().copied() {
-            let output = function.output_portal();
             let input = function.input_portal();
-            let dynamic_output = function.dynamic_output_portal();
-            if !matches!(
-                function,
-                Function::AbsoluteCopy
-                    | Function::AbsoluteWrite
-                    | Function::Push
-                    | Function::WriteEast
-                    | Function::WriteNorth
-                    | Function::WriteSouth
-                    | Function::WriteWest
-            ) {
-                assert_eq!(dynamic_output, None, "{function:?}");
-            }
             match function {
-                Function::CopyEast => {
-                    assert_eq!(
-                        output,
-                        Some(PortalCoords {
-                            columns: 2,
-                            rows: 0
-                        })
-                    );
-                    assert_eq!(
-                        input,
-                        Some(Static(PortalCoords {
-                            columns: -2,
-                            rows: 0
-                        }))
-                    );
-                }
-                Function::CopyWest => {
-                    assert_eq!(
-                        output,
-                        Some(PortalCoords {
-                            columns: -2,
-                            rows: 0
-                        })
-                    );
-                    assert_eq!(
-                        input,
-                        Some(Static(PortalCoords {
-                            columns: 2,
-                            rows: 0
-                        }))
-                    );
-                }
-                Function::CopyNorth => {
-                    assert_eq!(
-                        output,
-                        Some(PortalCoords {
-                            columns: 0,
-                            rows: -1
-                        })
-                    );
-                    assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
-                }
-                Function::CopySouth => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(
-                        input,
-                        Some(Static(PortalCoords {
-                            columns: 0,
-                            rows: -1
-                        }))
-                    );
-                }
+                Function::CopyEast => assert_eq!(
+                    input,
+                    Some(Static(PortalCoords {
+                        columns: -2,
+                        rows: 0
+                    }))
+                ),
+                Function::CopyWest => assert_eq!(
+                    input,
+                    Some(Static(PortalCoords {
+                        columns: 2,
+                        rows: 0
+                    }))
+                ),
+                Function::CopyNorth => assert_eq!(input, Some(Static(PortalCoords::SOUTH))),
+                Function::CopySouth => assert_eq!(
+                    input,
+                    Some(Static(PortalCoords {
+                        columns: 0,
+                        rows: -1
+                    }))
+                ),
+                // Increment and Interpolation read where they write.
                 Function::Increment | Function::Interpolation => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
                 }
                 Function::Track => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Dynamic(PairSelection::IndexModuloCount)));
                 }
                 Function::ReadEast
@@ -1455,7 +1353,6 @@ mod test {
                         .iter()
                         .find(|(read, _)| *read == function)
                         .expect("every Read is listed");
-                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
                     assert_eq!(
                         input,
                         Some(Dynamic(PairSelection::Distance(*direction, function))),
@@ -1463,59 +1360,86 @@ mod test {
                     );
                 }
                 Function::AbsoluteRead => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
                     assert_eq!(input, Some(Dynamic(PairSelection::Position(function))));
                 }
-                // A Write's Output Portal is the pair the Read with the same
-                // arrow, or the absolute Read, reads, and nothing south.
-                Function::WriteEast
-                | Function::WriteNorth
-                | Function::WriteSouth
-                | Function::WriteWest => {
-                    let (_, direction) = WRITES
-                        .iter()
-                        .find(|(write, _)| *write == function)
-                        .expect("every Write is listed");
-                    assert_eq!(output, None, "{function:?}");
-                    assert_eq!(input, None, "{function:?}");
-                    assert_eq!(
-                        dynamic_output,
-                        Some(PairSelection::Distance(*direction, function)),
-                        "{function:?}"
-                    );
-                }
-                Function::AbsoluteWrite => {
-                    assert_eq!(output, None);
-                    assert_eq!(input, None);
-                    assert_eq!(dynamic_output, Some(PairSelection::Position(function)));
-                }
-                // The absolute Copy reads one Position and writes another,
-                // and nothing south.
+                // The absolute Copy reads one Position and writes another.
                 Function::AbsoluteCopy => {
-                    assert_eq!(output, None);
                     assert_eq!(input, Some(Dynamic(PairSelection::SourcePosition)));
-                    assert_eq!(dynamic_output, Some(PairSelection::DestinationPosition));
                 }
-                // Push writes a pair of the lane below it.
-                Function::Push => {
-                    assert_eq!(output, None);
-                    assert_eq!(input, None);
-                    assert_eq!(dynamic_output, Some(PairSelection::Lane));
+                _ => assert_eq!(input, None, "{function:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn every_function_does_one_thing_through_its_output_portal() {
+        use crate::{Direction, Output, PairSelection, PortalCoords};
+        let east = PortalCoords {
+            columns: 2,
+            rows: 0,
+        };
+        let west = PortalCoords {
+            columns: -2,
+            rows: 0,
+        };
+        let north = PortalCoords {
+            columns: 0,
+            rows: -1,
+        };
+
+        for function in Function::ALL.iter().copied() {
+            let output = function.output();
+            // `output` reads a selection rule only for a value answer, so an
+            // effect that declared one would lose it without a word.
+            assert!(
+                function.selection().is_none() || function.answers_value(),
+                "{function:?}"
+            );
+            match function {
+                Function::RawPlay
+                | Function::TimedPlay
+                | Function::MonophonicPlay
+                | Function::ControlChange
+                | Function::PitchBend => assert_eq!(output, Output::Terminal, "{function:?}"),
+                Function::SelfBangingEast
+                | Function::SelfBangingNorth
+                | Function::SelfBangingSouth
+                | Function::SelfBangingWest
+                | Function::DirectionalBangEast
+                | Function::DirectionalBangNorth
+                | Function::DirectionalBangSouth
+                | Function::DirectionalBangWest
+                | Function::Bang => {
+                    assert!(matches!(output, Output::Source(_)), "{function:?}");
                 }
-                Function::Halt => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH));
-                    assert_eq!(input, None);
-                    assert!(function.locks_root());
+                Function::Halt => assert_eq!(output, Output::Lock(PortalCoords::SOUTH)),
+                Function::CopyEast => assert_eq!(output, Output::Static(east)),
+                Function::CopyWest => assert_eq!(output, Output::Static(west)),
+                Function::CopyNorth => assert_eq!(output, Output::Static(north)),
+                Function::WriteEast => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::East, function))
+                ),
+                Function::WriteNorth => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::North, function))
+                ),
+                Function::WriteSouth => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::South, function))
+                ),
+                Function::WriteWest => assert_eq!(
+                    output,
+                    Output::Dynamic(PairSelection::Distance(Direction::West, function))
+                ),
+                Function::AbsoluteWrite => {
+                    assert_eq!(output, Output::Dynamic(PairSelection::Position(function)));
                 }
-                _ if function.performs_terminal_output() || function.source_effect().is_some() => {
-                    assert_eq!(output, None, "{function:?}");
-                    assert_eq!(input, None, "{function:?}");
+                Function::Push => assert_eq!(output, Output::Dynamic(PairSelection::Lane)),
+                Function::AbsoluteCopy => {
+                    assert_eq!(output, Output::Dynamic(PairSelection::DestinationPosition));
                 }
-                _ => {
-                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
-                    assert_eq!(input, None, "{function:?}");
-                    assert!(!function.locks_root(), "{function:?}");
-                }
+                _ => assert_eq!(output, Output::Static(PortalCoords::SOUTH), "{function:?}"),
             }
         }
     }
@@ -1906,7 +1830,7 @@ mod test {
 
             assert_eq!(function.answers_value(), answers_value, "{function:?}");
             assert_eq!(
-                function.performs_terminal_output(),
+                function.output() == crate::Output::Terminal,
                 terminal_output,
                 "{function:?}"
             );

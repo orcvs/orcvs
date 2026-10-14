@@ -7,8 +7,8 @@
 //! [`working::WorkingSource`]'s. Nothing here survives the Tick.
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalAddress, PortalSource,
-    SourceBundle, SourceEffect, Tick,
+    Atom, Function, FunctionInputs, Interpretation, Interpreter, Output, PortalAddress,
+    PortalSource, SourceBundle, SourceEffect, Tick,
 };
 
 use super::Schedule;
@@ -290,7 +290,7 @@ impl<'a> Execution<'a> {
         function: Function,
         operands: &[Atom],
     ) -> Result<Option<Result<Position, PortalError>>, String> {
-        let Some(selection) = function.dynamic_output_portal() else {
+        let Output::Dynamic(selection) = function.output() else {
             return Ok(None);
         };
         Ok(Some(

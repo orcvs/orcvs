@@ -580,23 +580,20 @@ impl LanguageMap {
     /// The Reservation `function` at `anchor` covers from its Output Portal,
     /// or `None` where it covers none.
     ///
-    /// Halt is excluded here because [`Function::output_portal`] still names
-    /// a site for it: it locks the root there rather than writing, which is
-    /// [`Function::locks_root`]'s question and not `output_portal`'s. A
-    /// Terminal Output Function and a Source-writing Function need no
-    /// exclusion of their own — `output_portal` already answers `None` for
-    /// both, the former having no Cell destination and the latter keeping its
-    /// destinations on [`Function::source_effect`] instead.
+    /// Only a value answer written at a static Output Portal reserves one.
+    /// Halt locks the root at its Portal rather than writing there, a
+    /// Terminal Output Function has no Cell destination, a Source-writing
+    /// Function's destinations are its Source effect, and a dynamic Output
+    /// Portal's pair is known only at its Turn.
     ///
     fn output_portal_reservation(
         &self,
         anchor: Position,
         function: Function,
     ) -> Option<OutputPortalReservation> {
-        if function.locks_root() {
+        let lang::Output::Static(coords) = function.output() else {
             return None;
-        }
-        let coords = function.output_portal()?;
+        };
         let portal = Portal::named(self.grid, anchor, coords).ok()?;
         let range = portal.reservation()?.range();
         Some(OutputPortalReservation { range })
@@ -1544,7 +1541,7 @@ mod tests {
     /// `Lookup`.
     ///
     mod output_portal {
-        use super::{Cells, Function, Grid, LanguageMap};
+        use super::{Cells, Grid, LanguageMap};
 
         /// One `LanguageMap` built from `rows`, each padded to `grid`'s width
         /// with blank Cells, matching how every other row-based fixture in
@@ -1696,8 +1693,8 @@ mod tests {
 
         #[test]
         fn a_terminal_output_function_is_never_covered() {
-            // `!>` (RawPlay) answers Play, not a Cell: `output_portal()` is
-            // `None` for it.
+            // `!>` (RawPlay) answers Play, not a Cell: its `output()` is
+            // `Output::Terminal`.
             let grid = Grid::with_shape(8, 2);
             let map = build(grid, &["!>007F"]);
 
@@ -1739,21 +1736,6 @@ mod tests {
 
             for x in 0..grid.columns() {
                 assert!(!covered(&map, grid, x, 0), "column {x}");
-            }
-        }
-
-        #[test]
-        fn no_function_declares_an_output_portal_it_does_not_answer_through() {
-            // `output_portal_reservation` gates on `output_portal()` alone,
-            // where the scheduler's `PortalAccess::resolve` first routes
-            // terminal output and a Source effect elsewhere. The two reserve
-            // the same Cells only while no Function declares an Output Portal
-            // beside either.
-            for &function in Function::ALL {
-                if function.output_portal().is_some() {
-                    assert!(!function.performs_terminal_output(), "{function:?}");
-                    assert!(function.source_effect().is_none(), "{function:?}");
-                }
             }
         }
 

@@ -5503,14 +5503,12 @@ mod test {
 /// `LanguageMap::output_portal_cells` does not cover them.
 ///
 /// Every other root reserves the same Cells in both: the same `Portal::named`
-/// resolution and the same `Portal::reservation`. The gates in front of them differ —
-/// `PortalAccess::resolve` routes terminal output and a Source effect away
-/// before it reads `output_portal()`, the Language Map reads
-/// `output_portal()` alone — and agree only while no Function declares an
-/// Output Portal beside either, which `language_map.rs`'s
-/// `no_function_declares_an_output_portal_it_does_not_answer_through` holds.
-/// So only the exclusion is checked here, the one place that can reach the
-/// scheduler's private `Lookup`.
+/// resolution and the same `Portal::reservation`, each reached from a value
+/// answer's `Output::Static` and nothing else. Halt's `Output::Lock` names a
+/// site that neither reserves, because a lock writes no Cell. So only the
+/// exclusion is
+/// checked here, the one place that can reach the scheduler's private
+/// `Lookup`.
 ///
 /// Each Source is isolated on purpose. A Reservation counts whatever else
 /// claims its Cells, so a Source-writing Function's write site can coincide
@@ -5534,7 +5532,7 @@ mod output_portal_exclusion {
         let lookup = Lookup::new(grid, nodes);
         let mut cells = vec![false; grid.count()];
         for node in lookup.nodes() {
-            if node.function.source_effect().is_none() {
+            if !matches!(node.function.output(), lang::Output::Source(_)) {
                 continue;
             }
             for output in node
