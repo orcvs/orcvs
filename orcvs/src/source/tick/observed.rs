@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::plan;
+use super::{plan, shared_schedule};
 use crate::grid::Grid;
 use crate::source::{Cells, Source, TickPlan};
 
@@ -126,8 +126,7 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    map.schedule_cache()
-        .schedule(grid, map.schedule_inputs())
+    shared_schedule(grid, &map)
         .lookup
         .nodes()
         .iter()

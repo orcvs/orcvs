@@ -363,13 +363,7 @@ pub(super) fn plan(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    execution::execute(
-        grid,
-        cells,
-        map,
-        tick,
-        map.schedule_cache().schedule(grid, map.schedule_inputs()),
-    )
+    execution::execute(grid, cells, map, tick, shared_schedule(grid, map))
 }
 
 ///
@@ -424,9 +418,9 @@ fn plan_unshared(
 pub(super) struct ScheduleCache(Arc<OnceLock<Schedule>>);
 
 impl ScheduleCache {
-    /// The schedule `map` admits, ordered now if no Tick has asked for it.
-    /// `inputs` are those of the Map this cache belongs to, or equal to
-    /// them.
+    /// The schedule `inputs` admit, ordered now if no Tick has asked for it.
+    /// `inputs` are those of the Map this cache belongs to, which
+    /// [`shared_schedule`] guarantees by taking both from one Map.
     fn schedule(&self, grid: Grid, inputs: ScheduleInputs<'_>) -> &Schedule {
         self.0.get_or_init(|| schedule(grid, inputs))
     }
@@ -442,6 +436,18 @@ impl ScheduleCache {
     fn is_filled(&self) -> bool {
         self.0.get().is_some()
     }
+}
+
+///
+/// The schedule `map` shares with every revision holding equal scheduling
+/// inputs, ordered now if no Tick has asked for it.
+///
+/// The cache and the inputs it is filled from both come from `map`, so a
+/// schedule ordered from one revision's inputs is never stored in a cache
+/// another revision holds.
+///
+fn shared_schedule(grid: Grid, map: &LanguageMap) -> &Schedule {
+    map.schedule_cache().schedule(grid, map.schedule_inputs())
 }
 
 ///
