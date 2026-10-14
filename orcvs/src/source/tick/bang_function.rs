@@ -453,32 +453,15 @@ fn a_blocked_mover_activates_nothing_and_its_bang_plays_on_the_next_tick() {
 
 #[test]
 fn a_mover_meets_a_bang_activated_root_in_source_order() {
-    // The `**` activates the Raw Play its mover contacts. The root stays in
-    // its Cells through its Turn, so whichever of the two Source order puts
-    // first, the root plays and the mover is blocked and leaves `**`, which
-    // plays the root again on the next Tick. The mover precedes the root in
-    // the first Grid and follows it in the second.
-    let cases: [(&[&str], [&str; 3]); 2] = [
-        (
-            &["  **", ">>!>007FC4"],
-            ["          ", "**!>007FC4", "          "],
-        ),
-        (
-            &["  **", "  !>007FC4", "  ^^"],
-            ["          ", "  !>007FC4", "  **      "],
-        ),
-    ];
-    for (rows, blocked) in cases {
-        let mut source = source_of(Grid::with_shape(10, 3), rows);
-        let (plan, seen) = tick(&mut source, 0);
-        assert_eq!(plan.play_commands, [raw_c4()], "{rows:?}");
-        assert_eq!(seen.rows, blocked, "{rows:?}");
-        quiet(&seen);
-        let (plan, seen) = tick(&mut source, 1);
-        assert_eq!(plan.play_commands, [raw_c4()], "{rows:?}");
-        assert_eq!(seen.rows, ["          ", "  !>007FC4", "          "]);
-        quiet(&seen);
-    }
+    // The `**` activates the `*>` below it, and `^^` is blocked by the `*>`
+    // it moves into. The `*>` is not ordered after that mover, so Source
+    // order puts it before `<<`: it emits `>>` into the Cells `<<` would
+    // enter, and `<<` is blocked and leaves `**`.
+    let mut source = source_of(Grid::with_shape(8, 3), &["  **", "  *>  <<", "  ^^"]);
+    let (plan, seen) = tick(&mut source, 0);
+    assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+    assert_eq!(seen.rows, ["        ", "  *>>>**", "  **    "]);
+    quiet(&seen);
 }
 
 #[test]

@@ -1210,15 +1210,16 @@ mod test {
             }
 
             #[test]
-            fn collision_activated_emissions_never_meet_an_ordering_defect_or_a_cycle(
+            fn emissions_a_blocked_mover_activates_never_meet_an_ordering_defect_or_a_cycle(
                 emitter in select(vec!["*^", "*v", "*<", "*>"]),
                 side in 0..4usize,
                 gap in 0..3usize,
                 destination in select(vec!["  ", "xx", "^^", "vv", "<<", ">>"]),
             ) {
-                // A mover aimed at an emitter activates it by collision, and the
-                // emitter's destination is empty, static, or another mover, so
-                // activated emissions both succeed and are refused.
+                // A mover aimed at an emitter is blocked by it and leaves `**`,
+                // which activates the emitter on the next Tick. The emitter's
+                // destination is empty, static, or another mover, so activated
+                // emissions both succeed and are refused.
                 let mut grid = vec![vec![b' '; 12]; 5];
                 let mut put = |x: usize, y: usize, spelling: &str| {
                     grid[y][x..x + 2].copy_from_slice(spelling.as_bytes());
@@ -2298,21 +2299,23 @@ mod test {
     }
 
     #[test]
-    fn the_schedule_orders_a_move_ahead_of_the_computation_it_would_land_on() {
-        // Reserving the destination Portal is what puts these two Turns in an
-        // order, and the order is what keeps the move honest: `>>` points at
-        // the Cell `^^` stands in, so `>>` takes its Turn first and reads the
-        // Source Snapshot's own answer — blocked, by a complete root, so `**`
-        // and an activation `^^` already had. `^^` then moves north out of the
-        // way it never had to give.
-        //
-        // Without that edge `^^` could move first and `>>` would find the Cell
-        // empty, planning a write over Cells a computation that had already
-        // run was scheduled at. That write would be refused as an ordering
-        // defect, and this is the ordering that stops it arising.
+    fn a_mover_meets_the_mover_it_would_land_on_in_source_order() {
+        // Neither mover's reservation orders the other, so Source order puts
+        // the earlier first. `>>` points at the Cell `^^` stands in and is
+        // blocked by it, leaving `**`, and `^^` then moves north. Mirrored,
+        // `^^` moves north first and `<<` enters the Cell it vacated, which is
+        // a placement into empty Cells rather than a write over a computation
+        // that has taken its Turn.
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["", ">>^^  "], 1);
-
         assert_eq!(grids[0], ["  ^^  ", "**    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["", "^^<<  "], 1);
+        assert_eq!(grids[0], ["^^    ", " <<   "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",

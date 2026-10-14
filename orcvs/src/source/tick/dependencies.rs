@@ -12,8 +12,6 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use lang::SourceBundle;
-
 use super::Lookup;
 use super::ordering::{Join, Joined};
 use crate::grid::Position;
@@ -220,27 +218,24 @@ fn producer_edges(
 ) {
     let nodes = lookup.nodes();
     let node = &nodes[index];
-    let bundle = node.function.source_effect().map(|effect| effect.bundle);
-    // A self-edge is an unsatisfiable indegree, so it is how a computation
-    // that writes over its own Cells reports itself as a same-Tick cycle: the
-    // reservation covering the producer and the Cell pair its write reaches
-    // are the same fact, and `live_cycles_stop_only_the_expressions_they_reach`
-    // holds that rule.
+    // A Function with no declared Source effect orders itself before every
+    // Function its
+    // reservation contacts, itself included: a self-edge is an unsatisfiable
+    // indegree, so it is how a computation that writes over its own Cells
+    // reports itself as a same-Tick cycle, and
+    // `live_cycles_stop_only_the_expressions_they_reach` holds that rule.
     //
-    // The one way a producer's own Cells are not a defect is one a declaration
-    // states outright: a bundle that clears its own Span, which a Self-Banging
-    // Function's and the Bang Function's do. Ordering such a producer after
-    // itself would stop it every Tick it takes a Turn in.
-    let exempt_from_itself = bundle.is_some_and(SourceBundle::clears_own_span);
-    // A bundle that writes displaced, an emission or a move, is admitted only
-    // into Cells empty at its Turn, so it never writes over a Function its
-    // reservation contacts, and it delivers no activation there: occupancy
-    // alone orders nothing (ADR 0060 rule 3b). An occupant that leaves first
-    // makes room; one still standing refuses the placement, and a refused
-    // move leaves `**` in its own Span instead. Its reservation orders none
-    // of the Functions it contacts, whether they wait for a Bang or not, so
-    // Source order decides between them.
-    let orders_contacts = bundle.is_none_or(|bundle| !bundle.writes_displaced());
+    // A declared Source effect orders no contact. An emission or a move is
+    // admitted only into Cells empty at its Turn, so it never writes over a
+    // Function its reservation contacts, and it delivers no activation there:
+    // occupancy alone orders nothing (ADR 0060 rule 3b). An occupant that
+    // leaves first makes room; one still standing refuses the placement, and
+    // a refused move leaves `**` in its own Span instead. Source order decides
+    // between a placement and the Functions it contacts, whether they wait for
+    // a Bang or not. A Fire writes only its own Span, which it clears, so its
+    // one contact is itself, and ordering it after itself would stop it every
+    // Tick it takes a Turn in.
+    let orders_contacts = node.function.source_effect().is_none();
     if let Some(target) = locked_subtree(locks, index) {
         for consumer in target.clone() {
             edge(index, consumer);
@@ -248,9 +243,6 @@ fn producer_edges(
     }
     for relationships in reservations(lookup, index) {
         let mut order_after = |consumer: usize| {
-            if exempt_from_itself && consumer == index {
-                return;
-            }
             if lock_covers(lookup, locks, consumer, index) {
                 return;
             }
@@ -641,12 +633,22 @@ mod test {
 
     #[test]
     fn a_mover_meets_every_root_it_contacts_in_source_order() {
-        // `>>` reserves the Cells the root east of it stands in, whether that
+        // Each mover reserves Cells the root beside it stands in, whether that
         // root takes its Turn with nothing delivered to it, as `^^` does, or
-        // waits for a Bang, as `*!` does. Neither is ordered after the mover.
-        for rows in [[">>^^  "], [">>*!  "]] {
-            let (lookup, locks) = fixture(Grid::with_shape(6, 1), &rows);
-            let (mover, contacted) = (at(&lookup, 0, 0), at(&lookup, 2, 0));
+        // waits for a Bang, as a Halt, a Directional Bang and a Terminal
+        // Output do. None is ordered after the mover, from any side.
+        type Case<'a> = (&'a [&'a str], (usize, usize), (usize, usize));
+        let cases: [Case; 6] = [
+            (&[">>^^"], (0, 0), (2, 0)),
+            (&[">>*!"], (0, 0), (2, 0)),
+            (&[">>*>"], (0, 0), (2, 0)),
+            (&[">>!>007FC4"], (0, 0), (2, 0)),
+            (&["*v<<"], (2, 0), (0, 0)),
+            (&["vv", "!>007FC4"], (0, 0), (0, 1)),
+        ];
+        for (rows, (mx, my), (cx, cy)) in cases {
+            let (lookup, locks) = fixture(Grid::with_shape(10, 2), rows);
+            let (mover, contacted) = (at(&lookup, mx, my), at(&lookup, cx, cy));
             assert!(
                 !derive(&lookup, &locks)
                     .dependencies
