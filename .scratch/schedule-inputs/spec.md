@@ -1,6 +1,6 @@
 # Give schedule identity and construction one borrowed projection
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem
 

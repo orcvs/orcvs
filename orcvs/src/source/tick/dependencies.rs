@@ -21,10 +21,9 @@ use std::ops::Range;
 
 use lang::{Atom, Function, Output, ReplacementChange, SourceBundle};
 
-use super::Lookup;
 use super::ordering::{Join, Joined};
+use super::{Lookup, ScheduleInputs};
 use crate::grid::Position;
-use crate::source::language_map::LanguageMap;
 use crate::source::portal::{Occupancy, Portal, SpanWrite};
 
 ///
@@ -632,7 +631,7 @@ pub(super) enum Lock {
 pub(super) struct Locks(Vec<Option<Lock>>);
 
 impl Locks {
-    pub(super) fn new(lookup: &Lookup, map: &LanguageMap) -> Self {
+    pub(super) fn new(lookup: &Lookup, inputs: ScheduleInputs<'_>) -> Self {
         Self(
             lookup
                 .nodes()
@@ -647,7 +646,7 @@ impl Locks {
                     // occupancy, and an empty one locks nothing.
                     let portal = Portal::at(lookup.grid, destination);
                     (!matches!(
-                        portal.occupancy(map, |anchor| lookup.root_at(anchor)),
+                        portal.occupancy(inputs.units(), |anchor| lookup.root_at(anchor)),
                         Occupancy::Empty
                     ))
                     .then_some(Lock::NotARoot)
@@ -841,9 +840,10 @@ mod test {
             })
             .collect();
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (nodes, _) = computations(grid, map.schedule_inputs());
+        let inputs = map.schedule_inputs();
+        let (nodes, _) = computations(grid, inputs);
         let lookup = Lookup::new(grid, nodes);
-        let locks = Locks::new(&lookup, &map);
+        let locks = Locks::new(&lookup, inputs);
         (lookup, locks)
     }
 

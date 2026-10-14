@@ -9,7 +9,7 @@ use lang::{Atom, Expression, Function, Parser, SourceAnalysis, Token};
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::portal::Portal;
-use super::tick::{ScheduleCache, ScheduleInputs, ScheduledExpression};
+use super::tick::{RowInputs, ScheduleCache, ScheduleInputs, ScheduledExpression};
 use super::{Cells, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
@@ -305,7 +305,7 @@ impl LanguageMap {
             .collect();
         let schedules_alike = dirty
             .iter()
-            .all(|&row| rows[row].schedules_as(&previous.rows[row]));
+            .all(|&row| RowInputs::of(&rows[row]) == RowInputs::of(&previous.rows[row]));
         Self {
             id: LanguageMapId::new(),
             grid,
@@ -617,11 +617,8 @@ impl DerivedRow {
         }
     }
 
-    /// Whether this row holds the scheduling inputs [`ScheduleCache`] names
-    /// that `other` holds: the same Language Units, and the same Expressions
-    /// a schedule computes.
-    fn schedules_as(&self, other: &Self) -> bool {
-        self.units == other.units && self.scheduled().eq(other.scheduled())
+    pub(super) fn units(&self) -> &[LanguageUnit] {
+        &self.units
     }
 
     /// The Expressions a schedule computes, as a schedule reads them.

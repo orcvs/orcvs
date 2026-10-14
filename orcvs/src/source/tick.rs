@@ -42,7 +42,7 @@ use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 use inputs::Parsed;
-pub(super) use inputs::{ScheduleInputs, ScheduledExpression};
+pub(super) use inputs::{RowInputs, ScheduleInputs, ScheduledExpression};
 use ordering::{Order, Stall};
 
 ///
@@ -368,7 +368,7 @@ pub(super) fn plan(
         cells,
         map,
         tick,
-        map.schedule_cache().schedule(grid, map),
+        map.schedule_cache().schedule(grid, map.schedule_inputs()),
     )
 }
 
@@ -383,7 +383,13 @@ fn plan_unshared(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    execution::execute(grid, cells, map, tick, &schedule(grid, map))
+    execution::execute(
+        grid,
+        cells,
+        map,
+        tick,
+        &schedule(grid, map.schedule_inputs()),
+    )
 }
 
 ///
@@ -391,16 +397,10 @@ fn plan_unshared(
 /// Tick is planned against them and shared by every Language Map revision
 /// that holds the same inputs.
 ///
-/// A schedule reads the Grid and these inputs of its Map, and nothing else:
-///
-/// - each Expression with a leading Function: its Span, and for every
-///   positioned entry its Cells, its parent, and whether it parsed and as
-///   which Function. The Function identities decide Portal access, activation,
-///   reservations and so every Portal relationship; the Cells decide claims
-///   and the row edge diagnostic; whether an operand parsed decides syntax
-///   blocking;
-/// - every Language Unit, whose anchors and Spans decide the occupancy a Halt
-///   target is classified by. A unit records its kind and no value.
+/// A schedule reads the Grid and the [`ScheduleInputs`] of its Map, and
+/// nothing else: each Expression with a leading Function as a
+/// [`ScheduledExpression`], and every Language Unit, whose anchors and Spans
+/// decide the occupancy a Halt target is classified by.
 ///
 /// Portal destinations are read from the Function's declaration, never from
 /// an operand. A dynamic Portal's position is found at the Turn and is no
@@ -408,14 +408,12 @@ fn plan_unshared(
 /// each one, are. An Operand Literal's value, working
 /// Source and the Tick are execution's alone, so a Tick that writes new values
 /// into Cells whose units keep their Spans changes no scheduling input.
-/// [`computations`] reads Expressions only through [`ScheduleInputs`], whose
-/// equality is the comparison a rebuild makes. Anything
-/// [`dependencies::Locks::new`] reads from the Map is a scheduling input and
-/// must be compared by `DerivedRow::schedules_as` too.
-/// [`LanguageMap::rebuild`] compares these inputs row by row and carries this
-/// cache to the new revision when every row it re-derived holds the inputs it
-/// held before, which is what lets the cache survive a commit that rewrites
-/// identical bytes as well as one that writes nothing.
+/// [`LanguageMap::rebuild`] compares each re-derived row's [`RowInputs`] with
+/// the row it replaces and carries this cache to the new revision when every
+/// one is equal, which is what lets the cache survive a commit that rewrites
+/// identical bytes as well as one that writes nothing. Construction reads the
+/// Map through the same projection, so it reads nothing that comparison
+/// misses.
 ///
 /// Ordering waits for the first Tick planned against the inputs, so a
 /// revision no Tick is planned against costs no ordering. The cache is shared
@@ -427,10 +425,10 @@ pub(super) struct ScheduleCache(Arc<OnceLock<Schedule>>);
 
 impl ScheduleCache {
     /// The schedule `map` admits, ordered now if no Tick has asked for it.
-    /// `map` is the Map this cache belongs to, or one holding the same
-    /// scheduling inputs.
-    fn schedule(&self, grid: Grid, map: &LanguageMap) -> &Schedule {
-        self.0.get_or_init(|| schedule(grid, map))
+    /// `inputs` are those of the Map this cache belongs to, or equal to
+    /// them.
+    fn schedule(&self, grid: Grid, inputs: ScheduleInputs<'_>) -> &Schedule {
+        self.0.get_or_init(|| schedule(grid, inputs))
     }
 
     /// Whether `other` is this cache, rather than one ordered separately.
@@ -478,9 +476,10 @@ fn schedule_carrying(
     map: &LanguageMap,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> Schedule {
-    let (mut nodes, diagnostics) = computations(grid, map.schedule_inputs());
+    let inputs = map.schedule_inputs();
+    let (mut nodes, diagnostics) = computations(grid, inputs);
     carry(grid, &mut nodes, destinations);
-    order_turns(Lookup::new(grid, nodes), map, diagnostics)
+    order_turns(Lookup::new(grid, nodes), inputs, diagnostics)
 }
 
 ///
@@ -514,12 +513,12 @@ fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
 /// The order one revision's Turns are taken in, and the diagnostics its
 /// layout and cycles owe.
 ///
-/// Reads only the scheduling inputs [`ScheduleCache`] names, because every
-/// revision holding those inputs shares what this answers.
+/// Reads nothing but `inputs`, because every revision holding equal inputs
+/// shares what this answers.
 ///
-fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
-    let (nodes, diagnostics) = computations(grid, map.schedule_inputs());
-    order_turns(Lookup::new(grid, nodes), map, diagnostics)
+fn schedule(grid: Grid, inputs: ScheduleInputs<'_>) -> Schedule {
+    let (nodes, diagnostics) = computations(grid, inputs);
+    order_turns(Lookup::new(grid, nodes), inputs, diagnostics)
 }
 
 ///
@@ -602,8 +601,12 @@ fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Ve
 /// Dependency [`dependencies::derive`] finds, ordered by [`ordering::schedule`], and the
 /// diagnostics its cycles owe after `diagnostics`.
 ///
-fn order_turns(lookup: Lookup, map: &LanguageMap, diagnostics: Vec<Diagnostic>) -> Schedule {
-    let locks = dependencies::Locks::new(&lookup, map);
+fn order_turns(
+    lookup: Lookup,
+    inputs: ScheduleInputs<'_>,
+    diagnostics: Vec<Diagnostic>,
+) -> Schedule {
+    let locks = dependencies::Locks::new(&lookup, inputs);
     let dependencies::Derived {
         active,
         dependencies,
@@ -2691,7 +2694,7 @@ mod test {
         let grid = Grid::with_shape(8, 4);
         let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let mut schedule = super::schedule(grid, &map);
+        let mut schedule = super::schedule(grid, map.schedule_inputs());
         // Parser preorder: Equality, Halt, Add.
         schedule.ordered.order = vec![0, 2, 1];
         let (plan, states) = super::execution::execute(

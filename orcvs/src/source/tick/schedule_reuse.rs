@@ -91,7 +91,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let bytes = source.snapshot();
     let grid = source.grid();
     let map = source.shared_language_map();
-    let schedule = map.schedule_cache().schedule(grid, &map);
+    let schedule = map.schedule_cache().schedule(grid, map.schedule_inputs());
     let nodes = schedule.lookup.nodes();
     let reads = nodes
         .iter()
@@ -128,7 +128,9 @@ fn stale_tick(source: &Source, earlier: &LanguageMap, tick: u64) -> TickPlan {
         Cells::of(bytes.as_bytes()),
         &current,
         Tick::new(tick),
-        earlier.schedule_cache().schedule(grid, earlier),
+        earlier
+            .schedule_cache()
+            .schedule(grid, earlier.schedule_inputs()),
     )
     .0
 }
@@ -578,7 +580,7 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
     let map = source.shared_language_map();
     assert!(
         map.schedule_cache()
-            .schedule(grid, &map)
+            .schedule(grid, map.schedule_inputs())
             .ordered
             .stopped
             .contains(&true),
@@ -622,7 +624,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
         ],
     );
     let map = source.shared_language_map();
-    let schedule = map.schedule_cache().schedule(grid, &map);
+    let schedule = map.schedule_cache().schedule(grid, map.schedule_inputs());
     let cached_order = schedule.ordered.order.clone();
     let at = |x, y| {
         schedule

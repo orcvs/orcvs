@@ -1,12 +1,12 @@
 //! The scheduling inputs of a Language Map revision, borrowed from its rows.
 //!
 //! A schedule is shared by every revision whose scheduling inputs are equal,
-//! so the facts schedule construction reads and the facts that equality
-//! compares have to be the same facts. This module is where both come from:
-//! construction reads a revision through [`ScheduleInputs`] and nothing else,
-//! and reuse compares rows through the [`PartialEq`] of what this module
-//! projects. A fact that construction starts reading is a fact equality
-//! compares, because there is no second description of either.
+//! so schedule construction must read nothing that equality does not compare.
+//! This module is where both come from: construction reads a revision through
+//! [`ScheduleInputs`] and nothing else, and reuse compares rows through the
+//! [`PartialEq`] of what this module projects. A fact that construction starts
+//! reading is a fact equality compares, because there is no second
+//! description of either.
 //!
 //! The projection borrows the Parser structure each row already holds. It
 //! stores nothing and allocates nothing: an Operand Literal's value, a Token,
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use lang::{Atom, Expression, Function};
 
 use crate::grid::Position;
-use crate::source::language_map::{DerivedRow, Span};
+use crate::source::language_map::{DerivedRow, LanguageUnit, Span};
 
 ///
 /// Everything a schedule reads of one Language Map revision.
@@ -33,9 +33,52 @@ impl<'a> ScheduleInputs<'a> {
         Self { rows }
     }
 
+    fn rows(self) -> impl Iterator<Item = RowInputs<'a>> {
+        self.rows.iter().map(|row| RowInputs::of(row))
+    }
+
     /// Every Expression a schedule computes, in row and then Source order.
     pub(super) fn expressions(self) -> impl Iterator<Item = ScheduledExpression<'a>> {
-        self.rows.iter().flat_map(|row| row.scheduled())
+        self.rows().flat_map(RowInputs::expressions)
+    }
+
+    /// Every Language Unit, in row and then anchor order.
+    pub(super) fn units(self) -> impl Iterator<Item = &'a LanguageUnit> {
+        self.rows().flat_map(RowInputs::units)
+    }
+}
+
+///
+/// What a schedule reads of one row: every Language Unit, and the Expressions
+/// a schedule computes.
+///
+/// A Language Unit is read whole. Its anchor and Span decide the occupancy a
+/// Halt target is classified by, and its kind is compared too, so an edit
+/// that changes only what kind of unit occupies some Cells orders a new
+/// schedule. A unit records no value.
+///
+#[derive(Clone, Copy)]
+pub(in crate::source) struct RowInputs<'a> {
+    row: &'a DerivedRow,
+}
+
+impl<'a> RowInputs<'a> {
+    pub(in crate::source) fn of(row: &'a DerivedRow) -> Self {
+        Self { row }
+    }
+
+    fn units(self) -> &'a [LanguageUnit] {
+        self.row.units()
+    }
+
+    fn expressions(self) -> impl Iterator<Item = ScheduledExpression<'a>> {
+        self.row.scheduled()
+    }
+}
+
+impl PartialEq for RowInputs<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.units() == other.units() && self.expressions().eq(other.expressions())
     }
 }
 
@@ -111,7 +154,7 @@ pub(super) struct ScheduledEntry {
 pub(super) enum Parsed {
     /// Its Cells bound no Atom.
     Unparsed,
-    /// It bound an Atom that is not a Function: an Operand Literal or a Bang.
+    /// It bound an Atom that is not a Function.
     Value,
     Function(Function),
 }

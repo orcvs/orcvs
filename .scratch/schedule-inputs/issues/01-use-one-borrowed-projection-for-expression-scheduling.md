@@ -7,23 +7,27 @@ owned by the schedule module. See the accompanying spec for the confirmed design
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Equality and computation construction consume the same projection of
+- [x] Equality and computation construction consume the same projection of
   scheduled Expression eligibility, Span, leading Function, entry Cell ranges,
   parents and three-way parse classification.
-- [ ] Literal values, Tokens and Parser diagnostic text remain outside that
+- [x] Literal values, Tokens and Parser diagnostic text remain outside that
   projection; Source bytes are not copied.
-- [ ] The projection borrows existing Parser structure, adds no projection
+- [x] The projection borrows existing Parser structure, adds no projection
   allocations or stored duplicate structure, and owns the interpretation of
   scheduling facts rather than relocating a separate comparison.
-- [ ] Unchanged rows remain shared, only dirty rows are compared, and Portal
+- [x] Unchanged rows remain shared, only dirty rows are compared, and Portal
   resolution, dependency derivation and ordering remain lazy.
-- [ ] Tick Plans, diagnostics, activation, Turn order and the existing schedule
+- [x] Tick Plans, diagnostics, activation, Turn order and the existing schedule
   invalidation distinctions remain unchanged. Language Unit comparison and lock
   construction retain their current behaviour until ticket 02.
-- [ ] Existing fresh-versus-reused comparisons, stale-schedule counterexamples
+- [x] Existing fresh-versus-reused comparisons, stale-schedule counterexamples
   and edit properties pass; focused behavioural regressions cover any identified
   gaps without reproducing the projection representation.
-- [ ] The repository's required crate and dependant gates pass with
+- [x] The repository's required crate and dependant gates pass with
   PROPTEST_CASES=32; the complete diff is reviewed and completion evidence recorded.
+
+## Comments
+
+2026-10-14 — Implemented. `orcvs/src/source/tick/inputs.rs` owns the projection: `ScheduledExpression` borrows a row's Span, leading Function and parsed Expression, and yields each positioned entry's Cells, parent and `Parsed` classification (unparsed, value, or a particular Function). `computations` iterates `ScheduleInputs::expressions` instead of the Language Map, and row equality compares the same projection through its `PartialEq`, so `DerivedExpression::schedules_as` and its `pairwise` helper are gone. Nothing is stored or allocated for the projection. No new test: the schedule-reuse examples and the shared-versus-fresh property cover every invalidation the projection keeps, and no gap appeared. Gates with PROPTEST_CASES=32, all passed: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, `cargo test --workspace --doc --locked`, `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, `cargo test --workspace --tests --no-default-features --locked`. `cargo test` stood in for `cargo nextest run`, which this environment could not install. WASM, browser, macOS and benchmark comparison are deferred to CI.

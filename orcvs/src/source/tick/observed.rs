@@ -127,7 +127,7 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
     let bytes = source.snapshot();
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     map.schedule_cache()
-        .schedule(grid, &map)
+        .schedule(grid, map.schedule_inputs())
         .lookup
         .nodes()
         .iter()

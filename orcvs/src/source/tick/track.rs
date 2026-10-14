@@ -22,7 +22,7 @@ fn anchored_turns(
     let map = source.shared_language_map();
     let grid = source.grid();
     map.schedule_cache()
-        .schedule(grid, &map)
+        .schedule(grid, map.schedule_inputs())
         .lookup
         .nodes()
         .iter()
@@ -416,7 +416,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    let schedule = map.schedule_cache().schedule(grid, &map);
+    let schedule = map.schedule_cache().schedule(grid, map.schedule_inputs());
     let nodes = schedule.lookup.nodes();
     let interpretations: BTreeMap<_, _> = nodes
         .iter()
@@ -584,7 +584,11 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     let bytes = source.snapshot();
     let (plan, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    let nodes = map.schedule_cache().schedule(grid, &map).lookup.nodes();
+    let nodes = map
+        .schedule_cache()
+        .schedule(grid, map.schedule_inputs())
+        .lookup
+        .nodes();
     let addition = nodes
         .iter()
         .position(|node| (node.anchor.x(), node.anchor.y()) == (2, 0))
