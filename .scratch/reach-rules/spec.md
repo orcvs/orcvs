@@ -6,7 +6,7 @@ Status: resolved
 
 Every rule about what a producer's Portal reaches has two halves, and nothing makes them agree:
 
-- **Scheduling** (`tick/dependencies.rs`, `producer_edges`) states each rule as Dependencies: the self-span exemption for a bundle that clears its own Span, emission's no-contact rule (ADR 0060 rule 3b), the mover exemption for an intrinsically active root, `lock_covers`, and Bang activation.
+- **Scheduling** (`tick/dependencies.rs`, `producer_edges`) states each rule as Dependencies: the self-span exemption for a bundle that clears its own Span, the no-contact rule for a bundle that writes displaced (an emission, ADR 0060 rule 3b, or a move), `lock_covers`, and Bang activation.
 - **Execution** (`tick/execution.rs`) states the same rules again as runtime decisions: Function Replacement at an anchor, subtree suppression, the own-Expression diagnostic, the executed-computation guard, a missed Bang in `deliver_output` and `fire`, and the attempted check in `lock_portal`.
 
 Both read the facts from `PortalRelationships`, and the `PortalRelationships` doc says the phases "decide separately". Dependency derivation shared the facts; the policy is still written twice.
@@ -51,8 +51,7 @@ No Grid plays differently. No Dependency, activation, diagnostic or ADR changes.
 - A good test here observes a Consequence or a Tick outcome through an interface, never a private helper.
 - **The dependency module** gets one verdict table test, built with `fixture(grid, rows)`, with one row per rule in each phase that decides it:
   - the self-span exemption;
-  - emission no-contact;
-  - the mover exemption;
+  - a displaced-writing bundle (an emission or a move) orders no contact;
   - lock cover;
   - Bang activation and a missed Bang;
   - replacement at an anchor;
@@ -80,3 +79,4 @@ The design was settled by grilling architecture candidates 1 and 4 of the fourth
 - `Phase::Turn` carries the `Delivery`, the written Atom as an `Option` (a lock writes nothing), and a `TurnFacts` view. `Turns` implements the view, and the dependency tests implement it with stated facts.
 - The schedule-only filters stay in `producer_edges`: a bundle that clears its own Span is exempt from its own Cells, and `lock_covers`, which now asks `lock_verdict`.
 - The pre-Tick activation closure asks `bang_root`, so which roots a Bang can reach is one rule.
+- `contact` in the Schedule phase orders nothing for a bundle that writes displaced, an emission or a move, as main's 1e65bf2 decided for movers.
