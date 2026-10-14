@@ -4,14 +4,14 @@
 
 **Blocked by:** 01 — Correct the evaluation machine decision.
 
-**Status:** needs-triage
+**Status:** resolved
 
 **Sources of truth:** ADR 0028's third paragraph states the requirement and explicitly leaves the declaration's form open; `lang-foundations/02` records the accepted alternative.
 
-- [ ] The decision is recorded, either as an amendment to ADR 0028 or as this ticket's answer.
-- [x] If dispatch stays a hand-written match, ADR 0028 no longer lists it among the things derived from the declaration. *(Met: ADR 0028's paragraph at line 7 says "The evaluation dispatch is not: it is still a hand-written match" and leaves the question open.)*
-- [ ] If dispatch becomes derived, a ticket exists for the change and states the form chosen.
-- [x] Either way, adding a Function still cannot leave dispatch silently incomplete. *(Holds today: the match in `execute_function` has no wildcard arm, `lang/src/interpreter.rs:133-186`. Re-check it if dispatch becomes derived.)*
+- [x] The decision is recorded, either as an amendment to ADR 0028 or as this ticket's answer. *(Dispatch stays a hand-written match, recorded as ADR 0028's one accepted exception.)*
+- [x] If dispatch stays a hand-written match, ADR 0028 no longer lists it among the things derived from the declaration. *(Met: ADR 0028's paragraph at line 9 names dispatch as "the one accepted exception" and states the guarantees that stand in for derivation.)*
+- [x] If dispatch becomes derived, a ticket exists for the change and states the form chosen. *(Not applicable: dispatch is not derived.)*
+- [x] Either way, adding a Function still cannot leave dispatch silently incomplete. *(Holds today: the match in `execute_function` has no wildcard arm, `lang/src/interpreter.rs:113-177`.)*
 
 ## Comments
 
@@ -31,3 +31,20 @@ This is a decision, not a task, which is why it is `needs-triage` rather than `r
 - ADR 0028 already carries the "not derived" wording (`01680928`), and the match is exhaustive with
   no wildcard, so criteria 2 and 4 hold. Only the decision itself (criterion 1, and criterion 3 if
   dispatch becomes derived) remains. The status stays `needs-triage`.
+
+### Decision — 2026-10-14
+
+Dispatch stays a hand-written exhaustive match, and ADR 0028 now records it as the one accepted
+exception to derivation, stating the guarantees that stand in for it.
+
+Issue 05 resolved the obstacle this ticket named: the table's kind column now declares value or
+effect. That does not make derivation worth its cost. The match already cannot be silently
+incomplete, because it has no wildcard arm and the arms' return types (`Atom` for a value body,
+`PlayCommand` for a Terminal Output body) tie each Function to a body of its own kind. Deriving it
+would put a body column in `define_functions!`, and the directional Copies would need a new body
+signature, because they take the Function as an argument.
+
+The one residual gap is the `unreachable!` arm for the lock and Source-write Functions. It is
+covered today by `locking_and_source_writing_functions_are_interpreted_from_their_kind`. Splitting
+the Function enum by kind would make that arm unrepresentable. It was considered and not taken; open
+a ticket for it if a new effect kind is added.
