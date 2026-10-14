@@ -5504,7 +5504,9 @@ mod test {
 ///
 /// Every other root reserves the same Cells in both: the same `Portal::named`
 /// resolution and the same `Portal::reservation`, each reached from a value
-/// answer's `Output::Static` and nothing else. So only the exclusion is
+/// answer's `Output::Static` and nothing else. Halt's `Output::Lock` names a
+/// site that neither reserves, because a lock writes no Cell. So only the
+/// exclusion is
 /// checked here, the one place that can reach the scheduler's private
 /// `Lookup`.
 ///

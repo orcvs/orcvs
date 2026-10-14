@@ -572,9 +572,6 @@ macro_rules! define_functions {
                 matches!(self.activation_source(), ActivationSource::Intrinsic)
             }
 
-
-
-
             /// Whether this Function can return Bang, even when the current
             /// operands produce no result. Scheduling uses this declaration to
             /// wait for activation producers before deciding whether to perform.
@@ -853,7 +850,6 @@ impl Function {
         }),
     ];
 
-    ///
     /// What this Function does through its Output Portal.
     ///
     /// The kind column decides it for every effect: Terminal Output writes no
@@ -862,7 +858,6 @@ impl Function {
     /// its operands select when the Function declares a selection rule, and
     /// otherwise at its static offset: one row south unless it is a Copy,
     /// which writes through the Portal its direction names.
-    ///
     pub const fn output(self) -> crate::Output {
         use crate::Output;
         match self.kind() {
@@ -1394,6 +1389,12 @@ mod test {
 
         for function in Function::ALL.iter().copied() {
             let output = function.output();
+            // `output` reads a selection rule only for a value answer, so an
+            // effect that declared one would lose it without a word.
+            assert!(
+                function.selection().is_none() || function.answers_value(),
+                "{function:?}"
+            );
             match function {
                 Function::RawPlay
                 | Function::TimedPlay

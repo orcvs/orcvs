@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, FunctionInputs, PlayCommand, SourceEffect, Stack,
+    Atom, Error, Function, FunctionInputs, Output, PlayCommand, SourceEffect, Stack,
     atom::operands,
     functions::{self, math, numeric_conversion, tick},
 };
@@ -95,15 +95,15 @@ impl Interpreter {
             .into());
         }
         match function.output() {
-            crate::Output::Lock(_) => return Ok(Interpretation::Lock),
+            Output::Lock(_) => return Ok(Interpretation::Lock),
             // The Source-writing Functions take no operand and read no
             // Context: the whole of the effect is declared in the table, so
             // this reads the declaration rather than repeating nine offsets
             // and three bundles. The two groups' asymmetry lives in the
             // activation column and the bundle, and both are settled before
             // this.
-            crate::Output::Source(effect) => return Ok(Interpretation::Source(effect)),
-            crate::Output::Static(_) | crate::Output::Dynamic(_) | crate::Output::Terminal => {}
+            Output::Source(effect) => return Ok(Interpretation::Source(effect)),
+            Output::Static(_) | Output::Dynamic(_) | Output::Terminal => {}
         }
         let mut ctx = Context {
             stack: Stack::with_operands(operands)?,
