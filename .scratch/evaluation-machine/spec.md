@@ -24,4 +24,4 @@ Every claim in these issues was verified against the code on this branch, not ta
 
 - Bounding the Operand Stack. `pre-split-defects/15` owns it and is ready. Issue 01 here must leave that ticket's proof intact rather than restate it.
 - The value model. ADR 0028 leaves the Atom-or-Sequence pair open and ADR 0026 records the uniform-Sequence alternative; that choice belongs to the value model and to `sequence-values`.
-- The form of the instruction-set declaration. ADR 0028 constrains only that there is one of it. Issue 04 settled that dispatch is not derived, so no form is designed for it.
+- The form of the instruction-set declaration. ADR 0028 constrains only that there is one of it. Issue 04 settled that dispatch, which sits beside the declaration, is not derived from it; the declaration's own form stays open.
