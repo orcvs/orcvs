@@ -39,7 +39,7 @@ pub(in crate::source::tick) fn plan_with_answers(
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
     answers: &[(CellIndex, Atom)],
 ) -> (TickPlan, Vec<ComputationState>) {
-    let (mut nodes, diagnostics) = computations(grid, map);
+    let (mut nodes, diagnostics) = computations(grid, map.schedule_inputs());
     carry(grid, &mut nodes, destinations);
     let lookup = Lookup::new(grid, nodes);
     // Every fixture error the schedule can be asked about is asked here,

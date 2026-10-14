@@ -841,7 +841,7 @@ mod test {
             })
             .collect();
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (nodes, _) = computations(grid, &map);
+        let (nodes, _) = computations(grid, map.schedule_inputs());
         let lookup = Lookup::new(grid, nodes);
         let locks = Locks::new(&lookup, &map);
         (lookup, locks)

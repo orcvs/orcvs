@@ -13,6 +13,7 @@ mod absolute_copy;
 mod bang_function;
 mod dependencies;
 pub(super) mod execution;
+mod inputs;
 #[cfg(test)]
 mod nested_copy;
 #[cfg(test)]
@@ -29,7 +30,7 @@ mod track;
 #[cfg(test)]
 mod write;
 
-use lang::{Anchor, Atom, Function, PlayCommand, Tick, TickInputs};
+use lang::{Anchor, Function, PlayCommand, Tick, TickInputs};
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
@@ -40,6 +41,8 @@ pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
+use inputs::Parsed;
+pub(super) use inputs::{ScheduleInputs, ScheduledExpression};
 use ordering::{Order, Stall};
 
 ///
@@ -405,8 +408,10 @@ fn plan_unshared(
 /// each one, are. An Operand Literal's value, working
 /// Source and the Tick are execution's alone, so a Tick that writes new values
 /// into Cells whose units keep their Spans changes no scheduling input.
-/// Anything [`computations`] or [`dependencies::Locks::new`] reads from the Map is a
-/// scheduling input and must be compared by `DerivedRow::schedules_as` too.
+/// [`computations`] reads Expressions only through [`ScheduleInputs`], whose
+/// equality is the comparison a rebuild makes. Anything
+/// [`dependencies::Locks::new`] reads from the Map is a scheduling input and
+/// must be compared by `DerivedRow::schedules_as` too.
 /// [`LanguageMap::rebuild`] compares these inputs row by row and carries this
 /// cache to the new revision when every row it re-derived holds the inputs it
 /// held before, which is what lets the cache survive a commit that rewrites
@@ -473,7 +478,7 @@ fn schedule_carrying(
     map: &LanguageMap,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> Schedule {
-    let (mut nodes, diagnostics) = computations(grid, map);
+    let (mut nodes, diagnostics) = computations(grid, map.schedule_inputs());
     carry(grid, &mut nodes, destinations);
     order_turns(Lookup::new(grid, nodes), map, diagnostics)
 }
@@ -513,7 +518,7 @@ fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
 /// revision holding those inputs shares what this answers.
 ///
 fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
-    let (nodes, diagnostics) = computations(grid, map);
+    let (nodes, diagnostics) = computations(grid, map.schedule_inputs());
     order_turns(Lookup::new(grid, nodes), map, diagnostics)
 }
 
@@ -527,19 +532,16 @@ fn schedule(grid: Grid, map: &LanguageMap) -> Schedule {
 /// Cell pair at each write Portal, the same [`Portal::reservation`] the
 /// Output Portal Reservations read.
 ///
-fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnostic>) {
+fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Vec<Diagnostic>) {
     let mut nodes: Vec<Computation> = Vec::new();
     let mut diagnostics = Vec::new();
-    for expression in map.expressions() {
-        if expression.function_candidate().is_none() {
-            continue;
-        }
+    for expression in inputs.expressions() {
         let mut functions = BTreeMap::new();
-        for (entry_index, entry) in expression.positioned().enumerate() {
+        for (entry_index, entry) in expression.entries().enumerate() {
             let parent = entry
                 .parent
                 .and_then(|parent| functions.get(&parent).copied());
-            let child = if let Some(Atom::Function(function)) = entry.atom {
+            let child = if let Parsed::Function(function) = entry.parsed {
                 let index = nodes.len();
                 let anchor = grid.position_at(
                     grid.cell_index(entry.cells.start)
@@ -567,9 +569,9 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 None
             };
             if let Some(parent) = parent {
-                nodes[parent].syntax_valid &= entry.atom.is_some();
+                nodes[parent].syntax_valid &= entry.parsed != Parsed::Unparsed;
                 nodes[parent].operands.push(Operand {
-                    cells: entry.cells.clone(),
+                    cells: entry.cells,
                     child,
                 });
             }
@@ -3027,7 +3029,8 @@ mod test {
         // a schedule through [`computations`], not through [`carry`].
         let grid = Grid::with_shape(16, 3);
         let source = seeded_source(grid, &["^^", "", "!>007FC4"]);
-        let (nodes, diagnostics) = super::computations(grid, &source.shared_language_map());
+        let (nodes, diagnostics) =
+            super::computations(grid, source.shared_language_map().schedule_inputs());
 
         let self_banging = nodes
             .iter()
@@ -5528,7 +5531,7 @@ mod output_portal_exclusion {
     /// `Lookup`.
     ///
     fn source_writing_reservation_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
-        let (nodes, _diagnostics) = computations(grid, map);
+        let (nodes, _diagnostics) = computations(grid, map.schedule_inputs());
         let lookup = Lookup::new(grid, nodes);
         let mut cells = vec![false; grid.count()];
         for node in lookup.nodes() {
@@ -5586,7 +5589,7 @@ mod output_portal_exclusion {
         for row in [".x.+.+01010203", ".+.x0102.+0304", ".+!>007FC401  "] {
             let source = format!("{row}{:14}", "");
             let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
-            let (nodes, _diagnostics) = computations(grid, &map);
+            let (nodes, _diagnostics) = computations(grid, map.schedule_inputs());
             let lookup = Lookup::new(grid, nodes);
             let mut scheduled = vec![false; grid.count()];
             for node in lookup.nodes() {
