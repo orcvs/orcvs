@@ -1,6 +1,6 @@
 # Give every Function one Output declaration
 
-Status: open
+Status: resolved
 
 ## Problem Statement
 

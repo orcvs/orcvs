@@ -227,25 +227,6 @@ impl FunctionKind {
     const fn answers_value(self) -> bool {
         matches!(self, Self::Value)
     }
-
-    #[inline(always)]
-    const fn performs_terminal_output(self) -> bool {
-        matches!(self, Self::Effect(EffectKind::TerminalOutput))
-    }
-
-    /// The Source write this Function performs, or `None` for a Function that
-    /// performs none.
-    #[inline(always)]
-    const fn source_effect(self) -> Option<crate::SourceEffect> {
-        match self {
-            Self::Effect(EffectKind::SourceWrite(effect)) => Some(effect),
-            _ => None,
-        }
-    }
-
-    const fn locks_root(self) -> bool {
-        matches!(self, Self::Effect(EffectKind::Lock))
-    }
 }
 
 /// Which effect a Function that answers an effect performs.
@@ -591,42 +572,8 @@ macro_rules! define_functions {
                 matches!(self.activation_source(), ActivationSource::Intrinsic)
             }
 
-            /// Whether this Function performs the Terminal Output effect: a
-            /// Play Command delivered to the Playback Engine, with nothing
-            /// written back into the Source.
-            ///
-            /// This is the narrow question, and it is asked only where the rule
-            /// is about Terminal Output rather than about answering an effect.
-            /// Having no Cell destination is such a rule: a Source-writing
-            /// Function writes where its [`crate::SourceEffect`] resolves, and
-            /// Halt locks through its Output Portal, so a gate that refused a
-            /// Portal to every Function answering an effect would deny them
-            /// their destinations. Ask
-            /// [`Function::answers_value`] instead wherever the rule is that
-            /// nothing consumes the answer.
-            #[inline(always)]
-            pub const fn performs_terminal_output(self) -> bool {
-                self.kind().performs_terminal_output()
-            }
 
-            /// The Source write this Function performs, or `None` for a
-            /// Function that performs none.
-            ///
-            /// `orcvs` resolves the displacement against the Grid, as
-            /// [`crate::SourceEffect`] describes. Advance and Emit declare the
-            /// whole write: scheduling reserves the displaced Span, and the
-            /// Interpreter answers the same declaration.
-            #[inline(always)]
-            pub const fn source_effect(self) -> Option<crate::SourceEffect> {
-                self.kind().source_effect()
-            }
 
-            /// Whether this Function locks the Expression root at its Output
-            /// Portal.
-            #[inline(always)]
-            pub const fn locks_root(self) -> bool {
-                self.kind().locks_root()
-            }
 
             /// Whether this Function can return Bang, even when the current
             /// operands produce no result. Scheduling uses this declaration to
@@ -657,8 +604,8 @@ macro_rules! define_functions {
             /// about the declaration and not about a Function group — the
             /// Copies, Halt, the Bang Function and the Directional Bang
             /// Functions declare no operand either — so a caller that means "is a Self-Banging
-            /// Function" should ask [`Function::source_effect`] instead, and
-            /// read the bundle it answers: both groups declare an effect, and
+            /// Function" should match [`Function::output`]'s
+            /// [`crate::Output::Source`] instead, and read the bundle it carries: both groups declare an effect, and
             /// it is the `Advance` a Self-Banging Function declares that tells
             /// it from the `Emit` of a Directional Bang one.
             #[inline(always)]
@@ -922,7 +869,7 @@ impl Function {
             FunctionKind::Effect(EffectKind::TerminalOutput) => Output::Terminal,
             FunctionKind::Effect(EffectKind::SourceWrite(effect)) => Output::Source(effect),
             FunctionKind::Effect(EffectKind::Lock) => Output::Lock(self.static_offset()),
-            FunctionKind::Value => match self.dynamic_output_portal() {
+            FunctionKind::Value => match self.selection() {
                 Some(selection) => Output::Dynamic(selection),
                 None => Output::Static(self.static_offset()),
             },
@@ -948,39 +895,6 @@ impl Function {
         }
     }
 
-    /// The static Output Portal this Function names, or `None` when it names
-    /// none.
-    ///
-    /// Terminal Output and Source-writing Functions name none here: the former
-    /// has no Cell destination, and the latter keeps its destinations on
-    /// [`Function::source_effect`]. A Write names none either: its Output
-    /// Portal is dynamic, [`Function::dynamic_output_portal`]. Every other
-    /// Function names one row south unless it is a Copy, which names the
-    /// Portal its direction writes through.
-    pub const fn output_portal(self) -> Option<crate::PortalCoords> {
-        if self.performs_terminal_output()
-            || self.source_effect().is_some()
-            || self.dynamic_output_portal().is_some()
-        {
-            return None;
-        }
-        Some(match self {
-            Self::CopyEast => crate::PortalCoords {
-                columns: 2,
-                rows: 0,
-            },
-            Self::CopyWest => crate::PortalCoords {
-                columns: -2,
-                rows: 0,
-            },
-            Self::CopyNorth => crate::PortalCoords {
-                columns: 0,
-                rows: -1,
-            },
-            _ => crate::PortalCoords::SOUTH,
-        })
-    }
-
     /// How this Function's operands select the pair its dynamic Output Portal
     /// writes, or `None` when its Output Portal, if any, is static.
     ///
@@ -989,7 +903,7 @@ impl Function {
     /// lead the signature and `value` follows them. Push selects a pair of
     /// the lane below it, and the absolute Copy the destination Position its
     /// last two operands name.
-    pub const fn dynamic_output_portal(self) -> Option<crate::PairSelection> {
+    const fn selection(self) -> Option<crate::PairSelection> {
         use crate::Direction::{East, North, South, West};
         use crate::PairSelection::{DestinationPosition, Distance, Lane, Position};
         match self {

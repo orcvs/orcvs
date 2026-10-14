@@ -37,7 +37,7 @@ pub(crate) fn distance(function: Function, operands: &[Atom]) -> Result<u8, Erro
         Function::WriteNorth => bound(operands, |WriteNorth { n, .. }| n),
         Function::WriteSouth => bound(operands, |WriteSouth { n, .. }| n),
         Function::WriteWest => bound(operands, |WriteWest { n, .. }| n),
-        // Only `Function::input_portal` and `Function::dynamic_output_portal`
+        // Only `Function::input_portal` and `Function::output`
         // build a distance selection, and each names one of the Functions
         // above.
         _ => unreachable!("{function:?} counts no distance"),
@@ -57,7 +57,7 @@ pub(crate) fn position(function: Function, operands: &[Atom]) -> Result<(u8, u8)
         Function::AbsoluteWrite => {
             bound(operands, |AbsoluteWrite { column, row, .. }| (column, row))
         }
-        // Only `Function::input_portal` and `Function::dynamic_output_portal`
+        // Only `Function::input_portal` and `Function::output`
         // build a Position selection, and each names one of the Functions
         // above.
         _ => unreachable!("{function:?} addresses no Position"),

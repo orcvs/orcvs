@@ -8,7 +8,7 @@
 //! a stale schedule would plan differently, the test says so, so a key too
 //! coarse to see that change fails here rather than in a pattern.
 
-use lang::{InputPortal, Tick};
+use lang::{InputPortal, Output, Tick};
 
 use super::execution::{self, ComputationState};
 use super::{plan, plan_unshared};
@@ -98,7 +98,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
         .any(|node| matches!(node.function.input_portal(), Some(InputPortal::Dynamic(_))));
     let writes = nodes
         .iter()
-        .any(|node| node.function.dynamic_output_portal().is_some());
+        .any(|node| matches!(node.function.output(), Output::Dynamic(_)));
     let inactive_root = nodes
         .iter()
         .enumerate()

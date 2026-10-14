@@ -19,7 +19,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use lang::{Atom, Function, ReplacementChange, SourceBundle};
+use lang::{Atom, Function, Output, ReplacementChange, SourceBundle};
 
 use super::Lookup;
 use super::ordering::{Join, Joined};
@@ -200,11 +200,7 @@ pub(super) fn join(
             let mut edge = |producer, consumer| joined.edges.push((producer, consumer));
             producer_edges(lookup, locks, index, &mut edge);
             reader_edges(lookup, index, &mut edge);
-            if lookup.nodes()[index]
-                .function
-                .dynamic_output_portal()
-                .is_some()
-            {
+            if matches!(lookup.nodes()[index].function.output(), Output::Dynamic(_)) {
                 joined.writers.push(index);
             }
         }
@@ -353,7 +349,9 @@ fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<
         .nodes()
         .iter()
         .enumerate()
-        .filter(|(_, node)| active[node.owner] && node.function.dynamic_output_portal().is_some())
+        .filter(|(_, node)| {
+            active[node.owner] && matches!(node.function.output(), Output::Dynamic(_))
+        })
         .map(|(index, _)| index)
 }
 
@@ -369,10 +367,10 @@ fn producer_edges(
     index: usize,
     mut edge: impl FnMut(usize, usize),
 ) {
-    let bundle = lookup.nodes()[index]
-        .function
-        .source_effect()
-        .map(|effect| effect.bundle);
+    let bundle = match lookup.nodes()[index].function.output() {
+        Output::Source(effect) => Some(effect.bundle),
+        _ => None,
+    };
     // A self-edge is an unsatisfiable indegree, so it is how a computation
     // that writes over its own Cells reports itself as a same-Tick cycle: the
     // reservation covering the producer and the Cell pair its write reaches
@@ -452,10 +450,10 @@ pub(super) fn contact(
     let target = contacted.index;
     let consequence = match phase {
         Phase::Schedule => {
-            let displaced = nodes[producer]
-                .function
-                .source_effect()
-                .is_some_and(|effect| effect.bundle.writes_displaced());
+            let displaced = matches!(
+                nodes[producer].function.output(),
+                Output::Source(effect) if effect.bundle.writes_displaced()
+            );
             if displaced {
                 Consequence::Unchanged
             } else {
