@@ -22,9 +22,7 @@ impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
     /// it consumes the Cells at `operand.cells`.
     fn returning_child(&self, operand: &Operand) -> Option<usize> {
-        operand
-            .child
-            .filter(|&child| !self.states[child].suppressed)
+        operand.child.filter(|&child| !self.turns.suppressed(child))
     }
 
     ///
@@ -35,7 +33,7 @@ impl Execution<'_> {
     pub(super) fn blocked_by_child(&self, node: &Computation) -> bool {
         node.operands.iter().any(|operand| {
             self.returning_child(operand)
-                .is_some_and(|child| self.states[child].syntax_blocked)
+                .is_some_and(|child| self.turns.syntax_blocked(child))
         })
     }
 
@@ -64,13 +62,14 @@ impl Execution<'_> {
                     let spelling = self.working.text(operand.cells.clone());
                     return token.decode(spelling).map_err(|error| error.to_string());
                 };
-                let state = &self.states[child];
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
-                let returned = match state.result.map(Encoding::render) {
+                let returned = match self.turns.result(child).map(Encoding::render) {
                     Some(Ok(Rendered::Cells(encoding))) => encoding,
                     // A Function that copies Cells returns the empty Cells it
                     // copied, so the operand it stands in is unwritten.
-                    Some(Ok(Rendered::Nothing)) if state.function.copies_language_unit() => {
+                    Some(Ok(Rendered::Nothing))
+                        if self.turns.function(child).copies_language_unit() =>
+                    {
                         return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
                     }
                     Some(Ok(Rendered::Nothing)) | None => {
