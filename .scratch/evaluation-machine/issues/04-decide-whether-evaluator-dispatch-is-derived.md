@@ -8,10 +8,10 @@
 
 **Sources of truth:** ADR 0028's third paragraph states the requirement and explicitly leaves the declaration's form open; `lang-foundations/02` records the accepted alternative.
 
-- [x] The decision is recorded, either as an amendment to ADR 0028 or as this ticket's answer. *(Dispatch stays a hand-written match, recorded as ADR 0028's one accepted exception.)*
-- [x] If dispatch stays a hand-written match, ADR 0028 no longer lists it among the things derived from the declaration. *(Met: ADR 0028's paragraph at line 9 names dispatch as "the one accepted exception" and states the guarantees that stand in for derivation.)*
-- [x] If dispatch becomes derived, a ticket exists for the change and states the form chosen. *(Not applicable: dispatch is not derived.)*
-- [x] Either way, adding a Function still cannot leave dispatch silently incomplete. *(Holds today: the match in `execute_function` has no wildcard arm, `lang/src/interpreter.rs:113-177`.)*
+- [x] The decision is recorded, either as an amendment to ADR 0028 or as this ticket's answer. *(Dispatch stays a hand-written match, recorded in ADR 0028's third paragraph.)*
+- [x] If dispatch stays a hand-written match, ADR 0028 no longer lists it among the things derived from the declaration. *(Met: ADR 0028's paragraph at line 9 says the dispatch is not derived and states what the compiler does and does not check about it.)*
+- [ ] If dispatch becomes derived, a ticket exists for the change and states the form chosen. *(Not applicable: dispatch is not derived.)*
+- [x] Either way, adding a Function still cannot leave dispatch silently incomplete. *(Holds today: the match in `execute_function` has no wildcard arm, `lang/src/interpreter.rs:113-176`.)*
 
 ## Comments
 
@@ -34,17 +34,26 @@ This is a decision, not a task, which is why it is `needs-triage` rather than `r
 
 ### Decision — 2026-10-14
 
-Dispatch stays a hand-written exhaustive match, and ADR 0028 now records it as the one accepted
-exception to derivation, stating the guarantees that stand in for it.
+Dispatch stays a hand-written exhaustive match, and ADR 0028's third paragraph records it as not
+derived, by choice.
 
-Issue 05 resolved the obstacle this ticket named: the table's kind column now declares value or
-effect. That does not make derivation worth its cost. The match already cannot be silently
-incomplete, because it has no wildcard arm and the arms' return types (`Atom` for a value body,
-`PlayCommand` for a Terminal Output body) tie each Function to a body of its own kind. Deriving it
-would put a body column in `define_functions!`, and the directional Copies would need a new body
-signature, because they take the Function as an argument.
+The reason is cost against benefit, not that a body cannot be declared. Deriving dispatch would put a
+body column in every row of `define_functions!`. The directional Copies fit that shape with a
+one-line wrapper each, because `copy` reads its Function only to label a `PartialInput` error. The
+benefit derivation would buy is that the declaration cannot change invisibly to dispatch, and the
+exhaustive match already gives that: there is no wildcard arm, so a new Function fails to compile
+until it is dispatched.
 
-The one residual gap is the `unreachable!` arm for the lock and Source-write Functions. It is
-covered today by `locking_and_source_writing_functions_are_interpreted_from_their_kind`. Splitting
-the Function enum by kind would make that arm unrepresentable. It was considered and not taken; open
-a ticket for it if a new effect kind is added.
+What neither the match nor the compiler checks is that each arm agrees with its Function's declared
+kind. `Function::RawPlay => math::add(&mut ctx)?` compiles, and so does routing `Add` to a Play body.
+A value Function added to the `unreachable!` arm compiles and panics when evaluated:
+`locking_and_source_writing_functions_are_interpreted_from_their_kind` visits only Functions whose
+kind already returns before dispatch, so it cannot see one. Issue 07 records that gap and the two
+shapes that would close it: a sweep over `Function::ALL` comparing each answer's interpretation with
+the declared kind, or the generated per-Function evaluation trait issue 06 asked this ticket to
+weigh, which would make a mis-route a type error. That trait is a form of derivation. It is left to
+07 because it is worth its cost only if a test sweep cannot close the gap.
+
+Hand-written per-Function matches remain elsewhere, outside this decision. `Function::output_portal`,
+`dynamic_output_portal` and `input_portal` in `lang/src/atom.rs` default through wildcard arms, so a
+new Function silently receives default Portals.
