@@ -11,7 +11,7 @@
 use lang::{InputPortal, Output, Tick};
 
 use super::execution::{self, ComputationState};
-use super::{plan, plan_unshared};
+use super::{plan, plan_unshared, shared_schedule};
 use crate::grid::{CellIndex, Grid};
 use crate::source::{CellContent, CellWrite, Cells, LanguageMap, Source, TickPlan};
 
@@ -91,7 +91,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let bytes = source.snapshot();
     let grid = source.grid();
     let map = source.shared_language_map();
-    let schedule = map.schedule_cache().schedule(grid, &map);
+    let schedule = shared_schedule(grid, &map);
     let nodes = schedule.lookup.nodes();
     let reads = nodes
         .iter()
@@ -128,7 +128,7 @@ fn stale_tick(source: &Source, earlier: &LanguageMap, tick: u64) -> TickPlan {
         Cells::of(bytes.as_bytes()),
         &current,
         Tick::new(tick),
-        earlier.schedule_cache().schedule(grid, earlier),
+        shared_schedule(grid, earlier),
     )
     .0
 }
@@ -218,6 +218,43 @@ fn changing_occupancy_alone_orders_a_new_schedule() {
     assert!(!shared);
     assert!(!planned.diagnostics.is_empty(), "{planned:?}");
     assert_ne!(planned, stale);
+}
+
+#[test]
+fn changing_only_a_language_units_kind_orders_a_new_schedule() {
+    // A Write's value operand reads an Operand Literal or a Bang alike: both
+    // parse, in the same Cells, under the same parent, so the Expression a
+    // schedule computes is unchanged. The unit those Cells form changes kind,
+    // and a unit's kind is a scheduling input.
+    let grid = Grid::with_shape(8, 2);
+    let mut source = source_of(grid, &["@>0112  ", "        "]);
+    agreeing_tick(&mut source, 0);
+    let earlier = source.shared_language_map();
+    write_at(&mut source, &[(4, 0, "**")]);
+    let current = source.language_map();
+    let value = |map: &LanguageMap| {
+        map.units()
+            .find(|unit| unit.anchor().x() == 4 && unit.anchor().y() == 0)
+            .map(|unit| (unit.span().range(), unit.kind()))
+            .expect("a unit at the value operand")
+    };
+    let (cells, kind) = value(current);
+    let (earlier_cells, earlier_kind) = value(&earlier);
+    assert_eq!(cells, earlier_cells);
+    assert_ne!(kind, earlier_kind);
+    assert!(
+        current
+            .schedule_inputs()
+            .expressions()
+            .eq(earlier.schedule_inputs().expressions()),
+        "the edit leaves every Expression a schedule computes unchanged"
+    );
+    assert!(
+        !current
+            .schedule_cache()
+            .is_shared_with(earlier.schedule_cache())
+    );
+    agreeing_tick(&mut source, 1);
 }
 
 #[test]
@@ -577,11 +614,7 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
     );
     let map = source.shared_language_map();
     assert!(
-        map.schedule_cache()
-            .schedule(grid, &map)
-            .ordered
-            .stopped
-            .contains(&true),
+        shared_schedule(grid, &map).ordered.stopped.contains(&true),
         "the first Tick holds a cycle"
     );
     for tick in 0..4 {
@@ -622,7 +655,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
         ],
     );
     let map = source.shared_language_map();
-    let schedule = map.schedule_cache().schedule(grid, &map);
+    let schedule = shared_schedule(grid, &map);
     let cached_order = schedule.ordered.order.clone();
     let at = |x, y| {
         schedule

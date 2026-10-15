@@ -39,7 +39,8 @@ pub(in crate::source::tick) fn plan_with_answers(
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
     answers: &[(CellIndex, Atom)],
 ) -> (TickPlan, Vec<ComputationState>) {
-    let (mut nodes, diagnostics) = computations(grid, map);
+    let inputs = map.schedule_inputs();
+    let (mut nodes, diagnostics) = computations(grid, inputs);
     carry(grid, &mut nodes, destinations);
     let lookup = Lookup::new(grid, nodes);
     // Every fixture error the schedule can be asked about is asked here,
@@ -59,7 +60,7 @@ pub(in crate::source::tick) fn plan_with_answers(
             "one computation is stated one answer: two are stated here for the same anchor"
         );
     }
-    let schedule = order_turns(lookup, map, diagnostics);
+    let schedule = order_turns(lookup, inputs, diagnostics);
     let mut execution = Execution::new(grid, Cells::of(bytes), map, tick, &schedule);
     let mut stated = vec![false; answers.len()];
     take_turns(&schedule, |index, progress| {

@@ -11,7 +11,7 @@ use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::execution::ComputationState;
 use super::observed::{diagnostic, first, observe_at, quiet_rows, raw, rows_of, source_of, turns};
-use super::{plan, plan_carrying};
+use super::{plan, plan_carrying, shared_schedule};
 use crate::grid::{CellIndex, Grid, Position};
 use crate::source::{Cells, Source};
 
@@ -21,8 +21,7 @@ fn anchored_turns(
 ) -> BTreeMap<(usize, usize), Option<usize>> {
     let map = source.shared_language_map();
     let grid = source.grid();
-    map.schedule_cache()
-        .schedule(grid, &map)
+    shared_schedule(grid, &map)
         .lookup
         .nodes()
         .iter()
@@ -416,7 +415,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    let schedule = map.schedule_cache().schedule(grid, &map);
+    let schedule = shared_schedule(grid, &map);
     let nodes = schedule.lookup.nodes();
     let interpretations: BTreeMap<_, _> = nodes
         .iter()
@@ -584,7 +583,7 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     let bytes = source.snapshot();
     let (plan, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    let nodes = map.schedule_cache().schedule(grid, &map).lookup.nodes();
+    let nodes = shared_schedule(grid, &map).lookup.nodes();
     let addition = nodes
         .iter()
         .position(|node| (node.anchor.x(), node.anchor.y()) == (2, 0))

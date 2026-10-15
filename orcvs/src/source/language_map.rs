@@ -9,7 +9,7 @@ use lang::{Atom, Expression, Function, Parser, SourceAnalysis, Token};
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::portal::Portal;
-use super::tick::ScheduleCache;
+use super::tick::{RowInputs, ScheduleCache, ScheduleInputs, ScheduledExpression};
 use super::{Cells, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
@@ -216,43 +216,10 @@ struct DerivedExpression {
 }
 
 impl DerivedExpression {
-    /// Whether this Expression reads as `other` to a schedule: the same Span
-    /// and leading Function, and every positioned entry in the same Cells,
-    /// under the same parent, parsed or not alike and as the same Function.
-    /// An Operand Literal's value is not compared.
-    fn schedules_as(&self, other: &Self) -> bool {
-        let scheduled_atom = |atom: Option<&Atom>| {
-            atom.map(|atom| match atom {
-                Atom::Function(function) => Some(*function),
-                _ => None,
-            })
-        };
-        self.span == other.span
-            && self.function_candidate == other.function_candidate
-            && pairwise(
-                self.expression.positioned(),
-                other.expression.positioned(),
-                |ours, theirs| {
-                    ours.cells == theirs.cells
-                        && ours.parent == theirs.parent
-                        && scheduled_atom(ours.atom.as_ref())
-                            == scheduled_atom(theirs.atom.as_ref())
-                },
-            )
+    /// What a schedule reads of this Expression, when a schedule computes it.
+    fn scheduled(&self) -> Option<ScheduledExpression<'_>> {
+        ScheduledExpression::of(self.span, self.function_candidate, &self.expression)
     }
-}
-
-/// Whether `ours` and `theirs` are the same length and `same` holds of each
-/// pair they hold at one position.
-fn pairwise<T>(
-    ours: impl IntoIterator<Item = T>,
-    theirs: impl IntoIterator<Item = T>,
-    same: impl Fn(T, T) -> bool,
-) -> bool {
-    let mut theirs = theirs.into_iter();
-    ours.into_iter()
-        .all(|ours| theirs.next().is_some_and(|theirs| same(ours, theirs)))
-        && theirs.next().is_none()
 }
 
 impl<'a> ExpressionEntry<'a> {
@@ -338,7 +305,7 @@ impl LanguageMap {
             .collect();
         let schedules_alike = dirty
             .iter()
-            .all(|&row| rows[row].schedules_as(&previous.rows[row]));
+            .all(|&row| RowInputs::of(&rows[row]) == RowInputs::of(&previous.rows[row]));
         Self {
             id: LanguageMapId::new(),
             grid,
@@ -376,6 +343,11 @@ impl LanguageMap {
     /// The schedule a Tick planned against this revision orders its Turns by.
     pub(super) fn schedule_cache(&self) -> &ScheduleCache {
         &self.schedule
+    }
+
+    /// What a schedule reads of this revision.
+    pub(super) fn schedule_inputs(&self) -> ScheduleInputs<'_> {
+        ScheduleInputs::new(&self.rows)
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = ExpressionEntry<'_>> {
@@ -622,7 +594,7 @@ impl LanguageMap {
 
 /// A row's complete semantic derivation. Unit ranges never leave this row.
 #[derive(Default)]
-struct DerivedRow {
+pub(super) struct DerivedRow {
     units: Vec<LanguageUnit>,
     expressions: Vec<DerivedExpression>,
     lexical_diagnostics: Vec<Diagnostic>,
@@ -645,23 +617,15 @@ impl DerivedRow {
         }
     }
 
-    /// Whether this row holds the scheduling inputs [`ScheduleCache`] names
-    /// that `other` holds: the same Language Units, and the same Expressions
-    /// with a leading Function, compared without their Operand Literal values.
-    fn schedules_as(&self, other: &Self) -> bool {
-        self.units == other.units
-            && pairwise(
-                self.scheduled(),
-                other.scheduled(),
-                DerivedExpression::schedules_as,
-            )
+    pub(super) fn units(&self) -> &[LanguageUnit] {
+        &self.units
     }
 
-    /// The Expressions a schedule computes: those with a leading Function.
-    fn scheduled(&self) -> impl Iterator<Item = &DerivedExpression> {
+    /// The Expressions a schedule computes, as a schedule reads them.
+    pub(super) fn scheduled(&self) -> impl Iterator<Item = ScheduledExpression<'_>> {
         self.expressions
             .iter()
-            .filter(|expression| expression.function_candidate.is_some())
+            .filter_map(DerivedExpression::scheduled)
     }
 
     /// Parser claims and diagnostics are finalized here for both full

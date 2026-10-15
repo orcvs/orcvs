@@ -72,7 +72,7 @@ fn before_a_tick(grid: Grid, rows: &[&str]) -> (Vec<String>, Vec<(usize, usize, 
 fn scheduled(grid: Grid, rows: &[&str]) -> Vec<String> {
     let text = padded(grid, rows);
     let map = LanguageMap::build(grid, Cells::of(text.as_bytes()));
-    let (nodes, _diagnostics) = computations(grid, &map);
+    let (nodes, _diagnostics) = computations(grid, map.schedule_inputs());
     let lookup = Lookup::new(grid, nodes);
     let mut cells = vec![false; grid.count()];
     for node in lookup.nodes() {
