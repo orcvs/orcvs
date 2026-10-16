@@ -22,7 +22,7 @@ use std::ops::Range;
 use lang::{Atom, Function, Output, ReplacementChange, SourceBundle};
 
 use super::ordering::{Join, Joined};
-use super::{Lookup, ScheduleInputs};
+use super::{ComputationId, ComputationRange, Lookup, PerComputation, ScheduleInputs};
 use crate::grid::Position;
 use crate::source::portal::{Occupancy, Portal, SpanWrite};
 
@@ -32,9 +32,9 @@ use crate::source::portal::{Occupancy, Portal, SpanWrite};
 /// writers those roots own.
 ///
 pub(super) struct Derived {
-    pub(super) active: Vec<bool>,
-    pub(super) dependencies: BTreeSet<(usize, usize)>,
-    pub(super) writers: Vec<usize>,
+    pub(super) active: PerComputation<bool>,
+    pub(super) dependencies: BTreeSet<(ComputationId, ComputationId)>,
+    pub(super) writers: Vec<ComputationId>,
 }
 
 ///
@@ -65,12 +65,12 @@ impl Delivery {
 /// it.
 pub(super) trait TurnFacts {
     /// Whether `index`'s Turn has opened.
-    fn attempted(&self, index: usize) -> bool;
+    fn attempted(&self, index: ComputationId) -> bool;
     /// Whether a write covered `index` before its Turn.
-    fn suppressed(&self, index: usize) -> bool;
+    fn suppressed(&self, index: ComputationId) -> bool;
     /// The Function `index` is running: the one the Parser found, until a
     /// Function Replacement in this Tick changes it.
-    fn running(&self, index: usize) -> Function;
+    fn running(&self, index: ComputationId) -> Function;
 }
 
 /// When a reach rule is asked what a Contact or an aligned root means.
@@ -96,15 +96,15 @@ pub(super) enum Consequence {
     /// Nothing follows from it.
     Unchanged,
     /// The producer takes its Turn before every computation in the range.
-    OrderAfter(Range<usize>),
+    OrderAfter(ComputationRange),
     /// The contacted computation runs this Function for the rest of the
     /// Tick.
     Replace(Function),
     /// Every computation in the range that has not attempted its Turn is
     /// suppressed.
-    Suppress(Range<usize>),
+    Suppress(ComputationRange),
     /// The root is activated, unless it has taken its Turn without it.
-    Activate(usize),
+    Activate(ComputationId),
 }
 
 /// One Contact's [`Consequence`] during a Turn, and whether it lands on the
@@ -135,12 +135,12 @@ pub(super) enum Locked {
     Unchanged,
     /// The locker takes its Turn before every computation in the locked
     /// subtree.
-    OrderAfter(Range<usize>),
+    OrderAfter(ComputationRange),
     /// The locked subtree is suppressed and its root locked for the Tick.
-    Lock(Range<usize>),
+    Lock(ComputationRange),
     /// The locked root has taken its Turn, so a lock whose place the Tick
     /// decided misses it.
-    Missed(usize),
+    Missed(ComputationId),
     /// A lock the schedule ordered first finds its subtree has taken a Turn,
     /// so the schedule ordered it wrongly.
     OrderingDefect,
@@ -157,17 +157,17 @@ pub(super) fn derive(lookup: &Lookup, locks: &Locks) -> Derived {
     let nodes = lookup.nodes();
     let active = active_roots(lookup);
     let mut dependencies = BTreeSet::new();
-    for (index, node) in nodes.iter().enumerate() {
+    for (index, node) in nodes.iter_enumerated() {
         if let Some(parent) = node.parent() {
-            dependencies.insert((index, parent.index()));
+            dependencies.insert((index, parent));
         }
-        if active[node.owner().index()] {
+        if active[node.owner()] {
             producer_edges(lookup, locks, index, |producer, consumer| {
                 dependencies.insert((producer, consumer));
             });
         }
     }
-    for consumer in 0..nodes.len() {
+    for consumer in nodes.ids() {
         input_edges(lookup, &active, consumer, |producer, consumer| {
             dependencies.insert((producer, consumer));
         });
@@ -190,8 +190,8 @@ pub(super) fn derive(lookup: &Lookup, locks: &Locks) -> Derived {
 pub(super) fn join(
     lookup: &Lookup,
     locks: &Locks,
-    active: &mut [bool],
-    roots: Vec<usize>,
+    active: &mut PerComputation<bool>,
+    roots: Vec<ComputationId>,
 ) -> Joined {
     let mut joined = Joined::default();
     for root in activate(lookup, active, roots) {
@@ -214,7 +214,7 @@ pub(super) struct Joining<'a> {
 }
 
 impl Join for Joining<'_> {
-    fn join(&self, active: &mut [bool], roots: Vec<usize>) -> Joined {
+    fn join(&self, active: &mut PerComputation<bool>, roots: Vec<ComputationId>) -> Joined {
         join(self.lookup, self.locks, active, roots)
     }
 }
@@ -239,15 +239,14 @@ impl Join for Joining<'_> {
 /// nothing in its Turn; the `**` it leaves is a Bang Function on the next
 /// Tick.
 ///
-fn active_roots(lookup: &Lookup) -> Vec<bool> {
+fn active_roots(lookup: &Lookup) -> PerComputation<bool> {
     let nodes = lookup.nodes();
-    let mut active: Vec<_> = nodes
+    let mut active: PerComputation<_> = nodes
         .iter()
         .map(|node| node.is_root() && node.function.is_intrinsically_active())
         .collect();
     let pending: Vec<_> = active
-        .iter()
-        .enumerate()
+        .iter_enumerated()
         .filter_map(|(index, active)| active.then_some(index))
         .collect();
     activate(lookup, &mut active, pending);
@@ -261,7 +260,11 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
 ///
 /// Answers every root it reached, those in `pending` among them.
 ///
-fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Vec<usize> {
+fn activate(
+    lookup: &Lookup,
+    active: &mut PerComputation<bool>,
+    mut pending: Vec<ComputationId>,
+) -> Vec<ComputationId> {
     let nodes = lookup.nodes();
     let mut reached = Vec::new();
     while let Some(owner) = pending.pop() {
@@ -300,7 +303,7 @@ fn activate(lookup: &Lookup, active: &mut [bool], mut pending: Vec<usize>) -> Ve
 /// defect; one the Tick joined took its place during the Tick, and a lock
 /// lasts only for its Tick, so it misses a root that has taken its Turn.
 ///
-pub(super) fn lock_verdict(locks: &Locks, locker: usize, phase: Phase<'_>) -> Locked {
+pub(super) fn lock_verdict(locks: &Locks, locker: ComputationId, phase: Phase<'_>) -> Locked {
     match (locks.lock_target(locker), phase) {
         (None, _) | (Some(Lock::NotARoot), Phase::Schedule) => Locked::Unchanged,
         (Some(Lock::NotARoot), Phase::Turn { .. }) => Locked::NotARoot,
@@ -314,7 +317,7 @@ pub(super) fn lock_verdict(locks: &Locks, locker: usize, phase: Phase<'_>) -> Lo
             if !target.clone().any(|descendant| turns.attempted(descendant)) {
                 Locked::Lock(target.clone())
             } else if delivery.feeds_back() {
-                Locked::Missed(target.start)
+                Locked::Missed(target.start())
             } else {
                 Locked::OrderingDefect
             }
@@ -329,11 +332,16 @@ pub(super) fn lock_verdict(locks: &Locks, locker: usize, phase: Phase<'_>) -> Lo
 /// withholds the producer's Turn; one that does not, because nothing activated
 /// the locker in time, leaves the producer to take its Turn after it, and a
 /// Bang that producer delivers to the locker is missed.
-fn lock_covers(lookup: &Lookup, locks: &Locks, locker: usize, producer: usize) -> bool {
+fn lock_covers(
+    lookup: &Lookup,
+    locks: &Locks,
+    locker: ComputationId,
+    producer: ComputationId,
+) -> bool {
     lookup.nodes()[locker].is_root()
         && matches!(
             lock_verdict(locks, locker, Phase::Schedule),
-            Locked::OrderAfter(target) if target.contains(&producer)
+            Locked::OrderAfter(target) if target.contains(producer)
         )
 }
 
@@ -343,13 +351,15 @@ fn lock_covers(lookup: &Lookup, locks: &Locks, locker: usize, producer: usize) -
 /// A dynamic writer's destination is known only at its Turn, so it reserves
 /// nothing and is ordered writers first instead.
 ///
-fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<Item = usize> + 'a {
+fn dynamic_writers<'a>(
+    lookup: &'a Lookup,
+    active: &'a PerComputation<bool>,
+) -> impl Iterator<Item = ComputationId> + 'a {
     lookup
         .nodes()
-        .iter()
-        .enumerate()
+        .iter_enumerated()
         .filter(|(_, node)| {
-            active[node.owner().index()] && matches!(node.function.output(), Output::Dynamic(_))
+            active[node.owner()] && matches!(node.function.output(), Output::Dynamic(_))
         })
         .map(|(index, _)| index)
 }
@@ -363,8 +373,8 @@ fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<
 fn producer_edges(
     lookup: &Lookup,
     locks: &Locks,
-    index: usize,
-    mut edge: impl FnMut(usize, usize),
+    index: ComputationId,
+    mut edge: impl FnMut(ComputationId, ComputationId),
 ) {
     let bundle = match lookup.nodes()[index].function.output() {
         Output::Source(effect) => Some(effect.bundle),
@@ -387,7 +397,7 @@ fn producer_edges(
         }
     }
     for relationships in reservations(lookup, index) {
-        let mut order_after = |consumer: usize| {
+        let mut order_after = |consumer: ComputationId| {
             if exempt_from_itself && consumer == index {
                 return;
             }
@@ -441,7 +451,7 @@ fn producer_edges(
 ///
 pub(super) fn contact(
     lookup: &Lookup,
-    producer: usize,
+    producer: ComputationId,
     contacted: &FunctionContact,
     phase: Phase<'_>,
 ) -> Contacted {
@@ -496,8 +506,8 @@ pub(super) fn contact(
 ///
 pub(super) fn bang_root(
     lookup: &Lookup,
-    producer: usize,
-    root: usize,
+    producer: ComputationId,
+    root: ComputationId,
     phase: Phase<'_>,
 ) -> Consequence {
     let nodes = lookup.nodes();
@@ -562,7 +572,11 @@ pub(super) fn refusal(
 /// reservation covers. These are the Dependencies [`input_edges`] gives, found from
 /// the writer's side.
 ///
-fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, usize)) {
+fn reader_edges(
+    lookup: &Lookup,
+    producer: ComputationId,
+    mut edge: impl FnMut(ComputationId, ComputationId),
+) {
     for relationships in reservations(lookup, producer) {
         for consumer in lookup.reads.touching(relationships.cells.clone()) {
             if consumer != producer {
@@ -579,9 +593,9 @@ fn reader_edges(lookup: &Lookup, producer: usize, mut edge: impl FnMut(usize, us
 ///
 fn input_edges(
     lookup: &Lookup,
-    active: &[bool],
-    consumer: usize,
-    mut edge: impl FnMut(usize, usize),
+    active: &PerComputation<bool>,
+    consumer: ComputationId,
+    mut edge: impl FnMut(ComputationId, ComputationId),
 ) {
     // An Input Portal reads working Source. Those Cells are often an operand
     // Span, so they cannot sit in `literals`; the Dependency is the same fact
@@ -601,14 +615,14 @@ fn input_edges(
 ///
 pub(super) fn input_writers<'a>(
     lookup: &'a Lookup,
-    active: &'a [bool],
-    reader: usize,
+    active: &'a PerComputation<bool>,
+    reader: ComputationId,
     read: Range<usize>,
-) -> impl Iterator<Item = usize> + 'a {
+) -> impl Iterator<Item = ComputationId> + 'a {
     lookup
         .writes
         .touching(read)
-        .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner().index()])
+        .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner()])
 }
 
 ///
@@ -618,7 +632,7 @@ pub(super) fn input_writers<'a>(
 pub(super) enum Lock {
     /// The complete subtree of the Expression root at the lock site, which
     /// Parser preorder makes contiguous.
-    Root(Range<usize>),
+    Root(ComputationRange),
     /// A site something other than an Expression root occupies.
     NotARoot,
 }
@@ -628,7 +642,7 @@ pub(super) enum Lock {
 /// execution. Only execution decides whether an active, unsuppressed Halt
 /// actually applies it.
 ///
-pub(super) struct Locks(Vec<Option<Lock>>);
+pub(super) struct Locks(PerComputation<Option<Lock>>);
 
 impl Locks {
     pub(super) fn new(lookup: &Lookup, inputs: ScheduleInputs<'_>) -> Self {
@@ -644,12 +658,12 @@ impl Locks {
                     }
                     // A site no root covers is judged by its Snapshot
                     // occupancy, and an empty one locks nothing.
+                    // `Occupancy` is stated outside the schedule, so it names
+                    // a root by its bare index.
+                    let root_at = |anchor| lookup.root_at(anchor).map(ComputationId::index);
                     let portal = Portal::at(lookup.grid, destination);
-                    (!matches!(
-                        portal.occupancy(inputs.units(), |anchor| lookup.root_at(anchor)),
-                        Occupancy::Empty
-                    ))
-                    .then_some(Lock::NotARoot)
+                    (!matches!(portal.occupancy(inputs.units(), root_at), Occupancy::Empty))
+                        .then_some(Lock::NotARoot)
                 })
                 .collect(),
         )
@@ -659,7 +673,7 @@ impl Locks {
     /// What `index`'s lock reaches: nothing for a computation that declares
     /// no lock, or one whose site is outside the Grid or empty.
     ///
-    pub(super) fn lock_target(&self, index: usize) -> Option<&Lock> {
+    pub(super) fn lock_target(&self, index: ComputationId) -> Option<&Lock> {
         self.0[index].as_ref()
     }
 }
@@ -696,7 +710,10 @@ fn reserved_at(lookup: &Lookup, output: Position) -> Option<PortalRelationships<
 
 /// The relationships of every Reservation `index`'s write Portals make,
 /// skipping a Portal whose destination is refused or does not fit the row.
-fn reservations(lookup: &Lookup, index: usize) -> impl Iterator<Item = PortalRelationships<'_>> {
+fn reservations(
+    lookup: &Lookup,
+    index: ComputationId,
+) -> impl Iterator<Item = PortalRelationships<'_>> {
     lookup.nodes()[index]
         .portal_access
         .write_sites()
@@ -719,10 +736,10 @@ pub(super) struct PortalRelationships<'a> {
 
 /// A Function whose Cells a write or Reservation covers.
 pub(super) struct FunctionContact {
-    index: usize,
+    index: ComputationId,
     at_anchor: bool,
     /// Includes the contacted Function itself, in Parser preorder.
-    subtree: Range<usize>,
+    subtree: ComputationRange,
 }
 
 impl PortalRelationships<'_> {
@@ -737,7 +754,7 @@ impl PortalRelationships<'_> {
             })
     }
 
-    fn literal_consumers(&self) -> impl Iterator<Item = usize> + '_ {
+    fn literal_consumers(&self) -> impl Iterator<Item = ComputationId> + '_ {
         self.lookup.literals.touching(self.cells.clone())
     }
 
@@ -775,7 +792,7 @@ impl PortalRelationships<'_> {
     /// The asymmetry the arm states is the language's and not this function's:
     /// a horizontally aligned root anchors two columns away because every
     /// Language Unit spells as a Cell pair.
-    pub(super) fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
+    pub(super) fn bang_roots(&self) -> impl Iterator<Item = ComputationId> + '_ {
         let in_operand = self
             .lookup
             .operands
@@ -804,13 +821,13 @@ impl PortalRelationships<'_> {
 }
 
 impl FunctionContact {
-    pub(super) fn index(&self) -> usize {
+    pub(super) fn index(&self) -> ComputationId {
         self.index
     }
 
     /// The contacted Function and every computation nested in it, in Parser
     /// preorder.
-    pub(super) fn subtree(&self) -> Range<usize> {
+    pub(super) fn subtree(&self) -> ComputationRange {
         self.subtree.clone()
     }
 }
@@ -826,7 +843,7 @@ mod test {
     use crate::grid::Grid;
     use crate::source::Cells;
     use crate::source::language_map::LanguageMap;
-    use crate::source::tick::{Lookup, computations};
+    use crate::source::tick::{ComputationId, Lookup, PerComputation, computations};
 
     /// The Lookup for `rows`, each padded to the Grid's width, and its locks.
     fn fixture(grid: Grid, rows: &[&str]) -> (Lookup, Locks) {
@@ -848,11 +865,12 @@ mod test {
     }
 
     /// The computation anchored at `(x, y)`.
-    fn at(lookup: &Lookup, x: usize, y: usize) -> usize {
+    fn at(lookup: &Lookup, x: usize, y: usize) -> ComputationId {
         lookup
             .nodes()
             .iter()
-            .position(|node| (node.anchor.x(), node.anchor.y()) == (x, y))
+            .find(|node| (node.anchor.x(), node.anchor.y()) == (x, y))
+            .map(|node| node.id)
             .unwrap_or_else(|| panic!("no computation anchored at ({x}, {y})"))
     }
 
@@ -947,7 +965,7 @@ mod test {
     fn a_joining_root_brings_what_its_bang_activates() {
         let (lookup, locks) = fixture(Grid::with_shape(8, 3), &HALT);
         let (equality, halt, add) = (at(&lookup, 0, 0), at(&lookup, 2, 1), at(&lookup, 2, 2));
-        let mut active = vec![false; lookup.nodes().len()];
+        let mut active = PerComputation::filled(lookup.nodes().len(), false);
         active[equality] = true;
         let joined = join(&lookup, &locks, &mut active, vec![equality]);
         assert!(active[halt], "the Bang reaches Halt");
@@ -975,10 +993,10 @@ mod test {
     /// taken: every computation runs its parsed Function until `running`
     /// names another.
     struct Stated {
-        attempted: Vec<usize>,
-        suppressed: Vec<usize>,
-        running: Vec<(usize, Function)>,
-        parsed: Vec<Function>,
+        attempted: Vec<ComputationId>,
+        suppressed: Vec<ComputationId>,
+        running: Vec<(ComputationId, Function)>,
+        parsed: PerComputation<Function>,
     }
 
     impl Stated {
@@ -993,15 +1011,15 @@ mod test {
     }
 
     impl TurnFacts for Stated {
-        fn attempted(&self, index: usize) -> bool {
+        fn attempted(&self, index: ComputationId) -> bool {
             self.attempted.contains(&index)
         }
 
-        fn suppressed(&self, index: usize) -> bool {
+        fn suppressed(&self, index: ComputationId) -> bool {
             self.suppressed.contains(&index)
         }
 
-        fn running(&self, index: usize) -> Function {
+        fn running(&self, index: ComputationId) -> Function {
             self.running
                 .iter()
                 .find_map(|&(running, function)| (running == index).then_some(function))
@@ -1010,11 +1028,15 @@ mod test {
     }
 
     /// The Contact `writer`'s first Reservation makes with `contacted`.
-    fn contact_of(lookup: &Lookup, writer: usize, contacted: usize) -> FunctionContact {
+    fn contact_of(
+        lookup: &Lookup,
+        writer: ComputationId,
+        contacted: ComputationId,
+    ) -> FunctionContact {
         reservations(lookup, writer)
             .flat_map(|relationships| relationships.functions().collect::<Vec<_>>())
             .find(|candidate| candidate.index() == contacted)
-            .unwrap_or_else(|| panic!("{writer} reserves no Cells of {contacted}"))
+            .unwrap_or_else(|| panic!("{writer:?} reserves no Cells of {contacted:?}"))
     }
 
     fn number(value: u8) -> Atom {

@@ -11,7 +11,7 @@
 use lang::{InputPortal, Output, Tick};
 
 use super::execution::{self, ComputationState};
-use super::{plan, plan_unshared, shared_schedule};
+use super::{ComputationId, plan, plan_unshared, shared_schedule};
 use crate::grid::{CellIndex, Grid};
 use crate::source::{CellContent, CellWrite, Cells, LanguageMap, Source, TickPlan};
 
@@ -100,8 +100,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
         .iter()
         .any(|node| matches!(node.function.output(), Output::Dynamic(_)));
     let inactive_root = nodes
-        .iter()
-        .enumerate()
+        .iter_enumerated()
         .any(|(index, node)| node.is_root() && !schedule.holds_active(index));
     if reads || (writes && inactive_root) {
         return false;
@@ -109,7 +108,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     let mut scheduled = vec![None; states.len()];
     for (turn, &index) in schedule.ordered.order.iter().enumerate() {
-        scheduled[index] = Some(turn);
+        scheduled[index.index()] = Some(turn);
     }
     assert_eq!(turns(&states), scheduled, "the Turns Tick {tick} took");
     true
@@ -614,7 +613,11 @@ fn every_function_but_track_takes_its_turn_in_the_scheduled_order() {
     );
     let map = source.shared_language_map();
     assert!(
-        shared_schedule(grid, &map).ordered.stopped.contains(&true),
+        shared_schedule(grid, &map)
+            .ordered
+            .stopped
+            .iter()
+            .any(|&stopped| stopped),
         "the first Tick holds a cycle"
     );
     for tick in 0..4 {
@@ -662,8 +665,9 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
             .lookup
             .nodes()
             .iter()
-            .position(|node| node.anchor.x() == x && node.anchor.y() == y)
+            .find(|node| node.anchor.x() == x && node.anchor.y() == y)
             .expect("the Function has a computation")
+            .id
     };
     let track = at(0, 0);
     let clock = at(2, 0);
@@ -677,7 +681,11 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
     let bytes = source.snapshot();
     let (planned, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
     assert!(planned.diagnostics.is_empty(), "{:?}", planned.diagnostics);
-    let turn = |index: usize| states[index].turn().expect("the Function takes a Turn");
+    let turn = |index: ComputationId| {
+        states[index.index()]
+            .turn()
+            .expect("the Function takes a Turn")
+    };
     assert!(turn(clock) < turn(track), "the nested index precedes Track");
     assert!(
         turn(writer) < turn(track),
