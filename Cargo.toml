@@ -24,6 +24,9 @@ tracing = { version = "0.1.40", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+# `cargo flux` sets `cfg(flux)`; the refinement annotations in `orcvs/src/grid.rs` are
+# written under it so every other build strips them. See docs/tooling.md.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(flux)'] }
 
 [workspace.lints.clippy]
 dbg_macro = "deny"
