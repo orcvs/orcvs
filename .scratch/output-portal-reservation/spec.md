@@ -66,3 +66,17 @@ computes, and reads no fact the projection does not compare.
 - Painting Source Bundle Spans.
 - Declaring Portal selection in the Function table.
 - Dynamic Output Portals, whose pair is known only at the Turn.
+
+## As built
+
+- The shared rule is `PortalAccess::output_portal_reservation(grid, anchor,
+  function)` in `portal.rs`, beside `PortalAccess::resolve`, whose static
+  write site it reserves. It takes no nesting fact: only a value Function has
+  a static Output, and a nested Function the Parser refuses answers no value.
+- The shared walk is per entry: `ScheduledEntry::function` gives the anchor
+  both `computations` and `tick::output_portal_reservations` read.
+  `computations` keeps its own loop because it also gathers every operand.
+- `LanguageMap::output_portal_highlight` is the shipped highlight, and
+  `SourceRevision::output_portal_highlight` returns it to `RenderFrame`.
+- The nested-Copy agreement test was removed with the scheduler loop it
+  compared against; each Copy direction is tested on the rule in `portal.rs`.

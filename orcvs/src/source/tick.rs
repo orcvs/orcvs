@@ -525,8 +525,8 @@ fn schedule(grid: Grid, inputs: ScheduleInputs<'_>) -> Schedule {
 ///
 /// The Output Portal Reservation of every computation a schedule of `inputs`
 /// holds, in Parser preorder: each value answer's Cell pair, root or nested,
-/// through [`PortalAccess::output_portal_reservation`], the rule that also
-/// decides the answer write [`computations`] reserves.
+/// through [`PortalAccess::output_portal_reservation`], the Cell pair the
+/// schedule reserves for that answer's write.
 ///
 /// Allocates nothing.
 ///
@@ -537,7 +537,7 @@ pub(super) fn output_portal_reservations(
     inputs.expressions().flat_map(move |expression| {
         expression.entries().filter_map(move |entry| {
             let (anchor, function) = entry.function(grid)?;
-            PortalAccess::output_portal_reservation(grid, anchor, function, entry.parent.is_some())
+            PortalAccess::output_portal_reservation(grid, anchor, function)
         })
     })
 }

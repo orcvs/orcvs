@@ -227,8 +227,9 @@ impl<'a> ExpressionEntry<'a> {
         self.derived.root
     }
 
-    /// The parsed leading Function, even when its operands are not yet valid.
-    /// A Tick reserves its turn so earlier writes can complete those operands.
+    /// The parsed leading Function, even when its operands are not yet valid:
+    /// the Function a schedule computes this Expression from, for tests that
+    /// name it.
     #[cfg(test)]
     pub(super) fn function_candidate(self) -> Option<(Position, Function)> {
         self.derived.function_candidate
@@ -1425,10 +1426,8 @@ mod tests {
     ///
     /// `output_portal_highlight`, one focused test per kind of Function the
     /// Output Portal Reservation covers or excludes, plus the row-edge and
-    /// off-Grid geometry. The Source-writing
-    /// exclusion is also checked against the scheduler's own write
-    /// reservations in `tick.rs`, the one place that can reach its private
-    /// `Lookup`.
+    /// off-Grid geometry. `portal.rs` tests the rule itself against what the
+    /// schedule reserves.
     ///
     mod output_portal {
         use super::{Cells, Grid, LanguageMap};
@@ -1479,6 +1478,21 @@ mod tests {
 
             assert!(!covered(&map, grid, 0, 1));
             assert!(!covered(&map, grid, 1, 1));
+        }
+
+        #[test]
+        fn a_source_bundle_highlights_nothing() {
+            // A Self-Banging Function's Advance and a Directional Bang's
+            // emission write their Source effect, not an answer, so none of
+            // the Cells the schedule reserves for them draws as an Output
+            // Portal.
+            let grid = Grid::with_shape(6, 1);
+            for row in [">>    ", "*>    "] {
+                let map = build(grid, &[row]);
+                for x in 0..grid.columns() {
+                    assert!(!covered(&map, grid, x, 0), "{row:?} column {x}");
+                }
+            }
         }
 
         #[test]
