@@ -21,3 +21,5 @@ When the Cursor's Cell is covered by a Language Map diagnostic, a status line in
 ### Decided 2026-10-16 by Toby
 
 A status line rather than a tooltip, because editing is keyboard- and Cursor-driven. Language Map diagnostics are not listed in the Diagnostics Panel, so a standing Source error cannot crowd out Tick diagnostics there.
+
+Where an Expression diagnostic and a lexical diagnostic cover the same Cell, the Expression's is shown: it names the spelling the Parser refused, where the lexical one names a single character. Showing both would grow the status line past its reserved height.
