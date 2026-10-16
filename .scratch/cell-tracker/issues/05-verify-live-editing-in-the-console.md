@@ -28,3 +28,7 @@ Criterion 3 is descoped to painting. The console shows no Source or Tick diagnos
 (`docs/adr/0069-an-unwritten-operand-is-invalid-input.md:19`), and no ticket owns presenting them,
 so presenting a malformed selected pair's Tick diagnostic is not part of this ticket. Status stays
 `ready-for-agent`.
+
+### 2026-10-16
+
+Presenting Source and Tick diagnostics is now owned by `.scratch/source-diagnostics/`, which starts with ADR 0067's open question on standalone Operand Literals. This ticket stays scoped to painting.
