@@ -588,3 +588,29 @@ compilation at all, and it drops `target/debug/incremental/` besides, which pays
 what per-worktree directories cost in disk. The price is paid on the other side — repeatedly
 rebuilding one crate you are editing is slower without incremental state — so it is a trade that
 suits many worktrees and parallel agents, not a default that suits every checkout.
+
+## Flux refinement checking (opt-in, local only)
+
+[Flux](https://github.com/flux-rs/flux) checks refinement-type annotations on the Grid's index
+arithmetic in `orcvs/src/grid.rs`. It proves that `Grid::index` stays below the Cell count, that the
+`expect` in `Grid::position_at` cannot fire, and that Sector stepping cannot divide by zero. Flux
+pins its own nightly with `rustc-dev`, builds only from source, and still crashes on other modules
+of this crate. No CI tier runs it, and no gate owes it. The rest of `orcvs` and `lang` are not
+annotated: their remaining Flux diagnostics are invariants the code already guards at runtime.
+
+The annotations are spelled `#[cfg_attr(flux, flux::...)]`. That form needs no `flux-rs`
+dependency, which is git-only and refused by `deny.toml`. Every other build strips them, and
+`[workspace.lints.rust]` declares `cfg(flux)` so `unexpected_cfgs` stays quiet. Under Flux,
+`bool::then_some` and closures passed to `Option::map` lose refinements, so annotated functions use
+`if` and `?` instead.
+
+To run it, install Flux with its `install.sh`, which provides `flux`, `cargo-flux`, `fixpoint` and
+`z3`, then:
+
+```sh
+RUSTFLAGS="-L $HOME/.flux" FLUXFLAGS="-Fstd-extern-specs" cargo flux -p orcvs
+```
+
+`-Fstd-extern-specs` supplies the specs for `Option` and slices that the annotations rely on. Under
+`cargo flux`, it also needs the `-L` search path to find `flux_core`. `[package.metadata.flux]` in
+`orcvs/Cargo.toml` limits checking to `src/grid.rs`.
