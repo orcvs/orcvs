@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use lang::{Atom, Expression, Function};
 
-use crate::grid::Position;
+use crate::grid::{Grid, Position};
 use crate::source::language_map::{DerivedRow, LanguageUnit, Span};
 
 ///
@@ -154,6 +154,21 @@ pub(super) struct ScheduledEntry {
     pub(super) cells: Range<usize>,
     pub(super) parent: Option<usize>,
     pub(super) parsed: Parsed,
+}
+
+impl ScheduledEntry {
+    /// The Function this entry parsed as, anchored at the first Cell it
+    /// covers, or `None` when it parsed no Function.
+    pub(super) fn function(&self, grid: Grid) -> Option<(Position, Function)> {
+        let Parsed::Function(function) = self.parsed else {
+            return None;
+        };
+        let anchor = grid.position_at(
+            grid.cell_index(self.cells.start)
+                .expect("a parsed Function lies inside its Grid"),
+        );
+        Some((anchor, function))
+    }
 }
 
 /// How one positioned entry parsed, without any value it parsed to.

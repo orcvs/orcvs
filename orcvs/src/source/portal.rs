@@ -443,7 +443,11 @@ impl PortalAccess {
             Some(InputPortal::Dynamic(_)) | None => Vec::new(),
         };
         let output = match function.output() {
-            Output::Static(coords) => PortalOutput::Writes(vec![Self::site(grid, anchor, coords)]),
+            Output::Static(_) => PortalOutput::Writes(
+                Self::answer_site(grid, anchor, function, nested)
+                    .into_iter()
+                    .collect(),
+            ),
             Output::Lock(coords) => PortalOutput::Lock(Self::site(grid, anchor, coords)),
             // A dynamic Output Portal's pair is found at the Turn, as a
             // dynamic Input Portal's is.
@@ -464,6 +468,50 @@ impl PortalAccess {
             }
         };
         Self { output, reads }
+    }
+
+    ///
+    /// Where `function` at `anchor` writes its value answer: its static Output
+    /// Portal, root or nested. `None` for every other Output, and for a nested
+    /// Function that answers no value, which never takes a Turn.
+    ///
+    /// The schedule reserves this site's Cell pair, and the console highlights
+    /// the same pair through [`Self::output_portal_reservation`].
+    ///
+    fn answer_site(
+        grid: Grid,
+        anchor: Position,
+        function: Function,
+        nested: bool,
+    ) -> Option<Result<Position, PortalError>> {
+        if nested && !function.answers_value() {
+            return None;
+        }
+        match function.output() {
+            Output::Static(coords) => Some(Self::site(grid, anchor, coords)),
+            Output::Dynamic(_) | Output::Source(_) | Output::Lock(_) | Output::Terminal => None,
+        }
+    }
+
+    ///
+    /// The Output Portal Reservation `function` at `anchor` holds, root or
+    /// nested: the Cell pair its answer site reserves, as the schedule
+    /// reserves it for the write. `None` where it writes no value answer
+    /// through a static Output Portal, or the row edge leaves no room for the
+    /// pair.
+    ///
+    /// A Source Bundle's Spans are its Source effect, not an answer, so they
+    /// are never an Output Portal Reservation even though the schedule
+    /// reserves them. Allocates nothing.
+    ///
+    pub(super) fn output_portal_reservation(
+        grid: Grid,
+        anchor: Position,
+        function: Function,
+        nested: bool,
+    ) -> Option<Span> {
+        let site = Self::answer_site(grid, anchor, function, nested)?.ok()?;
+        Portal::at(grid, site).reservation()
     }
 
     /// The Cell pair the Portal at `coords` from `anchor` names.

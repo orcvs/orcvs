@@ -523,6 +523,26 @@ fn schedule(grid: Grid, inputs: ScheduleInputs<'_>) -> Schedule {
 }
 
 ///
+/// The Output Portal Reservation of every computation a schedule of `inputs`
+/// holds, in Parser preorder: each value answer's Cell pair, root or nested,
+/// through [`PortalAccess::output_portal_reservation`], the rule that also
+/// decides the answer write [`computations`] reserves.
+///
+/// Allocates nothing.
+///
+pub(super) fn output_portal_reservations(
+    grid: Grid,
+    inputs: ScheduleInputs<'_>,
+) -> impl Iterator<Item = Span> + '_ {
+    inputs.expressions().flat_map(move |expression| {
+        expression.entries().filter_map(move |entry| {
+            let (anchor, function) = entry.function(grid)?;
+            PortalAccess::output_portal_reservation(grid, anchor, function, entry.parent.is_some())
+        })
+    })
+}
+
+///
 /// The computations one Source revision holds, in Parser preorder, and the
 /// diagnostics its layout owes before any of them is ordered.
 ///
@@ -541,12 +561,8 @@ fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Ve
             let parent = entry
                 .parent
                 .and_then(|parent| functions.get(&parent).copied());
-            let child = if let Parsed::Function(function) = entry.parsed {
+            let child = if let Some((anchor, function)) = entry.function(grid) {
                 let index = nodes.len();
-                let anchor = grid.position_at(
-                    grid.cell_index(entry.cells.start)
-                        .expect("parsed Function inside Grid"),
-                );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
                 // A nested value Function writes its own Output Portal as a
                 // root does. A root Terminal Output Function has no Cell
