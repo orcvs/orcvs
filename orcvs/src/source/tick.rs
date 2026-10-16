@@ -523,6 +523,26 @@ fn schedule(grid: Grid, inputs: ScheduleInputs<'_>) -> Schedule {
 }
 
 ///
+/// The Output Portal Reservation of every computation a schedule of `inputs`
+/// holds, in Parser preorder: each value answer's Cell pair, root or nested,
+/// through [`PortalAccess::output_portal_reservation`], the Cell pair the
+/// schedule reserves for that answer's write.
+///
+/// Allocates nothing.
+///
+pub(super) fn output_portal_reservations(
+    grid: Grid,
+    inputs: ScheduleInputs<'_>,
+) -> impl Iterator<Item = Span> + '_ {
+    inputs.expressions().flat_map(move |expression| {
+        expression.entries().filter_map(move |entry| {
+            let (anchor, function) = entry.function(grid)?;
+            PortalAccess::output_portal_reservation(grid, anchor, function)
+        })
+    })
+}
+
+///
 /// The computations one Source revision holds, in Parser preorder, and the
 /// diagnostics its layout owes before any of them is ordered.
 ///
@@ -541,12 +561,8 @@ fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Ve
             let parent = entry
                 .parent
                 .and_then(|parent| functions.get(&parent).copied());
-            let child = if let Parsed::Function(function) = entry.parsed {
+            let child = if let Some((anchor, function)) = entry.function(grid) {
                 let index = nodes.len();
-                let anchor = grid.position_at(
-                    grid.cell_index(entry.cells.start)
-                        .expect("parsed Function inside Grid"),
-                );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
                 // A nested value Function writes its own Output Portal as a
                 // root does. A root Terminal Output Function has no Cell
@@ -5499,119 +5515,6 @@ mod test {
                 (27, 'F'),
             ]
         );
-    }
-}
-
-///
-/// The Output Portal Reservation's one exclusion from what the scheduler
-/// reserves: a Source-writing Function's writes, including an Advance's
-/// cleared anchor, are its Source effect rather than an answer through an
-/// Output Portal, so the scheduler reserves their Cells and
-/// `LanguageMap::output_portal_cells` does not cover them.
-///
-/// Every other root reserves the same Cells in both: the same `Portal::named`
-/// resolution and the same `Portal::reservation`, each reached from a value
-/// answer's `Output::Static` and nothing else. Halt's `Output::Lock` names a
-/// site that neither reserves, because a lock writes no Cell. So only the
-/// exclusion is
-/// checked here, the one place that can reach the scheduler's private
-/// `Lookup`.
-///
-/// Each Source is isolated on purpose. A Reservation counts whatever else
-/// claims its Cells, so a Source-writing Function's write site can coincide
-/// with an unrelated root's genuine Reservation (`.|>>` on a two-column Grid:
-/// `.|`'s scalar Reservation lands on `>>`'s anchor), and the exclusion is a
-/// claim about this one Function's own writes only.
-///
-#[cfg(test)]
-mod output_portal_exclusion {
-    use super::{Cells, Lookup, Portal, computations};
-    use crate::grid::Grid;
-    use crate::source::language_map::LanguageMap;
-
-    ///
-    /// Every Cell a Source-writing Function's write reservation covers,
-    /// including an Advance's cleared anchor, read from the scheduler's own
-    /// `Lookup`.
-    ///
-    fn source_writing_reservation_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
-        let (nodes, _diagnostics) = computations(grid, map.schedule_inputs());
-        let lookup = Lookup::new(grid, nodes);
-        let mut cells = vec![false; grid.count()];
-        for node in lookup.nodes() {
-            if !matches!(node.function.output(), lang::Output::Source(_)) {
-                continue;
-            }
-            for output in node
-                .portal_access
-                .write_sites()
-                .iter()
-                .filter_map(|output| output.as_ref().ok())
-            {
-                if let Some(span) = Portal::at(grid, *output).reservation() {
-                    for idx in span.range() {
-                        cells[idx] = true;
-                    }
-                }
-            }
-        }
-        cells
-    }
-
-    fn assert_excluded(grid: Grid, row: &str) {
-        let map = LanguageMap::build(grid, Cells::of(row.as_bytes()));
-        let derived = map.output_portal_cells();
-        let source_writes = source_writing_reservation_cells(grid, &map);
-        assert!(
-            source_writes.iter().any(|&writes| writes),
-            "the scheduler reserves {row:?}'s own write sites"
-        );
-        for (index, &writes) in source_writes.iter().enumerate() {
-            assert!(
-                !writes || !derived[index],
-                "Cell {index} is {row:?}'s own write reservation and must not \
-                 be an Output Portal Reservation"
-            );
-        }
-    }
-
-    #[test]
-    fn a_self_banging_functions_advance_is_excluded() {
-        assert_excluded(Grid::with_shape(6, 1), ">>    ");
-    }
-
-    #[test]
-    fn a_directional_bangs_emit_is_excluded() {
-        assert_excluded(Grid::with_shape(6, 1), "*>    ");
-    }
-
-    #[test]
-    fn the_map_reserves_what_the_scheduler_reserves_for_nested_value_functions() {
-        // The highlight the Map derives and the write reservations that order
-        // a Tick are the same Cells, root and nested alike.
-        let grid = Grid::with_shape(14, 2);
-        for row in [".x.+.+01010203", ".+.x0102.+0304", ".+!>007FC401  "] {
-            let source = format!("{row}{:14}", "");
-            let map = LanguageMap::build(grid, Cells::of(source.as_bytes()));
-            let (nodes, _diagnostics) = computations(grid, map.schedule_inputs());
-            let lookup = Lookup::new(grid, nodes);
-            let mut scheduled = vec![false; grid.count()];
-            for node in lookup.nodes() {
-                for output in node
-                    .portal_access
-                    .write_sites()
-                    .iter()
-                    .filter_map(|output| output.as_ref().ok())
-                {
-                    if let Some(span) = Portal::at(grid, *output).reservation() {
-                        for idx in span.range() {
-                            scheduled[idx] = true;
-                        }
-                    }
-                }
-            }
-            assert_eq!(map.output_portal_cells(), scheduled, "{row:?}");
-        }
     }
 }
 

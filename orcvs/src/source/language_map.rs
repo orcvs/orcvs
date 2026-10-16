@@ -8,8 +8,7 @@ use lang::{Atom, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
-use super::portal::Portal;
-use super::tick::{RowInputs, ScheduleCache, ScheduleInputs, ScheduledExpression};
+use super::tick::{self, RowInputs, ScheduleCache, ScheduleInputs, ScheduledExpression};
 use super::{Cells, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
@@ -228,8 +227,10 @@ impl<'a> ExpressionEntry<'a> {
         self.derived.root
     }
 
-    /// The parsed leading Function, even when its operands are not yet valid.
-    /// A Tick reserves its turn so earlier writes can complete those operands.
+    /// The parsed leading Function, even when its operands are not yet valid:
+    /// the Function a schedule computes this Expression from, for tests that
+    /// name it.
+    #[cfg(test)]
     pub(super) fn function_candidate(self) -> Option<(Position, Function)> {
         self.derived.function_candidate
     }
@@ -461,84 +462,33 @@ impl LanguageMap {
     /// and, within one Expression, in Parser preorder.
     ///
     /// Known before any Tick runs, derived from this revision alone rather
-    /// than from what a Tick wrote. Eligibility matches the Tick scheduler's
-    /// `function_candidate()` selection — every Expression whose leading
-    /// Cells parse as a Function, whether or not its operands bind — rather
-    /// than [`ExpressionEntry::root`], which additionally requires them to.
-    /// Within such an Expression the root reserves, and so does every nested
-    /// Function that answers a value: it writes its own Output Portal as a
-    /// root does, besides returning its answer to its parent. A nested
-    /// Function that answers no value is refused by the Parser, never takes
-    /// a Turn, and reserves nothing.
-    ///
-    /// Coverage is the Reservation: [`Portal::reservation`] from the Output
-    /// Portal [`lang::Function`] declares, the Cell pair one Atom occupies. A
-    /// Terminal Output Function, Halt, and a
-    /// Source-writing Function (including an Advance's cleared anchor) cover no
-    /// Cell, because none of them writes an answer through its Output Portal;
-    /// neither does a scalar destination the row edge leaves no room for a Cell
-    /// pair.
-    ///
-    /// Tick scheduling reserves the same Cells for the same computations,
-    /// through the same [`Portal::named`] and [`Portal::reservation`].
+    /// than from what a Tick wrote. The Expressions are the ones a schedule
+    /// computes, read through [`Self::schedule_inputs`]: every Expression
+    /// whose leading Cells parse as a Function, whether or not its operands
+    /// bind, rather than [`ExpressionEntry::root`], which additionally
+    /// requires them to. Within such an Expression the root reserves, and so
+    /// does every nested Function that answers a value. Which Cells each
+    /// reserves is [`tick::output_portal_reservations`]'s answer, the rule the
+    /// schedule reserves an answer write by.
     ///
     /// Allocates the returned list, sized before the walk, and nothing per
     /// Expression or per entry.
     ///
     pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
-        let candidates: usize = self
-            .expressions()
-            .map(|expression| self.reserving_functions(expression).count())
-            .sum();
-        let mut reservations = Vec::with_capacity(candidates);
-        for expression in self.expressions() {
-            for (anchor, function) in self.reserving_functions(expression) {
-                reservations.extend(self.output_portal_reservation(anchor, function));
-            }
-        }
-        reservations
-    }
-
-    ///
-    /// The Functions of `expression` that may reserve an Output Portal: its
-    /// leading Function when it is a Function candidate, and every nested
-    /// Function inside it that answers a value.
-    ///
-    fn reserving_functions<'a>(
-        &self,
-        expression: ExpressionEntry<'a>,
-    ) -> impl Iterator<Item = (Position, Function)> + 'a {
-        let grid = self.grid;
-        let root = expression.function_candidate();
-        let nested = root
-            .is_some()
-            .then(|| expression.positioned())
-            .into_iter()
-            .flatten()
-            .filter_map(move |entry| match entry.atom {
-                Some(Atom::Function(function))
-                    if entry.parent.is_some() && function.answers_value() =>
-                {
-                    let anchor = grid.position_at(
-                        grid.cell_index(entry.cells.start)
-                            .expect("a parsed Function lies inside its Grid"),
-                    );
-                    Some((anchor, function))
-                }
-                _ => None,
-            });
-        root.into_iter().chain(nested)
+        let reservations = || tick::output_portal_reservations(self.grid, self.schedule_inputs());
+        let mut collected = Vec::with_capacity(reservations().count());
+        collected.extend(reservations().map(|span| OutputPortalReservation {
+            range: span.range(),
+        }));
+        collected
     }
 
     ///
     /// Whether each Cell of this revision lies in an Output Portal
-    /// Reservation, in the Grid's row-major order.
+    /// Reservation, in the Grid's row-major order: the Cells Source Paint
+    /// highlights as Output Portals.
     ///
-    /// What the Tick scheduler reserves. The console reads the same Cells
-    /// through `SourceRevision::output_portal_highlight`.
-    ///
-    #[cfg(test)]
-    pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
+    pub(super) fn output_portal_highlight(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
         for reservation in self.output_portal_reservations() {
             for index in reservation.range {
@@ -546,29 +496,6 @@ impl LanguageMap {
             }
         }
         covered
-    }
-
-    ///
-    /// The Reservation `function` at `anchor` covers from its Output Portal,
-    /// or `None` where it covers none.
-    ///
-    /// Only a value answer written at a static Output Portal reserves one.
-    /// Halt locks the root at its Portal rather than writing there, a
-    /// Terminal Output Function has no Cell destination, a Source-writing
-    /// Function's destinations are its Source effect, and a dynamic Output
-    /// Portal's pair is known only at its Turn.
-    ///
-    fn output_portal_reservation(
-        &self,
-        anchor: Position,
-        function: Function,
-    ) -> Option<OutputPortalReservation> {
-        let lang::Output::Static(coords) = function.output() else {
-            return None;
-        };
-        let portal = Portal::named(self.grid, anchor, coords).ok()?;
-        let range = portal.reservation()?.range();
-        Some(OutputPortalReservation { range })
     }
 
     ///
@@ -1497,12 +1424,10 @@ mod tests {
     }
 
     ///
-    /// `output_portal_cells`, one focused test per kind of Function the
+    /// `output_portal_highlight`, one focused test per kind of Function the
     /// Output Portal Reservation covers or excludes, plus the row-edge and
-    /// off-Grid geometry. The Source-writing
-    /// exclusion is also checked against the scheduler's own write
-    /// reservations in `tick.rs`, the one place that can reach its private
-    /// `Lookup`.
+    /// off-Grid geometry. `portal.rs` tests the rule itself against what the
+    /// schedule reserves.
     ///
     mod output_portal {
         use super::{Cells, Grid, LanguageMap};
@@ -1530,7 +1455,7 @@ mod tests {
             let index = grid
                 .index(grid.position(x, y).expect("inside the Grid"))
                 .get();
-            map.output_portal_cells()[index]
+            map.output_portal_highlight()[index]
         }
 
         #[test]
@@ -1553,6 +1478,21 @@ mod tests {
 
             assert!(!covered(&map, grid, 0, 1));
             assert!(!covered(&map, grid, 1, 1));
+        }
+
+        #[test]
+        fn a_source_bundle_highlights_nothing() {
+            // A Self-Banging Function's Advance and a Directional Bang's
+            // emission write their Source effect, not an answer, so none of
+            // the Cells the schedule reserves for them draws as an Output
+            // Portal.
+            let grid = Grid::with_shape(6, 1);
+            for row in [">>    ", "*>    "] {
+                let map = build(grid, &[row]);
+                for x in 0..grid.columns() {
+                    assert!(!covered(&map, grid, x, 0), "{row:?} column {x}");
+                }
+            }
         }
 
         #[test]

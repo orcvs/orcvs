@@ -125,19 +125,13 @@ impl SourceRevision {
     }
 
     ///
-    /// Whether each Cell of this revision draws as a root Function's Output
-    /// Portal, in the Grid's row-major order: the Cell pair each root's
-    /// Reservation covers, which [`LanguageMap::output_portal_reservations`]
-    /// answers.
+    /// Whether each Cell of this revision draws as an Output Portal, in the
+    /// Grid's row-major order: the Cell pair each value answer's Output Portal
+    /// Reservation covers, root or nested, which
+    /// [`LanguageMap::output_portal_highlight`] answers.
     ///
     pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
-        let mut covered = vec![false; self.grid.count()];
-        for reservation in self.language_map.output_portal_reservations() {
-            for index in reservation.range {
-                covered[index] = true;
-            }
-        }
-        covered
+        self.language_map.output_portal_highlight()
     }
 }
 

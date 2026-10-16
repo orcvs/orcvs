@@ -6,7 +6,7 @@
 
 use lang::Tick;
 
-use super::super::{Cells, Lookup, Portal, computations};
+use super::super::Cells;
 use super::{Observed, observe};
 use crate::grid::Grid;
 use crate::source::Source;
@@ -62,34 +62,7 @@ fn before_a_tick(grid: Grid, rows: &[&str]) -> (Vec<String>, Vec<(usize, usize, 
             (start % width, start / width, diagnostic.message.clone())
         })
         .collect();
-    (picture(grid, &map.output_portal_cells()), diagnostics)
-}
-
-///
-/// The Cells the Tick scheduler reserves for every computation's write sites,
-/// read from its own `Lookup`.
-///
-fn scheduled(grid: Grid, rows: &[&str]) -> Vec<String> {
-    let text = padded(grid, rows);
-    let map = LanguageMap::build(grid, Cells::of(text.as_bytes()));
-    let (nodes, _diagnostics) = computations(grid, map.schedule_inputs());
-    let lookup = Lookup::new(grid, nodes);
-    let mut cells = vec![false; grid.count()];
-    for node in lookup.nodes() {
-        for output in node
-            .portal_access
-            .write_sites()
-            .iter()
-            .filter_map(|output| output.as_ref().ok())
-        {
-            if let Some(span) = Portal::at(grid, *output).reservation() {
-                for index in span.range() {
-                    cells[index] = true;
-                }
-            }
-        }
-    }
-    picture(grid, &cells)
+    (picture(grid, &map.output_portal_highlight()), diagnostics)
 }
 
 ///
@@ -474,38 +447,4 @@ fn source_paint_marks_the_output_portal_of_each_nested_copy_before_a_tick() {
         observe(grid, &["", ".+=<01", ""], 3),
         steady(&rows, &[(2, 1, "same-Tick dependency cycle")], 3)
     );
-}
-
-#[test]
-fn the_map_reserves_what_the_scheduler_reserves_for_nested_copies() {
-    // The highlight and the write reservations that order a Tick are the
-    // same Cells for every Copy direction, nested or root, including a
-    // nested Copy whose Output Portal is its own Expression or leaves the
-    // Grid.
-    for (grid, rows) in [
-        (Grid::with_shape(10, 3), &["", ".+=>01", ""][..]),
-        (Grid::with_shape(10, 3), &["", ".+=<01", ""]),
-        (Grid::with_shape(10, 3), &["", ".+01=>", ""]),
-        (Grid::with_shape(10, 3), &["", ".+01=<", ""]),
-        (Grid::with_shape(10, 3), &["", "01=>", ""]),
-        (Grid::with_shape(10, 4), &["", ".+=^01", "  .+0102", ""]),
-        (Grid::with_shape(10, 4), &["  =<05", ".+=^01", "  07", ""]),
-        (Grid::with_shape(10, 4), &["  .+0102", ".+=v01", "  05", ""]),
-        (
-            Grid::with_shape(10, 4),
-            &["  .=0101", "", ".+=v01", "  !>007FC4"],
-        ),
-        (
-            Grid::with_shape(12, 3),
-            &["  !>007FC4", ".+=^01.=0101", "    =<"],
-        ),
-        (Grid::with_shape(8, 2), &["  07", ".+=v01"]),
-        (Grid::with_shape(8, 2), &[".+=^01", "  07"]),
-    ] {
-        assert_eq!(
-            before_a_tick(grid, rows).0,
-            scheduled(grid, rows),
-            "{rows:?}"
-        );
-    }
 }

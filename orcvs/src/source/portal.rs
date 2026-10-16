@@ -443,6 +443,8 @@ impl PortalAccess {
             Some(InputPortal::Dynamic(_)) | None => Vec::new(),
         };
         let output = match function.output() {
+            // The site whose Cell pair is the Output Portal Reservation
+            // `output_portal_reservation` answers.
             Output::Static(coords) => PortalOutput::Writes(vec![Self::site(grid, anchor, coords)]),
             Output::Lock(coords) => PortalOutput::Lock(Self::site(grid, anchor, coords)),
             // A dynamic Output Portal's pair is found at the Turn, as a
@@ -464,6 +466,31 @@ impl PortalAccess {
             }
         };
         Self { output, reads }
+    }
+
+    ///
+    /// The Output Portal Reservation `function` at `anchor` holds, root or
+    /// nested: the Cell pair at the site [`Self::resolve`] writes a value
+    /// answer to, which the schedule reserves for that write. `None` for every
+    /// Output that is not a static value answer, and where the site leaves
+    /// the Grid or the row edge leaves no room for the pair.
+    ///
+    /// Only a value Function has a static Output, and a nested Function the
+    /// Parser refuses answers no value, so the rule needs no nesting fact. A
+    /// Source Bundle's Spans are its Source effect, not an answer, so they are
+    /// never an Output Portal Reservation even though the schedule reserves
+    /// them. Allocates nothing.
+    ///
+    pub(super) fn output_portal_reservation(
+        grid: Grid,
+        anchor: Position,
+        function: Function,
+    ) -> Option<Span> {
+        let Output::Static(coords) = function.output() else {
+            return None;
+        };
+        let site = Self::site(grid, anchor, coords).ok()?;
+        Portal::at(grid, site).reservation()
     }
 
     /// The Cell pair the Portal at `coords` from `anchor` names.
@@ -791,6 +818,93 @@ mod test {
             assert!(access.write_sites().is_empty(), "{function:?}");
             assert!(access.lock_site().is_none(), "{function:?}");
             assert!(access.read_spans().is_empty(), "{function:?}");
+        }
+    }
+
+    /// The Output Portal Reservation `function` at column `x`, row `y` holds.
+    fn reservation_at(
+        grid: Grid,
+        x: usize,
+        y: usize,
+        function: lang::Function,
+    ) -> Option<std::ops::Range<usize>> {
+        let anchor = grid.position(x, y).expect("inside the Grid");
+        PortalAccess::output_portal_reservation(grid, anchor, function).map(|span| span.range())
+    }
+
+    /// The Cell pair from column `x`, row `y`.
+    fn pair(grid: Grid, x: usize, y: usize) -> std::ops::Range<usize> {
+        let start = grid
+            .index(grid.position(x, y).expect("inside the Grid"))
+            .get();
+        start..start + 2
+    }
+
+    #[test]
+    fn a_value_answer_reserves_the_pair_at_its_output_portal() {
+        // Root or nested alike: a nested value Function writes its own Output
+        // Portal as a root does.
+        let grid = Grid::with_shape(10, 3);
+        for function in [
+            lang::Function::Add,
+            lang::Function::Equality,
+            lang::Function::CopySouth,
+        ] {
+            assert_eq!(
+                reservation_at(grid, 2, 1, function),
+                Some(pair(grid, 2, 2)),
+                "{function:?}"
+            );
+        }
+        assert_eq!(
+            reservation_at(grid, 2, 1, lang::Function::CopyNorth),
+            Some(pair(grid, 2, 0))
+        );
+        assert_eq!(
+            reservation_at(grid, 2, 1, lang::Function::CopyEast),
+            Some(pair(grid, 4, 1))
+        );
+        assert_eq!(
+            reservation_at(grid, 4, 1, lang::Function::CopyWest),
+            Some(pair(grid, 2, 1))
+        );
+    }
+
+    #[test]
+    fn an_output_portal_off_the_grid_or_short_of_a_pair_reserves_nothing() {
+        // A Copy whose Output Portal leaves the Grid has no site, and a site
+        // in the last column has no room for an Atom's pair.
+        let grid = Grid::with_shape(6, 2);
+        assert_eq!(reservation_at(grid, 0, 0, lang::Function::CopyNorth), None);
+        assert_eq!(reservation_at(grid, 0, 1, lang::Function::CopySouth), None);
+        assert_eq!(reservation_at(grid, 0, 0, lang::Function::CopyWest), None);
+        assert_eq!(reservation_at(grid, 5, 0, lang::Function::Add), None);
+    }
+
+    #[test]
+    fn a_source_bundle_is_reserved_by_the_schedule_but_is_no_output_portal_reservation() {
+        // A Self-Banging Function's Advance and a Directional Bang's emission
+        // are Source effects: the schedule reserves their sites, and they are
+        // no Output Portal Reservation.
+        let grid = Grid::with_shape(6, 1);
+        let anchor = grid.position(0, 0).expect("inside the Grid");
+        for function in [
+            lang::Function::SelfBangingEast,
+            lang::Function::DirectionalBangEast,
+        ] {
+            let access = PortalAccess::resolve(grid, anchor, function, false);
+            assert!(!access.write_sites().is_empty(), "{function:?}");
+            assert_eq!(reservation_at(grid, 0, 0, function), None, "{function:?}");
+        }
+    }
+
+    #[test]
+    fn a_lock_or_terminal_output_reserves_nothing() {
+        // Neither answers a value, so neither reserves as a root, and the
+        // Parser refuses either nested.
+        let grid = Grid::with_shape(10, 3);
+        for function in [lang::Function::Halt, lang::Function::RawPlay] {
+            assert_eq!(reservation_at(grid, 2, 1, function), None, "{function:?}");
         }
     }
 
