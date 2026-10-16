@@ -11,7 +11,8 @@ When the Cursor's Cell is covered by a Language Map diagnostic, a status line in
 
 - [ ] Moving the Cursor onto a diagnosed Cell shows its message in the bottom Panel's status line; moving off clears it.
 - [ ] The status line reserves its space whether or not a message is showing, so the Source View does not move.
-- [ ] The message comes from the Render Frame's existing diagnostics (`diagnostic`, `lexical_diagnostics`, `diagnostic_covers`); nothing is re-parsed in the console.
+- [ ] The message comes from the Render Frame's existing accessors (`expression_at` and its `diagnostic`, `lexical_diagnostics`); nothing is re-parsed in the console.
+- [ ] When a Cell is covered by both its Expression's diagnostic and a lexical diagnostic (the Cursor on `Z` of `Z `), the Expression's diagnostic is shown, because it names the spelling rather than one character.
 - [ ] Pairs east of a Track show no message, per ticket 04.
 - [ ] Tested by driving the shipped console under the egui skill.
 
