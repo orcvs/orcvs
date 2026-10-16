@@ -15,9 +15,9 @@ use super::Schedule;
 use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
-    Computation, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal, PortalError,
-    PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite, TickPlan, diagnose,
-    resolve, tick_inputs,
+    Computation, ComputationId, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal,
+    PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite, TickPlan,
+    diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
 use turns::{Activation, Turns};
@@ -129,7 +129,7 @@ impl<'a> Execution<'a> {
     ///
     fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
         let node = &self.schedule.lookup.nodes()[index];
-        if !self.turns.may_open(index, node.owner) {
+        if !self.turns.may_open(index, node.owner().index()) {
             return None;
         }
         self.turns.open(index);
@@ -139,7 +139,7 @@ impl<'a> Execution<'a> {
         // alone, so the Turn is blocked as an unparsed operand's is, without
         // repeating the report, and its parent is blocked in turn.
         if self.syntax_blocks(node, function)
-            || (node.parent.is_some() && !function.answers_value())
+            || (!node.is_root() && !function.answers_value())
             || self.blocked_by_child(node)
         {
             self.turns.block_syntax(index);

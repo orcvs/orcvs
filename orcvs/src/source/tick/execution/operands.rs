@@ -15,14 +15,18 @@
 use lang::Atom;
 
 use super::{
-    Computation, EMPTY_PAIR, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH, render_message,
+    Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH,
+    render_message,
 };
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
     /// it consumes the Cells at `operand.cells`.
     fn returning_child(&self, operand: &Operand) -> Option<usize> {
-        operand.child.filter(|&child| !self.turns.suppressed(child))
+        operand
+            .child
+            .map(ComputationId::index)
+            .filter(|&child| !self.turns.suppressed(child))
     }
 
     ///
