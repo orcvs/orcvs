@@ -1,6 +1,6 @@
 # 02 — Test the shipped highlight, not a copy
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 **What to build:**
@@ -14,8 +14,12 @@ Portal Reservation. See `../spec.md`.
 
 ## Acceptance criteria
 
-- [ ] No `#[cfg(test)]` copy of the highlight remains.
-- [ ] The Source Bundle exclusion is tested against the shared function.
-- [ ] Every Function kind the old focused tests covered is still covered.
-- [ ] Gates pass with `PROPTEST_CASES=32`: fmt, clippy and nextest on `orcvs`
+- [x] No `#[cfg(test)]` copy of the highlight remains.
+- [x] The Source Bundle exclusion is tested against the shared function.
+- [x] Every Function kind the old focused tests covered is still covered.
+- [x] Gates pass with `PROPTEST_CASES=32`: fmt, clippy and nextest on `orcvs`
   and `console`, then the workspace gates before the PR.
+
+## Comments
+
+2026-10-16 — `LanguageMap::output_portal_highlight` is the shipped highlight, and `SourceRevision::output_portal_highlight` returns it, so the language-map and nested-Copy picture tests now read what paint reads. `tick.rs`'s `output_portal_exclusion` module and the nested-Copy agreement test, each a hand copy of `Lookup::new`'s write-Claim loop, are replaced by four focused tests on `PortalAccess::output_portal_reservation` in `portal.rs`: root and nested value answers for Add and every Copy direction, Portals off the Grid or short of a pair, a Source Bundle the schedule reserves but the highlight does not, and Halt, Terminal Output and refused nested Functions. Workspace clippy, nextest (1713), doctests and rustdoc pass with `PROPTEST_CASES=32`.

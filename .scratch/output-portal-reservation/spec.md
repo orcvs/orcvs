@@ -1,6 +1,6 @@
 # Derive the Output Portal Reservation once
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

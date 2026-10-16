@@ -484,13 +484,10 @@ impl LanguageMap {
 
     ///
     /// Whether each Cell of this revision lies in an Output Portal
-    /// Reservation, in the Grid's row-major order.
+    /// Reservation, in the Grid's row-major order: the Cells Source Paint
+    /// highlights as Output Portals.
     ///
-    /// What the Tick scheduler reserves. The console reads the same Cells
-    /// through `SourceRevision::output_portal_highlight`.
-    ///
-    #[cfg(test)]
-    pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
+    pub(super) fn output_portal_highlight(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
         for reservation in self.output_portal_reservations() {
             for index in reservation.range {
@@ -1426,7 +1423,7 @@ mod tests {
     }
 
     ///
-    /// `output_portal_cells`, one focused test per kind of Function the
+    /// `output_portal_highlight`, one focused test per kind of Function the
     /// Output Portal Reservation covers or excludes, plus the row-edge and
     /// off-Grid geometry. The Source-writing
     /// exclusion is also checked against the scheduler's own write
@@ -1459,7 +1456,7 @@ mod tests {
             let index = grid
                 .index(grid.position(x, y).expect("inside the Grid"))
                 .get();
-            map.output_portal_cells()[index]
+            map.output_portal_highlight()[index]
         }
 
         #[test]

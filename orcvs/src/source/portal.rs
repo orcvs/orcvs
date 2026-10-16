@@ -842,6 +842,116 @@ mod test {
         }
     }
 
+    /// The Output Portal Reservation `function` at column `x`, row `y` holds.
+    fn reservation_at(
+        grid: Grid,
+        x: usize,
+        y: usize,
+        function: lang::Function,
+        nested: bool,
+    ) -> Option<std::ops::Range<usize>> {
+        let anchor = grid.position(x, y).expect("inside the Grid");
+        PortalAccess::output_portal_reservation(grid, anchor, function, nested)
+            .map(|span| span.range())
+    }
+
+    /// The Cell pair from column `x`, row `y`.
+    fn pair(grid: Grid, x: usize, y: usize) -> std::ops::Range<usize> {
+        let start = grid
+            .index(grid.position(x, y).expect("inside the Grid"))
+            .get();
+        start..start + 2
+    }
+
+    #[test]
+    fn a_value_answer_reserves_the_pair_at_its_output_portal_root_or_nested() {
+        let grid = Grid::with_shape(10, 3);
+        for nested in [false, true] {
+            assert_eq!(
+                reservation_at(grid, 2, 1, lang::Function::Add, nested),
+                Some(pair(grid, 2, 2)),
+                "nested: {nested}"
+            );
+            assert_eq!(
+                reservation_at(grid, 2, 1, lang::Function::CopyNorth, nested),
+                Some(pair(grid, 2, 0))
+            );
+            assert_eq!(
+                reservation_at(grid, 2, 1, lang::Function::CopySouth, nested),
+                Some(pair(grid, 2, 2))
+            );
+            assert_eq!(
+                reservation_at(grid, 2, 1, lang::Function::CopyEast, nested),
+                Some(pair(grid, 4, 1))
+            );
+            assert_eq!(
+                reservation_at(grid, 4, 1, lang::Function::CopyWest, nested),
+                Some(pair(grid, 2, 1))
+            );
+        }
+    }
+
+    #[test]
+    fn an_output_portal_off_the_grid_or_short_of_a_pair_reserves_nothing() {
+        // A Copy whose Output Portal leaves the Grid has no site, and a site
+        // in the last column has no room for an Atom's pair.
+        let grid = Grid::with_shape(6, 2);
+        assert_eq!(
+            reservation_at(grid, 0, 0, lang::Function::CopyNorth, true),
+            None
+        );
+        assert_eq!(
+            reservation_at(grid, 0, 1, lang::Function::CopySouth, false),
+            None
+        );
+        assert_eq!(
+            reservation_at(grid, 0, 0, lang::Function::CopyWest, false),
+            None
+        );
+        assert_eq!(reservation_at(grid, 5, 0, lang::Function::Add, false), None);
+    }
+
+    #[test]
+    fn a_source_bundle_is_reserved_by_the_schedule_but_is_no_output_portal_reservation() {
+        // A Self-Banging Function's Advance and a Directional Bang's emission
+        // are Source effects: the schedule reserves their sites, and the
+        // console highlights none of them.
+        let grid = Grid::with_shape(6, 1);
+        let anchor = grid.position(0, 0).expect("inside the Grid");
+        for function in [
+            lang::Function::SelfBangingEast,
+            lang::Function::DirectionalBangEast,
+        ] {
+            let access = PortalAccess::resolve(grid, anchor, function, false);
+            assert!(!access.write_sites().is_empty(), "{function:?}");
+            assert_eq!(
+                reservation_at(grid, 0, 0, function, false),
+                None,
+                "{function:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lock_terminal_output_or_refused_nested_function_reserves_nothing() {
+        let grid = Grid::with_shape(10, 3);
+        assert_eq!(
+            reservation_at(grid, 2, 1, lang::Function::Halt, false),
+            None
+        );
+        assert_eq!(
+            reservation_at(grid, 2, 1, lang::Function::RawPlay, false),
+            None
+        );
+        for function in [lang::Function::RawPlay, lang::Function::Halt] {
+            assert_eq!(
+                reservation_at(grid, 2, 1, function, true),
+                None,
+                "{function:?}"
+            );
+        }
+    }
+
     #[test]
     fn occupancy_of_empty_cells_is_empty() {
         let grid = Grid::with_shape(8, 1);
