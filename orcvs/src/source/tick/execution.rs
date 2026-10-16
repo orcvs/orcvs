@@ -15,9 +15,9 @@ use super::Schedule;
 use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
-    Computation, Effect, Encoding, Grid, LanguageMap, Occupancy, Operand, Portal, PortalError,
-    PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite, TickPlan, diagnose,
-    resolve, tick_inputs,
+    Computation, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant, Operand,
+    Portal, PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite,
+    TickPlan, coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
 use turns::{Activation, Turns};

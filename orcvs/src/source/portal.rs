@@ -26,7 +26,7 @@ use lang::{Function, InputPortal, Output, PortalCoords};
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::encoding::Encoding;
-use super::language_map::{LanguageMap, LanguageUnit, LanguageUnitKind, Span};
+use super::language_map::{LanguageUnit, LanguageUnitKind, Span};
 use super::{CellContent, Cells};
 
 /// The Cell pair one Atom occupies, and the one declaration of it: what a
@@ -80,10 +80,11 @@ pub(super) enum Occupancy {
 /// The Language Unit occupying a Portal's two Cells, as a Copy reads it.
 ///
 /// Occupancy is the Snapshot Map. This is working Source at the Portal,
-/// aligned against that Map: Empty and Bang are values even when the Map still
-/// names a cleaned unit; a complete aligned unit is one too; a partial pair, a
-/// slice across two units, or a Comment is not. Decoding the admitted spelling is
-/// the Interpreter's.
+/// aligned against what covers it there: a unit placed this Tick, or a
+/// Snapshot unit through the Cells no Source effect obscured. Empty and Bang
+/// are values even when the Map still names a cleaned unit; a complete aligned
+/// unit is one too; a partial pair, a slice across two units, or a Comment is
+/// not. Decoding the admitted spelling is the Interpreter's.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PortalUnit {
@@ -240,14 +241,21 @@ impl Portal {
         units: impl IntoIterator<Item = &'a LanguageUnit>,
         root_at: impl Fn(Position) -> Option<usize>,
     ) -> Occupancy {
-        occupancy_of(units, &self.cells_along_row(SCALAR_WIDTH), root_at)
+        occupancy_of(units, self.cells_along_row(SCALAR_WIDTH), root_at)
     }
 
     ///
     /// The Language Unit a Copy may read from the Cell pair one Atom occupies in
     /// working Source.
     ///
-    pub(super) fn language_unit(self, working: Cells<'_>, map: &LanguageMap) -> PortalUnit {
+    /// `cover` answers what completely covers the Cells it is handed, as
+    /// [`coverage`] does over whatever units the caller can see there.
+    ///
+    pub(super) fn language_unit<'a>(
+        self,
+        working: Cells<'_>,
+        cover: impl FnOnce(Range<usize>) -> Coverage<Occupant<'a>>,
+    ) -> PortalUnit {
         let Some(span) = self.reservation() else {
             return PortalUnit::Invalid;
         };
@@ -262,27 +270,23 @@ impl Portal {
         if cells.contains(&b' ') {
             return PortalUnit::Invalid;
         }
-        let covering: Vec<_> = map
-            .units()
-            .filter(|unit| spans_overlap(unit.span().range(), range.clone()))
-            .collect();
-        match covering.as_slice() {
-            [unit] if unit.span().range() == range => match unit.kind() {
-                LanguageUnitKind::Comment => PortalUnit::Invalid,
-                LanguageUnitKind::Bang
-                | LanguageUnitKind::Function(_)
-                | LanguageUnitKind::OperandLiteral => PortalUnit::Unit,
+        match cover(range.clone()) {
+            Coverage::Empty => PortalUnit::Unit,
+            Coverage::Complete(occupant) if occupant.span() == range => match occupant {
+                Occupant::Unit(unit) if unit.kind() == LanguageUnitKind::Comment => {
+                    PortalUnit::Invalid
+                }
+                Occupant::Unit(_) | Occupant::Placed(_) => PortalUnit::Unit,
             },
-            [] => PortalUnit::Unit,
-            _ => PortalUnit::Invalid,
+            Coverage::Complete(_) | Coverage::Partial => PortalUnit::Invalid,
         }
     }
 
     /// Cells from this destination along its row, at most `width` of them.
-    fn cells_along_row(self, width: usize) -> Vec<usize> {
+    fn cells_along_row(self, width: usize) -> Range<usize> {
         let start = self.grid.index(self.destination).get();
         let available = self.grid.columns() - self.destination.x();
-        (start..start + width.min(available)).collect()
+        start..start + width.min(available)
     }
 
     /// The write that places `encoding` at this Portal and along its row, or
@@ -324,33 +328,83 @@ impl Portal {
 ///
 pub(super) fn occupancy_of<'a>(
     units: impl IntoIterator<Item = &'a LanguageUnit>,
-    cells: &[usize],
+    cells: impl Iterator<Item = usize> + Clone,
     root_at: impl Fn(Position) -> Option<usize>,
 ) -> Occupancy {
-    let mut partial = false;
-    for unit in units {
-        let covered = unit.span().start().get()..=unit.span().end().get();
-        if !cells.iter().any(|cell| covered.contains(cell)) {
-            continue;
+    let units = units.into_iter().map(|unit| (unit.span().range(), unit));
+    match coverage(units, cells, |_| true) {
+        Coverage::Empty => Occupancy::Empty,
+        Coverage::Complete(unit) => {
+            root_at(unit.anchor()).map_or(Occupancy::NonRoot, Occupancy::Root)
         }
-        if !cells.iter().all(|cell| covered.contains(cell)) {
-            partial = true;
-            continue;
-        }
-        return match root_at(unit.anchor()) {
-            Some(root) => Occupancy::Root(root),
-            None => Occupancy::NonRoot,
-        };
-    }
-    if partial {
-        Occupancy::Partial
-    } else {
-        Occupancy::Empty
+        Coverage::Partial => Occupancy::Partial,
     }
 }
 
-fn spans_overlap(left: std::ops::Range<usize>, right: std::ops::Range<usize>) -> bool {
-    left.start < right.end && right.start < left.end
+///
+/// What some Cells meet among units, each given with the Cells it spans.
+///
+/// A Cell `visible` refuses belongs to no unit, so a unit is met only through
+/// the Cells it still holds. The first unit holding every Cell covers them;
+/// otherwise any unit holding some of them leaves them partly covered. Units
+/// are disjoint where this is asked, so which complete unit comes first does
+/// not decide the answer. An empty run of Cells meets nothing.
+///
+/// Every occupancy question asks this: Snapshot occupancy with every Cell
+/// visible, and working Source with the Cells a Source effect obscured hidden
+/// and the units it placed met first.
+///
+pub(super) fn coverage<T>(
+    units: impl IntoIterator<Item = (Range<usize>, T)>,
+    cells: impl Iterator<Item = usize> + Clone,
+    visible: impl Fn(usize) -> bool,
+) -> Coverage<T> {
+    let mut partial = false;
+    for (span, unit) in units {
+        let held = |cell: usize| span.contains(&cell) && visible(cell);
+        if !cells.clone().any(held) {
+            continue;
+        }
+        if cells.clone().all(held) {
+            return Coverage::Complete(unit);
+        }
+        partial = true;
+    }
+    if partial {
+        Coverage::Partial
+    } else {
+        Coverage::Empty
+    }
+}
+
+/// What [`coverage`] finds at some Cells.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Coverage<T> {
+    /// No unit holds any of the Cells.
+    Empty,
+    /// This unit holds every Cell.
+    Complete(T),
+    /// Some unit holds some of the Cells, and none holds them all.
+    Partial,
+}
+
+/// What can cover Cells in working Source.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Occupant<'a> {
+    /// A Language Unit the Snapshot parsed.
+    Unit(&'a LanguageUnit),
+    /// A unit a Source effect placed this Tick, at these Cells.
+    Placed(Range<usize>),
+}
+
+impl Occupant<'_> {
+    /// The Cells this occupant spans.
+    pub(super) fn span(&self) -> Range<usize> {
+        match self {
+            Self::Unit(unit) => unit.span().range(),
+            Self::Placed(cells) => cells.clone(),
+        }
+    }
 }
 
 ///
@@ -567,11 +621,12 @@ mod test {
     }
 
     use super::{
-        Encoding, LanguageMap, Occupancy, Portal, PortalAccess, PortalError, PortalUnit,
+        Encoding, Occupancy, Occupant, Portal, PortalAccess, PortalError, PortalUnit, coverage,
         occupancy_of,
     };
     use crate::grid::{CellIndex, Grid};
     use crate::source::Cells;
+    use crate::source::language_map::LanguageMap;
 
     #[test]
     fn every_printable_cell_reaches_its_destination() {
@@ -594,7 +649,12 @@ mod test {
     }
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
-        portal.language_unit(Cells::of(working), map)
+        portal.language_unit(Cells::of(working), |cells| {
+            let units = map
+                .units()
+                .map(|unit| (unit.span().range(), Occupant::Unit(unit)));
+            coverage(units, cells, |_| true)
+        })
     }
 
     ///
@@ -953,9 +1013,31 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let root = grid.position(0, 0).unwrap();
         assert_eq!(
-            occupancy_of(map.units(), &[1], |anchor| (anchor == root).then_some(0)),
+            occupancy_of(map.units(), 1..2, |anchor| (anchor == root).then_some(0)),
             Occupancy::Root(0)
         );
+    }
+
+    #[test]
+    fn coverage_meets_a_unit_only_through_the_cells_it_still_holds() {
+        // The `>>` the Snapshot parsed at Cells 1..3 has stepped east to 2..4.
+        // Its move obscured Cells 1..4, so a pair at 2..4 meets none of the
+        // Snapshot unit and the whole of the placed one.
+        let snapshot = [(1..3, "snapshot")];
+        let unobscured = |cell: usize| !(1..4).contains(&cell);
+        assert_eq!(
+            coverage(snapshot.clone(), 2..4, |_| true),
+            super::Coverage::Partial
+        );
+        assert_eq!(
+            coverage(snapshot.clone(), 2..4, unobscured),
+            super::Coverage::Empty
+        );
+        assert_eq!(
+            coverage([(2..4, "placed")], 2..4, |_| true),
+            super::Coverage::Complete("placed")
+        );
+        assert_eq!(coverage(snapshot, 2..2, |_| true), super::Coverage::Empty);
     }
 
     #[test]
