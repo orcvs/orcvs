@@ -215,7 +215,7 @@ One original Producer's opportunity to emit Effects after its current-Tick data 
 _Avoid_: Pass, visit, step
 
 **Reservation**:
-The Cells one computation's result may reach, settled while a Tick is scheduled and before any Function has evaluated. Per ADR 0063 every value Function answers one Atom, so every value Function, root or nested, reserves one Atom's Cell pair at each of its write Portals, and a Source-writing Function reserves the Spans its declared bundle names. A Reservation orders Turns and decides nothing else: the write a Portal admits is what decides whether a Cell was written, a computation suppressed, or a root activated.
+The Cells one computation's result may reach, settled while a Tick is scheduled and before any Function has evaluated. Per ADR 0063 every value Function answers one Atom, so every value Function, root or nested, reserves one Atom's Cell pair at each of its write Portals, and a Source-writing Function reserves the Spans its declared bundle names. The pair a value answer reserves at its Output Portal is its Output Portal Reservation, which the console highlights; a Source Bundle's Spans are not one. A Reservation orders Turns and decides nothing else: the write a Portal admits is what decides whether a Cell was written, a computation suppressed, or a root activated.
 _Avoid_: Footprint, allocation, reserved Span, write window
 
 **Dependency**:
