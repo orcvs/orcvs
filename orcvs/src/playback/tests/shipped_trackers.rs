@@ -32,6 +32,26 @@ struct Voice {
     steps: [Option<u8>; STEPS as usize],
 }
 
+impl Voice {
+    ///
+    /// The diagnostic at this voice's Timed Play on an empty step. A Portal
+    /// that fills the note slot clears it, so the Play finds its slot empty; a
+    /// nested Read south, six columns east of the anchor, answers a Clear, and
+    /// the Play names it.
+    ///
+    fn rest(&self, slot_written: bool) -> String {
+        if slot_written {
+            "expected a note, found \"  \"".to_owned()
+        } else {
+            format!(
+                "nested computation at column {}, row {} cleared its operand",
+                self.play.0 + 6,
+                self.play.1
+            )
+        }
+    }
+}
+
 ///
 /// The notes a run is sounding, each with the Tick its Timed lifetime ends,
 /// in the order they started.
@@ -47,10 +67,10 @@ impl Sounding {
     /// A Delay bangs on the first Tick of each step. Lifetimes that end at
     /// `tick` stop first, in the order they started. An occupied step then
     /// plays its Note for [`LENGTH`] Ticks, stopping the same Note first if it
-    /// is still sounding; an empty step's Timed Play finds its note slot empty
-    /// and is diagnosed at its anchor.
+    /// is still sounding; an empty step's Timed Play is diagnosed at its
+    /// anchor, as [`Voice::rest`] describes.
     ///
-    fn expect(&mut self, voices: &[Voice], tick: u64) -> Expected {
+    fn expect(&mut self, voices: &[Voice], slot_written: bool, tick: u64) -> Expected {
         let mut delivery = Vec::new();
         let mut diagnostics = Vec::new();
         self.0.retain(|&(channel, note, due)| {
@@ -76,11 +96,9 @@ impl Sounding {
                     delivery.push(note_on(voice.channel, 0x64, note));
                     self.0.push((voice.channel, note, tick + LENGTH));
                 }
-                None => diagnostics.push((
-                    voice.play.0,
-                    voice.play.1,
-                    "expected a note, found \"  \"".to_owned(),
-                )),
+                None => {
+                    diagnostics.push((voice.play.0, voice.play.1, voice.rest(slot_written)));
+                }
             }
         }
         (delivery, diagnostics)
@@ -123,7 +141,7 @@ fn assert_two_loops(text: &[u8], voices: &[Voice], slot_written: bool) {
 
     for tick in 0..2 * STEPS * STEP_TICKS {
         let plan = run.run_tick(tick);
-        let (commands, diagnostics) = sounding.expect(voices, tick);
+        let (commands, diagnostics) = sounding.expect(voices, slot_written, tick);
         assert_eq!(
             tick_diagnostics(&plan),
             diagnostics,
@@ -322,7 +340,11 @@ fn a_half_typed_step_silences_only_its_own_voice() {
                 3,
                 "nested computation at column 8, row 3 returned nothing"
             ),
-            (22, 3, "expected a note, found \"  \""),
+            (
+                22,
+                3,
+                "nested computation at column 28, row 3 cleared its operand"
+            ),
         ]
     );
     assert_eq!(plan.play_commands, [timed(2, 72), timed(3, 79)]);

@@ -193,7 +193,6 @@ impl From<u8> for Length {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
     Bang,
-    Empty,
     Function(Function),
     Note(Note),
     Number(u8),
@@ -401,16 +400,13 @@ enum SelectedPortal {
 }
 
 /// Whether a Function's answer can be a Bang: one column of the Function
-/// table, read by [`Function::can_emit_bang`] and
-/// [`Function::answers_only_bang`].
+/// table, read by [`Function::can_emit_bang`].
 #[derive(Clone, Copy)]
 enum BangAnswer {
     /// It never answers Bang.
     Never,
     /// A Bang is one of the answers it can give.
     May,
-    /// Every answer it gives is a Bang or the Absence Marker.
-    Only,
 }
 
 // The declared type of a Portal input, mapped to the input it decodes. Number
@@ -606,19 +602,6 @@ macro_rules! define_functions {
                 }
             }
 
-            /// Whether every answer this Function gives is a Bang or the
-            /// Absence Marker.
-            ///
-            /// Equality, Delay and Euclidean are Orca's bang ports: each
-            /// answers whether it bangs this Tick and nothing else, so a Turn
-            /// that does not Bang still has an answer to show at its Output
-            /// Portal, which is two empty Cells.
-            pub const fn answers_only_bang(self) -> bool {
-                match self {
-                    $(Self::$variant => matches!(BangAnswer::$bang, BangAnswer::Only),)+
-                }
-            }
-
             /// Whether this Function declares no operand at all.
             ///
             /// One name for a question both crates ask: `signature()` is
@@ -791,14 +774,14 @@ define_functions! {
     CopyNorth => ("=^", Value, Intrinsic, May, []),
     CopySouth => ("=v", Value, Intrinsic, May, []),
     CopyWest => ("=<", Value, Intrinsic, May, []),
-    Delay => ("~*", Value, Intrinsic, Only, [rate: Number, modulus: Number]),
+    Delay => ("~*", Value, Intrinsic, May, [rate: Number, modulus: Number]),
     DirectionalBangEast => ("*>", BangEast, Bang, Never, []),
     DirectionalBangNorth => ("*^", BangNorth, Bang, Never, []),
     DirectionalBangSouth => ("*v", BangSouth, Bang, Never, []),
     DirectionalBangWest => ("*<", BangWest, Bang, Never, []),
     Divide => ("./", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Equality => (".=", Value, Intrinsic, Only, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Intrinsic, Only, [hits: Number, steps: Number]),
+    Equality => (".=", Value, Intrinsic, May, [left: Number, right: Number]),
+    Euclidean => ("~%", Value, Intrinsic, May, [hits: Number, steps: Number]),
     Halt => ("*!", Halt, Bang, Never, []),
     Increment => ("~+", Value, Intrinsic, Never, [step: Number, modulus: Number], portal: "previous value": Number),
     Interpolation => ("~>", Value, Intrinsic, Never, [rate: Number, target: Number], portal: "previous value": Number),
@@ -1053,17 +1036,6 @@ impl Function {
         }
     }
 
-    /// Whether this Function copies a Language Unit from its Input Portal.
-    ///
-    /// The Copies, Track and the Reads name an Input Portal and bind no typed
-    /// Portal input.
-    /// Increment and Interpolation name the same south site as a Number Portal
-    /// input, so they are not this: the Cells they read are a value, not a
-    /// Language Unit.
-    pub const fn copies_language_unit(self) -> bool {
-        self.input_portal().is_some() && self.portal_input().is_none()
-    }
-
     /// Which declared fact this Function changes about `running`, the Function
     /// a computation is running, or `None` where it changes none of them.
     ///
@@ -1152,7 +1124,6 @@ impl fmt::Display for Atom {
                 None => Err(fmt::Error),
             },
             Atom::Function(fun) => write!(f, "{fun}"),
-            Atom::Empty => write!(f, "_"),
         }
     }
 }
@@ -1340,24 +1311,8 @@ mod test {
     }
 
     #[test]
-    fn exactly_the_bang_ports_answer_only_bang() {
-        // A Tick clears the Output Portal of each of these on every Turn that
-        // does not Bang, so the list is stated whole: a Function added here
-        // would erase what stands south of it, and one missing would leave
-        // its last `**` standing to fire again.
-        assert_eq!(
-            Function::ALL
-                .iter()
-                .copied()
-                .filter(|function| function.answers_only_bang())
-                .collect::<Vec<_>>(),
-            vec![Function::Delay, Function::Equality, Function::Euclidean]
-        );
-    }
-
-    #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
-        // Equality, Delay and Euclidean answer a Bang or Absence as their
+        // Equality, Delay and Euclidean answer a Bang or a Clear as their
         // result, a Copy, Track or Read copies a Bang from its Input
         // Portal, a Write carries a Bang in its `value`, and the Bang
         // Function's Turn delivers the Bang it stands for. Tick scheduling
@@ -1845,7 +1800,6 @@ mod test {
         }
 
         for atom in [
-            Atom::Empty,
             Atom::Function(Function::Add),
             Atom::Function(Function::RawPlay),
         ] {

@@ -153,6 +153,11 @@ impl Execution<'_> {
             self.turns.function(index).answers_value(),
             "a stated answer belongs to a computation that answers a value"
         );
-        self.deliver_value(index, atom, None, super::Delivery::Reserved);
+        self.deliver_value(
+            index,
+            super::Answer::Unit(atom),
+            None,
+            super::Delivery::Reserved,
+        );
     }
 }

@@ -503,7 +503,10 @@ async fn the_four_voice_tracker_edits_saves_and_reopens_a_voices_steps() {
         rest.play_commands
     );
     assert!(
-        diagnostics(&rest).contains(&((42, 3), "expected a note, found \"  \"".to_owned())),
+        diagnostics(&rest).contains(&(
+            (42, 3),
+            "nested computation at column 48, row 3 cleared its operand".to_owned()
+        )),
         "{:?}",
         rest.diagnostics
     );

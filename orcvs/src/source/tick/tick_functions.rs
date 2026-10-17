@@ -69,7 +69,7 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
     // Tick 1. The Clock is still in its first step of three, so it writes
     // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
     // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
-    // Both answer the Absence Marker and clear their pair.
+    // Both answer a Clear and clear their pair.
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
 
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);

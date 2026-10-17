@@ -1,11 +1,10 @@
-//! Unwritten operands and the Absence Marker: what an empty pair blocks, and
-//! which producers clear their Output Portal when they do not Bang.
+//! Unwritten operands and the Clear: what an empty pair blocks, and which
+//! Functions clear their Output Portal when they do not Bang.
 
 use crate::grid::Grid;
-use lang::Atom;
 
 use super::Tick;
-use super::fixture::{rows_of, stated_source, tick_by_tick};
+use super::fixture::{rows_of, tick_by_tick};
 use super::observed::raw;
 
 #[test]
@@ -70,11 +69,11 @@ fn a_nested_function_invalid_on_an_unwritten_slot_fails_its_parent() {
 }
 
 #[test]
-fn a_nested_absence_marker_fails_its_parent() {
-    // Equality with unequal operands evaluates and answers the Absence
-    // Marker, so the Addition has no operand and is diagnosed. The
-    // Equality still clears its own Output Portal, one row south of its
-    // anchor, as a root Equality that does not Bang does.
+fn a_nested_equality_that_does_not_bang_leaves_its_parent_operand_unwritten() {
+    // Equality with unequal operands clears its own Output Portal, one row
+    // south of its anchor, as a root Equality that does not Bang does, so
+    // the Addition's operand is unwritten and the Addition is diagnosed,
+    // naming the Equality that cleared it.
     let grid = Grid::with_shape(10, 3);
     let observed = super::observed::observe_at(grid, &[".+.=010201", "  C4"], [0]).remove(0);
     assert_eq!(observed.rows[1], "          ");
@@ -83,15 +82,15 @@ fn a_nested_absence_marker_fails_its_parent() {
         [(
             0,
             0,
-            "nested computation at column 2, row 0 returned nothing".to_string()
+            "nested computation at column 2, row 0 cleared its operand".to_string()
         )]
     );
 }
 
 #[test]
 fn an_unequal_root_equality_clears_the_pair_south_and_an_equal_one_bangs_there() {
-    // Equality answers only Bang or the Absence Marker, so it writes its
-    // answer through its Output Portal on every Turn: `**` when its
+    // Equality answers only Bang or a Clear, so it writes its answer
+    // through its Output Portal on every Turn: `**` when its
     // operands are equal, which activates the root aligned south of it,
     // and two empty Cells when they are not.
     let grid = Grid::with_shape(8, 3);
@@ -168,16 +167,4 @@ fn a_bang_written_into_a_copied_operand_fires_once_freed() {
 
     let after = source.execute(Tick::new(2));
     assert!(after.play_commands.is_empty(), "{:?}", after.play_commands);
-}
-
-#[test]
-fn a_function_outside_the_bang_producers_writes_nothing_for_the_absence_marker() {
-    // Only Equality, Delay and Euclidean clear their Output Portal for an
-    // absent answer. An Addition stated to answer the Absence Marker
-    // plans no write, so the pair south of it keeps what it held.
-    let grid = Grid::with_shape(8, 2);
-    let (plan, source) = stated_source(grid, &[".+0102", "C4"], &[], &[(0, Atom::Empty)]);
-    assert!(plan.writes.is_empty(), "{:?}", plan.writes);
-    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(rows_of(grid, &source), [".+0102  ", "C4      "]);
 }

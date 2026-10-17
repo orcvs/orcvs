@@ -119,7 +119,7 @@ pub enum InterpretationError {
     /// The Input Portal of a Function that copies a Language Unit, a Copy,
     /// Track or a Read, did not hold one complete aligned Language Unit.
     ///
-    /// Empty and Bang are legal inputs; a partial pair or a slice across two
+    /// Two empty Cells and `**` are legal inputs; a partial pair or a slice across two
     /// units is not, and neither is a Portal that lies outside any Grid.
     /// `function` is the Function the Source wrote, so the message names
     /// those Cells.

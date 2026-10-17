@@ -71,11 +71,11 @@ To keep the alignment when you change it:
 
 ## Rests and edits
 
-An empty step is a rest. The Read returns the empty Cells, so the Timed Play's
-note operand is unwritten and the Play is invalid: it sends no new note, is
-diagnosed at its anchor, and does not stop a note an earlier step started. A
-note whose four-Tick lifetime is still running sounds through the empty step
-after it.
+An empty step is a rest. The Read copies the empty Cells, which clears the
+Timed Play's note operand, so the Play is invalid: it sends no new note, is
+diagnosed at its anchor as having its operand cleared, and does not stop a note
+an earlier step started. A note whose four-Tick lifetime is still running
+sounds through the empty step after it.
 
 The steps are ordinary Source. Type over a Note while Playback runs and the
 next step that reaches it plays the new Note; a step holding half a Note is

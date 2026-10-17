@@ -1,7 +1,7 @@
 use super::copy::copy;
 use crate::{
-    Atom, Error, Function, InterpretationError, atom::operands::Track, interpreter::Context,
-    stack::Operands,
+    Atom, Error, Function, Interpretation, InterpretationError, atom::operands::Track,
+    interpreter::Context, stack::Operands,
 };
 
 /// Track: `&t index count`.
@@ -9,7 +9,7 @@ use crate::{
 /// The Language Unit at the pair its operands select, read as a Copy reads its
 /// Input Portal. The Turn supplies the Cells of that pair, so evaluation binds
 /// the operands, refuses a zero `count`, and answers what a Copy would.
-pub fn track(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn track(ctx: &mut Context) -> Result<Interpretation, Error> {
     let Track { index, count } = ctx.stack.extract::<Track>()?;
     selected_pair(Function::Track, index, count)?;
     copy(ctx, Function::Track)

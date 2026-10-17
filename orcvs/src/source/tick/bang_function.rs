@@ -553,7 +553,7 @@ fn identical_snapshots_at_the_same_tick_plan_the_same_tick() {
 // Ticket 02: a producer that takes no Turn writes nothing, so the `**` it
 // left on the Tick before fires once at its own Turn.
 
-/// The three Functions that answer only Bang or the Absence Marker, each
+/// The three Functions that answer only Bang or a Clear, each
 /// spelled to Bang on every Tick until an edit says otherwise.
 const BANGING: [&str; 3] = [".=0101", "~*0101", "~%0101"];
 
@@ -599,7 +599,7 @@ fn a_producer_that_takes_no_turn_leaves_its_last_bang_to_fire_once() {
 }
 
 #[test]
-fn a_producer_answering_absence_suppresses_its_last_bang() {
+fn a_producer_answering_a_clear_suppresses_its_last_bang() {
     for producer in BANGING {
         // `.=0102` is unequal; `~*0102` and `~%0102` Bang on even Ticks.
         let rows = ["", &format!("  {producer}"), "", "  !>007FC4"];
@@ -613,7 +613,7 @@ fn a_producer_answering_absence_suppresses_its_last_bang() {
 #[test]
 fn an_overwritten_producer_writes_no_clear_unless_the_overwrite_covers_its_bang() {
     // `.+0102` writes `03` over the Equality's anchor before its Turn, so
-    // the Equality is suppressed and writes nothing, not even a clear, and
+    // the Equality is suppressed and writes nothing, not even a Clear, and
     // its `**` fires.
     let rows = ["", "  .=0101", "", "  !>007FC4"];
     let (first, second, seen) = bang_then(&rows, &[(2, 0, ".+0102")]);

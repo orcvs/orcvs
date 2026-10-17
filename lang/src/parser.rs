@@ -1204,8 +1204,7 @@ mod test {
         // The round trip is therefore contextual: `C4` is the Note 60 in `.v`'s
         // Note slot and the Number `C4` in `.^`'s Number slot, and the sweep
         // covers both readings because it covers every value of every declared
-        // operand domain in every slot that declares it. `Atom::Empty` is
-        // absent because no signature declares it, so no Source spells one.
+        // operand domain in every slot that declares it.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
             for (slot, token) in signature.iter().copied().enumerate() {
@@ -1448,10 +1447,6 @@ mod property {
 
             match Parser::from(spelled).try_parse() {
                 Ok(atoms) => {
-                    prop_assert!(
-                        !atoms.iter().any(|atom| matches!(atom, Atom::Empty)),
-                        "{spelled:?} parsed to a value no signature declares: {atoms:?}",
-                    );
                     prop_assert_eq!(rendered(atoms), spelled);
                 }
                 // Reading two Cells is the only thing the parser does, so the

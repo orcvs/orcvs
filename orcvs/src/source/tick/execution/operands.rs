@@ -15,8 +15,7 @@
 use lang::Atom;
 
 use super::{
-    Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH,
-    render_message,
+    Answer, Computation, ComputationId, Encoding, Execution, Operand, SCALAR_WIDTH, render_message,
 };
 
 impl Execution<'_> {
@@ -64,25 +63,31 @@ impl Execution<'_> {
                     return token.decode(spelling).map_err(|error| error.to_string());
                 };
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
-                let returned = match self.turns.result(child).map(Encoding::render) {
-                    Some(Ok(Rendered::Cells(encoding))) => encoding,
-                    // A Function that copies Cells returns the empty Cells it
-                    // copied, so the operand it stands in is unwritten.
-                    Some(Ok(Rendered::Nothing))
-                        if self.turns.function(child).copies_language_unit() =>
-                    {
-                        return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
+                let returned = match self.turns.result(child) {
+                    // A Clear wrote two spaces, so the operand it stands in is
+                    // unwritten. The parent names the child, since the two
+                    // spaces alone cannot say which Function cleared them. A
+                    // Copy of empty Cells and a pulse that does not Bang both
+                    // answer one.
+                    Some(Answer::Clear) => {
+                        return Err(format!(
+                            "nested computation at column {}, row {} cleared its operand",
+                            anchor.x(),
+                            anchor.y()
+                        ));
                     }
-                    Some(Ok(Rendered::Nothing)) | None => {
+                    Some(Answer::Unit(atom)) => match Encoding::render(atom) {
+                        Ok(encoding) => encoding,
+                        // A rendering a Cell cannot hold is its own fault.
+                        Err(reason) => return Err(render_message(reason)),
+                    },
+                    None => {
                         return Err(format!(
                             "nested computation at column {}, row {} returned nothing",
                             anchor.x(),
                             anchor.y()
                         ));
                     }
-                    // A rendering a Cell cannot hold is its own fault, not an
-                    // absent answer.
-                    Some(Err(reason)) => return Err(render_message(reason)),
                 };
                 token
                     .decode(&returned.to_string())

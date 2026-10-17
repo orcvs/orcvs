@@ -1,4 +1,6 @@
-use crate::{ArgumentError, Atom, Error, Function, InterpretationError, PlayCommand};
+use crate::{
+    ArgumentError, Atom, Error, Function, Interpretation, InterpretationError, PlayCommand,
+};
 use arrayvec::ArrayVec;
 
 /// The operands one Function declares, named by the role each position plays.
@@ -190,18 +192,14 @@ impl Stack {
     }
 
     /// Evaluates one predicate over its declared operands, answering a Bang
-    /// where it holds and the Absence Marker where it does not.
+    /// where it holds and a Clear where it does not.
     #[inline(always)]
-    pub(crate) fn predicate<O, F>(&mut self, holds: F) -> Result<Atom, Error>
+    pub(crate) fn predicate<O, F>(&mut self, holds: F) -> Result<Interpretation, Error>
     where
         O: Operands,
         F: FnOnce(O) -> bool,
     {
-        Ok(if holds(self.extract::<O>()?) {
-            Atom::Bang
-        } else {
-            Atom::Empty
-        })
+        Ok(Interpretation::pulse(holds(self.extract::<O>()?)))
     }
 }
 
@@ -209,8 +207,8 @@ impl Stack {
 mod test {
     use crate::{
         Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
-        InterpretationError, MidiChannel, Note, PlayCommand, Stack, Tick, TickInputs, TypeError,
-        Velocity,
+        Interpretation, InterpretationError, MidiChannel, Note, PlayCommand, Stack, Tick,
+        TickInputs, TypeError, Velocity,
         atom::operands,
         functions::{self, math, numeric_conversion},
         interpreter::Context,
@@ -255,7 +253,7 @@ mod test {
     }
 
     /// Equality: `math::equality`, the predicate.
-    fn equal(stack: &mut Stack) -> Result<Atom, Error> {
+    fn equal(stack: &mut Stack) -> Result<Interpretation, Error> {
         on_stack(stack, math::equality)
     }
 
@@ -376,14 +374,14 @@ mod test {
     }
 
     #[test]
-    fn a_predicate_answers_a_bang_or_the_absence_marker() {
+    fn a_predicate_answers_a_bang_or_a_clear() {
         let mut stack = empty_stack();
         push_all(&mut stack, [Atom::Number(0x20), Atom::Number(0x20)]);
-        assert_eq!(equal(&mut stack).unwrap(), Atom::Bang);
+        assert_eq!(equal(&mut stack).unwrap(), Interpretation::Cell(Atom::Bang));
 
         let mut stack = empty_stack();
         push_all(&mut stack, [Atom::Number(0x20), Atom::Number(0x21)]);
-        assert_eq!(equal(&mut stack).unwrap(), Atom::Empty);
+        assert_eq!(equal(&mut stack).unwrap(), Interpretation::Clear);
     }
 
     #[test]

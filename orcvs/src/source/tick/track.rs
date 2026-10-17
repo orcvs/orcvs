@@ -450,14 +450,18 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
 
 #[test]
 fn a_nested_track_that_reads_empty_cells_makes_its_parent_invalid() {
-    // Track reads pair 1, which is empty. It clears its own Output Portal
-    // and returns the empty Cells, so the Addition's operand is unwritten:
-    // the Addition writes nothing and is diagnosed.
+    // Track reads pair 1, which is empty. It clears its own Output Portal,
+    // so the Addition's operand is unwritten: the Addition writes nothing
+    // and is diagnosed, naming the Track.
     let tick = first(Grid::with_shape(12, 2), &[".+&t010203  ", "xxxx"]);
     assert_eq!(tick.rows, [".+&t010203  ", "xx          "]);
     assert_eq!(
         tick.diagnostics,
-        [diagnostic(0, 0, "expected a number, found \"  \"")]
+        [diagnostic(
+            0,
+            0,
+            "nested computation at column 2, row 0 cleared its operand"
+        )]
     );
 }
 

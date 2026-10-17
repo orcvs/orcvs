@@ -10,6 +10,13 @@ pub struct Interpreter {}
 pub enum Interpretation {
     /// The one Atom a value Function answers.
     Cell(Atom),
+    /// The two spaces a value Function writes at its Output Portal when it
+    /// has no Language Unit to write: a pulse on a Turn it does not Bang, as
+    /// Orca's bang ports write `.`, and a Copy of two empty Cells.
+    ///
+    /// Nested, the Function returns the two spaces, so the operand it stands
+    /// in is unwritten.
+    Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     ///
     /// A chord is several Terminal Output roots that one Bang activates, each
@@ -26,6 +33,25 @@ pub enum Interpretation {
     /// It carries a displacement and a spelling rather than Positions, and
     /// `orcvs` resolves them, as [`SourceEffect`] describes.
     Source(SourceEffect),
+}
+
+impl Interpretation {
+    ///
+    /// What a pulse answers: a Bang, or a Clear on a Turn it does not Bang.
+    ///
+    /// Equality, Delay and Euclidean answer the same pair, so the pair is
+    /// named once. The Clear erases the last `**` the pulse wrote, which would
+    /// otherwise fire again as a Bang Function, and leaves the Source no Cell
+    /// meaning "no" for the next Tick to read as an operand.
+    ///
+    #[inline(always)]
+    pub(crate) fn pulse(banged: bool) -> Self {
+        if banged {
+            Self::Cell(Atom::Bang)
+        } else {
+            Self::Clear
+        }
+    }
 }
 
 ///
@@ -109,57 +135,61 @@ impl Interpreter {
             stack: Stack::with_operands(operands)?,
             inputs,
         };
-        let atom = match function {
+        Ok(match function {
             Function::AbsoluteCopy => functions::copy::absolute_copy(&mut ctx)?,
-            Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
-            Function::Add => math::add(&mut ctx)?,
-            Function::Clock => tick::clock(&mut ctx)?,
-            Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
-            Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
+            Function::AbsoluteDifference => {
+                Interpretation::Cell(math::absolute_difference(&mut ctx)?)
+            }
+            Function::Add => Interpretation::Cell(math::add(&mut ctx)?),
+            Function::Clock => Interpretation::Cell(tick::clock(&mut ctx)?),
+            Function::ConvertToNote => Interpretation::Cell(numeric_conversion::to_note(&mut ctx)?),
+            Function::ConvertToNumber => {
+                Interpretation::Cell(numeric_conversion::to_number(&mut ctx)?)
+            }
             Function::Delay => tick::delay(&mut ctx)?,
-            Function::Divide => math::divide(&mut ctx)?,
+            Function::Divide => Interpretation::Cell(math::divide(&mut ctx)?),
             Function::Equality => math::equality(&mut ctx)?,
             Function::Euclidean => tick::euclidean(&mut ctx)?,
-            Function::Increment => tick::increment(&mut ctx)?,
-            Function::Interpolation => tick::interpolation(&mut ctx)?,
+            Function::Increment => Interpretation::Cell(tick::increment(&mut ctx)?),
+            Function::Interpolation => Interpretation::Cell(tick::interpolation(&mut ctx)?),
             Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
                 functions::copy::copy(&mut ctx, function)?
             }
-            Function::Random => tick::random(&mut ctx)?,
+            Function::Random => Interpretation::Cell(tick::random(&mut ctx)?),
             Function::AbsoluteRead => functions::read::read::<operands::AbsoluteRead>(&mut ctx)?,
             Function::ReadEast => functions::read::read::<operands::ReadEast>(&mut ctx)?,
             Function::ReadNorth => functions::read::read::<operands::ReadNorth>(&mut ctx)?,
             Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
             Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
             Function::Track => functions::track::track(&mut ctx)?,
-            Function::AbsoluteWrite => {
-                functions::write::write::<operands::AbsoluteWrite>(&mut ctx)?
+            Function::AbsoluteWrite => Interpretation::Cell(functions::write::write::<
+                operands::AbsoluteWrite,
+            >(&mut ctx)?),
+            Function::Push => {
+                Interpretation::Cell(functions::write::write::<operands::Push>(&mut ctx)?)
             }
-            Function::Push => functions::write::write::<operands::Push>(&mut ctx)?,
-            Function::WriteEast => functions::write::write::<operands::WriteEast>(&mut ctx)?,
-            Function::WriteNorth => functions::write::write::<operands::WriteNorth>(&mut ctx)?,
-            Function::WriteSouth => functions::write::write::<operands::WriteSouth>(&mut ctx)?,
-            Function::WriteWest => functions::write::write::<operands::WriteWest>(&mut ctx)?,
-            Function::Maximum => math::maximum(&mut ctx)?,
-            Function::Minimum => math::minimum(&mut ctx)?,
-            Function::Modulo => math::modulo(&mut ctx)?,
-            Function::Multiply => math::multiply(&mut ctx)?,
-            Function::Subtract => math::subtract(&mut ctx)?,
-            Function::ControlChange => {
-                return Ok(Interpretation::Play(functions::control_change(&mut ctx)?));
+            Function::WriteEast => {
+                Interpretation::Cell(functions::write::write::<operands::WriteEast>(&mut ctx)?)
             }
-            Function::MonophonicPlay => {
-                return Ok(Interpretation::Play(functions::monophonic_play(&mut ctx)?));
+            Function::WriteNorth => {
+                Interpretation::Cell(functions::write::write::<operands::WriteNorth>(&mut ctx)?)
             }
-            Function::PitchBend => {
-                return Ok(Interpretation::Play(functions::pitch_bend(&mut ctx)?));
+            Function::WriteSouth => {
+                Interpretation::Cell(functions::write::write::<operands::WriteSouth>(&mut ctx)?)
             }
-            Function::RawPlay => {
-                return Ok(Interpretation::Play(functions::raw_play(&mut ctx)?));
+            Function::WriteWest => {
+                Interpretation::Cell(functions::write::write::<operands::WriteWest>(&mut ctx)?)
             }
-            Function::TimedPlay => {
-                return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
-            }
+            Function::Maximum => Interpretation::Cell(math::maximum(&mut ctx)?),
+            Function::Minimum => Interpretation::Cell(math::minimum(&mut ctx)?),
+            Function::Modulo => Interpretation::Cell(math::modulo(&mut ctx)?),
+            Function::Multiply => Interpretation::Cell(math::multiply(&mut ctx)?),
+            Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
+            Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
+            Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
+            Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
+            Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
+            Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
             Function::Halt
             | Function::Bang
             | Function::DirectionalBangEast
@@ -172,8 +202,7 @@ impl Interpreter {
             | Function::SelfBangingWest => {
                 unreachable!("{function} returns as a lock or Source write before dispatch")
             }
-        };
-        Ok(Interpretation::Cell(atom))
+        })
     }
 }
 
@@ -387,8 +416,8 @@ mod test {
 
     #[test]
     fn the_numeric_family_rejects_every_non_number_operand() {
-        // Bang reaches the stack from Source text and Empty from an unequal
-        // Equality answer, so neither may coerce into a Number either.
+        // Bang reaches the stack from Source text, so it may not coerce into
+        // a Number either.
         for function in [
             Function::AbsoluteDifference,
             Function::Equality,
@@ -396,33 +425,30 @@ mod test {
             Function::Minimum,
             Function::Modulo,
         ] {
-            for operand in [Atom::Bang, Atom::Empty] {
-                // Both slots, because each declares a Number and refuses
-                // anything else in either position.
-                for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
-                    assert!(
-                        matches!(
-                            evaluate_cell(
-                                std::iter::once(Atom::Function(function))
-                                    .chain(operands)
-                                    .collect(),
-                            ),
-                            Err(Error::Type(TypeError::Number(_)))
+            // Both slots, because each declares a Number and refuses anything
+            // else in either position.
+            for operands in [[Atom::Bang, Atom::Number(1)], [Atom::Number(1), Atom::Bang]] {
+                assert!(
+                    matches!(
+                        evaluate_cell(
+                            std::iter::once(Atom::Function(function))
+                                .chain(operands)
+                                .collect(),
                         ),
-                        "{function:?} accepted {operands:?}",
-                    );
-                }
+                        Err(Error::Type(TypeError::Number(_)))
+                    ),
+                    "{function:?} accepted {operands:?}",
+                );
             }
         }
     }
 
     #[test]
     fn an_operand_type_diagnostic_names_the_operand_it_refused() {
-        // A Note, and the Empty an unequal Equality answers into whichever
-        // operand it stands in: neither reads as a Number, and the diagnostic
-        // spells what it found.
+        // A Note does not read as a Number, and the diagnostic spells what it
+        // found.
         let note = Atom::Note(crate::Note::try_from(60).unwrap());
-        for (operand, spelled) in [(note, "C4"), (Atom::Empty, "_")] {
+        for (operand, spelled) in [(note, "C4"), (Atom::Bang, "**")] {
             assert!(matches!(
                 evaluate_cell(vec![Atom::Function(Function::Add), operand, Atom::Number(1)]),
                 Err(Error::Type(TypeError::Number(found))) if found == spelled
@@ -649,7 +675,7 @@ mod test {
         // So the flag is checked against what the Interpreter actually
         // answers, over operands built from each Function's own signature.
         // Every operand of one attempt carries the same value, which is what
-        // reaches Equality's Bang at all: an unequal pair answers Empty.
+        // reaches Equality's Bang at all: an unequal pair answers a Clear.
         for &function in Function::ALL {
             if !function.answers_value() {
                 continue;
@@ -671,7 +697,13 @@ mod test {
                     Token::Untyped => Atom::Bang,
                     other => panic!("no operand is declared as {other:?}"),
                 }));
-                matches!(evaluate_cell(atoms), Ok(Atom::Bang))
+                let Some((Atom::Function(function), operands)) = atoms.split_first() else {
+                    unreachable!("the sweep starts every attempt with its Function");
+                };
+                matches!(
+                    evaluate(*function, operands),
+                    Ok(Interpretation::Cell(Atom::Bang))
+                )
             });
 
             assert_eq!(
@@ -687,22 +719,21 @@ mod test {
     #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
-        // `Atom::Empty`, the Absence Marker, which leaves the Output Portal
-        // empty, so the Source never gains a Cell meaning "false".
+        // a Clear, which writes two spaces at the Output Portal, so the Source
+        // never gains a Cell meaning "false".
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {
                 let expected = if left == right {
-                    Atom::Bang
+                    Interpretation::Cell(Atom::Bang)
                 } else {
-                    Atom::Empty
+                    Interpretation::Clear
                 };
 
                 assert_eq!(
-                    evaluate_cell(vec![
-                        Atom::Function(Function::Equality),
-                        Atom::Number(left),
-                        Atom::Number(right),
-                    ])
+                    evaluate(
+                        Function::Equality,
+                        &[Atom::Number(left), Atom::Number(right)]
+                    )
                     .unwrap(),
                     expected,
                     "Equality({left:02X}, {right:02X})",

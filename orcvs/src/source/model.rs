@@ -498,7 +498,7 @@ mod test {
         source::{
             BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
             PlayCommand, Source, SourceError, Tick, TickPlan, Token, Velocity,
-            encoding::{Encoding, Rendered},
+            encoding::Encoding,
             portal::Portal,
             tick::{
                 Effect,
@@ -888,9 +888,15 @@ mod test {
     /// remains Source's.
     ///
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
-        let atom = match result {
+        let encoding = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
-            Interpretation::Cell(atom) => atom,
+            // The rule for what an answer becomes in Cells is production's,
+            // called here rather than restated: these tests state an answer,
+            // and what they exercise is the commit, not a second encoding.
+            Interpretation::Cell(atom) => {
+                Encoding::render(atom).expect("these answers are stated as Source Cells")
+            }
+            Interpretation::Clear => Encoding::literal("  ").expect("a space is a printable Cell"),
             // A Source effect is not an answer this seam delivers. It writes
             // its own Cells at Portals it resolves, so there is no value to
             // encode and no default Portal to admit one through;
@@ -905,13 +911,6 @@ mod test {
                         .unwrap_or_default(),
                 );
             }
-        };
-        // The rule for what an answer becomes in Cells is production's, called
-        // here rather than restated: these tests state an answer, and what
-        // they exercise is the commit, not a second encoding.
-        let rendered = Encoding::render(atom).expect("these answers are stated as Source Cells");
-        let Rendered::Cells(encoding) = rendered else {
-            return resolve(Vec::new());
         };
         let write = Portal::below(grid, root)
             .and_then(|portal| portal.admit(&encoding))
@@ -2292,7 +2291,7 @@ mod test {
     fn an_equal_comparison_commits_a_bang_and_an_unequal_one_clears_its_pair() {
         // Equality answers a pulse, so it writes its result pair on every
         // Turn: the equal case renders as `**`, and the unequal case answers
-        // the Absence Marker and clears whatever stood in the pair.
+        // a Clear, which clears whatever stood in the pair.
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0303");
@@ -2384,21 +2383,19 @@ mod test {
             assert_eq!(src.row(1), row, "{expression}");
         }
 
-        // A nested unequal comparison answers the Absence Marker, which has
-        // no encoding to return, so its parent names the missing Return
-        // rather than reading the blank Cells as a Number. An equal one
-        // returns `**`, which the Number operand refuses after the child has
-        // written its display.
+        // A nested unequal comparison clears its Output Portal, so its
+        // parent's operand is unwritten and the parent names the child. An equal one returns `**`, which the Number operand
+        // refuses after the child has written its display.
         for (expression, row, message) in [
             (
                 ".+.=010203",
                 "          ",
-                "nested computation at column 2, row 0 returned nothing",
+                "nested computation at column 2, row 0 cleared its operand",
             ),
             (
                 ".+03.=0102",
                 "          ",
-                "nested computation at column 4, row 0 returned nothing",
+                "nested computation at column 4, row 0 cleared its operand",
             ),
             (
                 ".+.=010103",
@@ -2913,21 +2910,6 @@ mod test {
         assert_eq!(plan.writes.len(), 2);
         assert!(plan.diagnostics.is_empty());
         assert!(plan.play_commands.is_empty());
-    }
-
-    #[test]
-    fn the_absence_marker_needs_no_destination_and_preserves_source() {
-        let mut src = source();
-        let grid = src.grid;
-        let root = grid.position(0, src.row_count() - 1).unwrap();
-        let before = src.snapshot();
-        let plan = plan_result(grid, root, Interpretation::Cell(Atom::Empty));
-        src.commit_tick(&plan);
-        assert_eq!(src.snapshot(), before);
-        assert!(plan.writes.is_empty());
-        assert!(plan.diagnostics.is_empty());
-        assert!(plan.play_commands.is_empty());
-        assert!(plan.locks.is_empty());
     }
 
     #[test]
