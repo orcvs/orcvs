@@ -22,11 +22,8 @@ use super::{
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
     /// it consumes the Cells at `operand.cells`.
-    fn returning_child(&self, operand: &Operand) -> Option<usize> {
-        operand
-            .child
-            .map(ComputationId::index)
-            .filter(|&child| !self.turns.suppressed(child))
+    fn returning_child(&self, operand: &Operand) -> Option<ComputationId> {
+        operand.child.filter(|&child| !self.turns.suppressed(child))
     }
 
     ///
@@ -97,7 +94,7 @@ impl Execution<'_> {
     /// The Cell after the last one `index`'s operands occupy. A returning last
     /// operand ends where its child's own operands end; any other ends with
     /// the Cells it consumes.
-    pub(super) fn operands_end(&self, index: usize) -> usize {
+    pub(super) fn operands_end(&self, index: ComputationId) -> usize {
         let node = &self.schedule.lookup.nodes()[index];
         match node.operands.last() {
             Some(operand) => match self.returning_child(operand) {

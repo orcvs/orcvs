@@ -19,7 +19,7 @@
 
 use lang::Tick;
 
-use super::super::{Lookup, carry, computations, order_turns, take_turns};
+use super::super::{ComputationId, Lookup, carry, computations, order_turns, take_turns};
 use super::{
     Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, Turn, resolve,
 };
@@ -117,11 +117,12 @@ pub(in crate::source::tick) fn plan_with_answers(
 /// an anchor naming no computation is the fixture error this answers
 /// `None` for, and the caller turns into a panic naming it.
 ///
-fn anchored(lookup: &Lookup, grid: Grid, anchor: CellIndex) -> Option<usize> {
+fn anchored(lookup: &Lookup, grid: Grid, anchor: CellIndex) -> Option<ComputationId> {
     lookup
         .nodes()
         .iter()
-        .position(|node| grid.index(node.anchor) == anchor)
+        .find(|node| grid.index(node.anchor) == anchor)
+        .map(|node| node.id)
 }
 
 impl Execution<'_> {
@@ -138,7 +139,7 @@ impl Execution<'_> {
     /// syntax-blocked, or refused for its arity — is settled here too, and
     /// the stated answer is never delivered.
     ///
-    fn state_answer(&mut self, index: usize, atom: Atom) {
+    fn state_answer(&mut self, index: ComputationId, atom: Atom) {
         if self.opens_turn(index).is_none() {
             return;
         }

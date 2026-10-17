@@ -8,12 +8,10 @@
 //! reaches a root which has taken its Turn without it misses that root, and
 //! suppression never reaches a computation that has attempted its Turn.
 
-use std::ops::Range;
-
 use lang::{Atom, Function};
 
-use super::super::Lookup;
 use super::super::dependencies::TurnFacts;
+use super::super::{ComputationId, ComputationRange, Lookup, PerComputation};
 
 /// What one computation's Turn has done so far this Tick.
 pub(in crate::source) struct ComputationState {
@@ -107,7 +105,7 @@ pub(super) enum Activation {
 /// Every computation's [`ComputationState`], indexed as the Lookup indexes
 /// its computations.
 pub(super) struct Turns {
-    states: Vec<ComputationState>,
+    states: PerComputation<ComputationState>,
     /// How many Turns have been taken, which is the next Turn's ordinal.
     #[cfg(test)]
     taken: usize,
@@ -143,32 +141,32 @@ impl Turns {
 
     /// What each computation's Turn did, once the Tick is over.
     pub(super) fn into_states(self) -> Vec<ComputationState> {
-        self.states
+        self.states.into_vec()
     }
 
     /// The Function `index` is running.
-    pub(super) fn function(&self, index: usize) -> Function {
+    pub(super) fn function(&self, index: ComputationId) -> Function {
         self.states[index].function
     }
 
     /// The answer `index`'s Turn returned, or `None` where it returned none.
-    pub(super) fn result(&self, index: usize) -> Option<Atom> {
+    pub(super) fn result(&self, index: ComputationId) -> Option<Atom> {
         self.states[index].result
     }
 
     /// Whether `index`'s Turn has opened, which no later writer may reach.
-    pub(super) fn attempted(&self, index: usize) -> bool {
+    pub(super) fn attempted(&self, index: ComputationId) -> bool {
         self.states[index].attempted
     }
 
     /// Whether a write covered `index` before its Turn.
-    pub(super) fn suppressed(&self, index: usize) -> bool {
+    pub(super) fn suppressed(&self, index: ComputationId) -> bool {
         self.states[index].suppressed
     }
 
     /// Whether `index`'s Turn was blocked by a syntax error the Source
     /// revision already reports.
-    pub(super) fn syntax_blocked(&self, index: usize) -> bool {
+    pub(super) fn syntax_blocked(&self, index: ComputationId) -> bool {
         self.states[index].syntax_blocked
     }
 
@@ -182,7 +180,7 @@ impl Turns {
     /// answers none and takes its Turn anyway, which is why this asks the
     /// activation source rather than `answers_value`.
     ///
-    pub(super) fn may_open(&self, index: usize, owner: usize) -> bool {
+    pub(super) fn may_open(&self, index: ComputationId, owner: ComputationId) -> bool {
         let owner = &self.states[owner];
         !self.states[index].suppressed
             && (owner.function.is_intrinsically_active() || owner.activated)
@@ -191,18 +189,18 @@ impl Turns {
     /// Records that `index`'s Turn opened. Opening precedes syntax and
     /// evaluation checks, so a later writer must not reach a computation even
     /// when its attempted Turn failed.
-    pub(super) fn open(&mut self, index: usize) {
+    pub(super) fn open(&mut self, index: ComputationId) {
         self.states[index].attempted = true;
     }
 
     /// Records that `index`'s Turn was blocked by a syntax error.
-    pub(super) fn block_syntax(&mut self, index: usize) {
+    pub(super) fn block_syntax(&mut self, index: ComputationId) {
         self.states[index].syntax_blocked = true;
     }
 
     /// Records that `index` has taken its Turn this Tick, settled with or
     /// without effect.
-    pub(super) fn settle(&mut self, index: usize) {
+    pub(super) fn settle(&mut self, index: ComputationId) {
         self.states[index].taken = true;
         // The ordinal counts Turns as they are taken, which is not a position
         // in the schedule's order once a Turn waits.
@@ -215,12 +213,12 @@ impl Turns {
 
     /// Records the answer `index`'s Turn returned. A successful answer
     /// survives every refusal to project it.
-    pub(super) fn answer(&mut self, index: usize, atom: Atom) {
+    pub(super) fn answer(&mut self, index: ComputationId, atom: Atom) {
         self.states[index].result = Some(atom);
     }
 
     /// Records that `index` now runs `function`.
-    pub(super) fn replace(&mut self, index: usize, function: Function) {
+    pub(super) fn replace(&mut self, index: ComputationId, function: Function) {
         self.states[index].function = function;
     }
 
@@ -232,7 +230,7 @@ impl Turns {
     /// active, or already activated, needs nothing a Bang could arrive too
     /// late for.
     ///
-    pub(super) fn activate(&mut self, root: usize) -> Activation {
+    pub(super) fn activate(&mut self, root: ComputationId) -> Activation {
         let state = &mut self.states[root];
         if state.taken && !state.activated && !state.function.is_intrinsically_active() {
             return Activation::Missed;
@@ -244,7 +242,7 @@ impl Turns {
     /// Suppresses every computation in `subtree` that has not attempted its
     /// Turn: its spelling is no longer the one that was scheduled. What has
     /// taken its Turn keeps it.
-    pub(super) fn suppress(&mut self, subtree: Range<usize>) {
+    pub(super) fn suppress(&mut self, subtree: ComputationRange) {
         for state in &mut self.states[subtree] {
             if !state.attempted {
                 state.suppressed = true;
@@ -254,22 +252,22 @@ impl Turns {
 
     /// Records the inputs the Interpreter is handed for `index`.
     #[cfg(test)]
-    pub(super) fn interpret(&mut self, index: usize, tick: lang::TickInputs) {
+    pub(super) fn interpret(&mut self, index: ComputationId, tick: lang::TickInputs) {
         self.states[index].interpreted = Some(tick);
         self.states[index].interpretations += 1;
     }
 }
 
 impl TurnFacts for Turns {
-    fn attempted(&self, index: usize) -> bool {
+    fn attempted(&self, index: ComputationId) -> bool {
         Turns::attempted(self, index)
     }
 
-    fn suppressed(&self, index: usize) -> bool {
+    fn suppressed(&self, index: ComputationId) -> bool {
         Turns::suppressed(self, index)
     }
 
-    fn running(&self, index: usize) -> Function {
+    fn running(&self, index: ComputationId) -> Function {
         self.function(index)
     }
 }

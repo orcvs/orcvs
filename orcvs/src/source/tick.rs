@@ -77,7 +77,7 @@ impl Schedule {
 
     /// Whether activation known before the Tick reaches `root`.
     #[cfg(test)]
-    fn holds_active(&self, root: usize) -> bool {
+    fn holds_active(&self, root: ComputationId) -> bool {
         self.ordered.holds_active(root)
     }
 }
@@ -89,7 +89,7 @@ impl Schedule {
 ///
 fn take_turns(
     schedule: &Schedule,
-    take: impl FnMut(usize, &ordering::Progress<'_>) -> ordering::Turn,
+    take: impl FnMut(ComputationId, &ordering::Progress<'_>) -> ordering::Turn,
 ) -> Vec<Diagnostic> {
     let stalls = ordering::take_turns(
         &schedule.ordered,
@@ -127,13 +127,10 @@ fn ordering_nodes(lookup: &Lookup) -> ordering::Nodes {
             .iter()
             .map(|node| lookup.grid.index(node.anchor).get())
             .collect(),
-        owners: computations
-            .iter()
-            .map(|node| node.owner().index())
-            .collect(),
+        owners: computations.iter().map(Computation::owner).collect(),
         expressions: computations
             .iter()
-            .map(|node| lookup.descendants(node.owner().index()))
+            .map(|node| lookup.descendants(node.owner()))
             .collect(),
     }
 }
@@ -148,14 +145,140 @@ pub(super) enum Effect {
 }
 
 /// One computation's place in its schedule: its index in [`Lookup::nodes`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// Ids order as Parser preorder does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct ComputationId(usize);
 
 impl ComputationId {
-    /// The index this computation holds in every table a schedule keeps per
-    /// computation.
+    /// The bare index this computation holds, for a type stated outside the
+    /// schedule. Every table the schedule keeps is a [`PerComputation`].
     fn index(self) -> usize {
         self.0
+    }
+}
+
+///
+/// One value for each computation of a schedule, read and written by
+/// [`ComputationId`], so that a Cell index or an ordering key cannot stand
+/// where a computation belongs.
+///
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct PerComputation<T>(Vec<T>);
+
+impl<T> PerComputation<T> {
+    /// `value` for each of `len` computations.
+    fn filled(len: usize, value: T) -> Self
+    where
+        T: Clone,
+    {
+        Self(vec![value; len])
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Every computation's id, in Parser preorder.
+    fn ids(&self) -> impl Iterator<Item = ComputationId> + use<T> {
+        (0..self.0.len()).map(ComputationId)
+    }
+
+    fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.0.iter()
+    }
+
+    /// Each computation's id beside its value, in Parser preorder.
+    fn iter_enumerated(&self) -> impl Iterator<Item = (ComputationId, &T)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (ComputationId(index), value))
+    }
+
+    /// The values in Parser preorder, for a caller outside the schedule that
+    /// reads them in that order.
+    fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+}
+
+impl<T> FromIterator<T> for PerComputation<T> {
+    /// Values in Parser preorder, the first for computation zero.
+    fn from_iter<I: IntoIterator<Item = T>>(values: I) -> Self {
+        Self(values.into_iter().collect())
+    }
+}
+
+impl<'a, T> IntoIterator for &'a PerComputation<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<T> std::ops::Index<ComputationId> for PerComputation<T> {
+    type Output = T;
+
+    fn index(&self, id: ComputationId) -> &T {
+        &self.0[id.0]
+    }
+}
+
+impl<T> std::ops::IndexMut<ComputationId> for PerComputation<T> {
+    fn index_mut(&mut self, id: ComputationId) -> &mut T {
+        &mut self.0[id.0]
+    }
+}
+
+impl<T> std::ops::Index<ComputationRange> for PerComputation<T> {
+    type Output = [T];
+
+    fn index(&self, range: ComputationRange) -> &[T] {
+        &self.0[range.0]
+    }
+}
+
+impl<T> std::ops::IndexMut<ComputationRange> for PerComputation<T> {
+    fn index_mut(&mut self, range: ComputationRange) -> &mut [T] {
+        &mut self.0[range.0]
+    }
+}
+
+///
+/// Computations contiguous in Parser preorder, as a subtree or a whole
+/// Expression is, iterated as their ids.
+///
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ComputationRange(Range<usize>);
+
+impl ComputationRange {
+    /// From `start` up to, not including, the computation at index `end`.
+    fn new(start: ComputationId, end: usize) -> Self {
+        Self(start.0..end)
+    }
+
+    /// The first computation of the range, which leads a subtree.
+    fn start(&self) -> ComputationId {
+        ComputationId(self.0.start)
+    }
+
+    fn contains(&self, id: ComputationId) -> bool {
+        self.0.contains(&id.0)
+    }
+}
+
+impl Iterator for ComputationRange {
+    type Item = ComputationId;
+
+    fn next(&mut self) -> Option<ComputationId> {
+        self.0.next().map(ComputationId)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
     }
 }
 
@@ -213,7 +336,7 @@ impl Computation {
 
 struct Claim {
     cells: Range<usize>,
-    node: usize,
+    node: ComputationId,
 }
 
 /// Physical claims are disjoint; enclosing expression spans are not indexed.
@@ -233,7 +356,7 @@ impl Claims {
         Self(claims)
     }
 
-    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = usize> + '_ {
+    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = ComputationId> + '_ {
         let first = self
             .0
             .partition_point(|claim| claim.cells.end <= cells.start);
@@ -274,7 +397,7 @@ impl WriteClaims {
         Self { columns, by_row }
     }
 
-    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = usize> + '_ {
+    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = ComputationId> + '_ {
         let row = cells.start / self.columns;
         self.by_row
             .get(row)
@@ -293,7 +416,7 @@ struct Lookup {
     grid: Grid,
     /// Claims and subtree ranges index this fixed collection. Owning it keeps
     /// queries from pairing those indices with a different set of computations.
-    nodes: Vec<Computation>,
+    nodes: PerComputation<Computation>,
     functions: Claims,
     literals: Claims,
     operands: Claims,
@@ -302,23 +425,22 @@ struct Lookup {
     /// Cells each static Input Portal reads, by reader, so that a writer
     /// whose root joins a Tick finds its readers without asking every one.
     reads: WriteClaims,
-    subtree_ends: Vec<usize>,
+    /// The index one past each computation's last descendant, which ends
+    /// the contiguous range its subtree holds in Parser preorder.
+    subtree_ends: PerComputation<usize>,
 }
 
 impl Lookup {
-    fn new(grid: Grid, nodes: Vec<Computation>) -> Self {
+    fn new(grid: Grid, nodes: PerComputation<Computation>) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
         debug_assert!(
-            nodes
-                .iter()
-                .enumerate()
-                .all(|(index, node)| node.id.index() == index),
+            nodes.iter_enumerated().all(|(id, node)| node.id == id),
             "each computation's id is its index",
         );
-        let mut subtree_ends: Vec<_> = (1..=nodes.len()).collect();
-        for (index, node) in nodes.iter().enumerate() {
+        let mut subtree_ends: PerComputation<_> = (1..=nodes.len()).collect();
+        for (index, node) in nodes.iter_enumerated() {
             let start = grid.index(node.anchor).get();
             // A Function's own spelling, not a result: this 2 is the glyph
             // width and stays a literal, because `SCALAR_WIDTH` would tie it to
@@ -346,14 +468,13 @@ impl Lookup {
         }
         // Nodes retain the Parser's depth-first preorder. Every subtree is a
         // contiguous range, including its root, even with missing operands.
-        for index in (0..nodes.len()).rev() {
-            if let Some(parent) = nodes[index].parent() {
-                let parent = parent.index();
-                subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[index]);
+        for node in nodes.iter().rev() {
+            if let Some(parent) = node.parent() {
+                subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[node.id]);
             }
         }
         let mut writes = Vec::new();
-        for (index, node) in nodes.iter().enumerate() {
+        for (index, node) in nodes.iter_enumerated() {
             for output in node
                 .portal_access
                 .write_sites()
@@ -369,8 +490,7 @@ impl Lookup {
             }
         }
         let reads = nodes
-            .iter()
-            .enumerate()
+            .iter_enumerated()
             .flat_map(|(index, node)| {
                 node.portal_access
                     .read_spans()
@@ -393,15 +513,15 @@ impl Lookup {
         }
     }
 
-    fn nodes(&self) -> &[Computation] {
+    fn nodes(&self) -> &PerComputation<Computation> {
         &self.nodes
     }
 
-    fn descendants(&self, ancestor: usize) -> Range<usize> {
-        ancestor..self.subtree_ends[ancestor]
+    fn descendants(&self, ancestor: ComputationId) -> ComputationRange {
+        ComputationRange::new(ancestor, self.subtree_ends[ancestor])
     }
 
-    fn root_at(&self, anchor: Position) -> Option<usize> {
+    fn root_at(&self, anchor: Position) -> Option<ComputationId> {
         let cell = self.grid.index(anchor).get();
         self.functions
             .touching(cell..cell + 1)
@@ -517,8 +637,13 @@ fn shared_schedule(grid: Grid, map: &LanguageMap) -> &Schedule {
 /// that need a write site name one on a Function that already demanded some.
 ///
 #[cfg(test)]
-fn carry(grid: Grid, nodes: &mut [Computation], destinations: &BTreeMap<CellIndex, Vec<Position>>) {
-    for node in nodes.iter_mut() {
+fn carry(
+    grid: Grid,
+    nodes: &mut PerComputation<Computation>,
+    destinations: &BTreeMap<CellIndex, Vec<Position>>,
+) {
+    for id in nodes.ids() {
+        let node = &mut nodes[id];
         let Some(writes) = destinations.get(&grid.index(node.anchor)) else {
             continue;
         };
@@ -608,8 +733,11 @@ pub(super) fn output_portal_reservations(
 /// Cell pair at each write Portal, the same [`Portal::reservation`] the
 /// Output Portal Reservations read.
 ///
-fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Vec<Diagnostic>) {
-    let mut nodes: Vec<Computation> = Vec::new();
+fn computations(
+    grid: Grid,
+    inputs: ScheduleInputs<'_>,
+) -> (PerComputation<Computation>, Vec<Diagnostic>) {
+    let mut nodes: PerComputation<Computation> = PerComputation(Vec::new());
     let mut diagnostics = Vec::new();
     // The computation each entry of the current Expression parsed as, by
     // entry index. Reused across Expressions.
@@ -626,7 +754,7 @@ fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Ve
                     None => Place::Root,
                     Some(parent) => Place::Nested {
                         parent,
-                        owner: nodes[parent.index()].owner(),
+                        owner: nodes[parent].owner(),
                     },
                 };
                 // A nested value Function writes its own Output Portal as a
@@ -635,7 +763,7 @@ fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Ve
                 // locking root reserves its Output Portal and writes no Cell.
                 let portal_access =
                     PortalAccess::resolve(grid, site.anchor, site.function, parent.is_some());
-                nodes.push(Computation {
+                nodes.0.push(Computation {
                     id,
                     anchor: site.anchor,
                     span: expression.span(),
@@ -649,7 +777,7 @@ fn computations(grid: Grid, inputs: ScheduleInputs<'_>) -> (Vec<Computation>, Ve
             });
             entry_nodes.push(child);
             if let Some(parent) = parent {
-                let parent = &mut nodes[parent.index()];
+                let parent = &mut nodes[parent];
                 parent.syntax_valid &= entry.parsed != Parsed::Unparsed;
                 parent.operands.push(Operand {
                     cells: entry.cells,
@@ -794,15 +922,18 @@ mod test {
             vec![
                 super::Claim {
                     cells: 0..4,
-                    node: 0,
+                    node: super::ComputationId(0),
                 },
                 super::Claim {
                     cells: 2..6,
-                    node: 1,
+                    node: super::ComputationId(1),
                 },
             ],
         );
-        assert_eq!(claims.touching(2..4).collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(
+            claims.touching(2..4).collect::<Vec<_>>(),
+            [0, 1].map(super::ComputationId)
+        );
     }
 
     #[test]
@@ -812,15 +943,18 @@ mod test {
             vec![
                 super::Claim {
                     cells: 0..20,
-                    node: 0,
+                    node: super::ComputationId(0),
                 },
                 super::Claim {
                     cells: 1..3,
-                    node: 1,
+                    node: super::ComputationId(1),
                 },
             ],
         );
-        assert_eq!(claims.touching(10..12).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(
+            claims.touching(10..12).collect::<Vec<_>>(),
+            [super::ComputationId(0)]
+        );
     }
 
     #[test]
@@ -830,11 +964,14 @@ mod test {
             (0..8)
                 .map(|index| super::Claim {
                     cells: index * 8..index * 8 + 2,
-                    node: index,
+                    node: super::ComputationId(index),
                 })
                 .collect(),
         );
-        assert_eq!(claims.touching(16..18).collect::<Vec<_>>(), vec![2]);
+        assert_eq!(
+            claims.touching(16..18).collect::<Vec<_>>(),
+            [super::ComputationId(2)]
+        );
         assert!(claims.touching(18..20).next().is_none());
     }
 
@@ -2778,7 +2915,7 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
         let mut schedule = super::schedule(grid, map.schedule_inputs());
         // Parser preorder: Equality, Halt, Add.
-        schedule.ordered.order = vec![0, 2, 1];
+        schedule.ordered.order = [0, 2, 1].map(super::ComputationId).to_vec();
         let (plan, states) = super::execution::execute(
             grid,
             Cells::of(bytes.as_bytes()),
@@ -3142,6 +3279,26 @@ mod test {
     }
 
     #[test]
+    fn a_table_per_computation_is_read_and_written_by_computation_id() {
+        let [first, second, third] = [0, 1, 2].map(super::ComputationId);
+        let mut table: super::PerComputation<char> = ['a', 'b', 'c'].into_iter().collect();
+
+        assert_eq!(table.len(), 3);
+        assert_eq!(table.ids().collect::<Vec<_>>(), [first, second, third]);
+        assert_eq!(table[second], 'b');
+        table[third] = 'z';
+        assert_eq!(
+            table.iter_enumerated().collect::<Vec<_>>(),
+            [(first, &'a'), (second, &'b'), (third, &'z')]
+        );
+        let subtree = super::ComputationRange::new(second, 3);
+        assert_eq!(subtree.clone().collect::<Vec<_>>(), [second, third]);
+        assert!(subtree.contains(third) && !subtree.contains(first));
+        assert_eq!(&table[subtree], ['b', 'z']);
+        assert_eq!(table.into_vec(), ['a', 'b', 'z']);
+    }
+
+    #[test]
     fn a_nested_computation_is_owned_by_its_root_and_answers_its_parent() {
         // `.+.+.+01020304` nests three Additions: the innermost answers the
         // middle one, and both nested ones belong to the root's Expression.
@@ -3151,25 +3308,25 @@ mod test {
         let [root, middle, inner] = [0, 1, 2].map(super::ComputationId);
 
         assert_eq!(nodes.len(), 3);
-        assert_eq!(nodes[0].place, super::Place::Root);
-        assert_eq!(nodes[0].owner(), root);
+        assert_eq!(nodes[root].place, super::Place::Root);
+        assert_eq!(nodes[root].owner(), root);
         assert_eq!(
-            nodes[1].place,
+            nodes[middle].place,
             super::Place::Nested {
                 parent: root,
                 owner: root
             }
         );
         assert_eq!(
-            nodes[2].place,
+            nodes[inner].place,
             super::Place::Nested {
                 parent: middle,
                 owner: root
             }
         );
-        assert_eq!(nodes[2].parent(), Some(middle));
-        assert_eq!(nodes[1].operands[0].child, Some(inner));
-        assert_eq!(nodes[2].operands[0].child, None);
+        assert_eq!(nodes[inner].parent(), Some(middle));
+        assert_eq!(nodes[middle].operands[0].child, Some(inner));
+        assert_eq!(nodes[inner].operands[0].child, None);
     }
 
     #[test]
@@ -4306,8 +4463,9 @@ mod test {
                         .lookup
                         .nodes()
                         .iter()
-                        .position(|node| grid.index(node.anchor) == cell(grid, anchor))
+                        .find(|node| grid.index(node.anchor) == cell(grid, anchor))
                         .unwrap()
+                        .id
                 })
                 .collect();
             let (plan, states) = super::execution::execute(
