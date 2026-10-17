@@ -49,9 +49,8 @@ pub fn divide(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// A predicate that answers a pulse rather than a truth value:
 /// equal operands produce one Bang, and unequal operands a Clear, which
-/// writes two spaces at the Output Portal. Answering a Number for the unequal
-/// case would put a Cell meaning "false" into the Source, where the next Tick
-/// would read it as an ordinary operand.
+/// writes two spaces at the Output Portal, so the Source never holds a Cell
+/// meaning "false" for the next Tick to read as an ordinary operand.
 #[inline(always)]
 pub fn equality(ctx: &mut Context) -> Result<Interpretation, Error> {
     ctx.stack

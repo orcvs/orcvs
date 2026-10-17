@@ -41,9 +41,8 @@ impl Interpretation {
     ///
     /// Equality, Delay and Euclidean answer the same pair, so the pair is
     /// named once. The Clear erases the last `**` the pulse wrote, which would
-    /// otherwise fire again as a Bang Function, and answering a Number for the
-    /// silent Turn would put a Cell meaning "no" in the Source for the next
-    /// Tick to read as an operand.
+    /// otherwise fire again as a Bang Function, and leaves the Source no Cell
+    /// meaning "no" for the next Tick to read as an operand.
     ///
     #[inline(always)]
     pub(crate) fn pulse(banged: bool) -> Self {
@@ -136,59 +135,61 @@ impl Interpreter {
             stack: Stack::with_operands(operands)?,
             inputs,
         };
-        let atom = match function {
-            Function::AbsoluteCopy => return functions::copy::absolute_copy(&mut ctx),
-            Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
-            Function::Add => math::add(&mut ctx)?,
-            Function::Clock => tick::clock(&mut ctx)?,
-            Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
-            Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
-            Function::Delay => return tick::delay(&mut ctx),
-            Function::Divide => math::divide(&mut ctx)?,
-            Function::Equality => return math::equality(&mut ctx),
-            Function::Euclidean => return tick::euclidean(&mut ctx),
-            Function::Increment => tick::increment(&mut ctx)?,
-            Function::Interpolation => tick::interpolation(&mut ctx)?,
+        Ok(match function {
+            Function::AbsoluteCopy => functions::copy::absolute_copy(&mut ctx)?,
+            Function::AbsoluteDifference => {
+                Interpretation::Cell(math::absolute_difference(&mut ctx)?)
+            }
+            Function::Add => Interpretation::Cell(math::add(&mut ctx)?),
+            Function::Clock => Interpretation::Cell(tick::clock(&mut ctx)?),
+            Function::ConvertToNote => Interpretation::Cell(numeric_conversion::to_note(&mut ctx)?),
+            Function::ConvertToNumber => {
+                Interpretation::Cell(numeric_conversion::to_number(&mut ctx)?)
+            }
+            Function::Delay => tick::delay(&mut ctx)?,
+            Function::Divide => Interpretation::Cell(math::divide(&mut ctx)?),
+            Function::Equality => math::equality(&mut ctx)?,
+            Function::Euclidean => tick::euclidean(&mut ctx)?,
+            Function::Increment => Interpretation::Cell(tick::increment(&mut ctx)?),
+            Function::Interpolation => Interpretation::Cell(tick::interpolation(&mut ctx)?),
             Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
-                return functions::copy::copy(&mut ctx, function);
+                functions::copy::copy(&mut ctx, function)?
             }
-            Function::Random => tick::random(&mut ctx)?,
-            Function::AbsoluteRead => {
-                return functions::read::read::<operands::AbsoluteRead>(&mut ctx);
+            Function::Random => Interpretation::Cell(tick::random(&mut ctx)?),
+            Function::AbsoluteRead => functions::read::read::<operands::AbsoluteRead>(&mut ctx)?,
+            Function::ReadEast => functions::read::read::<operands::ReadEast>(&mut ctx)?,
+            Function::ReadNorth => functions::read::read::<operands::ReadNorth>(&mut ctx)?,
+            Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
+            Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
+            Function::Track => functions::track::track(&mut ctx)?,
+            Function::AbsoluteWrite => Interpretation::Cell(functions::write::write::<
+                operands::AbsoluteWrite,
+            >(&mut ctx)?),
+            Function::Push => {
+                Interpretation::Cell(functions::write::write::<operands::Push>(&mut ctx)?)
             }
-            Function::ReadEast => return functions::read::read::<operands::ReadEast>(&mut ctx),
-            Function::ReadNorth => return functions::read::read::<operands::ReadNorth>(&mut ctx),
-            Function::ReadSouth => return functions::read::read::<operands::ReadSouth>(&mut ctx),
-            Function::ReadWest => return functions::read::read::<operands::ReadWest>(&mut ctx),
-            Function::Track => return functions::track::track(&mut ctx),
-            Function::AbsoluteWrite => {
-                functions::write::write::<operands::AbsoluteWrite>(&mut ctx)?
+            Function::WriteEast => {
+                Interpretation::Cell(functions::write::write::<operands::WriteEast>(&mut ctx)?)
             }
-            Function::Push => functions::write::write::<operands::Push>(&mut ctx)?,
-            Function::WriteEast => functions::write::write::<operands::WriteEast>(&mut ctx)?,
-            Function::WriteNorth => functions::write::write::<operands::WriteNorth>(&mut ctx)?,
-            Function::WriteSouth => functions::write::write::<operands::WriteSouth>(&mut ctx)?,
-            Function::WriteWest => functions::write::write::<operands::WriteWest>(&mut ctx)?,
-            Function::Maximum => math::maximum(&mut ctx)?,
-            Function::Minimum => math::minimum(&mut ctx)?,
-            Function::Modulo => math::modulo(&mut ctx)?,
-            Function::Multiply => math::multiply(&mut ctx)?,
-            Function::Subtract => math::subtract(&mut ctx)?,
-            Function::ControlChange => {
-                return Ok(Interpretation::Play(functions::control_change(&mut ctx)?));
+            Function::WriteNorth => {
+                Interpretation::Cell(functions::write::write::<operands::WriteNorth>(&mut ctx)?)
             }
-            Function::MonophonicPlay => {
-                return Ok(Interpretation::Play(functions::monophonic_play(&mut ctx)?));
+            Function::WriteSouth => {
+                Interpretation::Cell(functions::write::write::<operands::WriteSouth>(&mut ctx)?)
             }
-            Function::PitchBend => {
-                return Ok(Interpretation::Play(functions::pitch_bend(&mut ctx)?));
+            Function::WriteWest => {
+                Interpretation::Cell(functions::write::write::<operands::WriteWest>(&mut ctx)?)
             }
-            Function::RawPlay => {
-                return Ok(Interpretation::Play(functions::raw_play(&mut ctx)?));
-            }
-            Function::TimedPlay => {
-                return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
-            }
+            Function::Maximum => Interpretation::Cell(math::maximum(&mut ctx)?),
+            Function::Minimum => Interpretation::Cell(math::minimum(&mut ctx)?),
+            Function::Modulo => Interpretation::Cell(math::modulo(&mut ctx)?),
+            Function::Multiply => Interpretation::Cell(math::multiply(&mut ctx)?),
+            Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
+            Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
+            Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
+            Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
+            Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
+            Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
             Function::Halt
             | Function::Bang
             | Function::DirectionalBangEast
@@ -201,8 +202,7 @@ impl Interpreter {
             | Function::SelfBangingWest => {
                 unreachable!("{function} returns as a lock or Source write before dispatch")
             }
-        };
-        Ok(Interpretation::Cell(atom))
+        })
     }
 }
 

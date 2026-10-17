@@ -236,14 +236,14 @@ const VARIANTS = {
     'Glyph colour = Token colour. Functions are bold.',
     'Pending: a short bar in the Token colour, no letter.',
     'Invalid: Cell tinted in the diagnostic colour. The glyph keeps the declared Token colour.',
-    'Result: a background tinted in its Token colour, marking a written value rather than a typed slot. Absence: a faint _.',
+    'Result: a background tinted in its Token colour, marking a written value rather than a typed slot. Clear: a faint _.',
     'Will execute: a tick in the Function colour at the anchor. Will not: the Function is dimmed.',
     'Expression diagnostic: squiggle along the span. Lexical: box. Both in the diagnostic colour.',
     'Terminal (no Result): shown only by its ! spelling.'] },
   'B': { name:'B: Role blocks', lines:[
     'Function: solid block in the Function colour. Terminal Function: outlined block, so "answers no value" is visible.',
     'Operand: a box around its two Cells, in the Token colour. Pending: dashed box. Invalid: diagnostic-colour hatching inside the Token box.',
-    'Result: a bar under the written Cells, in the Token colour. Sequence: one continuous bar. Absence: dashed bar.',
+    'Result: a bar under the written Cells, in the Token colour. Sequence: one continuous bar. Clear: dashed bar.',
     'Bang: solid block in the Bang colour. Comment: one band in the Comment colour, stronger at the introducer.',
     'Will execute: rule above the span in the Function colour. Will not: dotted rule, and the Expression is desaturated.',
     'Expression diagnostic: frame. Lexical: corner. Both in the diagnostic colour.'] },
@@ -339,7 +339,7 @@ function sample() {
   B(m, 1, 21);
   E(m, 'play', 3, 0, [['F','!>'],['N','00'],['N','7F'],['F',':#'],['n','C4'],['n','E4']], { exec:true, terminal:true,
     msg:'The Delay\'s Bang directly north activates it. Nested Note Range: the parent takes its typed Sequence result. Performs a chord and answers no value.' });
-  const eq = E(m, 'eq', 3, 16, [['F','.='],['N','03'],['N','04']], { exec:true, msg:'The operands are unequal, so it answers the Absence Marker and plans no write.' });
+  const eq = E(m, 'eq', 3, 16, [['F','.='],['N','03'],['N','04']], { exec:true, msg:'The operands are unequal, so it answers a Clear and writes two spaces.' });
   R(m, eq, 4, 16, '_', 'none', undefined);
   E(m, 'badadd', 5, 0, [['F','.+'],['N','c4','invalid'],['N','0G','invalid']], { diag:'expr', msg:'c4 does not bind as a Number (Token still Number). 0G does not bind as a Number.' });
   const tonote = E(m, 'tonote', 5, 12, [['F','.^'],['N','3C']], { exec:true });
@@ -436,7 +436,7 @@ function inspect(cell, v) {
   const rows = [
     ['Position', `col ${cell.c}, row ${cell.r}`],
     ['Cell', cell.ch === ' ' ? '(space)' : cell.ch],
-    ['Role', ROLE_NAMES[cell.role] + (cell.nested ? ' (nested)' : '') + (cell.state ? ` · ${cell.state}` : '') + (cell.rk ? ` · ${{atom:'Scalar Atom', seq:'Sequence', bang:'Bang', none:'none (Absence Marker)'}[cell.rk]}` : '')],
+    ['Role', ROLE_NAMES[cell.role] + (cell.nested ? ' (nested)' : '') + (cell.state ? ` · ${cell.state}` : '') + (cell.rk ? ` · ${{atom:'Scalar Atom', seq:'Sequence', bang:'Bang', none:'none (Clear)'}[cell.rk]}` : '')],
     ['Token', cell.token || '—'],
   ];
   if (e) {
@@ -464,7 +464,7 @@ const CHECK = [
     ['Result: Sequence', c => c.rk === 'seq'],
     ['Result: Bang', c => c.rk === 'bang'],
     ['Result: none (Terminal Output)', c => c.role === 'fn' && c.expr.terminal],
-    ['Result: none (Absence Marker)', c => c.rk === 'none'],
+    ['Result: none (Clear)', c => c.rk === 'none'],
   ]],
   ['Bang', [
     ['Standalone **', c => c.role === 'bang'],
