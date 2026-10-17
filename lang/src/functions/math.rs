@@ -48,7 +48,7 @@ pub fn divide(ctx: &mut Context) -> Result<Atom, Error> {
 /// Equality: `.= left right`.
 ///
 /// A predicate that answers a pulse rather than a truth value:
-/// equal operands produce one Bang, and unequal operands a clear, which
+/// equal operands produce one Bang, and unequal operands a Clear, which
 /// writes two spaces at the Output Portal. Answering a Number for the unequal
 /// case would put a Cell meaning "false" into the Source, where the next Tick
 /// would read it as an ordinary operand.
@@ -134,7 +134,7 @@ mod test {
 
     #[test]
     fn equality_answers_a_bang_or_a_clear() {
-        // The unequal answer is a clear rather than a Number, so the Source
+        // The unequal answer is a Clear rather than a Number, so the Source
         // never gains a Cell meaning "false".
         assert_eq!(
             evaluate(Function::Equality, Atom::Number(1), Atom::Number(1)).unwrap(),

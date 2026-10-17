@@ -1209,7 +1209,7 @@ mod test {
 
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
-        // Equality, Delay and Euclidean answer a Bang or a clear as their
+        // Equality, Delay and Euclidean answer a Bang or a Clear as their
         // result, a Copy, Track or Read copies a Bang from its Input
         // Portal, a Write carries a Bang in its `value`, and the Bang
         // Function's Turn delivers the Bang it stands for. Tick scheduling

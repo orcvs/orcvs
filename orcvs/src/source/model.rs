@@ -2291,7 +2291,7 @@ mod test {
     fn an_equal_comparison_commits_a_bang_and_an_unequal_one_clears_its_pair() {
         // Equality answers a pulse, so it writes its result pair on every
         // Turn: the equal case renders as `**`, and the unequal case answers
-        // a clear, which clears whatever stood in the pair.
+        // a Clear, which clears whatever stood in the pair.
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0303");

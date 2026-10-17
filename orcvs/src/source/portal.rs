@@ -202,7 +202,7 @@ impl Portal {
 
     /// Complete coverage of a nonempty read or write, without leaving this row.
     /// Callers supply widths from nonempty encodings, declared input types,
-    /// or Reservations. Empty results never reach a Portal.
+    /// or Reservations, so a zero width never reaches a Portal.
     pub(super) fn span(self, width: usize) -> Result<Span, PortalError> {
         let offset = width.checked_sub(1).expect("Portal coverage is nonempty");
         let last = self

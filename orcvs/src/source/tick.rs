@@ -4088,7 +4088,7 @@ mod test {
 
     #[test]
     fn an_unequal_root_equality_clears_the_pair_south_and_an_equal_one_bangs_there() {
-        // Equality answers only Bang or a clear, so it writes its answer
+        // Equality answers only Bang or a Clear, so it writes its answer
         // through its Output Portal on every Turn: `**` when its
         // operands are equal, which activates the root aligned south of it,
         // and two empty Cells when they are not.
@@ -5120,7 +5120,7 @@ mod test {
         // Tick 1. The Clock is still in its first step of three, so it writes
         // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
         // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
-        // Both answer a clear and clear their pair.
+        // Both answer a Clear and clear their pair.
         let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);

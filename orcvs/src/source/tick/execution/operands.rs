@@ -65,7 +65,7 @@ impl Execution<'_> {
                 };
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
                 let returned = match self.turns.result(child) {
-                    // A clear returns the two spaces it wrote, so the operand
+                    // A Clear returns the two spaces it wrote, so the operand
                     // it stands in is unwritten. A Copy of empty Cells and a
                     // pulse that does not Bang both answer one.
                     Some(Answer::Clear) => {

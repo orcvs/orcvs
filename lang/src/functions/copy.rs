@@ -9,7 +9,7 @@ use crate::{
 /// The Language Unit at a Copy's input Portal.
 ///
 /// The Turn supplies Cells only after the Portal has classified them as one
-/// complete aligned unit. Two empty Cells answer a clear, which writes them,
+/// complete aligned unit. Two empty Cells answer a Clear, which writes them,
 /// and `**` answers a Bang; any other admitted two-Cell unit is the Atom
 /// those Cells spell. Alignment and partial Spans
 /// never reach here. A missing or invalid

@@ -403,7 +403,7 @@ impl<'a> Execution<'a> {
         };
         // Whether this answer can be Cells at all is a question about the
         // value, settled before any destination is asked: a rendering a Cell
-        // cannot hold refuses whole. A clear writes two spaces, and every
+        // cannot hold refuses whole. A Clear writes two spaces, and every
         // other answer renders as the Cell pair the schedule reserved. A
         // pulse clears the pair it reserves for its Bang, root or nested, so
         // clearing it orders nothing new.

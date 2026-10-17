@@ -73,7 +73,7 @@ impl Encoding {
     ///
     /// Source characters no value produced.
     ///
-    /// A clear writes two spaces, which is Source content rather than a
+    /// A Clear writes two spaces, which is Source content rather than a
     /// value, and a test states Source text directly for the same reason.
     /// Both are still held to a Cell's definition, so this is a second
     /// constructor rather than a second rule.

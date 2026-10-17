@@ -192,14 +192,14 @@ impl Stack {
     }
 
     /// Evaluates one predicate over its declared operands, answering a Bang
-    /// where it holds and a clear where it does not.
+    /// where it holds and a Clear where it does not.
     #[inline(always)]
     pub(crate) fn predicate<O, F>(&mut self, holds: F) -> Result<Interpretation, Error>
     where
         O: Operands,
         F: FnOnce(O) -> bool,
     {
-        Ok(crate::functions::tick::pulse(holds(self.extract::<O>()?)))
+        Ok(Interpretation::pulse(holds(self.extract::<O>()?)))
     }
 }
 

@@ -332,6 +332,21 @@ fn a_nested_write_returns_its_value_and_writes_its_pair() {
 }
 
 #[test]
+fn a_write_whose_value_is_a_pulse_that_does_not_bang_writes_nothing() {
+    // The unequal Equality clears its own Output Portal and returns the two
+    // spaces, so the Write's value is unwritten: the Write is diagnosed and
+    // leaves its destination as it was. The equal one carries `**` there.
+    let tick = first(Grid::with_shape(12, 3), &["@$0102.=0102", "", "xx"]);
+    assert_eq!(tick.rows, ["@$0102.=0102", "            ", "xx          "]);
+    assert_eq!(
+        tick.diagnostics,
+        [(0, 0, "expected a Language Unit, found \"  \"".to_string())]
+    );
+    let tick = first(Grid::with_shape(12, 3), &["@$0102.=0101", "", "xx"]);
+    assert_eq!(tick.rows, ["@$0102.=0101", "      **    ", "x**         "]);
+}
+
+#[test]
 fn a_destination_outside_the_grid_or_cut_short_diagnoses_and_writes_nothing() {
     for (row, message) in [
         ("@$0800C4", "result \"C4\" falls outside the Grid"),

@@ -35,6 +35,26 @@ pub enum Interpretation {
     Source(SourceEffect),
 }
 
+impl Interpretation {
+    ///
+    /// What a pulse answers: a Bang, or a Clear on a Turn it does not Bang.
+    ///
+    /// Equality, Delay and Euclidean answer the same pair, so the pair is
+    /// named once. The Clear erases the last `**` the pulse wrote, which would
+    /// otherwise fire again as a Bang Function, and answering a Number for the
+    /// silent Turn would put a Cell meaning "no" in the Source for the next
+    /// Tick to read as an operand.
+    ///
+    #[inline(always)]
+    pub(crate) fn pulse(banged: bool) -> Self {
+        if banged {
+            Self::Cell(Atom::Bang)
+        } else {
+            Self::Clear
+        }
+    }
+}
+
 ///
 /// What one evaluation has to work with: the operands it has resolved so far,
 /// and the explicit inputs supplied alongside the Source Snapshot.
@@ -655,7 +675,7 @@ mod test {
         // So the flag is checked against what the Interpreter actually
         // answers, over operands built from each Function's own signature.
         // Every operand of one attempt carries the same value, which is what
-        // reaches Equality's Bang at all: an unequal pair answers a clear.
+        // reaches Equality's Bang at all: an unequal pair answers a Clear.
         for &function in Function::ALL {
             if !function.answers_value() {
                 continue;
@@ -699,7 +719,7 @@ mod test {
     #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
-        // a clear, which writes two spaces at the Output Portal, so the Source
+        // a Clear, which writes two spaces at the Output Portal, so the Source
         // never gains a Cell meaning "false".
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {

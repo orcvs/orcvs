@@ -14,7 +14,7 @@ Orca has no such value. A port is a Cell with no lifetime: a value operator whos
 
 ## Consequences
 
-- Every Source behaves as before, except one diagnostic: a pulse nested in a Number operand that does not Bang leaves its parent diagnosed as an unwritten operand (`expected a number, found "  "`), not "returned nothing". The parent is invalid either way.
+- Every Source behaves as before, except one diagnostic: a nested pulse that does not Bang leaves its parent diagnosed as an unwritten operand, `expected a number, found "  "` in a Number operand and `expected a Language Unit, found "  "` in a Write's value, not "returned nothing". The parent is invalid either way.
 - The Source tick no longer asks whether a Function copies a Language Unit or answers only Bang, and those two Function predicates are removed.
 
 ## Considered options

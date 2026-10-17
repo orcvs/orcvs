@@ -15,6 +15,9 @@ use super::super::{ComputationId, ComputationRange, Lookup, PerComputation};
 
 /// What a value Function's Turn answered, which is what it leaves at its
 /// Output Portal and returns when nested.
+///
+/// The two value arms of [`lang::Interpretation`]. The rest of it, a Play
+/// Command, a lock or a Source effect, is never recorded as a Turn's answer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::source) enum Answer {
     /// The Language Unit it writes.
@@ -24,7 +27,7 @@ pub(in crate::source) enum Answer {
 }
 
 impl Answer {
-    /// The Language Unit this answer writes; a clear writes none.
+    /// The Language Unit this answer writes; a Clear writes none.
     pub(in crate::source) fn unit(self) -> Option<Atom> {
         match self {
             Self::Unit(atom) => Some(atom),

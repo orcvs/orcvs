@@ -57,24 +57,6 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
     Ok((u64::from(rate), u64::from(modulus)))
 }
 
-///
-/// What a pulse answers: a Bang, or a clear on a Turn it does not Bang.
-///
-/// Equality, Delay and Euclidean answer the same pair, so the pair is named
-/// once. The clear erases the last `**` the pulse wrote, which would
-/// otherwise fire again as a standalone Bang, and answering a Number for the
-/// silent Turn would put a Cell meaning "no" in the Source for the next Tick
-/// to read as an operand.
-///
-#[inline(always)]
-pub(crate) fn pulse(banged: bool) -> Interpretation {
-    if banged {
-        Interpretation::Cell(Atom::Bang)
-    } else {
-        Interpretation::Clear
-    }
-}
-
 /// Clock: `~. rate modulus`.
 ///
 /// The step a cycle of `rate * modulus` Ticks is at, as a Number: `rate` Ticks
@@ -121,7 +103,7 @@ pub fn delay(ctx: &mut Context) -> Result<Interpretation, Error> {
     // The cycle test is `Tick % (rate * modulus) == 0`, and
     // `is_multiple_of` is that test rather than a different one: the two differ
     // only at a zero divisor, which `cycle_factors` has already refused.
-    Ok(pulse(tick.is_multiple_of(rate * modulus)))
+    Ok(Interpretation::pulse(tick.is_multiple_of(rate * modulus)))
 }
 
 /// Euclidean: `~% hits steps`.
@@ -164,7 +146,9 @@ pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     // steps` is false for every positive `steps`. So does a full cycle, where
     // `hits == steps` makes the remainder zero and the comparison an equality
     // that always holds.
-    Ok(pulse((hits * phase) % steps + hits >= steps))
+    Ok(Interpretation::pulse(
+        (hits * phase) % steps + hits >= steps,
+    ))
 }
 
 /// Increment: `~+ step modulus`.
@@ -373,8 +357,8 @@ mod test {
         }
     }
 
-    /// Whether `function` Banged at `tick`, refusing anything but the two Atoms
-    /// a pulse answers with.
+    /// Whether `function` Banged at `tick`, refusing anything but the Bang or
+    /// the Clear a pulse answers with.
     fn banged(function: Function, tick: u64, left: u8, right: u8) -> bool {
         match evaluate(function, tick, Atom::Number(left), Atom::Number(right)) {
             Ok(Interpretation::Cell(Atom::Bang)) => true,
@@ -730,7 +714,7 @@ mod test {
     fn euclidean_refuses_a_cycle_of_no_steps_before_it_counts_its_hits() {
         // The required ordering. `00 00` is the case it is
         // stated for: a cycle with no positions rather than a pattern with no
-        // onsets, so it diagnoses instead of quietly answering a clear
+        // onsets, so it diagnoses instead of quietly answering a Clear
         // forever the way `~% 00 04` does.
         for hits in [0x00u8, 0x01, 0xFF] {
             let error = answer(Function::Euclidean, 3, hits, 0x00).unwrap_err();
