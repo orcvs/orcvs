@@ -47,6 +47,15 @@ impl<'a> ScheduleInputs<'a> {
         self.rows().flat_map(RowInputs::expressions)
     }
 
+    ///
+    /// Every Function a schedule computes, root or nested, in row, Source and
+    /// then Parser preorder. Allocates nothing.
+    ///
+    pub(super) fn functions(self, grid: Grid) -> impl Iterator<Item = FunctionSite> + 'a {
+        self.expressions()
+            .flat_map(move |expression| expression.functions(grid))
+    }
+
     /// Every Language Unit, in row and then anchor order.
     pub(super) fn units(self) -> impl Iterator<Item = &'a LanguageUnit> {
         self.rows().flat_map(RowInputs::units)
@@ -133,6 +142,12 @@ impl<'a> ScheduledExpression<'a> {
             parsed: Parsed::of(entry.atom.as_ref()),
         })
     }
+
+    /// Every Function among [`Self::entries`], root or nested, in Parser
+    /// preorder.
+    pub(super) fn functions(self, grid: Grid) -> impl Iterator<Item = FunctionSite> + 'a {
+        self.entries().filter_map(move |entry| entry.function(grid))
+    }
 }
 
 /// Compares every fact an accessor above reads. An accessor reading more of
@@ -159,7 +174,7 @@ pub(super) struct ScheduledEntry {
 impl ScheduledEntry {
     /// The Function this entry parsed as, anchored at the first Cell it
     /// covers, or `None` when it parsed no Function.
-    pub(super) fn function(&self, grid: Grid) -> Option<(Position, Function)> {
+    pub(super) fn function(&self, grid: Grid) -> Option<FunctionSite> {
         let Parsed::Function(function) = self.parsed else {
             return None;
         };
@@ -167,8 +182,15 @@ impl ScheduledEntry {
             grid.cell_index(self.cells.start)
                 .expect("a parsed Function lies inside its Grid"),
         );
-        Some((anchor, function))
+        Some(FunctionSite { anchor, function })
     }
+}
+
+/// One Function a schedule computes and the Position it is anchored at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct FunctionSite {
+    pub(super) anchor: Position,
+    pub(super) function: Function,
 }
 
 /// How one positioned entry parsed, without any value it parsed to.

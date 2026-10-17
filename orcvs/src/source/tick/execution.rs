@@ -15,9 +15,9 @@ use super::Schedule;
 use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
-    Computation, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant, Operand,
-    Portal, PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH, SpanWrite,
-    TickPlan, coverage, diagnose, resolve, tick_inputs,
+    Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
+    Operand, Portal, PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH,
+    SpanWrite, TickPlan, coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
 use turns::{Activation, Turns};
@@ -84,7 +84,7 @@ struct Execution<'a> {
     effects: Vec<Effect>,
     /// The roots the Turn being taken has activated through a dynamic
     /// write, which only the Turn can know of.
-    activated: Vec<usize>,
+    activated: Vec<ComputationId>,
 }
 
 impl<'a> Execution<'a> {
@@ -127,9 +127,9 @@ impl<'a> Execution<'a> {
     /// discovered by delivering an answer, never by a computation's own
     /// prologue.
     ///
-    fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
+    fn opens_turn(&mut self, index: ComputationId) -> Option<lang::Tokens> {
         let node = &self.schedule.lookup.nodes()[index];
-        if !self.turns.may_open(index, node.owner) {
+        if !self.turns.may_open(index, node.owner()) {
             return None;
         }
         self.turns.open(index);
@@ -139,7 +139,7 @@ impl<'a> Execution<'a> {
         // alone, so the Turn is blocked as an unparsed operand's is, without
         // repeating the report, and its parent is blocked in turn.
         if self.syntax_blocks(node, function)
-            || (node.parent.is_some() && !function.answers_value())
+            || (!node.is_root() && !function.answers_value())
             || self.blocked_by_child(node)
         {
             self.turns.block_syntax(index);
@@ -169,7 +169,7 @@ impl<'a> Execution<'a> {
     /// Turn is taken here, and answers the roots its dynamic writes
     /// activated.
     ///
-    fn take_turn(&mut self, index: usize, progress: &Progress<'_>) -> Turn {
+    fn take_turn(&mut self, index: ComputationId, progress: &Progress<'_>) -> Turn {
         match self.turn(index, progress) {
             Some(writers) => Turn::Waits(writers),
             None => {
@@ -183,14 +183,18 @@ impl<'a> Execution<'a> {
 
     /// Records that `index` has taken its Turn this Tick, settled with or
     /// without effect.
-    fn settle(&mut self, index: usize) {
+    fn settle(&mut self, index: ComputationId) {
         self.turns.settle(index);
     }
 
     /// Every failure settles this Turn and records its diagnostic, a violated
     /// execution order included: it refuses the one write or lock it reaches,
     /// and every other Turn of the Tick still takes place.
-    fn turn(&mut self, index: usize, progress: &Progress<'_>) -> Option<Vec<usize>> {
+    fn turn(
+        &mut self,
+        index: ComputationId,
+        progress: &Progress<'_>,
+    ) -> Option<Vec<ComputationId>> {
         let signature = self.opens_turn(index)?;
         let lookup = &self.schedule.lookup;
         let node = &lookup.nodes()[index];
@@ -259,7 +263,7 @@ impl<'a> Execution<'a> {
     ///
     fn turn_portal(
         &self,
-        index: usize,
+        index: ComputationId,
         function: Function,
         operands: &[Atom],
     ) -> Result<InputSite, String> {
@@ -286,7 +290,7 @@ impl<'a> Execution<'a> {
     ///
     fn turn_destination(
         &self,
-        index: usize,
+        index: ComputationId,
         function: Function,
         operands: &[Atom],
     ) -> Result<Option<Result<Position, PortalError>>, String> {
@@ -311,7 +315,7 @@ impl<'a> Execution<'a> {
     ///
     fn select(
         &self,
-        index: usize,
+        index: ComputationId,
         resolve: impl FnOnce(usize) -> Result<PortalAddress, lang::Error>,
     ) -> Result<Result<Portal, PortalError>, String> {
         let anchor = self.schedule.lookup.nodes()[index].anchor;
@@ -361,7 +365,7 @@ impl<'a> Execution<'a> {
     /// static sites the schedule reserved.
     fn deliver_value(
         &mut self,
-        index: usize,
+        index: ComputationId,
         atom: Atom,
         destination: Option<Result<Position, PortalError>>,
         delivery: Delivery,
@@ -375,7 +379,7 @@ impl<'a> Execution<'a> {
     /// its computation is a root or nested.
     fn project_value(
         &mut self,
-        index: usize,
+        index: ComputationId,
         atom: Atom,
         destination: Option<Result<Position, PortalError>>,
         delivery: Delivery,
@@ -444,7 +448,7 @@ impl<'a> Execution<'a> {
     ///
     fn deliver_output(
         &mut self,
-        index: usize,
+        index: ComputationId,
         atom: Atom,
         encoding: &Encoding,
         output: Result<Position, PortalError>,
@@ -562,7 +566,12 @@ impl<'a> Execution<'a> {
     /// rather than the schedule replaying itself, which is the relationship
     /// every reservation has with the write it orders.
     ///
-    fn deliver_source_effect(&mut self, index: usize, effect: SourceEffect, delivery: Delivery) {
+    fn deliver_source_effect(
+        &mut self,
+        index: ComputationId,
+        effect: SourceEffect,
+        delivery: Delivery,
+    ) {
         if effect.bundle == SourceBundle::Fire {
             self.fire(index, delivery);
             return;
@@ -647,10 +656,10 @@ impl<'a> Execution<'a> {
                     .expect("a Function standing in the Source fits its own Span");
                 self.write(WriteKind::Place, left);
                 let lookup = &self.schedule.lookup;
-                if let Occupancy::Partial = self
-                    .working
-                    .contact(&entered, |anchor| lookup.root_at(anchor))
-                {
+                // `Occupancy` is stated outside the schedule, so it names a
+                // root by its bare index.
+                let root_at = |anchor| lookup.root_at(anchor).map(ComputationId::index);
+                if let Occupancy::Partial = self.working.contact(&entered, root_at) {
                     self.effects.push(Effect::Diagnose(diagnose(
                         node,
                         format!("{producer} contacts part of a Language Unit"),
@@ -688,7 +697,7 @@ impl<'a> Execution<'a> {
     /// reservation gives, so an overwrite has already suppressed this Turn
     /// and a reader of the Cells waits for the clear.
     ///
-    fn fire(&mut self, index: usize, delivery: Delivery) {
+    fn fire(&mut self, index: ComputationId, delivery: Delivery) {
         let lookup = &self.schedule.lookup;
         let clear = self.own_span_clear(lookup.nodes()[index].anchor);
         for root in dependencies::reached(lookup, &clear).bang_roots() {
@@ -729,7 +738,7 @@ impl<'a> Execution<'a> {
     /// Delivers a Bang's activation to `root`, and diagnoses at `root` a Bang
     /// that misses it. Nothing else is stopped.
     ///
-    fn activate(&mut self, root: usize) -> Activation {
+    fn activate(&mut self, root: ComputationId) -> Activation {
         let activation = self.turns.activate(root);
         if activation == Activation::Missed {
             self.effects.push(Effect::Diagnose(diagnose(
@@ -748,12 +757,12 @@ impl<'a> Execution<'a> {
     /// is not suppressed here — `opens_turn` already refused a suppressed
     /// Halt, so reaching this arm means this Halt locks.
     ///
-    fn lock_portal(&mut self, index: usize, delivery: Delivery) {
+    fn lock_portal(&mut self, index: ComputationId, delivery: Delivery) {
         let lookup = &self.schedule.lookup;
         let node = &lookup.nodes()[index];
         match dependencies::lock_verdict(&self.schedule.locks, index, self.phase(delivery, None)) {
             Locked::Lock(target) => {
-                let root = lookup.nodes()[target.start].anchor;
+                let root = lookup.nodes()[target.start()].anchor;
                 self.turns.suppress(target);
                 self.effects.push(Effect::Lock(root));
             }

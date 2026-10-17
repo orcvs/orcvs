@@ -586,9 +586,10 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     let nodes = shared_schedule(grid, &map).lookup.nodes();
     let addition = nodes
         .iter()
-        .position(|node| (node.anchor.x(), node.anchor.y()) == (2, 0))
-        .expect("the nested Addition");
-    assert_eq!(states[addition].interpretations(), 1);
+        .find(|node| (node.anchor.x(), node.anchor.y()) == (2, 0))
+        .expect("the nested Addition")
+        .id;
+    assert_eq!(states[addition.index()].interpretations(), 1);
     assert_eq!(first(grid, &rows).rows[1], "D401        =^  ");
     let turns = anchored_turns(&source, &states);
     assert!(turns[&(12, 1)] < turns[&(0, 0)], "{turns:?}");
