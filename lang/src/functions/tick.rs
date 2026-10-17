@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, InterpretationError,
+    Atom, Error, Function, Interpretation, InterpretationError,
     atom::operands::{Clock, Delay, Euclidean, Increment, Interpolation, Random},
     interpreter::Context,
 };
@@ -58,16 +58,21 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
 }
 
 ///
-/// The Atom a pulse answers with, which is a Bang or nothing at all.
+/// What a pulse answers: a Bang, or a clear on a Turn it does not Bang.
 ///
-/// Both pulse Functions answer the same pair, so the pair is named once: the
-/// absence marker leaves the Output Portal empty, and answering a Number for
-/// the silent Tick would put a Cell meaning "no" in the Source for the next
-/// Tick to read as an operand.
+/// Equality, Delay and Euclidean answer the same pair, so the pair is named
+/// once. The clear erases the last `**` the pulse wrote, which would
+/// otherwise fire again as a standalone Bang, and answering a Number for the
+/// silent Turn would put a Cell meaning "no" in the Source for the next Tick
+/// to read as an operand.
 ///
 #[inline(always)]
-fn pulse(banged: bool) -> Atom {
-    if banged { Atom::Bang } else { Atom::Empty }
+pub(crate) fn pulse(banged: bool) -> Interpretation {
+    if banged {
+        Interpretation::Cell(Atom::Bang)
+    } else {
+        Interpretation::Clear
+    }
 }
 
 /// Clock: `~. rate modulus`.
@@ -104,7 +109,7 @@ pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
 /// makes the two operands a rate and a step count rather than two names for the
 /// same period.
 #[inline(always)]
-pub fn delay(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn delay(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
     let Delay { rate, modulus } = ctx.stack.extract::<Delay>()?;
     let (rate, modulus) = cycle_factors(Function::Delay, rate, modulus)?;
@@ -133,7 +138,7 @@ pub fn delay(ctx: &mut Context) -> Result<Atom, Error> {
 /// modulo `steps` anyway. What the counter itself does at its end is decided
 /// by [`crate::Tick::next`], which saturates rather than wraps.
 #[inline(always)]
-pub fn euclidean(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
     let Euclidean { hits, steps } = ctx.stack.extract::<Euclidean>()?;
 
@@ -371,9 +376,9 @@ mod test {
     /// Whether `function` Banged at `tick`, refusing anything but the two Atoms
     /// a pulse answers with.
     fn banged(function: Function, tick: u64, left: u8, right: u8) -> bool {
-        match answer(function, tick, left, right) {
-            Ok(Atom::Bang) => true,
-            Ok(Atom::Empty) => false,
+        match evaluate(function, tick, Atom::Number(left), Atom::Number(right)) {
+            Ok(Interpretation::Cell(Atom::Bang)) => true,
+            Ok(Interpretation::Clear) => false,
             other => panic!("{function:?}({left:02X}, {right:02X}) at {tick} answered {other:?}"),
         }
     }

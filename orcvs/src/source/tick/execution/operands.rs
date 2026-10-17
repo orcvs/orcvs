@@ -15,8 +15,8 @@
 use lang::Atom;
 
 use super::{
-    Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, Rendered, SCALAR_WIDTH,
-    render_message,
+    Answer, Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, Rendered,
+    SCALAR_WIDTH, render_message,
 };
 
 impl Execution<'_> {
@@ -64,25 +64,27 @@ impl Execution<'_> {
                     return token.decode(spelling).map_err(|error| error.to_string());
                 };
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
-                let returned = match self.turns.result(child).map(Encoding::render) {
-                    Some(Ok(Rendered::Cells(encoding))) => encoding,
-                    // A Function that copies Cells returns the empty Cells it
-                    // copied, so the operand it stands in is unwritten.
-                    Some(Ok(Rendered::Nothing))
-                        if self.turns.function(child).copies_language_unit() =>
-                    {
+                let returned = match self.turns.result(child) {
+                    // A clear returns the two spaces it wrote, so the operand
+                    // it stands in is unwritten.
+                    Some(Answer::Clear) => {
                         return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
                     }
-                    Some(Ok(Rendered::Nothing)) | None => {
-                        return Err(format!(
-                            "nested computation at column {}, row {} returned nothing",
-                            anchor.x(),
-                            anchor.y()
-                        ));
-                    }
-                    // A rendering a Cell cannot hold is its own fault, not an
-                    // absent answer.
-                    Some(Err(reason)) => return Err(render_message(reason)),
+                    Some(Answer::Unit(atom)) => match Encoding::render(atom) {
+                        Ok(Rendered::Cells(encoding)) => encoding,
+                        // A Function that copies Cells returns the empty Cells
+                        // it copied, so the operand it stands in is unwritten.
+                        Ok(Rendered::Nothing)
+                            if self.turns.function(child).copies_language_unit() =>
+                        {
+                            return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
+                        }
+                        Ok(Rendered::Nothing) => return Err(returned_nothing(anchor)),
+                        // A rendering a Cell cannot hold is its own fault, not
+                        // an absent answer.
+                        Err(reason) => return Err(render_message(reason)),
+                    },
+                    None => return Err(returned_nothing(anchor)),
                 };
                 token
                     .decode(&returned.to_string())
@@ -104,4 +106,13 @@ impl Execution<'_> {
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
         }
     }
+}
+
+/// The diagnostic for a nested computation at `anchor` that returned nothing.
+fn returned_nothing(anchor: crate::source::Position) -> String {
+    format!(
+        "nested computation at column {}, row {} returned nothing",
+        anchor.x(),
+        anchor.y()
+    )
 }

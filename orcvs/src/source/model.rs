@@ -888,9 +888,20 @@ mod test {
     /// remains Source's.
     ///
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
-        let atom = match result {
+        let encoding = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
-            Interpretation::Cell(atom) => atom,
+            // The rule for what an answer becomes in Cells is production's,
+            // called here rather than restated: these tests state an answer,
+            // and what they exercise is the commit, not a second encoding.
+            Interpretation::Cell(atom) => {
+                let rendered =
+                    Encoding::render(atom).expect("these answers are stated as Source Cells");
+                let Rendered::Cells(encoding) = rendered else {
+                    return resolve(Vec::new());
+                };
+                encoding
+            }
+            Interpretation::Clear => Encoding::literal("  ").expect("a space is a printable Cell"),
             // A Source effect is not an answer this seam delivers. It writes
             // its own Cells at Portals it resolves, so there is no value to
             // encode and no default Portal to admit one through;
@@ -905,13 +916,6 @@ mod test {
                         .unwrap_or_default(),
                 );
             }
-        };
-        // The rule for what an answer becomes in Cells is production's, called
-        // here rather than restated: these tests state an answer, and what
-        // they exercise is the commit, not a second encoding.
-        let rendered = Encoding::render(atom).expect("these answers are stated as Source Cells");
-        let Rendered::Cells(encoding) = rendered else {
-            return resolve(Vec::new());
         };
         let write = Portal::below(grid, root)
             .and_then(|portal| portal.admit(&encoding))
@@ -2384,21 +2388,20 @@ mod test {
             assert_eq!(src.row(1), row, "{expression}");
         }
 
-        // A nested unequal comparison answers the Absence Marker, which has
-        // no encoding to return, so its parent names the missing Return
-        // rather than reading the blank Cells as a Number. An equal one
-        // returns `**`, which the Number operand refuses after the child has
-        // written its display.
+        // A nested unequal comparison clears its Output Portal and returns
+        // the two spaces, which its parent's Number operand refuses as
+        // unwritten. An equal one returns `**`, which the Number operand
+        // refuses after the child has written its display.
         for (expression, row, message) in [
             (
                 ".+.=010203",
                 "          ",
-                "nested computation at column 2, row 0 returned nothing",
+                "expected a number, found \"  \"",
             ),
             (
                 ".+03.=0102",
                 "          ",
-                "nested computation at column 4, row 0 returned nothing",
+                "expected a number, found \"  \"",
             ),
             (
                 ".+.=010103",

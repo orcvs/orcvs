@@ -10,6 +10,13 @@ pub struct Interpreter {}
 pub enum Interpretation {
     /// The one Atom a value Function answers.
     Cell(Atom),
+    /// The two spaces a value Function writes at its Output Portal when it
+    /// has no Language Unit to write: a pulse on a Turn it does not Bang, as
+    /// Orca's bang ports write `.`, and a Copy of two empty Cells.
+    ///
+    /// Nested, the Function returns the two spaces, so the operand it stands
+    /// in is unwritten.
+    Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     ///
     /// A chord is several Terminal Output roots that one Bang activates, each
@@ -116,10 +123,10 @@ impl Interpreter {
             Function::Clock => tick::clock(&mut ctx)?,
             Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
             Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
-            Function::Delay => tick::delay(&mut ctx)?,
+            Function::Delay => return tick::delay(&mut ctx),
             Function::Divide => math::divide(&mut ctx)?,
-            Function::Equality => math::equality(&mut ctx)?,
-            Function::Euclidean => tick::euclidean(&mut ctx)?,
+            Function::Equality => return math::equality(&mut ctx),
+            Function::Euclidean => return tick::euclidean(&mut ctx),
             Function::Increment => tick::increment(&mut ctx)?,
             Function::Interpolation => tick::interpolation(&mut ctx)?,
             Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
@@ -671,7 +678,13 @@ mod test {
                     Token::Untyped => Atom::Bang,
                     other => panic!("no operand is declared as {other:?}"),
                 }));
-                matches!(evaluate_cell(atoms), Ok(Atom::Bang))
+                let Some((Atom::Function(function), operands)) = atoms.split_first() else {
+                    unreachable!("the sweep starts every attempt with its Function");
+                };
+                matches!(
+                    evaluate(*function, operands),
+                    Ok(Interpretation::Cell(Atom::Bang))
+                )
             });
 
             assert_eq!(
@@ -687,22 +700,21 @@ mod test {
     #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
-        // `Atom::Empty`, the Absence Marker, which leaves the Output Portal
-        // empty, so the Source never gains a Cell meaning "false".
+        // a clear, which writes two spaces at the Output Portal, so the Source
+        // never gains a Cell meaning "false".
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {
                 let expected = if left == right {
-                    Atom::Bang
+                    Interpretation::Cell(Atom::Bang)
                 } else {
-                    Atom::Empty
+                    Interpretation::Clear
                 };
 
                 assert_eq!(
-                    evaluate_cell(vec![
-                        Atom::Function(Function::Equality),
-                        Atom::Number(left),
-                        Atom::Number(right),
-                    ])
+                    evaluate(
+                        Function::Equality,
+                        &[Atom::Number(left), Atom::Number(right)]
+                    )
                     .unwrap(),
                     expected,
                     "Equality({left:02X}, {right:02X})",

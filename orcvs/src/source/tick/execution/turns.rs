@@ -13,12 +13,32 @@ use lang::{Atom, Function};
 use super::super::dependencies::TurnFacts;
 use super::super::{ComputationId, ComputationRange, Lookup, PerComputation};
 
+/// What a value Function's Turn answered, which is what it leaves at its
+/// Output Portal and returns when nested.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::source) enum Answer {
+    /// The Language Unit it writes.
+    Unit(Atom),
+    /// Two spaces, which write no Language Unit.
+    Clear,
+}
+
+impl Answer {
+    /// The Language Unit this answer writes; a clear writes none.
+    pub(in crate::source) fn unit(self) -> Option<Atom> {
+        match self {
+            Self::Unit(atom) => Some(atom),
+            Self::Clear => None,
+        }
+    }
+}
+
 /// What one computation's Turn has done so far this Tick.
 pub(in crate::source) struct ComputationState {
     /// The Function this computation is running: the one the Parser found,
     /// until a Function Replacement in this same Tick changes it.
     function: Function,
-    result: Option<Atom>,
+    result: Option<Answer>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
@@ -150,7 +170,7 @@ impl Turns {
     }
 
     /// The answer `index`'s Turn returned, or `None` where it returned none.
-    pub(super) fn result(&self, index: ComputationId) -> Option<Atom> {
+    pub(super) fn result(&self, index: ComputationId) -> Option<Answer> {
         self.states[index].result
     }
 
@@ -213,8 +233,8 @@ impl Turns {
 
     /// Records the answer `index`'s Turn returned. A successful answer
     /// survives every refusal to project it.
-    pub(super) fn answer(&mut self, index: ComputationId, atom: Atom) {
-        self.states[index].result = Some(atom);
+    pub(super) fn answer(&mut self, index: ComputationId, answer: Answer) {
+        self.states[index].result = Some(answer);
     }
 
     /// Records that `index` now runs `function`.

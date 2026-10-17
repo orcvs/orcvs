@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, InterpretationError,
+    Atom, Error, Interpretation, InterpretationError,
     atom::operands::{
         AbsoluteDifference, Add, Divide, Equality, Maximum, Minimum, Modulo, Multiply, Subtract,
     },
@@ -48,12 +48,12 @@ pub fn divide(ctx: &mut Context) -> Result<Atom, Error> {
 /// Equality: `.= left right`.
 ///
 /// A predicate that answers a pulse rather than a truth value:
-/// equal operands produce one Bang, and unequal operands produce `Atom::Empty`,
-/// the Absence Marker, which leaves the Output Portal empty. Answering a
-/// Number for the unequal case would put a Cell meaning "false" into the
-/// Source, where the next Tick would read it as an ordinary operand.
+/// equal operands produce one Bang, and unequal operands a clear, which
+/// writes two spaces at the Output Portal. Answering a Number for the unequal
+/// case would put a Cell meaning "false" into the Source, where the next Tick
+/// would read it as an ordinary operand.
 #[inline(always)]
-pub fn equality(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn equality(ctx: &mut Context) -> Result<Interpretation, Error> {
     ctx.stack
         .predicate(|Equality { left, right }: Equality| left == right)
 }
@@ -142,7 +142,7 @@ mod test {
         );
         assert_eq!(
             evaluate(Function::Equality, Atom::Number(1), Atom::Number(2)).unwrap(),
-            Interpretation::Cell(Atom::Empty)
+            Interpretation::Clear
         );
     }
 
