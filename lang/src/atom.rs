@@ -463,7 +463,7 @@ macro_rules! operands {
 }
 
 // Implements `Carried` for `$variant`'s operand struct when its row declares a
-// `value: Untyped` role: the pair a Write or Push carries to its destination.
+// `value: Untyped` role: the Language Unit a Write or Push carries to its pair.
 macro_rules! carried {
     ($variant:ident, []) => {};
     ($variant:ident, [value: Untyped $(, $($rest:tt)*)?]) => {
@@ -475,6 +475,16 @@ macro_rules! carried {
     };
     ($variant:ident, [$role:ident: $operand:ident $(, $($rest:tt)*)?]) => {
         carried!($variant, [$($($rest)*)?]);
+    };
+}
+
+// Whether a row declares the optional fact its tokens stand for.
+macro_rules! declares {
+    () => {
+        false
+    };
+    ($($fact:tt)+) => {
+        true
     };
 }
 
@@ -513,6 +523,17 @@ macro_rules! define_functions {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
+        );)+
+
+        // A `portal:` row's Input Portal is the static site south of it, which
+        // a selection rule would contradict, and one row selects one pair.
+        $(const _: () = assert!(
+            !(declares!($($portal_role)?) && (declares!($($d_portal)?) || declares!($($p_portal)?))),
+            "a row that declares `portal:` cannot also declare a selection rule",
+        );
+        const _: () = assert!(
+            !(declares!($($d_portal)?) && declares!($($p_portal)?)),
+            "a row declares at most one of `distance:` and `position:`",
         );)+
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -677,8 +698,9 @@ macro_rules! define_functions {
         pub enum DistanceRule {
             $($(
                 #[doc = concat!(
-                    "`", $spelling, "` counts its `", stringify!($d_n), "` operand ",
-                    stringify!($d_direction), " from its ", stringify!($d_portal), " Portal slot."
+                    "`", $spelling, "` selects its ", stringify!($d_portal), " Portal's pair `",
+                    stringify!($d_n), "` Portals ", stringify!($d_direction), " from its `",
+                    stringify!($d_n), "` operand's slot."
                 )]
                 $variant,
             )?)+
@@ -1358,18 +1380,39 @@ mod test {
 
     #[test]
     fn every_declared_distance_or_position_binds_its_own_functions_operands() {
-        use crate::{ArgumentError, Error, InputPortal, Output, PairSelection};
+        use crate::{ArgumentError, Direction, Error, InputPortal, Output, PairSelection};
         let mut declared = 0;
         for function in Function::ALL.iter().copied() {
             let input = match function.input_portal() {
-                Some(InputPortal::Dynamic(selection)) => Some(selection),
+                Some(InputPortal::Dynamic(selection)) => Some(('&', selection)),
                 _ => None,
             };
             let output = match function.output() {
-                Output::Dynamic(selection) => Some(selection),
+                Output::Dynamic(selection) => Some(('@', selection)),
                 _ => None,
             };
-            for selection in input.into_iter().chain(output) {
+            for (family, selection) in input.into_iter().chain(output) {
+                // A Read `&` selects the pair its Input Portal reads and a
+                // Write `@` the pair its Output Portal writes, so a rule
+                // declared on the wrong Portal shows here; a distance counts
+                // in the direction the spelling's arrow names.
+                let mut spelling = function.spelling().chars();
+                let named = matches!(
+                    selection,
+                    PairSelection::Distance(_) | PairSelection::Position(_)
+                );
+                if named {
+                    assert_eq!(spelling.next(), Some(family), "{function:?}");
+                }
+                if let PairSelection::Distance(rule) = selection {
+                    let arrow = match rule.direction() {
+                        Direction::North => '^',
+                        Direction::South => 'v',
+                        Direction::East => '>',
+                        Direction::West => '<',
+                    };
+                    assert_eq!(spelling.next(), Some(arrow), "{function:?}");
+                }
                 let bind = |values: &[Atom]| match selection {
                     PairSelection::Distance(rule) => Some(rule.distance(values).map(drop)),
                     PairSelection::Position(rule) => Some(rule.position(values).map(drop)),
