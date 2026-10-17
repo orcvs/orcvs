@@ -16,11 +16,13 @@ as expected on 2026-10-17. See `../spec.md`, step 1.
       Bang answers a clear.
 - [x] A pulse that doesn't Bang clears its Output Portal, root or nested,
       with no Function check in the Source tick.
-- [x] A Write whose value is an unequal Equality is diagnosed with the
-      unwritten-operand message and writes nothing.
+- [x] A Write whose value is an unequal Equality is diagnosed as a cleared
+      operand, naming the Equality, and writes nothing.
 - [x] Every other existing test passes unchanged.
 - [x] Gates pass with `PROPTEST_CASES=32`.
 
 ## Comments
 
 2026-10-17: Equality, Delay and Euclidean answer `Interpretation::Clear` on a Turn they do not Bang, and the Source tick records it as `Answer::Clear`. `a_nested_equality_that_does_not_bang_leaves_its_parent_operand_unwritten` and the nested cases in `model.rs` now expect `expected a number, found "  "`.
+
+2026-10-17: Ticket 03 settled the nested diagnostic. A parent of any nested Clear now reads `nested computation at column …, row … cleared its operand`, naming the child, and the tests above expect that.

@@ -71,6 +71,13 @@ impl Encoding {
     }
 
     ///
+    /// The two spaces a Clear writes at its Output Portal.
+    ///
+    pub(super) fn clear() -> Self {
+        Self::literal("  ").expect("a space is a printable Cell")
+    }
+
+    ///
     /// Source characters no value produced.
     ///
     /// A Clear writes two spaces, which is Source content rather than a
@@ -183,9 +190,10 @@ mod test {
     #[test]
     #[should_panic(expected = "an Encoding places at least one Cell")]
     fn a_literal_of_no_cells_is_a_caller_defect() {
-        // `render` answers `Nothing` for the values that place no Cell, so an
-        // empty literal is a caller that has not chosen a Cell count rather
-        // than a value that plans no write.
+        // Every Atom renders to two Cells, which
+        // `every_value_the_language_holds_renders_to_cells` holds, so an empty
+        // literal is a caller that has not chosen a Cell count rather than a
+        // value that plans no write.
         let _ = Encoding::literal("");
     }
 }

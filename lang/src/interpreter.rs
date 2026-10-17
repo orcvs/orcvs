@@ -12,10 +12,11 @@ pub enum Interpretation {
     Cell(Atom),
     /// The two spaces a value Function writes at its Output Portal when it
     /// has no Language Unit to write: a pulse on a Turn it does not Bang, as
-    /// Orca's bang ports write `.`, and a Copy of two empty Cells.
+    /// Orca's bang ports write `.`, and a Copy, Read or Track of two empty
+    /// Cells.
     ///
-    /// Nested, the Function returns the two spaces, so the operand it stands
-    /// in is unwritten.
+    /// Nested, it returns no value: the operand it stands in is unwritten,
+    /// so its parent is invalid and names it.
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     ///
@@ -830,5 +831,63 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn only_the_pulses_and_the_functions_that_copy_cells_answer_a_clear() {
+        // A Clear writes two spaces south of a root on every Turn it answers,
+        // so a Function added to this set would erase what stands below it.
+        // Every Function is evaluated over a spread of operands, Ticks and
+        // Input Portal Cells, and the set that ever answers a Clear is pinned.
+        use crate::{FunctionInputs, PortalSource};
+        use std::collections::BTreeSet;
+
+        let mut clearing = BTreeSet::new();
+        for function in Function::ALL.iter().copied() {
+            let arity = crate::Tokens::from(&function).len();
+            let spreads: [Vec<Atom>; 3] = [
+                vec![Atom::Number(1); arity],
+                (1..=arity).map(|n| Atom::Number(n as u8)).collect(),
+                vec![Atom::Number(2); arity],
+            ];
+            for operands in &spreads {
+                for tick in 0..8 {
+                    for cells in [None, Some("  "), Some("01")] {
+                        let inputs = FunctionInputs::with_portal_source(
+                            TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
+                            PortalSource::from_cells(cells),
+                        );
+                        let answer = Interpreter::execute_function(
+                            function,
+                            operands.iter().copied(),
+                            inputs,
+                        );
+                        if matches!(answer, Ok(Interpretation::Clear)) {
+                            clearing.insert(format!("{function:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        let expected: BTreeSet<String> = [
+            Function::Equality,
+            Function::Delay,
+            Function::Euclidean,
+            Function::CopyEast,
+            Function::CopyNorth,
+            Function::CopySouth,
+            Function::CopyWest,
+            Function::AbsoluteCopy,
+            Function::ReadEast,
+            Function::ReadNorth,
+            Function::ReadSouth,
+            Function::ReadWest,
+            Function::AbsoluteRead,
+            Function::Track,
+        ]
+        .iter()
+        .map(|function| format!("{function:?}"))
+        .collect();
+        assert_eq!(clearing, expected);
     }
 }
