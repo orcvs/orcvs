@@ -10,8 +10,8 @@ mod stack;
 mod tick;
 
 pub use atom::{
-    Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
-    ReplacementChange, Velocity, to_atom_note, to_atom_num,
+    Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, DistanceRule, Function, Length,
+    MidiChannel, Note, PositionRule, ReplacementChange, Velocity, to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
@@ -222,9 +222,9 @@ pub enum PortalAddress {
 /// rule where the pair stands. A rule takes the values of only its address
 /// operands: those that lead its Function's signature, except that the
 /// absolute Copy's destination rule takes its last two. The directional and
-/// absolute rules name the Read or Write they serve, whose signature states
-/// how many operands it takes; a Write's `value` follows its address, so a
-/// Write and the Read with the same arrow select the same pair.
+/// absolute rules are declared in the Read's or Write's row, whose signature
+/// states how many operands it takes; a Write's `value` follows its address,
+/// so a Write and the Read with the same arrow select the same pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairSelection {
     /// The pair `index % count` pairs east of the end of the last operand, on
@@ -236,23 +236,18 @@ pub enum PairSelection {
     /// selection.
     Lane,
     /// The pair `n` Portals from the `n` operand's slot, the pair immediately
-    /// after the Function's spelling, in the [`Direction`] named. Each step is
-    /// one pair east or west, or one row north or south in the slot's
-    /// columns, so a distance of zero is the slot itself. A directional
-    /// Read's and a directional Write's selection, naming that Function,
-    /// whose signature its operands are checked against. Only
-    /// [`Function::input_portal`] and [`Function::output`]
-    /// build one.
-    #[non_exhaustive]
-    Distance(Direction, Function),
+    /// after the Function's spelling, in the direction its [`DistanceRule`]
+    /// counts. Each step is one pair east or west, or one row north or south
+    /// in the slot's columns, so a distance of zero is the slot itself. A
+    /// directional Read's and a directional Write's selection; the rule is
+    /// the one its row declares and binds that Function's own operands.
+    Distance(DistanceRule),
     /// The pair at the Position its `column` and `row` operands name,
     /// counted in Cells from `00 00` at the Grid's top-left, wherever the
     /// Function stands. The absolute Read's and the absolute Write's
-    /// selection, naming that Function, whose signature its operands are
-    /// checked against. Only [`Function::input_portal`] and
-    /// [`Function::output`] build one.
-    #[non_exhaustive]
-    Position(Function),
+    /// selection; the rule is the one its row declares and binds that
+    /// Function's own operands.
+    Position(PositionRule),
     /// The pair at the Position the absolute Copy's first two operands,
     /// `src-column` and `src-row`, name: the pair it reads.
     SourcePosition,

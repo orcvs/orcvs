@@ -1,13 +1,5 @@
 use super::copy::copy;
-use crate::{
-    Atom, Error, Function,
-    atom::operands::{
-        AbsoluteRead, AbsoluteWrite, ReadEast, ReadNorth, ReadSouth, ReadWest, WriteEast,
-        WriteNorth, WriteSouth, WriteWest,
-    },
-    interpreter::Context,
-    stack::Operands,
-};
+use crate::{Atom, Error, interpreter::Context, stack::Operands};
 
 /// A Read: `&^ n`, `&v n`, `&< n`, `&> n` or `&$ column row`.
 ///
@@ -21,52 +13,9 @@ pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
     copy(ctx, O::FUNCTION)
 }
 
-/// The distance the directional Read or Write `function` counts, from the
-/// operands its Turn resolved.
-///
-/// The operands are checked against `function`'s own signature, so they
-/// diagnose as they would at its evaluation: a Write's `value` follows its
-/// `n` and is never read.
-pub(crate) fn distance(function: Function, operands: &[Atom]) -> Result<u8, Error> {
-    match function {
-        Function::ReadEast => bound(operands, |ReadEast { n }| n),
-        Function::ReadNorth => bound(operands, |ReadNorth { n }| n),
-        Function::ReadSouth => bound(operands, |ReadSouth { n }| n),
-        Function::ReadWest => bound(operands, |ReadWest { n }| n),
-        Function::WriteEast => bound(operands, |WriteEast { n, .. }| n),
-        Function::WriteNorth => bound(operands, |WriteNorth { n, .. }| n),
-        Function::WriteSouth => bound(operands, |WriteSouth { n, .. }| n),
-        Function::WriteWest => bound(operands, |WriteWest { n, .. }| n),
-        // Only `Function::input_portal` and `Function::output`
-        // build a distance selection, and each names one of the Functions
-        // above.
-        _ => unreachable!("{function:?} counts no distance"),
-    }
-}
-
-/// The Position the absolute Read `&$ column row` or the absolute Write
-/// `@$ column row value` that `function` names addresses, from the operands
-/// its Turn resolved, as `(column, row)`.
-///
-/// The operands are checked against `function`'s own signature, so they
-/// diagnose as they would at its evaluation: a Write's `value` follows the
-/// Position and is never read.
-pub(crate) fn position(function: Function, operands: &[Atom]) -> Result<(u8, u8), Error> {
-    match function {
-        Function::AbsoluteRead => bound(operands, |AbsoluteRead { column, row }| (column, row)),
-        Function::AbsoluteWrite => {
-            bound(operands, |AbsoluteWrite { column, row, .. }| (column, row))
-        }
-        // Only `Function::input_portal` and `Function::output`
-        // build a Position selection, and each names one of the Functions
-        // above.
-        _ => unreachable!("{function:?} addresses no Position"),
-    }
-}
-
 /// Checks and binds `operands` as `O`'s, answering what `read` takes from
 /// them.
-pub(super) fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Result<T, Error> {
+pub(crate) fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Result<T, Error> {
     O::check(operands)?;
     O::bind(operands).map(read)
 }
@@ -74,8 +23,9 @@ pub(super) fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Resu
 #[cfg(test)]
 mod test {
     use crate::{
-        Anchor, Atom, Direction, Function, FunctionInputs, Interpretation, InterpretationError,
-        Interpreter, Note, PortalSource, Tick, TickInputs,
+        Anchor, Atom, Direction, DistanceRule, Function, FunctionInputs, InputPortal,
+        Interpretation, InterpretationError, Interpreter, Note, PairSelection, PortalSource,
+        PositionRule, Tick, TickInputs,
     };
 
     const READS: [(Function, Direction); 4] = [
@@ -102,22 +52,29 @@ mod test {
         )
     }
 
+    /// The distance rule `function`'s row declares for its Input Portal.
+    fn distance_rule(function: Function) -> DistanceRule {
+        match function.input_portal() {
+            Some(InputPortal::Dynamic(PairSelection::Distance(rule))) => rule,
+            input => panic!("{function:?} reads {input:?}, not a distance"),
+        }
+    }
+
     #[test]
     fn a_read_counts_the_distance_its_n_operand_states() {
         let note = Atom::Note(Note::try_from(60).unwrap());
         for (function, direction) in READS {
+            let rule = distance_rule(function);
+            assert_eq!(rule.direction(), direction, "{function:?}");
             for n in [0, 1, 0xFF] {
                 assert_eq!(
-                    super::distance(function, &[Atom::Number(n)]).unwrap(),
+                    rule.distance(&[Atom::Number(n)]).unwrap(),
                     n,
                     "{direction:?}"
                 );
             }
             assert!(
-                matches!(
-                    super::distance(function, &[note]),
-                    Err(crate::Error::Type(_))
-                ),
+                matches!(rule.distance(&[note]), Err(crate::Error::Type(_))),
                 "{direction:?}"
             );
         }
@@ -126,17 +83,14 @@ mod test {
     #[test]
     fn an_absolute_read_addresses_column_then_row() {
         let position = |column, row| {
-            super::position(
-                Function::AbsoluteRead,
-                &[Atom::Number(column), Atom::Number(row)],
-            )
+            PositionRule::AbsoluteRead.position(&[Atom::Number(column), Atom::Number(row)])
         };
         assert_eq!(position(0, 0).unwrap(), (0, 0));
         assert_eq!(position(0x3A, 0x18).unwrap(), (0x3A, 0x18));
         assert_eq!(position(0xFF, 0xFF).unwrap(), (0xFF, 0xFF));
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            super::position(Function::AbsoluteRead, &[Atom::Number(0), note]),
+            PositionRule::AbsoluteRead.position(&[Atom::Number(0), note]),
             Err(crate::Error::Type(_))
         ));
         assert_eq!(

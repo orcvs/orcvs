@@ -391,6 +391,15 @@ enum ActivationSource {
     Bang,
 }
 
+/// Which of a Function's Portals the `distance:` or `position:` rule its row
+/// declares selects: the Input Portal a Read reads or the Output Portal a
+/// Write writes.
+#[derive(Clone, Copy)]
+enum SelectedPortal {
+    Input,
+    Output,
+}
+
 /// Whether a Function's answer can be a Bang: one column of the Function
 /// table, read by [`Function::can_emit_bang`] and
 /// [`Function::answers_only_bang`].
@@ -457,6 +466,22 @@ macro_rules! operands {
     };
 }
 
+// Implements `Carried` for `$variant`'s operand struct when its row declares a
+// `value: Untyped` role: the pair a Write or Push carries to its destination.
+macro_rules! carried {
+    ($variant:ident, []) => {};
+    ($variant:ident, [value: Untyped $(, $($rest:tt)*)?]) => {
+        impl crate::functions::write::Carried for $variant {
+            fn value(self) -> crate::Atom {
+                self.value
+            }
+        }
+    };
+    ($variant:ident, [$role:ident: $operand:ident $(, $($rest:tt)*)?]) => {
+        carried!($variant, [$($($rest)*)?]);
+    };
+}
+
 // Checks and binds `values` through `$variant`'s operand struct, for the table
 // sweep in the tests below. A row that declares no operand has nothing to bind.
 #[cfg(test)]
@@ -488,7 +513,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -618,6 +643,22 @@ macro_rules! define_functions {
                 }
             }
 
+            /// The rule by which this Function's operands select its pair, and
+            /// the Portal it selects, when its row declares one.
+            const fn declared_selection(self) -> Option<(SelectedPortal, crate::PairSelection)> {
+                match self {
+                    $($(Self::$variant => Some((
+                        SelectedPortal::$d_portal,
+                        crate::PairSelection::Distance(crate::DistanceRule::$variant),
+                    )),)?)+
+                    $($(Self::$variant => Some((
+                        SelectedPortal::$p_portal,
+                        crate::PairSelection::Position(crate::PositionRule::$variant),
+                    )),)?)+
+                    _ => None,
+                }
+            }
+
             /// The token each declared operand is read as, in signature order.
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
@@ -642,6 +683,73 @@ macro_rules! define_functions {
                 [$($role: crate::operand::$operand),*]
                 $(, $portal_role: $portal_type)?
             })+
+
+            $(carried!($variant, [$($role: $operand),*]);)+
+        }
+
+        /// How a directional Read's or Write's operands count the distance to
+        /// its pair: one rule per row that declares `distance:`, binding that
+        /// row's own operands.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum DistanceRule {
+            $($(
+                #[doc = concat!(
+                    "`", $spelling, "` counts its `", stringify!($d_n), "` operand ",
+                    stringify!($d_direction), " from its ", stringify!($d_portal), " Portal slot."
+                )]
+                $variant,
+            )?)+
+        }
+
+        impl DistanceRule {
+            /// The direction this rule counts in.
+            pub const fn direction(self) -> crate::Direction {
+                match self {
+                    $($(Self::$variant => crate::Direction::$d_direction,)?)+
+                }
+            }
+
+            /// The distance this rule counts, from the operands its Function's
+            /// Turn resolved, checked against that Function's own signature so
+            /// they diagnose as its evaluation would: a Write's `value` follows
+            /// its `n` and is never read.
+            pub(crate) fn distance(self, values: &[Atom]) -> Result<u8, Error> {
+                match self {
+                    $($(Self::$variant => crate::functions::read::bound(
+                        values,
+                        |operands::$variant { $d_n, .. }| $d_n,
+                    ),)?)+
+                }
+            }
+        }
+
+        /// How an absolute Read's or Write's operands name the Position of its
+        /// pair: one rule per row that declares `position:`, binding that row's
+        /// own operands.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum PositionRule {
+            $($(
+                #[doc = concat!(
+                    "`", $spelling, "` names its ", stringify!($p_portal), " Portal's Position by its `",
+                    stringify!($p_column), "` and `", stringify!($p_row), "` operands."
+                )]
+                $variant,
+            )?)+
+        }
+
+        impl PositionRule {
+            /// The Position, as `(column, row)`, from the operands its
+            /// Function's Turn resolved, checked against that Function's own
+            /// signature so they diagnose as its evaluation would: a Write's
+            /// `value` follows the Position and is never read.
+            pub(crate) fn position(self, values: &[Atom]) -> Result<(u8, u8), Error> {
+                match self {
+                    $($(Self::$variant => crate::functions::read::bound(
+                        values,
+                        |operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row),
+                    ),)?)+
+                }
+            }
         }
 
         #[cfg(test)]
@@ -672,8 +780,8 @@ define_functions! {
     spelled: {
     AbsoluteCopy => ("=$", Value, Intrinsic, May, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
     AbsoluteDifference => (".|", Value, Intrinsic, Never, [left: Number, right: Number]),
-    AbsoluteRead => ("&$", Value, Intrinsic, May, [column: Number, row: Number]),
-    AbsoluteWrite => ("@$", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped]),
+    AbsoluteRead => ("&$", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row),
+    AbsoluteWrite => ("@$", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row),
     Add => (".+", Value, Intrinsic, Never, [left: Number, right: Number]),
     Clock => ("~.", Value, Intrinsic, Never, [rate: Number, modulus: Number]),
     ControlChange => ("!c", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
@@ -703,10 +811,10 @@ define_functions! {
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    ReadEast => ("&>", Value, Intrinsic, May, [n: Number]),
-    ReadNorth => ("&^", Value, Intrinsic, May, [n: Number]),
-    ReadSouth => ("&v", Value, Intrinsic, May, [n: Number]),
-    ReadWest => ("&<", Value, Intrinsic, May, [n: Number]),
+    ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
+    ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
+    ReadSouth => ("&v", Value, Intrinsic, May, [n: Number], distance: Input South n),
+    ReadWest => ("&<", Value, Intrinsic, May, [n: Number], distance: Input West n),
     SelfBangingEast => (">>", SelfBangEast, Intrinsic, Never, []),
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Never, []),
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
@@ -714,10 +822,10 @@ define_functions! {
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
-    WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped]),
-    WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped]),
-    WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped]),
-    WriteWest => ("@<", Value, Intrinsic, May, [n: Number, value: Untyped]),
+    WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
+    WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
+    WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output South n),
+    WriteWest => ("@<", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output West n),
     }
     named: {
     Bang => ("**", Fire, Intrinsic, May, []),
@@ -893,23 +1001,21 @@ impl Function {
     /// How this Function's operands select the pair its dynamic Output Portal
     /// writes, or `None` when its Output Portal, if any, is static.
     ///
-    /// Each Write selects its pair by the rule the Read with the same arrow,
-    /// or the absolute Read, selects the pair it reads: the address operands
-    /// lead the signature and `value` follows them. Push selects a pair of
+    /// Each Write's row declares the rule its address operands select its
+    /// pair by, the rule the Read with the same arrow, or the absolute Read,
+    /// declares for the pair it reads: the address operands lead the
+    /// signature and `value` follows them. Push selects a pair of
     /// the lane below it, and the absolute Copy the destination Position its
     /// last two operands name.
     const fn selection(self) -> Option<crate::PairSelection> {
-        use crate::Direction::{East, North, South, West};
-        use crate::PairSelection::{DestinationPosition, Distance, Lane, Position};
+        use crate::PairSelection::{DestinationPosition, Lane};
         match self {
             Self::AbsoluteCopy => Some(DestinationPosition),
-            Self::AbsoluteWrite => Some(Position(self)),
             Self::Push => Some(Lane),
-            Self::WriteEast => Some(Distance(East, self)),
-            Self::WriteNorth => Some(Distance(North, self)),
-            Self::WriteSouth => Some(Distance(South, self)),
-            Self::WriteWest => Some(Distance(West, self)),
-            _ => None,
+            _ => match self.declared_selection() {
+                Some((SelectedPortal::Output, selection)) => Some(selection),
+                _ => None,
+            },
         }
     }
 
@@ -919,11 +1025,10 @@ impl Function {
     /// Interpolation name one row south, the same site as their Output Portal.
     /// Those are static. Track's, every Read's and the absolute Copy's are
     /// dynamic, and each names the rule by which its operands select the pair
-    /// it reads.
+    /// it reads; a Read's row declares its rule.
     pub const fn input_portal(self) -> Option<crate::InputPortal> {
-        use crate::Direction::{East, North, South, West};
         use crate::InputPortal::{Dynamic, Static};
-        use crate::PairSelection::{Distance, IndexModuloCount, Position, SourcePosition};
+        use crate::PairSelection::{IndexModuloCount, SourcePosition};
         match self {
             Self::AbsoluteCopy => Some(Dynamic(SourcePosition)),
             Self::CopyEast => Some(Static(crate::PortalCoords {
@@ -939,14 +1044,12 @@ impl Function {
                 columns: 0,
                 rows: -1,
             })),
-            Self::AbsoluteRead => Some(Dynamic(Position(self))),
-            Self::ReadEast => Some(Dynamic(Distance(East, self))),
-            Self::ReadNorth => Some(Dynamic(Distance(North, self))),
-            Self::ReadSouth => Some(Dynamic(Distance(South, self))),
-            Self::ReadWest => Some(Dynamic(Distance(West, self))),
             Self::Track => Some(Dynamic(IndexModuloCount)),
             _ if self.portal_input().is_some() => Some(Static(crate::PortalCoords::SOUTH)),
-            _ => None,
+            _ => match self.declared_selection() {
+                Some((SelectedPortal::Input, selection)) => Some(Dynamic(selection)),
+                _ => None,
+            },
         }
     }
 
@@ -1299,11 +1402,51 @@ mod test {
     }
 
     #[test]
+    fn every_declared_distance_or_position_binds_its_own_functions_operands() {
+        use crate::{ArgumentError, Error, InputPortal, Output, PairSelection};
+        let mut declared = 0;
+        for function in Function::ALL.iter().copied() {
+            let input = match function.input_portal() {
+                Some(InputPortal::Dynamic(selection)) => Some(selection),
+                _ => None,
+            };
+            let output = match function.output() {
+                Output::Dynamic(selection) => Some(selection),
+                _ => None,
+            };
+            for selection in input.into_iter().chain(output) {
+                let bind = |values: &[Atom]| match selection {
+                    PairSelection::Distance(rule) => Some(rule.distance(values).map(drop)),
+                    PairSelection::Position(rule) => Some(rule.position(values).map(drop)),
+                    _ => None,
+                };
+                let arity = function.signature().len();
+                let Some(own) = bind(&vec![Atom::Number(1); arity]) else {
+                    continue;
+                };
+                declared += 1;
+                assert!(own.is_ok(), "{function:?}: {own:?}");
+                let extra = bind(&vec![Atom::Number(1); arity + 1]);
+                assert!(
+                    matches!(
+                        extra,
+                        Some(Err(Error::Argument(ArgumentError::Arity { expected, .. })))
+                            if expected == arity
+                    ),
+                    "{function:?}: {extra:?}"
+                );
+            }
+        }
+        // The four directional Reads and Writes, and the absolute Read and Write.
+        assert_eq!(declared, 10);
+    }
+
+    #[test]
     fn every_function_names_its_input_portal() {
         use crate::{
             Direction,
             InputPortal::{Dynamic, Static},
-            PairSelection, PortalCoords,
+            PairSelection, PortalCoords, PositionRule,
         };
         // The arrow each Read's spelling names.
         const READS: [(Function, Direction); 4] = [
@@ -1353,15 +1496,19 @@ mod test {
                         .iter()
                         .find(|(read, _)| *read == function)
                         .expect("every Read is listed");
-                    assert_eq!(
-                        input,
-                        Some(Dynamic(PairSelection::Distance(*direction, function))),
-                        "{function:?}"
+                    assert!(
+                        matches!(
+                            input,
+                            Some(Dynamic(PairSelection::Distance(rule)))
+                                if rule.direction() == *direction
+                        ),
+                        "{function:?}: {input:?}"
                     );
                 }
-                Function::AbsoluteRead => {
-                    assert_eq!(input, Some(Dynamic(PairSelection::Position(function))));
-                }
+                Function::AbsoluteRead => assert_eq!(
+                    input,
+                    Some(Dynamic(PairSelection::Position(PositionRule::AbsoluteRead)))
+                ),
                 // The absolute Copy reads one Position and writes another.
                 Function::AbsoluteCopy => {
                     assert_eq!(input, Some(Dynamic(PairSelection::SourcePosition)));
@@ -1373,7 +1520,7 @@ mod test {
 
     #[test]
     fn every_function_does_one_thing_through_its_output_portal() {
-        use crate::{Direction, Output, PairSelection, PortalCoords};
+        use crate::{DistanceRule, Output, PairSelection, PortalCoords, PositionRule};
         let east = PortalCoords {
             columns: 2,
             rows: 0,
@@ -1418,22 +1565,25 @@ mod test {
                 Function::CopyNorth => assert_eq!(output, Output::Static(north)),
                 Function::WriteEast => assert_eq!(
                     output,
-                    Output::Dynamic(PairSelection::Distance(Direction::East, function))
+                    Output::Dynamic(PairSelection::Distance(DistanceRule::WriteEast))
                 ),
                 Function::WriteNorth => assert_eq!(
                     output,
-                    Output::Dynamic(PairSelection::Distance(Direction::North, function))
+                    Output::Dynamic(PairSelection::Distance(DistanceRule::WriteNorth))
                 ),
                 Function::WriteSouth => assert_eq!(
                     output,
-                    Output::Dynamic(PairSelection::Distance(Direction::South, function))
+                    Output::Dynamic(PairSelection::Distance(DistanceRule::WriteSouth))
                 ),
                 Function::WriteWest => assert_eq!(
                     output,
-                    Output::Dynamic(PairSelection::Distance(Direction::West, function))
+                    Output::Dynamic(PairSelection::Distance(DistanceRule::WriteWest))
                 ),
                 Function::AbsoluteWrite => {
-                    assert_eq!(output, Output::Dynamic(PairSelection::Position(function)));
+                    assert_eq!(
+                        output,
+                        Output::Dynamic(PairSelection::Position(PositionRule::AbsoluteWrite))
+                    );
                 }
                 Function::Push => assert_eq!(output, Output::Dynamic(PairSelection::Lane)),
                 Function::AbsoluteCopy => {
