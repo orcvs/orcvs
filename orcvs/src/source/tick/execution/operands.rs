@@ -15,8 +15,7 @@
 use lang::Atom;
 
 use super::{
-    Answer, Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, SCALAR_WIDTH,
-    render_message,
+    Answer, Computation, ComputationId, Encoding, Execution, Operand, SCALAR_WIDTH, render_message,
 };
 
 impl Execution<'_> {
@@ -65,11 +64,17 @@ impl Execution<'_> {
                 };
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
                 let returned = match self.turns.result(child) {
-                    // A Clear returns the two spaces it wrote, so the operand
-                    // it stands in is unwritten. A Copy of empty Cells and a
-                    // pulse that does not Bang both answer one.
+                    // A Clear wrote two spaces, so the operand it stands in is
+                    // unwritten. The parent names the child, since the two
+                    // spaces alone cannot say which Function cleared them. A
+                    // Copy of empty Cells and a pulse that does not Bang both
+                    // answer one.
                     Some(Answer::Clear) => {
-                        return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
+                        return Err(format!(
+                            "nested computation at column {}, row {} cleared its operand",
+                            anchor.x(),
+                            anchor.y()
+                        ));
                     }
                     Some(Answer::Unit(atom)) => match Encoding::render(atom) {
                         Ok(encoding) => encoding,

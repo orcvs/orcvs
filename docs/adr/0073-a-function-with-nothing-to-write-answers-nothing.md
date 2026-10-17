@@ -8,13 +8,13 @@ Orca has no such value. A port is a Cell with no lifetime: a value operator whos
 
 ## Decision
 
-**A value Function answers a Language Unit or a Clear.** A Clear writes two spaces at the Output Portal, root or nested, and a nested one returns those spaces, so the operand it stands in is empty and the parent is invalid under ADR 0069. Equality, Delay and Euclidean answer a Clear on every Turn they do not Bang, which erases the `**` they wrote last, as Orca's bang ports write `.`. A Copy, Read or Track answers a Clear for two empty Cells, which is the copy ADR 0069 already describes. The Cells a pulse clears are the ones it reserves for its Bang, so no dependency changes. A Clear is not an Atom: no operand holds it, and it writes no Language Unit, so no reach rule reads it as a Function or a Bang.
+**A value Function answers a Language Unit or a Clear.** A Clear writes two spaces at the Output Portal, root or nested, and a nested one leaves the operand it stands in unwritten, so the parent is invalid under ADR 0069 and its diagnostic names the child that cleared it. Equality, Delay and Euclidean answer a Clear on every Turn they do not Bang, which erases the `**` they wrote last, as Orca's bang ports write `.`. A Copy, Read or Track answers a Clear for two empty Cells, which is the copy ADR 0069 already describes. The Cells a pulse clears are the ones it reserves for its Bang, so no dependency changes. A Clear is not an Atom: no operand holds it, and it writes no Language Unit, so no reach rule reads it as a Function or a Bang.
 
 **"No output this Tick" is no answer.** A Function that takes no Turn, or is invalid, writes nothing and leaves its last write standing (ADR 0034, ADR 0069). Nothing marks it, and every Atom has a Source encoding.
 
 ## Consequences
 
-- Every Source behaves as before, except one diagnostic: a nested pulse that does not Bang leaves its parent diagnosed as an unwritten operand, `expected a number, found "  "` in a Number operand and `expected a Language Unit, found "  "` in a Write's value, not "returned nothing". The parent is invalid either way.
+- Every Source behaves as before, except the diagnostic on the parent of a nested Clear. The parent reads `nested computation at column 2, row 0 cleared its operand`, naming the child, where before a nested pulse that did not Bang gave "returned nothing" and a nested Copy of empty Cells gave `expected a number, found "  "`. Two spaces cannot say which Function wrote them, so the name comes from the Turn. The parent is invalid either way.
 - The Source tick no longer asks whether a Function copies a Language Unit or answers only Bang, and those two Function predicates are removed.
 
 ## Considered options

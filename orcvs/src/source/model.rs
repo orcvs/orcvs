@@ -2383,20 +2383,19 @@ mod test {
             assert_eq!(src.row(1), row, "{expression}");
         }
 
-        // A nested unequal comparison clears its Output Portal and returns
-        // the two spaces, which its parent's Number operand refuses as
-        // unwritten. An equal one returns `**`, which the Number operand
+        // A nested unequal comparison clears its Output Portal, so its
+        // parent's operand is unwritten and the parent names the child. An equal one returns `**`, which the Number operand
         // refuses after the child has written its display.
         for (expression, row, message) in [
             (
                 ".+.=010203",
                 "          ",
-                "expected a number, found \"  \"",
+                "nested computation at column 2, row 0 cleared its operand",
             ),
             (
                 ".+03.=0102",
                 "          ",
-                "expected a number, found \"  \"",
+                "nested computation at column 4, row 0 cleared its operand",
             ),
             (
                 ".+.=010103",

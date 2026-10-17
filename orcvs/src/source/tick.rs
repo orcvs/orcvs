@@ -1403,7 +1403,7 @@ mod test {
         );
         assert_eq!(
             messages(&plans[0]),
-            ["expected a Language Unit, found \"  \""]
+            ["nested computation at column 6, row 4 cleared its operand"]
         );
     }
 
@@ -4074,15 +4074,19 @@ mod test {
     #[test]
     fn a_nested_equality_that_does_not_bang_leaves_its_parent_operand_unwritten() {
         // Equality with unequal operands clears its own Output Portal, one row
-        // south of its anchor, as a root Equality that does not Bang does, and
-        // returns those two spaces, so the Addition's operand is unwritten and
-        // the Addition is diagnosed.
+        // south of its anchor, as a root Equality that does not Bang does, so
+        // the Addition's operand is unwritten and the Addition is diagnosed,
+        // naming the Equality that cleared it.
         let grid = Grid::with_shape(10, 3);
         let observed = super::observed::observe_at(grid, &[".+.=010201", "  C4"], [0]).remove(0);
         assert_eq!(observed.rows[1], "          ");
         assert_eq!(
             observed.diagnostics,
-            [(0, 0, "expected a number, found \"  \"".to_string())]
+            [(
+                0,
+                0,
+                "nested computation at column 2, row 0 cleared its operand".to_string()
+            )]
         );
     }
 

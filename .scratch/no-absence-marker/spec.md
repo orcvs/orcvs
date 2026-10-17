@@ -96,14 +96,17 @@ Each of the two facts gets its own type, and neither of them is an `Atom`:
 
 ## Behaviour
 
-Every Source behaves as it does on main, with one exception. A nested quiet
-pulse currently diagnoses its parent with "nested computation … returned
-nothing". After this change the parent diagnoses with the message for an
-unwritten operand. The parent is invalid in both cases.
+Every Source behaves as it does on main, except the diagnostic on the parent
+of a nested Clear. On main a nested pulse that did not Bang gave "nested
+computation … returned nothing" and a nested Copy of empty Cells gave the
+unwritten-operand message. After this change both give "nested computation at
+column …, row … cleared its operand", naming the child. The parent is invalid
+in every case.
 
 ## Decisions
 
 - On 2026-10-17 Toby confirmed that a nested pulse that does not Bang leaves its parent invalid, diagnosed as an unwritten operand.
+- On 2026-10-17, in review, Toby chose to have the parent of any nested Clear name the child that cleared it, since two spaces alone cannot say which Function wrote them.
 
 - On 2026-10-17 Toby reframed candidate 3. The underlying design is the
   problem, not the blank, and the type system should do the work. Toby
