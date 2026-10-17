@@ -128,5 +128,9 @@ in every case.
 
 ## Out of scope
 
-- Track, Read and the other pass-through Functions. They already carry Cells.
+- Track, Read and the other pass-through Functions. They already carry Cells,
+  so they need no work of their own. Read and Track read their pair through
+  Copy's evaluation, so they follow item 2: two empty Cells answer `Clear`.
+  Their write is unchanged from main, and a nested one leaves its parent
+  naming it, like any nested Clear.
 - Candidate 5, MIDI selection as one Phase.
