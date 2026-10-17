@@ -1,6 +1,6 @@
 # 14 — Decide whether a half-typed pair replays the last Note
 
-Status: needs-triage
+Status: resolved
 
 **What to decide:**
 
@@ -16,13 +16,19 @@ read fails the Play and it sends nothing (`orcvs/src/playback/tests/shipped_trac
 
 ## Acceptance criteria
 
-- [ ] Decide whether a value Function that is invalid because of partial input should leave its
+- [x] Decide whether a value Function that is invalid because of partial input should leave its
       Output Portal as it was (ADR 0069 today) or clear it, and record the decision in an ADR if it
       changes.
-- [ ] If it changes, update `console::kittest_tests::live_editing::a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it`
-      and the "While you edit" section of `examples/cell-tracker.md`.
+- [x] ~~If it changes, update `console::kittest_tests::live_editing::a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it`
+      and the "While you edit" section of `examples/cell-tracker.md`.~~ It does not change.
 
 ## Comments
 
 Split from `05` on 2026-10-17. The behaviour is pinned by the test above and documented in the
 guide, so nothing is broken while this waits.
+
+### Decided 2026-10-17 by Toby
+
+Keep ADR 0069: a value Function that is invalid because of partial input writes nothing and leaves
+its Output Portal as it was, so a half-typed pair Track selects replays the previous step's Note.
+No ADR changes. The test and the guide's "While you edit" already describe this behaviour.

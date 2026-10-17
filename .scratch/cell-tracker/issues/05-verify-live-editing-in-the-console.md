@@ -1,6 +1,6 @@
 # 05 — Verify live editing in the console
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 04, 14
 
 **What to build:**
@@ -10,7 +10,7 @@ Track selects, clear it and restore it while Playback runs.
 
 ## Acceptance criteria
 
-- [ ] Typing or pasting a Note into a pair changes the next eligible Tick; a malformed intermediate edit recovers without spurious notes and with bounded useful diagnostics. Delivered except "without spurious notes", which `14` decides; see 2026-10-17.
+- [x] Typing or pasting a Note into a pair changes the next eligible Tick; a malformed intermediate edit recovers ~~without spurious notes~~ with bounded useful diagnostics, replaying the previous Note for the half-typed Tick as `14` decided.
 - [x] Clearing a pair leaves later pairs in place; copy and paste retain empty pairs.
 - [x] The pairs east of Track paint as ordinary Source (ADR 0067).
 - [x] Open, Save, reopen and a new Playback run reproduce the written pattern and reset the Clock according to the Playback contract.
@@ -60,3 +60,8 @@ Every criterion but the "without spurious notes" clause of the first is delivere
 ticket stays open, blocked by `14`, until that decision either makes the half-typed Tick silent or
 rewords the criterion to the replay ADR 0069 gives today. `06` and `source-read-write/03` rest only
 on the delivered parts: the console tests their own criteria name.
+
+### 2026-10-17 — Resolved after `14`
+
+Toby decided in `14` to keep ADR 0069's replay, so the first criterion is reworded to it and the
+ticket is resolved.
