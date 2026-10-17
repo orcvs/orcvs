@@ -222,6 +222,10 @@ async fn a_note_typed_over_a_pair_plays_on_the_next_tick_that_selects_it() {
 /// the Note an earlier step left and the Bang plays that Note again. The
 /// Tick after the Note is finished plays it and diagnoses nothing.
 ///
+/// The replay is provisional: `.scratch/cell-tracker/issues/14-*` decides
+/// whether that Tick should be silent instead, which would change the
+/// half-typed assertion below and the guide's "While you edit".
+///
 #[tokio::test]
 async fn a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it() {
     let dir = TempDir::new();

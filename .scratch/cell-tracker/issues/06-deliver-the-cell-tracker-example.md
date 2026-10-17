@@ -16,7 +16,7 @@ normal console File > Open flow.
 - [x] The guide distinguishes Track from Orca's `T`: Track's read is ordered after every writer of its selected pair that has not yet taken its Turn, and a writer that waits on Track forms a diagnosed same-Tick cycle. It explains that Track copies an empty pair's Cells like any others, so a Timed Play whose note slot they empty is invalid (ADR 0069): it emits no new trigger and does not cancel an earlier Timed Play lifetime. It also explains that a value Function placed between Track and the Play and delivering through Cells leaves its last answer in the slot when it is invalid, so the next Bang plays it again.
 - [x] A test loads the exact shipped Source File and checks at least two complete loops through Source/Tick and Playback, including empty pairs and expected Note Off behavior. It asserts each Tick's diagnostics exactly. A Banged Tick whose selected pair is empty emits no Play Command and one Tick diagnostic, anchored at the Timed Play, that its note slot is empty (ADR 0069); this repeats on every loop. Every other Tick, an unbanged one on an empty pair included, emits no Tick diagnostic. While the note slot is empty the Language Map also diagnoses the Play. The test does not pin the Map's diagnostics of the pairs themselves, which ADR 0067 leaves to the Parser.
 - [x] The example works through the console editing and file workflows verified by ticket 05.
-- [ ] The audible MIDI smoke test is recorded in `13`.
+- ~~The audible MIDI smoke test is recorded in `13`.~~ Moved to `13` on 2026-10-13; delivery is complete only when `13` is.
 
 ## Comments
 

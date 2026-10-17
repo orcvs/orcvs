@@ -1,7 +1,7 @@
 # 05 — Verify live editing in the console
 
-Status: resolved
-Blocked by: 04
+Status: ready-for-agent
+Blocked by: 04, 14
 
 **What to build:**
 
@@ -53,3 +53,10 @@ thing that runs a Tick; the kittest module forbids waiting on Playback.
   `playback_begins_at_the_first_tick_and_advances_one_per_executed_tick`).
 - A rest is diagnosed once: by the Tick that empties the note slot, then by the Language Map while
   it stays empty.
+
+### 2026-10-17 — Kept open on `14`
+
+Every criterion but the "without spurious notes" clause of the first is delivered and tested. The
+ticket stays open, blocked by `14`, until that decision either makes the half-typed Tick silent or
+rewords the criterion to the replay ADR 0069 gives today. `06` and `source-read-write/03` rest only
+on the delivered parts: the console tests their own criteria name.

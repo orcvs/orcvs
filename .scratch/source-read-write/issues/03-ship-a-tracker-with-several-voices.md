@@ -13,7 +13,7 @@ Port the Orca TRACKER patch: one Clock shared by several voices, each offsetting
 - [x] The guide maps each Orca operator in the patch to its Orcvs Function, explains that `&v` counts rows from its own operand and why each voice adds `01`, and gives the BPM, MIDI channels, velocity and length, with exact columns for spatial alignment.
 - [x] A test loads the exact shipped Source File and checks two complete loops of every voice through Source/Tick and Playback, including empty steps and Note Off timing, asserting each Tick's diagnostics exactly.
 - [x] The example works through the console editing and file workflows verified by `cell-tracker/05`: edit a step, clear and restore it, Save and reopen.
-- [ ] Record an audible MIDI smoke test with device, channels and BPM; do not mark delivery complete on automated evidence alone. Moved to `14`.
+- ~~Record an audible MIDI smoke test with device, channels and BPM; do not mark delivery complete on automated evidence alone.~~ Moved to `source-read-write/14`; delivery is complete only when it is.
 
 ## Comments
 
@@ -32,5 +32,5 @@ diagnostics exactly; `a_half_typed_step_silences_only_its_own_voice` covers a pa
 `console::kittest_tests::live_editing::the_four_voice_tracker_edits_saves_and_reopens_a_voices_steps`
 edits, clears, restores, saves and reopens a step through the console.
 
-The last criterion needs a person with a MIDI device and moves to `14`, as `cell-tracker/13` did
+The last criterion needs a person with a MIDI device and moves to `source-read-write/14`, as `cell-tracker/13` did
 for the single-voice example.
