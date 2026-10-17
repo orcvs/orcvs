@@ -30,29 +30,12 @@ use super::CellContent;
 /// A non-empty run of Source Cells.
 ///
 /// Non-emptiness and printable content are properties of the type rather than
-/// checks a caller repeats: [`Encoding::render`] answers [`Rendered::Nothing`]
-/// for the value that has no Cells of its own, so an `Encoding` that exists
-/// places at least one Cell. [`super::portal::Portal`] relies on that, and it
-/// is held here, where the invariant is established.
+/// checks a caller repeats: every Atom spells at least one Cell, so an
+/// `Encoding` that exists places at least one. [`super::portal::Portal`]
+/// relies on that, and it is held here, where the invariant is established.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Encoding(Vec<CellContent>);
-
-///
-/// What one answered value becomes at a Portal.
-///
-/// The Absence Marker is answered here rather than by a caller matching on it:
-/// CONTEXT.md says it "has no Source encoding of its own" and "is not a
-/// language value". Whether a Function clears its Output Portal for it is a
-/// fact about the Function, decided where the answer is delivered.
-///
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Rendered {
-    /// The value has no Cells of its own to write.
-    Nothing,
-    /// The Cells this value occupies, wherever it is delivered.
-    Cells(Encoding),
-}
 
 ///
 /// Why text could not become Source Cells at all.
@@ -76,30 +59,28 @@ pub(super) enum RenderError {
 
 impl Encoding {
     ///
-    /// The Cells one answered value occupies, or the reason it occupies none.
+    /// The Cells one answered value occupies, wherever it is delivered, or
+    /// the reason it occupies none.
     ///
     /// The whole rendering is decided before an `Encoding` exists, so a value
     /// that cannot be Cells yields nothing to write half of — the same
     /// whole-destination shape [`super::portal::Portal`] has one step later.
     ///
-    pub(super) fn render(atom: Atom) -> Result<Rendered, RenderError> {
-        if atom == Atom::Empty {
-            return Ok(Rendered::Nothing);
-        }
-        Self::literal(&atom.to_string()).map(Rendered::Cells)
+    pub(super) fn render(atom: Atom) -> Result<Self, RenderError> {
+        Self::literal(&atom.to_string())
     }
 
     ///
     /// Source characters no value produced.
     ///
-    /// Clearing a Bang's display writes two spaces, which is Source content
-    /// rather than an answer, and a test states Source text directly for the
-    /// same reason. Both are still held to a Cell's definition, so this is a
-    /// second constructor rather than a second rule.
+    /// A clear writes two spaces, which is Source content rather than a
+    /// value, and a test states Source text directly for the same reason.
+    /// Both are still held to a Cell's definition, so this is a second
+    /// constructor rather than a second rule.
     ///
-    /// Panics on empty input: [`Encoding::render`] proves non-emptiness by
-    /// answering [`Rendered::Nothing`] instead, and no caller here has a Cell
-    /// count it has not already chosen.
+    /// Panics on empty input: every Atom [`Encoding::render`] renders spells
+    /// at least one Cell, and no caller here has a Cell count it has not
+    /// already chosen.
     ///
     pub(super) fn literal(text: &str) -> Result<Self, RenderError> {
         assert!(!text.is_empty(), "an Encoding places at least one Cell");
@@ -133,13 +114,8 @@ impl std::fmt::Display for Encoding {
 
 #[cfg(test)]
 mod test {
-    use super::{Encoding, RenderError, Rendered};
+    use super::{Encoding, RenderError};
     use lang::{Atom, Function, Note};
-
-    #[test]
-    fn the_absence_marker_renders_to_nothing() {
-        assert_eq!(Encoding::render(Atom::Empty), Ok(Rendered::Nothing));
-    }
 
     #[test]
     fn every_value_the_language_holds_renders_to_cells() {
@@ -161,7 +137,7 @@ mod test {
             assert!(
                 matches!(
                     Encoding::render(atom),
-                    Ok(Rendered::Cells(cells)) if cells.len() == 2
+                    Ok(cells) if cells.len() == 2
                 ),
                 "{atom:?} did not become two Source Cells",
             );

@@ -9,10 +9,14 @@ Return around the clear. A new ADR records the decision, as described in
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Every value the language holds has a Source encoding.
-- [ ] Rendering an answer cannot yield "nothing".
-- [ ] CONTEXT.md and the new ADR describe the clear and no Absence Marker.
-- [ ] Gates pass with `PROPTEST_CASES=32`, including rustdoc with
+- [x] Every value the language holds has a Source encoding.
+- [x] Rendering an answer cannot yield "nothing".
+- [x] CONTEXT.md and the new ADR describe the clear and no Absence Marker.
+- [x] Gates pass with `PROPTEST_CASES=32`, including rustdoc with
       `-D warnings`.
+
+## Comments
+
+2026-10-17: `Atom::Empty`, `Rendered`, `Function::answers_only_bang` and `BangAnswer::Only` are removed, `Untyped::from_atom` carries every Atom, and ADR 0073 records the decision. CONTEXT.md replaces the Absence Marker entry with Clear.

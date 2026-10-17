@@ -28,7 +28,7 @@ use crate::source::buffer::WorkingCells;
 /// What an admitted write does to placement geometry besides its Cells.
 #[derive(Clone, Copy)]
 pub(super) enum WriteKind {
-    /// Ordinary Source content: a value, a Copy's write, or an Absence write.
+    /// Ordinary Source content: a value, a Copy's write, or a clear.
     /// It obscures nothing, and an intact placement it
     /// reaches stops being one unit.
     Output,

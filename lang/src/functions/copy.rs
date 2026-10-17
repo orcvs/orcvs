@@ -188,7 +188,7 @@ mod test {
 
     #[test]
     fn a_portal_that_is_not_one_two_cell_unit_diagnoses() {
-        // Blank Cells of the wrong width are not an Empty unit, and a wider
+        // Blank Cells of the wrong width are not a blank pair, and a wider
         // run whose digits still parse is not a Number: only exactly two
         // Cells are a Language Unit a Copy can copy.
         for cells in ["", " ", "   ", "    ", "1", "001", "0001", "****"] {

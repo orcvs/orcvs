@@ -161,14 +161,10 @@ impl TokenKind for Untyped {
     const TOKEN: Token = Token::Untyped;
     type Payload = crate::Atom;
 
-    /// Every Atom but the Absence Marker is a Language Unit's encoding. The
-    /// Absence Marker spells no Cells, so it is nothing to carry.
+    /// Every Atom is a Language Unit's encoding, so every Atom is carried.
     #[inline(always)]
     fn from_atom(atom: crate::Atom) -> Result<crate::Atom, Error> {
-        match atom {
-            crate::Atom::Empty => Err(TypeError::Unit(atom.into()).into()),
-            atom => Ok(atom),
-        }
+        Ok(atom)
     }
 }
 

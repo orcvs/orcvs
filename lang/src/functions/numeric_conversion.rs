@@ -97,9 +97,9 @@ mod test {
     #[test]
     fn conversion_to_note_refuses_every_number_above_the_range() {
         // Every Number above the range diagnoses and produces no result at
-        // all. Not `Atom::Empty`, which is the Interpreter's silent "no result
-        // write", and not a value folded into the range: `80`–`FF` name no
-        // pitch, so the Source is told rather than answered.
+        // all. Not a clear, which writes two spaces, and not a value folded
+        // into the range: `80`–`FF` name no pitch, so the Source is told
+        // rather than answered.
         for value in 0x80..=u8::MAX {
             assert!(
                 matches!(

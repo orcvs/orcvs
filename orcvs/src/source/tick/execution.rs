@@ -16,8 +16,8 @@ use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
     Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
-    Operand, Portal, PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH,
-    SpanWrite, TickPlan, coverage, diagnose, resolve, tick_inputs,
+    Operand, Portal, PortalError, PortalUnit, Position, RenderError, SCALAR_WIDTH, SpanWrite,
+    TickPlan, coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
 use turns::{Activation, Answer, Turns};
@@ -410,8 +410,7 @@ impl<'a> Execution<'a> {
         let encoding = match answer {
             Answer::Clear => Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell"),
             Answer::Unit(atom) => match Encoding::render(atom) {
-                Ok(Rendered::Nothing) => return,
-                Ok(Rendered::Cells(encoding)) => encoding,
+                Ok(encoding) => encoding,
                 Err(reason) => {
                     self.effects
                         .push(Effect::Diagnose(diagnose(node, render_message(reason))));

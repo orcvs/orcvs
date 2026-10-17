@@ -303,11 +303,6 @@ impl Portal {
     /// The write retains validated CellContent values through resolution and
     /// commit.
     ///
-    /// A value with no Cells of its own renders to
-    /// [`super::encoding::Rendered::Nothing`] and never reaches a Portal as
-    /// itself; what a Function writes for it instead is a rule about results,
-    /// and it belongs where results are read.
-    ///
     pub(super) fn admit(&self, encoding: &Encoding) -> Result<SpanWrite, PortalError> {
         let content: Vec<CellContent> = encoding.content();
         Ok(SpanWrite {

@@ -730,8 +730,8 @@ mod test {
     fn euclidean_refuses_a_cycle_of_no_steps_before_it_counts_its_hits() {
         // The required ordering. `00 00` is the case it is
         // stated for: a cycle with no positions rather than a pattern with no
-        // onsets, so it diagnoses instead of quietly answering the Absence
-        // Marker forever the way `~% 00 04` does.
+        // onsets, so it diagnoses instead of quietly answering a clear
+        // forever the way `~% 00 04` does.
         for hits in [0x00u8, 0x01, 0xFF] {
             let error = answer(Function::Euclidean, 3, hits, 0x00).unwrap_err();
             assert_eq!(

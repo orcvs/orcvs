@@ -553,7 +553,7 @@ fn identical_snapshots_at_the_same_tick_plan_the_same_tick() {
 // Ticket 02: a producer that takes no Turn writes nothing, so the `**` it
 // left on the Tick before fires once at its own Turn.
 
-/// The three Functions that answer only Bang or the Absence Marker, each
+/// The three Functions that answer only Bang or a clear, each
 /// spelled to Bang on every Tick until an edit says otherwise.
 const BANGING: [&str; 3] = [".=0101", "~*0101", "~%0101"];
 
@@ -599,7 +599,7 @@ fn a_producer_that_takes_no_turn_leaves_its_last_bang_to_fire_once() {
 }
 
 #[test]
-fn a_producer_answering_absence_suppresses_its_last_bang() {
+fn a_producer_answering_a_clear_suppresses_its_last_bang() {
     for producer in BANGING {
         // `.=0102` is unequal; `~*0102` and `~%0102` Bang on even Ticks.
         let rows = ["", &format!("  {producer}"), "", "  !>007FC4"];

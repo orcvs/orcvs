@@ -15,8 +15,8 @@
 use lang::Atom;
 
 use super::{
-    Answer, Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, Rendered,
-    SCALAR_WIDTH, render_message,
+    Answer, Computation, ComputationId, EMPTY_PAIR, Encoding, Execution, Operand, SCALAR_WIDTH,
+    render_message,
 };
 
 impl Execution<'_> {
@@ -72,13 +72,17 @@ impl Execution<'_> {
                         return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
                     }
                     Some(Answer::Unit(atom)) => match Encoding::render(atom) {
-                        Ok(Rendered::Cells(encoding)) => encoding,
-                        Ok(Rendered::Nothing) => return Err(returned_nothing(anchor)),
-                        // A rendering a Cell cannot hold is its own fault, not
-                        // an absent answer.
+                        Ok(encoding) => encoding,
+                        // A rendering a Cell cannot hold is its own fault.
                         Err(reason) => return Err(render_message(reason)),
                     },
-                    None => return Err(returned_nothing(anchor)),
+                    None => {
+                        return Err(format!(
+                            "nested computation at column {}, row {} returned nothing",
+                            anchor.x(),
+                            anchor.y()
+                        ));
+                    }
                 };
                 token
                     .decode(&returned.to_string())
@@ -100,13 +104,4 @@ impl Execution<'_> {
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
         }
     }
-}
-
-/// The diagnostic for a nested computation at `anchor` that returned nothing.
-fn returned_nothing(anchor: crate::source::Position) -> String {
-    format!(
-        "nested computation at column {}, row {} returned nothing",
-        anchor.x(),
-        anchor.y()
-    )
 }

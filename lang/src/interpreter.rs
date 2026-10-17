@@ -396,8 +396,8 @@ mod test {
 
     #[test]
     fn the_numeric_family_rejects_every_non_number_operand() {
-        // Bang reaches the stack from Source text and Empty from an unequal
-        // Equality answer, so neither may coerce into a Number either.
+        // Bang reaches the stack from Source text, so it may not coerce into
+        // a Number either.
         for function in [
             Function::AbsoluteDifference,
             Function::Equality,
@@ -405,33 +405,30 @@ mod test {
             Function::Minimum,
             Function::Modulo,
         ] {
-            for operand in [Atom::Bang, Atom::Empty] {
-                // Both slots, because each declares a Number and refuses
-                // anything else in either position.
-                for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
-                    assert!(
-                        matches!(
-                            evaluate_cell(
-                                std::iter::once(Atom::Function(function))
-                                    .chain(operands)
-                                    .collect(),
-                            ),
-                            Err(Error::Type(TypeError::Number(_)))
+            // Both slots, because each declares a Number and refuses anything
+            // else in either position.
+            for operands in [[Atom::Bang, Atom::Number(1)], [Atom::Number(1), Atom::Bang]] {
+                assert!(
+                    matches!(
+                        evaluate_cell(
+                            std::iter::once(Atom::Function(function))
+                                .chain(operands)
+                                .collect(),
                         ),
-                        "{function:?} accepted {operands:?}",
-                    );
-                }
+                        Err(Error::Type(TypeError::Number(_)))
+                    ),
+                    "{function:?} accepted {operands:?}",
+                );
             }
         }
     }
 
     #[test]
     fn an_operand_type_diagnostic_names_the_operand_it_refused() {
-        // A Note, and the Empty an unequal Equality answers into whichever
-        // operand it stands in: neither reads as a Number, and the diagnostic
-        // spells what it found.
+        // A Note does not read as a Number, and the diagnostic spells what it
+        // found.
         let note = Atom::Note(crate::Note::try_from(60).unwrap());
-        for (operand, spelled) in [(note, "C4"), (Atom::Empty, "_")] {
+        for (operand, spelled) in [(note, "C4"), (Atom::Bang, "**")] {
             assert!(matches!(
                 evaluate_cell(vec![Atom::Function(Function::Add), operand, Atom::Number(1)]),
                 Err(Error::Type(TypeError::Number(found))) if found == spelled
@@ -658,7 +655,7 @@ mod test {
         // So the flag is checked against what the Interpreter actually
         // answers, over operands built from each Function's own signature.
         // Every operand of one attempt carries the same value, which is what
-        // reaches Equality's Bang at all: an unequal pair answers Empty.
+        // reaches Equality's Bang at all: an unequal pair answers a clear.
         for &function in Function::ALL {
             if !function.answers_value() {
                 continue;

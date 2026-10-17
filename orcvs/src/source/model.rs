@@ -498,7 +498,7 @@ mod test {
         source::{
             BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
             PlayCommand, Source, SourceError, Tick, TickPlan, Token, Velocity,
-            encoding::{Encoding, Rendered},
+            encoding::Encoding,
             portal::Portal,
             tick::{
                 Effect,
@@ -894,12 +894,7 @@ mod test {
             // called here rather than restated: these tests state an answer,
             // and what they exercise is the commit, not a second encoding.
             Interpretation::Cell(atom) => {
-                let rendered =
-                    Encoding::render(atom).expect("these answers are stated as Source Cells");
-                let Rendered::Cells(encoding) = rendered else {
-                    return resolve(Vec::new());
-                };
-                encoding
+                Encoding::render(atom).expect("these answers are stated as Source Cells")
             }
             Interpretation::Clear => Encoding::literal("  ").expect("a space is a printable Cell"),
             // A Source effect is not an answer this seam delivers. It writes
@@ -2296,7 +2291,7 @@ mod test {
     fn an_equal_comparison_commits_a_bang_and_an_unequal_one_clears_its_pair() {
         // Equality answers a pulse, so it writes its result pair on every
         // Turn: the equal case renders as `**`, and the unequal case answers
-        // the Absence Marker and clears whatever stood in the pair.
+        // a clear, which clears whatever stood in the pair.
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0303");
@@ -2916,21 +2911,6 @@ mod test {
         assert_eq!(plan.writes.len(), 2);
         assert!(plan.diagnostics.is_empty());
         assert!(plan.play_commands.is_empty());
-    }
-
-    #[test]
-    fn the_absence_marker_needs_no_destination_and_preserves_source() {
-        let mut src = source();
-        let grid = src.grid;
-        let root = grid.position(0, src.row_count() - 1).unwrap();
-        let before = src.snapshot();
-        let plan = plan_result(grid, root, Interpretation::Cell(Atom::Empty));
-        src.commit_tick(&plan);
-        assert_eq!(src.snapshot(), before);
-        assert!(plan.writes.is_empty());
-        assert!(plan.diagnostics.is_empty());
-        assert!(plan.play_commands.is_empty());
-        assert!(plan.locks.is_empty());
     }
 
     #[test]

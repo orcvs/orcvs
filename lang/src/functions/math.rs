@@ -133,9 +133,9 @@ mod test {
     }
 
     #[test]
-    fn equality_answers_a_bang_or_the_absence_marker() {
-        // The unequal answer is the absence marker rather than a Number, so the
-        // Source never gains a Cell meaning "false".
+    fn equality_answers_a_bang_or_a_clear() {
+        // The unequal answer is a clear rather than a Number, so the Source
+        // never gains a Cell meaning "false".
         assert_eq!(
             evaluate(Function::Equality, Atom::Number(1), Atom::Number(1)).unwrap(),
             Interpretation::Cell(Atom::Bang)

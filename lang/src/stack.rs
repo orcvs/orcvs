@@ -374,7 +374,7 @@ mod test {
     }
 
     #[test]
-    fn a_predicate_answers_a_bang_or_the_absence_marker() {
+    fn a_predicate_answers_a_bang_or_a_clear() {
         let mut stack = empty_stack();
         push_all(&mut stack, [Atom::Number(0x20), Atom::Number(0x20)]);
         assert_eq!(equal(&mut stack).unwrap(), Interpretation::Cell(Atom::Bang));

@@ -1,6 +1,6 @@
 # No Absence Marker: an answer is a value, and "no output" is no answer
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
