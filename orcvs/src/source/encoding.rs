@@ -183,9 +183,10 @@ mod test {
     #[test]
     #[should_panic(expected = "an Encoding places at least one Cell")]
     fn a_literal_of_no_cells_is_a_caller_defect() {
-        // Every Atom renders to at least one Cell, so an empty literal is a
-        // caller that has not chosen a Cell count rather than a value that
-        // plans no write.
+        // Every Atom renders to two Cells, which
+        // `every_value_the_language_holds_renders_to_cells` holds, so an empty
+        // literal is a caller that has not chosen a Cell count rather than a
+        // value that plans no write.
         let _ = Encoding::literal("");
     }
 }

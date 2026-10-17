@@ -82,9 +82,9 @@ pub(super) enum Phase<'a> {
     Schedule,
     /// During the Tick, for a Turn whose place `delivery` decided, against
     /// the Turns taken so far. `written` is the Atom its admitted write
-    /// carries, and `None` when it carries no Atom. `None` does not mean no
-    /// Cells were written: a Clear writes two spaces, and a lock writes no
-    /// Cells.
+    /// carries, and `None` when it carries no Atom: `Answer::unit` answers
+    /// `None` for a Clear, which writes two spaces, and a lock writes no
+    /// Cells. `None` therefore does not mean no Cells were written.
     Turn {
         delivery: Delivery,
         written: Option<Atom>,
