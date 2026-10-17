@@ -130,7 +130,8 @@ in every case.
 
 - Track, Read and the other pass-through Functions. They already carry Cells,
   so they need no work of their own. Read and Track read their pair through
-  Copy's evaluation, so they follow item 2: two empty Cells answer `Clear`.
-  Their write is unchanged from main, and a nested one leaves its parent
-  naming it, like any nested Clear.
+  Copy's evaluation, so they follow item 2: two empty Cells answer `Clear`,
+  and a nested one leaves its parent invalid, naming it
+  (`a_nested_read_that_reads_empty_cells_makes_its_parent_invalid` and
+  `a_nested_track_that_reads_empty_cells_makes_its_parent_invalid`).
 - Candidate 5, MIDI selection as one Phase.
