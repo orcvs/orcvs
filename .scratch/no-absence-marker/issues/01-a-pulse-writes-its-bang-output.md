@@ -1,18 +1,21 @@
-# 01 — A pulse answers whether it fired, and its Bang Output writes it
+# 01: A pulse writes its Bang Output
 
-Status: ready-for-agent
+**What to build:** Equality, Delay and Euclidean answer whether they Banged.
+Their Bang Output writes `**` on a Tick they Bang and clears its two Cells on
+a Tick they don't, whether the Function is a root or nested, and nothing in
+the Source tick checks which Function answered. A nested pulse returns the
+Cells its Output wrote. So on a Tick it doesn't Bang, its parent's operand is
+unwritten, and the parent is diagnosed as invalid input. Toby confirmed this
+as expected on 2026-10-17. See `../spec.md`, step 1.
 
-**What to build:** Equality, Delay and Euclidean answer a pulse. Their Bang
-Output writes `**` or two spaces on every Turn, root or nested, and a nested
-one returns those Cells. The `answers_only_bang()` arm in
-`tick/execution.rs` is removed. See `../spec.md`, step 1.
+**Blocked by:** None (can start immediately)
 
-## Acceptance criteria
+**Status:** ready-for-agent
 
-- [ ] No pulse Function answers `Atom::Empty`.
-- [ ] A quiet pulse clears its Output Portal, root or nested, with no
-      Function check in `orcvs`.
-- [ ] A quiet nested pulse leaves its parent invalid, with the
-      unwritten-operand diagnostic.
-- [ ] Every other existing tick and lang test passes unchanged.
+- [ ] No pulse Function answers the Absence Marker.
+- [ ] A pulse that doesn't Bang clears its Output Portal, root or nested,
+      with no Function check in the Source tick.
+- [ ] A Write whose value is an unequal Equality is diagnosed with the
+      unwritten-operand message and writes nothing.
+- [ ] Every other existing test passes unchanged.
 - [ ] Gates pass with `PROPTEST_CASES=32`.

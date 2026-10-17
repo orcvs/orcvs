@@ -89,6 +89,8 @@ unwritten operand. The parent is invalid in both cases.
 
 ## Decisions
 
+- On 2026-10-17 Toby confirmed that a nested pulse that does not Bang leaves its parent invalid, diagnosed as an unwritten operand.
+
 - On 2026-10-17 Toby reframed candidate 3. The underlying design is the
   problem, not the blank, and the type system should do the work. Toby
   approved writing this spec.

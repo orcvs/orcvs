@@ -1,17 +1,18 @@
-# 02 — A Copy answers the Cells it read
+# 02: A Copy answers the Cells it read
 
-Status: ready-for-agent
+**What to build:** A Copy validates its Input Portal as it does today, then
+answers the pair it read, blank included. The Source tick writes that pair and
+returns it verbatim, with no check for which Function answered. A copied `**`
+still activates the roots aligned with its destination. See `../spec.md`,
+step 2.
 
-**What to build:** A Copy validates its Input Portal as today and answers the
-pair it read, blank included. `orcvs` writes that pair and returns it
-verbatim. Both `copies_language_unit()` arms, in `tick/execution.rs` and
-`tick/execution/operands.rs`, are removed. See `../spec.md`, step 2.
+**Blocked by:** None (can start immediately)
 
-## Acceptance criteria
+**Status:** ready-for-agent
 
-- [ ] A Copy of `"  "` answers two blank Cells, not `Atom::Empty`.
-- [ ] A Copy writes and returns blank Cells with no Function check in
-      `orcvs`.
+- [ ] A Copy of two blank Cells answers those Cells, not the Absence Marker.
+- [ ] A Copy writes and returns blank Cells with no Function check in the
+      Source tick.
 - [ ] A copied `**` still activates the roots aligned with its destination.
 - [ ] Every existing Copy, Track and Bang activation test passes unchanged.
 - [ ] Gates pass with `PROPTEST_CASES=32`.

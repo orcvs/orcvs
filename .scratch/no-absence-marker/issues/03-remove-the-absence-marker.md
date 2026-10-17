@@ -1,18 +1,18 @@
-# 03 — Remove the Absence Marker
+# 03: Remove the Absence Marker
 
-Status: ready-for-agent
-Blocked by: 01, 02
+**What to build:** Every value Function answers a value. The Absence Marker
+leaves the language, along with each guard that keeps it out of operands, the
+parser and rendering, its `_` display, and the tests that state it as an
+answer. CONTEXT.md drops its entry and rewords Equality, Delay, Euclidean and
+Return around the Bang Output. A new ADR records the decision, as described in
+`../spec.md`, Decisions.
 
-**What to build:** Remove `Atom::Empty` and everything that guards it:
-`Rendered::Nothing`, `Untyped::from_atom`'s refusal, the parser proptest
-guard, the `_` spelling, and the stated-Absence tests. Remove the Absence
-Marker from CONTEXT.md and reword the entries for Equality, Delay, Euclidean
-and Return. Write the ADR described in `../spec.md`, Decisions.
+**Blocked by:** 01, 02
 
-## Acceptance criteria
+**Status:** ready-for-agent
 
-- [ ] `Atom` has no variant without a Source encoding.
-- [ ] `Encoding::render` cannot answer "nothing".
+- [ ] Every value the language holds has a Source encoding.
+- [ ] Rendering an answer cannot yield "nothing".
 - [ ] CONTEXT.md and the new ADR describe a Bang Output and no Absence
       Marker.
 - [ ] Gates pass with `PROPTEST_CASES=32`, including rustdoc with
