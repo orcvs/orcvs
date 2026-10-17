@@ -1563,6 +1563,8 @@ async fn run_engine<A: OutputAdapter, D>(
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
+
+    mod shipped_trackers;
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -1745,12 +1747,12 @@ mod tests {
         /// names each by its absolute Tick and states the schedule under test
         /// in the numbers a Play Command's lifetime is written in.
         ///
-        fn run_tick(&mut self, tick: u64) {
+        fn run_tick(&mut self, tick: u64) -> TickPlan {
             self.tick(scheduled(
                 Duration::from_secs(tick),
                 Duration::from_secs(tick),
             ))
-            .expect("a scheduled Tick runs");
+            .expect("a scheduled Tick runs")
         }
 
         fn state(&self) -> PlaybackState {

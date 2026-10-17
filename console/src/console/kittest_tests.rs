@@ -96,6 +96,8 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 #[cfg(feature = "release-capture")]
 mod capture;
 
+mod live_editing;
+
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
 ///
