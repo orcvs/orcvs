@@ -102,7 +102,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     let inactive_root = nodes
         .iter()
         .enumerate()
-        .any(|(index, node)| node.parent.is_none() && !schedule.holds_active(index));
+        .any(|(index, node)| node.is_root() && !schedule.holds_active(index));
     if reads || (writes && inactive_root) {
         return false;
     }

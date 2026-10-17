@@ -158,10 +158,10 @@ pub(super) fn derive(lookup: &Lookup, locks: &Locks) -> Derived {
     let active = active_roots(lookup);
     let mut dependencies = BTreeSet::new();
     for (index, node) in nodes.iter().enumerate() {
-        if let Some(parent) = node.parent {
-            dependencies.insert((index, parent));
+        if let Some(parent) = node.parent() {
+            dependencies.insert((index, parent.index()));
         }
-        if active[node.owner] {
+        if active[node.owner().index()] {
             producer_edges(lookup, locks, index, |producer, consumer| {
                 dependencies.insert((producer, consumer));
             });
@@ -243,7 +243,7 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
     let nodes = lookup.nodes();
     let mut active: Vec<_> = nodes
         .iter()
-        .map(|node| node.parent.is_none() && node.function.is_intrinsically_active())
+        .map(|node| node.is_root() && node.function.is_intrinsically_active())
         .collect();
     let pending: Vec<_> = active
         .iter()
@@ -330,7 +330,7 @@ pub(super) fn lock_verdict(locks: &Locks, locker: usize, phase: Phase<'_>) -> Lo
 /// the locker in time, leaves the producer to take its Turn after it, and a
 /// Bang that producer delivers to the locker is missed.
 fn lock_covers(lookup: &Lookup, locks: &Locks, locker: usize, producer: usize) -> bool {
-    lookup.nodes()[locker].parent.is_none()
+    lookup.nodes()[locker].is_root()
         && matches!(
             lock_verdict(locks, locker, Phase::Schedule),
             Locked::OrderAfter(target) if target.contains(&producer)
@@ -349,7 +349,7 @@ fn dynamic_writers<'a>(lookup: &'a Lookup, active: &'a [bool]) -> impl Iterator<
         .iter()
         .enumerate()
         .filter(|(_, node)| {
-            active[node.owner] && matches!(node.function.output(), Output::Dynamic(_))
+            active[node.owner().index()] && matches!(node.function.output(), Output::Dynamic(_))
         })
         .map(|(index, _)| index)
 }
@@ -476,7 +476,7 @@ pub(super) fn contact(
             ..
         }
     ) && consequence != Consequence::Unchanged
-        && nodes[target].owner == nodes[producer].owner;
+        && nodes[target].owner() == nodes[producer].owner();
     Contacted {
         consequence,
         own_expression,
@@ -608,7 +608,7 @@ pub(super) fn input_writers<'a>(
     lookup
         .writes
         .touching(read)
-        .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner])
+        .filter(move |&writer| writer != reader && active[lookup.nodes()[writer].owner().index()])
 }
 
 ///
@@ -1087,7 +1087,7 @@ mod test {
         // destination is unknown until its Turn.
         let (lookup, _) = fixture(Grid::with_shape(10, 2), &[".+01.-0101"]);
         let (root, child) = (at(&lookup, 0, 0), at(&lookup, 4, 0));
-        assert_eq!(lookup.nodes()[child].owner, lookup.nodes()[root].owner);
+        assert_eq!(lookup.nodes()[child].owner(), lookup.nodes()[root].owner());
         let touched = FunctionContact {
             index: child,
             at_anchor: false,
