@@ -11,6 +11,14 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  # zvariant, zbus_names and zvariant_derive reach the build only through
+  # eframe's accesskit AT-SPI stack. zbus 6 absorbs all three, and accesskit
+  # has not adopted it, so no upgrade exists from here.
+  { id = "RUSTSEC-2026-0370", reason = "unmaintained zvariant via eframe's accesskit, until accesskit adopts zbus 6" },
+  { id = "RUSTSEC-2026-0371", reason = "unmaintained zbus_names via eframe's accesskit, until accesskit adopts zbus 6" },
+  { id = "RUSTSEC-2026-0372", reason = "unmaintained zvariant_derive via eframe's accesskit, until accesskit adopts zbus 6" },
+]
 
 [licenses]
 version = 2
