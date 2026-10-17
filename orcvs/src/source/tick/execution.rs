@@ -29,10 +29,6 @@ mod working;
 
 pub(in crate::source) use turns::ComputationState;
 
-/// The two empty Cells a Function that copies Cells writes and returns for an
-/// empty pair.
-const EMPTY_PAIR: &str = "  ";
-
 /// Where a Function's Input Portal stands for one Turn.
 #[derive(Clone, Copy)]
 enum InputSite {
@@ -408,7 +404,7 @@ impl<'a> Execution<'a> {
         // pulse clears the pair it reserves for its Bang, root or nested, so
         // clearing it orders nothing new.
         let encoding = match answer {
-            Answer::Clear => Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell"),
+            Answer::Clear => Encoding::clear(),
             Answer::Unit(atom) => match Encoding::render(atom) {
                 Ok(encoding) => encoding,
                 Err(reason) => {

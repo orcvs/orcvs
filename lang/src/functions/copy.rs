@@ -11,11 +11,10 @@ use crate::{
 /// The Turn supplies Cells only after the Portal has classified them as one
 /// complete aligned unit. Two empty Cells answer a Clear, which writes them,
 /// and `**` answers a Bang; any other admitted two-Cell unit is the Atom
-/// those Cells spell. Alignment and partial Spans
-/// never reach here. A missing or invalid
-/// spelling, or Cells that are not exactly one two-Cell unit, is diagnosed
-/// rather than delivered as a write: blank Cells of another width are not a
-/// blank pair.
+/// those Cells spell. Alignment and partial Spans never reach here. A
+/// missing or invalid spelling, or Cells that are not exactly one two-Cell
+/// unit, is diagnosed rather than delivered as a write: blank Cells of
+/// another width are not a blank pair.
 pub fn copy(ctx: &mut Context, function: Function) -> Result<Interpretation, Error> {
     let cells = ctx
         .inputs

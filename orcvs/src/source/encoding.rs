@@ -71,6 +71,13 @@ impl Encoding {
     }
 
     ///
+    /// The two spaces a Clear writes at its Output Portal.
+    ///
+    pub(super) fn clear() -> Self {
+        Self::literal("  ").expect("a space is a printable Cell")
+    }
+
+    ///
     /// Source characters no value produced.
     ///
     /// A Clear writes two spaces, which is Source content rather than a
