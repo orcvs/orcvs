@@ -1,4 +1,4 @@
-use super::track::selected_pair;
+use super::{read::bound, track::selected_pair};
 use crate::{Atom, Error, Function, atom::operands::Push, interpreter::Context, stack::Operands};
 
 /// A Write: `@^ n value`, `@v n value`, `@< n value`, `@> n value`,
@@ -18,9 +18,8 @@ pub fn write<O: Operands + Carried>(ctx: &mut Context) -> Result<Atom, Error> {
 /// as Track's does, and operands outside their domain diagnose as they would
 /// at evaluation.
 pub(crate) fn lane_pair(operands: &[Atom]) -> Result<u8, Error> {
-    <Push as Operands>::check(operands)
-        .and_then(|()| <Push as Operands>::bind(operands))
-        .and_then(|Push { index, count, .. }| selected_pair(Function::Push, index, count))
+    bound(operands, |Push { index, count, .. }| (index, count))
+        .and_then(|(index, count)| selected_pair(Function::Push, index, count))
 }
 
 /// The operands of a Write, which carry one `value`. `define_functions!`
