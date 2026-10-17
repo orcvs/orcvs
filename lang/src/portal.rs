@@ -10,7 +10,6 @@ use crate::{
     expression::DEFAULT_TOKEN_LEN,
     functions::{
         copy::{copied_from, copied_to},
-        read::{distance, position},
         track::track_pair,
         write::lane_pair,
     },
@@ -77,8 +76,8 @@ impl PairSelection {
         operand_columns: usize,
     ) -> Result<PortalAddress, Error> {
         match self {
-            Self::Position(function) => {
-                let (column, row) = position(function, operands)?;
+            Self::Position(rule) => {
+                let (column, row) = rule.position(operands)?;
                 Ok(PortalAddress::Position { column, row })
             }
             Self::SourcePosition => {
@@ -107,11 +106,11 @@ impl PairSelection {
                     rows: 1,
                 }))
             }
-            Self::Distance(direction, function) => {
+            Self::Distance(rule) => {
                 // The slot is the pair after the spelling, and at most 255
                 // steps from it every offset fits.
-                let n = i16::from(distance(function, operands)?);
-                let step = direction.step();
+                let n = i16::from(rule.distance(operands)?);
+                let step = rule.direction().step();
                 Ok(PortalAddress::Offset(PortalCoords {
                     columns: DEFAULT_TOKEN_LEN as i16 + n * step.columns,
                     rows: n * step.rows,
