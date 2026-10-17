@@ -1,6 +1,6 @@
 # 03 — Ship a tracker with several voices
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02 — Read a pair in a direction; 07 — Accept the Read, Write and Copy families; cell-tracker/05 — Verify live editing in the console
 
 **What to build:**
@@ -9,8 +9,28 @@ Port the Orca TRACKER patch: one Clock shared by several voices, each offsetting
 
 ## Acceptance criteria
 
-- [ ] The shipped Source File has at least four voices, each with its `&v` at the head of its own column, with some deliberately empty steps.
-- [ ] The guide maps each Orca operator in the patch to its Orcvs Function, explains that `&v` counts rows from its own operand and why each voice adds `01`, and gives the BPM, MIDI channels, velocity and length, with exact columns for spatial alignment.
-- [ ] A test loads the exact shipped Source File and checks two complete loops of every voice through Source/Tick and Playback, including empty steps and Note Off timing, asserting each Tick's diagnostics exactly.
-- [ ] The example works through the console editing and file workflows verified by `cell-tracker/05`: edit a step, clear and restore it, Save and reopen.
-- [ ] Record an audible MIDI smoke test with device, channels and BPM; do not mark delivery complete on automated evidence alone.
+- [x] The shipped Source File has at least four voices, each with its `&v` at the head of its own column, with some deliberately empty steps.
+- [x] The guide maps each Orca operator in the patch to its Orcvs Function, explains that `&v` counts rows from its own operand and why each voice adds `01`, and gives the BPM, MIDI channels, velocity and length, with exact columns for spatial alignment.
+- [x] A test loads the exact shipped Source File and checks two complete loops of every voice through Source/Tick and Playback, including empty steps and Note Off timing, asserting each Tick's diagnostics exactly.
+- [x] The example works through the console editing and file workflows verified by `cell-tracker/05`: edit a step, clear and restore it, Save and reopen.
+- [ ] Record an audible MIDI smoke test with device, channels and BPM; do not mark delivery complete on automated evidence alone. Moved to `14`.
+
+## Comments
+
+### 2026-10-17 — Resolved
+
+Shipped `examples/tracker.orcvs` and `examples/tracker.md`. One Clock `~.0208` at (0, 0) writes the
+step at (0, 1). Each of four voices, 20 columns apart, reads it with `.+01&$0001` and writes the sum
+into the `n` slot of a Read `&v` nested in its Timed Play's note slot, `!~0v64&v  04`; a Delay
+`~*0102` bangs each Play. Nesting the Read keeps the Play's length operand off the step column, which
+starts on the row below the `n` operand beside the Read's Output Portal. Orca has no absolute read;
+the guide says `&$` is how the four voices share one Clock.
+
+`orcvs/src/playback/tests/shipped_trackers.rs` runs the exact file for 32 Ticks through a
+hand-driven Playback run and asserts every voice's delivery, Note Off timing and every Tick's
+diagnostics exactly; `a_half_typed_step_silences_only_its_own_voice` covers a partial step.
+`console::kittest_tests::live_editing::the_four_voice_tracker_edits_saves_and_reopens_a_voices_steps`
+edits, clears, restores, saves and reopens a step through the console.
+
+The last criterion needs a person with a MIDI device and moves to `14`, as `cell-tracker/13` did
+for the single-voice example.
