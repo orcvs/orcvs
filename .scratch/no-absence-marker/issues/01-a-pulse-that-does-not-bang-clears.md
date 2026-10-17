@@ -1,8 +1,8 @@
-# 01: A pulse writes its Bang Output
+# 01: A pulse that does not Bang clears its Output Portal
 
 **What to build:** Equality, Delay and Euclidean answer whether they Banged.
-Their Bang Output writes `**` on a Tick they Bang and clears its two Cells on
-a Tick they don't, whether the Function is a root or nested, and nothing in
+On a Tick they don't Bang they answer a clear, which writes two spaces at
+their Output Portal whether the Function is a root or nested, and nothing in
 the Source tick checks which Function answered. A nested pulse returns the
 Cells its Output wrote. So on a Tick it doesn't Bang, its parent's operand is
 unwritten, and the parent is diagnosed as invalid input. Toby confirmed this
@@ -12,7 +12,8 @@ as expected on 2026-10-17. See `../spec.md`, step 1.
 
 **Status:** ready-for-agent
 
-- [ ] No pulse Function answers the Absence Marker.
+- [ ] No pulse Function answers the Absence Marker; a Tick it does not
+      Bang answers a clear.
 - [ ] A pulse that doesn't Bang clears its Output Portal, root or nested,
       with no Function check in the Source tick.
 - [ ] A Write whose value is an unequal Equality is diagnosed with the

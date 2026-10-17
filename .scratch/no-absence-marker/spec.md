@@ -52,33 +52,47 @@ therefore needs no marker: it is the absence of a Turn or of a valid
 evaluation, and the Turn state already records that (`Turns::result` is an
 `Option`).
 
-The one Output with a one-Tick lifetime is the Bang Output, and the lifetime
-belongs to the Output, not to an answer.
+The one Output whose content lasts one Tick belongs to a pulse. It writes `**`
+or two spaces on every Turn, and the two spaces are a write like any other,
+not an absence.
 
 ## Solution
 
-1. **A pulse answers whether it fired.** Equality, Delay and Euclidean answer
-   a pulse, not an `Atom`. Their Output is a Bang Output (from
-   `BangAnswer::Only` in the Function table). It writes `**` when the pulse
-   fired and two spaces when it did not, on every Turn, root or nested, as
-   Orca's bang ports write `.`. The cleared Cells are the ones the Function
-   already reserves for its Bang, so no dependency changes. A nested pulse
-   returns the Cells its Output wrote. A quiet one therefore leaves its
-   parent's operand unwritten, and the parent is invalid under ADR 0069, as
-   it is today.
-2. **A Copy answers the Cells it read.** A Copy still validates that its
-   Input Portal holds one whole Language Unit or two blank Cells, and its
-   answer is that pair. `orcvs` writes it and returns it verbatim. A copied
-   `**` activates through its glyph, which is ADR 0071's rule, so nothing
-   about Bang activation needs the copied pair parsed into an `Atom`.
-3. **Every value Function answers a value.** `Atom::Empty` is removed, along
-   with these parts that exist only for it:
-   - `Rendered::Nothing`
-   - the two `copies_language_unit()` arms and the `answers_only_bang()` arm
+Each of the two facts gets its own type, and neither of them is an `Atom`:
+
+- **A Language Unit to write** is `Interpretation::Cell(Atom)`. This is
+  unchanged, and every `Atom` now has a Source encoding.
+- **Two blank Cells to write** is a new `Interpretation::Clear`. It has no
+  `Atom` and no Function attached. `orcvs` writes the two spaces at the Output
+  Portal, and for a nested Function it returns them. The admitted write's
+  `written` is `None`, which every reach rule already treats exactly as it
+  treats `Some(Atom::Empty)`. They only match `Some(Atom::Function(_))` and
+  `Some(Atom::Bang)`.
+
+1. **A pulse that doesn't Bang answers `Clear`.** Equality, Delay and
+   Euclidean answer `Cell(Atom::Bang)` or `Clear`, as Orca's bang ports write
+   `*` or `.` every frame. The clear erases the last `**`, which a standalone
+   `**` left in Source would otherwise fire again (ADR 0072). The cleared
+   Cells are the ones the Function already reserves for its Bang, so no
+   dependency changes. A nested pulse that doesn't Bang returns two spaces.
+   Its parent's operand is then unwritten, and the parent is diagnosed under
+   ADR 0069. Toby confirmed this on 2026-10-17.
+2. **A Copy of two blank Cells answers `Clear`.** Every other Copy still
+   answers the Language Unit it read. A copied `**` keeps activating through
+   `Cell(Atom::Bang)`.
+3. **Remove `Atom::Empty`.** These go with it, since they exist only for it:
+   - `Rendered::Nothing`; `Encoding::render` answers an `Encoding` or a
+     render error
+   - the `copies_language_unit() || answers_only_bang()` arm in
+     `tick/execution.rs`
+   - the `copies_language_unit()` arm in `tick/execution/operands.rs`
    - `Untyped::from_atom`'s refusal
    - the parser proptest guard
    - the `_` spelling
-   - the test that states an Addition answering it
+   - the tests that state an answer of `Atom::Empty`
+
+   `Turns::result` stores the Turn's answer, a unit or a clear, so a returning
+   child is decoded from its Cells alone.
 
 ## Behaviour
 
@@ -100,12 +114,14 @@ unwritten operand. The parent is invalid in both cases.
 - A new ADR records the decision. It supersedes ADR 0069's "The Absence
   Marker is an answer" clause and amends the bang-port clause of ADR 0071.
 
-## Open for the build
+## Rejected
 
-- Whether the pulse is its own `Interpretation` variant or a `bool` carried
-  by the Bang Output. Pick whichever leaves `orcvs` with no Function check.
-- Whether a Copy's pair travels as `Interpretation::Cells` or as an
-  `Encoding` built in `lang`. `Encoding` lives in `orcvs` today.
+- **A Bang Output declared in the Function table.** It would need a pulse
+  type plus a separate Cells answer for Copy: two new shapes for one effect,
+  which is writing two spaces.
+- **A Copy that answers the raw pair it read.** Bang activation and Function
+  replacement read the written `Atom`, so `orcvs` would have to parse the pair
+  a second time.
 
 ## Out of scope
 

@@ -1,8 +1,9 @@
-# 02: A Copy answers the Cells it read
+# 02: A Copy of two blank Cells clears its Output Portal
 
 **What to build:** A Copy validates its Input Portal as it does today, then
-answers the pair it read, blank included. The Source tick writes that pair and
-returns it verbatim, with no check for which Function answered. A copied `**`
+answers a clear when the pair it read is blank, so the Source tick writes and
+returns two spaces with no check for which Function answered. Every other Copy
+answers the Language Unit it read, as today. A copied `**`
 still activates the roots aligned with its destination. See `../spec.md`,
 step 2.
 
@@ -10,7 +11,7 @@ step 2.
 
 **Status:** ready-for-agent
 
-- [ ] A Copy of two blank Cells answers those Cells, not the Absence Marker.
+- [ ] A Copy of two blank Cells answers a clear, not the Absence Marker.
 - [ ] A Copy writes and returns blank Cells with no Function check in the
       Source tick.
 - [ ] A copied `**` still activates the roots aligned with its destination.
