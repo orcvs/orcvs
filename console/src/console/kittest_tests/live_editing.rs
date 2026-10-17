@@ -219,9 +219,8 @@ async fn a_note_typed_over_a_pair_plays_on_the_next_tick_that_selects_it() {
 ///
 /// A Note typed into an empty pair passes through a half-written pair. That
 /// Tick Track diagnoses it once and writes nothing, so the note slot keeps
-/// the Note an earlier step left and the Bang plays that Note again
-/// (ADR 0069). The Tick after the Note is finished plays it and diagnoses
-/// nothing.
+/// the Note an earlier step left and the Bang plays that Note again. The
+/// Tick after the Note is finished plays it and diagnoses nothing.
 ///
 #[tokio::test]
 async fn a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it() {
@@ -333,8 +332,8 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
 }
 
 ///
-/// The pairs east of Track are ordinary Source (ADR 0067): Track claims only
-/// its operands, so the pairs paint exactly as the same Cells do once Track
+/// The pairs east of Track are ordinary Source: Track claims only its
+/// operands, so the pairs paint exactly as the same Cells do once Track
 /// is gone.
 ///
 #[tokio::test]
