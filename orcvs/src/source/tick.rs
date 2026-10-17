@@ -8,13 +8,13 @@
 //! published.
 
 #[cfg(test)]
-mod absence;
-#[cfg(test)]
 mod absolute_copy;
 #[cfg(test)]
 mod bang_activation;
 #[cfg(test)]
 mod bang_function;
+#[cfg(test)]
+mod clear;
 #[cfg(test)]
 mod conflicts;
 #[cfg(test)]

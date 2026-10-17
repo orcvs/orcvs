@@ -84,7 +84,9 @@ pub(super) enum Phase<'a> {
     /// the Turns taken so far. `written` is the Atom its admitted write
     /// carries, and `None` when it carries no Atom: `Answer::unit` answers
     /// `None` for a Clear, which writes two spaces, and a lock writes no
-    /// Cells. `None` therefore does not mean no Cells were written.
+    /// Cells. `None` therefore does not mean no Cells were written. A reach
+    /// rule reads a Function or a Bang only from `Some`, so it reads neither
+    /// from a Clear.
     Turn {
         delivery: Delivery,
         written: Option<Atom>,

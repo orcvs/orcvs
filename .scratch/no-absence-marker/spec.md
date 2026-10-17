@@ -105,7 +105,7 @@ in every case.
 
 ## Decisions
 
-- On 2026-10-17 Toby confirmed that a nested pulse that does not Bang leaves its parent invalid, diagnosed as an unwritten operand.
+- On 2026-10-17 Toby confirmed that a nested pulse that does not Bang leaves its parent invalid, diagnosed as an unwritten operand; the next decision settles that the diagnostic names the child.
 - On 2026-10-17, in review, Toby chose to have the parent of any nested Clear name the child that cleared it, since two spaces alone cannot say which Function wrote them.
 
 - On 2026-10-17 Toby reframed candidate 3. The underlying design is the
