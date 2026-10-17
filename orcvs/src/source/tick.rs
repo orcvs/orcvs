@@ -1187,6 +1187,24 @@ mod test {
         );
     }
 
+    #[test]
+    fn a_copy_reads_a_dynamic_write_over_cells_a_fired_bang_cleared() {
+        // The first Write reads the `**`'s Cells, so the `**` fires first and
+        // clears them. The second Write then puts `C4` across the cleared Cell
+        // and the one east of it, and `=v` reads that pair whole: the `**` its
+        // Snapshot parsed no longer holds either Cell.
+        let rows = ["", "**", " =v", "", "@$0A00&$0001", "", "@$0101C4"];
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 7), &rows, 1);
+        assert_eq!(
+            grids[0][1..4],
+            [" C4           ", " =v           ", " C4           "]
+        );
+        assert_eq!(
+            messages(&plans[0]),
+            ["expected a Language Unit, found \"  \""]
+        );
+    }
+
     // The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
     // table that declares proptest, so a WASM build never sees the dependency.
     #[cfg(not(target_arch = "wasm32"))]
