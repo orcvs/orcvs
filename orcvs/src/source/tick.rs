@@ -37,7 +37,7 @@ use std::sync::{Arc, OnceLock};
 
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
-pub(super) use super::portal::{Occupancy, PortalError, PortalUnit};
+pub(super) use super::portal::{Coverage, Occupancy, Occupant, PortalError, PortalUnit, coverage};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
@@ -1371,6 +1371,39 @@ mod test {
             plans[0].diagnostics.is_empty(),
             "{:?}",
             plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_copy_reads_a_mover_that_stepped_one_cell_into_its_input_portal() {
+        // The `>>` steps one Cell east into the pair `=>` reads. Its new Cells
+        // overlap the Span the Snapshot parsed it at, but that Span no longer
+        // holds it: the Copy reads the placed unit whole, as it does a mover
+        // that entered the pair from the next row.
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[" >> =>  "], 1);
+        assert_eq!(grids[0], ["  >>=>>>"]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_copy_reads_a_dynamic_write_over_cells_a_fired_bang_cleared() {
+        // The first Write reads the `**`'s Cells, so the `**` fires first and
+        // clears them. The second Write then puts `C4` across the cleared Cell
+        // and the one east of it, and `=v` reads that pair whole: the `**` its
+        // Snapshot parsed no longer holds either Cell.
+        let rows = ["", "**", " =v", "", "@$0A00&$0001", "", "@$0101C4"];
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(14, 7), &rows, 1);
+        assert_eq!(
+            grids[0][1..4],
+            [" C4           ", " =v           ", " C4           "]
+        );
+        assert_eq!(
+            messages(&plans[0]),
+            ["expected a Language Unit, found \"  \""]
         );
     }
 

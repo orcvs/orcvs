@@ -19,7 +19,10 @@
 
 use std::ops::Range;
 
-use super::{Cells, LanguageMap, Occupancy, Portal, PortalUnit, Position, SpanWrite};
+use super::{
+    Cells, Coverage, LanguageMap, Occupancy, Occupant, Portal, PortalUnit, Position, SpanWrite,
+    coverage,
+};
 use crate::source::buffer::WorkingCells;
 
 /// What an admitted write does to placement geometry besides its Cells.
@@ -117,7 +120,7 @@ impl<'a> WorkingSource<'a> {
     /// rather than answering an Atom that was never a Language Unit.
     ///
     pub(super) fn portal_unit(&self, portal: Portal) -> Option<&str> {
-        match portal.language_unit(self.cells.cells(), self.map) {
+        match portal.language_unit(self.cells.cells(), |cells| self.coverage(cells)) {
             PortalUnit::Invalid => None,
             PortalUnit::Empty | PortalUnit::Bang | PortalUnit::Unit => {
                 let span = portal
@@ -141,32 +144,42 @@ impl<'a> WorkingSource<'a> {
         cells: &[usize],
         root_at: impl Fn(Position) -> Option<usize>,
     ) -> Occupancy {
-        let mut partial = false;
-        for placed in &self.placed {
-            if cells.iter().any(|cell| placed.contains(cell)) {
-                if cells.iter().all(|cell| placed.contains(cell)) {
-                    return Occupancy::NonRoot;
-                }
-                partial = true;
+        match self.coverage(cells.iter().copied()) {
+            Coverage::Empty => Occupancy::Empty,
+            Coverage::Complete(Occupant::Placed(_)) => Occupancy::NonRoot,
+            Coverage::Complete(Occupant::Unit(unit)) => {
+                root_at(unit.anchor()).map_or(Occupancy::NonRoot, Occupancy::Root)
             }
+            Coverage::Partial => Occupancy::Partial,
         }
-        for unit in self.map.units() {
-            let span = unit.span().range();
-            let visible = |cell: &usize| {
-                span.contains(cell) && !self.obscured.iter().any(|write| write.contains(cell))
-            };
-            if !cells.iter().any(visible) {
-                continue;
-            }
-            if cells.iter().all(visible) {
-                return root_at(unit.anchor()).map_or(Occupancy::NonRoot, Occupancy::Root);
-            }
-            partial = true;
+    }
+
+    ///
+    /// What covers `cells` in working Source: an intact placement, else a
+    /// Snapshot Language Unit through the Cells no Source effect has
+    /// obscured.
+    ///
+    /// A Copy's read and a mover's contact both ask this, so a unit placed
+    /// this Tick is one unit to either, and a Snapshot unit a Source effect
+    /// moved away is met by neither.
+    ///
+    fn coverage(&self, cells: impl Iterator<Item = usize> + Clone) -> Coverage<Occupant<'a>> {
+        let placed = self
+            .placed
+            .iter()
+            .map(|placed| (placed.clone(), Occupant::Placed(placed.clone())));
+        let placed = coverage(placed, cells.clone(), |_| true);
+        if let Coverage::Complete(_) = placed {
+            return placed;
         }
-        if partial {
-            Occupancy::Partial
-        } else {
-            Occupancy::Empty
+        let units = self
+            .map
+            .units()
+            .map(|unit| (unit.span().range(), Occupant::Unit(unit)));
+        let unobscured = |cell: usize| !self.obscured.iter().any(|write| write.contains(&cell));
+        match coverage(units, cells, unobscured) {
+            Coverage::Empty => placed,
+            snapshot => snapshot,
         }
     }
 }
