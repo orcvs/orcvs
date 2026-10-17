@@ -24,7 +24,7 @@ jobs:
       ${{ !github.event.pull_request.draft
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && github.event.pull_request.head.repo.full_name == github.repository }}
-    # One POST with bounded retries; the bound only stops a hung runner.
+    # One POST bounded by curl's own timeouts; this bound only stops a hung runner.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
