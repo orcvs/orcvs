@@ -222,6 +222,15 @@ on a browser that never answers; the jobs otherwise finish in about ninety secon
 derives the expected number of bounds from the number of jobs each file declares rather than from a
 literal, so a job added without one fails the contract instead of quietly inheriting the default.
 
+`.github/workflows/code-review.yml` asks Claude's code-review routine to review a pull request when
+it is opened, reopened or marked ready for review; drafts, Dependabot and fork pull requests are
+skipped. It reads the `CLAUDE_ROUTINE_TOKEN` repository Actions secret and fails, naming the secret,
+when the secret is empty. The review arrives as comments from the routine's session, so the job is
+not a required status context and gates nothing. Pushes to an open pull request do not re-request
+a review, so each review is asked for once rather than once per commit. Because the job reads a
+secret, the contract holds whichever workflow names it to the `pull_request` trigger alone and to
+an empty token permission set.
+
 Every commit that reaches `main` gets its own merge-tier run. The workflow's concurrency group is
 keyed on the pull request number for a pull request and on the commit for anything else, so a later
 merge cannot cancel an earlier commit's run, and `cancel-in-progress` is confined to pull requests.

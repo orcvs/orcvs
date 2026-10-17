@@ -885,6 +885,19 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
   fi
 done
 
+# The routine token is the one secret a pull request's own run reads, so the
+# workflow that reads it is held to the trigger that withholds secrets from fork
+# pull requests and to an empty token permission set. `pull_request_target` runs
+# with secrets and a write token on behalf of any fork; that is the shape this
+# rejects. Stated over whichever workflow names the secret, as the Miri rule is.
+for workflow in "$root_dir"/.github/workflows/*.yml; do
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E 'secrets[.]CLAUDE_ROUTINE_TOKEN' >/dev/null; then
+    assert_only_trigger "$workflow" 'pull_request'
+    assert_contains "$workflow" '^permissions: [{][}]$'
+    assert_not_contains "$workflow" '^    permissions:'
+  fi
+done
+
 # Criterion covers the three benchmarked paths: language execution in `lang`,
 # populated Source rendering and editing in `orcvs`, and Paint derivation in
 # `console`. It stays a plain versioned dev-dependency of exactly those crates,

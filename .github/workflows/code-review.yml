@@ -3,7 +3,8 @@ name: Code review
 # Asks Claude for a code review of a pull request: fires the code-review routine,
 # whose session reviews the pull request this run names (its URL and number, in
 # the turn appended to the session). It runs when a pull request is opened,
-# reopened or marked ready for review, and never on a draft. Dependabot's pull
+# reopened or marked ready for review, and never on a draft or on a later push,
+# so each review is asked for once rather than once per commit. Dependabot's pull
 # requests and those from forks are skipped: they are not given the repository's
 # secrets.
 #
@@ -41,8 +42,9 @@ jobs:
           # jq writes the body, so nothing in the pull request's fields can break the JSON.
           body=$(jq -n --arg url "$PR_URL" --arg number "$PR_NUMBER" --arg repo "$REPO" \
             '{text: "Review pull request #\($number) in \($repo): \($url)"}')
-          # A stall or a 5xx is retried; a refusal (4xx) fails at once, its reply in the log.
-          curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 30 --retry 3 -X POST \
+          # Sent once: the fire has no idempotency key, so a retry after a slow reply could
+          # start a second review session. A refusal fails the run, its reply in the log.
+          curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 30 -X POST \
             https://api.anthropic.com/v1/claude_code/routines/trig_01DVcmTPJ9yJwRYLoDjPuV3B/fire \
             -H "Authorization: Bearer $CLAUDE_ROUTINE_TOKEN" \
             -H "anthropic-version: 2023-06-01" \
