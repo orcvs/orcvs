@@ -44,10 +44,12 @@ jobs:
             '{text: "Review pull request #\($number) in \($repo): \($url)"}')
           # Sent once: the fire has no idempotency key, so a retry after a slow reply could
           # start a second review session. A refusal fails the run, its reply in the log.
+          # The token goes in on standard input, never on curl's command line, where the
+          # runner's process list would show it.
           curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 30 -X POST \
             https://api.anthropic.com/v1/claude_code/routines/trig_01DVcmTPJ9yJwRYLoDjPuV3B/fire \
-            -H "Authorization: Bearer $CLAUDE_ROUTINE_TOKEN" \
+            -H @- \
             -H "anthropic-version: 2023-06-01" \
             -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
             -H "Content-Type: application/json" \
-            -d "$body"
+            -d "$body" <<<"Authorization: Bearer $CLAUDE_ROUTINE_TOKEN"
