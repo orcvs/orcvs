@@ -16,11 +16,11 @@ use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
     Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
-    Operand, Portal, PortalError, PortalUnit, Position, RenderError, Rendered, SCALAR_WIDTH,
-    SpanWrite, TickPlan, coverage, diagnose, resolve, tick_inputs,
+    Operand, Portal, PortalError, PortalUnit, Position, RenderError, SCALAR_WIDTH, SpanWrite,
+    TickPlan, coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
-use turns::{Activation, Turns};
+use turns::{Activation, Answer, Turns};
 use working::{WorkingSource, WriteKind};
 
 mod operands;
@@ -247,7 +247,10 @@ impl<'a> Execution<'a> {
                 .push(Effect::Diagnose(diagnose(node, error.to_string()))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
             Ok(Interpretation::Cell(atom)) => {
-                self.deliver_value(index, atom, destination, delivery);
+                self.deliver_value(index, Answer::Unit(atom), destination, delivery);
+            }
+            Ok(Interpretation::Clear) => {
+                self.deliver_value(index, Answer::Clear, destination, delivery);
             }
             Ok(Interpretation::Source(effect)) => {
                 self.deliver_source_effect(index, effect, delivery);
@@ -366,13 +369,13 @@ impl<'a> Execution<'a> {
     fn deliver_value(
         &mut self,
         index: ComputationId,
-        atom: Atom,
+        answer: Answer,
         destination: Option<Result<Position, PortalError>>,
         delivery: Delivery,
     ) {
-        self.project_value(index, atom, destination, delivery);
+        self.project_value(index, answer, destination, delivery);
         // A successful nested answer survives every refusal to project it.
-        self.turns.answer(index, atom);
+        self.turns.answer(index, answer);
     }
 
     /// Plans the Cell writes, activation, or clear one answer makes, whether
@@ -380,7 +383,7 @@ impl<'a> Execution<'a> {
     fn project_value(
         &mut self,
         index: ComputationId,
-        atom: Atom,
+        answer: Answer,
         destination: Option<Result<Position, PortalError>>,
         delivery: Delivery,
     ) {
@@ -399,38 +402,24 @@ impl<'a> Execution<'a> {
             None => return,
         };
         // Whether this answer can be Cells at all is a question about the
-        // value, settled before any destination is asked: the Absence Marker
-        // answers `Nothing`, and a rendering a Cell cannot hold refuses whole.
-        // Every other Atom renders as the Cell pair the schedule reserved.
-        let encoding = match Encoding::render(atom) {
-            Ok(Rendered::Nothing) => {
-                // Two kinds of Function clear the reserved Output Portal rather
-                // than omit the write. A Copy answers Empty when its input is two
-                // spaces, and writes them. A Bang producer writes its answer
-                // on every Turn, so a Turn that does not Bang leaves its
-                // Output Portal empty, as Orca's bang ports write `.`; the two
-                // Cells it clears are the pair the schedule reserves for its
-                // Bang, root or nested, so clearing them orders nothing new.
-                // Every other Function writes nothing.
-                let function = self.turns.function(index);
-                if function.copies_language_unit() || function.answers_only_bang() {
-                    let cleared =
-                        Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
-                    for output in sites {
-                        self.deliver_output(index, Atom::Empty, &cleared, *output, delivery);
-                    }
+        // value, settled before any destination is asked: a rendering a Cell
+        // cannot hold refuses whole. A Clear writes two spaces, and every
+        // other answer renders as the Cell pair the schedule reserved. A
+        // pulse clears the pair it reserves for its Bang, root or nested, so
+        // clearing it orders nothing new.
+        let encoding = match answer {
+            Answer::Clear => Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell"),
+            Answer::Unit(atom) => match Encoding::render(atom) {
+                Ok(encoding) => encoding,
+                Err(reason) => {
+                    self.effects
+                        .push(Effect::Diagnose(diagnose(node, render_message(reason))));
+                    return;
                 }
-                return;
-            }
-            Ok(Rendered::Cells(encoding)) => encoding,
-            Err(reason) => {
-                self.effects
-                    .push(Effect::Diagnose(diagnose(node, render_message(reason))));
-                return;
-            }
+            },
         };
         for output in sites {
-            self.deliver_output(index, atom, &encoding, *output, delivery);
+            self.deliver_output(index, answer.unit(), &encoding, *output, delivery);
         }
     }
 
@@ -449,7 +438,7 @@ impl<'a> Execution<'a> {
     fn deliver_output(
         &mut self,
         index: ComputationId,
-        atom: Atom,
+        written: Option<Atom>,
         encoding: &Encoding,
         output: Result<Position, PortalError>,
         delivery: Delivery,
@@ -478,7 +467,7 @@ impl<'a> Execution<'a> {
         let lookup = &self.schedule.lookup;
         let reached = dependencies::reached(lookup, &write);
         for root in reached.bang_roots() {
-            let phase = self.phase(delivery, Some(atom));
+            let phase = self.phase(delivery, written);
             if let Consequence::Activate(root) = dependencies::bang_root(lookup, index, root, phase)
                 && self.activate(root) == Activation::Delivered
                 && delivery == Delivery::Selected
@@ -486,7 +475,7 @@ impl<'a> Execution<'a> {
                 self.activated.push(root);
             }
         }
-        match dependencies::refusal(&reached, Some(atom), delivery, &self.turns) {
+        match dependencies::refusal(&reached, written, delivery, &self.turns) {
             // The fact that differed, not the list of facts that could have.
             // Each is argued on `ReplacementChange`, and the wording is
             // CONTEXT.md's, so the diagnostic continues the glossary's own
@@ -513,7 +502,7 @@ impl<'a> Execution<'a> {
         for contacted in reached.functions() {
             let target = contacted.index();
             let contacted =
-                dependencies::contact(lookup, index, &contacted, self.phase(delivery, Some(atom)));
+                dependencies::contact(lookup, index, &contacted, self.phase(delivery, written));
             reaches_own_expression |= contacted.own_expression;
             match contacted.consequence {
                 Consequence::Replace(replacement) => self.turns.replace(target, replacement),

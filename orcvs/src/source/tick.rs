@@ -65,7 +65,7 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
-use super::encoding::{Encoding, RenderError, Rendered};
+use super::encoding::{Encoding, RenderError};
 use super::language_map::{LanguageMap, Span};
 pub(super) use super::portal::{Coverage, Occupancy, Occupant, PortalError, PortalUnit, coverage};
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};

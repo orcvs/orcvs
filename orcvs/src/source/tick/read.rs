@@ -429,7 +429,11 @@ fn a_nested_read_that_reads_empty_cells_makes_its_parent_invalid() {
     assert_eq!(tick.rows, [".+&>0203  ", "xx        "]);
     assert_eq!(
         tick.diagnostics,
-        [diagnostic(0, 0, "expected a number, found \"  \"")]
+        [diagnostic(
+            0,
+            0,
+            "nested computation at column 2, row 0 cleared its operand"
+        )]
     );
 }
 

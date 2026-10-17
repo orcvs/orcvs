@@ -77,19 +77,6 @@ mod test {
     }
 
     #[test]
-    fn a_write_refuses_an_absence_marker_as_its_value() {
-        for function in WRITES {
-            assert!(
-                matches!(
-                    write(function, Atom::Empty),
-                    Err(Error::Type(TypeError::Unit(_)))
-                ),
-                "{function:?}"
-            );
-        }
-    }
-
-    #[test]
     fn a_write_refuses_an_address_operand_that_is_not_a_number() {
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(

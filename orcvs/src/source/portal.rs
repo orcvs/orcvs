@@ -202,7 +202,7 @@ impl Portal {
 
     /// Complete coverage of a nonempty read or write, without leaving this row.
     /// Callers supply widths from nonempty encodings, declared input types,
-    /// or Reservations. Empty results never reach a Portal.
+    /// or Reservations, so a zero width never reaches a Portal.
     pub(super) fn span(self, width: usize) -> Result<Span, PortalError> {
         let offset = width.checked_sub(1).expect("Portal coverage is nonempty");
         let last = self
@@ -302,11 +302,6 @@ impl Portal {
     /// the only question left here is how far along the row those Cells reach.
     /// The write retains validated CellContent values through resolution and
     /// commit.
-    ///
-    /// A value with no Cells of its own renders to
-    /// [`super::encoding::Rendered::Nothing`] and never reaches a Portal as
-    /// itself; what a Function writes for it instead is a rule about results,
-    /// and it belongs where results are read.
     ///
     pub(super) fn admit(&self, encoding: &Encoding) -> Result<SpanWrite, PortalError> {
         let content: Vec<CellContent> = encoding.content();

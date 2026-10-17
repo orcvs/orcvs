@@ -265,7 +265,7 @@ fn a_copy_reads_a_dynamic_write_over_cells_a_fired_bang_cleared() {
     );
     assert_eq!(
         messages(&plans[0]),
-        ["expected a Language Unit, found \"  \""]
+        ["nested computation at column 6, row 4 cleared its operand"]
     );
 }
 

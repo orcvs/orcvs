@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, InterpretationError,
+    Atom, Error, Function, Interpretation, InterpretationError,
     atom::operands::{Clock, Delay, Euclidean, Increment, Interpolation, Random},
     interpreter::Context,
 };
@@ -57,19 +57,6 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
     Ok((u64::from(rate), u64::from(modulus)))
 }
 
-///
-/// The Atom a pulse answers with, which is a Bang or nothing at all.
-///
-/// Both pulse Functions answer the same pair, so the pair is named once: the
-/// absence marker leaves the Output Portal empty, and answering a Number for
-/// the silent Tick would put a Cell meaning "no" in the Source for the next
-/// Tick to read as an operand.
-///
-#[inline(always)]
-fn pulse(banged: bool) -> Atom {
-    if banged { Atom::Bang } else { Atom::Empty }
-}
-
 /// Clock: `~. rate modulus`.
 ///
 /// The step a cycle of `rate * modulus` Ticks is at, as a Number: `rate` Ticks
@@ -104,7 +91,7 @@ pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
 /// makes the two operands a rate and a step count rather than two names for the
 /// same period.
 #[inline(always)]
-pub fn delay(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn delay(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
     let Delay { rate, modulus } = ctx.stack.extract::<Delay>()?;
     let (rate, modulus) = cycle_factors(Function::Delay, rate, modulus)?;
@@ -116,7 +103,7 @@ pub fn delay(ctx: &mut Context) -> Result<Atom, Error> {
     // The cycle test is `Tick % (rate * modulus) == 0`, and
     // `is_multiple_of` is that test rather than a different one: the two differ
     // only at a zero divisor, which `cycle_factors` has already refused.
-    Ok(pulse(tick.is_multiple_of(rate * modulus)))
+    Ok(Interpretation::pulse(tick.is_multiple_of(rate * modulus)))
 }
 
 /// Euclidean: `~% hits steps`.
@@ -133,7 +120,7 @@ pub fn delay(ctx: &mut Context) -> Result<Atom, Error> {
 /// modulo `steps` anyway. What the counter itself does at its end is decided
 /// by [`crate::Tick::next`], which saturates rather than wraps.
 #[inline(always)]
-pub fn euclidean(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
     let Euclidean { hits, steps } = ctx.stack.extract::<Euclidean>()?;
 
@@ -159,7 +146,9 @@ pub fn euclidean(ctx: &mut Context) -> Result<Atom, Error> {
     // steps` is false for every positive `steps`. So does a full cycle, where
     // `hits == steps` makes the remainder zero and the comparison an equality
     // that always holds.
-    Ok(pulse((hits * phase) % steps + hits >= steps))
+    Ok(Interpretation::pulse(
+        (hits * phase) % steps + hits >= steps,
+    ))
 }
 
 /// Increment: `~+ step modulus`.
@@ -368,12 +357,12 @@ mod test {
         }
     }
 
-    /// Whether `function` Banged at `tick`, refusing anything but the two Atoms
-    /// a pulse answers with.
+    /// Whether `function` Banged at `tick`, refusing anything but the Bang or
+    /// the Clear a pulse answers with.
     fn banged(function: Function, tick: u64, left: u8, right: u8) -> bool {
-        match answer(function, tick, left, right) {
-            Ok(Atom::Bang) => true,
-            Ok(Atom::Empty) => false,
+        match evaluate(function, tick, Atom::Number(left), Atom::Number(right)) {
+            Ok(Interpretation::Cell(Atom::Bang)) => true,
+            Ok(Interpretation::Clear) => false,
             other => panic!("{function:?}({left:02X}, {right:02X}) at {tick} answered {other:?}"),
         }
     }
@@ -725,8 +714,8 @@ mod test {
     fn euclidean_refuses_a_cycle_of_no_steps_before_it_counts_its_hits() {
         // The required ordering. `00 00` is the case it is
         // stated for: a cycle with no positions rather than a pattern with no
-        // onsets, so it diagnoses instead of quietly answering the Absence
-        // Marker forever the way `~% 00 04` does.
+        // onsets, so it diagnoses instead of quietly answering a Clear
+        // forever the way `~% 00 04` does.
         for hits in [0x00u8, 0x01, 0xFF] {
             let error = answer(Function::Euclidean, 3, hits, 0x00).unwrap_err();
             assert_eq!(

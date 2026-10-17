@@ -1,5 +1,5 @@
 use super::copy::copy;
-use crate::{Atom, Error, interpreter::Context, stack::Operands};
+use crate::{Atom, Error, Interpretation, interpreter::Context, stack::Operands};
 
 /// A Read: `&^ n`, `&v n`, `&< n`, `&> n` or `&$ column row`.
 ///
@@ -8,7 +8,7 @@ use crate::{Atom, Error, interpreter::Context, stack::Operands};
 /// Position, read as a Copy reads its Input Portal. The Turn supplies
 /// the Cells of that pair, so evaluation binds the operands and answers what a
 /// Copy would.
-pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn read<O: Operands>(ctx: &mut Context) -> Result<Interpretation, Error> {
     ctx.stack.extract::<O>()?;
     copy(ctx, O::FUNCTION)
 }

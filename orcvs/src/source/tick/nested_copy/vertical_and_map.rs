@@ -121,9 +121,9 @@ fn a_nested_vertical_copy_copies_what_it_reads_and_returns_it() {
         steady(&rows, &[], 3)
     );
 
-    // Empty: the Copy copies the empty Cells to its destination and returns
-    // them, so the parent's operand is unwritten and the parent is invalid,
-    // diagnosed every Tick.
+    // Empty: the Copy copies the empty Cells to its destination, so the
+    // parent's operand is unwritten and the parent is invalid, diagnosed
+    // every Tick as naming the Copy.
     for rows in [
         ["        ", ".+=^01  ", "        ", "        "],
         ["        ", ".+=v01  ", "        ", "        "],
@@ -131,7 +131,15 @@ fn a_nested_vertical_copy_copies_what_it_reads_and_returns_it() {
         let source: Vec<&str> = rows.iter().map(|row| row.trim_end()).collect();
         assert_eq!(
             observe(Grid::with_shape(8, 4), &source, 3),
-            steady(&rows, &[(0, 1, "expected a number, found \"  \"")], 3)
+            steady(
+                &rows,
+                &[(
+                    0,
+                    1,
+                    "nested computation at column 2, row 1 cleared its operand"
+                )],
+                3
+            )
         );
     }
 }
@@ -220,8 +228,9 @@ fn a_nested_vertical_copy_overwrites_another_expression() {
     );
     let rows = ["          ", "    .+=v01", "  .+04    ", "          "];
     let empty = "expected a number, found \"  \"";
-    let mut expected = steady(&rows, &[(4, 1, empty), (2, 2, empty)], 1);
-    expected.extend(steady(&rows, &[(4, 1, empty)], 2));
+    let cleared = "nested computation at column 6, row 1 cleared its operand";
+    let mut expected = steady(&rows, &[(4, 1, cleared), (2, 2, empty)], 1);
+    expected.extend(steady(&rows, &[(4, 1, cleared)], 2));
     assert_eq!(observed, expected);
     assert_eq!(
         before_a_tick(Grid::with_shape(10, 4), &rows).1,
@@ -245,9 +254,9 @@ fn a_nested_vertical_copy_overwrites_another_expression() {
 fn a_bang_in_the_source_is_gone_before_a_vertical_copy_reads_it() {
     // A typed `**` is a Bang Function, and the Copy reads its Cells after
     // its Turn has cleared them, so it copies the empty Cells to its
-    // destination. Nested, it returns them and the parent is invalid; a root
+    // destination. Nested, the parent is invalid and names the Copy; a root
     // says nothing. Either way an aligned `.=` loses its spelling.
-    let empty = "expected a number, found \"  \"";
+    let empty = "nested computation at column 2, row 1 cleared its operand";
     let rows = ["        ", ".+=^01  ", "        ", "        "];
     assert_eq!(
         observe(Grid::with_shape(8, 4), &["", ".+=^01", "  **", ""], 3),
