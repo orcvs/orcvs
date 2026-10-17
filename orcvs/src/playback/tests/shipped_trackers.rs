@@ -19,6 +19,10 @@ const STEPS: u64 = 8;
 /// Every Timed Play in both trackers has length `04`.
 const LENGTH: u64 = 4;
 
+/// What one Tick delivers to the adapter, and its diagnostics as anchor
+/// column, anchor row and message.
+type Expected = (Vec<OutputCommand>, Vec<(usize, usize, String)>);
+
 /// One voice of a tracker: its MIDI channel, where its Timed Play is
 /// anchored, and the Note each step holds, `None` for a deliberately empty
 /// step.
@@ -46,11 +50,7 @@ impl Sounding {
     /// is still sounding; an empty step's Timed Play finds its note slot empty
     /// and is diagnosed at its anchor.
     ///
-    fn expect(
-        &mut self,
-        voices: &[Voice],
-        tick: u64,
-    ) -> (Vec<OutputCommand>, Vec<(usize, usize, String)>) {
+    fn expect(&mut self, voices: &[Voice], tick: u64) -> Expected {
         let mut delivery = Vec::new();
         let mut diagnostics = Vec::new();
         self.0.retain(|&(channel, note, due)| {
@@ -154,6 +154,56 @@ fn assert_two_loops(text: &[u8], voices: &[Voice], slot_written: bool) {
         }
     }
     assert_eq!(adapter.command_lists().len() as u64, 2 * STEPS * STEP_TICKS);
+}
+
+///
+/// The cell tracker's first loop and the Tick that starts its second, written
+/// out Tick by Tick rather than derived, so a misreading shared by
+/// [`Sounding::expect`] and Playback cannot pass both.
+///
+#[test]
+fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
+    let rest = || vec![(2, 2, "expected a note, found \"  \"".to_owned())];
+    let expected: [Expected; 17] = [
+        (vec![note_on(0, 0x64, 60)], vec![]),
+        (vec![], vec![]),
+        (vec![note_on(0, 0x64, 62)], vec![]),
+        (vec![], vec![]),
+        (vec![stop(0, 60)], rest()),
+        (vec![], vec![]),
+        (vec![stop(0, 62), note_on(0, 0x64, 67)], vec![]),
+        (vec![], vec![]),
+        (vec![], rest()),
+        (vec![], vec![]),
+        (vec![stop(0, 67), note_on(0, 0x64, 69)], vec![]),
+        (vec![], vec![]),
+        (vec![note_on(0, 0x64, 72)], vec![]),
+        (vec![], vec![]),
+        (vec![stop(0, 69)], rest()),
+        (vec![], vec![]),
+        (vec![stop(0, 72), note_on(0, 0x64, 60)], vec![]),
+    ];
+    let source = SourceCommander::with_source(
+        file::read(include_bytes!("../../../../examples/cell-tracker.orcvs"))
+            .expect("the shipped file is a Source File"),
+    );
+    let adapter = InMemoryOutputAdapter::default();
+    let mut run = HandDrivenRun::new(source, adapter.clone());
+    run.begin_run();
+
+    for (tick, (delivery, diagnostics)) in expected.into_iter().enumerate() {
+        let plan = run.run_tick(tick as u64);
+        assert_eq!(
+            tick_diagnostics(&plan),
+            diagnostics,
+            "Tick {tick}'s diagnostics"
+        );
+        assert_eq!(
+            adapter.command_lists().last(),
+            Some(&delivery),
+            "Tick {tick}'s delivery"
+        );
+    }
 }
 
 #[test]

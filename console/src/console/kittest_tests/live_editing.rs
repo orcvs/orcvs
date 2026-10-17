@@ -292,6 +292,26 @@ async fn a_cleared_pair_rests_in_place_and_typing_it_back_restores_it() {
 }
 
 ///
+/// A whole Note pasted into an empty pair arrives in one edit, so the next
+/// Tick that selects it plays it with no half-written pair between.
+///
+#[tokio::test]
+async fn a_note_pasted_into_an_empty_pair_plays_on_the_next_tick_that_selects_it() {
+    let dir = TempDir::new();
+    let (mut harness, _) = console_with_the_tracker(&dir);
+    tick(&harness, banged_tick_of(1));
+
+    go_to(&mut harness, pair_column(2), PAIR_ROW);
+    harness.event(Event::Paste("E5".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(pairs(&harness), "C4D4E5G4  A4C5  ");
+    let plan = tick(&harness, banged_tick_of(2));
+    assert_eq!(notes(&plan), [76], "E5");
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+}
+///
 /// Copying the pairs carries their empty pairs as spaces, and pasting them
 /// back writes those spaces, so a pasted pattern keeps its rests.
 ///
