@@ -410,18 +410,7 @@ impl<'a> Execution<'a> {
         let encoding = match answer {
             Answer::Clear => Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell"),
             Answer::Unit(atom) => match Encoding::render(atom) {
-                Ok(Rendered::Nothing) => {
-                    // A Copy answers Empty when its input is two spaces, and
-                    // writes them. Every other Function writes nothing.
-                    if self.turns.function(index).copies_language_unit() {
-                        let cleared =
-                            Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell");
-                        for output in sites {
-                            self.deliver_output(index, None, &cleared, *output, delivery);
-                        }
-                    }
-                    return;
-                }
+                Ok(Rendered::Nothing) => return,
                 Ok(Rendered::Cells(encoding)) => encoding,
                 Err(reason) => {
                     self.effects

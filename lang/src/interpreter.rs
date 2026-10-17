@@ -117,7 +117,7 @@ impl Interpreter {
             inputs,
         };
         let atom = match function {
-            Function::AbsoluteCopy => functions::copy::absolute_copy(&mut ctx)?,
+            Function::AbsoluteCopy => return functions::copy::absolute_copy(&mut ctx),
             Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
             Function::Add => math::add(&mut ctx)?,
             Function::Clock => tick::clock(&mut ctx)?,
@@ -130,15 +130,17 @@ impl Interpreter {
             Function::Increment => tick::increment(&mut ctx)?,
             Function::Interpolation => tick::interpolation(&mut ctx)?,
             Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
-                functions::copy::copy(&mut ctx, function)?
+                return functions::copy::copy(&mut ctx, function);
             }
             Function::Random => tick::random(&mut ctx)?,
-            Function::AbsoluteRead => functions::read::read::<operands::AbsoluteRead>(&mut ctx)?,
-            Function::ReadEast => functions::read::read::<operands::ReadEast>(&mut ctx)?,
-            Function::ReadNorth => functions::read::read::<operands::ReadNorth>(&mut ctx)?,
-            Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
-            Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
-            Function::Track => functions::track::track(&mut ctx)?,
+            Function::AbsoluteRead => {
+                return functions::read::read::<operands::AbsoluteRead>(&mut ctx);
+            }
+            Function::ReadEast => return functions::read::read::<operands::ReadEast>(&mut ctx),
+            Function::ReadNorth => return functions::read::read::<operands::ReadNorth>(&mut ctx),
+            Function::ReadSouth => return functions::read::read::<operands::ReadSouth>(&mut ctx),
+            Function::ReadWest => return functions::read::read::<operands::ReadWest>(&mut ctx),
+            Function::Track => return functions::track::track(&mut ctx),
             Function::AbsoluteWrite => {
                 functions::write::write::<operands::AbsoluteWrite>(&mut ctx)?
             }

@@ -9,11 +9,15 @@ step 2.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A Copy of two blank Cells answers a clear, not the Absence Marker.
-- [ ] A Copy writes and returns blank Cells with no Function check in the
+- [x] A Copy of two blank Cells answers a clear, not the Absence Marker.
+- [x] A Copy writes and returns blank Cells with no Function check in the
       Source tick.
-- [ ] A copied `**` still activates the roots aligned with its destination.
-- [ ] Every existing Copy, Track and Bang activation test passes unchanged.
-- [ ] Gates pass with `PROPTEST_CASES=32`.
+- [x] A copied `**` still activates the roots aligned with its destination.
+- [x] Every existing Copy, Track and Bang activation test passes unchanged.
+- [x] Gates pass with `PROPTEST_CASES=32`.
+
+## Comments
+
+2026-10-17: A Copy, and the Reads and Track that read through it, answer `Interpretation::Clear` for two empty Cells. `Function::copies_language_unit` had no other caller, so it is removed. `empty_input_answers_a_clear` pins the answer.

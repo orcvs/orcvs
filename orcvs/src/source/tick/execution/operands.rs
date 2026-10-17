@@ -66,19 +66,13 @@ impl Execution<'_> {
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
                 let returned = match self.turns.result(child) {
                     // A clear returns the two spaces it wrote, so the operand
-                    // it stands in is unwritten.
+                    // it stands in is unwritten. A Copy of empty Cells and a
+                    // pulse that does not Bang both answer one.
                     Some(Answer::Clear) => {
                         return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
                     }
                     Some(Answer::Unit(atom)) => match Encoding::render(atom) {
                         Ok(Rendered::Cells(encoding)) => encoding,
-                        // A Function that copies Cells returns the empty Cells
-                        // it copied, so the operand it stands in is unwritten.
-                        Ok(Rendered::Nothing)
-                            if self.turns.function(child).copies_language_unit() =>
-                        {
-                            return token.decode(EMPTY_PAIR).map_err(|error| error.to_string());
-                        }
                         Ok(Rendered::Nothing) => return Err(returned_nothing(anchor)),
                         // A rendering a Cell cannot hold is its own fault, not
                         // an absent answer.

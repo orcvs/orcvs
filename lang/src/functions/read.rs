@@ -1,6 +1,6 @@
 use super::copy::copy;
 use crate::{
-    Atom, Error, Function,
+    Atom, Error, Function, Interpretation,
     atom::operands::{
         AbsoluteRead, AbsoluteWrite, ReadEast, ReadNorth, ReadSouth, ReadWest, WriteEast,
         WriteNorth, WriteSouth, WriteWest,
@@ -16,7 +16,7 @@ use crate::{
 /// Position, read as a Copy reads its Input Portal. The Turn supplies
 /// the Cells of that pair, so evaluation binds the operands and answers what a
 /// Copy would.
-pub fn read<O: Operands>(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn read<O: Operands>(ctx: &mut Context) -> Result<Interpretation, Error> {
     ctx.stack.extract::<O>()?;
     copy(ctx, O::FUNCTION)
 }
