@@ -1,10 +1,5 @@
 use super::track::selected_pair;
-use crate::{
-    Atom, Error, Function,
-    atom::operands::{AbsoluteWrite, Push, WriteEast, WriteNorth, WriteSouth, WriteWest},
-    interpreter::Context,
-    stack::Operands,
-};
+use crate::{Atom, Error, Function, atom::operands::Push, interpreter::Context, stack::Operands};
 
 /// A Write: `@^ n value`, `@v n value`, `@< n value`, `@> n value`,
 /// `@$ column row value` or Push, `@t index count value`.
@@ -28,30 +23,12 @@ pub(crate) fn lane_pair(operands: &[Atom]) -> Result<u8, Error> {
         .and_then(|Push { index, count, .. }| selected_pair(Function::Push, index, count))
 }
 
-/// The operands of a Write, which carry one `value`.
+/// The operands of a Write, which carry one `value`. `define_functions!`
+/// implements it for every row with a `value: Untyped` role.
 pub(crate) trait Carried {
     /// The encoding the Write carries to its pair.
     fn value(self) -> Atom;
 }
-
-macro_rules! carried {
-    ($($write:ident),+) => {
-        $(impl Carried for $write {
-            fn value(self) -> Atom {
-                self.value
-            }
-        })+
-    };
-}
-
-carried!(
-    AbsoluteWrite,
-    Push,
-    WriteEast,
-    WriteNorth,
-    WriteSouth,
-    WriteWest
-);
 
 #[cfg(test)]
 mod test {
