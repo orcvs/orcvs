@@ -286,6 +286,31 @@ fn space(orcvs: &mut Orcvs) {
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
 }
 
+/// The last message of the safety reset: channel 15's bend, centred.
+const LAST_SAFETY_RESET_MESSAGE: [u8; 3] = [0xef, 0x00, 0x40];
+
+///
+/// Stops playback, waits until the engine has sent the safety reset a stop
+/// owes, and drops the running Orcvs.
+///
+/// The key press only queues the stop for the engine's task, and yielding
+/// once does not promise that task a turn, so the wait is for the reset's
+/// last message to reach the sent ledger. The program bends channel 2 only,
+/// so nothing it plays can end the ledger with that message.
+///
+async fn stop(mut orcvs: Orcvs, sent: &Ledger) {
+    space(&mut orcvs);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while sent.lock().unwrap().last().map(Vec::as_slice) != Some(&LAST_SAFETY_RESET_MESSAGE[..]) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the engine never sent the safety reset after the stop"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    drop(orcvs);
+}
+
 fn ready(request: MidiConnectionRequest) -> Box<dyn MidiConnection> {
     match request {
         MidiConnectionRequest::Ready(connection) => connection,
@@ -314,9 +339,7 @@ async fn midi_loopback_in_process() {
 
     space(&mut orcvs);
     tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
-    space(&mut orcvs);
-    tokio::task::yield_now().await;
-    drop(orcvs);
+    stop(orcvs, &sent).await;
 
     let heard = cross_check(&sent.lock().unwrap(), &received.lock().unwrap());
     assert_plays_the_program(&heard);
@@ -353,9 +376,7 @@ async fn midi_loopback_through_a_virtual_port() {
 
     space(&mut orcvs);
     tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
-    space(&mut orcvs);
-    tokio::task::yield_now().await;
-    drop(orcvs);
+    stop(orcvs, &sent).await;
 
     // Delivery crosses the platform's MIDI service on its own thread, so the
     // received ledger catches up some time after the last send. Two seconds
