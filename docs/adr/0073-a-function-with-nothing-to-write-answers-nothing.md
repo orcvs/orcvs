@@ -1,6 +1,6 @@
 # A Function with nothing to write answers nothing, and a Clear writes two spaces
 
-Status: accepted. Supersedes [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md)'s clause "The Absence Marker is an answer". Amends [ADR 0071](0071-a-bang-travels-as-its-glyph.md)'s bang-port clause and [ADR 0072](0072-a-standalone-bang-is-a-function.md)'s overwrite clause, both of which name the Absence Marker; their behaviour stands. Settled in `.scratch/no-absence-marker/`.
+Status: accepted; its clause that a nested Clear leaves the parent invalid is amended by [ADR 0075](0075-a-play-with-a-cleared-note-rests.md) for a Play's note operand, which rests. Supersedes [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md)'s clause "The Absence Marker is an answer". Amends [ADR 0071](0071-a-bang-travels-as-its-glyph.md)'s bang-port clause and [ADR 0072](0072-a-standalone-bang-is-a-function.md)'s overwrite clause, both of which name the Absence Marker; their behaviour stands. Settled in `.scratch/no-absence-marker/`.
 
 The Absence Marker was a variant of the Atom type that no Source spells and no operand accepts. Its only producers were the three pulse Functions on a Turn they do not Bang and a Copy of two empty Cells, and every one of them wrote two spaces. The Source tick therefore had to ask which Function answered before it knew what the marker meant, and its "write nothing" reading was reachable only from a test.
 

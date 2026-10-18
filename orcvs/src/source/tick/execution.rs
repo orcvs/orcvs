@@ -196,13 +196,18 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.turns.function(index);
         let tick = tick_inputs(self.tick, node.anchor);
-        let result = self.decode(node, signature).and_then(|operands| {
+        let result = self.decode(node, function, signature).and_then(|operands| {
+            let Some(operands) = operands else {
+                return Ok(None);
+            };
             let portal = self.turn_portal(index, function, &operands)?;
             let destination = self.turn_destination(index, function, &operands)?;
-            Ok((operands, portal, destination))
+            Ok(Some((operands, portal, destination)))
         });
         let (operands, portal, destination) = match result {
-            Ok(resolved) => resolved,
+            Ok(Some(resolved)) => resolved,
+            // A rest is a Turn taken with nothing to perform.
+            Ok(None) => return None,
             Err(message) => {
                 self.effects.push(Effect::Diagnose(diagnose(node, message)));
                 return None;

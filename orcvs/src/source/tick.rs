@@ -50,6 +50,8 @@ mod read;
 #[cfg(test)]
 mod replacement;
 #[cfg(test)]
+mod rest;
+#[cfg(test)]
 mod schedule;
 #[cfg(test)]
 mod schedule_reuse;
