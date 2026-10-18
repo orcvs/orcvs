@@ -116,6 +116,44 @@ impl LanguageUnit {
     pub fn span(&self) -> Span {
         self.span
     }
+
+    ///
+    /// The Cells this unit occupies against every Function: its whole Span,
+    /// except a Comment's, which occupies only its `||` introducer and the
+    /// `||` that closes it. A Comment's text is ordinary Cells, so a Read
+    /// selects it, a Halt aimed at it locks nothing, and a mover is refused
+    /// there only by what the Cells hold.
+    ///
+    /// A Comment with no text, `||||` or an unclosed `||` at its row's end,
+    /// occupies its whole Span as one run, so a pair inside it is wholly
+    /// covered rather than split across two delimiters.
+    ///
+    /// Every coverage question asks this rather than the Span, which stays
+    /// the Comment's whole claim for paint, Tokens and scheduling.
+    ///
+    pub(super) fn occupied_cells(&self) -> impl Iterator<Item = std::ops::Range<usize>> {
+        let span = self.span.range();
+        let (first, closer) = match self.kind {
+            LanguageUnitKind::Comment(text) if !text.range().is_empty() => {
+                let text = text.range();
+                (span.start..text.start, Some(text.end..span.end))
+            }
+            _ => (span, None),
+        };
+        std::iter::once(first).chain(closer.filter(|closer| !closer.is_empty()))
+    }
+}
+
+///
+/// Every run of Cells `units` occupy, each with the unit occupying it, as
+/// [`LanguageUnit::occupied_cells`] answers them. Allocates nothing.
+///
+pub(super) fn occupied<'a>(
+    units: impl IntoIterator<Item = &'a LanguageUnit>,
+) -> impl Iterator<Item = (std::ops::Range<usize>, &'a LanguageUnit)> {
+    units
+        .into_iter()
+        .flat_map(|unit| unit.occupied_cells().map(move |cells| (cells, unit)))
 }
 
 /// The Cells one Language Unit, Expression, or Diagnostic occupies.
@@ -1190,6 +1228,27 @@ mod tests {
             vec![(0, (0..8).collect()), (8, vec![8, 9])]
         );
         assert_eq!(map.diagnostics().count(), 0);
+    }
+
+    ///
+    /// The runs a row's one Comment occupies: each delimiter apart when it
+    /// has text, and its whole Span as one run when it has none.
+    ///
+    #[test]
+    fn a_comment_occupies_its_delimiters_or_its_whole_span_when_it_has_no_text() {
+        let occupied = |source: &[u8]| {
+            let map = LanguageMap::build(Grid::with_shape(source.len(), 1), Cells::of(source));
+            let comment = map
+                .units()
+                .find(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
+                .expect("a Comment");
+            comment.occupied_cells().collect::<Vec<_>>()
+        };
+
+        assert_eq!(occupied(b"||||"), vec![0..4]);
+        assert_eq!(occupied(b"||C3    "), vec![0..2]);
+        assert_eq!(occupied(b"**    ||"), vec![6..8]);
+        assert_eq!(occupied(b"|| C3 ||**"), vec![0..2, 6..8]);
     }
 
     ///

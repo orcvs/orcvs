@@ -28,4 +28,6 @@ Core changes."). ADR 0074 records it.
 
 - Any Source with two `||` on one row now reads differently. The Function
   reference's six row-0 headers are each written `|| … ||`.
-- Writes into a Comment, and movers meeting one, are unchanged.
+- A Comment's text is ordinary Cells to every Function, and only its two
+  delimiters are occupied (issue 02): a Halt aimed at the text locks nothing,
+  a mover is refused there only by glyphs, and a Write writes the Cells.

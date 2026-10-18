@@ -3,6 +3,7 @@
 //! in Source order.
 
 use crate::grid::Grid;
+use crate::source::language_map::LanguageUnitKind;
 
 use super::fixture::{messages, tick_by_tick};
 use super::observed::raw;
@@ -830,6 +831,55 @@ fn a_move_that_lands_across_two_language_units_diagnoses_its_misalignment() {
         messages(&plans[0]),
         vec!["^^ contacts part of a Language Unit"]
     );
+}
+
+#[test]
+fn a_mover_meets_comment_text_as_ordinary_cells() {
+    // Blank text is vacant, so the mover enters it.
+    let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  vv", "||      "], 1);
+    assert_eq!(grids[0], ["        ", "||vv    "]);
+    assert!(
+        plans[0].diagnostics.is_empty(),
+        "{:?}",
+        plans[0].diagnostics
+    );
+
+    // What the mover writes into the text is text at the next parse: the
+    // Comment runs through it to the row's end, so nothing moves and nothing
+    // diagnoses on the Tick after.
+    let (plans, grids, source) = tick_by_tick(Grid::with_shape(8, 2), &["  vv", "||      "], 2);
+    assert_eq!(grids[1], ["        ", "||vv    "]);
+    assert!(
+        plans[1].diagnostics.is_empty(),
+        "{:?}",
+        plans[1].diagnostics
+    );
+    let units: Vec<_> = source
+        .language_map()
+        .units()
+        .filter(|unit| unit.anchor().y() == 1)
+        .map(|unit| match unit.kind() {
+            LanguageUnitKind::Comment(text) => (unit.span().range(), text.range()),
+            kind => panic!("{kind:?} parsed in the Comment's row"),
+        })
+        .collect();
+    assert_eq!(units, [(8..16, 10..16)]);
+
+    // Glyphs in the text block it, and no Language Unit occupies them, so
+    // the refusal makes no contact to diagnose.
+    let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  vv", "||C3    "], 1);
+    assert_eq!(grids[0], ["  **    ", "||C3    "]);
+    assert!(
+        plans[0].diagnostics.is_empty(),
+        "{:?}",
+        plans[0].diagnostics
+    );
+
+    // The introducer is the Comment's, so a pair across it and the text
+    // meets part of the Comment.
+    let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[" vv", "||C3    "], 1);
+    assert_eq!(grids[0], [" **     ", "||C3    "]);
+    assert_eq!(messages(&plans[0]), ["vv contacts part of a Language Unit"]);
 }
 
 #[test]
