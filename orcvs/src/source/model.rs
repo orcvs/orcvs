@@ -893,9 +893,7 @@ mod test {
             // The rule for what an answer becomes in Cells is production's,
             // called here rather than restated: these tests state an answer,
             // and what they exercise is the commit, not a second encoding.
-            Interpretation::Cell(atom) => {
-                Encoding::render(atom).expect("these answers are stated as Source Cells")
-            }
+            Interpretation::Cell(atom) => Encoding::render(atom),
             Interpretation::Clear => Encoding::clear(),
             // A Source effect is not an answer this seam delivers. It writes
             // its own Cells at Portals it resolves, so there is no value to
