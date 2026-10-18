@@ -239,10 +239,12 @@ impl<'a> Parser<'a> {
                 // Function's arity-determined claim is an operand Cell that
                 // fails to bind.
                 Some("||") => {
-                    // The closer is the first `||` after the introducer, which
-                    // never closes its own Comment: `|||` runs on, and `||||`
-                    // is an empty closed Comment. `consumed()` derives from what is left, so cutting the
-                    // remainder is the claim.
+                    // The closer is the leftmost `||` after the introducer,
+                    // which never closes its own Comment: `|||` runs on, and
+                    // `||||` is an empty closed Comment. A longer run of
+                    // pipes closes at its first two, and what follows is
+                    // Source. `consumed()` derives from what is left, so
+                    // cutting the remainder is the claim.
                     let text_start = self.start + self.consumed();
                     let (text, rest) = match self.source.find("||") {
                         Some(closer) => (&self.source[..closer], &self.source[closer + 2..]),
@@ -600,6 +602,27 @@ mod test {
         assert_eq!(claim("||||.+0102"), (10..14, Some(12..12)));
         assert_eq!(claim("|||x||.+"), (10..16, Some(12..14)));
         assert_eq!(Parser::from(".+0102").analyze().comment_text(), None);
+    }
+
+    ///
+    /// A run of pipes in or after a Comment's text closes it at the run's
+    /// first two, because the closer is the leftmost `||`. What the run leaves
+    /// is Source: one `|` is incomplete Source, and `||` opens the next
+    /// Comment.
+    ///
+    #[test]
+    fn a_run_of_pipes_closes_a_comment_at_its_first_two() {
+        let closed = Parser::from("||x|||").analyze();
+        assert_eq!((closed.cells(), closed.comment_text()), (0..5, Some(2..3)));
+        let lone = Parser::at("|", 5).analyze();
+        assert!(lone.error().is_some());
+        assert_eq!(lone.cells(), 5..6);
+
+        let closed = Parser::from("||x||||").analyze();
+        assert_eq!((closed.cells(), closed.comment_text()), (0..5, Some(2..3)));
+        let next = Parser::at("||", 5).analyze();
+        assert!(next.is_complete());
+        assert_eq!((next.cells(), next.comment_text()), (5..7, Some(7..7)));
     }
 
     ///

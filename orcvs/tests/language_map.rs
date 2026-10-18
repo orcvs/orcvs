@@ -81,7 +81,7 @@ fn an_operand_claim_reaches_over_a_comment_introducer() {
 
     assert!(
         !map.units()
-            .any(|unit| unit.kind() == LanguageUnitKind::Comment)
+            .any(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
     );
     let first = map.expressions().next().unwrap();
     assert_eq!(first.span().positions().count(), 6);
@@ -110,7 +110,7 @@ fn a_comment_claims_the_row_after_the_expression_that_precedes_it() {
     assert!(expressions[1].root().is_none());
     assert_eq!(
         map.units()
-            .filter(|unit| unit.kind() == LanguageUnitKind::Comment)
+            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
             .map(|unit| unit.anchor().x())
             .collect::<Vec<_>>(),
         vec![6]

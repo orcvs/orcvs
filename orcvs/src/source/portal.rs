@@ -276,11 +276,9 @@ impl Portal {
             // Copy reads as it reads a pair no unit covers. Its delimiters are
             // not text, so a pair touching either is refused.
             Coverage::Complete(Occupant::Unit(unit))
-                if unit.kind() == LanguageUnitKind::Comment =>
+                if let LanguageUnitKind::Comment(text) = unit.kind() =>
             {
-                let text = unit
-                    .comment_text()
-                    .expect("a Comment unit carries its text");
+                let text = text.range();
                 if text.start <= range.start && range.end <= text.end {
                     PortalUnit::Unit
                 } else {
@@ -1151,6 +1149,16 @@ mod test {
         // An unclosed Comment's text runs to the row's end.
         assert_eq!(at(12), PortalUnit::Unit);
         assert_eq!(at(10), PortalUnit::Invalid);
+
+        // An empty closed Comment has no text, so every pair it covers
+        // touches a delimiter.
+        let source = b"||||";
+        let grid = Grid::with_shape(source.len(), 1);
+        let map = LanguageMap::build(grid, Cells::of(source));
+        for column in 0..3 {
+            let portal = Portal::at(grid, grid.position(column, 0).unwrap());
+            assert_eq!(unit(portal, source, &map), PortalUnit::Invalid, "{column}");
+        }
     }
 
     #[test]

@@ -10,7 +10,9 @@ pub use lang::Token;
 // console's colour tests among them — can spell `Atom` without adding a direct
 // dependency on `lang`.
 pub use lang::Atom;
-pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
+pub use language_map::{
+    Claim, CommentText, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span,
+};
 mod model;
 mod planning;
 mod portal;

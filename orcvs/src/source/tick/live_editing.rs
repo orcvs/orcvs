@@ -119,7 +119,7 @@ fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         !source
             .language_map()
             .units()
-            .any(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+            .any(|unit| matches!(unit.kind(), crate::source::LanguageUnitKind::Comment(_)))
     );
     let refused = source.language_map().expressions().next().unwrap();
     assert_eq!(refused.span().positions().count(), 6);
@@ -136,7 +136,7 @@ fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         source
             .language_map()
             .units()
-            .filter(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+            .filter(|unit| matches!(unit.kind(), crate::source::LanguageUnitKind::Comment(_)))
             .map(|unit| unit.anchor().x())
             .collect::<Vec<_>>(),
         vec![6]

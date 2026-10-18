@@ -73,8 +73,28 @@ pub enum LanguageUnitKind {
     /// Language Unit the Parser establishes, so it has a Span and an anchor
     /// like the rest — and, unlike the rest, no value: it records a Token and
     /// no Atom, so it is never an operand, never a Function, and never
-    /// scheduled.
-    Comment,
+    /// scheduled. It carries the Cells of its text as the Parser claimed
+    /// them.
+    Comment(CommentText),
+}
+
+///
+/// The Cells between a Comment's delimiters: after its `||` introducer, and
+/// before the `||` that closes it or the end of its row. Empty for `||||`.
+///
+/// The Parser decides it with the claim, so whether a Comment is closed is
+/// one fact every reader asks the unit for rather than reads off its Cells.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CommentText {
+    start: usize,
+    end: usize,
+}
+
+impl CommentText {
+    pub(super) fn range(self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -82,9 +102,6 @@ pub struct LanguageUnit {
     kind: LanguageUnitKind,
     anchor: Position,
     span: Span,
-    /// The Cells of a Comment's text, as the Parser claimed them. `None` for
-    /// every other kind.
-    comment_text: Option<std::ops::Range<usize>>,
 }
 
 impl LanguageUnit {
@@ -98,12 +115,6 @@ impl LanguageUnit {
 
     pub fn span(&self) -> Span {
         self.span
-    }
-
-    /// The Cells between a Comment's delimiters, or `None` when this unit is
-    /// not a Comment.
-    pub(super) fn comment_text(&self) -> Option<std::ops::Range<usize>> {
-        self.comment_text.clone()
     }
 }
 
@@ -746,7 +757,15 @@ fn name_units(
         // matching on the Atom alone would drop it into the diagnose branch and
         // report every Cell of it as an unmatched character.
         let kind = match (entry.token, entry.atom) {
-            (Token::Comment, _) => Some(LanguageUnitKind::Comment),
+            (Token::Comment, _) => {
+                let text = analysis
+                    .comment_text()
+                    .expect("the Parser records the text of the Comment it claims");
+                Some(LanguageUnitKind::Comment(CommentText {
+                    start: text.start,
+                    end: text.end,
+                }))
+            }
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
             (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
@@ -757,14 +776,6 @@ fn name_units(
                 kind,
                 anchor: grid.position_at(start),
                 span: Span::new(grid, start, end),
-                comment_text: match kind {
-                    LanguageUnitKind::Comment => Some(
-                        analysis
-                            .comment_text()
-                            .expect("the Parser records the text of the Comment it claims"),
-                    ),
-                    _ => None,
-                },
             });
         } else {
             for index in entry.cells.clone() {
@@ -813,7 +824,7 @@ mod tests {
 
     use lang::{Atom, Function, Token};
 
-    use super::{LanguageMap, LanguageUnitKind, Span};
+    use super::{CommentText, LanguageMap, LanguageUnitKind, Span};
 
     #[test]
     fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
@@ -1135,7 +1146,7 @@ mod tests {
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
             vec![
                 LanguageUnitKind::Function(Function::Bang),
-                LanguageUnitKind::Comment
+                LanguageUnitKind::Comment(CommentText { start: 4, end: 8 })
             ]
         );
         assert_eq!(map.diagnostics().count(), 0);
@@ -1170,7 +1181,7 @@ mod tests {
         assert_eq!(
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
             vec![
-                LanguageUnitKind::Comment,
+                LanguageUnitKind::Comment(CommentText { start: 2, end: 6 }),
                 LanguageUnitKind::Function(Function::Bang)
             ]
         );
@@ -1957,7 +1968,7 @@ mod property {
             for (ordinal, unit) in map.units().enumerate() {
                 let span = unit.span();
 
-                if unit.kind() == LanguageUnitKind::Comment {
+                if let LanguageUnitKind::Comment(text) = unit.kind() {
                     // The claim ends at the first `||` after the introducer,
                     // or at the last column of the row it began in.
                     let start = span.start().get();
@@ -1969,7 +1980,7 @@ mod property {
                         .map_or(row_end, |closer| start + 2 + closer);
                     let end = if text_end == row_end { row_end } else { text_end + 2 };
                     prop_assert_eq!(span.end().get(), end - 1, "{:?}", source);
-                    prop_assert_eq!(unit.comment_text(), Some(start + 2..text_end), "{:?}", source);
+                    prop_assert_eq!(text.range(), start + 2..text_end, "{:?}", source);
                     for idx in span.indices() {
                         commented[idx.get()] = true;
                     }
@@ -2332,14 +2343,14 @@ mod property {
                 // hand, so it answers.
                 if map
                     .units()
-                    .any(|unit| unit.kind() == LanguageUnitKind::Comment)
+                    .any(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
                 {
                     comment.set(comment.get() + 1);
                 }
                 // A closed Comment's text ends before its claim does.
-                if map.units().any(|unit| {
-                    unit.comment_text()
-                        .is_some_and(|text| text.end < unit.span().range().end)
+                if map.units().any(|unit| match unit.kind() {
+                    LanguageUnitKind::Comment(text) => text.range().end < unit.span().range().end,
+                    _ => false,
                 }) {
                     closed.set(closed.get() + 1);
                 }
