@@ -572,8 +572,9 @@ ordinary suite and checks the program's bytes and the cross-check, not a transpo
 own `ConsoleMidiBackend`, and sends through the platform's MIDI service: the ALSA sequencer on
 Linux, CoreMIDI on macOS. Windows has no virtual ports, so the module is not compiled there. A host
 without that service cannot run the test, so the ordinary suite ignores it and
-`mise run test_midi_loopback` runs it. The `midi-loopback` job in `test.yml` loads `snd-seq` on a
-hosted Ubuntu runner and runs the task on every pull request. It is not a dependency of the `ci`
+`mise run test_midi_loopback` runs it. The `midi-loopback` job in `test.yml` runs the task on a
+hosted macOS runner on every pull request, because CoreMIDI offers virtual ports there with no
+setup and the hosted Ubuntu runner's Azure kernel ships no ALSA sequencer module. It is not a dependency of the `ci`
 job, so its result is reported without gating a merge.
 
 ## Worktrees each need their own target directory
