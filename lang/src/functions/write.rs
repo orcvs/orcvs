@@ -18,8 +18,7 @@ pub fn write<O: Operands + Carried>(ctx: &mut Context) -> Result<Atom, Error> {
 /// as Track's does, and operands outside their domain diagnose as they would
 /// at evaluation.
 pub(crate) fn lane_pair(operands: &[Atom]) -> Result<u8, Error> {
-    <Push as Operands>::check(operands)
-        .and_then(|()| <Push as Operands>::bind(operands))
+    Push::checked_bind(operands)
         .and_then(|Push { index, count, .. }| selected_pair(Function::Push, index, count))
 }
 

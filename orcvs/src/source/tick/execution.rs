@@ -16,8 +16,8 @@ use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::{
     Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
-    Operand, Portal, PortalError, PortalUnit, Position, RenderError, SCALAR_WIDTH, SpanWrite,
-    TickPlan, coverage, diagnose, resolve, tick_inputs,
+    Operand, Portal, PortalError, PortalUnit, Position, SCALAR_WIDTH, SpanWrite, TickPlan,
+    coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
 use turns::{Activation, Answer, Turns};
@@ -28,10 +28,6 @@ mod turns;
 mod working;
 
 pub(in crate::source) use turns::ComputationState;
-
-/// The two empty Cells a Function that copies Cells writes and returns for an
-/// empty pair.
-const EMPTY_PAIR: &str = "  ";
 
 /// Where a Function's Input Portal stands for one Turn.
 #[derive(Clone, Copy)]
@@ -401,22 +397,12 @@ impl<'a> Execution<'a> {
             None if node.portal_access.writes_cells() => node.portal_access.write_sites(),
             None => return,
         };
-        // Whether this answer can be Cells at all is a question about the
-        // value, settled before any destination is asked: a rendering a Cell
-        // cannot hold refuses whole. A Clear writes two spaces, and every
-        // other answer renders as the Cell pair the schedule reserved. A
-        // pulse clears the pair it reserves for its Bang, root or nested, so
-        // clearing it orders nothing new.
+        // A Clear writes two spaces, and every other answer renders as the
+        // Cell pair the schedule reserved. A pulse clears the pair it reserves
+        // for its Bang, root or nested, so clearing it orders nothing new.
         let encoding = match answer {
-            Answer::Clear => Encoding::literal(EMPTY_PAIR).expect("a space is a printable Cell"),
-            Answer::Unit(atom) => match Encoding::render(atom) {
-                Ok(encoding) => encoding,
-                Err(reason) => {
-                    self.effects
-                        .push(Effect::Diagnose(diagnose(node, render_message(reason))));
-                    return;
-                }
-            },
+            Answer::Clear => Encoding::clear(),
+            Answer::Unit(atom) => Encoding::render(atom),
         };
         for output in sites {
             self.deliver_output(index, answer.unit(), &encoding, *output, delivery);
@@ -567,12 +553,11 @@ impl<'a> Execution<'a> {
         }
         let node = &self.schedule.lookup.nodes()[index];
         let anchor = node.anchor;
-        let spelling = Encoding::literal(
+        let spelling = Encoding::spelled(
             effect
                 .spelling
                 .expect("a bundle that writes displaced declares the Function it writes"),
-        )
-        .expect("a Function spelling is printable ASCII Cells");
+        );
         // What stands in the Source, which is not always what gets written. A
         // Self-Banging Function writes its own spelling and the two agree; a
         // Directional Bang Function writes the Function it emits, and only this
@@ -580,11 +565,9 @@ impl<'a> Execution<'a> {
         // as its spelling, which is how every other diagnostic in this file
         // names one.
         let producer = self.turns.function(index);
-        // The Cells this Function stands in. Every Function spelling is two
-        // ASCII Cells, which `define_functions!` asserts at compile time, and
-        // every spelling a Source-writing Function writes is another
-        // Function's, so the Span it occupies and the Span it writes are the
-        // same width and one length serves both.
+        // The Cells this Function stands in. Every `Spelling` is two Cells,
+        // and what a Source-writing Function writes is another Function's
+        // spelling, so the Span it occupies is as wide as the Span it writes.
         //
         // A bundle that writes displaced and clears its own Span moves: it
         // leaves the Cells it stood in, so they are not newly entered and a
@@ -636,10 +619,10 @@ impl<'a> Execution<'a> {
             _ if moves => {
                 // Source content rather than an answer: the Bang Function a
                 // refused move leaves, which activates nothing in this Turn
-                // and takes its own Turn from the next Snapshot. It is stated
-                // rather than rendered, and reaches no Portal of a value.
-                let bang =
-                    Encoding::literal("**").expect("the Bang spelling is printable ASCII Cells");
+                // and takes its own Turn from the next Snapshot. It writes the
+                // Bang Function's spelling at its own Span and reaches no
+                // Portal of a value.
+                let bang = Encoding::spelled(Function::Bang.cells());
                 let left = Portal::at(self.grid, anchor)
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
@@ -710,16 +693,13 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// The two spaces that clear the Span of the Function anchored at
-    /// `anchor`.
-    ///
-    /// Source content rather than an answer, so it is stated rather than
-    /// rendered. Every Function spelling is two Cells, so two spaces cover it.
+    /// The empty Cells that vacate the Span of the Function anchored at
+    /// `anchor`: the same two Cells a Clear writes, admitted at the
+    /// Function's own Span rather than at an Output Portal.
     ///
     fn own_span_clear(&self, anchor: Position) -> SpanWrite {
-        let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
         Portal::at(self.grid, anchor)
-            .admit(&cleared)
+            .admit(&Encoding::clear())
             .expect("a Function standing in the Source fits its own Span")
     }
 
@@ -795,18 +775,6 @@ fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
         PortalError::BelowSource => format!("result {encoding:?} falls below the Source"),
         PortalError::OutsideGrid => format!("result {encoding:?} falls outside the Grid"),
         PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
-    }
-}
-
-/// A value that could not become Cells names what it rendered to, which is the
-/// same thing the destination refusals above name. The two are separate
-/// messages because they are separate questions: this one is true of the value
-/// wherever it was sent, and no destination was asked before it was refused.
-fn render_message(reason: RenderError) -> String {
-    match reason {
-        RenderError::Unrepresentable(rendering) => {
-            format!("result {rendering:?} contains Cells outside printable ASCII")
-        }
     }
 }
 

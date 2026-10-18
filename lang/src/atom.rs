@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Error, TypeError, midi_note_to_number, midi_number_to_note};
+use crate::{Error, TypeError, midi_note_to_number};
 
 pub type Atoms = Vec<Atom>;
 
@@ -289,7 +289,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-            spelling: Some(Function::SelfBangingNorth.spelling()),
+            spelling: Some(Function::SelfBangingNorth.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -297,7 +297,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-            spelling: Some(Function::SelfBangingNorth.spelling()),
+            spelling: Some(Function::SelfBangingNorth.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -305,7 +305,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-            spelling: Some(Function::SelfBangingSouth.spelling()),
+            spelling: Some(Function::SelfBangingSouth.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -313,7 +313,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-            spelling: Some(Function::SelfBangingSouth.spelling()),
+            spelling: Some(Function::SelfBangingSouth.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -321,7 +321,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -1,
             rows: 0,
-            spelling: Some(Function::SelfBangingWest.spelling()),
+            spelling: Some(Function::SelfBangingWest.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -329,7 +329,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -2,
             rows: 0,
-            spelling: Some(Function::SelfBangingWest.spelling()),
+            spelling: Some(Function::SelfBangingWest.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -337,7 +337,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 1,
             rows: 0,
-            spelling: Some(Function::SelfBangingEast.spelling()),
+            spelling: Some(Function::SelfBangingEast.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -345,7 +345,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 2,
             rows: 0,
-            spelling: Some(Function::SelfBangingEast.spelling()),
+            spelling: Some(Function::SelfBangingEast.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -463,7 +463,7 @@ macro_rules! operands {
 }
 
 // Implements `Carried` for `$variant`'s operand struct when its row declares a
-// `value: Untyped` role: the pair a Write or Push carries to its destination.
+// `value: Untyped` role: the Language Unit a Write or Push carries to its pair.
 macro_rules! carried {
     ($variant:ident, []) => {};
     ($variant:ident, [value: Untyped $(, $($rest:tt)*)?]) => {
@@ -478,6 +478,16 @@ macro_rules! carried {
     };
 }
 
+// Whether a row declares the optional fact its tokens stand for.
+macro_rules! declares {
+    () => {
+        false
+    };
+    ($($fact:tt)+) => {
+        true
+    };
+}
+
 // Checks and binds `values` through `$variant`'s operand struct, for the table
 // sweep in the tests below. A row that declares no operand has nothing to bind.
 #[cfg(test)]
@@ -488,7 +498,7 @@ macro_rules! bind_declared {
     ($variant:ident, [$($role:ident),+], $values:expr) => {{
         use crate::stack::Operands as _;
         let values: &[crate::Atom] = $values;
-        operands::$variant::check(values).and_then(|()| operands::$variant::bind(values).map(drop))
+        operands::$variant::checked_bind(values).map(drop)
     }};
 }
 
@@ -510,9 +520,29 @@ macro_rules! define_functions {
         }
     };
     (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)?)),+ $(,)?) => {
+        $(const _: Spelling = Spelling::checked($spelling);)+
+
+        // A `portal:` row's Input Portal is the static site south of it, which
+        // a selection rule would contradict, and one row selects one pair.
         $(const _: () = assert!(
-            $spelling.len() == 2 && $spelling.is_ascii(),
-            "a Function spelling must be exactly two ASCII Cells",
+            !(declares!($($portal_role)?) && (declares!($($d_portal)?) || declares!($($p_portal)?))),
+            "a row that declares `portal:` cannot also declare a selection rule",
+        );
+        const _: () = assert!(
+            !(declares!($($d_portal)?) && declares!($($p_portal)?)),
+            "a row declares at most one of `distance:` and `position:`",
+        );)+
+
+        // A `portal:` row reads back, from the static site south of it, the
+        // previous value it wrote there, so neither of its Portals may be
+        // selected by a rule; and one row selects one pair.
+        $(const _: () = assert!(
+            !(declares!($($portal_role)?) && (declares!($($d_portal)?) || declares!($($p_portal)?))),
+            "a row that declares `portal:` cannot also declare a selection rule",
+        );
+        const _: () = assert!(
+            !(declares!($($d_portal)?) && declares!($($p_portal)?)),
+            "a row declares at most one of `distance:` and `position:`",
         );)+
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -527,6 +557,13 @@ macro_rules! define_functions {
             pub(crate) const fn spelling(self) -> &'static str {
                 match self {
                     $(Self::$variant => $spelling,)+
+                }
+            }
+
+            /// The two Cells this Function's spelling occupies.
+            pub const fn cells(self) -> Spelling {
+                match self {
+                    $(Self::$variant => const { Spelling::checked($spelling) },)+
                 }
             }
 
@@ -677,8 +714,9 @@ macro_rules! define_functions {
         pub enum DistanceRule {
             $($(
                 #[doc = concat!(
-                    "`", $spelling, "` counts its `", stringify!($d_n), "` operand ",
-                    stringify!($d_direction), " from its ", stringify!($d_portal), " Portal slot."
+                    "`", $spelling, "` selects its ", stringify!($d_portal), " Portal's pair `",
+                    stringify!($d_n), "` Portals ", stringify!($d_direction), " from its `",
+                    stringify!($d_n), "` operand's slot."
                 )]
                 $variant,
             )?)+
@@ -698,10 +736,11 @@ macro_rules! define_functions {
             /// its `n` and is never read.
             pub(crate) fn distance(self, values: &[Atom]) -> Result<u8, Error> {
                 match self {
-                    $($(Self::$variant => crate::functions::read::bound(
-                        values,
-                        |operands::$variant { $d_n, .. }| $d_n,
-                    ),)?)+
+                    $($(Self::$variant => {
+                        use crate::stack::Operands as _;
+                        operands::$variant::checked_bind(values)
+                            .map(|operands::$variant { $d_n, .. }| $d_n)
+                    })?)+
                 }
             }
         }
@@ -727,10 +766,11 @@ macro_rules! define_functions {
             /// `value` follows the Position and is never read.
             pub(crate) fn position(self, values: &[Atom]) -> Result<(u8, u8), Error> {
                 match self {
-                    $($(Self::$variant => crate::functions::read::bound(
-                        values,
-                        |operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row),
-                    ),)?)+
+                    $($(Self::$variant => {
+                        use crate::stack::Operands as _;
+                        operands::$variant::checked_bind(values)
+                            .map(|operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row))
+                    })?)+
                 }
             }
         }
@@ -1114,16 +1154,122 @@ impl fmt::Display for Function {
 
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.spelling().fmt(f)
+    }
+}
+
+impl Atom {
+    /// The two Source Cells this Atom spells, which a Portal writes and a
+    /// later Turn decodes.
+    pub fn spelling(self) -> Spelling {
         match self {
-            Atom::Bang => write!(f, "**"),
-            // Numbers are hexadecimal: rendered results are written back into the
-            // Source and re-parsed as two Cells, so they must round trip as hex
-            Atom::Number(n) => write!(f, "{:02X}", n),
-            Atom::Note(n) => match midi_number_to_note(n.value()) {
-                Some(note) => write!(f, "{note}"),
-                None => Err(fmt::Error),
-            },
-            Atom::Function(fun) => write!(f, "{fun}"),
+            Atom::Bang => const { Spelling::checked("**") },
+            // Numbers are hexadecimal: rendered results are written back into
+            // the Source and re-parsed as two Cells, so they round trip as hex.
+            Atom::Number(n) => Spelling::number(n),
+            Atom::Note(note) => Spelling::note(note),
+            Atom::Function(function) => function.cells(),
+        }
+    }
+}
+
+pub use spelling::Spelling;
+
+/// Holds the only constructors of a [`Spelling`]. Its field is private to this
+/// module, so nothing else in `lang` can build one from unchecked bytes.
+mod spelling {
+    use std::fmt;
+
+    use super::Note;
+    use crate::{NOTE_PITCHES, octave_cell};
+
+    ///
+    /// The two Source Cells an Atom spells.
+    ///
+    /// Both are printable ASCII, space through `~`, which is what a Cell
+    /// holds. Every constructor builds from a literal checked at compile time
+    /// or from a table whose every entry is, so a `Spelling` that exists needs
+    /// no second check.
+    ///
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct Spelling([u8; 2]);
+
+    /// The hexadecimal digits a Number spells, most significant first.
+    const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+
+    /// The highest octave a Note reaches: `0x7F / 12`.
+    const TOP_OCTAVE: u8 = 0x7F / 12;
+
+    // Every table a `Spelling` is built from holds only printable Cells, so the
+    // constructors below index them without checking what they find.
+    const _: () = {
+        assert!(all_printable(HEX_DIGITS));
+        assert!(all_printable(NOTE_PITCHES));
+        let mut octave = 0;
+        while octave <= TOP_OCTAVE {
+            assert!(Spelling::admits(octave_cell(octave)));
+            octave += 1;
+        }
+    };
+
+    impl Spelling {
+        /// A spelling stated as a literal, refused at compile time unless it
+        /// is two printable ASCII Cells. Every caller evaluates it in a const
+        /// context.
+        pub(super) const fn checked(spelling: &str) -> Self {
+            let bytes = spelling.as_bytes();
+            assert!(
+                bytes.len() == 2 && Self::admits(bytes[0]) && Self::admits(bytes[1]),
+                "a spelling must be exactly two printable ASCII Cells",
+            );
+            Self([bytes[0], bytes[1]])
+        }
+
+        /// A Number's two hexadecimal digits.
+        pub(super) fn number(n: u8) -> Self {
+            Self([
+                HEX_DIGITS[usize::from(n >> 4)],
+                HEX_DIGITS[usize::from(n & 0x0F)],
+            ])
+        }
+
+        /// A Note's pitch letter and octave. A Note is at most `0x7F`, so its
+        /// octave is at most `TOP_OCTAVE`.
+        pub(super) fn note(note: Note) -> Self {
+            let value = note.value();
+            Self([
+                NOTE_PITCHES[usize::from(value % 12)],
+                octave_cell(value / 12),
+            ])
+        }
+
+        /// Whether `byte` is one a Cell holds: printable ASCII, space through
+        /// `~`.
+        pub const fn admits(byte: u8) -> bool {
+            matches!(byte, 0x20..=0x7E)
+        }
+
+        /// The two Cells, west first.
+        pub fn cells(self) -> [u8; 2] {
+            self.0
+        }
+    }
+
+    const fn all_printable(table: &[u8]) -> bool {
+        let mut index = 0;
+        while index < table.len() {
+            if !Spelling::admits(table[index]) {
+                return false;
+            }
+            index += 1;
+        }
+        true
+    }
+
+    impl fmt::Display for Spelling {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let [west, east] = self.0;
+            write!(f, "{}{}", char::from(west), char::from(east))
         }
     }
 }
@@ -1286,7 +1432,7 @@ mod test {
                 crate::SourceEffect {
                     columns,
                     rows,
-                    spelling,
+                    spelling: spelling.map(super::Spelling::checked),
                     bundle,
                 },
                 "{function:?} writes something its spelling does not name",
@@ -1357,19 +1503,65 @@ mod test {
     }
 
     #[test]
+    fn every_declared_selection_is_the_one_its_portal_selects_by() {
+        // A row's hard-coded Portal arm would shadow a rule it also declares,
+        // so every declared rule must be the one its Portal reports.
+        use super::SelectedPortal;
+        use crate::{InputPortal, Output};
+        for function in Function::ALL.iter().copied() {
+            match function.declared_selection() {
+                Some((SelectedPortal::Input, selection)) => assert_eq!(
+                    function.input_portal(),
+                    Some(InputPortal::Dynamic(selection)),
+                    "{function:?}"
+                ),
+                Some((SelectedPortal::Output, selection)) => {
+                    assert_eq!(
+                        function.output(),
+                        Output::Dynamic(selection),
+                        "{function:?}"
+                    );
+                }
+                None => {}
+            }
+        }
+    }
+
+    #[test]
     fn every_declared_distance_or_position_binds_its_own_functions_operands() {
-        use crate::{ArgumentError, Error, InputPortal, Output, PairSelection};
+        use crate::{ArgumentError, Direction, Error, InputPortal, Output, PairSelection};
         let mut declared = 0;
         for function in Function::ALL.iter().copied() {
             let input = match function.input_portal() {
-                Some(InputPortal::Dynamic(selection)) => Some(selection),
+                Some(InputPortal::Dynamic(selection)) => Some(('&', selection)),
                 _ => None,
             };
             let output = match function.output() {
-                Output::Dynamic(selection) => Some(selection),
+                Output::Dynamic(selection) => Some(('@', selection)),
                 _ => None,
             };
-            for selection in input.into_iter().chain(output) {
+            for (family, selection) in input.into_iter().chain(output) {
+                // A Read `&` selects the pair its Input Portal reads and a
+                // Write `@` the pair its Output Portal writes, so a rule
+                // declared on the wrong Portal shows here; a distance counts
+                // in the direction the spelling's arrow names.
+                let mut spelling = function.spelling().chars();
+                let named = matches!(
+                    selection,
+                    PairSelection::Distance(_) | PairSelection::Position(_)
+                );
+                if named {
+                    assert_eq!(spelling.next(), Some(family), "{function:?}");
+                }
+                if let PairSelection::Distance(rule) = selection {
+                    let arrow = match rule.direction() {
+                        Direction::North => '^',
+                        Direction::South => 'v',
+                        Direction::East => '>',
+                        Direction::West => '<',
+                    };
+                    assert_eq!(spelling.next(), Some(arrow), "{function:?}");
+                }
                 let bind = |values: &[Atom]| match selection {
                     PairSelection::Distance(rule) => Some(rule.distance(values).map(drop)),
                     PairSelection::Position(rule) => Some(rule.position(values).map(drop)),
@@ -1961,7 +2153,7 @@ mod test {
 
     #[test]
     fn test_notes_render_distinctly_from_numbers() {
-        // Notes render via midi_number_to_note and are unaffected by hex Numbers
+        // Notes spell a pitch and an octave and are unaffected by hex Numbers
         assert_eq!(Atom::Note(Note::try_from(60).unwrap()).to_string(), "C4");
         assert_eq!(Atom::Note(Note::try_from(69).unwrap()).to_string(), "A4");
         assert_eq!(Atom::Note(Note::try_from(21).unwrap()).to_string(), "A0");

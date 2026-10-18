@@ -1,9 +1,9 @@
-use super::read::bound;
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
     atom::{note_atom_from_spelling, number_atom_from_spelling, operands::AbsoluteCopy},
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
+    stack::Operands as _,
 };
 
 /// The Language Unit at a Copy's input Portal.
@@ -11,11 +11,10 @@ use crate::{
 /// The Turn supplies Cells only after the Portal has classified them as one
 /// complete aligned unit. Two empty Cells answer a Clear, which writes them,
 /// and `**` answers a Bang; any other admitted two-Cell unit is the Atom
-/// those Cells spell. Alignment and partial Spans
-/// never reach here. A missing or invalid
-/// spelling, or Cells that are not exactly one two-Cell unit, is diagnosed
-/// rather than delivered as a write: blank Cells of another width are not a
-/// blank pair.
+/// those Cells spell. Alignment and partial Spans never reach here. A
+/// missing or invalid spelling, or Cells that are not exactly one two-Cell
+/// unit, is diagnosed rather than delivered as a write: blank Cells of
+/// another width are not a blank pair.
 pub fn copy(ctx: &mut Context, function: Function) -> Result<Interpretation, Error> {
     let cells = ctx
         .inputs
@@ -50,8 +49,7 @@ pub fn absolute_copy(ctx: &mut Context) -> Result<Interpretation, Error> {
 ///
 /// Operands outside their domain diagnose as they would at evaluation.
 pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
-    bound(
-        operands,
+    AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
              source_column,
              source_row,
@@ -65,8 +63,7 @@ pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
 ///
 /// Operands outside their domain diagnose as they would at evaluation.
 pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
-    bound(
-        operands,
+    AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
              destination_column,
              destination_row,

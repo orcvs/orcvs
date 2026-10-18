@@ -30,6 +30,16 @@ pub(crate) trait Operands: Sized {
     /// type diagnostic is already raised by the time this runs, so a domain
     /// diagnostic can never displace one.
     fn bind(operands: &[Atom]) -> Result<Self, Error>;
+
+    /// Checks `operands` against the signature, then binds them.
+    ///
+    /// Every type diagnostic precedes every domain diagnostic, so a caller
+    /// that reads operands its Turn resolved diagnoses them as the
+    /// Function's evaluation would.
+    fn checked_bind(operands: &[Atom]) -> Result<Self, Error> {
+        Self::check(operands)?;
+        Self::bind(operands)
+    }
 }
 
 /// The arity diagnostic for `function` handed `found` operands.
@@ -159,8 +169,7 @@ impl Stack {
             );
         }
 
-        O::check(&operands)?;
-        O::bind(&operands)
+        O::checked_bind(&operands)
     }
 
     /// Evaluates one value Function over its declared operands.

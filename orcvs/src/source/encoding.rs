@@ -22,7 +22,7 @@
 //! which is why a value has nowhere to keep its type once it is written and
 //! why ADR 0034 has the receiving operand decide the reading.
 
-use lang::Atom;
+use lang::{Atom, Spelling};
 
 use super::CellContent;
 
@@ -30,65 +30,58 @@ use super::CellContent;
 /// A non-empty run of Source Cells.
 ///
 /// Non-emptiness and printable content are properties of the type rather than
-/// checks a caller repeats: every Atom spells at least one Cell, so an
-/// `Encoding` that exists places at least one. [`super::portal::Portal`]
+/// checks a caller repeats: every Atom spells two Cells, so an `Encoding` that
+/// exists places at least one. [`super::portal::Portal`]
 /// relies on that, and it is held here, where the invariant is established.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Encoding(Vec<CellContent>);
 
-///
-/// Why text could not become Source Cells at all.
-///
-/// One cause, and it is the one a Cell's definition allows: a byte outside
-/// printable ASCII. [`Encoding::literal`] reaches it from any text it is
-/// handed. [`Encoding::render`] reaches it from no value, because every Atom
-/// spells itself in printable ASCII by construction: a Number is two
-/// hexadecimal digits, a Bang is `**`, a Function spelling is asserted to be
-/// two ASCII Cells at compile time, and a Note's rendering can only fail above
-/// `0x7F`, which `Note`'s own `TryFrom<u8>` refuses. `render` still answers the
-/// refusal rather than asserting it, because it runs inside Tick planning,
-/// where ADR 0028 rules out a panic.
-///
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum RenderError {
-    /// The rendering contains bytes outside printable ASCII. Carries what was
-    /// rendered, so the producer's diagnostic can name it.
-    Unrepresentable(String),
-}
-
 impl Encoding {
     ///
-    /// The Cells one answered value occupies, wherever it is delivered, or
-    /// the reason it occupies none.
+    /// The Cells one answered value occupies, wherever it is delivered.
     ///
-    /// The whole rendering is decided before an `Encoding` exists, so a value
-    /// that cannot be Cells yields nothing to write half of — the same
-    /// whole-destination shape [`super::portal::Portal`] has one step later.
+    /// Every Atom spells two printable ASCII Cells, which [`lang::Spelling`]
+    /// guarantees, so a value always becomes Cells and only a destination can
+    /// refuse them.
     ///
-    pub(super) fn render(atom: Atom) -> Result<Self, RenderError> {
-        Self::literal(&atom.to_string())
+    pub(super) fn render(atom: Atom) -> Self {
+        Self::spelled(atom.spelling())
     }
 
     ///
-    /// Source characters no value produced.
+    /// The two Cells `spelling` occupies, for a Source effect that writes a
+    /// Function's spelling rather than answering a value.
     ///
-    /// A Clear writes two spaces, which is Source content rather than a
-    /// value, and a test states Source text directly for the same reason.
-    /// Both are still held to a Cell's definition, so this is a second
-    /// constructor rather than a second rule.
+    pub(super) fn spelled(spelling: Spelling) -> Self {
+        Self(CellContent::spelled(spelling).to_vec())
+    }
+
     ///
-    /// Panics on empty input: every Atom [`Encoding::render`] renders spells
-    /// at least one Cell, and no caller here has a Cell count it has not
-    /// already chosen.
+    /// The two empty Cells a Clear writes at its Output Portal, and that
+    /// vacate a Function's own Span.
     ///
-    pub(super) fn literal(text: &str) -> Result<Self, RenderError> {
+    /// Two because every Function spelling is two Cells. Built from
+    /// [`CellContent::SPACE`], so the content is valid by construction.
+    ///
+    pub(super) fn clear() -> Self {
+        Self(vec![CellContent::SPACE; 2])
+    }
+
+    ///
+    /// Source characters a test states directly, held to a Cell's definition:
+    /// `None` when any byte is outside printable ASCII.
+    ///
+    /// Panics on empty input: an `Encoding` places at least one Cell, and a
+    /// test that states none has not chosen a Cell count.
+    ///
+    #[cfg(test)]
+    pub(super) fn literal(text: &str) -> Option<Self> {
         assert!(!text.is_empty(), "an Encoding places at least one Cell");
         text.bytes()
             .map(CellContent::new)
             .collect::<Option<Vec<_>>>()
             .map(Self)
-            .ok_or_else(|| RenderError::Unrepresentable(text.to_string()))
     }
 
     /// How many Cells this encoding places.
@@ -114,78 +107,61 @@ impl std::fmt::Display for Encoding {
 
 #[cfg(test)]
 mod test {
-    use super::{Encoding, RenderError};
-    use lang::{Atom, Function, Note};
+    use super::Encoding;
+    use lang::{Atom, Function, Note, Token};
 
     #[test]
-    fn every_value_the_language_holds_renders_to_cells() {
-        // What leaves `render`'s refusal unreachable from a value: every Atom
-        // a value Function can answer spells itself as two printable ASCII
-        // Cells.
+    fn every_value_the_language_holds_renders_to_two_cells_that_read_back() {
+        // Every Atom a value Function can answer spells two Cells, and the
+        // reader for its type, a path separate from the spelling, decodes
+        // those Cells back to the same Atom.
         let mut atoms: Vec<Atom> = vec![Atom::Bang];
         atoms.extend((u8::MIN..=u8::MAX).map(Atom::Number));
         atoms.extend((0..=0x7F).map(|note| Atom::Note(Note::try_from(note).unwrap())));
-        atoms.extend(
-            Function::ALL
-                .iter()
-                .copied()
-                .filter(|function| function.answers_value())
-                .map(Atom::Function),
-        );
+        atoms.extend(Function::ALL.iter().copied().map(Atom::Function));
 
         for atom in atoms {
-            assert!(
-                matches!(
-                    Encoding::render(atom),
-                    Ok(cells) if cells.len() == 2
-                ),
-                "{atom:?} did not become two Source Cells",
-            );
+            let cells = Encoding::render(atom);
+            assert_eq!(cells.len(), 2, "{atom:?}");
+            let text = cells.to_string();
+            let (read, expected) = match atom {
+                Atom::Number(_) => (Token::Number.decode(&text), atom),
+                Atom::Note(_) => (Token::Note.decode(&text), atom),
+                Atom::Bang => (Token::Untyped.decode(&text), atom),
+                // The Bang Function's `**` is the Bang a later reader finds,
+                // not a Function spelling the Parser looks up.
+                Atom::Function(Function::Bang) => (Token::Untyped.decode(&text), Atom::Bang),
+                Atom::Function(_) => (Function::try_from(text.as_str()).map(Atom::Function), atom),
+            };
+            assert_eq!(read.ok(), Some(expected), "{atom:?} rendered as {text:?}");
         }
     }
 
     #[test]
     fn text_outside_printable_ascii_becomes_no_cells_at_all() {
         // Refused whole: a literal that fails leaves nothing to place half of.
-        for refused in ["\0", "\u{1f}", "\u{7f}", "é", "0Aé"] {
-            assert!(
-                matches!(
-                    Encoding::literal(refused),
-                    Err(RenderError::Unrepresentable(_))
-                ),
-                "{refused:?} became Source Cells",
-            );
+        for refused in ["\0", "\u{1f}", "\u{7f}", "é", "0Aé", "A\0"] {
+            assert_eq!(Encoding::literal(refused), None, "{refused:?}");
         }
     }
 
     #[test]
-    fn the_error_carries_what_was_refused() {
-        // A diagnostic names the text it refused, so the text has to survive
-        // the refusal that rejected it.
+    fn a_clear_is_two_empty_cells_under_the_same_rule() {
+        let clear = Encoding::clear();
+        assert_eq!(clear.len(), 2);
         assert_eq!(
-            Encoding::literal("é"),
-            Err(RenderError::Unrepresentable("é".to_string()))
+            Encoding::literal("  ").expect("a space is a printable Cell"),
+            clear
         );
-    }
-
-    #[test]
-    fn a_literal_holds_the_same_rule_as_a_rendering() {
-        assert_eq!(
-            Encoding::literal("  ").map(|encoding| encoding.len()),
-            Ok(2)
-        );
-        assert!(matches!(
-            Encoding::literal("A\0"),
-            Err(RenderError::Unrepresentable(_))
-        ));
     }
 
     #[test]
     #[should_panic(expected = "an Encoding places at least one Cell")]
     fn a_literal_of_no_cells_is_a_caller_defect() {
-        // `render` answers `Nothing` for the values that place no Cell, so an
-        // empty literal is a caller that has not chosen a Cell count rather
-        // than a value that plans no write.
+        // Every Atom renders to two Cells, which
+        // `every_value_the_language_holds_renders_to_two_cells_that_read_back`
+        // holds, so an empty literal is a caller that has not chosen a Cell
+        // count rather than a value that plans no write.
         let _ = Encoding::literal("");
     }
 }

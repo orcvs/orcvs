@@ -15,7 +15,7 @@
 use lang::Atom;
 
 use super::{
-    Answer, Computation, ComputationId, Encoding, Execution, Operand, SCALAR_WIDTH, render_message,
+    Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
 };
 
 impl Execution<'_> {
@@ -47,8 +47,9 @@ impl Execution<'_> {
     /// exactly as the same characters written there by a Portal would be.
     ///
     /// The first operand that does not decode refuses the Turn. A slot with
-    /// no written Cell refuses it as a partly written slot does, and so does
-    /// a child that copied empty Cells into it.
+    /// no written Cell refuses it as a partly written slot does. A child that
+    /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
+    /// of empty Cells, returns no value, and the refusal names that child.
     pub(super) fn decode(
         &self,
         node: &Computation,
@@ -64,30 +65,12 @@ impl Execution<'_> {
                 };
                 let anchor = self.schedule.lookup.nodes()[child].anchor;
                 let returned = match self.turns.result(child) {
-                    // A Clear wrote two spaces, so the operand it stands in is
-                    // unwritten. The parent names the child, since the two
-                    // spaces alone cannot say which Function cleared them. A
-                    // Copy of empty Cells and a pulse that does not Bang both
-                    // answer one.
-                    Some(Answer::Clear) => {
-                        return Err(format!(
-                            "nested computation at column {}, row {} cleared its operand",
-                            anchor.x(),
-                            anchor.y()
-                        ));
-                    }
-                    Some(Answer::Unit(atom)) => match Encoding::render(atom) {
-                        Ok(encoding) => encoding,
-                        // A rendering a Cell cannot hold is its own fault.
-                        Err(reason) => return Err(render_message(reason)),
-                    },
-                    None => {
-                        return Err(format!(
-                            "nested computation at column {}, row {} returned nothing",
-                            anchor.x(),
-                            anchor.y()
-                        ));
-                    }
+                    // A Clear wrote two spaces at the child's Output Portal and
+                    // returns no value. The parent names the child, since
+                    // nothing at the operand says which Function cleared.
+                    Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
+                    Some(Answer::Unit(atom)) => Encoding::render(atom),
+                    None => return Err(nested(anchor, "returned nothing")),
                 };
                 token
                     .decode(&returned.to_string())
@@ -109,4 +92,14 @@ impl Execution<'_> {
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
         }
     }
+}
+
+/// The refusal a parent gives when the nested computation at `anchor` supplies
+/// no value for its operand, naming that child.
+fn nested(anchor: Position, outcome: &str) -> String {
+    format!(
+        "nested computation at column {}, row {} {outcome}",
+        anchor.x(),
+        anchor.y()
+    )
 }
