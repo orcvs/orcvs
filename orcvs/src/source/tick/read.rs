@@ -174,6 +174,26 @@ fn a_pair_straddling_a_comment_introducer_diagnoses() {
 }
 
 #[test]
+fn a_pair_of_a_comments_text_reads_as_data() {
+    // East: the selected pair (10, 0) is `E4`, inside a closed Comment.
+    let east = first(Grid::with_shape(14, 2), &["&>04C4C4||E4||"]);
+    assert_eq!(east.rows[1], "E4            ");
+    // South: the selected pair is one step of a commented column.
+    let south = first(Grid::with_shape(6, 3), &["&v02", "", "||E4||"]);
+    assert_eq!(south.rows[1], "E4    ");
+    for tick in [east, south] {
+        assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+    }
+}
+
+#[test]
+fn a_comment_closer_at_the_selected_pair_diagnoses() {
+    let tick = first(Grid::with_shape(14, 2), &["&>05C4C4||E4||", "xx"]);
+    assert_eq!(tick.rows[1], "xx            ");
+    assert_eq!(tick.diagnostics, [diagnostic(0, 0, &invalid("&>"))]);
+}
+
+#[test]
 fn a_function_a_read_copies_replaces_the_function_where_it_lands() {
     // The Read writes `.+` over the anchor of `.-0302`, which then answers as
     // Add in the same Tick. The `.+0101` it reads from is itself a root and

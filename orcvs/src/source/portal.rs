@@ -272,12 +272,22 @@ impl Portal {
         }
         match cover(range.clone()) {
             Coverage::Empty => PortalUnit::Unit,
-            Coverage::Complete(occupant) if occupant.span() == range => match occupant {
-                Occupant::Unit(unit) if unit.kind() == LanguageUnitKind::Comment => {
+            // A Comment's text is never parsed, so a pair inside it is data a
+            // Copy reads as it reads a pair no unit covers. Its delimiters are
+            // not text, so a pair touching either is refused.
+            Coverage::Complete(Occupant::Unit(unit))
+                if unit.kind() == LanguageUnitKind::Comment =>
+            {
+                let text = unit
+                    .comment_text()
+                    .expect("a Comment unit carries its text");
+                if text.start <= range.start && range.end <= text.end {
+                    PortalUnit::Unit
+                } else {
                     PortalUnit::Invalid
                 }
-                Occupant::Unit(_) | Occupant::Placed(_) => PortalUnit::Unit,
-            },
+            }
+            Coverage::Complete(occupant) if occupant.span() == range => PortalUnit::Unit,
             Coverage::Complete(_) | Coverage::Partial => PortalUnit::Invalid,
         }
     }
@@ -1109,11 +1119,38 @@ mod test {
     }
 
     #[test]
-    fn language_unit_of_a_comment_is_invalid() {
+    fn language_unit_of_a_comment_introducer_is_invalid() {
         let grid = Grid::with_shape(2, 1);
         let map = LanguageMap::build(grid, Cells::of(b"||"));
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
         assert_eq!(unit(portal, b"||", &map), PortalUnit::Invalid);
+    }
+
+    ///
+    /// A pair of a Comment's text is a unit to read, and a pair touching
+    /// either delimiter is not.
+    ///
+    #[test]
+    fn language_unit_inside_a_comment_reads_its_text_and_not_its_delimiters() {
+        let source = b"||C3D4||  ||E5";
+        let grid = Grid::with_shape(source.len(), 1);
+        let map = LanguageMap::build(grid, Cells::of(source));
+        let at = |column| {
+            unit(
+                Portal::at(grid, grid.position(column, 0).unwrap()),
+                source,
+                &map,
+            )
+        };
+
+        assert_eq!(at(2), PortalUnit::Unit);
+        assert_eq!(at(4), PortalUnit::Unit);
+        assert_eq!(at(1), PortalUnit::Invalid);
+        assert_eq!(at(5), PortalUnit::Invalid);
+        assert_eq!(at(6), PortalUnit::Invalid);
+        // An unclosed Comment's text runs to the row's end.
+        assert_eq!(at(12), PortalUnit::Unit);
+        assert_eq!(at(10), PortalUnit::Invalid);
     }
 
     #[test]

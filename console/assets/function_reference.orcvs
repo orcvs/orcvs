@@ -1,4 +1,4 @@
-|| Arithmetic   || Conversion   || Tick         || Copy & Halt  || Bang & Move  || MIDI
+|| Arithmetic |||| Conversion |||| Tick ||      || Copy, Halt |||| Bang, Move |||| MIDI ||
 .+0102          .^3C            ~.0204                          .=0101          ~%0104
 03              C4              00              =^                *!
                                                 05                              !>0064C4

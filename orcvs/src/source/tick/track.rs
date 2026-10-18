@@ -158,6 +158,13 @@ fn a_comment_aligned_with_the_selected_pair_diagnoses() {
 }
 
 #[test]
+fn track_reads_a_pair_of_a_comments_text() {
+    let tick = first(Grid::with_shape(14, 2), &["&t0103||C4D4||"]);
+    assert_eq!(tick.rows[1], "C4            ");
+    assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
+}
+
+#[test]
 fn a_zero_count_diagnoses_at_the_turn() {
     let tick = first(Grid::with_shape(12, 2), &["&t0100C4D4E4"]);
     assert_eq!(tick.rows[1], "            ");

@@ -69,7 +69,7 @@ The complete Source at the beginning of a Tick, including the accumulated output
 _Avoid_: Program state, runtime state
 
 **Expression**:
-A contiguous horizontal group of Cells established by parsing one Function and its operands, one Bang Function or Self-Banging Function, or one Comment. Operand Cells may be empty or invalid; nested Functions extend the containing Expression, which never crosses a row edge. A Comment is the one Expression whose extent comes from its claim on the rest of its row rather than from an arity; an arity-determined claim reaches straight over a `||` inside it, which is then an operand Cell that fails to bind.
+A contiguous horizontal group of Cells established by parsing one Function and its operands, one Bang Function or Self-Banging Function, or one Comment. Operand Cells may be empty or invalid; nested Functions extend the containing Expression, which never crosses a row edge. A Comment is the one Expression whose extent comes from its closer, or the end of its row, rather than from an arity; an arity-determined claim reaches straight over a `||` inside it, which is then an operand Cell that fails to bind.
 _Avoid_: Formula, statement
 
 **Evaluator**:
@@ -195,7 +195,7 @@ The Portal a Function declares it reads a Source input through, as an offset fro
 _Avoid_: Input Cell, source Cell, feedback register
 
 **Comment**:
-The Language Unit the Parser establishes at the two-Cell introducer `||`, claiming every remaining Cell of its row. It records a Token and no Atom, which excludes it from evaluation: it answers no value, performs no effect, and is never scheduled. `||` opens a Comment only where a new Expression could start; inside a Function's arity-determined claim it is an operand Cell that fails to bind and diagnoses. One `|` alone is incomplete or invalid Source rather than a Comment.
+The Language Unit the Parser establishes at the two-Cell introducer `||`, claiming every Cell through the next `||` on its row, which closes it, or every remaining Cell of the row when none follows. Its text, the Cells between the delimiters, is never parsed, so a Read, Track or Copy selecting a pair of it reads that pair as data, as it reads a pair no Language Unit covers; a pair touching either delimiter is refused. It records a Token and no Atom, which excludes it from evaluation: it answers no value, performs no effect, and is never scheduled. `||` opens a Comment only where a new Expression could start; inside a Function's arity-determined claim it is an operand Cell that fails to bind and diagnoses. One `|` alone is incomplete or invalid Source rather than a Comment.
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:

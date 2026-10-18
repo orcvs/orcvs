@@ -1785,7 +1785,7 @@ mod test {
     }
 
     ///
-    /// A Comment claims every remaining Cell of its row, empty Cells
+    /// An unclosed Comment claims every remaining Cell of its row, empty Cells
     /// included, so an empty Cell it claims still carries a Token. The Token
     /// decides the colour and nothing else: a Comment hints at no spelling, so
     /// a Cell it claims renders the character the Source holds, and an empty

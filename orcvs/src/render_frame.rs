@@ -588,7 +588,7 @@ mod tests {
         //              begins, and that Bang;
         //   `.+c40   ` a wholly written Invalid Number, then a partly
         //              written one;
-        //   `|| a  b ` one Comment over the whole row, blanks included;
+        //   `|| a  b ` one unclosed Comment over the whole row, blanks included;
         //   `x       ` a refused Function spelling, then empty Cells.
         let grid = Grid::with_shape(8, 4);
         let source = SourceCommander::new(grid);
