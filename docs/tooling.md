@@ -568,14 +568,13 @@ difference.
 `midi_loopback_in_process` hands the messages to a listener in the same process. It runs in the
 ordinary suite and checks the program's bytes and the cross-check, not a transport.
 
-`midi_loopback_through_a_virtual_port` opens a virtual input port, finds it through the console's
-own `ConsoleMidiBackend`, and sends through the platform's MIDI service: the ALSA sequencer on
-Linux, CoreMIDI on macOS. Windows has no virtual ports, so the module is not compiled there. A host
-without that service cannot run the test, so the ordinary suite ignores it and
-`mise run test_midi_loopback` runs it. The `midi-loopback` job in `test.yml` runs the task on a
-hosted macOS runner on every pull request, because CoreMIDI offers virtual ports there with no
-setup and the hosted Ubuntu runner's Azure kernel ships no ALSA sequencer module. It is not a dependency of the `ci`
-job, so its result is reported without gating a merge.
+`virtual_port::midi_loopback_through_a_virtual_port` opens a virtual input port, finds it through
+the console's own `ConsoleMidiBackend`, and sends through the platform's MIDI service: the ALSA
+sequencer on Linux, CoreMIDI on macOS. Windows has no virtual ports, so that module is not compiled
+there. A host without the service cannot run the test, so the ordinary suite ignores it and
+`mise run test_midi_loopback` runs it. CI runs the task in the merge tier's `macos` job, where
+CoreMIDI needs no setup; the hosted Ubuntu runner's Azure kernel ships no ALSA sequencer module, and
+a container shares that kernel.
 
 ## Worktrees each need their own target directory
 

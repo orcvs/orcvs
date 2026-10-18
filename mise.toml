@@ -141,8 +141,7 @@ description = "Play a Source into a virtual MIDI port and cross-check what a lis
 # Needs the platform's MIDI service, a sequencer on Linux (`/dev/snd/seq`) or
 # CoreMIDI on macOS, which is why the ordinary suite ignores this test and this
 # task is how it runs.
-# `cargo test` rather than nextest, so the CI job that runs it installs no tool.
-run = 'cargo test --package console --lib --locked -- --ignored --exact console_midi::loopback_tests::midi_loopback_through_a_virtual_port'
+run = 'cargo test --package console --lib --locked -- --ignored --exact console_midi::loopback_tests::virtual_port::midi_loopback_through_a_virtual_port'
 
 [tasks.miri]
 description = "Interpret the Source model tests under Miri"

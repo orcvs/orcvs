@@ -85,15 +85,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy,rustfmt
-      # Shared with `midi-loopback`, which restores what this job saves on `main`.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          shared-key: macos
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run check_pull_request
+      # Plays a Source through the console's MIDI backend into a virtual input
+      # port and cross-checks what the listener received against what was sent.
+      # Here because CoreMIDI offers virtual ports with no setup; the hosted
+      # Ubuntu runner's Azure kernel ships no ALSA sequencer module.
+      - run: mise run test_midi_loopback
 
   wasm:
     timeout-minutes: 20
@@ -116,34 +119,6 @@ jobs:
         env:
           ORCVS_MERGE_COMPONENT: wasm
         run: mise run check_merge
-
-  midi-loopback:
-    # Plays a Source through the console's MIDI backend into a virtual input
-    # port and cross-checks what the listener received against what was sent.
-    # macOS because CoreMIDI offers virtual ports with no setup, where the
-    # hosted Ubuntu runner's Azure kernel ships no ALSA sequencer module to
-    # load. Not a dependency of `ci`, so it reports without gating a merge.
-    timeout-minutes: 40
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
-      # The `macos` job's cache, which `main` saves: the same toolchain, target
-      # and dependency graph, so a pull request restores the compiled
-      # dependencies rather than building them on the slowest runner.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: macos
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `install: false`: the task runs `cargo test`, and installing the
-      # `[tools]` table builds every cargo tool in it from source.
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
-        with:
-          install: false
-          cache_save: ${{ github.ref == 'refs/heads/main' }}
-      - run: mise run test_midi_loopback
 
   ci:
     # Required on both PRs and merge groups, including when a dependency fails.

@@ -9,27 +9,19 @@
 //! reading of the wire format rather than the output adapter's encoder, so a
 //! byte the adapter gets wrong is a difference these tests can see.
 //!
-//! `midi_loopback_through_a_virtual_port` needs the platform's MIDI service,
-//! a sequencer on Linux (`/dev/snd/seq`) or CoreMIDI on macOS, and is ignored
-//! by the ordinary suite so a host without one does not fail it.
-//! `mise run test_midi_loopback` runs it.
+//! `virtual_port::midi_loopback_through_a_virtual_port` needs the platform's
+//! MIDI service, a sequencer on Linux (`/dev/snd/seq`) or CoreMIDI on macOS,
+//! and is ignored by the ordinary suite so a host without one does not fail
+//! it. `mise run test_midi_loopback` runs it.
 //!
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use midir::os::unix::VirtualInput;
-use midir::{Ignore, MidiInput, MidiInputConnection};
-
 use orcvs::app::{InputEvent, InputKey, Orcvs};
 use orcvs::grid::Grid;
-use orcvs::midi::{
-    MidiBackend, MidiConnection, MidiConnectionRequest, MidiDestinationId, MidiError,
-    MidiOutputAdapter,
-};
+use orcvs::midi::{MidiConnection, MidiDestinationId, MidiError, MidiOutputAdapter};
 use orcvs::source::Source;
-
-use super::ConsoleMidiBackend;
 
 type Ledger = Arc<Mutex<Vec<Vec<u8>>>>;
 
@@ -245,43 +237,6 @@ impl MidiConnection for InProcessListener {
     }
 }
 
-///
-/// A listener on a virtual input port, which the platform's MIDI service
-/// offers to every output on the host, Orcvs's own included.
-///
-/// The connection is held for the listener's lifetime, because dropping it
-/// closes the port.
-///
-struct VirtualListener {
-    name: String,
-    received: Ledger,
-    _connection: MidiInputConnection<()>,
-}
-
-impl VirtualListener {
-    fn open() -> Result<Self, String> {
-        // The process id keeps two concurrent runs on one host from finding
-        // each other's port.
-        let name = format!("Orcvs loopback listener {}", std::process::id());
-        let mut input = MidiInput::new(&name).map_err(|error| error.to_string())?;
-        input.ignore(Ignore::None);
-        let received = Ledger::default();
-        let ledger = received.clone();
-        let connection = input
-            .create_virtual(
-                &name,
-                move |_timestamp, message, ()| ledger.lock().unwrap().push(message.to_vec()),
-                (),
-            )
-            .map_err(|error| error.to_string())?;
-        Ok(Self {
-            name,
-            received,
-            _connection: connection,
-        })
-    }
-}
-
 fn space(orcvs: &mut Orcvs) {
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
 }
@@ -311,13 +266,6 @@ async fn stop(mut orcvs: Orcvs, sent: &Ledger) {
     drop(orcvs);
 }
 
-fn ready(request: MidiConnectionRequest) -> Box<dyn MidiConnection> {
-    match request {
-        MidiConnectionRequest::Ready(connection) => connection,
-        MidiConnectionRequest::Pending(_) => panic!("a native MIDI port opens synchronously"),
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn midi_loopback_in_process() {
     let sent = Ledger::default();
@@ -342,54 +290,6 @@ async fn midi_loopback_in_process() {
     stop(orcvs, &sent).await;
 
     let heard = cross_check(&sent.lock().unwrap(), &received.lock().unwrap());
-    assert_plays_the_program(&heard);
-}
-
-#[tokio::test]
-#[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
-async fn midi_loopback_through_a_virtual_port() {
-    let listener = VirtualListener::open().expect("a virtual input port on this host");
-    let mut backend = ConsoleMidiBackend::new();
-    let destination = backend
-        .destinations()
-        .expect("the platform's MIDI destinations")
-        .into_iter()
-        .find(|destination| destination.name.contains(&listener.name))
-        .unwrap_or_else(|| panic!("no destination is named after {:?}", listener.name));
-    let sent = Ledger::default();
-    let mut orcvs = Orcvs::with_source_and_midi_output_adapter(program(), MidiOutputAdapter::new())
-        .expect("the test runtime");
-    orcvs
-        .midi_selection_handle()
-        .install(
-            destination.id.clone(),
-            Box::new(Recording {
-                destination: ready(
-                    backend
-                        .connect(&destination.id)
-                        .expect("the listener's port opens"),
-                ),
-                sent: sent.clone(),
-            }),
-        )
-        .expect("a running Orcvs");
-
-    space(&mut orcvs);
-    tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
-    stop(orcvs, &sent).await;
-
-    // Delivery crosses the platform's MIDI service on its own thread, so the
-    // received ledger catches up some time after the last send. Two seconds
-    // is far beyond any local delivery and bounds a run whose messages were
-    // lost.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-    while listener.received.lock().unwrap().len() < sent.lock().unwrap().len()
-        && tokio::time::Instant::now() < deadline
-    {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-
-    let heard = cross_check(&sent.lock().unwrap(), &listener.received.lock().unwrap());
     assert_plays_the_program(&heard);
 }
 
@@ -441,4 +341,134 @@ fn the_cross_check_counts_a_lost_message() {
     let sent = [vec![0xb0, 7, 0x40], vec![0x90, 60, 0x7f]];
     let received = [vec![0xb0, 7, 0x40]];
     cross_check(&sent, &received);
+}
+
+///
+/// The transport half: a listener on a port the platform's MIDI service
+/// offers. Virtual ports exist on every native target but Windows.
+///
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod virtual_port {
+    use std::sync::PoisonError;
+    use std::time::Duration;
+
+    use midir::os::unix::VirtualInput;
+    use midir::{Ignore, MidiInput, MidiInputConnection};
+
+    use orcvs::app::Orcvs;
+    use orcvs::midi::{MidiBackend, MidiConnection, MidiConnectionRequest, MidiOutputAdapter};
+
+    use super::super::ConsoleMidiBackend;
+    use super::{Ledger, Recording, assert_plays_the_program, cross_check, program, space, stop};
+
+    ///
+    /// A listener on a virtual input port, which the platform's MIDI service
+    /// offers to every output on the host, Orcvs's own included.
+    ///
+    /// The connection is held for the listener's lifetime, because dropping it
+    /// closes the port.
+    ///
+    struct VirtualListener {
+        name: String,
+        received: Ledger,
+        _connection: MidiInputConnection<()>,
+    }
+
+    impl VirtualListener {
+        fn open() -> Result<Self, String> {
+            // The process id keeps two concurrent runs on one host from finding
+            // each other's port.
+            let name = format!("Orcvs loopback listener {}", std::process::id());
+            let mut input = MidiInput::new(&name).map_err(|error| error.to_string())?;
+            input.ignore(Ignore::None);
+            let received = Ledger::default();
+            let ledger = received.clone();
+            let connection = input
+                .create_virtual(
+                    &name,
+                    // A test that panics while holding the ledger poisons it; this
+                    // thread keeps recording rather than panicking inside the
+                    // platform's MIDI service.
+                    move |_timestamp, message, ()| {
+                        ledger
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(message.to_vec());
+                    },
+                    (),
+                )
+                .map_err(|error| error.to_string())?;
+            Ok(Self {
+                name,
+                received,
+                _connection: connection,
+            })
+        }
+    }
+
+    fn ready(request: MidiConnectionRequest) -> Box<dyn MidiConnection> {
+        match request {
+            MidiConnectionRequest::Ready(connection) => connection,
+            MidiConnectionRequest::Pending(_) => panic!("a native MIDI port opens synchronously"),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
+    async fn midi_loopback_through_a_virtual_port() {
+        let listener = VirtualListener::open().expect("a virtual input port on this host");
+        let mut backend = ConsoleMidiBackend::new();
+        let destinations = backend
+            .destinations()
+            .expect("the platform's MIDI destinations");
+        // A platform may decorate a port's name (ALSA prefixes its client), so
+        // the listener is found by containment, and only a single match is
+        // trusted: a second would be a port left behind by another run.
+        let [destination] = &destinations
+            .iter()
+            .filter(|destination| destination.name.contains(&listener.name))
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!(
+                "expected one destination named after {:?}, found {destinations:?}",
+                listener.name
+            );
+        };
+        let sent = Ledger::default();
+        let mut orcvs =
+            Orcvs::with_source_and_midi_output_adapter(program(), MidiOutputAdapter::new())
+                .expect("the test runtime");
+        orcvs
+            .midi_selection_handle()
+            .install(
+                destination.id.clone(),
+                Box::new(Recording {
+                    destination: ready(
+                        backend
+                            .connect(&destination.id)
+                            .expect("the listener's port opens"),
+                    ),
+                    sent: sent.clone(),
+                }),
+            )
+            .expect("a running Orcvs");
+
+        space(&mut orcvs);
+        tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
+        stop(orcvs, &sent).await;
+
+        // Delivery crosses the platform's MIDI service on its own thread, so the
+        // received ledger catches up some time after the last send. Two seconds
+        // is far beyond any local delivery and bounds a run whose messages were
+        // lost.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while listener.received.lock().unwrap().len() < sent.lock().unwrap().len()
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let heard = cross_check(&sent.lock().unwrap(), &listener.received.lock().unwrap());
+        assert_plays_the_program(&heard);
+    }
 }
