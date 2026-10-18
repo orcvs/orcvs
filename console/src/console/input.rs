@@ -44,6 +44,20 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
             modifiers,
             ..
         } if modifiers.command => Some(InputEvent::Fill),
+        // Command Shift R rewinds Playback to Tick 0, Orca's chord for the
+        // same. Native only: the browser reserves the chord for a reload that
+        // bypasses its cache, and a page reload begins at Tick 0 regardless.
+        // A held chord rewinds once.
+        #[cfg(not(target_arch = "wasm32"))]
+        Event::Key {
+            key: Key::R,
+            pressed: true,
+            repeat,
+            modifiers,
+            ..
+        } if modifiers.command && modifiers.shift && !modifiers.alt => {
+            (!repeat).then_some(InputEvent::Rewind)
+        }
         // Tab steps the Cursor a Sector at a time; Shift Tab steps it back.
         // `Console::keep_tab_for_source` cancels egui's own Tab focus
         // navigation for the same press whenever the Source holds the keys,

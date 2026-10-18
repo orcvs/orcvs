@@ -73,6 +73,11 @@ pub enum InputEvent {
     /// what landed.
     ///
     Paste(String),
+    ///
+    /// Command Shift `R`: makes Tick `0` the next Tick Playback executes,
+    /// without playing or stopping it. Space then resumes from there.
+    ///
+    Rewind,
     Text(String),
 }
 
@@ -573,6 +578,8 @@ impl<S> Orcvs<S> {
                     self.paste(text);
                     repaint = true;
                 }
+                // Space pauses and resumes: a stopped engine holds its Tick,
+                // and the next start resumes at the Tick after it.
                 InputEvent::KeyPressed(InputKey::Space) => {
                     if self.playback_requested {
                         self.stop();
@@ -580,6 +587,7 @@ impl<S> Orcvs<S> {
                         self.play();
                     }
                 }
+                InputEvent::Rewind => self.playback.rewind(),
                 InputEvent::Text(text_to_insert)
                     if text_to_insert.len() == 1 && text_to_insert != " " =>
                 {
@@ -813,6 +821,101 @@ mod test {
         assert_eq!(observation.tick, Tick::ZERO);
         assert!(observation.on_beat);
         assert_eq!(observation.run_clock(), Duration::ZERO);
+    }
+
+    ///
+    /// Space pauses and resumes: the press that stops Playback holds its
+    /// Tick, and the press after it resumes at the next one. A Rewind leaves
+    /// Playback stopped and makes the next press begin at Tick `0`.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn space_resumes_at_the_next_tick_and_a_rewind_returns_to_tick_zero() {
+        use super::{InputEvent, InputKey};
+
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            crate::playback::InMemoryOutputAdapter::default(),
+        )
+        .expect("the test runtime");
+        let period = orcvs.bpm().tick_period();
+        let space = || vec![InputEvent::KeyPressed(InputKey::Space)];
+
+        // Ticks 0, 1 and 2 are due within two and a half periods.
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 5 / 2).await;
+        assert_eq!(orcvs.playback_observation().tick, Tick::new(2));
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 3).await;
+        let paused = orcvs.playback_observation();
+        assert_eq!(paused.state, PlaybackState::Stopped);
+        assert_eq!(paused.tick, Tick::new(2), "the pause lost its Tick");
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period / 2).await;
+        let resumed = orcvs.playback_observation();
+        assert_eq!(resumed.state, PlaybackState::Playing);
+        assert_eq!(resumed.tick, Tick::new(3), "Space did not resume");
+
+        orcvs.event_handler(vec![
+            InputEvent::KeyPressed(InputKey::Space),
+            InputEvent::Rewind,
+        ]);
+        tokio::time::sleep(period / 2).await;
+        let rewound = orcvs.playback_observation();
+        assert_eq!(rewound.state, PlaybackState::Stopped);
+        assert_eq!(rewound.tick, Tick::ZERO);
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 3 / 2).await;
+        let begun = orcvs.playback_observation();
+        assert_eq!(begun.state, PlaybackState::Playing);
+        assert_eq!(
+            begun.tick,
+            Tick::new(1),
+            "the run after a rewind began elsewhere"
+        );
+    }
+
+    ///
+    /// A Rewind ahead of the Space that pauses, in one batch, ends where the
+    /// other order does: stopped, with Tick `0` next, and the press after it
+    /// beginning there rather than ending a run the console never asked for.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_before_the_pausing_space_leaves_playback_stopped_at_tick_zero() {
+        use super::{InputEvent, InputKey};
+
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            crate::playback::InMemoryOutputAdapter::default(),
+        )
+        .expect("the test runtime");
+        let period = orcvs.bpm().tick_period();
+        let space = || vec![InputEvent::KeyPressed(InputKey::Space)];
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 5 / 2).await;
+        assert_eq!(orcvs.playback_observation().tick, Tick::new(2));
+
+        orcvs.event_handler(vec![
+            InputEvent::Rewind,
+            InputEvent::KeyPressed(InputKey::Space),
+        ]);
+        tokio::time::sleep(period * 2).await;
+        let rewound = orcvs.playback_observation();
+        assert_eq!(rewound.state, PlaybackState::Stopped);
+        assert_eq!(rewound.tick, Tick::ZERO);
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 3 / 2).await;
+        let begun = orcvs.playback_observation();
+        assert_eq!(
+            begun.state,
+            PlaybackState::Playing,
+            "the console and the engine disagreed on whether Playback was stopped"
+        );
+        assert_eq!(begun.tick, Tick::new(1));
     }
 
     ///
