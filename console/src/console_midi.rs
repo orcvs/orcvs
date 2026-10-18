@@ -27,6 +27,11 @@ pub const AVAILABLE: bool = backend::AVAILABLE;
 ))]
 pub(crate) const DESTINATION_GONE: &str = "the selected MIDI destination is no longer available";
 
+// Virtual ports, which the loopback listener opens, exist on every native
+// target but Windows.
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod loopback_tests;
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     any(target_os = "macos", target_os = "windows", target_os = "linux")

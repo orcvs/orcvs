@@ -115,6 +115,33 @@ jobs:
           ORCVS_MERGE_COMPONENT: wasm
         run: mise run check_merge
 
+  midi-loopback:
+    # Plays a Source through the console's MIDI backend into a virtual input
+    # port and cross-checks what the listener received against what was sent.
+    # The port needs the kernel's ALSA sequencer, which a hosted runner has as a
+    # module and does not load; `linux-modules-extra` carries it on the runner's
+    # kernel. Not a dependency of `ci`, so it reports without gating a merge.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install native dependencies and load the ALSA sequencer
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libasound2-dev "linux-modules-extra-$(uname -r)"
+          sudo modprobe snd-seq
+          sudo chmod a+rw /dev/snd/seq
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - run: mise run test_midi_loopback
+
   ci:
     # Required on both PRs and merge groups, including when a dependency fails.
     if: always()

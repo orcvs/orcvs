@@ -136,6 +136,13 @@ description = "Lang tests"
 env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
 
+[tasks.test_midi_loopback]
+description = "Play a Source into a virtual MIDI port and cross-check what a listener received"
+# Needs the platform's MIDI service, a sequencer on Linux (`/dev/snd/seq`) or
+# CoreMIDI on macOS, which is why the ordinary suite ignores this test and this
+# task is how it runs.
+run = 'cargo nextest run --package console --locked --run-ignored only -E "test(midi_loopback_through_a_virtual_port)"'
+
 [tasks.miri]
 description = "Interpret the Source model tests under Miri"
 # Deliberate and non-gating, and nothing here calls it. `verification-gaps/12`
