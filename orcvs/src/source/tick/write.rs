@@ -14,6 +14,8 @@ use super::observed::{
     turn_before, turns,
 };
 use crate::grid::Grid;
+use crate::source::Source;
+use crate::source::language_map::LanguageUnitKind;
 
 #[test]
 fn a_write_answers_its_value_at_its_pair_and_writes_nothing_south() {
@@ -26,9 +28,25 @@ fn a_write_answers_its_value_at_its_pair_and_writes_nothing_south() {
 fn a_write_into_comment_text_writes_its_cells() {
     // A Comment's text is ordinary Cells, so the Write lands between the
     // delimiters and the Comment still closes after it.
-    let tick = first(Grid::with_shape(8, 2), &["@$0201C4", "||    ||"]);
+    let grid = Grid::with_shape(8, 2);
+    let mut source = source_of(grid, &["@$0201C4", "||    ||"]);
+    let comment = |source: &Source| {
+        source
+            .language_map()
+            .units()
+            .find_map(|unit| match unit.kind() {
+                LanguageUnitKind::Comment(text) => Some((unit.span().range(), text.range())),
+                _ => None,
+            })
+            .expect("a Comment")
+    };
+    assert_eq!(comment(&source), (8..16, 10..14));
+
+    let plan = source.execute(Tick::ZERO);
+    let tick = observed(&source, &plan);
     assert_eq!(tick.rows, ["@$0201C4", "||C4  ||"]);
     quiet(&tick);
+    assert_eq!(comment(&source), (8..16, 10..14));
 }
 
 #[test]

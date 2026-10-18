@@ -3,6 +3,7 @@
 //! in Source order.
 
 use crate::grid::Grid;
+use crate::source::language_map::LanguageUnitKind;
 
 use super::fixture::{messages, tick_by_tick};
 use super::observed::raw;
@@ -842,6 +843,27 @@ fn a_mover_meets_comment_text_as_ordinary_cells() {
         "{:?}",
         plans[0].diagnostics
     );
+
+    // What the mover writes into the text is text at the next parse: the
+    // Comment runs through it to the row's end, so nothing moves and nothing
+    // diagnoses on the Tick after.
+    let (plans, grids, source) = tick_by_tick(Grid::with_shape(8, 2), &["  vv", "||      "], 2);
+    assert_eq!(grids[1], ["        ", "||vv    "]);
+    assert!(
+        plans[1].diagnostics.is_empty(),
+        "{:?}",
+        plans[1].diagnostics
+    );
+    let units: Vec<_> = source
+        .language_map()
+        .units()
+        .filter(|unit| unit.anchor().y() == 1)
+        .map(|unit| match unit.kind() {
+            LanguageUnitKind::Comment(text) => (unit.span().range(), text.range()),
+            kind => panic!("{kind:?} parsed in the Comment's row"),
+        })
+        .collect();
+    assert_eq!(units, [(8..16, 10..16)]);
 
     // Glyphs in the text block it, and no Language Unit occupies them, so
     // the refusal makes no contact to diagnose.
