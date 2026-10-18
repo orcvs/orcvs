@@ -3038,11 +3038,6 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
 }
 
 ///
-/// A console whose Source holds one written Cell, at the origin, with the
-/// Cursor moved on past it and egui zoomed in: an environment New would
-/// visibly discard, and a zoom it leaves standing.
-///
-///
 /// Space pauses Playback and Space again resumes it at the Tick after the one
 /// it paused on, as Orca's Space does; Command Shift R rewinds the paused
 /// Playback so the Panel shows Tick 0 and the next run begins there.
@@ -3104,6 +3099,11 @@ async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
     );
 }
 
+///
+/// A console whose Source holds one written Cell, at the origin, with the
+/// Cursor moved on past it and egui zoomed in: an environment New would
+/// visibly discard, and a zoom it leaves standing.
+///
 fn console_with_written_content() -> Harness<'static, Console> {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);

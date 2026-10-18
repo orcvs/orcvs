@@ -48,10 +48,11 @@ pub(crate) enum Destination<D> {
 /// applying it in order would do.
 ///
 /// The task applies it as one step, in a fixed order: the stop, then the
-/// rewind, then the tempo, then the destination. That order leaves the engine in the state the
-/// requests would have left it in had they been applied in the order they
-/// were made, because each slot absorbs whatever an earlier request in
-/// another slot would have changed, except in two cases named after the list:
+/// rewind, then the tempo, then the destination. That order leaves the engine
+/// in the state the requests would have left it in had they been applied in
+/// the order they were made, because each slot absorbs whatever an earlier
+/// request in another slot would have changed, except in two cases named
+/// after the list:
 ///
 /// - A `stop` empties both tempo slots. Nothing asked before it survives it,
 ///   and whatever is asked after it applies to the stopped engine it leaves.

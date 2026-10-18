@@ -878,6 +878,47 @@ mod test {
     }
 
     ///
+    /// A Rewind ahead of the Space that pauses, in one batch, ends where the
+    /// other order does: stopped, with Tick `0` next, and the press after it
+    /// beginning there rather than ending a run the console never asked for.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_before_the_pausing_space_leaves_playback_stopped_at_tick_zero() {
+        use super::{InputEvent, InputKey};
+
+        let mut orcvs = Orcvs::with_source_and_output_adapter(
+            crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
+            crate::playback::InMemoryOutputAdapter::default(),
+        )
+        .expect("the test runtime");
+        let period = orcvs.bpm().tick_period();
+        let space = || vec![InputEvent::KeyPressed(InputKey::Space)];
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 5 / 2).await;
+        assert_eq!(orcvs.playback_observation().tick, Tick::new(2));
+
+        orcvs.event_handler(vec![
+            InputEvent::Rewind,
+            InputEvent::KeyPressed(InputKey::Space),
+        ]);
+        tokio::time::sleep(period * 2).await;
+        let rewound = orcvs.playback_observation();
+        assert_eq!(rewound.state, PlaybackState::Stopped);
+        assert_eq!(rewound.tick, Tick::ZERO);
+
+        orcvs.event_handler(space());
+        tokio::time::sleep(period * 3 / 2).await;
+        let begun = orcvs.playback_observation();
+        assert_eq!(
+            begun.state,
+            PlaybackState::Playing,
+            "the console and the engine disagreed on whether Playback was stopped"
+        );
+        assert_eq!(begun.tick, Tick::new(1));
+    }
+
+    ///
     /// An output adapter that dies on its first delivery, which is how a
     /// Playback Engine's task dies without being asked to.
     ///

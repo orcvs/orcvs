@@ -24,10 +24,10 @@
 ///
 /// The Playback Engine owns musical time, so it owns this counter: Playback
 /// begins at [`Tick::ZERO`] and each executed Tick is one [`Tick::next`] on
-/// from the last, across a stop. Only a Rewind returns it to Tick `0`. It is a type of its own rather than a bare
-/// `u64` because the language threads several unrelated counts — a Tick, a
-/// Number, a rate, a Cell index — and nothing but the type tells them apart at
-/// a call site.
+/// from the last, across a stop. Only a Rewind returns it to Tick `0`. It is
+/// a type of its own rather than a bare `u64` because the language threads
+/// several unrelated counts — a Tick, a Number, a rate, a Cell index — and
+/// nothing but the type tells them apart at a call site.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tick(u64);

@@ -180,6 +180,9 @@ pub struct PlaybackObservation {
     ///
     /// Whether [`Self::tick`] is a displayed BPM beat. Published with the Tick
     /// so a Render Frame paints it rather than reconstructing [`Bpm::on_beat`].
+    /// `false` from the moment a run begins until its first Tick sounds: the
+    /// held Tick belongs to the run before, so `**` stays dark rather than
+    /// lighting for a beat this run has not played.
     ///
     pub on_beat: bool,
     ///
@@ -750,9 +753,14 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// stopped, and skip both the contained retry and the `ClockFailure` that
     /// lets the console withdraw `playback_requested`.
     ///
-    fn stop_contained(&mut self) {
+    /// Returns whether the stop completed. `false` says the safety action
+    /// panicked and the `ClockFailure` is reported, so the console has been
+    /// told that the run ended.
+    ///
+    fn stop_contained(&mut self) -> bool {
         let silenced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop()));
-        if silenced.is_err() {
+        let completed = silenced.is_ok();
+        if !completed {
             // `stop` clears the schedule after the safety action; a panic in
             // that action leaves claims that must not survive into the next
             // run the task is about to keep serving.
@@ -761,6 +769,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 message: "Playback output could not be silenced".to_string(),
             });
         }
+        completed
     }
 
     fn record_output_failure(&mut self, error: OutputAdapterError) {
@@ -799,6 +808,9 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         let spent = self.observation.borrow().frozen_run_clock;
         self.observation.send_modify(|observation| {
             observation.state = PlaybackState::Playing;
+            // The held Tick stays on show, but no Tick of this run has
+            // sounded, so there is no beat to light.
+            observation.on_beat = false;
             // The Run Clock counts on from what the runs since Tick `0` spent,
             // so its origin is set back by that much. The clock that measured
             // `spent` is this one, which has run at least that long, so the
@@ -1060,7 +1072,9 @@ impl PlaybackEngine {
     /// action a `stop` sends, and its schedule discarded — and the next begins
     /// at once at Tick `0`, at the same period. Every scheduled Note Off is
     /// due at an absolute Tick, so a schedule kept across the rewind would
-    /// stop notes at Ticks the new run reaches only much later, if ever.
+    /// stop notes at Ticks the new run reaches only much later, if ever. A
+    /// live run whose safety action panics stays stopped at Tick `0`, with
+    /// the `ClockFailure` that reports the run ended.
     ///
     /// It shuts no gate: a Tick admitted before the task takes the request
     /// executes as the old run's last, which is a Tick a `start` beside it
@@ -1547,13 +1561,19 @@ async fn run_engine<A: OutputAdapter, D>(
                 }
                 if backlog.rewind {
                     // A live run is stopped, rewound and begun again at the
-                    // period it had; a stopped engine is only rewound.
-                    let live_period = clock
+                    // period it had; a stopped engine is only rewound. A live
+                    // run whose stop was not completed is left stopped, at
+                    // Tick `0`: the `ClockFailure` that stop reported makes
+                    // `Orcvs` withdraw `playback_requested`, so a run begun
+                    // here would play behind a console that shows it stopped.
+                    let mut live_period = clock
                         .as_ref()
                         .filter(|_| inner.is_playing())
                         .map(|running| running.period);
                     if inner.is_playing() {
-                        inner.stop_contained();
+                        if !inner.stop_contained() {
+                            live_period = None;
+                        }
                         clock = None;
                     }
                     inner.rewind();
@@ -2582,8 +2602,8 @@ mod tests {
         assert_eq!(observation.state, PlaybackState::Playing);
         assert_eq!(observation.tick, Tick::ZERO);
         assert!(
-            observation.on_beat,
-            "Tick 0 of a new run is not a displayed beat"
+            !observation.on_beat,
+            "a run lit `**` before its first Tick sounded"
         );
         assert!(
             observation.run_started_at.is_some(),
@@ -2727,11 +2747,14 @@ mod tests {
             InMemoryOutputAdapter::default(),
         );
         run.begin_run();
-        run.run_tick(0);
-        run.run_tick(1);
+        // Tick 4 is a beat, so the held Tick is one `**` would light for.
+        for tick in 0..=4 {
+            run.run_tick(tick);
+        }
         run.backdate_run_origin(Duration::from_millis(20));
         run.inner.stop();
-        assert_eq!(run.observation().tick, Tick::new(1));
+        assert_eq!(run.observation().tick, Tick::new(4));
+        assert!(run.observation().on_beat);
         assert!(run.observation().run_clock() >= Duration::from_millis(20));
 
         run.begin_run();
@@ -2740,8 +2763,12 @@ mod tests {
         assert_eq!(observation.state, PlaybackState::Playing);
         assert_eq!(
             observation.tick,
-            Tick::new(1),
+            Tick::new(4),
             "a resumed run showed a Tick before its first had sounded"
+        );
+        assert!(
+            !observation.on_beat,
+            "a resumed run lit `**` before its first Tick sounded"
         );
         assert!(
             observation.run_clock() >= Duration::from_millis(20),
@@ -3373,6 +3400,52 @@ mod tests {
     }
 
     ///
+    /// A rewind of a live run whose safety action panics leaves the engine
+    /// stopped at Tick `0`, beside the `ClockFailure` that tells `Orcvs` the
+    /// run ended. A run begun again there would play on while the console,
+    /// having withdrawn `playback_requested`, shows Playback stopped.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_whose_silence_panics_leaves_the_engine_stopped() {
+        let period = Duration::from_secs(1);
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(10, 9)),
+            SilencePanickingOutputAdapter,
+        );
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        time::sleep(period * 2).await;
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(2));
+
+        engine.rewind();
+        settle(&engine).await;
+
+        let diagnostics = engine.drain_diagnostics();
+        assert!(
+            diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic,
+                PlaybackDiagnostic::ClockFailure { message }
+                    if message == "Playback output could not be silenced"
+            )),
+            "the panicking silence was not reported: {diagnostics:?}"
+        );
+        assert_eq!(
+            engine.state(),
+            PlaybackState::Stopped,
+            "a rewind restarted a run its stop reported as ended"
+        );
+        time::sleep(period * 3).await;
+        settle(&engine).await;
+        assert_eq!(
+            engine.observation(),
+            PlaybackObservation::default(),
+            "the engine published a run after the failed rewind"
+        );
+    }
+
+    ///
     /// A request pending when a run begins is applied before that run's first
     /// Tick, not after it.
     ///
@@ -3908,11 +3981,10 @@ mod tests {
     ///
     /// A retune keeps the absolute Tick of the run it retunes.
     ///
-    /// `begin_run` resets the counter because the absolute Tick is an
-    /// interpretation input and a run must open at Tick `0`; retuning
-    /// changes the Tick period of the run already in progress and does not
-    /// begin one, so resetting there would silently restart every Tick-reading
-    /// Function's cycle each time the tempo moved.
+    /// The absolute Tick is an interpretation input, and retuning changes the
+    /// Tick period of the run already in progress without beginning one or
+    /// rewinding it, so the counter goes on: resetting it there would silently
+    /// restart every Tick-reading Function's cycle each time the tempo moved.
     ///
     /// The counter is asserted through what it is an input to rather than read
     /// out of the state that owns it. Delay `~*0102` pulses on the Ticks that
