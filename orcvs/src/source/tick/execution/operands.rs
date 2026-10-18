@@ -16,7 +16,6 @@ use lang::Atom;
 
 use super::{
     Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
-    render_message,
 };
 
 impl Execution<'_> {
@@ -70,11 +69,7 @@ impl Execution<'_> {
                     // returns no value. The parent names the child, since
                     // nothing at the operand says which Function cleared.
                     Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
-                    Some(Answer::Unit(atom)) => match Encoding::render(atom) {
-                        Ok(encoding) => encoding,
-                        // A rendering a Cell cannot hold is its own fault.
-                        Err(reason) => return Err(render_message(reason)),
-                    },
+                    Some(Answer::Unit(atom)) => Encoding::render(atom),
                     None => return Err(nested(anchor, "returned nothing")),
                 };
                 token

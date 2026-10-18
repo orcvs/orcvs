@@ -30,6 +30,13 @@ impl CellContent {
     pub(super) fn byte(self) -> u8 {
         self.0
     }
+
+    /// The two Cells `spelling` occupies. A [`lang::Spelling`] holds only
+    /// printable ASCII, which is exactly what [`CellContent::new`] accepts,
+    /// so neither needs checking again.
+    pub(super) fn spelled(spelling: lang::Spelling) -> [Self; 2] {
+        spelling.cells().map(Self)
+    }
 }
 
 #[cfg(test)]

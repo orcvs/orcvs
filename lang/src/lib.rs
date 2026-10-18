@@ -11,7 +11,8 @@ mod tick;
 
 pub use atom::{
     Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, DistanceRule, Function, Length,
-    MidiChannel, Note, PositionRule, ReplacementChange, Velocity, to_atom_note, to_atom_num,
+    MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, to_atom_note,
+    to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
@@ -128,7 +129,7 @@ pub struct SourceEffect {
     pub rows: i16,
     /// The characters written at the displaced Span, or `None` for a bundle
     /// that writes no spelling of its own.
-    pub spelling: Option<&'static str>,
+    pub spelling: Option<Spelling>,
     /// Which validated bundle this effect plans.
     pub bundle: SourceBundle,
 }
@@ -388,7 +389,7 @@ fn trace() {
     });
 }
 
-const NOTE_PITCHES: &[u8; 12] = b"CcDdEFfGgAaB";
+pub(crate) const NOTE_PITCHES: &[u8; 12] = b"CcDdEFfGgAaB";
 
 pub fn midi_note_to_number(note: &str) -> Option<u8> {
     let [pitch, octave] = *note.as_bytes() else {
@@ -410,19 +411,6 @@ pub fn midi_note_to_number(note: &str) -> Option<u8> {
         .checked_mul(12)?
         .checked_add(pitch)
         .filter(|note| *note <= 0x7F)
-}
-
-fn midi_number_to_note(note: u8) -> Option<String> {
-    if note > 0x7F {
-        return None;
-    }
-
-    let pitch = char::from(NOTE_PITCHES[usize::from(note % 12)]);
-    let octave = match note / 12 {
-        0 => '/',
-        octave => char::from(b'0' + octave - 1),
-    };
-    Some(format!("{pitch}{octave}"))
 }
 
 /// Evaluates Source text spelling one Function over Operand Literals, the way
@@ -452,34 +440,22 @@ fn interpret_source(source: &str) -> Result<Interpretation, Error> {
 
 #[cfg(test)]
 mod test {
-    use super::{Atom, Note, midi_note_to_number, midi_number_to_note, str_to_num};
+    use super::{Atom, Note, midi_note_to_number, str_to_num};
 
     #[test]
-    // The figures are pointer-width dependent, and the prose below explains
-    // them in terms of a 64-bit niche. Declaring that to the compiler rather
-    // than to the reader is what keeps a 32-bit target reporting no defect
-    // instead of a size it was never measured at.
-    #[cfg(target_pointer_width = "64")]
     fn the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against() {
-        // Imported here rather than beside the module's other imports so the
-        // import carries exactly the gate its only use carries: at a pointer
-        // width this test is compiled out at, an import up there is unused,
-        // and `-D warnings` refuses the `wasm32` build over it.
         use super::{Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
         // floor was measured against it. The widest answer is a Source
-        // effect, whose spelling is a 16-byte `Option<&str>`, so
-        // `Interpretation` reads 24.
+        // effect: two `i16` displacements, a three-byte `Option<Spelling>`
+        // and its bundle, so `Interpretation` reads 8 at every pointer width.
         //
         // A failure here is notice rather than a defect: the answer seam has
-        // changed shape, and `execute_function` is the measurement to take again. That
-        // is only worth being told where the figures mean something, which is
-        // what the `target_pointer_width` gate above says — `wasm32` builds the
-        // library and runs its regressions in the `console` crate, so the gate
-        // excludes nothing that runs.
+        // changed shape, and `execute_function` is the measurement to take
+        // again.
         assert_eq!(size_of::<PlayCommand>(), 5);
-        assert_eq!(size_of::<Interpretation>(), 24);
+        assert_eq!(size_of::<Interpretation>(), 8);
     }
 
     #[test]
@@ -604,28 +580,24 @@ mod test {
     #[test]
     fn every_midi_note_round_trips_through_its_two_cell_source_encoding() {
         for number in 0x00..=0x7F {
-            let source = midi_number_to_note(number).unwrap();
+            let source = Atom::Note(Note::try_from(number).unwrap()).to_string();
             assert_eq!(source.len(), 2, "Note({number}) rendered as {source:?}");
             assert_eq!(midi_note_to_number(&source), Some(number));
-            assert_eq!(
-                Atom::Note(Note::try_from(number).unwrap()).to_string(),
-                source
-            );
         }
     }
 
     #[test]
     fn note_source_encoding_covers_the_documented_boundaries() {
-        assert_eq!(midi_number_to_note(0).as_deref(), Some("C/"));
+        assert_eq!(Atom::Note(Note::try_from(0).unwrap()).to_string(), "C/");
         assert_eq!(midi_note_to_number("C/"), Some(0));
-        assert_eq!(midi_number_to_note(127).as_deref(), Some("G9"));
+        assert_eq!(Atom::Note(Note::try_from(127).unwrap()).to_string(), "G9");
         assert_eq!(midi_note_to_number("G9"), Some(127));
     }
 
     #[test]
     fn values_above_the_midi_range_have_no_note_source_encoding() {
         for number in 0x80..=u8::MAX {
-            assert_eq!(midi_number_to_note(number), None);
+            assert!(Note::try_from(number).is_err(), "Note({number}) exists");
         }
 
         for source in ["g9", "H4", "C:", "C10", ""] {

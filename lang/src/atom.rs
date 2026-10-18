@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Error, TypeError, midi_note_to_number, midi_number_to_note};
+use crate::{Error, NOTE_PITCHES, TypeError, midi_note_to_number};
 
 pub type Atoms = Vec<Atom>;
 
@@ -289,7 +289,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-            spelling: Some(Function::SelfBangingNorth.spelling()),
+            spelling: Some(Function::SelfBangingNorth.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -297,7 +297,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-            spelling: Some(Function::SelfBangingNorth.spelling()),
+            spelling: Some(Function::SelfBangingNorth.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -305,7 +305,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-            spelling: Some(Function::SelfBangingSouth.spelling()),
+            spelling: Some(Function::SelfBangingSouth.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -313,7 +313,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-            spelling: Some(Function::SelfBangingSouth.spelling()),
+            spelling: Some(Function::SelfBangingSouth.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -321,7 +321,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -1,
             rows: 0,
-            spelling: Some(Function::SelfBangingWest.spelling()),
+            spelling: Some(Function::SelfBangingWest.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -329,7 +329,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -2,
             rows: 0,
-            spelling: Some(Function::SelfBangingWest.spelling()),
+            spelling: Some(Function::SelfBangingWest.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -337,7 +337,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 1,
             rows: 0,
-            spelling: Some(Function::SelfBangingEast.spelling()),
+            spelling: Some(Function::SelfBangingEast.cells()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -345,7 +345,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 2,
             rows: 0,
-            spelling: Some(Function::SelfBangingEast.spelling()),
+            spelling: Some(Function::SelfBangingEast.cells()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -520,10 +520,7 @@ macro_rules! define_functions {
         }
     };
     (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)?)),+ $(,)?) => {
-        $(const _: () = assert!(
-            $spelling.len() == 2 && $spelling.is_ascii(),
-            "a Function spelling must be exactly two ASCII Cells",
-        );)+
+        $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
         // a selection rule would contradict, and one row selects one pair.
@@ -548,6 +545,13 @@ macro_rules! define_functions {
             pub(crate) const fn spelling(self) -> &'static str {
                 match self {
                     $(Self::$variant => $spelling,)+
+                }
+            }
+
+            /// The two Cells this Function's spelling occupies.
+            pub const fn cells(self) -> Spelling {
+                match self {
+                    $(Self::$variant => const { Spelling::checked($spelling) },)+
                 }
             }
 
@@ -1136,17 +1140,84 @@ impl fmt::Display for Function {
 
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.spelling().fmt(f)
+    }
+}
+
+/// The hexadecimal digits a Number spells, most significant first.
+const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+
+impl Atom {
+    /// The two Source Cells this Atom spells, which a Portal writes and a
+    /// later Turn decodes.
+    pub fn spelling(self) -> Spelling {
         match self {
-            Atom::Bang => write!(f, "**"),
-            // Numbers are hexadecimal: rendered results are written back into the
-            // Source and re-parsed as two Cells, so they must round trip as hex
-            Atom::Number(n) => write!(f, "{:02X}", n),
-            Atom::Note(n) => match midi_number_to_note(n.value()) {
-                Some(note) => write!(f, "{note}"),
-                None => Err(fmt::Error),
-            },
-            Atom::Function(fun) => write!(f, "{fun}"),
+            Atom::Bang => Spelling(*b"**"),
+            // Numbers are hexadecimal: rendered results are written back into
+            // the Source and re-parsed as two Cells, so they round trip as hex.
+            Atom::Number(n) => Spelling([
+                HEX_DIGITS[usize::from(n >> 4)],
+                HEX_DIGITS[usize::from(n & 0x0F)],
+            ]),
+            Atom::Note(note) => note.spelling(),
+            Atom::Function(function) => function.cells(),
         }
+    }
+}
+
+impl Note {
+    /// A pitch letter from `CcDdEFfGgAaB` and an octave, `/` for the lowest
+    /// and a digit for the rest. A Note is at most `0x7F`, so its octave is
+    /// at most ten and the digit at most `9`.
+    fn spelling(self) -> Spelling {
+        let value = self.value();
+        let octave = match value / 12 {
+            0 => b'/',
+            octave => b'0' + octave - 1,
+        };
+        Spelling([NOTE_PITCHES[usize::from(value % 12)], octave])
+    }
+}
+
+///
+/// The two Source Cells an Atom spells.
+///
+/// Both are printable ASCII, space through `~`, which is what a Cell holds:
+/// a Number spells two hexadecimal digits, a Note a pitch letter and an
+/// octave, a Bang `**`, and every Function spelling is checked by
+/// `Spelling::checked` when the Function table compiles. Only this module
+/// builds one, so a `Spelling` that exists needs no second check.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Spelling([u8; 2]);
+
+impl Spelling {
+    /// A Function spelling, refused at compile time unless it is two
+    /// printable ASCII Cells. Every caller evaluates it in a const context.
+    const fn checked(spelling: &str) -> Self {
+        let bytes = spelling.as_bytes();
+        assert!(
+            bytes.len() == 2 && printable(bytes[0]) && printable(bytes[1]),
+            "a Function spelling must be exactly two printable ASCII Cells",
+        );
+        Self([bytes[0], bytes[1]])
+    }
+
+    /// The two Cells, west first.
+    pub fn cells(self) -> [u8; 2] {
+        self.0
+    }
+}
+
+/// Whether `byte` is a printable ASCII character, space through `~`.
+const fn printable(byte: u8) -> bool {
+    matches!(byte, 0x20..=0x7E)
+}
+
+impl fmt::Display for Spelling {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let [west, east] = self.0;
+        write!(f, "{}{}", char::from(west), char::from(east))
     }
 }
 
@@ -1308,7 +1379,7 @@ mod test {
                 crate::SourceEffect {
                     columns,
                     rows,
-                    spelling,
+                    spelling: spelling.map(super::Spelling::checked),
                     bundle,
                 },
                 "{function:?} writes something its spelling does not name",
@@ -2004,7 +2075,7 @@ mod test {
 
     #[test]
     fn test_notes_render_distinctly_from_numbers() {
-        // Notes render via midi_number_to_note and are unaffected by hex Numbers
+        // Notes spell a pitch and an octave and are unaffected by hex Numbers
         assert_eq!(Atom::Note(Note::try_from(60).unwrap()).to_string(), "C4");
         assert_eq!(Atom::Note(Note::try_from(69).unwrap()).to_string(), "A4");
         assert_eq!(Atom::Note(Note::try_from(21).unwrap()).to_string(), "A0");
