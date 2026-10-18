@@ -12,16 +12,12 @@
 //! # Column layout
 //!
 //! Every group occupies one column two Sector Seams (16 Cells) wide, headed
-//! by a `||` Comment naming it. A Comment claims the rest of its Grid row, so
-//! only the first header actually parses as a Comment Language Unit; every
-//! header east of it becomes that Comment's own text instead of a Comment of
-//! its own. That has no consequence — a Comment is never evaluated, and
-//! Source Paint colours the whole row as a Comment either way — provided the
-//! row holds nothing else: an Expression east of a header would fall inside
-//! that Comment and silently stop being parsed and run. All six headers
-//! therefore sit on row 0, and every group's own examples start on row 1. A
-//! group that stacks a second header inside its own band follows the same
-//! rule: that header's row must hold no Expression east of it either.
+//! by a `|| … ||` Comment naming it. Each header closes its own Comment, so
+//! the six share row 0 as six Comment Language Units and leave the Cells
+//! after them to be parsed. Every group's own examples start on row 1. A group
+//! that stacks a second header inside its own band leaves that Comment
+//! unclosed, and an unclosed Comment claims the rest of its row, so that
+//! header's row must hold no Expression east of it.
 //!
 //! | Columns   | Group                                                                            |
 //! |-----------|----------------------------------------------------------------------------------|

@@ -40,10 +40,10 @@ type Record = PositionedEntry;
 /// and `Function` are labels the Parser applies to Cells no signature declares.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
-    /// The rest of the Source, claimed by the `||` introducer and never
-    /// decoded — a Grid row, wherever one supplied the Source. A Comment
+    /// The Cells from a `||` introducer through the next `||`, or through the
+    /// end of the Source where none follows, and never decoded. A Comment
     /// records this and no Atom, which is what lets it carry text:
-    /// an Atom is a fixed-width value and cannot hold a row.
+    /// an Atom is a fixed-width value and cannot hold a run of text.
     Comment,
     Function,
     Note,
@@ -146,8 +146,8 @@ impl Token {
             // recognises a Function spelling, and labels the entry with what
             // it found. Nothing asks it to decode.
             Self::Function => Err(crate::SyntaxError::ExpectedToken.into()),
-            // A Comment records no Atom at all: its claim is the
-            // rest of the Source, a Grid row rather than a fixed-width value,
+            // A Comment records no Atom at all: its claim is a run of
+            // text rather than a fixed-width value,
             // and nothing asks it to decode one.
             Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
             // Leftover content is a Cell no Language Unit claims, so it has
@@ -163,7 +163,7 @@ impl Token {
     /// exactly this many back. `Token::Comment` names no operand — no
     /// signature declares one and a Comment never binds — so what it answers
     /// here is the width of its `||` introducer rather than the extent of its
-    /// claim, which is the rest of the Source and is not a Token width at all.
+    /// claim, which runs to its closer and is not a Token width at all.
     ///
     /// Exhaustive for the same reason [`Token::decode`] is: a width is a
     /// decision each `Token` makes, not one it inherits.

@@ -68,12 +68,33 @@ pub enum LanguageUnitKind {
     OperandLiteral,
     Function(Function),
     Bang,
-    /// The `||` introducer and every Cell of the row after it. A Comment is a
+    /// The `||` introducer and every Cell after it through the next `||` on
+    /// its row, or to the row's end where none follows. A Comment is a
     /// Language Unit the Parser establishes, so it has a Span and an anchor
     /// like the rest — and, unlike the rest, no value: it records a Token and
     /// no Atom, so it is never an operand, never a Function, and never
-    /// scheduled.
-    Comment,
+    /// scheduled. It carries the Cells of its text as the Parser claimed
+    /// them.
+    Comment(CommentText),
+}
+
+///
+/// The Cells between a Comment's delimiters: after its `||` introducer, and
+/// before the `||` that closes it or the end of its row. Empty for `||||`.
+///
+/// The Parser decides it with the claim, so whether a Comment is closed is
+/// one fact every reader asks the unit for rather than reads off its Cells.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CommentText {
+    start: usize,
+    end: usize,
+}
+
+impl CommentText {
+    pub(super) fn range(self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -676,7 +697,7 @@ struct RowWalk {
 ///
 /// The whole row goes to the Parser, which alone decides where a row's Source
 /// stops: the `||` introducer is a spelling read where a spelling is read, and
-/// the Comment it opens claims every Cell after it. Do not find Comments with
+/// the Comment it opens claims every Cell through its closer. Do not find Comments with
 /// a byte scan ahead of the parse: an Expression may begin at any column, so
 /// an overlapping byte pair can split a two-Cell spelling.
 ///
@@ -736,7 +757,15 @@ fn name_units(
         // matching on the Atom alone would drop it into the diagnose branch and
         // report every Cell of it as an unmatched character.
         let kind = match (entry.token, entry.atom) {
-            (Token::Comment, _) => Some(LanguageUnitKind::Comment),
+            (Token::Comment, _) => {
+                let text = analysis
+                    .comment_text()
+                    .expect("the Parser records the text of the Comment it claims");
+                Some(LanguageUnitKind::Comment(CommentText {
+                    start: text.start,
+                    end: text.end,
+                }))
+            }
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
             (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
@@ -795,7 +824,7 @@ mod tests {
 
     use lang::{Atom, Function, Token};
 
-    use super::{LanguageMap, LanguageUnitKind, Span};
+    use super::{CommentText, LanguageMap, LanguageUnitKind, Span};
 
     #[test]
     fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
@@ -1117,7 +1146,7 @@ mod tests {
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
             vec![
                 LanguageUnitKind::Function(Function::Bang),
-                LanguageUnitKind::Comment
+                LanguageUnitKind::Comment(CommentText { start: 4, end: 8 })
             ]
         );
         assert_eq!(map.diagnostics().count(), 0);
@@ -1137,6 +1166,30 @@ mod tests {
                 Some(Token::Comment)
             );
         }
+    }
+
+    ///
+    /// A closed Comment is one unit like any other, so the walk resumes after
+    /// its closer and the row's Source carries on: a Bang closing the row is
+    /// established and answers.
+    ///
+    #[test]
+    fn a_closed_comment_leaves_the_rest_of_its_row_to_the_walk() {
+        let grid = Grid::with_shape(10, 1);
+        let map = LanguageMap::build(grid, Cells::of(b"|| C3 ||**"));
+
+        assert_eq!(
+            map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
+            vec![
+                LanguageUnitKind::Comment(CommentText { start: 2, end: 6 }),
+                LanguageUnitKind::Function(Function::Bang)
+            ]
+        );
+        assert_eq!(
+            unit_spellings(&map),
+            vec![(0, (0..8).collect()), (8, vec![8, 9])]
+        );
+        assert_eq!(map.diagnostics().count(), 0);
     }
 
     ///
@@ -1825,8 +1878,8 @@ mod property {
     /// Most of the weight is one arbitrary printable character, which is what
     /// keeps the whole range a Cell can hold in reach. The rest are the pieces
     /// the walk gives meaning to, so that a row is more often a near miss than
-    /// noise: the space that ends a run, the `||` introducer that claims the
-    /// rest of a row, the `|` that is incomplete Source rather than a Comment,
+    /// noise: the space that ends a run, the `||` that opens and closes a
+    /// Comment, the `|` that is incomplete Source rather than a Comment,
     /// a Function spelling, a standalone Atom, an Operand Literal, and — as
     /// the minority branch — a whole Function with its operands. They are
     /// concatenated in whatever order they are drawn and then cut to the Grid,
@@ -1887,15 +1940,16 @@ mod property {
         /// one Cell later.
         ///
         /// A Comment is the one unit that is not two Cells. It is a Language
-        /// Unit the Parser establishes, spelled `||` and claiming every
-        /// remaining Cell of its row, so its Span runs to the last column and
+        /// Unit the Parser establishes, spelled `||` and claiming through the
+        /// next `||` on its row, or to the last column where none follows, so
         /// everything under it — empty Cells included — belongs to it. This
         /// reads that unit back from the Map rather than searching the row for
-        /// `||`: a search steps over overlapping byte pairs rather than
-        /// two-Cell units, so it would agree with the defect it was meant to
-        /// catch. Where a row's Comment begins is the Parser's answer, and what
-        /// is asserted here is the shape of the claim rather than where it
-        /// starts.
+        /// an introducer: a search steps over overlapping byte pairs rather
+        /// than two-Cell units, so it would agree with the defect it was meant
+        /// to catch. Where a Comment begins is the Parser's answer, and what is
+        /// asserted here is the shape of the claim rather than where it starts.
+        /// Only the closer is found by search, because a body is never parsed
+        /// and its first `||` is the closer wherever it falls.
         ///
         #[test]
         fn deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from(
@@ -1906,23 +1960,30 @@ mod property {
                 .expect("one printable ASCII Cell per Position");
             let bytes = source.as_bytes();
 
-            // Which Language Unit claims each Cell, if any, and the column
-            // each row's Comment begins at.
+            // Which Language Unit claims each Cell, if any, and whether that
+            // unit is a Comment.
             let mut claimed: Vec<Option<usize>> = vec![None; bytes.len()];
-            let mut comment_start: Vec<Option<usize>> = vec![None; rows];
+            let mut commented = vec![false; bytes.len()];
             let mut previous_anchor: Option<usize> = None;
             for (ordinal, unit) in map.units().enumerate() {
                 let span = unit.span();
 
-                if unit.kind() == LanguageUnitKind::Comment {
-                    // The claim is the rest of the row, so the Span ends at
-                    // the last column of the row it began in. A row holds at
-                    // most one, because the first one claims what a second
-                    // would have been spelled from.
-                    let row = span.start().get() / cols;
-                    prop_assert_eq!(span.end().get(), row * cols + cols - 1, "{:?}", source);
-                    prop_assert!(comment_start[row].is_none(), "{:?}", source);
-                    comment_start[row] = Some(span.start().get() - row * cols);
+                if let LanguageUnitKind::Comment(text) = unit.kind() {
+                    // The claim ends at the first `||` after the introducer,
+                    // or at the last column of the row it began in.
+                    let start = span.start().get();
+                    let row_end = (start / cols + 1) * cols;
+                    prop_assert_eq!(&bytes[start..start + 2], b"||", "{:?}", source);
+                    let text_end = bytes[start + 2..row_end]
+                        .windows(2)
+                        .position(|pair| pair == b"||")
+                        .map_or(row_end, |closer| start + 2 + closer);
+                    let end = if text_end == row_end { row_end } else { text_end + 2 };
+                    prop_assert_eq!(span.end().get(), end - 1, "{:?}", source);
+                    prop_assert_eq!(text.range(), start + 2..text_end, "{:?}", source);
+                    for idx in span.indices() {
+                        commented[idx.get()] = true;
+                    }
                 } else {
                     prop_assert_eq!(span.end().get(), span.start().get() + 1);
                 }
@@ -1949,21 +2010,19 @@ mod property {
                 diagnosed[diagnostic.start()] += 1;
             }
 
-            for (row, start) in comment_start.iter().copied().enumerate() {
+            for row in 0..rows {
                 let row_start = row * cols;
                 let row_bytes = &bytes[row_start..row_start + cols];
-                let comment = start.unwrap_or(cols);
 
                 for (column, byte) in row_bytes.iter().copied().enumerate() {
                     let idx = row_start + column;
                     let claims = usize::from(claimed[idx].is_some()) + diagnosed[idx];
 
-                    if column >= comment {
-                        // Every Cell from the introducer on belongs to the one
-                        // Comment, empty Cells included: the claim is the rest
-                        // of the row rather than whatever Source it holds, and
-                        // its text is never read, so nothing under it is
-                        // diagnosed.
+                    if commented[idx] {
+                        // Every Cell a Comment claims belongs to it alone,
+                        // empty Cells included: the claim is a run of Cells
+                        // rather than whatever Source it holds, and its text
+                        // is never parsed, so nothing under it is diagnosed.
                         prop_assert_eq!(
                             claims,
                             1,
@@ -1971,13 +2030,6 @@ mod property {
                             source,
                             idx,
                             claims,
-                        );
-                        prop_assert_eq!(
-                            claimed[idx],
-                            claimed[row_start + comment],
-                            "{:?} gave Cell {} to a second Comment",
-                            source,
-                            idx,
                         );
                     } else if byte == SPACE_BYTE {
                         // An empty Cell between Expressions spells nothing, so
@@ -2241,8 +2293,8 @@ mod property {
     ///
     /// The generated revisions reach the Source that makes the properties above
     /// worth stating: an empty Cell, a `|` that is incomplete Source, a
-    /// Comment the walk established, a character no Language Unit spelling
-    /// matches, and an Expression complete enough to answer with Atoms.
+    /// Comment the walk established and one it closed, a character no Language
+    /// Unit spelling matches, and an Expression complete enough to answer with Atoms.
     ///
     /// Neither property can tell Source it never saw from Source it saw and
     /// handled, and the partition property's Comment rule in particular is a
@@ -2254,7 +2306,7 @@ mod property {
     /// The case count is pinned rather than taken from `PROPTEST_CASES`,
     /// because this claim is about the generator rather than about the
     /// derivation. It does derive a Language Map from each draw — that is how
-    /// the last three of the five counts are taken — so the fixed 256 cases
+    /// the last four of the six counts are taken — so the fixed 256 cases
     /// are 256 derivations that neither verification tier can dial down. That is
     /// the cost of the claim rather than an oversight: a coverage guard that
     /// weakened with the tier would stop guarding exactly where the tier is
@@ -2270,6 +2322,7 @@ mod property {
         let empty = Counter::new(0usize);
         let incomplete = Counter::new(0usize);
         let comment = Counter::new(0usize);
+        let closed = Counter::new(0usize);
         let unmatched = Counter::new(0usize);
         let complete = Counter::new(0usize);
 
@@ -2290,9 +2343,16 @@ mod property {
                 // hand, so it answers.
                 if map
                     .units()
-                    .any(|unit| unit.kind() == LanguageUnitKind::Comment)
+                    .any(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
                 {
                     comment.set(comment.get() + 1);
+                }
+                // A closed Comment's text ends before its claim does.
+                if map.units().any(|unit| match unit.kind() {
+                    LanguageUnitKind::Comment(text) => text.range().end < unit.span().range().end,
+                    _ => false,
+                }) {
+                    closed.set(closed.get() + 1);
                 }
                 // A `|` with no `|` beside it in its own row: incomplete Source
                 // rather than the introducer, which is the distinction
@@ -2359,7 +2419,7 @@ mod rebuild_property {
 
     /// The Cells a Source is built from: Function spellings, operands, Bang,
     /// the `|` a Comment is introduced with, and the space that separates
-    /// runs. A pair of them opens a Comment that claims the rest of its row,
+    /// runs. A pair of them opens or closes a Comment on its row,
     /// and one alone is incomplete Source, so both readings are reachable.
     const ALPHABET: &[u8] = b".+=x><0123456789ABCDEF*| ";
 

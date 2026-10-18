@@ -119,7 +119,7 @@ fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         !source
             .language_map()
             .units()
-            .any(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+            .any(|unit| matches!(unit.kind(), crate::source::LanguageUnitKind::Comment(_)))
     );
     let refused = source.language_map().expressions().next().unwrap();
     assert_eq!(refused.span().positions().count(), 6);
@@ -127,7 +127,7 @@ fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
 
     // The same Function beside a real introducer. The Absolute Difference
     // of 01 and 02 answers 01 and writes it below; the Comment claims the
-    // rest of the row and answers nothing.
+    // rest of the row it does not close and answers nothing.
     let (plan, source) = carried_source(Grid::with_shape(8, 2), &[".|0102||", ""], &[]);
 
     assert_eq!(&source.snapshot()[8..10], "01");
@@ -136,7 +136,7 @@ fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         source
             .language_map()
             .units()
-            .filter(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+            .filter(|unit| matches!(unit.kind(), crate::source::LanguageUnitKind::Comment(_)))
             .map(|unit| unit.anchor().x())
             .collect::<Vec<_>>(),
         vec![6]

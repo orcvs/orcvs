@@ -26,6 +26,7 @@ pub struct SourceAnalysis {
     error: Option<Error>,
     start: usize,
     consumed: usize,
+    comment_text: Option<Range<usize>>,
 }
 
 impl SourceAnalysis {
@@ -58,6 +59,20 @@ impl SourceAnalysis {
     pub fn is_complete(&self) -> bool {
         self.error.is_none()
     }
+
+    ///
+    /// The Cells of the Comment's text, between its `||` introducer and the
+    /// `||` that closes it or the end of the Source, when this Expression is a
+    /// Comment.
+    ///
+    /// Recorded where the claim is decided, so whether a Comment is closed is
+    /// one fact the Parser states rather than something a reader of its Cells
+    /// works out again. Empty for `||||`, and in the same address space as
+    /// [`Self::cells`].
+    ///
+    pub fn comment_text(&self) -> Option<Range<usize>> {
+        self.comment_text.clone()
+    }
 }
 
 pub struct Parser<'a> {
@@ -69,6 +84,8 @@ pub struct Parser<'a> {
     /// The Cell the Source begins at, so what was read can be reported as an
     /// address rather than as an offset into a fragment.
     start: usize,
+    /// The Cells of a Comment's text, set when the Comment arm claims them.
+    comment_text: Option<Range<usize>>,
 }
 
 impl<'a> Parser<'a> {
@@ -91,6 +108,7 @@ impl<'a> Parser<'a> {
             len: source.len(),
             source,
             start,
+            comment_text: None,
         }
     }
 
@@ -169,6 +187,7 @@ impl<'a> Parser<'a> {
             error,
             start: self.start,
             consumed,
+            comment_text: self.comment_text,
         }
     }
 
@@ -207,7 +226,8 @@ impl<'a> Parser<'a> {
             }
             let start = self.source;
             let atom = match self.next_token(2) {
-                // A Comment claims every remaining Cell and records a Token
+                // A Comment claims through the next `||` that closes it, or
+                // every remaining Cell when none does, and records a Token
                 // with no Atom. It is answered here rather than in the
                 // `(Token, Atom)` match below because there is no Atom to
                 // answer with: an Atom is a fixed-width value and a Comment
@@ -219,10 +239,19 @@ impl<'a> Parser<'a> {
                 // Function's arity-determined claim is an operand Cell that
                 // fails to bind.
                 Some("||") => {
-                    // The claim is the rest of the Source, stated as the
-                    // remainder rather than read off it. `consumed()` derives
-                    // from what is left, so emptying it is the claim.
-                    self.source = "";
+                    // The closer is the leftmost `||` after the introducer,
+                    // which never closes its own Comment: `|||` runs on, and
+                    // `||||` is an empty closed Comment. A longer run of
+                    // pipes closes at its first two, and what follows is
+                    // Source. `consumed()` derives from what is left, so
+                    // cutting the remainder is the claim.
+                    let text_start = self.start + self.consumed();
+                    let (text, rest) = match self.source.find("||") {
+                        Some(closer) => (&self.source[..closer], &self.source[closer + 2..]),
+                        None => (self.source, ""),
+                    };
+                    self.comment_text = Some(text_start..text_start + text.len());
+                    self.source = rest;
                     self.expression.add_positioned(
                         Token::Comment,
                         None,
@@ -511,16 +540,17 @@ mod test {
     }
 
     ///
-    /// A Comment is a Language Unit the Parser establishes: `||` claims every
-    /// remaining Cell of the Source it was handed, records a Token and no
-    /// Atom, and completes.
+    /// A Comment is a Language Unit the Parser establishes: `||` with no
+    /// closer claims every remaining Cell of the Source it was handed, records
+    /// a Token and no Atom, and completes.
     ///
     #[test]
-    fn a_comment_claims_the_rest_of_the_source_and_records_no_atom() {
+    fn an_unclosed_comment_claims_the_rest_of_the_source_and_records_no_atom() {
         let analysis = Parser::from("|| .+0102 anything at all").analyze();
 
         assert!(analysis.is_complete());
         assert_eq!(analysis.cells(), 0..25);
+        assert_eq!(analysis.comment_text(), Some(2..25));
         assert_eq!(
             analysis
                 .expression()
@@ -534,6 +564,65 @@ mod test {
         // it holds carries one, so a Comment withholds them without an error.
         assert!(analysis.expression().atoms().is_none());
         assert!(analysis.expression().entries().next().is_none());
+    }
+
+    ///
+    /// The next `||` closes a Comment, and the Source after it is left for the
+    /// caller as it is after any other Expression.
+    ///
+    #[test]
+    fn a_comment_ends_at_the_next_comment_introducer() {
+        let analysis = Parser::from("|| C3 .+ ||.+0102").analyze();
+
+        assert!(analysis.is_complete());
+        assert_eq!(analysis.cells(), 0..11);
+        assert_eq!(analysis.comment_text(), Some(2..9));
+        assert_eq!(
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.clone(), entry.token))
+                .collect::<Vec<_>>(),
+            vec![(0..11, Token::Comment)]
+        );
+        assert!(Parser::from(".+0102").analyze().is_complete());
+    }
+
+    ///
+    /// The search for a closer starts after the introducer, so `||` never
+    /// closes its own Comment.
+    ///
+    #[test]
+    fn a_comment_introducer_does_not_close_itself() {
+        let claim = |source| {
+            let analysis = Parser::at(source, 10).analyze();
+            (analysis.cells(), analysis.comment_text())
+        };
+        assert_eq!(claim("|||.+0102"), (10..19, Some(12..19)));
+        assert_eq!(claim("||||.+0102"), (10..14, Some(12..12)));
+        assert_eq!(claim("|||x||.+"), (10..16, Some(12..14)));
+        assert_eq!(Parser::from(".+0102").analyze().comment_text(), None);
+    }
+
+    ///
+    /// A run of pipes in or after a Comment's text closes it at the run's
+    /// first two, because the closer is the leftmost `||`. What the run leaves
+    /// is Source: one `|` is incomplete Source, and `||` opens the next
+    /// Comment.
+    ///
+    #[test]
+    fn a_run_of_pipes_closes_a_comment_at_its_first_two() {
+        let closed = Parser::from("||x|||").analyze();
+        assert_eq!((closed.cells(), closed.comment_text()), (0..5, Some(2..3)));
+        let lone = Parser::at("|", 5).analyze();
+        assert!(lone.error().is_some());
+        assert_eq!(lone.cells(), 5..6);
+
+        let closed = Parser::from("||x||||").analyze();
+        assert_eq!((closed.cells(), closed.comment_text()), (0..5, Some(2..3)));
+        let next = Parser::at("||", 5).analyze();
+        assert!(next.is_complete());
+        assert_eq!((next.cells(), next.comment_text()), (5..7, Some(7..7)));
     }
 
     ///
@@ -1370,8 +1459,8 @@ mod property {
     /// Most of the weight is one arbitrary printable character, which is what
     /// keeps the whole range in reach. The rest are the pieces the language
     /// gives meaning to, so that a case is more often a near miss than noise:
-    /// the space that ends a run, the `||` Comment introducer that claims the
-    /// rest of it, the `|` that is incomplete Source rather than a Comment, a
+    /// the space that ends a run, the `||` that opens and closes a Comment,
+    /// the `|` that is incomplete Source rather than a Comment, a
     /// Function spelling with no operands after it, a standalone Atom, and an
     /// Operand Literal outside any slot. They are concatenated in whatever
     /// order they are drawn, so the result is raw text rather than a grammar.
@@ -1529,8 +1618,14 @@ mod property {
                             "{:?} completed with no Atoms and no Comment",
                             spelled,
                         );
-                        // And the claim is every Cell there was to read.
-                        prop_assert_eq!(analysis.cells(), 0..spelled.len(), "{:?}", spelled);
+                        // And the claim runs through the first `||` after the
+                        // introducer, or is every Cell there was to read.
+                        let text = spelled[2..]
+                            .find("||")
+                            .map_or(2..spelled.len(), |closer| 2..closer + 2);
+                        let end = if text.end == spelled.len() { text.end } else { text.end + 2 };
+                        prop_assert_eq!(analysis.cells(), 0..end, "{:?}", spelled);
+                        prop_assert_eq!(analysis.comment_text(), Some(text), "{:?}", spelled);
                     }
                 }
             } else {
