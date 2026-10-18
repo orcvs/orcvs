@@ -188,6 +188,47 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
 }
 
 ///
+/// Command Shift R rewinds, once per press, and only with exactly those
+/// modifiers: a bare R is a Source character, command R alone and command
+/// Alt Shift R are nothing.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn command_shift_r_alone_translates_to_a_rewind() {
+    assert_eq!(
+        translate_event(modified_key_event(
+            Key::R,
+            Modifiers::COMMAND | Modifiers::SHIFT
+        )),
+        Some(InputEvent::Rewind)
+    );
+    let repeated = Event::Key {
+        key: Key::R,
+        physical_key: None,
+        pressed: true,
+        repeat: true,
+        modifiers: Modifiers::COMMAND | Modifiers::SHIFT,
+    };
+    assert_eq!(
+        translate_event(repeated),
+        None,
+        "a held chord rewound again"
+    );
+    for modifiers in [
+        Modifiers::NONE,
+        Modifiers::SHIFT,
+        Modifiers::COMMAND,
+        Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT,
+    ] {
+        assert_eq!(
+            translate_event(modified_key_event(Key::R, modifiers)),
+            None,
+            "{modifiers:?} held with R rewound"
+        );
+    }
+}
+
+///
 /// The frame rate is derived. The visible Source region the diagnostics
 /// show is the console area read back through the origin, and the guard is
 /// what keeps that origin a value they can show.

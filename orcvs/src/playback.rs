@@ -157,8 +157,8 @@ pub enum PlaybackState {
 pub type PlaybackObservationWatch = watch::Receiver<PlaybackObservation>;
 
 ///
-/// What a Playback Engine publishes about the run in progress: whether it is
-/// playing, the absolute Tick of that run, whether that Tick is a displayed
+/// What a Playback Engine publishes about its Playback: whether it is
+/// playing, the absolute Tick that last sounded, whether that Tick is a displayed
 /// BPM beat, and the facts a Render Frame needs to draw the Run Clock.
 ///
 /// One value rather than three channels, because the console reads them while
@@ -171,9 +171,10 @@ pub type PlaybackObservationWatch = watch::Receiver<PlaybackObservation>;
 pub struct PlaybackObservation {
     pub state: PlaybackState,
     ///
-    /// The Tick of this run that last sounded, so T and `**` land with the
-    /// audio. Tick `0` from the moment a run begins, since Tick `0` executes
-    /// then; held when the run stops or a Tick is declined.
+    /// The Tick that last sounded, so T and `**` land with the audio. Held
+    /// when the run stops or a Tick is declined, and while Stopped, since the
+    /// next run resumes at the Tick after it. Tick `0` again once a rewind
+    /// asks for Tick `0` to be the next one.
     ///
     pub tick: Tick,
     ///
@@ -182,13 +183,16 @@ pub struct PlaybackObservation {
     ///
     pub on_beat: bool,
     ///
-    /// Origin of the current Playback run, published as `web_time::Instant` so
-    /// native and WASM share one public type. A Render Frame subtracts this
-    /// from `web_time::Instant::now()` while [`PlaybackState::Playing`]. `None`
-    /// while Stopped, including before the first run.
+    /// The instant the Run Clock reads zero from while
+    /// [`PlaybackState::Playing`]: the current run's start, set back by the
+    /// Run Clock the runs before it since Tick `0` had already spent.
+    /// Published as `web_time::Instant` so native and WASM share one public
+    /// type. A Render Frame subtracts this from `web_time::Instant::now()`
+    /// while Playing. `None` while Stopped, including before the first run.
     ///
     pub run_started_at: Option<web_time::Instant>,
-    /// Frozen Run Clock while Stopped. Zero before the first run.
+    /// Frozen Run Clock while Stopped. Zero before the first run and after a
+    /// rewind.
     pub frozen_run_clock: Duration,
 }
 
@@ -219,7 +223,7 @@ impl PlaybackObservation {
     ///
     /// While Playing it is wall-clock since [`Self::run_started_at`]; while
     /// Stopped it is the duration frozen when the run stopped, so a later
-    /// frame does not invent time a stopped run did not spend.
+    /// frame does not invent time a stopped engine did not spend.
     ///
     pub fn run_clock(self) -> Duration {
         match self.state {
@@ -518,6 +522,7 @@ trait LifecycleRequests: Send + Sync {
     fn start(&self, tick_period: Duration) -> Result<(), Unavailable>;
     fn retune(&self, tick_period: Duration) -> Result<(), Unavailable>;
     fn stop(&self, gate: &TickGate);
+    fn rewind(&self);
     fn disconnect(&self);
 }
 
@@ -532,6 +537,12 @@ impl<D: Send> LifecycleRequests for RequestSender<D> {
 
     fn stop(&self, gate: &TickGate) {
         RequestSender::stop(self, gate);
+    }
+
+    fn rewind(&self) {
+        // An engine whose task has ended executes no Tick, so there is no next
+        // Tick left to rewind.
+        let _ = RequestSender::rewind(self);
     }
 
     fn disconnect(&self) {
@@ -766,32 +777,41 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// input added here cannot be reset on one target and forgotten on
     /// another.
     ///
-    /// The absolute Tick is an interpretation input, so a run that began while
-    /// still carrying the previous run's counter would fire a Delay
-    /// `~*0104` on the wrong beat. Resetting the counter is therefore part of
-    /// beginning a run, alongside the cleared last Tick that lets this run's
-    /// first Tick execute immediately.
+    /// A run resumes the absolute Tick rather than resetting it: its first
+    /// Tick is the one after the last Tick executed, which is Tick `0` before
+    /// any has run and after a [`Self::rewind`]. The absolute Tick is an
+    /// interpretation input, so this is what lets every Clock `~.` and Delay
+    /// `~*` resume at the step it stopped on rather than at its cycle's first.
+    /// Do not reset the counter here: only a rewind returns it to Tick `0`.
+    /// The cleared last Tick is what lets this run's first Tick execute
+    /// immediately, on a grid of its own.
     ///
     /// `retune` deliberately does not begin a run: retuning changes the Tick
-    /// period of the run it is already in, so it keeps that run's absolute Tick
-    /// and reads the last Tick to schedule the first retuned Tick against it.
+    /// period of the run it is already in, so it keeps that run's grid and
+    /// reads the last Tick to schedule the first retuned Tick against it.
     /// The Run Clock origin is captured here as `web_time::Instant` rather than
     /// borrowed from the Tick Grid's epoch, for the same reason: a retune
     /// captures a new epoch and is not a new run.
     ///
     fn begin_run(&mut self) {
         self.last_tick_at = None;
-        self.tick = Tick::ZERO;
-        self.observation.send_replace(PlaybackObservation {
-            state: PlaybackState::Playing,
-            run_started_at: Some(web_time::Instant::now()),
-            frozen_run_clock: Duration::ZERO,
-            ..PlaybackObservation::default()
+        let now = web_time::Instant::now();
+        let spent = self.observation.borrow().frozen_run_clock;
+        self.observation.send_modify(|observation| {
+            observation.state = PlaybackState::Playing;
+            // The Run Clock counts on from what the runs since Tick `0` spent,
+            // so its origin is set back by that much. The clock that measured
+            // `spent` is this one, which has run at least that long, so the
+            // subtraction is representable; the present is the fallback for
+            // a platform clock that says otherwise.
+            observation.run_started_at = Some(now.checked_sub(spent).unwrap_or(now));
+            observation.frozen_run_clock = Duration::ZERO;
         });
-        // A scheduled stop is due at an absolute Tick, and this run's absolute
-        // Ticks begin again at zero, so an inherited expiry would stop a note
-        // of the new run that has not started. Discarding the schedule is part
-        // of beginning a run for the same reason resetting the counter is.
+        // The stop that ended the last run sent the safety action and
+        // discarded the schedule, so a run never begins owning a note. This
+        // holds it for an engine that reaches here by any other path: an
+        // inherited claim would schedule a stop for a note this run never
+        // started.
         self.owned.clear();
         // The latch suppresses a report of the failure it already reported, so
         // a device refusing every Tick is reported once rather than once per
@@ -806,6 +826,23 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // fault twice. A stopped engine submits nothing, so a latch left
         // standing after `stop` suppresses nothing until this line clears it.
         self.last_output_failure = None;
+    }
+
+    ///
+    /// Makes Tick `0` the Tick this engine executes next, and zeroes the Run
+    /// Clock, for a stopped engine. A live run is rewound by stopping it and
+    /// beginning the next one here, which `run_engine` does.
+    ///
+    /// The published Tick moves to Tick `0` with it, though Tick `0` has not
+    /// sounded, so a Panel shows the Tick the next run begins at rather than
+    /// one Playback has left behind.
+    ///
+    fn rewind(&mut self) {
+        self.tick = Tick::ZERO;
+        self.observation.send_modify(|observation| {
+            observation.set_tick(Tick::ZERO);
+            observation.frozen_run_clock = Duration::ZERO;
+        });
     }
 
     ///
@@ -1013,6 +1050,24 @@ impl PlaybackEngine {
     ///
     pub fn stop(&self) {
         self.requests.stop(&self.tick_gate);
+    }
+
+    ///
+    /// Makes Tick `0` the next Tick this engine executes.
+    ///
+    /// A stopped engine stays stopped, its Tick and Run Clock shown at zero,
+    /// and its next run begins at Tick `0`. A live run ends — with the safety
+    /// action a `stop` sends, and its schedule discarded — and the next begins
+    /// at once at Tick `0`, at the same period. Every scheduled Note Off is
+    /// due at an absolute Tick, so a schedule kept across the rewind would
+    /// stop notes at Ticks the new run reaches only much later, if ever.
+    ///
+    /// It shuts no gate: a Tick admitted before the task takes the request
+    /// executes as the old run's last, which is a Tick a `start` beside it
+    /// would not have prevented either.
+    ///
+    pub fn rewind(&self) {
+        self.requests.rewind();
     }
 
     ///
@@ -1479,8 +1534,8 @@ async fn run_engine<A: OutputAdapter, D>(
             PlaybackEvent::Closed => break,
             PlaybackEvent::Requests(backlog) => {
                 backlogs_since_tick = backlogs_since_tick.saturating_add(1);
-                // The order `Backlog` states: stop, then tempo, then
-                // destination.
+                // The order `Backlog` states: stop, then rewind, then tempo,
+                // then destination.
                 if backlog.stop {
                     // The request is answered here and nowhere else: it was
                     // raised to hold the line until this backlog was taken,
@@ -1489,6 +1544,24 @@ async fn run_engine<A: OutputAdapter, D>(
                     inner.stop_contained();
                     clock = None;
                     backlogs_since_tick = 0;
+                }
+                if backlog.rewind {
+                    // A live run is stopped, rewound and begun again at the
+                    // period it had; a stopped engine is only rewound.
+                    let live_period = clock
+                        .as_ref()
+                        .filter(|_| inner.is_playing())
+                        .map(|running| running.period);
+                    if inner.is_playing() {
+                        inner.stop_contained();
+                        clock = None;
+                    }
+                    inner.rewind();
+                    if let Some(period) = live_period {
+                        inner.begin_run();
+                        clock = Some(TickClock::beginning(period));
+                        backlogs_since_tick = 0;
+                    }
                 }
                 if inner.is_playing() {
                     // Retuning changes the Tick period of the run in progress
@@ -2648,7 +2721,7 @@ mod tests {
     }
 
     #[test]
-    fn beginning_a_new_run_resets_the_published_tick_and_run_clock() {
+    fn resuming_holds_the_published_tick_and_counts_the_run_clock_on() {
         let mut run = HandDrivenRun::new(
             SourceCommander::new(Grid::with_shape(10, 9)),
             InMemoryOutputAdapter::default(),
@@ -2665,12 +2738,38 @@ mod tests {
 
         let observation = run.observation();
         assert_eq!(observation.state, PlaybackState::Playing);
-        assert_eq!(observation.tick, Tick::ZERO);
-        assert!(observation.on_beat);
+        assert_eq!(
+            observation.tick,
+            Tick::new(1),
+            "a resumed run showed a Tick before its first had sounded"
+        );
         assert!(
-            observation.run_clock() < Duration::from_millis(20),
-            "a new run kept the previous run's clock {:?}",
+            observation.run_clock() >= Duration::from_millis(20),
+            "a resumed run lost the Run Clock already spent: {:?}",
             observation.run_clock()
+        );
+    }
+
+    #[test]
+    fn a_rewind_zeroes_the_published_tick_and_run_clock() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::with_shape(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+        run.run_tick(0);
+        run.run_tick(1);
+        run.backdate_run_origin(Duration::from_millis(20));
+        run.inner.stop();
+
+        run.inner.rewind();
+
+        assert_eq!(run.observation(), PlaybackObservation::default());
+        run.begin_run();
+        assert!(
+            run.observation().run_clock() < Duration::from_millis(20),
+            "the run after a rewind kept the Run Clock {:?}",
+            run.observation().run_clock()
         );
     }
 
@@ -2734,53 +2833,100 @@ mod tests {
     }
 
     #[test]
-    fn each_playback_run_begins_again_at_the_first_tick() {
-        // The first-Tick rule is about a Playback run, not about the
-        // lifetime of the engine: a run that is stopped and started again is a
-        // new run and counts from `0` again.
+    fn a_run_begun_after_a_stop_resumes_at_the_next_tick() {
+        // Stopping is a pause: the absolute Tick is an interpretation input,
+        // so a run that began at `0` again would put every Clock `~.` back on
+        // its cycle's first step. The run after a stop resumes at the Tick
+        // after the last one executed.
         let mut run = HandDrivenRun::new(
             SourceCommander::new(Grid::with_shape(10, 9)),
             InMemoryOutputAdapter::default(),
         );
 
         run.begin_run();
-        run.run_tick(0);
-        assert_eq!(run.current_tick(), Tick::new(1));
-
-        run.inner.stop();
-        assert_eq!(run.state(), PlaybackState::Stopped);
-        run.begin_run();
-
-        assert_eq!(run.current_tick(), Tick::ZERO);
-
-        // And the new run counts from there, rather than resuming the old one.
-        run.run_tick(0);
-        assert_eq!(run.current_tick(), Tick::new(1));
-    }
-
-    #[test]
-    fn beginning_a_run_discards_the_previous_runs_absolute_tick() {
-        // The first-Tick rule belongs to beginning a Playback run, not to the
-        // clock that happens to drive it, so every path that begins one opens
-        // the same way. The engine is carried far enough into a first run
-        // that a counter left standing would be plainly visible, and the run
-        // begun after it must still open at absolute Tick `0` with no last Tick
-        // behind it for the clock to schedule against.
-        let mut run = HandDrivenRun::new(
-            SourceCommander::new(Grid::with_shape(10, 9)),
-            InMemoryOutputAdapter::default(),
-        );
-        run.begin_run();
-
         for executed in 0..3u64 {
             run.run_tick(executed);
         }
         assert_eq!(run.current_tick(), Tick::new(3));
 
+        run.inner.stop();
+        assert_eq!(run.state(), PlaybackState::Stopped);
         run.begin_run();
 
-        assert_eq!(run.current_tick(), Tick::ZERO);
+        assert_eq!(run.current_tick(), Tick::new(3));
+        // A run's grid is its own: the resumed run has no last Tick behind it
+        // for the clock to schedule against, so its first Tick executes on
+        // arrival.
         assert!(run.inner.last_tick_at.is_none());
+
+        run.run_tick(3);
+        assert_eq!(run.observation().tick, Tick::new(3));
+        assert_eq!(run.current_tick(), Tick::new(4));
+    }
+
+    #[test]
+    fn a_rewind_makes_tick_zero_the_next_tick_of_a_stopped_engine() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::with_shape(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+        for executed in 0..3u64 {
+            run.run_tick(executed);
+        }
+        run.inner.stop();
+
+        run.inner.rewind();
+
+        assert_eq!(run.state(), PlaybackState::Stopped);
+        assert_eq!(run.current_tick(), Tick::ZERO);
+        run.begin_run();
+        run.run_tick(0);
+        assert_eq!(run.observation().tick, Tick::ZERO);
+        assert_eq!(run.current_tick(), Tick::new(1));
+    }
+
+    ///
+    /// A Clock `~.` resumes at the step it stopped on. The Source writes the
+    /// step of a four-step Clock below it every Tick, so the Cells read back
+    /// after each Tick are the step that Tick computed.
+    ///
+    #[test]
+    fn a_clock_resumes_at_the_step_it_stopped_on() {
+        let source = SourceCommander::new(Grid::with_shape(10, 9));
+        write(&source, 0, "~.0104");
+        let mut run = HandDrivenRun::new(source.clone(), InMemoryOutputAdapter::default());
+        let step = |source: &SourceCommander| -> String {
+            let revision = source.read_revision();
+            let grid = source.grid();
+            (0..2)
+                .map(|x| {
+                    revision
+                        .content_at(grid.position(x, 1).expect("inside the Grid"))
+                        .unwrap_or(' ')
+                })
+                .collect()
+        };
+
+        run.begin_run();
+        run.run_tick(0);
+        run.run_tick(1);
+        assert_eq!(step(&source), "01");
+
+        run.inner.stop();
+        run.begin_run();
+        run.run_tick(2);
+        assert_eq!(step(&source), "02", "the resumed run began its cycle again");
+
+        run.inner.stop();
+        run.inner.rewind();
+        run.begin_run();
+        run.run_tick(0);
+        assert_eq!(
+            step(&source),
+            "00",
+            "the rewound run did not begin at Tick 0"
+        );
     }
 
     #[test]
@@ -3138,6 +3284,92 @@ mod tests {
         settle(&engine).await;
         assert_eq!(engine.state(), PlaybackState::Stopped);
         assert_eq!(adapter.safety_reset_count(), 2);
+    }
+
+    ///
+    /// Through the task: a stop holds the Tick, the start after it resumes
+    /// at the next one, and a rewind of the stopped engine makes the next run
+    /// begin at Tick `0`. The stop sends the safety action once and the
+    /// rewind of a stopped engine sends none.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_start_after_a_stop_resumes_and_a_rewind_returns_to_tick_zero() {
+        let period = Duration::from_secs(1);
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(10, 9)),
+            adapter.clone(),
+        );
+
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        time::sleep(period * 2).await;
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(2));
+
+        engine.stop();
+        settle(&engine).await;
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(3));
+        assert_eq!(adapter.safety_reset_count(), 1);
+
+        engine.stop();
+        engine.rewind();
+        settle(&engine).await;
+        assert_eq!(engine.observation(), PlaybackObservation::default());
+        assert_eq!(adapter.safety_reset_count(), 2, "a stopped rewind silenced");
+
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(engine.state(), PlaybackState::Playing);
+        assert_eq!(engine.observation().tick, Tick::ZERO);
+    }
+
+    ///
+    /// A rewind of a live run ends it with the safety action and begins the
+    /// next at once at Tick `0`, at the period it had, with nothing owed from
+    /// the run before: the Timed note it started is stopped by All Notes Off,
+    /// and the expiry scheduled for it is not delivered.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_of_a_live_run_silences_it_and_begins_again_at_tick_zero() {
+        let period = Duration::from_secs(1);
+        let source = SourceCommander::new(Grid::with_shape(10, 9));
+        // A Timed note of eight Ticks, started on Tick 0 alone: the Bang is
+        // gone from the Source before Tick 1.
+        write(&source, 20, "!~007FC408");
+        write(&source, 0, ".=0101");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(source.clone(), adapter.clone());
+
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
+        write(&source, 0, ".=0102");
+        time::sleep(period * 2).await;
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(2));
+
+        engine.rewind();
+        settle(&engine).await;
+
+        assert_eq!(engine.state(), PlaybackState::Playing);
+        assert_eq!(engine.observation().tick, Tick::ZERO);
+        assert_eq!(adapter.safety_reset_count(), 1);
+        time::sleep(period * 9).await;
+        settle(&engine).await;
+        let stops = adapter
+            .command_lists()
+            .concat()
+            .into_iter()
+            .filter(|command| *command == stop(0, 60))
+            .count();
+        assert_eq!(
+            stops, 0,
+            "the expiry the rewound run owed was delivered to the next run"
+        );
+        assert_eq!(engine.observation().tick, Tick::new(9));
     }
 
     ///

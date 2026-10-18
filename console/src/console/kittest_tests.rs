@@ -3042,6 +3042,68 @@ async fn file_new_is_what_the_next_save_stores_and_a_restart_opens() {
 /// Cursor moved on past it and egui zoomed in: an environment New would
 /// visibly discard, and a zoom it leaves standing.
 ///
+///
+/// Space pauses Playback and Space again resumes it at the Tick after the one
+/// it paused on, as Orca's Space does; Command Shift R rewinds the paused
+/// Playback so the Panel shows Tick 0 and the next run begins there.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let mut engine = harness.state().orcvs.playback_observation_watch();
+    let written = cells(harness.state());
+
+    harness.key_press(Key::Space);
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing
+            && observed.tick >= Tick::new(1))
+        .await,
+        "Space did not start Playback"
+    );
+
+    harness.key_press(Key::Space);
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Stopped)
+        .await,
+        "Space did not pause Playback"
+    );
+    let paused_on = harness.state().orcvs.playback_observation().tick;
+
+    harness.key_press(Key::Space);
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing
+            && observed.tick == paused_on.next())
+        .await,
+        "Space did not resume at the Tick after {paused_on:?}"
+    );
+
+    harness.key_press(Key::Space);
+    harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::R);
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Stopped
+            && observed.tick == Tick::ZERO)
+        .await,
+        "Command Shift R did not rewind the paused Playback"
+    );
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "the chord reached the Source as a character"
+    );
+}
+
 fn console_with_written_content() -> Harness<'static, Console> {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);

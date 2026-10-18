@@ -1,6 +1,6 @@
 # Playback requests wait in slots, not a queue
 
-Status: accepted. Amends [ADR 0041](0041-the-playback-engine-owns-its-state-in-one-task.md): the engine's task still owns its state and still receives every transition from its handles, but those transitions no longer travel on an unbounded ordered queue. [ADR 0002](0002-playback-engine-owns-lifecycle-concurrency.md)'s synchronous `stop` guarantee is unchanged.
+Status: accepted. Amends [ADR 0041](0041-the-playback-engine-owns-its-state-in-one-task.md): the engine's task still owns its state and still receives every transition from its handles, but those transitions no longer travel on an unbounded ordered queue. [ADR 0002](0002-playback-engine-owns-lifecycle-concurrency.md)'s synchronous `stop` guarantee is unchanged. [ADR 0076](0076-stopping-playback-holds-its-tick.md) amends it: the mailbox also holds one Rewind flag, applied after the stop and before the tempo, which a `stop` leaves standing.
 
 **What a handle can leave for the engine is bounded by shape, not by rate.** Every request a Playback handle or a MIDI selection handle makes is one where only the newest matters, or where several collapse into one. Each kind has a slot in the engine's mailbox, and a later request overwrites or merges with the one already there. The mailbox holds at most:
 

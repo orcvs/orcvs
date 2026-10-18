@@ -945,7 +945,7 @@ mod test {
         // Ticks twice would silently stop exercising its second Tick.
         let mut src = source();
 
-        assert_eq!(src.tick(), Tick::ZERO, "a run begins at absolute Tick 0");
+        assert_eq!(src.tick(), Tick::ZERO, "Playback begins at absolute Tick 0");
         for expected in 1..=4 {
             src.execute();
             assert_eq!(

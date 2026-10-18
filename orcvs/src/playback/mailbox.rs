@@ -9,6 +9,7 @@
 //!
 //! - one `stop` flag, standing for every `stop` made since the task last took
 //!   the backlog, and at most two standing requests on the [`TickGate`];
+//! - one `rewind` flag, standing for every `rewind` made since then;
 //! - one period to begin a run at and one to retune a live run to;
 //! - one destination change, which holds at most one connection.
 //!
@@ -47,13 +48,17 @@ pub(crate) enum Destination<D> {
 /// applying it in order would do.
 ///
 /// The task applies it as one step, in a fixed order: the stop, then the
-/// tempo, then the destination. That order leaves the engine in the state the
+/// rewind, then the tempo, then the destination. That order leaves the engine in the state the
 /// requests would have left it in had they been applied in the order they
 /// were made, because each slot absorbs whatever an earlier request in
 /// another slot would have changed, except in two cases named after the list:
 ///
 /// - A `stop` empties both tempo slots. Nothing asked before it survives it,
 ///   and whatever is asked after it applies to the stopped engine it leaves.
+/// - A `rewind` survives a `stop` on either side of it. Rewinding then
+///   stopping and stopping then rewinding both leave a stopped engine whose
+///   next Tick is Tick `0`, and no Tick runs between the parts of one backlog
+///   for the order to show in.
 /// - `start` and `retune` are split by the state they act on, which only the
 ///   task knows. `start` does nothing to a live run and `retune` nothing to a
 ///   stopped engine, so each writes the slot for the state it changes, and a
@@ -80,6 +85,11 @@ pub(crate) enum Destination<D> {
 pub(super) struct Backlog<D> {
     /// Whether a stop was asked for. It answers one request on the gate.
     pub(super) stop: bool,
+    ///
+    /// Whether a rewind was asked for: the Tick the engine executes next is
+    /// Tick `0`, and a live run once `stop` is applied begins again there.
+    ///
+    pub(super) rewind: bool,
     /// The period to begin a run at, if the engine is stopped once `stop` is
     /// applied.
     pub(super) start: Option<Duration>,
@@ -90,7 +100,11 @@ pub(super) struct Backlog<D> {
 
 impl<D> Backlog<D> {
     fn is_empty(&self) -> bool {
-        !self.stop && self.start.is_none() && self.retune.is_none() && self.destination.is_none()
+        !self.stop
+            && !self.rewind
+            && self.start.is_none()
+            && self.retune.is_none()
+            && self.destination.is_none()
     }
 }
 
@@ -98,6 +112,7 @@ impl<D> Default for Backlog<D> {
     fn default() -> Self {
         Self {
             stop: false,
+            rewind: false,
             start: None,
             retune: None,
             destination: None,
@@ -235,6 +250,18 @@ impl<D> RequestSender<D> {
             backlog.start = None;
             backlog.retune = None;
         });
+    }
+
+    ///
+    /// Asks for the engine's next Tick to be Tick `0`. Every `rewind` made
+    /// before the task takes the backlog is one rewind.
+    ///
+    /// It leaves the tempo slots alone: a rewind ends a live run only to
+    /// begin the next one at Tick `0`, so a `start` or `retune` beside it
+    /// still has a run or a stopped engine to act on.
+    ///
+    pub(super) fn rewind(&self) -> Result<(), Unavailable> {
+        self.update(|backlog| backlog.rewind = true)
     }
 
     ///
@@ -415,6 +442,21 @@ mod tests {
         assert_eq!(backlog.retune, None);
     }
 
+    #[test]
+    fn a_rewind_survives_a_stop_on_either_side_and_leaves_the_tempo() {
+        let (sender, receiver) = open::<()>();
+        let gate = TickGate::new();
+        sender.rewind().unwrap();
+        sender.stop(&gate);
+        sender.start(ONE).unwrap();
+        sender.rewind().unwrap();
+
+        let backlog = taken(&receiver);
+        assert!(backlog.stop);
+        assert!(backlog.rewind);
+        assert_eq!(backlog.start, Some(ONE));
+    }
+
     ///
     /// However many stops are made before the task takes the backlog, the
     /// gate carries one request for them, and answering it once reopens it.
@@ -499,6 +541,7 @@ mod tests {
         assert_eq!(released.load(Ordering::SeqCst), 2);
         assert_eq!(sender.start(ONE), Err(Unavailable));
         assert_eq!(sender.retune(ONE), Err(Unavailable));
+        assert_eq!(sender.rewind(), Err(Unavailable));
         sender.stop(&gate);
         assert!(gate.begin_tick(), "a stop no task can answer shut the gate");
     }
