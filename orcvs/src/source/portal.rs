@@ -26,7 +26,7 @@ use lang::{Function, InputPortal, Output, PortalCoords};
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::encoding::Encoding;
-use super::language_map::{LanguageUnit, LanguageUnitKind, Span};
+use super::language_map::{LanguageUnit, LanguageUnitKind, Span, occupied};
 use super::{CellContent, Cells};
 
 /// The Cell pair one Atom occupies, and the one declaration of it: what a
@@ -323,7 +323,7 @@ impl Portal {
 /// ADR 0006 classifies contact against every Language Unit rather than
 /// against the computations alone: a Comment's delimiters and a standalone
 /// Bang each occupy Cells and neither is scheduled. Each unit is met through
-/// [`LanguageUnit::occupied_cells`], so a Comment's text is empty here.
+/// [`occupied`], so a Comment's text is empty here.
 /// `root_at` is the Lookup question that tells a complete covering unit from
 /// an Expression root; this module holds no Lookup.
 ///
@@ -332,10 +332,7 @@ pub(super) fn occupancy_of<'a>(
     cells: impl Iterator<Item = usize> + Clone,
     root_at: impl Fn(Position) -> Option<usize>,
 ) -> Occupancy {
-    let units = units
-        .into_iter()
-        .flat_map(|unit| unit.occupied_cells().map(move |cells| (cells, unit)));
-    match coverage(units, cells, |_| true) {
+    match coverage(occupied(units), cells, |_| true) {
         Coverage::Empty => Occupancy::Empty,
         Coverage::Complete(unit) => {
             root_at(unit.anchor()).map_or(Occupancy::NonRoot, Occupancy::Root)
@@ -629,7 +626,7 @@ mod test {
     };
     use crate::grid::{CellIndex, Grid};
     use crate::source::Cells;
-    use crate::source::language_map::LanguageMap;
+    use crate::source::language_map::{LanguageMap, occupied};
 
     #[test]
     fn every_printable_cell_reaches_its_destination() {
@@ -653,10 +650,7 @@ mod test {
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
         portal.language_unit(Cells::of(working), |cells| {
-            let units = map.units().flat_map(|unit| {
-                unit.occupied_cells()
-                    .map(move |cells| (cells, Occupant::Unit(unit)))
-            });
+            let units = occupied(map.units()).map(|(cells, unit)| (cells, Occupant::Unit(unit)));
             coverage(units, cells, |_| true)
         })
     }
@@ -1025,6 +1019,19 @@ mod test {
         assert_eq!(at(6), Occupancy::NonRoot);
         assert_eq!(at(1), Occupancy::Partial);
         assert_eq!(at(5), Occupancy::Partial);
+    }
+
+    ///
+    /// A Comment with no text occupies its delimiters as one run, so the
+    /// pair across their inner Cells is wholly covered.
+    ///
+    #[test]
+    fn occupancy_across_the_delimiters_of_an_empty_comment_is_complete() {
+        let grid = Grid::with_shape(4, 1);
+        let map = LanguageMap::build(grid, Cells::of(b"||||"));
+        let portal = Portal::at(grid, grid.position(1, 0).unwrap());
+        assert_eq!(portal.occupancy(map.units(), |_| None), Occupancy::NonRoot);
+        assert_eq!(unit(portal, b"||||", &map), PortalUnit::Invalid);
     }
 
     #[test]

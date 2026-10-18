@@ -24,6 +24,7 @@ use super::{
     coverage,
 };
 use crate::source::buffer::WorkingCells;
+use crate::source::language_map::occupied;
 
 /// What an admitted write does to placement geometry besides its Cells.
 #[derive(Clone, Copy)]
@@ -172,10 +173,7 @@ impl<'a> WorkingSource<'a> {
         if let Coverage::Complete(_) = placed {
             return placed;
         }
-        let units = self.map.units().flat_map(|unit| {
-            unit.occupied_cells()
-                .map(move |cells| (cells, Occupant::Unit(unit)))
-        });
+        let units = occupied(self.map.units()).map(|(cells, unit)| (cells, Occupant::Unit(unit)));
         let unobscured = |cell: usize| !self.obscured.iter().any(|write| write.contains(&cell));
         match coverage(units, cells, unobscured) {
             Coverage::Empty => placed,
