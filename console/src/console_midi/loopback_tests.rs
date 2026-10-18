@@ -259,6 +259,33 @@ fn space(orcvs: &mut Orcvs) {
 /// The last message of the safety reset: channel 15's bend, centred.
 const LAST_SAFETY_RESET_MESSAGE: [u8; 3] = [0xef, 0x00, 0x40];
 
+/// The Note Off the program's Timed Play is owed: channel 3's `D4`, expired.
+const TIMED_EXPIRY_MESSAGE: [u8; 3] = [0x83, 62, 0x00];
+
+///
+/// Starts playback and waits until the engine has sent the Timed Play's
+/// expiry, the last message the program plays before it is stopped.
+///
+/// The expiry is due a Tick after the note starts, so a fixed sleep would
+/// race the stop on a loaded runner; waiting on the sent ledger does not.
+///
+async fn play(orcvs: &mut Orcvs, sent: &Ledger) {
+    space(orcvs);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !sent
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|message| message.as_slice() == TIMED_EXPIRY_MESSAGE)
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the engine never sent the Timed Play's expiry"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
 ///
 /// Stops playback, waits until the engine has sent the safety reset a stop
 /// owes, and drops the running Orcvs.
@@ -300,8 +327,7 @@ async fn midi_loopback_in_process() {
         )
         .expect("a running Orcvs");
 
-    space(&mut orcvs);
-    tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
+    play(&mut orcvs, &sent).await;
     stop(orcvs, &sent).await;
 
     let heard = cross_check(&sent.lock().unwrap(), &received.lock().unwrap());
@@ -393,7 +419,7 @@ mod virtual_port {
     use orcvs::midi::{MidiBackend, MidiConnection, MidiConnectionRequest, MidiOutputAdapter};
 
     use super::super::ConsoleMidiBackend;
-    use super::{Ledger, Recording, assert_plays_the_program, cross_check, program, space, stop};
+    use super::{Ledger, Recording, assert_plays_the_program, cross_check, play, program, stop};
 
     ///
     /// A listener on a virtual input port, which the platform's MIDI service
@@ -487,8 +513,7 @@ mod virtual_port {
             )
             .expect("a running Orcvs");
 
-        space(&mut orcvs);
-        tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
+        play(&mut orcvs, &sent).await;
         stop(orcvs, &sent).await;
 
         // Delivery crosses the platform's MIDI service on its own thread, so the
