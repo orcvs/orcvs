@@ -833,6 +833,34 @@ fn a_move_that_lands_across_two_language_units_diagnoses_its_misalignment() {
 }
 
 #[test]
+fn a_mover_meets_comment_text_as_ordinary_cells() {
+    // Blank text is vacant, so the mover enters it.
+    let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  vv", "||      "], 1);
+    assert_eq!(grids[0], ["        ", "||vv    "]);
+    assert!(
+        plans[0].diagnostics.is_empty(),
+        "{:?}",
+        plans[0].diagnostics
+    );
+
+    // Glyphs in the text block it, and no Language Unit occupies them, so
+    // the refusal makes no contact to diagnose.
+    let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &["  vv", "||C3    "], 1);
+    assert_eq!(grids[0], ["  **    ", "||C3    "]);
+    assert!(
+        plans[0].diagnostics.is_empty(),
+        "{:?}",
+        plans[0].diagnostics
+    );
+
+    // The introducer is the Comment's, so a pair across it and the text
+    // meets part of the Comment.
+    let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[" vv", "||C3    "], 1);
+    assert_eq!(grids[0], [" **     ", "||C3    "]);
+    assert_eq!(messages(&plans[0]), ["vv contacts part of a Language Unit"]);
+}
+
+#[test]
 fn complete_aligned_root_contact_activates_nothing_until_the_bang_it_leaves_fires() {
     // A blocked move writes `**` and delivers nothing in its Turn: the Raw
     // Play north of `^^` is inert on its own, so no Play Command is the

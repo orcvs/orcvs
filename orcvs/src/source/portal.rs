@@ -83,8 +83,9 @@ pub(super) enum Occupancy {
 /// aligned against what covers it there: a unit placed this Tick, or a
 /// Snapshot unit through the Cells no Source effect obscured. Empty and Bang
 /// are values even when the Map still names a cleaned unit; a complete aligned
-/// unit is one too; a partial pair, a slice across two units, or a Comment is
-/// not. Decoding the admitted spelling is the Interpreter's.
+/// unit is one too, and so is a pair of a Comment's text, which no unit
+/// occupies; a partial pair, a slice across two units, or a Comment's
+/// delimiter is not. Decoding the admitted spelling is the Interpreter's.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PortalUnit {
@@ -271,19 +272,15 @@ impl Portal {
             return PortalUnit::Invalid;
         }
         match cover(range.clone()) {
+            // A Comment's text is no unit's occupied Cells, so a pair inside
+            // it is covered by nothing and is read as data.
             Coverage::Empty => PortalUnit::Unit,
-            // A Comment's text is never parsed, so a pair inside it is data a
-            // Copy reads as it reads a pair no unit covers. Its delimiters are
-            // not text, so a pair touching either is refused.
+            // A Comment has no value, so a pair one of its delimiters covers is
+            // refused even where that delimiter is the whole Comment.
             Coverage::Complete(Occupant::Unit(unit))
-                if let LanguageUnitKind::Comment(text) = unit.kind() =>
+                if matches!(unit.kind(), LanguageUnitKind::Comment(_)) =>
             {
-                let text = text.range();
-                if text.start <= range.start && range.end <= text.end {
-                    PortalUnit::Unit
-                } else {
-                    PortalUnit::Invalid
-                }
+                PortalUnit::Invalid
             }
             Coverage::Complete(occupant) if occupant.span() == range => PortalUnit::Unit,
             Coverage::Complete(_) | Coverage::Partial => PortalUnit::Invalid,
@@ -324,17 +321,20 @@ impl Portal {
 /// Occupancy of arbitrary Cells, as a Portal destination's Cells along its row.
 ///
 /// ADR 0006 classifies contact against every Language Unit rather than
-/// against the computations alone: a Comment and a standalone Bang each
-/// occupy Cells and neither is scheduled. `root_at` is the Lookup question
-/// that tells a complete covering unit from an Expression root; this module
-/// holds no Lookup.
+/// against the computations alone: a Comment's delimiters and a standalone
+/// Bang each occupy Cells and neither is scheduled. Each unit is met through
+/// [`LanguageUnit::occupied_cells`], so a Comment's text is empty here.
+/// `root_at` is the Lookup question that tells a complete covering unit from
+/// an Expression root; this module holds no Lookup.
 ///
 pub(super) fn occupancy_of<'a>(
     units: impl IntoIterator<Item = &'a LanguageUnit>,
     cells: impl Iterator<Item = usize> + Clone,
     root_at: impl Fn(Position) -> Option<usize>,
 ) -> Occupancy {
-    let units = units.into_iter().map(|unit| (unit.span().range(), unit));
+    let units = units
+        .into_iter()
+        .flat_map(|unit| unit.occupied_cells().map(move |cells| (cells, unit)));
     match coverage(units, cells, |_| true) {
         Coverage::Empty => Occupancy::Empty,
         Coverage::Complete(unit) => {
@@ -653,9 +653,10 @@ mod test {
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
         portal.language_unit(Cells::of(working), |cells| {
-            let units = map
-                .units()
-                .map(|unit| (unit.span().range(), Occupant::Unit(unit)));
+            let units = map.units().flat_map(|unit| {
+                unit.occupied_cells()
+                    .map(move |cells| (cells, Occupant::Unit(unit)))
+            });
             coverage(units, cells, |_| true)
         })
     }
@@ -1005,6 +1006,25 @@ mod test {
         let map = LanguageMap::build(grid, Cells::of(b".+0102  "));
         let portal = Portal::at(grid, grid.position(3, 0).unwrap());
         assert_eq!(portal.occupancy(map.units(), |_| None), Occupancy::Partial);
+    }
+
+    ///
+    /// A Comment occupies its delimiters, and its text, blank or holding
+    /// glyphs, is Cells no unit occupies.
+    ///
+    #[test]
+    fn occupancy_of_a_comment_is_its_delimiters_and_not_its_text() {
+        let grid = Grid::with_shape(8, 1);
+        let map = LanguageMap::build(grid, Cells::of(b"||  C3||"));
+        let at = |column| {
+            Portal::at(grid, grid.position(column, 0).unwrap()).occupancy(map.units(), |_| None)
+        };
+        assert_eq!(at(2), Occupancy::Empty);
+        assert_eq!(at(4), Occupancy::Empty);
+        assert_eq!(at(0), Occupancy::NonRoot);
+        assert_eq!(at(6), Occupancy::NonRoot);
+        assert_eq!(at(1), Occupancy::Partial);
+        assert_eq!(at(5), Occupancy::Partial);
     }
 
     #[test]

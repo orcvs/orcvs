@@ -116,6 +116,28 @@ impl LanguageUnit {
     pub fn span(&self) -> Span {
         self.span
     }
+
+    ///
+    /// The Cells this unit occupies against every Function: its whole Span,
+    /// except a Comment's, which occupies only its `||` introducer and the
+    /// `||` that closes it. A Comment's text is ordinary Cells, so a Read
+    /// selects it, a Halt aimed at it locks nothing, and a mover is refused
+    /// there only by what the Cells hold.
+    ///
+    /// Every coverage question asks this rather than the Span, which stays
+    /// the Comment's whole claim for paint, Tokens and scheduling.
+    ///
+    pub(super) fn occupied_cells(&self) -> impl Iterator<Item = std::ops::Range<usize>> {
+        let span = self.span.range();
+        let cells = match self.kind {
+            LanguageUnitKind::Comment(text) => {
+                let text = text.range();
+                [span.start..text.start, text.end..span.end]
+            }
+            _ => [span.clone(), span.end..span.end],
+        };
+        cells.into_iter().filter(|cells| !cells.is_empty())
+    }
 }
 
 /// The Cells one Language Unit, Expression, or Diagnostic occupies.

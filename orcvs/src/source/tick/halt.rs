@@ -242,6 +242,23 @@ fn an_occupied_non_root_halt_target_diagnoses() {
 }
 
 #[test]
+fn a_halt_aimed_at_comment_text_locks_nothing_and_does_not_diagnose() {
+    // A Comment occupies only its delimiters, so its text south of the Halt
+    // is ordinary Cells, blank or holding glyphs, and nothing occupies them.
+    for text in ["||      ", "||C3    "] {
+        let (plans, grids, _) =
+            tick_by_tick(Grid::with_shape(8, 3), &[".=0101  ", "  *!    ", text], 1);
+        assert_eq!(grids[0], [".=0101  ", "***!    ", text]);
+        assert!(plans[0].locks.is_empty(), "{text}: {:?}", plans[0].locks);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{text}: {:?}",
+            plans[0].diagnostics
+        );
+    }
+}
+
+#[test]
 fn an_active_halt_locks_a_bang_function() {
     // The `**` south of the Halt is a root, so the Halt locks it: it
     // stands, takes no Turn, and activates nothing.

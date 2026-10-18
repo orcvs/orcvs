@@ -13,7 +13,7 @@ Orca's `#` toggles a comment, so one row holds several, and Source after a closi
 ## Consequences
 
 - Source that held several `||` on one row reads differently: the second closes the first. The Function reference's six group headers on row 0 are each written `|| … ||`.
-- Writes into a Comment, and movers meeting one, are unchanged: a Comment still occupies its Cells.
+- A Comment's text Cells are ordinary Cells to every Function; its two delimiters are the Comment's occupied Cells. A Halt aimed at its text locks nothing and does not diagnose, while one aimed at a delimiter is aimed at no Expression root. A mover enters blank text and is refused by glyphs there without contacting a Language Unit, and a Write into the text writes its Cells. A pair straddling a delimiter meets part of the Comment. The Comment's Span is still its whole claim, so paint, Tokens and scheduling are unchanged.
 - A Source effect that overwrites a closer obscures those Cells, so the Comment no longer covers them; what remains of its text stays readable until the next Snapshot re-parses the row.
 
 ## Considered options

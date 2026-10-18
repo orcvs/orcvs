@@ -46,9 +46,9 @@ pub(super) enum WriteKind {
 pub(super) struct WorkingSource<'a> {
     cells: WorkingCells,
     /// The Language Units of the Source Snapshot, against which unobscured
-    /// Cells are classified. A Comment and a standalone Bang occupy Cells and
-    /// take no Turn, so contact reads every Language Unit rather than the
-    /// computations alone.
+    /// Cells are classified. A Comment's delimiters and a standalone Bang
+    /// occupy Cells and take no Turn, so contact reads every Language Unit
+    /// rather than the computations alone.
     map: &'a LanguageMap,
     /// Generated units placed this Tick that no later write has reached.
     placed: Vec<Range<usize>>,
@@ -172,10 +172,10 @@ impl<'a> WorkingSource<'a> {
         if let Coverage::Complete(_) = placed {
             return placed;
         }
-        let units = self
-            .map
-            .units()
-            .map(|unit| (unit.span().range(), Occupant::Unit(unit)));
+        let units = self.map.units().flat_map(|unit| {
+            unit.occupied_cells()
+                .map(move |cells| (cells, Occupant::Unit(unit)))
+        });
         let unobscured = |cell: usize| !self.obscured.iter().any(|write| write.contains(&cell));
         match coverage(units, cells, unobscured) {
             Coverage::Empty => placed,

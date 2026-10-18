@@ -23,6 +23,15 @@ fn a_write_answers_its_value_at_its_pair_and_writes_nothing_south() {
 }
 
 #[test]
+fn a_write_into_comment_text_writes_its_cells() {
+    // A Comment's text is ordinary Cells, so the Write lands between the
+    // delimiters and the Comment still closes after it.
+    let tick = first(Grid::with_shape(8, 2), &["@$0201C4", "||    ||"]);
+    assert_eq!(tick.rows, ["@$0201C4", "||C4  ||"]);
+    quiet(&tick);
+}
+
+#[test]
 fn a_value_is_written_as_it_is_spelled() {
     // `C4` spells a Number and a Note, `G4` only a Note, `0A` only a
     // Number, and `c4` a sharp: each is written back as its Cells.
