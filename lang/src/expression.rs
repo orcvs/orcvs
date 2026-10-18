@@ -12,6 +12,28 @@ pub type Tokens = Vec<Token>;
 #[derive(Debug, Clone)]
 pub struct Expression {
     records: RecordStore,
+    comment: Option<CommentText>,
+}
+
+///
+/// The Cells between a Comment's delimiters: after its `||` introducer, and
+/// before the `||` that closes it or the end of the Source. Empty for `||||`.
+///
+/// The Parser decides it with the claim, so whether a Comment is closed is
+/// one fact every reader asks the Expression for rather than reads off its
+/// Cells. It is in the address space supplied to the Parser, as every
+/// [`PositionedEntry`]'s Cells are.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommentText {
+    start: usize,
+    end: usize,
+}
+
+impl CommentText {
+    pub fn range(self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
 }
 
 /// One parser-owned entry. Cells use the address space supplied to the Parser;
@@ -63,6 +85,7 @@ impl Expression {
     pub fn new() -> Self {
         Self {
             records: RecordStore::new(),
+            comment: None,
         }
     }
 
@@ -79,6 +102,34 @@ impl Expression {
             token,
             atom,
         });
+    }
+
+    ///
+    /// Records a Comment claiming `cells`, whose text is `text`.
+    ///
+    /// The Token and the text are recorded together, so an Expression holds a
+    /// `Token::Comment` entry exactly when [`Self::comment`] answers.
+    ///
+    pub(crate) fn add_comment(
+        &mut self,
+        cells: std::ops::Range<usize>,
+        text: std::ops::Range<usize>,
+        parent: Option<usize>,
+    ) {
+        debug_assert!(
+            self.comment.is_none(),
+            "an Expression holds at most one Comment"
+        );
+        self.comment = Some(CommentText {
+            start: text.start,
+            end: text.end,
+        });
+        self.add_positioned(Token::Comment, None, cells, parent);
+    }
+
+    /// The text of the Comment this Expression is, when it is one.
+    pub fn comment(&self) -> Option<CommentText> {
+        self.comment
     }
 
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {

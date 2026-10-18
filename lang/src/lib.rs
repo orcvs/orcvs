@@ -15,7 +15,7 @@ pub use atom::{
     to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
-pub use expression::{Expression, PositionedEntry, Token, Tokens};
+pub use expression::{CommentText, Expression, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
