@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(test)]
 use lang::Atoms;
-use lang::{Atom, Expression, Function, Parser, SourceAnalysis, Token};
+use lang::{Atom, CommentText, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -76,25 +76,6 @@ pub enum LanguageUnitKind {
     /// scheduled. It carries the Cells of its text as the Parser claimed
     /// them.
     Comment(CommentText),
-}
-
-///
-/// The Cells between a Comment's delimiters: after its `||` introducer, and
-/// before the `||` that closes it or the end of its row. Empty for `||||`.
-///
-/// The Parser decides it with the claim, so whether a Comment is closed is
-/// one fact every reader asks the unit for rather than reads off its Cells.
-///
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CommentText {
-    start: usize,
-    end: usize,
-}
-
-impl CommentText {
-    pub(super) fn range(self) -> std::ops::Range<usize> {
-        self.start..self.end
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -795,15 +776,11 @@ fn name_units(
         // matching on the Atom alone would drop it into the diagnose branch and
         // report every Cell of it as an unmatched character.
         let kind = match (entry.token, entry.atom) {
-            (Token::Comment, _) => {
-                let text = analysis
-                    .comment_text()
-                    .expect("the Parser records the text of the Comment it claims");
-                Some(LanguageUnitKind::Comment(CommentText {
-                    start: text.start,
-                    end: text.end,
-                }))
-            }
+            (Token::Comment, _) => Some(LanguageUnitKind::Comment(
+                analysis.expression().comment().expect(
+                    "an Expression holds a Comment entry exactly when it answers a Comment",
+                ),
+            )),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
             (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
@@ -862,7 +839,7 @@ mod tests {
 
     use lang::{Atom, Function, Token};
 
-    use super::{CommentText, LanguageMap, LanguageUnitKind, Span};
+    use super::{LanguageMap, LanguageUnitKind, Span};
 
     #[test]
     fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
@@ -1180,12 +1157,16 @@ mod tests {
             unit_spellings(&map),
             vec![(0, vec![0, 1]), (2, vec![2, 3, 4, 5, 6, 7])]
         );
-        assert_eq!(
-            map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
-            vec![
-                LanguageUnitKind::Function(Function::Bang),
-                LanguageUnitKind::Comment(CommentText { start: 4, end: 8 })
-            ]
+        let kinds = map.units().map(|unit| unit.kind()).collect::<Vec<_>>();
+        assert!(
+            matches!(
+                kinds[..],
+                [
+                    LanguageUnitKind::Function(Function::Bang),
+                    LanguageUnitKind::Comment(text),
+                ] if text.range() == (4..8)
+            ),
+            "{kinds:?}"
         );
         assert_eq!(map.diagnostics().count(), 0);
         // The Bang answers; the Comment is complete and answers with nothing.
@@ -1216,12 +1197,16 @@ mod tests {
         let grid = Grid::with_shape(10, 1);
         let map = LanguageMap::build(grid, Cells::of(b"|| C3 ||**"));
 
-        assert_eq!(
-            map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
-            vec![
-                LanguageUnitKind::Comment(CommentText { start: 2, end: 6 }),
-                LanguageUnitKind::Function(Function::Bang)
-            ]
+        let kinds = map.units().map(|unit| unit.kind()).collect::<Vec<_>>();
+        assert!(
+            matches!(
+                kinds[..],
+                [
+                    LanguageUnitKind::Comment(text),
+                    LanguageUnitKind::Function(Function::Bang),
+                ] if text.range() == (2..6)
+            ),
+            "{kinds:?}"
         );
         assert_eq!(
             unit_spellings(&map),
