@@ -104,12 +104,13 @@ impl std::fmt::Display for Encoding {
 #[cfg(test)]
 mod test {
     use super::Encoding;
-    use lang::{Atom, Function, Note};
+    use lang::{Atom, Function, Note, Token};
 
     #[test]
-    fn every_value_the_language_holds_renders_to_two_cells() {
-        // Every Atom a value Function can answer spells itself as the two
-        // Cells its display names.
+    fn every_value_the_language_holds_renders_to_two_cells_that_read_back() {
+        // Every Atom a value Function can answer spells two Cells, and the
+        // reader for its type, a path separate from the spelling, decodes
+        // those Cells back to the same Atom.
         let mut atoms: Vec<Atom> = vec![Atom::Bang];
         atoms.extend((u8::MIN..=u8::MAX).map(Atom::Number));
         atoms.extend((0..=0x7F).map(|note| Atom::Note(Note::try_from(note).unwrap())));
@@ -118,7 +119,17 @@ mod test {
         for atom in atoms {
             let cells = Encoding::render(atom);
             assert_eq!(cells.len(), 2, "{atom:?}");
-            assert_eq!(cells.to_string(), atom.to_string(), "{atom:?}");
+            let text = cells.to_string();
+            let (read, expected) = match atom {
+                Atom::Number(_) => (Token::Number.decode(&text), atom),
+                Atom::Note(_) => (Token::Note.decode(&text), atom),
+                Atom::Bang => (Token::Untyped.decode(&text), atom),
+                // The Bang Function's `**` is the Bang a later reader finds,
+                // not a Function spelling the Parser looks up.
+                Atom::Function(Function::Bang) => (Token::Untyped.decode(&text), Atom::Bang),
+                Atom::Function(_) => (Function::try_from(text.as_str()).map(Atom::Function), atom),
+            };
+            assert_eq!(read.ok(), Some(expected), "{atom:?} rendered as {text:?}");
         }
     }
 
