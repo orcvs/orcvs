@@ -92,6 +92,11 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run check_pull_request
+      # Plays a Source through the console's MIDI backend into a virtual input
+      # port and cross-checks what the listener received against what was sent.
+      # Here because CoreMIDI offers virtual ports with no setup; the hosted
+      # Ubuntu runner's Azure kernel ships no ALSA sequencer module.
+      - run: mise run test_midi_loopback
 
   wasm:
     timeout-minutes: 20

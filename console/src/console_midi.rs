@@ -27,6 +27,9 @@ pub const AVAILABLE: bool = backend::AVAILABLE;
 ))]
 pub(crate) const DESTINATION_GONE: &str = "the selected MIDI destination is no longer available";
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod loopback_tests;
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     any(target_os = "macos", target_os = "windows", target_os = "linux")
