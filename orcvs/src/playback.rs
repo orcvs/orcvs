@@ -43,7 +43,10 @@ use schedule::OwnedNotes;
 /// the note the engine found there, which the Source never named. Every
 /// variant here is one message an adapter assembles immediately, so an adapter
 /// holding a lifetime it would have to schedule is unrepresentable rather than
-/// merely avoided.
+/// merely avoided. Every stop is resolved here too: a scheduled expiry, a
+/// replacement, and the explicit velocity `00` each Play spelling accepts all
+/// arrive as a [`NoteOff`](Self::NoteOff), so an adapter encodes a stop
+/// without reading a velocity to recognise one.
 ///
 /// A tagged variant set for the same reason a
 /// [`PlayCommand`](crate::source::PlayCommand) is one. Control Change and
@@ -55,13 +58,17 @@ use schedule::OwnedNotes;
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OutputCommand {
-    /// MIDI's Note On, whose velocity `00` is the explicit stop the protocol
-    /// gives both Raw Play and a scheduled expiry.
+    /// MIDI's Note On. The engine hands it a sounding velocity only: a Play
+    /// Command's velocity `00` is a stop and is delivered as a
+    /// [`NoteOff`](Self::NoteOff).
     NoteOn {
         channel: MidiChannel,
         velocity: Velocity,
         note: Note,
     },
+    /// MIDI's Note Off for `note` on `channel`. It carries no release
+    /// velocity because no Play spelling writes one.
+    NoteOff { channel: MidiChannel, note: Note },
     /// MIDI's Control Change: a controller and the value sent to it, each
     /// carrying the role it plays rather than the data-byte domain they share.
     ControlChange {
@@ -1587,11 +1594,13 @@ mod tests {
     }
 
     ///
-    /// The stop an adapter is handed for `channel` and `note`: MIDI's
-    /// zero-velocity Note On, named for what it does rather than what it is.
+    /// The Note Off an adapter is handed for `channel` and `note`.
     ///
     fn stop(channel: u8, note: u8) -> OutputCommand {
-        note_on(channel, 0, note)
+        OutputCommand::NoteOff {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            note: Note::try_from(note).expect("a MIDI note"),
+        }
     }
 
     ///

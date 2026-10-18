@@ -100,10 +100,11 @@ macro_rules! define_data_byte_roles {
             ///
             /// A constant rather than a conversion a caller has to unwrap.
             /// `Velocity::ZERO` is the one with callers: the Playback Engine
-            /// delivers a scheduled Note Off as MIDI's zero-velocity stop, and
-            /// a `try_from(0)` there would be an unreachable failure path
-            /// inside a Tick. Every other role inherits the constant from this
-            /// macro rather than because a caller asked for it.
+            /// compares a Play Command's velocity against it to recognise the
+            /// Source's explicit stop, and a `try_from(0)` there would be an
+            /// unreachable failure path inside a Tick. Every other role
+            /// inherits the constant from this macro rather than because a
+            /// caller asked for it.
             pub const ZERO: Self = Self(0);
 
             #[inline(always)]
@@ -1972,9 +1973,8 @@ mod test {
 
     #[test]
     fn the_zero_data_byte_is_available_without_a_conversion_to_unwrap() {
-        // The Playback Engine delivers a scheduled Note Off as MIDI's
-        // zero-velocity stop, inside a Tick, where a fallible conversion would
-        // be an unreachable failure path.
+        // The Playback Engine recognises a velocity `00` stop inside a Tick,
+        // where a fallible conversion would be an unreachable failure path.
         assert_eq!(Velocity::ZERO, Velocity::try_from(0).unwrap());
         assert_eq!(Velocity::ZERO.value(), 0);
     }

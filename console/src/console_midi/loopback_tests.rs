@@ -48,6 +48,10 @@ enum Heard {
         note: u8,
         velocity: u8,
     },
+    NoteOff {
+        channel: u8,
+        note: u8,
+    },
     ControlChange {
         channel: u8,
         controller: u8,
@@ -62,9 +66,11 @@ enum Heard {
 ///
 /// Reads one complete channel message.
 ///
-/// Only the three messages Orcvs sends are accepted, and each must be exactly
+/// Only the four messages Orcvs sends are accepted, and each must be exactly
 /// its own length: a stray byte, a missing one or a data byte with its high
 /// bit set is a wire error and is answered as one rather than read around.
+/// Orcvs sends every stop as a Note Off at release velocity `00`, so a Note On
+/// at velocity `00` and a Note Off with a release velocity are refused too.
 ///
 fn decode(bytes: &[u8]) -> Result<Heard, String> {
     let [status, data @ ..] = bytes else {
@@ -80,11 +86,15 @@ fn decode(bytes: &[u8]) -> Result<Heard, String> {
     }
     let channel = status & 0x0f;
     match (status & 0xf0, data) {
+        (0x90, &[_, 0]) => Err(format!(
+            "{bytes:02x?} is a Note On at velocity 00, which Orcvs sends as a Note Off"
+        )),
         (0x90, &[note, velocity]) => Ok(Heard::NoteOn {
             channel,
             note,
             velocity,
         }),
+        (0x80, &[note, 0]) => Ok(Heard::NoteOff { channel, note }),
         (0xb0, &[controller, value]) => Ok(Heard::ControlChange {
             channel,
             controller,
@@ -132,7 +142,8 @@ fn cross_check(sent: &[Vec<u8>], received: &[Vec<u8>]) -> Vec<Heard> {
 
 ///
 /// Asserts the decoded stream is the program's: every message it plays
-/// arrived, and the stream ends with every channel silenced and reset.
+/// arrived, including the Note Off its Timed Play's expiry owes, and the
+/// stream ends with every channel silenced and reset.
 ///
 fn assert_plays_the_program(heard: &[Heard]) {
     let played = [
@@ -154,6 +165,10 @@ fn assert_plays_the_program(heard: &[Heard]) {
             channel: 3,
             note: 62,
             velocity: 0x0a,
+        },
+        Heard::NoteOff {
+            channel: 3,
+            note: 62,
         },
     ];
     for message in played {
@@ -244,6 +259,33 @@ fn space(orcvs: &mut Orcvs) {
 /// The last message of the safety reset: channel 15's bend, centred.
 const LAST_SAFETY_RESET_MESSAGE: [u8; 3] = [0xef, 0x00, 0x40];
 
+/// The Note Off the program's Timed Play is owed: channel 3's `D4`, expired.
+const TIMED_EXPIRY_MESSAGE: [u8; 3] = [0x83, 62, 0x00];
+
+///
+/// Starts playback and waits until the engine has sent the Timed Play's
+/// expiry, the last message the program plays before it is stopped.
+///
+/// The expiry is due a Tick after the note starts, so a fixed sleep would
+/// race the stop on a loaded runner; waiting on the sent ledger does not.
+///
+async fn play(orcvs: &mut Orcvs, sent: &Ledger) {
+    space(orcvs);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !sent
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|message| message.as_slice() == TIMED_EXPIRY_MESSAGE)
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the engine never sent the Timed Play's expiry"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
 ///
 /// Stops playback, waits until the engine has sent the safety reset a stop
 /// owes, and drops the running Orcvs.
@@ -285,8 +327,7 @@ async fn midi_loopback_in_process() {
         )
         .expect("a running Orcvs");
 
-    space(&mut orcvs);
-    tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
+    play(&mut orcvs, &sent).await;
     stop(orcvs, &sent).await;
 
     let heard = cross_check(&sent.lock().unwrap(), &received.lock().unwrap());
@@ -311,9 +352,28 @@ fn the_listener_refuses_what_is_not_a_complete_channel_message() {
             "[90, 3c, 7f, 00] is not a message Orcvs sends",
         ),
         (&[0xc0, 0x01][..], "[c0, 01] is not a message Orcvs sends"),
+        (
+            &[0x93, 0x3e, 0x00][..],
+            "[93, 3e, 00] is a Note On at velocity 00, which Orcvs sends as a Note Off",
+        ),
+        (
+            &[0x83, 0x3e, 0x40][..],
+            "[83, 3e, 40] is not a message Orcvs sends",
+        ),
     ] {
         assert_eq!(decode(bytes), Err(error.to_owned()));
     }
+}
+
+#[test]
+fn the_listener_reads_a_note_off_at_release_velocity_00() {
+    assert_eq!(
+        decode(&[0x83, 0x3e, 0x00]),
+        Ok(Heard::NoteOff {
+            channel: 3,
+            note: 62,
+        })
+    );
 }
 
 #[test]
@@ -359,7 +419,7 @@ mod virtual_port {
     use orcvs::midi::{MidiBackend, MidiConnection, MidiConnectionRequest, MidiOutputAdapter};
 
     use super::super::ConsoleMidiBackend;
-    use super::{Ledger, Recording, assert_plays_the_program, cross_check, program, space, stop};
+    use super::{Ledger, Recording, assert_plays_the_program, cross_check, play, program, stop};
 
     ///
     /// A listener on a virtual input port, which the platform's MIDI service
@@ -453,8 +513,7 @@ mod virtual_port {
             )
             .expect("a running Orcvs");
 
-        space(&mut orcvs);
-        tokio::time::sleep(orcvs.bpm().tick_period() * 3).await;
+        play(&mut orcvs, &sent).await;
         stop(orcvs, &sent).await;
 
         // Delivery crosses the platform's MIDI service on its own thread, so the

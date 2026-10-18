@@ -39,8 +39,8 @@ use std::sync::Once;
 /// carried by a type also cannot be transposed with a field of another domain.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PlayCommand {
-    /// Raw Play. Velocity `00` is not an absent note but the
-    /// explicit stop MIDI's zero-velocity convention gives the Source.
+    /// Raw Play. Velocity `00` is not an absent note but the Source's
+    /// explicit stop, which the Playback Engine delivers as a Note Off.
     Raw {
         channel: MidiChannel,
         velocity: Velocity,
