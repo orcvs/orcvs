@@ -498,7 +498,7 @@ macro_rules! bind_declared {
     ($variant:ident, [$($role:ident),+], $values:expr) => {{
         use crate::stack::Operands as _;
         let values: &[crate::Atom] = $values;
-        operands::$variant::check(values).and_then(|()| operands::$variant::bind(values).map(drop))
+        operands::$variant::checked_bind(values).map(drop)
     }};
 }
 
@@ -524,6 +524,18 @@ macro_rules! define_functions {
 
         // A `portal:` row's Input Portal is the static site south of it, which
         // a selection rule would contradict, and one row selects one pair.
+        $(const _: () = assert!(
+            !(declares!($($portal_role)?) && (declares!($($d_portal)?) || declares!($($p_portal)?))),
+            "a row that declares `portal:` cannot also declare a selection rule",
+        );
+        const _: () = assert!(
+            !(declares!($($d_portal)?) && declares!($($p_portal)?)),
+            "a row declares at most one of `distance:` and `position:`",
+        );)+
+
+        // A `portal:` row reads back, from the static site south of it, the
+        // previous value it wrote there, so neither of its Portals may be
+        // selected by a rule; and one row selects one pair.
         $(const _: () = assert!(
             !(declares!($($portal_role)?) && (declares!($($d_portal)?) || declares!($($p_portal)?))),
             "a row that declares `portal:` cannot also declare a selection rule",
@@ -724,10 +736,11 @@ macro_rules! define_functions {
             /// its `n` and is never read.
             pub(crate) fn distance(self, values: &[Atom]) -> Result<u8, Error> {
                 match self {
-                    $($(Self::$variant => crate::functions::read::bound(
-                        values,
-                        |operands::$variant { $d_n, .. }| $d_n,
-                    ),)?)+
+                    $($(Self::$variant => {
+                        use crate::stack::Operands as _;
+                        operands::$variant::checked_bind(values)
+                            .map(|operands::$variant { $d_n, .. }| $d_n)
+                    })?)+
                 }
             }
         }
@@ -753,10 +766,11 @@ macro_rules! define_functions {
             /// `value` follows the Position and is never read.
             pub(crate) fn position(self, values: &[Atom]) -> Result<(u8, u8), Error> {
                 match self {
-                    $($(Self::$variant => crate::functions::read::bound(
-                        values,
-                        |operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row),
-                    ),)?)+
+                    $($(Self::$variant => {
+                        use crate::stack::Operands as _;
+                        operands::$variant::checked_bind(values)
+                            .map(|operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row))
+                    })?)+
                 }
             }
         }
@@ -1447,6 +1461,31 @@ mod test {
                 Function::Bang,
             ]
         );
+    }
+
+    #[test]
+    fn every_declared_selection_is_the_one_its_portal_selects_by() {
+        // A row's hard-coded Portal arm would shadow a rule it also declares,
+        // so every declared rule must be the one its Portal reports.
+        use super::SelectedPortal;
+        use crate::{InputPortal, Output};
+        for function in Function::ALL.iter().copied() {
+            match function.declared_selection() {
+                Some((SelectedPortal::Input, selection)) => assert_eq!(
+                    function.input_portal(),
+                    Some(InputPortal::Dynamic(selection)),
+                    "{function:?}"
+                ),
+                Some((SelectedPortal::Output, selection)) => {
+                    assert_eq!(
+                        function.output(),
+                        Output::Dynamic(selection),
+                        "{function:?}"
+                    );
+                }
+                None => {}
+            }
+        }
     }
 
     #[test]

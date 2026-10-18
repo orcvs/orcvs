@@ -58,7 +58,11 @@ impl Encoding {
     }
 
     ///
-    /// The two spaces a Clear writes at its Output Portal.
+    /// The two empty Cells a Clear writes at its Output Portal, and that
+    /// vacate a Function's own Span.
+    ///
+    /// Two because every Function spelling is two Cells. Built from
+    /// [`CellContent::SPACE`], so the content is valid by construction.
     ///
     pub(super) fn clear() -> Self {
         Self(vec![CellContent::SPACE; 2])
@@ -142,15 +146,22 @@ mod test {
     }
 
     #[test]
-    fn a_clear_is_the_two_spaces_a_literal_states() {
-        assert_eq!(Some(Encoding::clear()), Encoding::literal("  "));
+    fn a_clear_is_two_empty_cells_under_the_same_rule() {
+        let clear = Encoding::clear();
+        assert_eq!(clear.len(), 2);
+        assert_eq!(
+            Encoding::literal("  ").expect("a space is a printable Cell"),
+            clear
+        );
     }
 
     #[test]
     #[should_panic(expected = "an Encoding places at least one Cell")]
     fn a_literal_of_no_cells_is_a_caller_defect() {
-        // Every Atom spells two Cells, so an empty literal is a test that has
-        // not chosen a Cell count rather than a value that plans no write.
+        // Every Atom renders to two Cells, which
+        // `every_value_the_language_holds_renders_to_two_cells_that_read_back`
+        // holds, so an empty literal is a caller that has not chosen a Cell
+        // count rather than a value that plans no write.
         let _ = Encoding::literal("");
     }
 }

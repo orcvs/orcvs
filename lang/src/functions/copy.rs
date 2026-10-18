@@ -1,9 +1,9 @@
-use super::read::bound;
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
     atom::{note_atom_from_spelling, number_atom_from_spelling, operands::AbsoluteCopy},
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
+    stack::Operands as _,
 };
 
 /// The Language Unit at a Copy's input Portal.
@@ -49,8 +49,7 @@ pub fn absolute_copy(ctx: &mut Context) -> Result<Interpretation, Error> {
 ///
 /// Operands outside their domain diagnose as they would at evaluation.
 pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
-    bound(
-        operands,
+    AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
              source_column,
              source_row,
@@ -64,8 +63,7 @@ pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
 ///
 /// Operands outside their domain diagnose as they would at evaluation.
 pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
-    bound(
-        operands,
+    AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
              destination_column,
              destination_row,
