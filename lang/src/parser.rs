@@ -1,5 +1,6 @@
 use crate::Atom;
 use crate::Atoms;
+use crate::CommentText;
 use crate::Error;
 use crate::Expression;
 use crate::Function;
@@ -122,20 +123,18 @@ impl<'a> Parser<'a> {
         // a value, so it records a Token and nothing else. Strict parsing
         // yields values, and has none to yield here.
         //
-        // The Comment is asked for rather than read off the absent Atoms.
-        // Absent Atoms mean only that some record carries none, and naming
-        // the Comment as the reason is a premise about every other record
-        // rather than an observation of this one: a Token that ever went
-        // atomless without also reporting an error would be answered here as
-        // a Comment the Source does not hold.
-        let comment = self.expression.comment().is_some();
-        self.expression.take_atoms().ok_or_else(|| {
-            debug_assert!(
-                comment,
-                "an Expression that reported no error holds only Atoms, or a Comment"
-            );
-            SyntaxError::CommentIsNotAValue.into()
-        })
+        // The Comment alone decides the refusal, and the Atoms are collected
+        // only when there is none. Do not read the refusal off absent Atoms:
+        // an atomless record that is not a Comment and reported no error is a
+        // Parser defect, and answering it as a Comment would name one the
+        // Source does not hold.
+        if self.expression.comment().is_some() {
+            return Err(SyntaxError::CommentIsNotAValue.into());
+        }
+        Ok(self
+            .expression
+            .take_atoms()
+            .expect("an Expression that reported no error and holds no Comment has only Atoms"))
     }
 
     ///
@@ -228,7 +227,7 @@ impl<'a> Parser<'a> {
                         Some(closer) => (&self.source[..closer], &self.source[closer + 2..]),
                         None => (self.source, ""),
                     };
-                    let text = text_start..text_start + text.len();
+                    let text = CommentText::new(text_start..text_start + text.len());
                     self.source = rest;
                     self.expression.add_comment(
                         cell_start..self.start + self.consumed(),

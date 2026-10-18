@@ -776,10 +776,11 @@ fn name_units(
         // matching on the Atom alone would drop it into the diagnose branch and
         // report every Cell of it as an unmatched character.
         let kind = match (entry.token, entry.atom) {
-            (Token::Comment, _) => analysis
-                .expression()
-                .comment()
-                .map(LanguageUnitKind::Comment),
+            (Token::Comment, _) => Some(LanguageUnitKind::Comment(
+                analysis.expression().comment().expect(
+                    "an Expression holds a Comment entry exactly when it answers a Comment",
+                ),
+            )),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
             (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),

@@ -31,6 +31,16 @@ pub struct CommentText {
 }
 
 impl CommentText {
+    /// The text the Parser decided for the Comment it is claiming, in the
+    /// Parser's address space.
+    pub(crate) fn new(text: std::ops::Range<usize>) -> Self {
+        Self {
+            start: text.start,
+            end: text.end,
+        }
+    }
+
+    /// The text's Cells, in the address space supplied to the Parser.
     pub fn range(self) -> std::ops::Range<usize> {
         self.start..self.end
     }
@@ -89,7 +99,49 @@ impl Expression {
         }
     }
 
+    /// Records one entry other than a Comment.
+    ///
+    /// A Comment enters only through [`Self::add_comment`], which records its
+    /// text with it; one recorded here would be a `Token::Comment` entry that
+    /// [`Self::comment`] does not answer.
     pub(crate) fn add_positioned(
+        &mut self,
+        token: Token,
+        atom: Option<Atom>,
+        cells: std::ops::Range<usize>,
+        parent: Option<usize>,
+    ) {
+        assert!(
+            token != Token::Comment,
+            "a Comment enters an Expression only with its text"
+        );
+        self.push(token, atom, cells, parent);
+    }
+
+    ///
+    /// Records a Comment claiming `cells`, whose text is `text`.
+    ///
+    /// The Token and the text are recorded together, and this is the only way
+    /// a `Token::Comment` entry enters an Expression, so an Expression holds
+    /// one exactly when [`Self::comment`] answers. The Parser reaches a
+    /// Comment only at the root slot, so an Expression holds at most one, and
+    /// a second is refused rather than allowed to replace the first's text.
+    ///
+    pub(crate) fn add_comment(
+        &mut self,
+        cells: std::ops::Range<usize>,
+        text: CommentText,
+        parent: Option<usize>,
+    ) {
+        assert!(
+            self.comment.is_none(),
+            "an Expression holds at most one Comment"
+        );
+        self.comment = Some(text);
+        self.push(Token::Comment, None, cells, parent);
+    }
+
+    fn push(
         &mut self,
         token: Token,
         atom: Option<Atom>,
@@ -104,30 +156,11 @@ impl Expression {
         });
     }
 
+    /// The text of the Comment this Expression is, when it is one. Its range
+    /// is in the address space supplied to the Parser, as every
+    /// [`PositionedEntry`]'s Cells are.
     ///
-    /// Records a Comment claiming `cells`, whose text is `text`.
-    ///
-    /// The Token and the text are recorded together, so an Expression holds a
-    /// `Token::Comment` entry exactly when [`Self::comment`] answers.
-    ///
-    pub(crate) fn add_comment(
-        &mut self,
-        cells: std::ops::Range<usize>,
-        text: std::ops::Range<usize>,
-        parent: Option<usize>,
-    ) {
-        debug_assert!(
-            self.comment.is_none(),
-            "an Expression holds at most one Comment"
-        );
-        self.comment = Some(CommentText {
-            start: text.start,
-            end: text.end,
-        });
-        self.add_positioned(Token::Comment, None, cells, parent);
-    }
-
-    /// The text of the Comment this Expression is, when it is one.
+    /// It answers exactly when the Expression holds a `Token::Comment` entry.
     pub fn comment(&self) -> Option<CommentText> {
         self.comment
     }
@@ -290,5 +323,24 @@ impl IntoIterator for RecordStore {
 
     fn into_iter(self) -> Self::IntoIter {
         self.inline.into_iter().chain(self.overflow)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{CommentText, Expression, Token};
+
+    #[test]
+    #[should_panic(expected = "a Comment enters an Expression only with its text")]
+    fn a_comment_entry_without_its_text_is_refused() {
+        Expression::new().add_positioned(Token::Comment, None, 0..2, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "an Expression holds at most one Comment")]
+    fn a_second_comment_is_refused() {
+        let mut expression = Expression::new();
+        expression.add_comment(0..4, CommentText::new(2..4), None);
+        expression.add_comment(4..8, CommentText::new(6..8), None);
     }
 }
