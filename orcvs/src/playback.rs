@@ -1550,12 +1550,17 @@ async fn run_engine<A: OutputAdapter, D>(
                 backlogs_since_tick = backlogs_since_tick.saturating_add(1);
                 // The order `Backlog` states: stop, then rewind, then tempo,
                 // then destination.
+                // A stop that was not completed has reported a
+                // `ClockFailure`, which makes `Orcvs` withdraw
+                // `playback_requested`; a start in the same backlog is then
+                // not begun, so the engine stays stopped with the console.
+                let mut stop_failed = false;
                 if backlog.stop {
                     // The request is answered here and nowhere else: it was
                     // raised to hold the line until this backlog was taken,
                     // and a run begun after it must not find it standing.
                     tick_gate.clear_stop();
-                    inner.stop_contained();
+                    stop_failed = !inner.stop_contained();
                     clock = None;
                     backlogs_since_tick = 0;
                 }
@@ -1598,7 +1603,9 @@ async fn run_engine<A: OutputAdapter, D>(
                         );
                         clock = Some(TickClock::retuned(first_tick_at, tick_period));
                     }
-                } else if let Some(tick_period) = backlog.start {
+                } else if let Some(tick_period) = backlog.start
+                    && !stop_failed
+                {
                     // Idempotence is decided here, because this is the only
                     // place that knows whether a run is live at the moment
                     // the start is applied.
@@ -3442,6 +3449,46 @@ mod tests {
             engine.observation(),
             PlaybackObservation::default(),
             "the engine published a run after the failed rewind"
+        );
+    }
+
+    ///
+    /// A stop whose safety action panics is not followed by the start queued
+    /// behind it in the same backlog. The `ClockFailure` that stop reported
+    /// makes `Orcvs` withdraw `playback_requested`, so a run begun here would
+    /// play on while the console shows Playback stopped.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(start_paused = true)]
+    async fn a_start_queued_behind_a_stop_whose_silence_panics_is_not_begun() {
+        let period = Duration::from_secs(1);
+        let engine = engine(
+            SourceCommander::new(Grid::with_shape(10, 9)),
+            SilencePanickingOutputAdapter,
+        );
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        time::sleep(period * 2).await;
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(2));
+
+        engine.stop();
+        engine.start(period).unwrap();
+        settle(&engine).await;
+
+        let diagnostics = engine.drain_diagnostics();
+        assert!(
+            diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic,
+                PlaybackDiagnostic::ClockFailure { message }
+                    if message == "Playback output could not be silenced"
+            )),
+            "the panicking silence was not reported: {diagnostics:?}"
+        );
+        assert_eq!(
+            engine.state(),
+            PlaybackState::Stopped,
+            "a start began a run behind a stop reported as ended"
         );
     }
 
