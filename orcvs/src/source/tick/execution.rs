@@ -706,14 +706,12 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// The two spaces that clear the Span of the Function anchored at
-    /// `anchor`.
-    ///
-    /// Source content rather than an answer, so it is stated rather than
-    /// rendered. Every Function spelling is two Cells, so two spaces cover it.
+    /// The empty Cells that vacate the Span of the Function anchored at
+    /// `anchor`: the same two Cells a Clear writes, admitted at the
+    /// Function's own Span rather than at an Output Portal.
     ///
     fn own_span_clear(&self, anchor: Position) -> SpanWrite {
-        let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
+        let cleared = Encoding::clear();
         Portal::at(self.grid, anchor)
             .admit(&cleared)
             .expect("a Function standing in the Source fits its own Span")

@@ -1,5 +1,5 @@
 use super::copy::copy;
-use crate::{Atom, Error, Interpretation, interpreter::Context, stack::Operands};
+use crate::{Error, Interpretation, interpreter::Context, stack::Operands};
 
 /// A Read: `&^ n`, `&v n`, `&< n`, `&> n` or `&$ column row`.
 ///
@@ -11,13 +11,6 @@ use crate::{Atom, Error, Interpretation, interpreter::Context, stack::Operands};
 pub fn read<O: Operands>(ctx: &mut Context) -> Result<Interpretation, Error> {
     ctx.stack.extract::<O>()?;
     copy(ctx, O::FUNCTION)
-}
-
-/// Checks and binds `operands` as `O`'s, answering what `read` takes from
-/// them.
-pub(crate) fn bound<O: Operands, T>(operands: &[Atom], read: fn(O) -> T) -> Result<T, Error> {
-    O::check(operands)?;
-    O::bind(operands).map(read)
 }
 
 #[cfg(test)]
