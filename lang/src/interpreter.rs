@@ -12,10 +12,11 @@ pub enum Interpretation {
     Cell(Atom),
     /// The two spaces a value Function writes at its Output Portal when it
     /// has no Language Unit to write: a pulse on a Turn it does not Bang, as
-    /// Orca's bang ports write `.`, and a Copy of two empty Cells.
+    /// Orca's bang ports write `.`, and a Copy, Read or Track of two empty
+    /// Cells.
     ///
-    /// Nested, the Function returns the two spaces, so the operand it stands
-    /// in is unwritten.
+    /// Nested, it returns no value: the operand it stands in is unwritten,
+    /// so its parent is invalid and names it.
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     ///
@@ -830,5 +831,90 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn only_the_pulses_and_the_functions_that_copy_cells_answer_a_clear() {
+        // A Clear writes two spaces south of a root on every Turn it answers,
+        // so a Function added to this set would erase what stands below it.
+        // The set is pinned over the sampled inputs: every Function is
+        // evaluated with operands of all `00`, all `01`, `01..=arity`, all
+        // `02`, all `FF`, all Bang, all Note `C4`, and one per slot type (a
+        // Note for a Note slot, `00` for a Number slot, a Bang otherwise);
+        // Ticks 0..64, 255, 256, `u32::MAX` and `u64::MAX`; and Input Portal
+        // Cells absent, `  `, `00`, `01`, `**`, `C4` and `.+`.
+        use crate::{FunctionInputs, PortalSource};
+        use std::collections::BTreeSet;
+
+        let mut clearing = BTreeSet::new();
+        for function in Function::ALL.iter().copied() {
+            let arity = crate::Tokens::from(&function).len();
+            let note = Atom::Note(crate::Note::try_from(60).unwrap());
+            let typed: Vec<Atom> = function
+                .signature()
+                .iter()
+                .map(|token| match token {
+                    crate::Token::Note => note,
+                    crate::Token::Number => Atom::Number(0),
+                    _ => Atom::Bang,
+                })
+                .collect();
+            let spreads: [Vec<Atom>; 8] = [
+                vec![Atom::Number(0); arity],
+                vec![Atom::Number(1); arity],
+                (1..=arity).map(|n| Atom::Number(n as u8)).collect(),
+                vec![Atom::Number(2); arity],
+                vec![Atom::Number(u8::MAX); arity],
+                vec![Atom::Bang; arity],
+                vec![note; arity],
+                typed,
+            ];
+            for operands in &spreads {
+                for tick in (0..64).chain([255, 256, u64::from(u32::MAX), u64::MAX]) {
+                    for cells in [
+                        None,
+                        Some("  "),
+                        Some("00"),
+                        Some("01"),
+                        Some("**"),
+                        Some("C4"),
+                        Some(".+"),
+                    ] {
+                        let inputs = FunctionInputs::with_portal_source(
+                            TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
+                            PortalSource::from_cells(cells),
+                        );
+                        let answer = Interpreter::execute_function(
+                            function,
+                            operands.iter().copied(),
+                            inputs,
+                        );
+                        if matches!(answer, Ok(Interpretation::Clear)) {
+                            clearing.insert(format!("{function:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        let expected: BTreeSet<String> = [
+            Function::Equality,
+            Function::Delay,
+            Function::Euclidean,
+            Function::CopyEast,
+            Function::CopyNorth,
+            Function::CopySouth,
+            Function::CopyWest,
+            Function::AbsoluteCopy,
+            Function::ReadEast,
+            Function::ReadNorth,
+            Function::ReadSouth,
+            Function::ReadWest,
+            Function::AbsoluteRead,
+            Function::Track,
+        ]
+        .iter()
+        .map(|function| format!("{function:?}"))
+        .collect();
+        assert_eq!(clearing, expected);
     }
 }

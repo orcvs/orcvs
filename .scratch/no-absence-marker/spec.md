@@ -105,7 +105,7 @@ in every case.
 
 ## Decisions
 
-- On 2026-10-17 Toby confirmed that a nested pulse that does not Bang leaves its parent invalid, diagnosed as an unwritten operand.
+- On 2026-10-17 Toby confirmed that a nested pulse that does not Bang leaves its parent invalid, diagnosed as an unwritten operand; the next decision settles that the diagnostic names the child.
 - On 2026-10-17, in review, Toby chose to have the parent of any nested Clear name the child that cleared it, since two spaces alone cannot say which Function wrote them.
 
 - On 2026-10-17 Toby reframed candidate 3. The underlying design is the
@@ -128,5 +128,10 @@ in every case.
 
 ## Out of scope
 
-- Track, Read and the other pass-through Functions. They already carry Cells.
+- Track, Read and the other pass-through Functions. They already carry Cells,
+  so they need no work of their own. Read and Track read their pair through
+  Copy's evaluation, so they follow item 2: two empty Cells answer `Clear`,
+  and a nested one leaves its parent invalid, naming it
+  (`a_nested_read_that_reads_empty_cells_makes_its_parent_invalid` and
+  `a_nested_track_that_reads_empty_cells_makes_its_parent_invalid`).
 - Candidate 5, MIDI selection as one Phase.

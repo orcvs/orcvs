@@ -256,11 +256,11 @@ fn a_bang_in_the_source_is_gone_before_a_vertical_copy_reads_it() {
     // its Turn has cleared them, so it copies the empty Cells to its
     // destination. Nested, the parent is invalid and names the Copy; a root
     // says nothing. Either way an aligned `.=` loses its spelling.
-    let empty = "nested computation at column 2, row 1 cleared its operand";
+    let cleared = "nested computation at column 2, row 1 cleared its operand";
     let rows = ["        ", ".+=^01  ", "        ", "        "];
     assert_eq!(
         observe(Grid::with_shape(8, 4), &["", ".+=^01", "  **", ""], 3),
-        steady(&rows, &[(0, 1, empty)], 3)
+        steady(&rows, &[(0, 1, cleared)], 3)
     );
     let rows = ["          ", ".+=v01    ", "    0101  ", "          "];
     assert_eq!(
@@ -269,7 +269,7 @@ fn a_bang_in_the_source_is_gone_before_a_vertical_copy_reads_it() {
             &["  **", ".+=v01", "  .=0101", ""],
             3
         ),
-        steady(&rows, &[(0, 1, empty)], 3)
+        steady(&rows, &[(0, 1, cleared)], 3)
     );
     let rows = ["          ", "  =v      ", "    0101  ", "          "];
     assert_eq!(

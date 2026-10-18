@@ -896,7 +896,7 @@ mod test {
             Interpretation::Cell(atom) => {
                 Encoding::render(atom).expect("these answers are stated as Source Cells")
             }
-            Interpretation::Clear => Encoding::literal("  ").expect("a space is a printable Cell"),
+            Interpretation::Clear => Encoding::clear(),
             // A Source effect is not an answer this seam delivers. It writes
             // its own Cells at Portals it resolves, so there is no value to
             // encode and no default Portal to admit one through;
@@ -2384,8 +2384,9 @@ mod test {
         }
 
         // A nested unequal comparison clears its Output Portal, so its
-        // parent's operand is unwritten and the parent names the child. An equal one returns `**`, which the Number operand
-        // refuses after the child has written its display.
+        // parent's operand is unwritten and the parent names the child. An
+        // equal one returns `**`, which the Number operand refuses after the
+        // child has written its display.
         for (expression, row, message) in [
             (
                 ".+.=010203",

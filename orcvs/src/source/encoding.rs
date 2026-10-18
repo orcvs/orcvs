@@ -71,12 +71,24 @@ impl Encoding {
     }
 
     ///
+    /// The two empty Cells a Clear writes at its Output Portal, and that
+    /// vacate a Function's own Span.
+    ///
+    /// Two because every Function spelling is two Cells. Built from
+    /// [`CellContent::SPACE`], so the content is valid by construction.
+    ///
+    pub(super) fn clear() -> Self {
+        Self(vec![CellContent::SPACE; 2])
+    }
+
+    ///
     /// Source characters no value produced.
     ///
-    /// A Clear writes two spaces, which is Source content rather than a
-    /// value, and a test states Source text directly for the same reason.
-    /// Both are still held to a Cell's definition, so this is a second
-    /// constructor rather than a second rule.
+    /// A Function's spelling written by a Source effect, the Bang a refused
+    /// move leaves, and text a test states are Source content rather than an
+    /// answer, so they are stated rather than rendered. They are still held
+    /// to a Cell's definition, so this is a second constructor rather than a
+    /// second rule.
     ///
     /// Panics on empty input: every Atom [`Encoding::render`] renders spells
     /// at least one Cell, and no caller here has a Cell count it has not
@@ -181,11 +193,22 @@ mod test {
     }
 
     #[test]
+    fn a_clear_is_two_empty_cells_under_the_same_rule() {
+        let clear = Encoding::clear();
+        assert_eq!(clear.len(), 2);
+        assert_eq!(
+            Encoding::literal("  ").expect("a space is a printable Cell"),
+            clear
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "an Encoding places at least one Cell")]
     fn a_literal_of_no_cells_is_a_caller_defect() {
-        // `render` answers `Nothing` for the values that place no Cell, so an
-        // empty literal is a caller that has not chosen a Cell count rather
-        // than a value that plans no write.
+        // Every Atom renders to two Cells, which
+        // `every_value_the_language_holds_renders_to_cells` holds, so an empty
+        // literal is a caller that has not chosen a Cell count rather than a
+        // value that plans no write.
         let _ = Encoding::literal("");
     }
 }

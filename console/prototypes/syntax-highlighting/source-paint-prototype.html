@@ -236,7 +236,7 @@ const VARIANTS = {
     'Glyph colour = Token colour. Functions are bold.',
     'Pending: a short bar in the Token colour, no letter.',
     'Invalid: Cell tinted in the diagnostic colour. The glyph keeps the declared Token colour.',
-    'Result: a background tinted in its Token colour, marking a written value rather than a typed slot. Clear: a faint _.',
+    'Result: a background tinted in its Token colour, marking a written value rather than a typed slot. Clear: two blank Cells.',
     'Will execute: a tick in the Function colour at the anchor. Will not: the Function is dimmed.',
     'Expression diagnostic: squiggle along the span. Lexical: box. Both in the diagnostic colour.',
     'Terminal (no Result): shown only by its ! spelling.'] },
@@ -340,7 +340,7 @@ function sample() {
   E(m, 'play', 3, 0, [['F','!>'],['N','00'],['N','7F'],['F',':#'],['n','C4'],['n','E4']], { exec:true, terminal:true,
     msg:'The Delay\'s Bang directly north activates it. Nested Note Range: the parent takes its typed Sequence result. Performs a chord and answers no value.' });
   const eq = E(m, 'eq', 3, 16, [['F','.='],['N','03'],['N','04']], { exec:true, msg:'The operands are unequal, so it answers a Clear and writes two spaces.' });
-  R(m, eq, 4, 16, '_', 'none', undefined);
+  R(m, eq, 4, 16, '  ', 'none', undefined);
   E(m, 'badadd', 5, 0, [['F','.+'],['N','c4','invalid'],['N','0G','invalid']], { diag:'expr', msg:'c4 does not bind as a Number (Token still Number). 0G does not bind as a Number.' });
   const tonote = E(m, 'tonote', 5, 12, [['F','.^'],['N','3C']], { exec:true });
   R(m, tonote, 6, 12, 'C4', 'atom', 'Note');
@@ -381,7 +381,7 @@ function glyph(cell, v) {
     if (v === '0') return { Number:'h', Note:'n' }[cell.token] || 'c';
     return v === 'C' ? '·' : '';
   }
-  if (cell.rk === 'none') return v === '0' ? '' : '_';
+  if (cell.rk === 'none') return '';
   return cell.ch === ' ' ? '' : cell.ch;
 }
 function addOv(host, cls, r, c0, c1) {
