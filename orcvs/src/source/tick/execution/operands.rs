@@ -12,11 +12,20 @@
 //! and reads a completed child's Return from that child's state rather than
 //! interpreting the child again.
 
-use lang::Atom;
+use lang::{Atom, Function};
 
 use super::{
     Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
 };
+
+/// What a Turn's operands decode to.
+pub(super) enum Decoded {
+    /// The operands, in signature order.
+    Operands(Vec<Atom>),
+    /// A Clear reached the Function's rest operand and every other operand
+    /// decoded: the Turn is taken with nothing to perform.
+    Rest,
+}
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
@@ -37,7 +46,8 @@ impl Execution<'_> {
         })
     }
 
-    /// The operands of `node`'s Turn, in signature order.
+    /// The operands of `node`'s Turn, in signature order, or
+    /// [`Decoded::Rest`] where the Turn is a rest.
     ///
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
@@ -50,33 +60,47 @@ impl Execution<'_> {
     /// no written Cell refuses it as a partly written slot does. A child that
     /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
     /// of empty Cells, returns no value, and the refusal names that child.
+    /// The one exception is `function`'s rest operand: a Clear there makes
+    /// the Turn a rest once every other operand decodes, so a Play with no
+    /// note to play sends nothing and reports nothing.
     pub(super) fn decode(
         &self,
         node: &Computation,
+        function: Function,
         signature: lang::Tokens,
-    ) -> Result<Vec<Atom>, String> {
-        node.operands
-            .iter()
-            .zip(signature)
-            .map(|(operand, token)| {
-                let Some(child) = self.returning_child(operand) else {
-                    let spelling = self.working.text(operand.cells.clone());
-                    return token.decode(spelling).map_err(|error| error.to_string());
-                };
-                let anchor = self.schedule.lookup.nodes()[child].anchor;
-                let returned = match self.turns.result(child) {
-                    // A Clear wrote two spaces at the child's Output Portal and
-                    // returns no value. The parent names the child, since
-                    // nothing at the operand says which Function cleared.
-                    Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
-                    Some(Answer::Unit(atom)) => Encoding::render(atom),
-                    None => return Err(nested(anchor, "returned nothing")),
-                };
+    ) -> Result<Decoded, String> {
+        let mut rests = false;
+        let mut operands = Vec::with_capacity(node.operands.len());
+        for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
+            let Some(child) = self.returning_child(operand) else {
+                let spelling = self.working.text(operand.cells.clone());
+                operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
+                continue;
+            };
+            let anchor = self.schedule.lookup.nodes()[child].anchor;
+            let returned = match self.turns.result(child) {
+                Some(Answer::Clear) if function.rest_operand() == Some(slot) => {
+                    rests = true;
+                    continue;
+                }
+                // A Clear wrote two spaces at the child's Output Portal and
+                // returns no value. The parent names the child, since
+                // nothing at the operand says which Function cleared.
+                Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
+                Some(Answer::Unit(atom)) => Encoding::render(atom),
+                None => return Err(nested(anchor, "returned nothing")),
+            };
+            operands.push(
                 token
                     .decode(&returned.to_string())
-                    .map_err(|error| error.to_string())
-            })
-            .collect()
+                    .map_err(|error| error.to_string())?,
+            );
+        }
+        Ok(if rests {
+            Decoded::Rest
+        } else {
+            Decoded::Operands(operands)
+        })
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last

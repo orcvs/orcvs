@@ -151,15 +151,14 @@ fn a_banged_play_with_an_unwritten_note_is_invalid_and_emits_nothing() {
 }
 
 #[test]
-fn a_banged_play_whose_nested_track_copies_an_empty_pair_is_invalid() {
+fn a_banged_play_whose_nested_track_copies_an_empty_pair_rests() {
     // Track stands in the note slot and copies the pair its index
-    // selects. `C4` plays; the empty pair is returned as empty Cells, so
-    // the note slot is unwritten and the Play fails with its child and
-    // is diagnosed.
+    // selects. `C4` plays; the empty pair is a Clear, so the Play rests:
+    // it sends nothing and is not diagnosed.
     let grid = Grid::with_shape(16, 4);
-    for (play, commands, diagnosed) in [
-        ("!>007F&t0002C4  ", vec![raw(0, 0x7F, 60)], vec![]),
-        ("!>007F&t0102C4  ", vec![], vec![(0, 2)]),
+    for (play, commands) in [
+        ("!>007F&t0002C4  ", vec![raw(0, 0x7F, 60)]),
+        ("!>007F&t0102C4  ", vec![]),
     ] {
         let bytes = snapshot(grid, &[".=0101", "", play, ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -167,12 +166,8 @@ fn a_banged_play_whose_nested_track_copies_an_empty_pair_is_invalid() {
         let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, commands, "{play:?}");
-        assert_eq!(
-            plan.diagnostics
-                .iter()
-                .map(|d| (d.anchor().x(), d.anchor().y()))
-                .collect::<Vec<_>>(),
-            diagnosed,
+        assert!(
+            plan.diagnostics.is_empty(),
             "{play:?}: {:?}",
             plan.diagnostics
         );

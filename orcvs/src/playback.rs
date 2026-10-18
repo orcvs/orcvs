@@ -2898,6 +2898,42 @@ mod tests {
     }
 
     #[test]
+    fn a_resting_monophonic_play_leaves_its_voice_sounding_to_its_own_note_off() {
+        // A rest sends no Play Command, so the engine is never asked to
+        // replace the channel's voice: the note the first Tick started runs
+        // to the stop its length scheduled, with no Note Off in between.
+        let source = SourceCommander::new(Grid::with_shape(16, 4));
+        write(&source, 0, ".=0101");
+        write(&source, 32, "!%007F&>0204C4");
+        let adapter = InMemoryOutputAdapter::default();
+        let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
+        run.begin_run();
+
+        run.run_tick(0);
+        // The nested Read now copies two empty Cells, so its Clear rests the
+        // Play on every Tick that follows.
+        write(&source, 44, "  ");
+        for tick in 1..4 {
+            run.run_tick(tick);
+            assert!(run.holds_note_ownership(), "Tick {tick}");
+        }
+        run.run_tick(4);
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![],
+                vec![],
+                vec![],
+                vec![stop(0, 60)],
+            ]
+        );
+        assert!(!run.holds_note_ownership());
+        assert_eq!(run.drain_diagnostics(), vec![]);
+    }
+
+    #[test]
     fn a_scheduled_stop_is_due_at_an_absolute_tick_rather_than_at_a_clock_tick() {
         let source = SourceCommander::new(Grid::with_shape(10, 9));
         write(&source, 20, "!~007FC402");

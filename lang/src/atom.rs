@@ -478,6 +478,58 @@ macro_rules! carried {
     };
 }
 
+// The position of a row's `rest:` role among its declared roles. Naming a role
+// the row does not declare, or one whose operand is not a Note, fails to
+// compile.
+macro_rules! rest_operand {
+    ([$($role:ident: $operand:ident),*]) => {
+        None
+    };
+    ([$($role:ident: $operand:ident),*], $rest:ident) => {
+        Some(const {
+            rest_index(
+                &[$(stringify!($role)),*],
+                &[$(stringify!($operand)),*],
+                stringify!($rest),
+            )
+        })
+    };
+}
+
+/// The position of `rest` among `roles`, evaluated where a row is declared.
+/// `operands` are the roles' operand types in the same order, and the rest
+/// role's must be a Note: a rest is the silence of a note that did not arrive.
+const fn rest_index(roles: &[&str], operands: &[&str], rest: &str) -> usize {
+    let mut index = 0;
+    while index < roles.len() {
+        if same_name(roles[index], rest) {
+            assert!(
+                same_name(operands[index], "Note"),
+                "a `rest:` role's operand must be a Note"
+            );
+            return index;
+        }
+        index += 1;
+    }
+    panic!("a `rest:` role must be one the row declares");
+}
+
+/// Whether two names spell the same bytes, where `==` on `str` is not const.
+const fn same_name(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut at = 0;
+    while at < left.len() {
+        if left[at] != right[at] {
+            return false;
+        }
+        at += 1;
+    }
+    true
+}
+
 // Whether a row declares the optional fact its tokens stand for.
 macro_rules! declares {
     () => {
@@ -519,7 +571,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident)?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -679,6 +731,19 @@ macro_rules! define_functions {
                 }
             }
 
+            /// The index of the operand whose nested Clear rests this Function,
+            /// when its row declares `rest:`.
+            ///
+            /// A Turn whose rest operand a nested Function cleared, and whose
+            /// every other operand decodes, is a rest: it performs nothing and
+            /// reports nothing. A Clear in any other operand, or of any other
+            /// Function, leaves the operand unwritten and the Turn invalid.
+            pub const fn rest_operand(self) -> Option<usize> {
+                match self {
+                    $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
+                }
+            }
+
             /// The token each declared operand is read as, in signature order.
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
@@ -828,12 +893,12 @@ define_functions! {
     Maximum => (".>", Value, Intrinsic, Never, [left: Number, right: Number]),
     Minimum => (".<", Value, Intrinsic, Never, [left: Number, right: Number]),
     Modulo => (".%", Value, Intrinsic, Never, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Multiply => (".x", Value, Intrinsic, Never, [left: Number, right: Number]),
     PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
-    RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
     ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
     ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
     ReadSouth => ("&v", Value, Intrinsic, May, [n: Number], distance: Input South n),
@@ -843,7 +908,7 @@ define_functions! {
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
-    TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
     WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
     WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
@@ -1454,6 +1519,33 @@ mod test {
             seen, 9,
             "the Source-writing rows are no longer the nine expected"
         );
+    }
+
+    #[test]
+    fn exactly_the_note_playing_functions_rest_on_their_note_operand() {
+        // A rest is a silent Turn, so only a Function whose note says what
+        // sounds may declare one, and the operand it names is that note.
+        let resting: Vec<_> = Function::ALL
+            .iter()
+            .copied()
+            .filter_map(|function| Some((function, function.rest_operand()?)))
+            .collect();
+        assert_eq!(
+            resting,
+            [
+                (Function::MonophonicPlay, 2),
+                (Function::RawPlay, 2),
+                (Function::TimedPlay, 2),
+            ]
+        );
+        for (function, index) in resting {
+            assert_eq!(function.output(), crate::Output::Terminal, "{function:?}");
+            assert_eq!(
+                function.signature()[index],
+                crate::Token::Note,
+                "{function:?}"
+            );
+        }
     }
 
     #[test]
