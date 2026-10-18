@@ -273,6 +273,11 @@ impl OutputAdapter for MidiOutputAdapter {
                     // the only check there is.
                     [0x90 | channel.value(), note.value(), velocity.value()]
                 }
+                // Release velocity `00`: no Play spelling writes one, and
+                // `0x80 | channel` is in range for the reason Note On's is.
+                OutputCommand::NoteOff { channel, note } => {
+                    [0x80 | channel.value(), note.value(), 0x00]
+                }
                 OutputCommand::ControlChange {
                     channel,
                     controller,
@@ -533,6 +538,37 @@ mod tests {
         assert_eq!(
             state.lock().unwrap().messages,
             vec![vec![0x9f, 0x15, 0], vec![0x92, 0x45, 0x7f]]
+        );
+    }
+
+    #[test]
+    fn submits_note_off_as_its_wire_bytes() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut backend = FakeBackend {
+            state: state.clone(),
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
+
+        adapter
+            .submit(&[
+                OutputCommand::NoteOff {
+                    channel: MidiChannel::try_from(0x0f).unwrap(),
+                    note: Note::try_from(0x15).unwrap(),
+                },
+                OutputCommand::NoteOff {
+                    channel: MidiChannel::try_from(2).unwrap(),
+                    note: Note::try_from(0x45).unwrap(),
+                },
+            ])
+            .unwrap();
+
+        // `0x80 | channel` with a release velocity of `00`, and an
+        // upper-nibble channel so a status that dropped the channel's high
+        // bit answers a different byte.
+        assert_eq!(
+            state.lock().unwrap().messages,
+            vec![vec![0x8f, 0x15, 0], vec![0x82, 0x45, 0]]
         );
     }
 

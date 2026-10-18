@@ -48,6 +48,10 @@ enum Heard {
         note: u8,
         velocity: u8,
     },
+    NoteOff {
+        channel: u8,
+        note: u8,
+    },
     ControlChange {
         channel: u8,
         controller: u8,
@@ -62,9 +66,11 @@ enum Heard {
 ///
 /// Reads one complete channel message.
 ///
-/// Only the three messages Orcvs sends are accepted, and each must be exactly
+/// Only the four messages Orcvs sends are accepted, and each must be exactly
 /// its own length: a stray byte, a missing one or a data byte with its high
 /// bit set is a wire error and is answered as one rather than read around.
+/// Orcvs sends every stop as a Note Off at release velocity `00`, so a Note On
+/// at velocity `00` and a Note Off with a release velocity are refused too.
 ///
 fn decode(bytes: &[u8]) -> Result<Heard, String> {
     let [status, data @ ..] = bytes else {
@@ -80,11 +86,15 @@ fn decode(bytes: &[u8]) -> Result<Heard, String> {
     }
     let channel = status & 0x0f;
     match (status & 0xf0, data) {
+        (0x90, &[_, 0]) => Err(format!(
+            "{bytes:02x?} is a Note On at velocity 00, which Orcvs sends as a Note Off"
+        )),
         (0x90, &[note, velocity]) => Ok(Heard::NoteOn {
             channel,
             note,
             velocity,
         }),
+        (0x80, &[note, 0]) => Ok(Heard::NoteOff { channel, note }),
         (0xb0, &[controller, value]) => Ok(Heard::ControlChange {
             channel,
             controller,
@@ -132,7 +142,8 @@ fn cross_check(sent: &[Vec<u8>], received: &[Vec<u8>]) -> Vec<Heard> {
 
 ///
 /// Asserts the decoded stream is the program's: every message it plays
-/// arrived, and the stream ends with every channel silenced and reset.
+/// arrived, including the Note Off its Timed Play's expiry owes, and the
+/// stream ends with every channel silenced and reset.
 ///
 fn assert_plays_the_program(heard: &[Heard]) {
     let played = [
@@ -154,6 +165,10 @@ fn assert_plays_the_program(heard: &[Heard]) {
             channel: 3,
             note: 62,
             velocity: 0x0a,
+        },
+        Heard::NoteOff {
+            channel: 3,
+            note: 62,
         },
     ];
     for message in played {
@@ -311,9 +326,28 @@ fn the_listener_refuses_what_is_not_a_complete_channel_message() {
             "[90, 3c, 7f, 00] is not a message Orcvs sends",
         ),
         (&[0xc0, 0x01][..], "[c0, 01] is not a message Orcvs sends"),
+        (
+            &[0x93, 0x3e, 0x00][..],
+            "[93, 3e, 00] is a Note On at velocity 00, which Orcvs sends as a Note Off",
+        ),
+        (
+            &[0x83, 0x3e, 0x40][..],
+            "[83, 3e, 40] is not a message Orcvs sends",
+        ),
     ] {
         assert_eq!(decode(bytes), Err(error.to_owned()));
     }
+}
+
+#[test]
+fn the_listener_reads_a_note_off_at_release_velocity_00() {
+    assert_eq!(
+        decode(&[0x83, 0x3e, 0x00]),
+        Ok(Heard::NoteOff {
+            channel: 3,
+            note: 62,
+        })
+    );
 }
 
 #[test]

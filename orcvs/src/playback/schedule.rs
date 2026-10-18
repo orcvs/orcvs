@@ -115,16 +115,12 @@ pub(crate) struct OwnedNotes {
 ///
 /// The explicit stop for `note` on `channel`.
 ///
-/// MIDI's zero-velocity Note On, which is the stop Raw Play already gives the
-/// Source through velocity `00`: a scheduled expiry is delivered as a message
-/// a Source could have written for itself rather than as a shape of its own.
+/// Every stop this module delivers is this one message, whether a Source wrote
+/// it as a Raw Play's velocity `00` or the schedule owed it, so the adapter
+/// encodes one shape for a stop wherever it came from.
 ///
 fn note_off(channel: MidiChannel, note: Note) -> OutputCommand {
-    OutputCommand::NoteOn {
-        channel,
-        velocity: Velocity::ZERO,
-        note,
-    }
+    OutputCommand::NoteOff { channel, note }
 }
 
 impl OwnedNotes {
@@ -145,15 +141,20 @@ impl OwnedNotes {
             match *command {
                 // Raw notes do not enter Timed ownership: what the Source
                 // wrote is delivered, and nothing stops it that the Source did
-                // not ask to stop.
+                // not ask to stop. Velocity `00` is how it asks, and is
+                // delivered as the stop it spells rather than as a Note On.
                 PlayCommand::Raw {
                     channel,
                     velocity,
                     note,
-                } => delivery.push(OutputCommand::NoteOn {
-                    channel,
-                    velocity,
-                    note,
+                } => delivery.push(if velocity == Velocity::ZERO {
+                    note_off(channel, note)
+                } else {
+                    OutputCommand::NoteOn {
+                        channel,
+                        velocity,
+                        note,
+                    }
                 }),
                 PlayCommand::Timed {
                     channel,
@@ -352,11 +353,13 @@ mod tests {
     }
 
     ///
-    /// The stop a delivery carries for `channel` and `note`: MIDI's
-    /// zero-velocity Note On, named for what it does rather than what it is.
+    /// The Note Off a delivery carries for `channel` and `note`.
     ///
     fn stop(channel: u8, note: u8) -> OutputCommand {
-        note_on(channel, 0, note)
+        note_off(
+            MidiChannel::try_from(channel).expect("a MIDI channel"),
+            Note::try_from(note).expect("a MIDI note"),
+        )
     }
 
     ///
@@ -963,6 +966,23 @@ mod tests {
         for tick in 1..=4 {
             assert_eq!(idle(&mut schedule, tick), Vec::new(), "Tick {tick}");
         }
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_raw_play_at_velocity_00_is_delivered_as_a_note_off() {
+        let mut schedule = OwnedNotes::default();
+
+        // Velocity `00` is Raw Play's explicit stop, so it reaches the adapter
+        // as the same Note Off a scheduled expiry does, and owns nothing.
+        assert_eq!(
+            plan(
+                &mut schedule,
+                0,
+                &[raw_play(3, 0x7F, 60), raw_play(3, 0, 60)]
+            ),
+            vec![note_on(3, 0x7F, 60), stop(3, 60)]
+        );
         assert!(!schedule.holds_note_ownership());
     }
 
