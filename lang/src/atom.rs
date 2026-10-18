@@ -479,33 +479,55 @@ macro_rules! carried {
 }
 
 // The position of a row's `rest:` role among its declared roles. Naming a role
-// the row does not declare fails to compile.
+// the row does not declare, or one whose operand is not a Note, fails to
+// compile.
 macro_rules! rest_operand {
-    ([$($role:ident),*]) => {
+    ([$($role:ident: $operand:ident),*]) => {
         None
     };
-    ([$($role:ident),*], $rest:ident) => {
-        Some(const { role_index(&[$(stringify!($role)),*], stringify!($rest)) })
+    ([$($role:ident: $operand:ident),*], $rest:ident) => {
+        Some(const {
+            rest_index(
+                &[$(stringify!($role)),*],
+                &[$(stringify!($operand)),*],
+                stringify!($rest),
+            )
+        })
     };
 }
 
-/// The position of `role` among `roles`, evaluated where a row is declared.
-const fn role_index(roles: &[&str], role: &str) -> usize {
+/// The position of `rest` among `roles`, evaluated where a row is declared.
+/// `operands` are the roles' operand types in the same order, and the rest
+/// role's must be a Note: a rest is the silence of a note that did not arrive.
+const fn rest_index(roles: &[&str], operands: &[&str], rest: &str) -> usize {
     let mut index = 0;
     while index < roles.len() {
-        if roles[index].len() == role.len() {
-            let (candidate, wanted) = (roles[index].as_bytes(), role.as_bytes());
-            let mut at = 0;
-            while at < wanted.len() && candidate[at] == wanted[at] {
-                at += 1;
-            }
-            if at == wanted.len() {
-                return index;
-            }
+        if same_name(roles[index], rest) {
+            assert!(
+                same_name(operands[index], "Note"),
+                "a `rest:` role's operand must be a Note"
+            );
+            return index;
         }
         index += 1;
     }
     panic!("a `rest:` role must be one the row declares");
+}
+
+/// Whether two names spell the same bytes, where `==` on `str` is not const.
+const fn same_name(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut at = 0;
+    while at < left.len() {
+        if left[at] != right[at] {
+            return false;
+        }
+        at += 1;
+    }
+    true
 }
 
 // Whether a row declares the optional fact its tokens stand for.
@@ -718,7 +740,7 @@ macro_rules! define_functions {
             /// Function, leaves the operand unwritten and the Turn invalid.
             pub const fn rest_operand(self) -> Option<usize> {
                 match self {
-                    $(Self::$variant => rest_operand!([$($role),*] $(, $rest)?),)+
+                    $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
                 }
             }
 

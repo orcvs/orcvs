@@ -20,6 +20,7 @@ use super::{
     coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
+use operands::Decoded;
 use turns::{Activation, Answer, Turns};
 use working::{WorkingSource, WriteKind};
 
@@ -196,18 +197,19 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.turns.function(index);
         let tick = tick_inputs(self.tick, node.anchor);
-        let result = self.decode(node, function, signature).and_then(|operands| {
-            let Some(operands) = operands else {
-                return Ok(None);
-            };
-            let portal = self.turn_portal(index, function, &operands)?;
-            let destination = self.turn_destination(index, function, &operands)?;
-            Ok(Some((operands, portal, destination)))
-        });
-        let (operands, portal, destination) = match result {
-            Ok(Some(resolved)) => resolved,
+        let resolved = match self.decode(node, function, signature) {
+            Ok(Decoded::Operands(operands)) => self
+                .turn_portal(index, function, &operands)
+                .and_then(|portal| {
+                    let destination = self.turn_destination(index, function, &operands)?;
+                    Ok((operands, portal, destination))
+                }),
             // A rest is a Turn taken with nothing to perform.
-            Ok(None) => return None,
+            Ok(Decoded::Rest) => return None,
+            Err(message) => Err(message),
+        };
+        let (operands, portal, destination) = match resolved {
+            Ok(resolved) => resolved,
             Err(message) => {
                 self.effects.push(Effect::Diagnose(diagnose(node, message)));
                 return None;

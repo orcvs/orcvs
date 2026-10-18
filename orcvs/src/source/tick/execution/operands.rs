@@ -18,6 +18,15 @@ use super::{
     Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
 };
 
+/// What a Turn's operands decode to.
+pub(super) enum Decoded {
+    /// The operands, in signature order.
+    Operands(Vec<Atom>),
+    /// A Clear reached the Function's rest operand and every other operand
+    /// decoded: the Turn is taken with nothing to perform.
+    Rest,
+}
+
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
     /// it consumes the Cells at `operand.cells`.
@@ -37,8 +46,8 @@ impl Execution<'_> {
         })
     }
 
-    /// The operands of `node`'s Turn, in signature order, or `None` where
-    /// the Turn is a rest.
+    /// The operands of `node`'s Turn, in signature order, or
+    /// [`Decoded::Rest`] where the Turn is a rest.
     ///
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
@@ -59,7 +68,7 @@ impl Execution<'_> {
         node: &Computation,
         function: Function,
         signature: lang::Tokens,
-    ) -> Result<Option<Vec<Atom>>, String> {
+    ) -> Result<Decoded, String> {
         let mut rests = false;
         let mut operands = Vec::with_capacity(node.operands.len());
         for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
@@ -87,7 +96,11 @@ impl Execution<'_> {
                     .map_err(|error| error.to_string())?,
             );
         }
-        Ok((!rests).then_some(operands))
+        Ok(if rests {
+            Decoded::Rest
+        } else {
+            Decoded::Operands(operands)
+        })
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last

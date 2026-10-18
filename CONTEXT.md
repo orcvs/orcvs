@@ -276,7 +276,7 @@ _Avoid_: Note output, MIDI Function
 
 **Rest**:
 The Turn of a Raw, Timed or Monophonic Play whose note operand a nested Function cleared, such as a Read or Track of two empty Cells. Per ADR 0075 the Play sends no Play Command and raises no diagnostic, as Orca's `:` with no note plays nothing. The Function table declares the note as each Play's rest operand. Only a Clear there rests: a Clear in any other operand of a Play, or of any other Function, leaves the parent invalid, and a Rest still needs every other operand to decode. An unwritten or partly written note slot with no nested Function is invalid input, not a Rest. A Monophonic Play that rests leaves its channel's voice sounding to its own Note Off.
-_Avoid_: Silent Play, empty note, Pending
+_Avoid_: Silent Play, empty note
 
 **Timed Play Function**:
 The terminal `!~ channel velocity note length` Function. Channel is a Number `00`–`0F`, velocity is a Number `00`–`7F`, note is a Note, and length is a Number `00`–`FF`. Velocity `00` explicitly stops the specified note and schedules no expiry. Otherwise, length `00` emits no MIDI output, while a positive length starts the note in the current Tick and schedules Note Off at the beginning of Tick `T + length`. Its fixed arity distinguishes it from Raw Play without optional operands or overloading. Several Timed Play roots one Bang activates sound a chord, each scheduling its own Note Off at its own length, because the Playback Engine keys ownership by channel and note.
