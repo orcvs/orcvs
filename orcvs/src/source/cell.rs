@@ -17,9 +17,11 @@ impl CellContent {
     /// The empty Cell.
     pub const SPACE: Self = Self(b' ');
 
-    /// Accepts exactly the printable ASCII bytes, including space.
+    /// Accepts exactly the printable ASCII bytes, including space: the rule
+    /// [`lang::Spelling::admits`] states, so a Spelling and a Cell hold the
+    /// same bytes by one definition.
     pub fn new(byte: u8) -> Option<Self> {
-        (0x20..=0x7e).contains(&byte).then_some(Self(byte))
+        lang::Spelling::admits(byte).then_some(Self(byte))
     }
 
     /// The character to display for this Cell content.
@@ -32,8 +34,8 @@ impl CellContent {
     }
 
     /// The two Cells `spelling` occupies. A [`lang::Spelling`] holds only
-    /// printable ASCII, which is exactly what [`CellContent::new`] accepts,
-    /// so neither needs checking again.
+    /// bytes [`lang::Spelling::admits`], which is the rule
+    /// [`CellContent::new`] applies, so neither needs checking again.
     pub(super) fn spelled(spelling: lang::Spelling) -> [Self; 2] {
         spelling.cells().map(Self)
     }

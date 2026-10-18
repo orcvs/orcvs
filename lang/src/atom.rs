@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Error, NOTE_PITCHES, TypeError, midi_note_to_number};
+use crate::{Error, TypeError, midi_note_to_number};
 
 pub type Atoms = Vec<Atom>;
 
@@ -1158,80 +1158,119 @@ impl fmt::Display for Atom {
     }
 }
 
-/// The hexadecimal digits a Number spells, most significant first.
-const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
-
 impl Atom {
     /// The two Source Cells this Atom spells, which a Portal writes and a
     /// later Turn decodes.
     pub fn spelling(self) -> Spelling {
         match self {
-            Atom::Bang => Spelling(*b"**"),
+            Atom::Bang => const { Spelling::checked("**") },
             // Numbers are hexadecimal: rendered results are written back into
             // the Source and re-parsed as two Cells, so they round trip as hex.
-            Atom::Number(n) => Spelling([
-                HEX_DIGITS[usize::from(n >> 4)],
-                HEX_DIGITS[usize::from(n & 0x0F)],
-            ]),
-            Atom::Note(note) => note.spelling(),
+            Atom::Number(n) => Spelling::number(n),
+            Atom::Note(note) => Spelling::note(note),
             Atom::Function(function) => function.cells(),
         }
     }
 }
 
-impl Note {
-    /// A pitch letter from `CcDdEFfGgAaB` and an octave, `/` for the lowest
-    /// and a digit for the rest. A Note is at most `0x7F`, so its octave is
-    /// at most ten and the digit at most `9`.
-    fn spelling(self) -> Spelling {
-        let value = self.value();
-        let octave = match value / 12 {
-            0 => b'/',
-            octave => b'0' + octave - 1,
-        };
-        Spelling([NOTE_PITCHES[usize::from(value % 12)], octave])
+pub use spelling::Spelling;
+
+/// Holds the only constructors of a [`Spelling`]. Its field is private to this
+/// module, so nothing else in `lang` can build one from unchecked bytes.
+mod spelling {
+    use std::fmt;
+
+    use super::Note;
+    use crate::{NOTE_PITCHES, octave_cell};
+
+    ///
+    /// The two Source Cells an Atom spells.
+    ///
+    /// Both are printable ASCII, space through `~`, which is what a Cell
+    /// holds. Every constructor builds from a literal checked at compile time
+    /// or from a table whose every entry is, so a `Spelling` that exists needs
+    /// no second check.
+    ///
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct Spelling([u8; 2]);
+
+    /// The hexadecimal digits a Number spells, most significant first.
+    const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+
+    /// The highest octave a Note reaches: `0x7F / 12`.
+    const TOP_OCTAVE: u8 = 0x7F / 12;
+
+    // Every table a `Spelling` is built from holds only printable Cells, so the
+    // constructors below index them without checking what they find.
+    const _: () = {
+        assert!(all_printable(HEX_DIGITS));
+        assert!(all_printable(NOTE_PITCHES));
+        let mut octave = 0;
+        while octave <= TOP_OCTAVE {
+            assert!(Spelling::admits(octave_cell(octave)));
+            octave += 1;
+        }
+    };
+
+    impl Spelling {
+        /// A spelling stated as a literal, refused at compile time unless it
+        /// is two printable ASCII Cells. Every caller evaluates it in a const
+        /// context.
+        pub(super) const fn checked(spelling: &str) -> Self {
+            let bytes = spelling.as_bytes();
+            assert!(
+                bytes.len() == 2 && Self::admits(bytes[0]) && Self::admits(bytes[1]),
+                "a spelling must be exactly two printable ASCII Cells",
+            );
+            Self([bytes[0], bytes[1]])
+        }
+
+        /// A Number's two hexadecimal digits.
+        pub(super) fn number(n: u8) -> Self {
+            Self([
+                HEX_DIGITS[usize::from(n >> 4)],
+                HEX_DIGITS[usize::from(n & 0x0F)],
+            ])
+        }
+
+        /// A Note's pitch letter and octave. A Note is at most `0x7F`, so its
+        /// octave is at most `TOP_OCTAVE`.
+        pub(super) fn note(note: Note) -> Self {
+            let value = note.value();
+            Self([
+                NOTE_PITCHES[usize::from(value % 12)],
+                octave_cell(value / 12),
+            ])
+        }
+
+        /// Whether `byte` is one a Cell holds: printable ASCII, space through
+        /// `~`.
+        pub const fn admits(byte: u8) -> bool {
+            matches!(byte, 0x20..=0x7E)
+        }
+
+        /// The two Cells, west first.
+        pub fn cells(self) -> [u8; 2] {
+            self.0
+        }
     }
-}
 
-///
-/// The two Source Cells an Atom spells.
-///
-/// Both are printable ASCII, space through `~`, which is what a Cell holds:
-/// a Number spells two hexadecimal digits, a Note a pitch letter and an
-/// octave, a Bang `**`, and every Function spelling is checked by
-/// `Spelling::checked` when the Function table compiles. Only this module
-/// builds one, so a `Spelling` that exists needs no second check.
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Spelling([u8; 2]);
-
-impl Spelling {
-    /// A Function spelling, refused at compile time unless it is two
-    /// printable ASCII Cells. Every caller evaluates it in a const context.
-    const fn checked(spelling: &str) -> Self {
-        let bytes = spelling.as_bytes();
-        assert!(
-            bytes.len() == 2 && printable(bytes[0]) && printable(bytes[1]),
-            "a Function spelling must be exactly two printable ASCII Cells",
-        );
-        Self([bytes[0], bytes[1]])
+    const fn all_printable(table: &[u8]) -> bool {
+        let mut index = 0;
+        while index < table.len() {
+            if !Spelling::admits(table[index]) {
+                return false;
+            }
+            index += 1;
+        }
+        true
     }
 
-    /// The two Cells, west first.
-    pub fn cells(self) -> [u8; 2] {
-        self.0
-    }
-}
-
-/// Whether `byte` is a printable ASCII character, space through `~`.
-const fn printable(byte: u8) -> bool {
-    matches!(byte, 0x20..=0x7E)
-}
-
-impl fmt::Display for Spelling {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let [west, east] = self.0;
-        write!(f, "{}{}", char::from(west), char::from(east))
+    impl fmt::Display for Spelling {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let [west, east] = self.0;
+            write!(f, "{}{}", char::from(west), char::from(east))
+        }
     }
 }
 

@@ -389,7 +389,26 @@ fn trace() {
     });
 }
 
+/// The pitch letters a Note spells, in semitone order from C.
 pub(crate) const NOTE_PITCHES: &[u8; 12] = b"CcDdEFfGgAaB";
+
+/// The Cell that spells a Note's octave: `/` for the lowest, then the digits
+/// `0` to `9`. [`octave_of_cell`] reads it back.
+pub(crate) const fn octave_cell(octave: u8) -> u8 {
+    match octave {
+        0 => b'/',
+        octave => b'0' + octave - 1,
+    }
+}
+
+/// The octave a Note's octave Cell spells, the inverse of [`octave_cell`].
+fn octave_of_cell(cell: u8) -> Option<u8> {
+    match cell {
+        b'/' => Some(0),
+        b'0'..=b'9' => Some(cell - b'0' + 1),
+        _ => None,
+    }
+}
 
 pub fn midi_note_to_number(note: &str) -> Option<u8> {
     let [pitch, octave] = *note.as_bytes() else {
@@ -401,11 +420,7 @@ pub fn midi_note_to_number(note: &str) -> Option<u8> {
             .position(|candidate| *candidate == pitch)?,
     )
     .ok()?;
-    let octave = match octave {
-        b'/' => 0,
-        b'0'..=b'9' => octave - b'0' + 1,
-        _ => return None,
-    };
+    let octave = octave_of_cell(octave)?;
 
     octave
         .checked_mul(12)?
@@ -447,9 +462,10 @@ mod test {
         use super::{Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
-        // floor was measured against it. The widest answer is a Source
-        // effect: two `i16` displacements, a three-byte `Option<Spelling>`
-        // and its bundle, so `Interpretation` reads 8 at every pointer width.
+        // measures the answer seam. The widest answer is a Source effect: two
+        // `i16` displacements, a three-byte `Option<Spelling>` and its bundle.
+        // No field holds a pointer or `usize`, so `Interpretation` reads 8 at
+        // every pointer width, wasm32 included.
         //
         // A failure here is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take

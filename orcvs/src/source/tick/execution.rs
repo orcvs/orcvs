@@ -565,11 +565,9 @@ impl<'a> Execution<'a> {
         // as its spelling, which is how every other diagnostic in this file
         // names one.
         let producer = self.turns.function(index);
-        // The Cells this Function stands in. Every Function spelling is two
-        // ASCII Cells, which `define_functions!` asserts at compile time, and
-        // every spelling a Source-writing Function writes is another
-        // Function's, so the Span it occupies and the Span it writes are the
-        // same width and one length serves both.
+        // The Cells this Function stands in. Every `Spelling` is two Cells,
+        // and what a Source-writing Function writes is another Function's
+        // spelling, so the Span it occupies is as wide as the Span it writes.
         //
         // A bundle that writes displaced and clears its own Span moves: it
         // leaves the Cells it stood in, so they are not newly entered and a
@@ -621,9 +619,10 @@ impl<'a> Execution<'a> {
             _ if moves => {
                 // Source content rather than an answer: the Bang Function a
                 // refused move leaves, which activates nothing in this Turn
-                // and takes its own Turn from the next Snapshot. It is stated
-                // rather than rendered, and reaches no Portal of a value.
-                let bang = Encoding::render(Atom::Bang);
+                // and takes its own Turn from the next Snapshot. It writes the
+                // Bang Function's spelling at its own Span and reaches no
+                // Portal of a value.
+                let bang = Encoding::spelled(Function::Bang.cells());
                 let left = Portal::at(self.grid, anchor)
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
