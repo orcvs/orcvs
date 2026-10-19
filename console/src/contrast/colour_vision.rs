@@ -430,7 +430,9 @@ impl Role {
     /// every Invalid operand draws `diagnostic.foreground` whatever Token
     /// declared the slot, and every non-Function, non-Bang Cell inside a
     /// Portal draws that Portal's foreground whatever it would
-    /// otherwise have been — Output Portal's when the Cell plays both roles. Those collapses are the painting rules working;
+    /// otherwise have been — Output Portal's when the Cell plays both roles,
+    /// and none for an Invalid operand inside Input Portal alone, which keeps
+    /// its Diagnostic. Those collapses are the painting rules working;
     /// comparing two states that share a channel would measure a distinction
     /// the console never intended to draw.
     ///
@@ -441,10 +443,14 @@ impl Role {
     ///
     fn glyph_channel(self, portals: PortalRoles, theme: &Theme) -> Option<GlyphChannel> {
         let output = portals.contains(PortalRole::Output);
+        // Diagnostic paints over Input Portal, as `style::painting_portal`
+        // answers, so an Invalid operand only read draws as one no Portal
+        // covers.
+        let invalid = matches!(self, Self::NumberInvalid | Self::NoteInvalid);
         let portal = if output {
             (theme.output_portal_foreground != Color32::TRANSPARENT)
                 .then_some(GlyphChannel::OutputPortal)
-        } else if portals.contains(PortalRole::Input) {
+        } else if portals.contains(PortalRole::Input) && !invalid {
             (theme.input_portal_foreground != Color32::TRANSPARENT)
                 .then_some(GlyphChannel::InputPortal)
         } else {

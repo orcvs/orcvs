@@ -124,10 +124,12 @@ and a benchmark measures the derive with a record present.
 - A `Current` record paints every admitted read and write. A `Retained` record
   paints only entries whose owner Function still stands at its anchor in the
   displayed revision.
-- Precedence is the existing schema's (`.scratch/theming/schema.md`,
-  composition steps 4 and 5): Portal channels over every other non-Function
-  fact, Diagnostic included, as `console/src/style.rs` already pins. Between
-  Portal channels, Output Portal wins over Input Portal. A bound Function keeps
+- Precedence is the schema's (`.scratch/theming/schema.md`, composition
+  steps 4 and 5): Portal channels over every other non-Function fact, except
+  that Diagnostic paints over Input Portal, so a read that lands on another
+  Expression's Invalid operand keeps its diagnostic colours. Output Portal
+  paints over Diagnostic. Between Portal channels, Output Portal wins over
+  Input Portal. A bound Function keeps
   all its own paint inside either Portal. A Bang keeps its glyph foreground and
   takes the Portal background. Cursor and Region keep their existing precedence
   over every Portal channel.

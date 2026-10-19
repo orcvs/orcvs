@@ -54,7 +54,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
     cursor_fill: Option<Color32>,
     theme: &Theme,
 ) -> CellVisuals {
-    let portal = painting_portal(portal_roles);
+    let portal = painting_portal(paint, portal_roles);
     let (foreground, role_background) = source_paint_visuals(paint, portal, theme);
     // The Cursor's own fill wins outright on its Cell, discarding whatever
     // the role/Diagnostic/Portal channels above answered: `cursor_fill`
@@ -168,7 +168,7 @@ impl<'a> SourcePaintVisuals<'a> {
         paint: SourcePaint,
         portal_roles: PortalRoles,
     ) -> CellVisuals {
-        let portal = match painting_portal(portal_roles) {
+        let portal = match painting_portal(paint, portal_roles) {
             None => 0,
             Some(PortalRole::Input) => 1,
             Some(PortalRole::Output) => 2,
@@ -226,8 +226,8 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// [`role_and_portal`] applies to foreground and background —
 /// `.scratch/theming/schema.md`'s composition step 4, "Border channels use
 /// the same fact priority and compose over the ordinary Grid border": the
-/// painting Portal over Diagnostic over the plain Grid border, with a bound
-/// Function bypassed exactly as it is there.
+/// painting Portal [`painting_portal`] answers over Diagnostic over the plain
+/// Grid border, with a bound Function bypassed exactly as it is there.
 ///
 /// Colour composites with [`blend_channel`], equivalent to the pinned [`Color32::blend`] operation
 /// every other channel in this module uses, so the transparent Okabe–Ito
@@ -286,14 +286,26 @@ fn ordinary_border(
 }
 
 ///
-/// The Portal whose channels paint a Cell playing `portal_roles`: Output
-/// Portal over Input Portal, so a Cell a Function both reads and writes
-/// shows the write.
+/// The Portal whose channels paint a Cell carrying `paint` and playing
+/// `portal_roles`: Output Portal over Diagnostic over Input Portal.
 ///
-fn painting_portal(portal_roles: PortalRoles) -> Option<PortalRole> {
+/// Output Portal wins over Input Portal, so a Cell a Function both reads and
+/// writes shows the write, and over Diagnostic, so a write landing on an
+/// Invalid operand shows where it landed. An Invalid operand only read keeps
+/// its Diagnostic: a read says the Cells were read, not that they bound, so
+/// it does not hide why they did not.
+///
+fn painting_portal(paint: SourcePaint, portal_roles: PortalRoles) -> Option<PortalRole> {
+    let invalid_operand = matches!(
+        paint,
+        SourcePaint::Operand {
+            state: OperandState::Invalid,
+            ..
+        }
+    );
     if portal_roles.contains(PortalRole::Output) {
         Some(PortalRole::Output)
-    } else if portal_roles.contains(PortalRole::Input) {
+    } else if portal_roles.contains(PortalRole::Input) && !invalid_operand {
         Some(PortalRole::Input)
     } else {
         None
@@ -431,6 +443,7 @@ pub(crate) fn cell_background(
 /// | Operand, Pending/Valid | declared Token colour | declared Token background |
 /// | Operand, Invalid | Token colour ▸ `diagnostic.foreground` | Token background ▸ `diagnostic.background` |
 /// | any non-Function, Portal | above ▸ Portal foreground | above ▸ Portal background |
+/// | Operand, Invalid, Input Portal only | as Operand, Invalid | as Operand, Invalid |
 /// | Bang, Portal | `source.bang` (no blend) | `source.bang.background` ▸ Portal background |
 /// | Function, Portal | `source.function` (bypassed) | `source.function.background` (bypassed) |
 ///
@@ -450,17 +463,19 @@ pub(crate) fn cell_background(
 ///
 /// # Portal precedence
 ///
-/// `portal` is [`painting_portal`]'s answer from `RenderCell::portal_roles()`:
-/// Output Portal when the Cell plays that role, else Input Portal when it
-/// plays that one. Only one Portal's channels paint a Cell; Output Portal's
-/// win outright rather than compositing over Input Portal's.
+/// `portal` is [`painting_portal`]'s answer from the Source Paint fact and
+/// `RenderCell::portal_roles()`: Output Portal when the Cell plays that role,
+/// else Input Portal when it plays that one and is not an Invalid operand.
+/// Only one Portal's channels paint a Cell; Output Portal's win outright
+/// rather than compositing over Input Portal's, and an Invalid operand only
+/// read paints its Diagnostic as if no Portal covered it.
 ///
 /// The Portal is read first, because the
 /// Cell it names is a Portal Cell whatever else
 /// claims it — a written answer, an
 /// empty Cell still waiting for one, or another Expression's operand slot the
-/// Portal happens to land on; Diagnostic included, so an Invalid operand
-/// inside a Portal draws the Portal foreground. The one exception is a bound Function
+/// Portal happens to land on; Diagnostic included under Output Portal, so an
+/// Invalid operand a write landed on draws the Output Portal foreground. The one exception is a bound Function
 /// claim: a Cell that is itself a Function's own two-Cell spelling keeps its
 /// Function paint
 /// outright, root or nested, the same as when no Portal covers it. That
@@ -2313,15 +2328,16 @@ mod tests {
     // === Input Portal, and Output Portal over it ===
 
     ///
-    /// Input Portal takes precedence over every non-Function, non-Bang fact,
-    /// Diagnostic included: each draws the Input Portal foreground over its
-    /// own, on its own raw role background with the Input Portal background
+    /// Input Portal takes precedence over every non-Function, non-Bang fact
+    /// but Diagnostic: each draws the Input Portal foreground over its own,
+    /// on its own raw role background with the Input Portal background
     /// composited on top — the same rule Output Portal follows
-    /// (`output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell`,
-    /// `invalid_operand_under_output_portal_takes_the_portal_colour`).
+    /// (`output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell`).
+    /// An Invalid operand keeps its Diagnostic
+    /// (`diagnostic_paints_over_input_portal_and_output_portal_over_diagnostic`).
     ///
     #[test]
-    fn input_portal_paints_over_every_non_function_fact_including_diagnostic() {
+    fn input_portal_paints_over_every_non_function_fact_but_diagnostic() {
         for theme in [okabe_ito(), orcvs_light()] {
             for (paint, role_background) in [
                 (SourcePaint::Unclaimed, theme.source_ordinary_background),
@@ -2331,15 +2347,7 @@ mod tests {
                     theme.source_number_background,
                 ),
                 (
-                    operand(Token::Number, OperandState::Invalid),
-                    theme.source_number_background,
-                ),
-                (
                     operand(Token::Note, OperandState::Valid),
-                    theme.source_note_background,
-                ),
-                (
-                    operand(Token::Note, OperandState::Invalid),
                     theme.source_note_background,
                 ),
             ] {
@@ -2400,24 +2408,44 @@ mod tests {
     }
 
     ///
-    /// An Invalid operand inside an Input Portal takes the Input Portal's own
-    /// border colour and width over the Diagnostic border, as foreground and
-    /// background do.
+    /// Diagnostic paints over Input Portal and Output Portal paints over
+    /// Diagnostic. A read Cell holding an Invalid operand keeps every
+    /// Diagnostic channel, foreground, background and border alike, as if no
+    /// Portal covered it; a written one, or one both read and written, draws
+    /// the Output Portal's. The fixture gives Input Portal a distinct border
+    /// and width, so a Cell that let it through would show.
     ///
     #[test]
-    fn input_portal_border_takes_precedence_over_diagnostic_border() {
-        let theme = Theme {
+    fn diagnostic_paints_over_input_portal_and_output_portal_over_diagnostic() {
+        let distinct = Theme {
             diagnostic_border: Color32::from_rgb(200, 30, 30),
             input_portal_border: Color32::from_rgb(200, 30, 200),
             input_portal_border_width: crate::theme::GridWidth::from_points(0.25)
                 .expect("0.25 is within 0..=1"),
             ..okabe_ito()
         };
-
-        let invalid = painted_in(operand(Token::Number, OperandState::Invalid), INPUT, &theme);
-
-        assert_eq!(invalid.border, theme.input_portal_border);
-        assert_eq!(invalid.border_width, 0.25);
+        for theme in [okabe_ito(), orcvs_light(), distinct] {
+            for token in [Token::Number, Token::Note] {
+                let invalid = operand(token, OperandState::Invalid);
+                let diagnostic = painted_in(invalid, PortalRoles::NONE, &theme);
+                assert_eq!(
+                    painted_in(invalid, INPUT, &theme),
+                    diagnostic,
+                    "{}: a read {token:?} Invalid operand lost its Diagnostic paint",
+                    theme.identity
+                );
+                for roles in [OUTPUT, BOTH] {
+                    let written = painted_in(invalid, roles, &theme);
+                    assert_eq!(
+                        written.foreground,
+                        diagnostic.foreground.blend(theme.output_portal_foreground),
+                        "{}: {roles:?} {token:?} Invalid operand did not draw Output Portal",
+                        theme.identity
+                    );
+                    assert_eq!(written, painted_in(invalid, OUTPUT, &theme));
+                }
+            }
+        }
     }
 
     ///

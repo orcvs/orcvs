@@ -178,7 +178,9 @@ added explicitly to this catalogue, never silently left as a second palette.
    Invalid foreground uses the Diagnostic channel over the declared role; a
    transparent Diagnostic channel reveals the declared role. Pending glyphs stay
    blank. Function, Comment, Bang and Ordinary use their respective properties.
-4. Portal channels take precedence over other non-Function facts, including
+4. Portal channels take precedence over other non-Function facts, with one
+   exception: Diagnostic paints over Input Portal, so an Invalid operand a
+   Cell only reads paints as if no Portal covered it. Output Portal paints over
    Diagnostic. One Portal's channels paint a Cell: Output Portal's when the
    Cell plays that role, otherwise Input Portal's; they do not composite
    over each other. A bound Function retains all its own paint inside a Portal. Bang

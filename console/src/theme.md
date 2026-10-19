@@ -483,8 +483,10 @@ simulated copy of the wide capture per dichromacy.
 
 Input Portal marks a Cell a Function reads. It is a Theme role with the same
 channels as Output Portal (`input_portal.foreground`, `.background`, `.border`
-and `.border.width`) and the same precedence: it paints over every other
-non-Function fact, Diagnostic included; a bound Function keeps all its own
+and `.border.width`) and the same precedence but one: it paints over every
+other non-Function fact except Diagnostic, so an Invalid operand a Function
+only reads keeps its Diagnostic paint, while Output Portal still paints over
+Diagnostic; a bound Function keeps all its own
 paint; a Bang keeps its glyph and takes the Input Portal background; the Cursor
 and Region keep their precedence over it. Where a Cell plays both roles, Output
 Portal's channels paint it and Input Portal's do not, so a Cell a Function both
