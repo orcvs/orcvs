@@ -203,6 +203,9 @@ macro_rules! style_catalogue {
                 InputPortalForeground(input_portal_foreground) => "input_portal.foreground",
                 InputPortalBackground(input_portal_background) => "input_portal.background",
                 InputPortalBorder(input_portal_border) => "input_portal.border",
+                LockedForeground(locked_foreground) => "locked.foreground",
+                LockedBackground(locked_background) => "locked.background",
+                LockedBorder(locked_border) => "locked.border",
                 GridBorder(grid_border) => "grid.border",
                 SectorSeam(sector_seam) => "sector.seam",
                 CursorBorder(cursor_border) => "cursor.border",
@@ -233,6 +236,7 @@ macro_rules! style_catalogue {
                 DiagnosticBorder(diagnostic_border_width) => "diagnostic.border.width",
                 OutputPortalBorder(output_portal_border_width) => "output_portal.border.width",
                 InputPortalBorder(input_portal_border_width) => "input_portal.border.width",
+                LockedBorder(locked_border_width) => "locked.border.width",
             }
             ChromeWidthKey {
                 PanelBorder(panel_border_width) => "panel.border.width",
@@ -317,6 +321,9 @@ pub(crate) enum ColorKey {
     InputPortalForeground,
     InputPortalBackground,
     InputPortalBorder,
+    LockedForeground,
+    LockedBackground,
+    LockedBorder,
     GridBorder,
     SectorSeam,
     CursorBorder,
@@ -360,6 +367,7 @@ pub(crate) enum GridWidthKey {
     DiagnosticBorder,
     OutputPortalBorder,
     InputPortalBorder,
+    LockedBorder,
 }
 
 ///
@@ -437,6 +445,9 @@ pub struct Theme {
     pub(crate) input_portal_foreground: Color32,
     pub(crate) input_portal_background: Color32,
     pub(crate) input_portal_border: Color32,
+    pub(crate) locked_foreground: Color32,
+    pub(crate) locked_background: Color32,
+    pub(crate) locked_border: Color32,
 
     pub(crate) grid_border: Color32,
     pub(crate) sector_seam: Color32,
@@ -475,6 +486,7 @@ pub struct Theme {
     pub(crate) diagnostic_border_width: GridWidth,
     pub(crate) output_portal_border_width: GridWidth,
     pub(crate) input_portal_border_width: GridWidth,
+    pub(crate) locked_border_width: GridWidth,
 
     pub(crate) panel_border_width: ChromeWidth,
     pub(crate) selection_border_width: ChromeWidth,
@@ -535,6 +547,9 @@ impl Theme {
             ColorKey::InputPortalForeground => &mut self.input_portal_foreground,
             ColorKey::InputPortalBackground => &mut self.input_portal_background,
             ColorKey::InputPortalBorder => &mut self.input_portal_border,
+            ColorKey::LockedForeground => &mut self.locked_foreground,
+            ColorKey::LockedBackground => &mut self.locked_background,
+            ColorKey::LockedBorder => &mut self.locked_border,
             ColorKey::GridBorder => &mut self.grid_border,
             ColorKey::SectorSeam => &mut self.sector_seam,
             ColorKey::CursorBorder => &mut self.cursor_border,
@@ -568,6 +583,7 @@ impl Theme {
             GridWidthKey::DiagnosticBorder => self.diagnostic_border_width = value,
             GridWidthKey::OutputPortalBorder => self.output_portal_border_width = value,
             GridWidthKey::InputPortalBorder => self.input_portal_border_width = value,
+            GridWidthKey::LockedBorder => self.locked_border_width = value,
         }
     }
 
@@ -624,6 +640,9 @@ impl Theme {
             ColorKey::InputPortalForeground => &self.input_portal_foreground,
             ColorKey::InputPortalBackground => &self.input_portal_background,
             ColorKey::InputPortalBorder => &self.input_portal_border,
+            ColorKey::LockedForeground => &self.locked_foreground,
+            ColorKey::LockedBackground => &self.locked_background,
+            ColorKey::LockedBorder => &self.locked_border,
             ColorKey::GridBorder => &self.grid_border,
             ColorKey::SectorSeam => &self.sector_seam,
             ColorKey::CursorBorder => &self.cursor_border,
@@ -657,6 +676,7 @@ impl Theme {
             GridWidthKey::DiagnosticBorder => self.diagnostic_border_width,
             GridWidthKey::OutputPortalBorder => self.output_portal_border_width,
             GridWidthKey::InputPortalBorder => self.input_portal_border_width,
+            GridWidthKey::LockedBorder => self.locked_border_width,
         }
     }
 
@@ -822,6 +842,9 @@ pub fn okabe_ito() -> Theme {
         input_portal_foreground: straight_rgba(0xAC_77_FA_FF),
         input_portal_background: straight_rgba(0xAC_77_FA_1A),
         input_portal_border: straight_rgba(0x00_00_00_00),
+        locked_foreground: straight_rgba(0x00_00_00_00),
+        locked_background: straight_rgba(0x00_00_00_CC),
+        locked_border: straight_rgba(0xEA_EB_E5_80),
 
         grid_border: straight_rgba(0x1D_37_31_48),
         sector_seam: straight_rgba(0x37_65_56_6E),
@@ -857,6 +880,7 @@ pub fn okabe_ito() -> Theme {
         diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -944,6 +968,9 @@ pub fn orcvs_light() -> Theme {
         input_portal_foreground: straight_rgba(0x64_07_AF_FF),
         input_portal_background: straight_rgba(0x64_07_AF_1A),
         input_portal_border: straight_rgba(0x00_00_00_00),
+        locked_foreground: straight_rgba(0x00_00_00_00),
+        locked_background: straight_rgba(0xFA_FC_FB_CC),
+        locked_border: straight_rgba(0x30_3F_3B_80),
 
         grid_border: straight_rgba(0x34_5B_50_40),
         sector_seam: straight_rgba(0x26_68_54_70),
@@ -979,6 +1006,7 @@ pub fn orcvs_light() -> Theme {
         diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -1282,6 +1310,9 @@ mod tests {
         assert_eq!(theme.input_portal_foreground, straight_rgba(0xAC_77_FA_FF));
         assert_eq!(theme.input_portal_background, straight_rgba(0xAC_77_FA_1A));
         assert_eq!(theme.input_portal_border, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.locked_foreground, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.locked_background, straight_rgba(0x00_00_00_CC));
+        assert_eq!(theme.locked_border, straight_rgba(0xEA_EB_E5_80));
 
         assert_eq!(theme.grid_border, straight_rgba(0x1D_37_31_48));
         assert_eq!(theme.sector_seam, straight_rgba(0x37_65_56_6E));
@@ -1317,6 +1348,7 @@ mod tests {
         assert_eq!(theme.diagnostic_border_width.points(), 0.5);
         assert_eq!(theme.output_portal_border_width.points(), 0.5);
         assert_eq!(theme.input_portal_border_width.points(), 0.5);
+        assert_eq!(theme.locked_border_width.points(), 0.5);
         assert_eq!(theme.panel_border_width.points(), 1.0);
         assert_eq!(theme.selection_border_width.points(), 1.0);
         assert_eq!(theme.widget_border_width.points(), 1.0);
@@ -1446,6 +1478,9 @@ mod tests {
         assert_eq!(theme.input_portal_foreground, straight_rgba(0x64_07_AF_FF));
         assert_eq!(theme.input_portal_background, straight_rgba(0x64_07_AF_1A));
         assert_eq!(theme.input_portal_border, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.locked_foreground, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.locked_background, straight_rgba(0xFA_FC_FB_CC));
+        assert_eq!(theme.locked_border, straight_rgba(0x30_3F_3B_80));
 
         assert_eq!(theme.grid_border, straight_rgba(0x34_5B_50_40));
         assert_eq!(theme.sector_seam, straight_rgba(0x26_68_54_70));
@@ -1484,6 +1519,7 @@ mod tests {
         assert_eq!(theme.diagnostic_border_width.points(), 0.5);
         assert_eq!(theme.output_portal_border_width.points(), 0.5);
         assert_eq!(theme.input_portal_border_width.points(), 0.5);
+        assert_eq!(theme.locked_border_width.points(), 0.5);
         assert_eq!(theme.panel_border_width.points(), 1.0);
         assert_eq!(theme.selection_border_width.points(), 1.0);
         assert_eq!(theme.widget_border_width.points(), 1.0);
@@ -2061,6 +2097,9 @@ mod tests {
             ColorKey::InputPortalForeground,
             ColorKey::InputPortalBackground,
             ColorKey::InputPortalBorder,
+            ColorKey::LockedForeground,
+            ColorKey::LockedBackground,
+            ColorKey::LockedBorder,
             ColorKey::GridBorder,
             ColorKey::SectorSeam,
             ColorKey::CursorBorder,
@@ -2084,8 +2123,8 @@ mod tests {
         ];
         assert_eq!(
             keys.len(),
-            45,
-            "the catalogue has 45 non-optional colour keys"
+            48,
+            "the catalogue has 48 non-optional colour keys"
         );
 
         for &key in &keys {
@@ -2134,11 +2173,12 @@ mod tests {
             GridWidthKey::DiagnosticBorder,
             GridWidthKey::OutputPortalBorder,
             GridWidthKey::InputPortalBorder,
+            GridWidthKey::LockedBorder,
         ];
         assert_eq!(
             grid_keys.len(),
-            8,
-            "the catalogue has 8 Grid-bounded width keys"
+            9,
+            "the catalogue has 9 Grid-bounded width keys"
         );
         for &key in &grid_keys {
             let document = ThemeDocument {
@@ -2224,6 +2264,9 @@ mod tests {
             (ColorKey::InputPortalForeground, "input_portal.foreground"),
             (ColorKey::InputPortalBackground, "input_portal.background"),
             (ColorKey::InputPortalBorder, "input_portal.border"),
+            (ColorKey::LockedForeground, "locked.foreground"),
+            (ColorKey::LockedBackground, "locked.background"),
+            (ColorKey::LockedBorder, "locked.border"),
             (ColorKey::GridBorder, "grid.border"),
             (ColorKey::SectorSeam, "sector.seam"),
             (ColorKey::CursorBorder, "cursor.border"),
@@ -2245,7 +2288,7 @@ mod tests {
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
         ];
-        assert_eq!(catalogue.len(), 45);
+        assert_eq!(catalogue.len(), 48);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }
@@ -2273,6 +2316,7 @@ mod tests {
             GridWidthKey::InputPortalBorder.name(),
             "input_portal.border.width"
         );
+        assert_eq!(GridWidthKey::LockedBorder.name(), "locked.border.width");
         assert_eq!(ChromeWidthKey::PanelBorder.name(), "panel.border.width");
         assert_eq!(
             ChromeWidthKey::SelectionBorder.name(),

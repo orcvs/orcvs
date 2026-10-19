@@ -126,6 +126,12 @@ and a benchmark measures the derive with a record present.
   playhead) and a declared read share it.
 - Admitted writes, declared or selected, paint with the existing Output Portal
   channel. Before any Tick, the static Output Portal highlight paints as today.
+- A lock that withheld a root (`LockVerdict::Locked`) marks the two Cells of
+  that root's Function with a third role, **Locked**, which has its own Theme
+  channels (`locked.*`) in both built-ins and in the contrast checks. Orca
+  colours the Cells an operator locks; the Cells a Halt locks are the root's
+  own spelling. A missed lock, an ordering defect, a site holding no root and
+  a lock with nothing to lock mark nothing (issue `07`).
 - Refused writes, refused bundle parts and off-Grid sites stay in the record
   and do not paint.
 - A `Current` record paints every admitted read and write. A `Retained` record
@@ -136,14 +142,25 @@ and a benchmark measures the derive with a record present.
   descendant of its owner, an anchor in the owner's subtree other than its
   own, to have read no Cell an edit has written since: a nested read answers
   an operand with Cells outside the subtree. A `Declared` entry's
-  place cannot move, so a nested read does not put it out (ADR 0077).
+  place cannot move, so a nested read does not put it out (ADR 0077). A
+  Halt's lock site is a fixed offset, so a lock is retained as a `Declared`
+  entry that also needs no edit to have written the Cells it marks: it stays
+  marked until an edit reaches the Halt's own Cells or the locked root's own
+  spelling, and an edit to that root's operands leaves it marked. Current or
+  retained, a lock marks only where an Expression of the displayed revision
+  begins with a Function at the locked anchor, and marks that Function's
+  claim; an edit to what activated the Halt leaves it marked (ADR 0077).
 - Precedence is the existing schema's (`.scratch/theming/schema.md`,
   composition steps 4 and 5): Portal channels over every other non-Function
   fact, Diagnostic included, as `console/src/style.rs` already pins. Between
   Portal channels, Output Portal wins over Input Portal. A bound Function keeps
   all its own paint inside either Portal. A Bang keeps its glyph foreground and
-  takes the Portal background. Cursor and Region keep their existing precedence
-  over every Portal channel.
+  takes the Portal background. Locked paints below both Portals, so a locked
+  Cell a Function reads or writes paints as that read or write would, as Orca
+  draws a port over a locked Cell, and a locked Function's spelling there keeps
+  its own paint and shows no lock; Locked paints a bound Function and a Bang, the only Cells a lock
+  marks. Cursor and Region keep their existing precedence over every Portal
+  channel and over Locked.
 
 ### 7. Vocabulary
 
@@ -165,6 +182,9 @@ records the record, its event meaning and its freshness contract.
 - Overlapping read and write roles, empty read Cells, and the existing
   precedence paint as section 6 states.
 - The tracker example lights each voice's `&v` read as it steps.
+- A Halt's locked root is marked Locked on a `Current` record, stays marked
+  after an edit outside the Halt, and is put out by an edit to the Halt until
+  the next Tick.
 
 ## Out of scope
 

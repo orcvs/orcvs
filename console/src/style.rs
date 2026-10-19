@@ -126,7 +126,7 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 /// An unselected Cell's visuals depend only on its Source Paint fact and the
 /// Portal that paints it, [`painting_portal`]'s answer (`selected`,
 /// `cursor_visible` and the Cursor fill are all inert when `selected` is
-/// false), so the 10 facts × 3 Portal answers are every answer the walk can
+/// false), so the 10 facts × 4 Portal answers are every answer the walk can
 /// need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
@@ -147,8 +147,8 @@ pub(crate) struct SourcePaintVisuals<'a> {
     entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS],
 }
 
-/// How many answers [`painting_portal`] gives: none, Input or Output.
-const PORTAL_ANSWERS: usize = 3;
+/// How many answers [`painting_portal`] gives: none, Input, Output or Locked.
+const PORTAL_ANSWERS: usize = 4;
 
 impl<'a> SourcePaintVisuals<'a> {
     pub(crate) fn new(theme: &'a Theme) -> Self {
@@ -172,6 +172,7 @@ impl<'a> SourcePaintVisuals<'a> {
             None => 0,
             Some(PortalRole::Input) => 1,
             Some(PortalRole::Output) => 2,
+            Some(PortalRole::Locked) => 3,
         };
         let index = fact_index(paint) * PORTAL_ANSWERS + portal;
         match self.entries[index] {
@@ -259,11 +260,8 @@ fn ordinary_border(
             ..
         }
     );
-    // "A bound Function retains all its own paint inside a Portal" — the
-    // same bypass `role_and_portal` applies to foreground and background.
-    let portal = portal
-        .filter(|_| paint != SourcePaint::Function)
-        .map(|role| PortalChannels::of(role, theme));
+    // The same overlay `role_and_portal` composites the background with.
+    let portal = fill_overlay(paint, portal).map(|role| PortalChannels::of(role, theme));
 
     match (invalid_operand, portal) {
         (false, None) => (theme.grid_border, theme.grid_border_width.points()),
@@ -286,22 +284,95 @@ fn ordinary_border(
 }
 
 ///
-/// The Portal whose channels paint a Cell playing `portal_roles`: Output
-/// Portal over Input Portal, so a Cell a Function both reads and writes
-/// shows the write.
+/// Every set of Portal roles a Cell can play: none, Input Portal alone,
+/// Output Portal alone, and both, each with and without Locked.
+///
+pub(crate) const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
+    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
+    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
+    const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
+    [
+        PortalRoles::NONE,
+        INPUT,
+        OUTPUT,
+        BOTH,
+        PortalRoles::NONE.with(PortalRole::Locked),
+        INPUT.with(PortalRole::Locked),
+        OUTPUT.with(PortalRole::Locked),
+        BOTH.with(PortalRole::Locked),
+    ]
+};
+
+///
+/// The role whose channels paint a Cell playing `portal_roles`: Output
+/// Portal over Input Portal over Locked, so a Cell a Function both reads and
+/// writes shows the write, and a locked Cell a Function reads or writes
+/// paints as that read or write would, as Orca draws a port over a locked
+/// Cell. A locked Function's own spelling keeps its own paint inside a
+/// Portal, so the lock does not show on a Cell a Function also reads or
+/// writes.
 ///
 fn painting_portal(portal_roles: PortalRoles) -> Option<PortalRole> {
     if portal_roles.contains(PortalRole::Output) {
         Some(PortalRole::Output)
     } else if portal_roles.contains(PortalRole::Input) {
         Some(PortalRole::Input)
+    } else if portal_roles.contains(PortalRole::Locked) {
+        Some(PortalRole::Locked)
     } else {
         None
     }
 }
 
 ///
-/// One Portal role's Theme channels: `output_portal.*` or `input_portal.*`.
+/// The role whose channels composite over the fill and border of a Cell
+/// carrying `paint`, which [`painting_portal`] answered `portal` for.
+///
+/// A bound Function keeps all its own paint inside a Portal, so a reader
+/// can find the Function standing on a Cell. Locked paints it all the same,
+/// because a lock marks nothing but a Function's own spelling, a Bang
+/// Function's among them.
+///
+fn fill_overlay(paint: SourcePaint, portal: Option<PortalRole>) -> Option<PortalRole> {
+    portal.filter(|role| *role == PortalRole::Locked || paint != SourcePaint::Function)
+}
+
+///
+/// The role whose foreground shows over the glyph of a Cell carrying `paint`,
+/// which [`painting_portal`] answered `portal` for, or `None` where the
+/// fact's own foreground shows alone: [`fill_overlay`]'s answer, except that
+/// a Bang keeps its glyph colour inside a Portal, because a Bang is what a
+/// Producer emits rather than a value it writes, and except where that
+/// role's foreground is transparent, which composites to the fact's own.
+///
+fn glyph_overlay(
+    paint: SourcePaint,
+    portal: Option<PortalRole>,
+    theme: &Theme,
+) -> Option<PortalRole> {
+    fill_overlay(paint, portal)
+        .filter(|role| *role == PortalRole::Locked || paint != SourcePaint::Bang)
+        .filter(|role| PortalChannels::of(*role, theme).foreground != Color32::TRANSPARENT)
+}
+
+///
+/// The role whose foreground shows over the glyph of a Cell carrying `paint`
+/// and playing `portal_roles`, or `None` where the fact's own foreground
+/// shows alone: the decision [`role_and_portal`] paints the glyph with, for
+/// a check that names the channel a glyph is drawn in.
+///
+#[cfg(test)]
+pub(crate) fn glyph_role(
+    paint: SourcePaint,
+    portal_roles: PortalRoles,
+    theme: &Theme,
+) -> Option<PortalRole> {
+    glyph_overlay(paint, painting_portal(portal_roles), theme)
+}
+
+///
+/// One Portal role's Theme channels: `output_portal.*`, `input_portal.*` or
+/// `locked.*`.
 ///
 struct PortalChannels {
     foreground: Color32,
@@ -324,6 +395,12 @@ impl PortalChannels {
                 background: theme.input_portal_background,
                 border: theme.input_portal_border,
                 border_width: theme.input_portal_border_width.points(),
+            },
+            PortalRole::Locked => Self {
+                foreground: theme.locked_foreground,
+                background: theme.locked_background,
+                border: theme.locked_border,
+                border_width: theme.locked_border_width.points(),
             },
         }
     }
@@ -433,9 +510,10 @@ pub(crate) fn cell_background(
 /// | any non-Function, Portal | above ▸ Portal foreground | above ▸ Portal background |
 /// | Bang, Portal | `source.bang` (no blend) | `source.bang.background` ▸ Portal background |
 /// | Function, Portal | `source.function` (bypassed) | `source.function.background` (bypassed) |
+/// | any fact, Locked | above ▸ `locked.foreground` | above ▸ `locked.background` |
 ///
 /// "Portal" is the painting Portal's channels, `output_portal.*` or
-/// `input_portal.*` (see the next section).
+/// `input_portal.*`, and "Locked" is `locked.*` (see the next section).
 ///
 /// "▸" is [`Color32::blend`]: the right side composited over the left, so an
 /// opaque right side replaces the left outright and a transparent one leaves
@@ -452,8 +530,16 @@ pub(crate) fn cell_background(
 ///
 /// `portal` is [`painting_portal`]'s answer from `RenderCell::portal_roles()`:
 /// Output Portal when the Cell plays that role, else Input Portal when it
-/// plays that one. Only one Portal's channels paint a Cell; Output Portal's
-/// win outright rather than compositing over Input Portal's.
+/// plays that one, else Locked when it plays that one. Only one role's
+/// channels paint a Cell; the first of them wins outright rather than
+/// compositing over the others'.
+///
+/// Locked paints every fact, a bound Function and a Bang included, because
+/// the Cells a lock marks are always the two Cells of the Function of the
+/// Expression root it withheld, a Bang Function's among them: a bypass for
+/// either would leave a lock nothing to paint. Where a read or a write also
+/// covers those Cells, the Portal answers instead, and a Function keeps its
+/// own paint inside it, so neither the Portal nor the lock shows there.
 ///
 /// The Portal is read first, because the Cell it names is a Portal Cell
 /// whatever else claims it — a written answer, an empty Cell still waiting for
@@ -520,23 +606,12 @@ fn role_and_portal(
     theme: &Theme,
 ) -> (Color32, Color32) {
     let (foreground, background) = role(paint, theme);
-
-    if paint == SourcePaint::Function {
-        // "A bound Function retains all its own paint inside a Portal."
-        return (foreground, background);
-    }
-    if let Some(role) = portal {
-        let portal = PortalChannels::of(role, theme);
-        let bang = paint == SourcePaint::Bang;
-        // "Bang retains its glyph foreground" — no blend at all, not even
-        // with an opaque Portal foreground.
-        let foreground = if bang {
-            foreground
-        } else {
-            blend_channel(foreground, portal.foreground)
-        };
-        return (foreground, blend_channel(background, portal.background));
-    }
+    let foreground = glyph_overlay(paint, portal, theme).map_or(foreground, |role| {
+        blend_channel(foreground, PortalChannels::of(role, theme).foreground)
+    });
+    let background = fill_overlay(paint, portal).map_or(background, |role| {
+        blend_channel(background, PortalChannels::of(role, theme).background)
+    });
     (foreground, background)
 }
 
@@ -818,7 +893,7 @@ pub(crate) fn install(ctx: &egui::Context, dark: &Theme, light: &Theme) {
 mod tests {
 
     use super::{
-        CellVisuals, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_background,
+        CellVisuals, PORTAL_ROLE_SETS, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_background,
         cell_visuals_with_cursor_colour, compose_cell_fill, fact_index, install, sector_line,
         style,
     };
@@ -836,8 +911,8 @@ mod tests {
     /// The roles of a Cell a Function both reads and writes.
     const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
 
-    /// Every Portal role set a Cell can carry.
-    const ALL_PORTAL_ROLES: [PortalRoles; 4] = [PortalRoles::NONE, INPUT, OUTPUT, BOTH];
+    /// The roles of a Cell only a lock marks.
+    const LOCKED: PortalRoles = PortalRoles::NONE.with(PortalRole::Locked);
 
     /// [`OUTPUT`] when `output_portal` is true, and no role otherwise.
     fn output_portal_roles(output_portal: bool) -> PortalRoles {
@@ -879,13 +954,16 @@ mod tests {
             input_portal_foreground: Color32::from_rgba_unmultiplied(170, 120, 250, 110),
             input_portal_background: Color32::from_rgba_unmultiplied(30, 20, 60, 70),
             input_portal_border: Color32::from_rgba_unmultiplied(170, 120, 250, 40),
+            locked_foreground: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+            locked_background: Color32::from_rgba_unmultiplied(120, 120, 120, 50),
+            locked_border: Color32::from_rgba_unmultiplied(120, 120, 120, 30),
             ..okabe_ito()
         };
 
         for theme in [okabe_ito(), translucent] {
             let mut table = SourcePaintVisuals::new(&theme);
             for fact in SOURCE_PAINT_FACTS {
-                for roles in ALL_PORTAL_ROLES {
+                for roles in PORTAL_ROLE_SETS {
                     assert_eq!(
                         table.unselected(fact, roles),
                         cell_visuals_with_cursor_colour(
@@ -2376,8 +2454,8 @@ mod tests {
     }
 
     ///
-    /// A bound Function keeps all its own paint whichever Portal roles its
-    /// Cell plays, borders included.
+    /// A bound Function keeps all its own paint whichever Portal it reads or
+    /// writes through, borders included.
     ///
     #[test]
     fn a_bound_function_spelling_wins_over_every_portal_role() {
@@ -2454,6 +2532,132 @@ mod tests {
         assert_ne!(both.background, input.background);
         assert_ne!(both.border, input.border);
         assert_eq!(both.border_width, 0.75);
+    }
+
+    // === Locked ===
+
+    ///
+    /// A lock marks a Function's own spelling, so Locked paints a bound
+    /// Function and a Bang in its own channels on every channel, composited
+    /// over the fact's own paint. The fixture gives Locked a translucent
+    /// value on every channel, so a bypass or an outright replacement would
+    /// show.
+    ///
+    #[test]
+    fn locked_paints_a_function_and_a_bang_over_their_own_paint() {
+        let theme = Theme {
+            locked_foreground: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+            locked_background: Color32::from_rgba_unmultiplied(120, 120, 120, 50),
+            locked_border: Color32::from_rgba_unmultiplied(120, 120, 120, 90),
+            locked_border_width: crate::theme::GridWidth::from_points(0.25)
+                .expect("0.25 is within 0..=1"),
+            ..okabe_ito()
+        };
+
+        for (paint, foreground, background) in [
+            (
+                SourcePaint::Function,
+                theme.source_function,
+                theme.source_function_background,
+            ),
+            (
+                SourcePaint::Bang,
+                theme.source_bang,
+                theme.source_bang_background,
+            ),
+        ] {
+            let locked = painted_in(paint, LOCKED, &theme);
+            assert_eq!(
+                locked.foreground,
+                foreground.blend(theme.locked_foreground),
+                "{paint:?}"
+            );
+            assert_eq!(
+                locked.background,
+                Some(
+                    theme
+                        .cell_background
+                        .blend(background.blend(theme.locked_background))
+                ),
+                "{paint:?}"
+            );
+            assert_eq!(
+                locked.border,
+                theme.grid_border.blend(theme.locked_border),
+                "{paint:?}"
+            );
+            assert_eq!(locked.border_width, 0.25, "{paint:?}");
+        }
+    }
+
+    ///
+    /// Both built-ins draw a locked Function and a locked Bang on the Source
+    /// background, washing out a Function's own tint, frame each Cell, and
+    /// keep the glyph colour, so a locked root still reads as what it is.
+    ///
+    #[test]
+    fn the_built_ins_wash_out_and_frame_a_locked_function_and_keep_its_glyph() {
+        for theme in [okabe_ito(), orcvs_light()] {
+            for paint in [SourcePaint::Function, SourcePaint::Bang] {
+                let plain = painted_in(paint, PortalRoles::NONE, &theme);
+                let locked = painted_in(paint, LOCKED, &theme);
+                assert_eq!(locked.foreground, plain.foreground, "{}", theme.identity);
+                assert_ne!(locked.border, plain.border, "{}", theme.identity);
+            }
+            let plain = painted_in(SourcePaint::Function, PortalRoles::NONE, &theme);
+            let locked = painted_in(SourcePaint::Function, LOCKED, &theme);
+            assert_eq!(
+                locked.background,
+                Some(
+                    theme.cell_background.blend(
+                        theme
+                            .source_function_background
+                            .blend(theme.locked_background)
+                    )
+                ),
+                "{}",
+                theme.identity
+            );
+            assert_ne!(locked.background, plain.background, "{}", theme.identity);
+        }
+    }
+
+    ///
+    /// A Cell a lock marks that a Function also reads or writes paints as
+    /// that read or write alone, for every fact, as Orca draws a port over a
+    /// locked Cell. A locked Function's own spelling therefore keeps its own
+    /// paint there, as inside any Portal, and shows no lock.
+    ///
+    #[test]
+    fn a_read_or_a_write_paints_a_locked_cell_as_an_unlocked_one() {
+        let theme = Theme {
+            locked_foreground: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+            locked_background: Color32::from_rgba_unmultiplied(120, 120, 120, 50),
+            locked_border: Color32::from_rgba_unmultiplied(120, 120, 120, 90),
+            ..okabe_ito()
+        };
+
+        for fact in SOURCE_PAINT_FACTS {
+            for roles in [INPUT, OUTPUT, BOTH] {
+                assert_eq!(
+                    painted_in(fact, roles.with(PortalRole::Locked), &theme),
+                    painted_in(fact, roles, &theme),
+                    "{fact:?}, {roles:?}"
+                );
+            }
+        }
+        let function = painted_in(SourcePaint::Function, PortalRoles::NONE, &theme);
+        for roles in [INPUT, OUTPUT, BOTH] {
+            assert_eq!(
+                painted_in(
+                    SourcePaint::Function,
+                    roles.with(PortalRole::Locked),
+                    &theme
+                ),
+                function,
+                "{roles:?}"
+            );
+        }
     }
 
     ///

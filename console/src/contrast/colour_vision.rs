@@ -21,7 +21,8 @@ use std::fmt;
 use egui::Color32;
 use orcvs::render_frame::{PortalRole, PortalRoles};
 
-use super::{CursorPlacement, PORTAL_ROLE_SETS, Role, painted};
+use super::{CursorPlacement, Role, painted, reachable_portal_sets};
+use crate::style;
 use crate::theme::Theme;
 
 ///
@@ -103,6 +104,7 @@ enum GlyphChannel {
     Diagnostic,
     OutputPortal,
     InputPortal,
+    Locked,
 }
 
 impl fmt::Display for GlyphChannel {
@@ -117,6 +119,7 @@ impl fmt::Display for GlyphChannel {
             Self::Diagnostic => "Diagnostic",
             Self::OutputPortal => "Output Portal",
             Self::InputPortal => "Input Portal",
+            Self::Locked => "Locked",
         })
     }
 }
@@ -196,7 +199,7 @@ fn distinguish(theme: &Theme) -> ConfusionReport {
             .source_paint_fact()
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for placement in CursorPlacement::ALL {
-            for portals in PORTAL_ROLE_SETS {
+            for portals in reachable_portal_sets(fact) {
                 let Some(channel) = role.glyph_channel(portals, theme) else {
                     continue;
                 };
@@ -430,7 +433,10 @@ impl Role {
     /// every Invalid operand draws `diagnostic.foreground` whatever Token
     /// declared the slot, and every non-Function, non-Bang Cell inside a
     /// Portal draws that Portal's foreground whatever it would
-    /// otherwise have been — Output Portal's when the Cell plays both roles. Those collapses are the painting rules working;
+    /// otherwise have been — Output Portal's when the Cell plays both roles.
+    /// A Cell only a lock marks draws `locked.foreground` whatever it would
+    /// otherwise have been, a Function and a Bang included. Those collapses
+    /// are the painting rules working;
     /// comparing two states that share a channel would measure a distinction
     /// the console never intended to draw.
     ///
@@ -440,37 +446,33 @@ impl Role {
     /// alone — so the glyph is measured as the channel it reveals.
     ///
     fn glyph_channel(self, portals: PortalRoles, theme: &Theme) -> Option<GlyphChannel> {
-        let output = portals.contains(PortalRole::Output);
-        let portal = if output {
-            (theme.output_portal_foreground != Color32::TRANSPARENT)
-                .then_some(GlyphChannel::OutputPortal)
-        } else if portals.contains(PortalRole::Input) {
-            (theme.input_portal_foreground != Color32::TRANSPARENT)
-                .then_some(GlyphChannel::InputPortal)
-        } else {
-            None
-        };
+        let fact = self.source_paint_fact()?;
+        let overlay = style::glyph_role(fact, portals, theme);
         let diagnostic = theme.diagnostic_foreground != Color32::TRANSPARENT;
-        match self {
-            // "A bound Function retains all its own paint inside a Portal",
-            // and "Bang retains its glyph foreground" — both answered before
-            // the Portal, exactly as `style::role_and_portal` bypasses them.
-            Self::Function => Some(GlyphChannel::Function),
-            Self::Bang => Some(GlyphChannel::Bang),
-            Self::Text
-            | Self::TextMuted
-            | Self::TextActive
-            | Self::SelectionBorder
-            | Self::Error
-            | Self::Warning
-            | Self::Link => None,
-            _ if portal.is_some() => portal,
-            Self::NumberInvalid | Self::NoteInvalid if diagnostic => Some(GlyphChannel::Diagnostic),
-            Self::Ordinary => Some(GlyphChannel::Ordinary),
-            Self::Comment => Some(GlyphChannel::Comment),
-            Self::NumberValid | Self::NumberInvalid => Some(GlyphChannel::Number),
-            Self::NoteValid | Self::NoteInvalid => Some(GlyphChannel::Note),
-        }
+        Some(match (overlay, self) {
+            (Some(PortalRole::Output), _) => GlyphChannel::OutputPortal,
+            (Some(PortalRole::Input), _) => GlyphChannel::InputPortal,
+            (Some(PortalRole::Locked), _) => GlyphChannel::Locked,
+            (None, Self::Function) => GlyphChannel::Function,
+            (None, Self::Bang) => GlyphChannel::Bang,
+            (None, Self::NumberInvalid | Self::NoteInvalid) if diagnostic => {
+                GlyphChannel::Diagnostic
+            }
+            (None, Self::Ordinary) => GlyphChannel::Ordinary,
+            (None, Self::Comment) => GlyphChannel::Comment,
+            (None, Self::NumberValid | Self::NumberInvalid) => GlyphChannel::Number,
+            (None, Self::NoteValid | Self::NoteInvalid) => GlyphChannel::Note,
+            (
+                None,
+                Self::Text
+                | Self::TextMuted
+                | Self::TextActive
+                | Self::SelectionBorder
+                | Self::Error
+                | Self::Warning
+                | Self::Link,
+            ) => unreachable!("a chrome role has no Source Paint fact"),
+        })
     }
 }
 

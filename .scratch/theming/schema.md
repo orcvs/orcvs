@@ -73,6 +73,9 @@ property or production test seam is introduced.
 | `input_portal.foreground` | `#AC77FA` |
 | `input_portal.background` | `#AC77FA1A` |
 | `input_portal.border` | `#00000000` |
+| `locked.foreground` | `#00000000` |
+| `locked.background` | `#000000CC` |
+| `locked.border` | `#EAEBE580` |
 | `grid.border` | `#1D373148` |
 | `sector.seam` | `#3765566E` |
 | `cursor.border` | `#EAEBE5` |
@@ -106,6 +109,7 @@ property or production test seam is introduced.
 | `diagnostic.border.width` | 0.5 | 0–1 |
 | `output_portal.border.width` | 0.5 | 0–1 |
 | `input_portal.border.width` | 0.5 | 0–1 |
+| `locked.border.width` | 0.5 | 0–1 |
 | `panel.border.width` | 1 | 0–2 |
 | `selection.border.width` | 1 | 0–2 |
 | `widget.border.width` | 1 | 0–2 |
@@ -183,7 +187,10 @@ added explicitly to this catalogue, never silently left as a second palette.
    Cell plays that role, otherwise Input Portal's; they do not composite
    over each other. A bound Function retains all its own paint inside a Portal. Bang
    retains its glyph foreground and takes Portal background. Transparent Portal
-   channels reveal the underlying role under these fixed exceptions. Border
+   channels reveal the underlying role under these fixed exceptions. Locked's
+   channels paint a Cell that plays no Portal role and is marked by a lock, and
+   compose over every fact, a bound Function and a Bang included, since a lock
+   marks only the Function spelling of the root it withheld. Border
    channels use the same fact priority and compose over the ordinary Grid border.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
    suppresses ordinary role fill in favour of its optional Cursor fill. In a

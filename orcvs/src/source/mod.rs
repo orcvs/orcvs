@@ -210,9 +210,18 @@ impl SourceRevision {
     /// written a Cell of `span`. `false` where no Tick has committed.
     ///
     pub(crate) fn span_edited(&self, span: Span) -> bool {
+        self.cells_edited(span.range())
+    }
+
+    ///
+    /// Whether an edit since the last committed Tick, up to this revision, has
+    /// written a Cell whose index `cells` holds. `false` where no Tick has
+    /// committed.
+    ///
+    pub(crate) fn cells_edited(&self, cells: std::ops::Range<usize>) -> bool {
         self.tick_portals
             .as_ref()
-            .is_some_and(|committed| committed.edited.any_in(span.range()))
+            .is_some_and(|committed| committed.edited.any_in(cells))
     }
 }
 

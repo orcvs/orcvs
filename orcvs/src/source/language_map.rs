@@ -209,7 +209,7 @@ impl Span {
 
     /// The existing endpoints as a half-open range for Source slicing and
     /// relationship lookup. This does not resolve or revalidate geometry.
-    pub(super) fn range(self) -> std::ops::Range<usize> {
+    pub(crate) fn range(self) -> std::ops::Range<usize> {
         self.start.get()..self.end.get() + 1
     }
 
