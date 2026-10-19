@@ -48,14 +48,15 @@ until the next Tick.
 voice painting where its last Tick read. Each revision carries the Cells edits
 have written since the commit (`EditedCells`, one bit per Cell), and a retained
 entry paints only while its owner stands and none of those Cells fall in the
-subtree the entry recorded, so an edit elsewhere in the Expression leaves it lit. Writing back what stood there still counts as an edit. A Read nested in
-an operand answers a value from Cells outside the Expression, so a `Selected`
-entry also goes out when a read recorded by a strict descendant of its owner
-read an edited Cell. Each `PortalUse` carries the Cells its owner's subtree
-holds, and a descendant is an entry anchored in them other than the owner: that
-covers a Function between two Reads that made no access, which a recorded
-parent anchor would not. A `Declared` entry and a sibling Read in the same
-Expression stay lit, as does a Read whose own Cells were edited. The Render
-Frame marks the edited reads' anchors in the storage of the Output Portal
-highlight it has already folded, so the fold still allocates nothing. ADR 0077,
-spec section 6 and `CONTEXT.md` state the rule.
+subtree the entry recorded, so an edit elsewhere in the Expression leaves it
+lit. Writing back what stood there still counts as an edit. A Read nested in an
+operand answers a value from Cells outside the Expression, so a `Selected` entry
+also goes out when a read recorded by a strict descendant of its owner read an
+edited Cell. Each `PortalUse` carries the Cells its owner's subtree holds, and a
+descendant is an entry anchored in them other than the owner: that covers a
+Function between two Reads that made no access, which a recorded parent anchor
+would not. A `Declared` entry and a sibling Read in the same Expression stay
+lit, as does a Read whose own Cells were edited. The Render Frame marks the
+edited reads' anchors in the storage of the Output Portal highlight it has
+already folded, so the fold still allocates nothing. ADR 0077, spec section 6
+and `CONTEXT.md` state the rule.

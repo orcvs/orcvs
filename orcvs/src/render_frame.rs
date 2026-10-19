@@ -241,18 +241,21 @@ impl RenderFrame {
             // Only a retained record has edited reads. The highlight is in the
             // Cells now, so its storage marks the anchor of each recorded read
             // an edit has written a Cell of, before any entry asks whether one
-            // of its descendants made one.
+            // of its descendants made one. With none marked, no entry walks its
+            // subtree for one.
             let edited_reads = (portals.freshness() == Freshness::Retained).then(|| {
                 let mut marks = output_portals;
                 marks.fill(false);
+                let mut any = false;
                 for access in portals.record().uses() {
                     if let PortalEvent::Read { site: Ok(read), .. } = access.event()
                         && source.span_edited(read.span())
                     {
                         marks[grid.index(access.anchor()).get()] = true;
+                        any = true;
                     }
                 }
-                marks
+                any.then_some(marks)
             });
             for access in portals.record().uses() {
                 let (span, role, origin) = match access.event() {
@@ -275,7 +278,9 @@ impl RenderFrame {
                     && !(owner_stands(grid, &claims, access)
                         && !source.span_edited(access.subtree())
                         && (origin == PortalOrigin::Declared
-                            || !descendant_read_edited(grid, edited_reads, access)))
+                            || edited_reads.as_deref().is_none_or(|edited_reads| {
+                                !descendant_read_edited(grid, edited_reads, access)
+                            })))
                 {
                     continue;
                 }

@@ -87,9 +87,9 @@ impl EditedCells {
     }
 
     /// Marks the Cell at `index` edited. `index` must name one of the Cells
-    /// the set covers, which a debug build asserts.
+    /// the set covers, so no bit past them is ever set.
     pub(super) fn mark(&mut self, index: usize) {
-        debug_assert!(index < self.len, "Cell {index} of {}", self.len);
+        assert!(index < self.len, "Cell {index} of {}", self.len);
         let (word, bit) = (index / 64, 1 << (index % 64));
         if self.bits[word] & bit == 0 {
             Arc::make_mut(&mut self.bits)[word] |= bit;
@@ -115,9 +115,9 @@ impl EditedCells {
     }
 
     /// Whether any Cell in `range` is marked. `range` must lie within the
-    /// Cells the set covers, which a debug build asserts.
+    /// Cells the set covers.
     pub(super) fn any_in(&self, range: Range<usize>) -> bool {
-        debug_assert!(range.end <= self.len, "Cells {range:?} of {}", self.len);
+        assert!(range.end <= self.len, "Cells {range:?} of {}", self.len);
         self.any
             && range
                 .into_iter()
