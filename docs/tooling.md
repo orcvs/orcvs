@@ -559,7 +559,7 @@ affected platform or feature gates, and `mise run audit_deps`.
 
 ## MIDI loopback
 
-`console/src/console_midi/loopback_tests.rs` plays a fixed Source through a running Orcvs and
+`console/src/console_midi/loopback_tests.rs` plays a Source through a running Orcvs and
 cross-checks two ledgers: the messages the destination accepted, recorded at the `MidiConnection`
 the Playback Engine writes to, and the messages a listener received. The listener decodes the wire
 format itself rather than through the output adapter's encoder, so a wrong byte shows up as a
@@ -567,12 +567,14 @@ difference.
 
 `midi_loopback_in_process` hands the messages to a listener in the same process. It runs in the
 ordinary suite and checks the program's bytes and the cross-check, not a transport.
+`the_tracker_loopback_in_process` does the same for `examples/tracker.orcvs` with a pattern of
+chords and rests, and asserts each Tick's Note Ons, Note Offs and their order within the Tick.
 
-`virtual_port::midi_loopback_through_a_virtual_port` opens a virtual input port, finds it through
-the console's own `ConsoleMidiBackend`, and sends through the platform's MIDI service: the ALSA
-sequencer on Linux, CoreMIDI on macOS. Windows has no virtual ports, so that module is not compiled
-there. A host without the service cannot run the test, so the ordinary suite ignores it and
-`mise run test_midi_loopback` runs it. CI runs the task in the merge tier's `macos` job, where
+`virtual_port` holds the same two scenarios over a virtual input port. Each test opens one, finds
+it through the console's own `ConsoleMidiBackend`, and sends through the platform's MIDI service:
+the ALSA sequencer on Linux, CoreMIDI on macOS. Windows has no virtual ports, so that module is not
+compiled there. A host without the service cannot run those tests, so the ordinary suite ignores
+them and `mise run test_midi_loopback` runs them. CI runs the task in the merge tier's `macos` job, where
 CoreMIDI needs no setup; the hosted Ubuntu runner's Azure kernel ships no ALSA sequencer module, and
 a container shares that kernel.
 
