@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Tickets: `issues/01`–`06`, vertical slices, 01 first.
+
 ## Problem Statement
 
 Orca lights each operator's ports as it runs, so the Learn Orca tracker shows a
