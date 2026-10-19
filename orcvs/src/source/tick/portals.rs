@@ -17,8 +17,9 @@ use crate::grid::Position;
 /// The ordered, immutable record of every Portal access one Tick made.
 ///
 /// Order is the order execution made the accesses: Turns in the order they
-/// settled, and within a Turn its read, then its writes in site order. A Turn
-/// that waited for a writer recorded nothing until it was retaken, and a Turn
+/// settled, and within a Turn its read, then its writes in site order, its
+/// lock, or the parts of its Source Bundle in the order they ran. A Turn that
+/// waited for a writer recorded nothing until it was retaken, and a Turn
 /// refused before interpretation records nothing at all.
 ///
 #[derive(Clone, Debug, PartialEq)]
@@ -112,6 +113,18 @@ pub enum PortalEvent {
         origin: PortalOrigin,
         outcome: Result<OutputSpan, WriteRefusal>,
     },
+    /// A Halt's lock at the site it declares, or why the site is outside the
+    /// Grid, with what the lock did there.
+    Lock {
+        site: Result<Position, PortalError>,
+        verdict: LockVerdict,
+    },
+    /// One part of a Source Bundle: the Cells it wrote, or why its
+    /// destination was refused.
+    Bundle {
+        part: BundlePart,
+        outcome: Result<OutputSpan, BundleRefusal>,
+    },
 }
 
 /// Whether a Portal sits where its Function declares it, or where its
@@ -145,6 +158,55 @@ pub enum WriteRefusal {
 }
 
 ///
+/// What a Halt's lock did, as the Tick decided it.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LockVerdict {
+    /// The Expression root anchored here is withheld for the Tick.
+    Locked(Position),
+    /// The root anchored here had taken its Turn, and the lock missed it.
+    Missed(Position),
+    /// The schedule ordered the lock first, and the locked subtree had
+    /// already taken a Turn.
+    OrderingDefect,
+    /// Something other than an Expression root stands at the site.
+    NotARoot,
+    /// The site is outside the Grid or empty, so nothing is locked.
+    Unchanged,
+}
+
+///
+/// Which part of a Source Bundle an entry records.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BundlePart {
+    /// The producer's own Span, cleared by a move.
+    Vacate,
+    /// The displaced destination a move or an emission writes.
+    Place,
+    /// The `**` a refused move leaves in the producer's own Span.
+    LeftBang,
+    /// The clear a Bang Function makes of its own Span.
+    Fire,
+}
+
+///
+/// Why a Source Bundle's displaced destination was refused.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BundleRefusal {
+    /// The destination gave no room for the spelling. `at` is the Position
+    /// it was attempted from, and `None` where no Position in the Grid
+    /// answers the displacement.
+    Portal {
+        error: PortalError,
+        at: Option<Position>,
+    },
+    /// The destination resolved, and Cells it needed were not vacant.
+    Occupied(OutputSpan),
+}
+
+///
 /// The Cells a Turn's Input Portal read.
 ///
 /// Built only from the Input Portal a Turn resolved, so no other Span can
@@ -167,10 +229,12 @@ impl InputSpan {
 }
 
 ///
-/// The Cells an admitted write covers.
+/// The Cells a write a Portal admitted covers.
 ///
 /// Built only from a write a Portal admitted, so no other Span can stand for
-/// one, and it does not convert into an [`InputSpan`].
+/// one, and it does not convert into an [`InputSpan`]. A Source Bundle's
+/// destination is admitted before its vacancy is asked, so an occupied one
+/// still names its Cells with one.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OutputSpan(Span);

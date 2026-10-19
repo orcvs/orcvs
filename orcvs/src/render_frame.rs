@@ -225,7 +225,8 @@ impl RenderFrame {
             })
             .collect();
         // In place over the Cells just built, so a record costs no allocation.
-        // A refused access carries no Span, so it has nothing to paint.
+        // A refused access carries no Span, so it has nothing to paint. Locks
+        // and Source Bundles stay in the record and paint nothing.
         if let Some(record) = source.tick_portals() {
             for access in record.uses() {
                 let (span, role) = match access.event() {
@@ -237,7 +238,9 @@ impl RenderFrame {
                     PortalEvent::Read { site: Err(_), .. }
                     | PortalEvent::Write {
                         outcome: Err(_), ..
-                    } => continue,
+                    }
+                    | PortalEvent::Lock { .. }
+                    | PortalEvent::Bundle { .. } => continue,
                 };
                 for position in span.positions() {
                     let cell = &mut cells[grid.index(position).get()];

@@ -5,8 +5,12 @@ use crate::grid::Grid;
 use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
+use super::PortalError;
 use super::fixture::{anchors, messages, snapshot, tick_by_tick, turns};
+use super::observed::{committed_portals, locks, painted};
+use super::portals::LockVerdict;
 use super::{Tick, execution::ComputationState};
+use crate::render_frame::PortalRole;
 
 #[test]
 fn halt_does_not_supply_cells_read_by_a_copy() {
@@ -556,5 +560,65 @@ fn an_active_halt_withholds_a_terminal_root() {
         plans[0].diagnostics.is_empty(),
         "{:?}",
         plans[0].diagnostics
+    );
+}
+
+#[test]
+fn a_lock_is_recorded_with_its_site_and_what_it_did_there() {
+    let grid = Grid::with_shape(8, 4);
+    let at = |x, y| grid.position(x, y).expect("inside the Grid");
+    // Equality's Bang activates Halt, which locks the Addition south of it.
+    let (_, _, source) = tick_by_tick(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "], 1);
+    assert_eq!(
+        locks(&committed_portals(&source)),
+        [(
+            (2, 1),
+            lang::Function::Halt,
+            Ok((2, 2)),
+            LockVerdict::Locked(at(2, 2))
+        )]
+    );
+    let output = painted(source, PortalRole::Output);
+    assert!(!output.contains(&(2, 2)), "{output:?}");
+
+    // With nothing at its site, the lock changes nothing.
+    let (_, _, source) = tick_by_tick(grid, &[".=0101  ", "  *!    ", "", ""], 1);
+    assert_eq!(
+        locks(&committed_portals(&source)),
+        [(
+            (2, 1),
+            lang::Function::Halt,
+            Ok((2, 2)),
+            LockVerdict::Unchanged
+        )]
+    );
+
+    // On the last row, the site is below the Source.
+    let (_, _, source) = tick_by_tick(Grid::with_shape(8, 2), &[".=0101  ", "  *!    "], 1);
+    assert_eq!(
+        locks(&committed_portals(&source)),
+        [(
+            (2, 1),
+            lang::Function::Halt,
+            Err(PortalError::BelowSource),
+            LockVerdict::Unchanged
+        )]
+    );
+}
+
+#[test]
+fn a_missed_lock_is_recorded_with_the_root_it_missed() {
+    // Equality takes its Turn before the Write's `**` activates Halt, so
+    // Halt's lock reaches Equality after its Turn.
+    let grid = Grid::with_shape(12, 5);
+    let (_, _, source) = tick_by_tick(grid, &["", "  *!", "  .=0101", "", "@$0001&$0203"], 1);
+    assert_eq!(
+        locks(&committed_portals(&source)),
+        [(
+            (2, 1),
+            lang::Function::Halt,
+            Ok((2, 2)),
+            LockVerdict::Missed(grid.position(2, 2).expect("inside the Grid"))
+        )]
     );
 }

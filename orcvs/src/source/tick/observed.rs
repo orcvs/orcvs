@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 
 use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::portals::{PortalEvent, PortalOrigin, TickPortals, WriteRefusal};
+use super::portals::{
+    BundlePart, BundleRefusal, LockVerdict, PortalEvent, PortalOrigin, TickPortals, WriteRefusal,
+};
 use super::{PortalError, plan, shared_schedule};
 use crate::grid::Grid;
 use crate::opts::{CursorBloomRadius, SectorSeamSpacing};
@@ -218,6 +220,81 @@ pub(super) fn writes(record: &TickPortals) -> Vec<ObservedWrite> {
         .collect()
 }
 
+/// One Halt lock a Tick recorded: its owner's anchor and Function, the site
+/// it declares or why that site is outside the Grid, and what it did there.
+pub(super) type ObservedLock = (
+    (usize, usize),
+    Function,
+    Result<(usize, usize), PortalError>,
+    LockVerdict,
+);
+
+/// Every lock `record` holds, in order.
+pub(super) fn locks(record: &TickPortals) -> Vec<ObservedLock> {
+    record
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Lock { site, verdict } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                site.map(|site| (site.x(), site.y())),
+                *verdict,
+            ))
+        })
+        .collect()
+}
+
+/// Why a Source Bundle part was refused, by column and row.
+#[derive(Debug, PartialEq)]
+pub(super) enum Refused {
+    /// The Portal's reason, and the Position it was attempted from.
+    Portal(PortalError, Option<(usize, usize)>),
+    /// The Cells the destination needed that were not vacant.
+    Occupied(Vec<(usize, usize)>),
+}
+
+/// One Source Bundle part a Tick recorded: its owner's anchor and Function,
+/// which part, and the Cells it wrote or why it was refused.
+pub(super) type ObservedBundle = (
+    (usize, usize),
+    Function,
+    BundlePart,
+    Result<Vec<(usize, usize)>, Refused>,
+);
+
+/// Every Source Bundle part `record` holds, in order.
+pub(super) fn bundles(record: &TickPortals) -> Vec<ObservedBundle> {
+    record
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Bundle { part, outcome } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                *part,
+                match outcome {
+                    Ok(span) => Ok(cells_of(span.span())),
+                    Err(BundleRefusal::Portal { error, at }) => {
+                        Err(Refused::Portal(*error, at.map(|at| (at.x(), at.y()))))
+                    }
+                    Err(BundleRefusal::Occupied(span)) => {
+                        Err(Refused::Occupied(cells_of(span.span())))
+                    }
+                },
+            ))
+        })
+        .collect()
+}
+
 /// Which access each entry of `record` is, with its owner's anchor and
 /// Function, in the order execution made them.
 pub(super) fn accesses(record: &TickPortals) -> Vec<((usize, usize), Function, &'static str)> {
@@ -229,6 +306,8 @@ pub(super) fn accesses(record: &TickPortals) -> Vec<((usize, usize), Function, &
             let kind = match access.event() {
                 PortalEvent::Read { .. } => "read",
                 PortalEvent::Write { .. } => "write",
+                PortalEvent::Lock { .. } => "lock",
+                PortalEvent::Bundle { .. } => "bundle",
             };
             ((anchor.x(), anchor.y()), access.function(), kind)
         })

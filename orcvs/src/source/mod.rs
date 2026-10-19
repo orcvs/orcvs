@@ -27,7 +27,8 @@ pub use model::{
 use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub use tick::portals::{
-    InputSpan, OutputSpan, PortalEvent, PortalOrigin, PortalUse, TickPortals, WriteRefusal,
+    BundlePart, BundleRefusal, InputSpan, LockVerdict, OutputSpan, PortalEvent, PortalOrigin,
+    PortalUse, TickPortals, WriteRefusal,
 };
 
 ///

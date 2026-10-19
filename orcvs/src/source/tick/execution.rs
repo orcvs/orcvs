@@ -15,7 +15,8 @@ use super::Schedule;
 use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
 use super::portals::{
-    InputSpan, OutputSpan, Owner, PortalEvent, PortalOrigin, TickPortals, WriteRefusal,
+    BundlePart, BundleRefusal, InputSpan, LockVerdict, OutputSpan, Owner, PortalEvent,
+    PortalOrigin, TickPortals, WriteRefusal,
 };
 use super::{
     Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
@@ -588,6 +589,16 @@ impl<'a> Execution<'a> {
         self.record(index, PortalEvent::Write { origin, outcome });
     }
 
+    /// Records one part of `index`'s Source Bundle.
+    fn record_bundle(
+        &mut self,
+        index: ComputationId,
+        part: BundlePart,
+        outcome: Result<OutputSpan, BundleRefusal>,
+    ) {
+        self.record(index, PortalEvent::Bundle { part, outcome });
+    }
+
     ///
     /// The one validated Source Bundle for a Source-writing Function.
     ///
@@ -671,8 +682,8 @@ impl<'a> Execution<'a> {
         // The asymmetry is not carved into the write either way: a move's
         // clear covers the complete old Span, and later-write-wins settles the
         // Cell the two share.
-        let admitted = Portal::displaced(self.grid, anchor, effect.columns, effect.rows)
-            .and_then(|portal| portal.admit(&spelling));
+        let destination = Portal::displaced(self.grid, anchor, effect.columns, effect.rows);
+        let admitted = destination.and_then(|portal| portal.admit(&spelling));
         let entered: Vec<usize> = match &admitted {
             Ok(write) => write
                 .cells()
@@ -691,8 +702,10 @@ impl<'a> Execution<'a> {
                 // when its consumer executes.
                 if moves {
                     let clear = self.own_span_clear(anchor);
+                    self.record_bundle(index, BundlePart::Vacate, Ok(OutputSpan::of(&clear)));
                     self.write(WriteKind::Vacate, clear);
                 }
+                self.record_bundle(index, BundlePart::Place, Ok(OutputSpan::of(&write)));
                 self.write(WriteKind::Place, write);
             }
             // Refused: out of the Grid, past the row edge, or blocked by Cells
@@ -700,6 +713,11 @@ impl<'a> Execution<'a> {
             // destination is gone in every case, and what the producer does
             // instead is the bundle's to say.
             _ if moves => {
+                self.record_bundle(
+                    index,
+                    BundlePart::Place,
+                    Err(bundle_refusal(destination, &admitted)),
+                );
                 // Source content rather than an answer: the Bang Function a
                 // refused move leaves, which activates nothing in this Turn
                 // and takes its own Turn from the next Snapshot. It writes the
@@ -709,6 +727,7 @@ impl<'a> Execution<'a> {
                 let left = Portal::at(self.grid, anchor)
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
+                self.record_bundle(index, BundlePart::LeftBang, Ok(OutputSpan::of(&left)));
                 self.write(WriteKind::Place, left);
                 let lookup = &self.schedule.lookup;
                 // `Occupancy` is stated outside the schedule, so it names a
@@ -731,15 +750,22 @@ impl<'a> Execution<'a> {
             // emission is what it was trying to put outside its own Span. The
             // precondition is one conjunction — empty and inside the Grid — so
             // the refusals share one wording.
-            _ => self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                format!(
-                    "{producer} has no empty destination inside the Grid for {}",
-                    effect
-                        .spelling
-                        .expect("a bundle that writes displaced declares the Function it writes"),
-                ),
-            ))),
+            _ => {
+                self.effects.push(Effect::Diagnose(diagnose(
+                    node,
+                    format!(
+                        "{producer} has no empty destination inside the Grid for {}",
+                        effect.spelling.expect(
+                            "a bundle that writes displaced declares the Function it writes"
+                        ),
+                    ),
+                )));
+                self.record_bundle(
+                    index,
+                    BundlePart::Place,
+                    Err(bundle_refusal(destination, &admitted)),
+                );
+            }
         }
     }
 
@@ -762,6 +788,7 @@ impl<'a> Execution<'a> {
                 let _ = self.activate(root);
             }
         }
+        self.record_bundle(index, BundlePart::Fire, Ok(OutputSpan::of(&clear)));
         self.write(WriteKind::Vacate, clear);
     }
 
@@ -803,8 +830,8 @@ impl<'a> Execution<'a> {
 
     ///
     /// Applies a lock to the Expression root at the Function's Output Portal,
-    /// as [`dependencies::lock_verdict`] answers it, and words its
-    /// diagnostics. An ordering defect is diagnosed at the Halt, as a late
+    /// as [`dependencies::lock_verdict`] answers it, words its diagnostics,
+    /// and records the lock with that verdict. An ordering defect is diagnosed at the Halt, as a late
     /// spatial write is, and a missed lock at the root it missed. Halt itself
     /// is not suppressed here — `opens_turn` already refused a suppressed
     /// Halt, so reaching this arm means this Halt locks.
@@ -812,25 +839,45 @@ impl<'a> Execution<'a> {
     fn lock_portal(&mut self, index: ComputationId, delivery: Delivery) {
         let lookup = &self.schedule.lookup;
         let node = &lookup.nodes()[index];
-        match dependencies::lock_verdict(&self.schedule.locks, index, self.phase(delivery, None)) {
+        let verdict = match dependencies::lock_verdict(
+            &self.schedule.locks,
+            index,
+            self.phase(delivery, None),
+        ) {
             Locked::Lock(target) => {
                 let root = lookup.nodes()[target.start()].anchor;
                 self.turns.suppress(target);
                 self.effects.push(Effect::Lock(root));
+                LockVerdict::Locked(root)
             }
-            Locked::Missed(root) => self.effects.push(Effect::Diagnose(diagnose(
-                &lookup.nodes()[root],
-                "lock reached a root that has taken its Turn",
-            ))),
-            Locked::OrderingDefect => self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                "spatial output reached an executed computation",
-            ))),
-            Locked::NotARoot => self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                format!("{} target is not an Expression root", node.function),
-            ))),
-            Locked::Unchanged | Locked::OrderAfter(_) => {}
+            Locked::Missed(root) => {
+                let missed = &lookup.nodes()[root];
+                self.effects.push(Effect::Diagnose(diagnose(
+                    missed,
+                    "lock reached a root that has taken its Turn",
+                )));
+                LockVerdict::Missed(missed.anchor)
+            }
+            Locked::OrderingDefect => {
+                self.effects.push(Effect::Diagnose(diagnose(
+                    node,
+                    "spatial output reached an executed computation",
+                )));
+                LockVerdict::OrderingDefect
+            }
+            Locked::NotARoot => {
+                self.effects.push(Effect::Diagnose(diagnose(
+                    node,
+                    format!("{} target is not an Expression root", node.function),
+                )));
+                LockVerdict::NotARoot
+            }
+            // `OrderAfter` is the schedule phase's answer, never a Turn's.
+            Locked::Unchanged | Locked::OrderAfter(_) => LockVerdict::Unchanged,
+        };
+        // Every Function that answers a lock declares a lock site.
+        if let Some(site) = node.portal_access.lock_site() {
+            self.record(index, PortalEvent::Lock { site, verdict });
         }
     }
 
@@ -839,6 +886,25 @@ impl<'a> Execution<'a> {
     fn write(&mut self, kind: WriteKind, write: SpanWrite) {
         self.working.apply(kind, &write);
         self.effects.push(Effect::Write(write));
+    }
+}
+
+///
+/// Why a Source Bundle's displaced destination was refused: the reason the
+/// Portal gave, with the Position it was asked from where one resolved, or
+/// the Cells it admitted when they were not vacant.
+///
+fn bundle_refusal(
+    destination: Result<Portal, PortalError>,
+    admitted: &Result<SpanWrite, PortalError>,
+) -> BundleRefusal {
+    match (destination, admitted) {
+        (Err(error), _) => BundleRefusal::Portal { error, at: None },
+        (Ok(portal), Err(error)) => BundleRefusal::Portal {
+            error: *error,
+            at: Some(portal.destination()),
+        },
+        (Ok(_), Ok(write)) => BundleRefusal::Occupied(OutputSpan::of(write)),
     }
 }
 

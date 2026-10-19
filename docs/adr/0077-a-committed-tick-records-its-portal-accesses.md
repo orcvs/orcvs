@@ -14,7 +14,9 @@ Orca lights each operator's ports as it runs, so its tracker shows a read head m
 
 **A write is recorded for each site delivery is asked to deliver to.** Declared or Selected as a read is, it is either the Output Span the Portal admitted or the Write Refusal that refused it whole: a geometric Portal Error, with the Position the write was attempted from where one exists inside the Grid; a Function Replacement that would change a fact the schedule was ordered by; or an ordering defect. The admitted write is recorded before any Contact it makes replaces a Function, so its owner is the Function whose Turn made it. A destination that resolved for a Turn whose interpretation then failed was never delivered to, and is absent.
 
-**Order is execution's.** Turns appear in the order they settled, and within a Turn its read comes first, then its writes in site order. Halt locks and Source Bundle parts belong to the same record, after the read in the order they ran, each recorded where the decision that admits or refuses it is made; `.scratch/tick-portals/` ticket 04 adds them.
+**A lock and each Source Bundle part are recorded where execution decides them.** A Halt's lock carries the site it declares, or the Portal Error that puts the site outside the Grid, and the verdict the Tick gave it: the root it locked, the root it missed, an ordering defect, a site no Expression root holds, or nothing to lock. A Source Bundle records its parts as they run: `Vacate` for the producer's own Span a move clears, `Place` for the displaced destination, `LeftBang` for the `**` a refused move leaves, and `Fire` for the Span a Bang Function clears. A refused destination keeps why: the Portal Error, with the Position it was attempted from where one exists, or the Cells it needed when they were not vacant.
+
+**Order is execution's.** Turns appear in the order they settled, and within a Turn its read comes first, then its writes in site order, its lock, or its Source Bundle parts in the order they ran.
 
 **An Input Span is minted only from the Input Portal a Turn resolved, and an Output Span only from a write a Portal admitted.** Their constructors are private to Tick execution and each exposes only a read-only Span, so no Span from anywhere else can stand for a read or a write, and neither converts into the other.
 
@@ -22,12 +24,12 @@ Orca lights each operator's ports as it runs, so its tracker shows a read head m
 
 **A Source revision answers the record committed with it.** A revision read while the Source is still at the revision a Tick's commit left carries that record; a revision an edit has made since carries none, so a record is never painted against Cells it was not committed with. A new or loaded Source has none until its first Tick, and the record is not persisted.
 
-**The Render Frame paints resolved reads as Input Portal and admitted writes as Output Portal.** Derivation sets the Input Portal role on each Cell a resolved read covers and the Output Portal role on each Cell an admitted write covers, declared or selected, in place over the Cells it has built, so a record costs no allocation per frame. The static Output Portal highlight paints beside them, so a Function whose Turn wrote nothing still shows its own. A read whose site did not resolve and a refused write stay in the record and paint nothing.
+**The Render Frame paints resolved reads as Input Portal and admitted writes as Output Portal.** Derivation sets the Input Portal role on each Cell a resolved read covers and the Output Portal role on each Cell an admitted write covers, declared or selected, in place over the Cells it has built, so a record costs no allocation per frame. The static Output Portal highlight paints beside them, so a Function whose Turn wrote nothing still shows its own. A read whose site did not resolve, a refused write, every lock and every Source Bundle part stay in the record and paint nothing.
 
 ## Consequences
 
 - The console lights each `&v` read of the tracker as it steps, with the Input Portal role ADR 0009's static Output Portal highlight sits beside, and lights where each selected write (Write, Push, `=$`) landed.
-- `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan`, `OutputSpan`, `WriteRefusal` and `PortalError` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
+- `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan`, `OutputSpan`, `WriteRefusal`, `LockVerdict`, `BundlePart`, `BundleRefusal` and `PortalError` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
 - Every Tick allocates its record, including a Tick that reads nothing, which allocates the empty record's handle and no entries.
 
 ## Considered options
