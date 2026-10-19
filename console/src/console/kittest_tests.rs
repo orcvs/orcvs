@@ -348,6 +348,48 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
 }
 
 ///
+/// View → Diagnostics is a check box named Diagnostics, its label before its
+/// box, and the command D chord shows and hides Diagnostics as it does.
+///
+#[tokio::test]
+async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert!(harness.state().diagnostics_open);
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+    let item = harness.get_by_label("Diagnostics");
+    let node = item.accesskit_node();
+    assert_eq!(node.role(), egui::accesskit::Role::CheckBox);
+    assert_eq!(node.toggled(), Some(egui::accesskit::Toggled::True));
+    let zoom_in = menu_item(&harness, "Zoom In").rect();
+    let diagnostics = item.rect();
+    assert_eq!(
+        (diagnostics.left(), diagnostics.right()),
+        (zoom_in.left(), zoom_in.right()),
+        "the Diagnostics item is not laid out across the menu as Zoom In is"
+    );
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    harness.run_steps(2);
+    assert!(
+        !harness.state().diagnostics_open,
+        "command D did not hide Diagnostics"
+    );
+    assert!(harness.query_by_label("FPS").is_none());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    harness.run_steps(2);
+    assert!(
+        harness.state().diagnostics_open,
+        "command D did not show Diagnostics"
+    );
+}
+
+///
 /// A fresh console shrunk to the smallest window it allows still shows the
 /// Source: the docked Diagnostics it opens with leave the Grid room for a
 /// whole row of Cells inside its margins.
