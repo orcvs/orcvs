@@ -563,10 +563,13 @@ text instead).";
 /// because the viewer chose it.
 ///
 pub(crate) fn validate(theme: &Theme) -> ContrastReport {
-    let mut results = Vec::with_capacity(
-        Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * PORTAL_ROLE_SETS.len()
-            + CHROME_STATES,
-    );
+    let source_states: usize = Role::SOURCE_ROLES
+        .iter()
+        .filter_map(|role| role.source_paint_fact())
+        .map(|fact| reachable_portal_sets(fact).count())
+        .sum();
+    let mut results =
+        Vec::with_capacity(source_states * CursorPlacement::ALL.len() + CHROME_STATES);
 
     for &role in &Role::SOURCE_ROLES {
         let fact = role

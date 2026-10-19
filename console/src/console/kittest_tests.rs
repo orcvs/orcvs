@@ -3185,32 +3185,53 @@ async fn a_cell_a_tick_both_read_and_wrote_paints_as_output_portal() {
 #[tokio::test]
 async fn the_function_a_tick_locked_paints_as_locked() {
     use orcvs::render_frame::{PortalRole, PortalRoles};
-    use orcvs::source::SourcePaint;
+    use orcvs::source::{OperandState, SourcePaint, Token};
 
     // Equality at (8, 4) bangs the Halt at (10, 5), which locks the Add at
     // (10, 6) for the Tick.
     let harness = ticked_console(&[".=0101", "  *!", "  .+0304"]);
     let theme = harness.state().themes.presented(Appearance::Dark).clone();
-    let locked = crate::style::cell_visuals_with_cursor_colour(
-        SourcePaint::Function,
-        PortalRoles::NONE.with(PortalRole::Locked),
-        false,
-        false,
-        None,
-        &theme,
-    )
-    .background
-    .expect("the presented Theme fills a locked Cell");
+    // The fill a Cell carrying `fact` would show were it Locked.
+    let locked = |fact| {
+        crate::style::cell_visuals_with_cursor_colour(
+            fact,
+            PortalRoles::NONE.with(PortalRole::Locked),
+            false,
+            false,
+            None,
+            &theme,
+        )
+        .background
+        .expect("the presented Theme fills a locked Cell")
+    };
+    let function = locked(SourcePaint::Function);
+    let number = locked(SourcePaint::Operand {
+        token: Token::Number,
+        state: OperandState::Valid,
+    });
     for column in [10, 11] {
         assert!(
-            painted_on(&harness, locked, column, 6),
+            painted_on(&harness, function, column, 6),
             "({column}, 6) is not Locked"
         );
     }
-    for column in 8..14 {
+    // Neither the locked Add's operands nor the Equality nor its operands
+    // are Locked, each judged by the fill its own fact would take.
+    for (column, row, fill) in [
+        (12, 6, number),
+        (13, 6, number),
+        (14, 6, number),
+        (15, 6, number),
+        (8, 4, function),
+        (9, 4, function),
+        (10, 4, number),
+        (11, 4, number),
+        (12, 4, number),
+        (13, 4, number),
+    ] {
         assert!(
-            !painted_on(&harness, locked, column, 4),
-            "({column}, 4) is Locked, though nothing locked the Equality"
+            !painted_on(&harness, fill, column, row),
+            "({column}, {row}) is Locked"
         );
     }
 }

@@ -22,7 +22,7 @@ use egui::Color32;
 use orcvs::render_frame::{PortalRole, PortalRoles};
 
 use super::{CursorPlacement, Role, painted, reachable_portal_sets};
-use crate::style::{self, PortalChannels};
+use crate::style;
 use crate::theme::Theme;
 
 ///
@@ -447,10 +447,7 @@ impl Role {
     ///
     fn glyph_channel(self, portals: PortalRoles, theme: &Theme) -> Option<GlyphChannel> {
         let fact = self.source_paint_fact()?;
-        // The overlay `style::role_and_portal` paints the glyph with, skipped
-        // where its foreground is transparent and so reveals the fact's own.
-        let overlay = style::glyph_overlay(fact, style::painting_portal(portals))
-            .filter(|role| PortalChannels::of(*role, theme).foreground != Color32::TRANSPARENT);
+        let overlay = style::glyph_role(fact, portals, theme);
         let diagnostic = theme.diagnostic_foreground != Color32::TRANSPARENT;
         Some(match (overlay, self) {
             (Some(PortalRole::Output), _) => GlyphChannel::OutputPortal,

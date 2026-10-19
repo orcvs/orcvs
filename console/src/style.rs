@@ -312,7 +312,7 @@ pub(crate) const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
 /// Portal, so the lock does not show on a Cell a Function also reads or
 /// writes.
 ///
-pub(crate) fn painting_portal(portal_roles: PortalRoles) -> Option<PortalRole> {
+fn painting_portal(portal_roles: PortalRoles) -> Option<PortalRole> {
     if portal_roles.contains(PortalRole::Output) {
         Some(PortalRole::Output)
     } else if portal_roles.contains(PortalRole::Input) {
@@ -338,31 +338,51 @@ fn fill_overlay(paint: SourcePaint, portal: Option<PortalRole>) -> Option<Portal
 }
 
 ///
-/// The role whose foreground composites over the glyph of a Cell carrying
-/// `paint`, which [`painting_portal`] answered `portal` for, or `None` where
-/// the fact's own foreground paints alone: [`fill_overlay`]'s answer, except
-/// that a Bang keeps its glyph colour inside a Portal, because a Bang is what
-/// a Producer emits rather than a value it writes. A check that names the
-/// channel a glyph is drawn in asks this, as [`role_and_portal`] does.
+/// The role whose foreground shows over the glyph of a Cell carrying `paint`,
+/// which [`painting_portal`] answered `portal` for, or `None` where the
+/// fact's own foreground shows alone: [`fill_overlay`]'s answer, except that
+/// a Bang keeps its glyph colour inside a Portal, because a Bang is what a
+/// Producer emits rather than a value it writes, and except where that
+/// role's foreground is transparent, which composites to the fact's own.
 ///
-pub(crate) fn glyph_overlay(paint: SourcePaint, portal: Option<PortalRole>) -> Option<PortalRole> {
+fn glyph_overlay(
+    paint: SourcePaint,
+    portal: Option<PortalRole>,
+    theme: &Theme,
+) -> Option<PortalRole> {
     fill_overlay(paint, portal)
         .filter(|role| *role == PortalRole::Locked || paint != SourcePaint::Bang)
+        .filter(|role| PortalChannels::of(*role, theme).foreground != Color32::TRANSPARENT)
+}
+
+///
+/// The role whose foreground shows over the glyph of a Cell carrying `paint`
+/// and playing `portal_roles`, or `None` where the fact's own foreground
+/// shows alone: the decision [`role_and_portal`] paints the glyph with, for
+/// a check that names the channel a glyph is drawn in.
+///
+#[cfg(test)]
+pub(crate) fn glyph_role(
+    paint: SourcePaint,
+    portal_roles: PortalRoles,
+    theme: &Theme,
+) -> Option<PortalRole> {
+    glyph_overlay(paint, painting_portal(portal_roles), theme)
 }
 
 ///
 /// One Portal role's Theme channels: `output_portal.*`, `input_portal.*` or
 /// `locked.*`.
 ///
-pub(crate) struct PortalChannels {
-    pub(crate) foreground: Color32,
+struct PortalChannels {
+    foreground: Color32,
     background: Color32,
     border: Color32,
     border_width: f32,
 }
 
 impl PortalChannels {
-    pub(crate) fn of(role: PortalRole, theme: &Theme) -> Self {
+    fn of(role: PortalRole, theme: &Theme) -> Self {
         match role {
             PortalRole::Output => Self {
                 foreground: theme.output_portal_foreground,
@@ -586,7 +606,7 @@ fn role_and_portal(
     theme: &Theme,
 ) -> (Color32, Color32) {
     let (foreground, background) = role(paint, theme);
-    let foreground = glyph_overlay(paint, portal).map_or(foreground, |role| {
+    let foreground = glyph_overlay(paint, portal, theme).map_or(foreground, |role| {
         blend_channel(foreground, PortalChannels::of(role, theme).foreground)
     });
     let background = fill_overlay(paint, portal).map_or(background, |role| {
