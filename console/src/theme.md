@@ -141,6 +141,9 @@ reproduces the values on this page:
 | `diagnostic.foreground` | `#D55E00` | Source colours → Diagnostic |
 | `output_portal.foreground` | `#E69F00` | Source colours → Output Portal |
 | `output_portal.background` | `#E69F001A` | Output Portal's own colour at 10% opacity |
+| `input_portal.foreground` | `#AC77FA` | decided here: Input Portal, see **Input Portal** below |
+| `input_portal.background` | `#AC77FA1A` | Input Portal's own colour at 10% opacity |
+| `input_portal.border` | `#00000000` | no Portal border, as for Output Portal |
 | `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
 | `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
 | `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
@@ -178,7 +181,8 @@ properties that preserve Bang's built-in value without being computed from it
 The border widths are Theme properties too, in display points: `grid.border.width`
 0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
 `cursor.border.width` and `region.border.width` 1,
-`diagnostic.border.width` and `output_portal.border.width` 0.5,
+`diagnostic.border.width`, `output_portal.border.width` and
+`input_portal.border.width` 0.5,
 `panel.border.width`, `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0 (which is why that border stays absent at
 its default) and `input.cursor.width` 2. `schema.md`
@@ -249,6 +253,9 @@ or decided here.
 | `output_portal.foreground` | `#6F4A00` | Okabe–Ito orange `#E69F00`, darkened past the contrast floor |
 | `output_portal.background` | `#6F4A001A` | Output Portal's own colour at 10% opacity |
 | `output_portal.border` | `#00000000` | shared with Okabe–Ito |
+| `input_portal.foreground` | `#6407AF` | Okabe–Ito's Input Portal violet hue, darkened |
+| `input_portal.background` | `#6407AF1A` | Input Portal's own colour at 10% opacity |
+| `input_portal.border` | `#00000000` | shared with Okabe–Ito |
 | `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
 | `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
 | `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
@@ -285,6 +292,7 @@ where "the same hue, darker" is a single coordinate:
 | Bang | `#CC79A7` | 346.32° | 0.679 | `#90426F` | 346.62° | 0.494 | the contrast floor, on the Region wash |
 | Diagnostic | `#D55E00` | 47.51° | 0.621 | `#652800` | 46.92° | 0.360 | the colour-vision floor, against Output Portal |
 | Output Portal | `#E69F00` | 76.77° | 0.753 | `#6F4A00` | 76.07° | 0.440 | the colour-vision floor, against Note and Diagnostic |
+| Input Portal | `#AC77FA` | 300.08° | 0.680 | `#6407AF` | 300.18° | 0.420 | not an Okabe–Ito hue; see **Input Portal** below |
 
 `source.ordinary` `#303F3B` and `source.comment` `#4E5A56` are unchanged and are
 not Okabe–Ito hues: the dark built-in's Ordinary is the Cursor frame's off-white
@@ -310,8 +318,8 @@ dimension every dichromacy leaves intact.
 Every border width is Okabe–Ito's, recorded rather than inherited:
 `grid.border.width` 0.5, `sector.seam.width` 0.75,
 `cell.selection.border.width` 0.5, `cursor.border.width` and
-`region.border.width` 1, `diagnostic.border.width` and
-`output_portal.border.width` 0.5, `panel.border.width`,
+`region.border.width` 1, `diagnostic.border.width`,
+`output_portal.border.width` and `input_portal.border.width` 0.5, `panel.border.width`,
 `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0, `input.cursor.width` 2.
 
@@ -347,8 +355,8 @@ charcoal page.
 
 #### Orcvs Light's contrast report
 
-`console/src/contrast.rs::validate` measures all 95 reachable painted text
-states — 80 Source Grid states and 15 console-chrome states. **Every one
+`console/src/contrast.rs::validate` measures all 143 reachable painted text
+states — 128 Source Grid states and 15 console-chrome states. **Every one
 clears the 4.5:1 floor. There are no deliberate exceptions**
 — `contrast::accepted_failures("orcvs-light")` is empty, and
 `contrast::tests::orcvs_light_has_nothing_to_except` pins that the emptiness is
@@ -377,6 +385,9 @@ Representative measurements, `plain` placement unless stated:
 | Number, Invalid | `#652800` | `#E1EDF1` | 9.47:1 |
 | Note, Invalid | `#652800` | `#ECEDE1` | 9.57:1 |
 | Ordinary, Output Portal | `#6F4A00` | `#ECEAE1` | 6.56:1 |
+| Ordinary, Input Portal | `#6407AF` | `#EBE3F3` | 7.67:1 |
+| Number, Input Portal | `#6407AF` | `#D4D7EB` | 6.72:1 |
+| Note, Input Portal | `#6407AF` | `#DED7DD` | 6.79:1 |
 | `text` vs `panel.background` | `#303F3B` | `#EFF4F2` | 9.94:1 |
 | `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
 | `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
@@ -467,6 +478,40 @@ Two things this measurement does not cover, stated rather than implied:
 
 Visual captures for review are in `.scratch/theming/evidence/`, including one
 simulated copy of the wide capture per dichromacy.
+
+#### Input Portal
+
+Input Portal marks a Cell a Function reads. It is a Theme role with the same
+channels as Output Portal (`input_portal.foreground`, `.background`, `.border`
+and `.border.width`) and the same precedence: it paints over every other
+non-Function fact, Diagnostic included; a bound Function keeps all its own
+paint; a Bang keeps its glyph and takes the Input Portal background; the Cursor
+and Region keep their precedence over it. Where a Cell plays both roles, Output
+Portal's channels paint it and Input Portal's do not, so a Cell a Function both
+reads and writes shows the write.
+
+Okabe–Ito assigns no hue to a ninth glyph channel: its one unassigned hue,
+blue `#0072B2`, measures 4.04:1 on black, and every lightness of that hue that
+clears the contrast floor on the dark Source either lands nearer Number or Bang
+under simulated protanopia than the dark built-in's present closest pair, 14.16,
+or is a pale blue-white beside Ordinary's off-white. Both built-ins therefore draw
+Input Portal in a violet, OKLCh hue 300°, which no other glyph role is near:
+`#AC77FA` (L 0.680) in Okabe–Ito and `#6407AF` (L 0.420) in Orcvs Light, each
+with its own colour at 10% opacity as its background.
+`theme::tests::both_built_ins_draw_input_portal_in_one_hue` holds the shared
+hue.
+
+Its closest pair under each simulated dichromacy, from `distinguish`, none of
+which moves either built-in's closest pair in the table above:
+
+| Simulation | Okabe–Ito (dark) | ΔE00 | Orcvs Light | ΔE00 |
+|---|---|---:|---|---:|
+| Protanopia | Input Portal vs Number | 15.56 | Input Portal vs Bang | 19.91 |
+| Deuteranopia | Input Portal vs Number | 8.12 | Input Portal vs Number | 12.84 |
+| Tritanopia (not gated) | Input Portal vs Comment | 3.77 | Input Portal vs Diagnostic | 17.68 |
+
+Its lowest contrast is 5.10:1 in Okabe–Ito, over a Note's tint, and 6.72:1 in
+Orcvs Light, over a Number's; neither built-in's lowest state moves.
 
 ### Shipped Themes
 
@@ -577,7 +622,7 @@ diagnostics are out of scope: they are Tick outcomes, not Source facts.
 
 `syntax-highlighting/06` adds a Function's written value as a further input
 to the same one decision: whether a Cell draws as a value Function's Output
-Portal (`RenderCell::output_portal()`, `.scratch/syntax-
+Portal (the Output Portal role in `RenderCell::portal_roles()`, `.scratch/syntax-
 highlighting/issues/05`, `10` and `12`'s Answers) — the Cell pair the
 Function's Reservation covers at its Output Portal, for a root and for a
 nested Function alike, since a nested Function writes its own Output Portal
@@ -633,8 +678,8 @@ foreground against its actually-composited background — reusing
 `style::cell_visuals_with_cursor_colour` and `style::cell_background`, the
 same functions painting itself calls, so the two cannot independently drift.
 Each result reports its role, its state (a `CursorPlacement` of `plain`,
-`Cursor`, `Region` or `Region, Cursor's Cell`, crossed with whether the Cell
-also lies in an Output Portal Reservation), the effective foreground and
+`Cursor`, `Region` or `Region, Cursor's Cell`, crossed with the Portal roles
+the Cell plays: none, Input Portal, Output Portal, or both), the effective foreground and
 background, the measured ratio against the 4.5:1 floor, and whether it is an
 accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"); the returned
@@ -736,6 +781,10 @@ Portal-over-role figures, read from `contrast::validate`:
 | Output Portal over Note, Valid or Invalid | `#E69F00` | `#2D2506` | 6.76:1 |
 | Bang, Output Portal | `#CC79A7` | `#171000` | 6.18:1 |
 | Output Portal, Cursor or Region's Cursor Cell | `#E69F00` | `#000000` | 9.32:1 |
+| Input Portal over Ordinary or Comment | `#AC77FA` | `#120C19` | 6.20:1 |
+| Input Portal over Number, Valid or Invalid | `#AC77FA` | `#1A1C2F` | 5.41:1 |
+| Input Portal over Note, Valid or Invalid | `#AC77FA` | `#28211F` | 5.10:1 |
+| Input Portal, Cursor or Region's Cursor Cell | `#AC77FA` | `#000000` | 6.77:1 |
 
 Every one clears the floor. Bang, 4.63:1, is the lowest figure the Region wash
 sets.

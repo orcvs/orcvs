@@ -200,6 +200,9 @@ macro_rules! style_catalogue {
                 OutputPortalForeground(output_portal_foreground) => "output_portal.foreground",
                 OutputPortalBackground(output_portal_background) => "output_portal.background",
                 OutputPortalBorder(output_portal_border) => "output_portal.border",
+                InputPortalForeground(input_portal_foreground) => "input_portal.foreground",
+                InputPortalBackground(input_portal_background) => "input_portal.background",
+                InputPortalBorder(input_portal_border) => "input_portal.border",
                 GridBorder(grid_border) => "grid.border",
                 SectorSeam(sector_seam) => "sector.seam",
                 CursorBorder(cursor_border) => "cursor.border",
@@ -229,6 +232,7 @@ macro_rules! style_catalogue {
                 RegionBorder(region_border_width) => "region.border.width",
                 DiagnosticBorder(diagnostic_border_width) => "diagnostic.border.width",
                 OutputPortalBorder(output_portal_border_width) => "output_portal.border.width",
+                InputPortalBorder(input_portal_border_width) => "input_portal.border.width",
             }
             ChromeWidthKey {
                 PanelBorder(panel_border_width) => "panel.border.width",
@@ -310,6 +314,9 @@ pub(crate) enum ColorKey {
     OutputPortalForeground,
     OutputPortalBackground,
     OutputPortalBorder,
+    InputPortalForeground,
+    InputPortalBackground,
+    InputPortalBorder,
     GridBorder,
     SectorSeam,
     CursorBorder,
@@ -352,6 +359,7 @@ pub(crate) enum GridWidthKey {
     RegionBorder,
     DiagnosticBorder,
     OutputPortalBorder,
+    InputPortalBorder,
 }
 
 ///
@@ -426,6 +434,9 @@ pub struct Theme {
     pub(crate) output_portal_foreground: Color32,
     pub(crate) output_portal_background: Color32,
     pub(crate) output_portal_border: Color32,
+    pub(crate) input_portal_foreground: Color32,
+    pub(crate) input_portal_background: Color32,
+    pub(crate) input_portal_border: Color32,
 
     pub(crate) grid_border: Color32,
     pub(crate) sector_seam: Color32,
@@ -463,6 +474,7 @@ pub struct Theme {
     pub(crate) region_border_width: GridWidth,
     pub(crate) diagnostic_border_width: GridWidth,
     pub(crate) output_portal_border_width: GridWidth,
+    pub(crate) input_portal_border_width: GridWidth,
 
     pub(crate) panel_border_width: ChromeWidth,
     pub(crate) selection_border_width: ChromeWidth,
@@ -520,6 +532,9 @@ impl Theme {
             ColorKey::OutputPortalForeground => &mut self.output_portal_foreground,
             ColorKey::OutputPortalBackground => &mut self.output_portal_background,
             ColorKey::OutputPortalBorder => &mut self.output_portal_border,
+            ColorKey::InputPortalForeground => &mut self.input_portal_foreground,
+            ColorKey::InputPortalBackground => &mut self.input_portal_background,
+            ColorKey::InputPortalBorder => &mut self.input_portal_border,
             ColorKey::GridBorder => &mut self.grid_border,
             ColorKey::SectorSeam => &mut self.sector_seam,
             ColorKey::CursorBorder => &mut self.cursor_border,
@@ -552,6 +567,7 @@ impl Theme {
             GridWidthKey::RegionBorder => self.region_border_width = value,
             GridWidthKey::DiagnosticBorder => self.diagnostic_border_width = value,
             GridWidthKey::OutputPortalBorder => self.output_portal_border_width = value,
+            GridWidthKey::InputPortalBorder => self.input_portal_border_width = value,
         }
     }
 
@@ -605,6 +621,9 @@ impl Theme {
             ColorKey::OutputPortalForeground => &self.output_portal_foreground,
             ColorKey::OutputPortalBackground => &self.output_portal_background,
             ColorKey::OutputPortalBorder => &self.output_portal_border,
+            ColorKey::InputPortalForeground => &self.input_portal_foreground,
+            ColorKey::InputPortalBackground => &self.input_portal_background,
+            ColorKey::InputPortalBorder => &self.input_portal_border,
             ColorKey::GridBorder => &self.grid_border,
             ColorKey::SectorSeam => &self.sector_seam,
             ColorKey::CursorBorder => &self.cursor_border,
@@ -637,6 +656,7 @@ impl Theme {
             GridWidthKey::RegionBorder => self.region_border_width,
             GridWidthKey::DiagnosticBorder => self.diagnostic_border_width,
             GridWidthKey::OutputPortalBorder => self.output_portal_border_width,
+            GridWidthKey::InputPortalBorder => self.input_portal_border_width,
         }
     }
 
@@ -799,6 +819,9 @@ pub fn okabe_ito() -> Theme {
         output_portal_foreground: straight_rgba(0xE6_9F_00_FF),
         output_portal_background: straight_rgba(0xE6_9F_00_1A),
         output_portal_border: straight_rgba(0x00_00_00_00),
+        input_portal_foreground: straight_rgba(0xAC_77_FA_FF),
+        input_portal_background: straight_rgba(0xAC_77_FA_1A),
+        input_portal_border: straight_rgba(0x00_00_00_00),
 
         grid_border: straight_rgba(0x1D_37_31_48),
         sector_seam: straight_rgba(0x37_65_56_6E),
@@ -833,6 +856,7 @@ pub fn okabe_ito() -> Theme {
         region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -869,7 +893,10 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("
 /// apart. Do not pick a glyph hue outside that assignment: [`okabe_ito`]
 /// keeps its roles apart under protanopia and deuteranopia by construction,
 /// and a hand-picked hue can land two roles on what those readers see as one
-/// colour. `console/src/theme.md` records
+/// colour. Input Portal is the one glyph role that assignment leaves without
+/// a hue, and it is a violet, the dark built-in's hue at a lower lightness;
+/// `contrast::colour_vision`'s gate holds it apart from every other role in
+/// both built-ins. `console/src/theme.md` records
 /// each value, its hue and lightness, the measured ratios and the
 /// colour-vision separations.
 ///
@@ -914,6 +941,9 @@ pub fn orcvs_light() -> Theme {
         output_portal_foreground: straight_rgba(0x6F_4A_00_FF),
         output_portal_background: straight_rgba(0x6F_4A_00_1A),
         output_portal_border: straight_rgba(0x00_00_00_00),
+        input_portal_foreground: straight_rgba(0x64_07_AF_FF),
+        input_portal_background: straight_rgba(0x64_07_AF_1A),
+        input_portal_border: straight_rgba(0x00_00_00_00),
 
         grid_border: straight_rgba(0x34_5B_50_40),
         sector_seam: straight_rgba(0x26_68_54_70),
@@ -948,6 +978,7 @@ pub fn orcvs_light() -> Theme {
         region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -1248,6 +1279,9 @@ mod tests {
         assert_eq!(theme.output_portal_foreground, straight_rgba(0xE6_9F_00_FF));
         assert_eq!(theme.output_portal_background, straight_rgba(0xE6_9F_00_1A));
         assert_eq!(theme.output_portal_border, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.input_portal_foreground, straight_rgba(0xAC_77_FA_FF));
+        assert_eq!(theme.input_portal_background, straight_rgba(0xAC_77_FA_1A));
+        assert_eq!(theme.input_portal_border, straight_rgba(0x00_00_00_00));
 
         assert_eq!(theme.grid_border, straight_rgba(0x1D_37_31_48));
         assert_eq!(theme.sector_seam, straight_rgba(0x37_65_56_6E));
@@ -1282,6 +1316,7 @@ mod tests {
         assert_eq!(theme.region_border_width.points(), 1.0);
         assert_eq!(theme.diagnostic_border_width.points(), 0.5);
         assert_eq!(theme.output_portal_border_width.points(), 0.5);
+        assert_eq!(theme.input_portal_border_width.points(), 0.5);
         assert_eq!(theme.panel_border_width.points(), 1.0);
         assert_eq!(theme.selection_border_width.points(), 1.0);
         assert_eq!(theme.widget_border_width.points(), 1.0);
@@ -1343,6 +1378,22 @@ mod tests {
     }
 
     ///
+    /// Input Portal is the one glyph role Okabe–Ito assigns no hue: both
+    /// built-ins draw it in the same OKLCh hue, a violet at 300°, within the
+    /// same 0.7° rounding, and differ in lightness alone.
+    ///
+    #[test]
+    fn both_built_ins_draw_input_portal_in_one_hue() {
+        let (dark, light) = (okabe_ito(), orcvs_light());
+        for hue in [
+            oklch_hue(dark.input_portal_foreground),
+            oklch_hue(light.input_portal_foreground),
+        ] {
+            assert!((hue - 300.0).abs() <= 0.7, "Input Portal at {hue:.2}°");
+        }
+    }
+
+    ///
     /// The light counterpart of the test above: `console/src/theme.md`'s
     /// Orcvs Light table, restated as `Theme` field assertions. Every one of
     /// `schema.md`'s named properties appears here at an exact value —
@@ -1392,6 +1443,9 @@ mod tests {
         assert_eq!(theme.output_portal_foreground, straight_rgba(0x6F_4A_00_FF));
         assert_eq!(theme.output_portal_background, straight_rgba(0x6F_4A_00_1A));
         assert_eq!(theme.output_portal_border, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.input_portal_foreground, straight_rgba(0x64_07_AF_FF));
+        assert_eq!(theme.input_portal_background, straight_rgba(0x64_07_AF_1A));
+        assert_eq!(theme.input_portal_border, straight_rgba(0x00_00_00_00));
 
         assert_eq!(theme.grid_border, straight_rgba(0x34_5B_50_40));
         assert_eq!(theme.sector_seam, straight_rgba(0x26_68_54_70));
@@ -1429,6 +1483,7 @@ mod tests {
         assert_eq!(theme.region_border_width.points(), 1.0);
         assert_eq!(theme.diagnostic_border_width.points(), 0.5);
         assert_eq!(theme.output_portal_border_width.points(), 0.5);
+        assert_eq!(theme.input_portal_border_width.points(), 0.5);
         assert_eq!(theme.panel_border_width.points(), 1.0);
         assert_eq!(theme.selection_border_width.points(), 1.0);
         assert_eq!(theme.widget_border_width.points(), 1.0);
@@ -2003,6 +2058,9 @@ mod tests {
             ColorKey::OutputPortalForeground,
             ColorKey::OutputPortalBackground,
             ColorKey::OutputPortalBorder,
+            ColorKey::InputPortalForeground,
+            ColorKey::InputPortalBackground,
+            ColorKey::InputPortalBorder,
             ColorKey::GridBorder,
             ColorKey::SectorSeam,
             ColorKey::CursorBorder,
@@ -2026,8 +2084,8 @@ mod tests {
         ];
         assert_eq!(
             keys.len(),
-            42,
-            "the catalogue has 42 non-optional colour keys"
+            45,
+            "the catalogue has 45 non-optional colour keys"
         );
 
         for &key in &keys {
@@ -2075,11 +2133,12 @@ mod tests {
             GridWidthKey::RegionBorder,
             GridWidthKey::DiagnosticBorder,
             GridWidthKey::OutputPortalBorder,
+            GridWidthKey::InputPortalBorder,
         ];
         assert_eq!(
             grid_keys.len(),
-            7,
-            "the catalogue has 7 Grid-bounded width keys"
+            8,
+            "the catalogue has 8 Grid-bounded width keys"
         );
         for &key in &grid_keys {
             let document = ThemeDocument {
@@ -2162,6 +2221,9 @@ mod tests {
             (ColorKey::OutputPortalForeground, "output_portal.foreground"),
             (ColorKey::OutputPortalBackground, "output_portal.background"),
             (ColorKey::OutputPortalBorder, "output_portal.border"),
+            (ColorKey::InputPortalForeground, "input_portal.foreground"),
+            (ColorKey::InputPortalBackground, "input_portal.background"),
+            (ColorKey::InputPortalBorder, "input_portal.border"),
             (ColorKey::GridBorder, "grid.border"),
             (ColorKey::SectorSeam, "sector.seam"),
             (ColorKey::CursorBorder, "cursor.border"),
@@ -2183,7 +2245,7 @@ mod tests {
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
         ];
-        assert_eq!(catalogue.len(), 42);
+        assert_eq!(catalogue.len(), 45);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }
@@ -2206,6 +2268,10 @@ mod tests {
         assert_eq!(
             GridWidthKey::OutputPortalBorder.name(),
             "output_portal.border.width"
+        );
+        assert_eq!(
+            GridWidthKey::InputPortalBorder.name(),
+            "input_portal.border.width"
         );
         assert_eq!(ChromeWidthKey::PanelBorder.name(), "panel.border.width");
         assert_eq!(

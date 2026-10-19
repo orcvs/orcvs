@@ -14,12 +14,61 @@ pub(crate) struct RenderFrameConfig {
     pub cursor_bloom_radius: CursorBloomRadius,
 }
 
+///
+/// One part a Cell can play in a Portal.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortalRole {
+    /// The Cell is where a Function writes its answer.
+    Output,
+    /// The Cell is where a Function reads an input.
+    Input,
+}
+
+///
+/// The set of [`PortalRole`]s one Cell plays: none, either, or both.
+///
+/// ```
+/// use orcvs::render_frame::{PortalRole, PortalRoles};
+///
+/// let roles = PortalRoles::NONE.with(PortalRole::Output);
+/// assert!(roles.contains(PortalRole::Output));
+/// assert!(!roles.contains(PortalRole::Input));
+/// assert_eq!(roles.with(PortalRole::Output), roles);
+/// ```
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PortalRoles(u8);
+
+impl PortalRoles {
+    /// The Cell plays no part in any Portal.
+    pub const NONE: Self = Self(0);
+
+    const fn bit(role: PortalRole) -> u8 {
+        match role {
+            PortalRole::Output => 1,
+            PortalRole::Input => 1 << 1,
+        }
+    }
+
+    /// This set with `role` added.
+    #[must_use]
+    pub const fn with(self, role: PortalRole) -> Self {
+        Self(self.0 | Self::bit(role))
+    }
+
+    /// Whether the Cell plays `role`.
+    pub const fn contains(self, role: PortalRole) -> bool {
+        self.0 & Self::bit(role) != 0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RenderCell {
     position: Position,
     content: Option<char>,
     claim: Option<Arc<Claim>>,
-    output_portal: bool,
+    portal_roles: PortalRoles,
 }
 
 impl RenderCell {
@@ -79,18 +128,22 @@ impl RenderCell {
     }
 
     ///
-    /// Whether this Cell draws as a value Function's Output Portal, derived
-    /// from the current Source revision alone and known before any Tick runs.
+    /// The Portal roles this Cell plays.
     ///
-    /// `true` covers the Cell pair from the Output Portal, the Reservation the
-    /// Tick scheduler reserves for that Function's answer, whether it is a
-    /// root or nested. A Terminal Output Function, Halt, a Source-writing
-    /// Function (including an Advance's cleared anchor), and a nested
-    /// Function the Parser refuses never set it, and neither does a scalar
-    /// destination the row edge leaves no room for.
+    /// [`PortalRole::Output`] covers the Cell pair from a value Function's
+    /// Output Portal, the Reservation the Tick scheduler reserves for that
+    /// Function's answer, whether it is a root or nested. It is derived from
+    /// the current Source revision alone and known before any Tick runs. A
+    /// Terminal Output Function, Halt, a Source-writing Function (including
+    /// an Advance's cleared anchor), and a nested Function the Parser refuses
+    /// never set it, and neither does a scalar destination the row edge
+    /// leaves no room for.
     ///
-    pub fn output_portal(&self) -> bool {
-        self.output_portal
+    /// Derivation sets no [`PortalRole::Input`]: the current Source revision
+    /// alone does not say which Cells a Tick reads.
+    ///
+    pub fn portal_roles(&self) -> PortalRoles {
+        self.portal_roles
     }
 }
 
@@ -156,7 +209,11 @@ impl RenderFrame {
                     position,
                     content: source.content_at(position),
                     claim: claims[index].clone(),
-                    output_portal: output_portals[index],
+                    portal_roles: if output_portals[index] {
+                        PortalRoles::NONE.with(PortalRole::Output)
+                    } else {
+                        PortalRoles::NONE
+                    },
                 }
             })
             .collect();
@@ -328,7 +385,7 @@ mod tests {
         grid::{CellIndex, Grid},
         opts::{CursorBloomRadius, SectorSeamSpacing},
         region::Region,
-        render_frame::{RenderFrame, RenderFrameConfig},
+        render_frame::{PortalRole, PortalRoles, RenderFrame, RenderFrameConfig},
         source::{OperandState, SourceCommander, SourcePaint, Tick, Token},
     };
 
@@ -1038,5 +1095,54 @@ mod tests {
             vec![leftover]
         );
         assert!(frame.diagnostic_covers(leftover));
+    }
+
+    #[test]
+    fn each_cell_plays_the_output_role_its_revision_highlights_and_no_input_role() {
+        let grid = Grid::with_shape(8, 2);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+0304");
+        let revision = source.read_revision();
+        let highlight = revision.output_portal_highlight();
+        let frame = derive_frame(&source, grid.origin());
+
+        assert!(
+            highlight.iter().any(|covered| *covered),
+            "the Add reserves an Output Portal, so the comparison is not vacuous"
+        );
+        for position in grid.positions_by_row().flatten() {
+            let roles = frame.at(position).portal_roles();
+            assert_eq!(
+                roles.contains(PortalRole::Output),
+                highlight[grid.index(position).get()],
+                "({}, {})",
+                position.x(),
+                position.y()
+            );
+            assert!(!roles.contains(PortalRole::Input));
+        }
+    }
+
+    #[test]
+    fn portal_roles_hold_each_role_independently() {
+        let output = PortalRoles::NONE.with(PortalRole::Output);
+        let input = PortalRoles::NONE.with(PortalRole::Input);
+        let both = output.with(PortalRole::Input);
+
+        for (roles, holds_output, holds_input) in [
+            (PortalRoles::NONE, false, false),
+            (output, true, false),
+            (input, false, true),
+            (both, true, true),
+        ] {
+            assert_eq!(
+                roles.contains(PortalRole::Output),
+                holds_output,
+                "{roles:?}"
+            );
+            assert_eq!(roles.contains(PortalRole::Input), holds_input, "{roles:?}");
+        }
+        assert_eq!(both, input.with(PortalRole::Output));
+        assert_eq!(both.with(PortalRole::Output), both);
     }
 }

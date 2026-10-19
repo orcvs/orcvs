@@ -575,8 +575,8 @@ mod tests {
     #[test]
     fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
         let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.colors.len(), 42);
-        assert_eq!(document.grid_widths.len(), 7);
+        assert_eq!(document.colors.len(), 45);
+        assert_eq!(document.grid_widths.len(), 8);
         assert_eq!(document.chrome_widths.len(), 5);
         assert_eq!(document.cursor_background, Some(OptionalFill::None));
         assert_eq!(document.region_cursor_background, Some(OptionalFill::None));
@@ -592,9 +592,9 @@ mod tests {
     }
 
     ///
-    /// Each of the example's 56 property names, alone in a document, sets
-    /// exactly one property, whose key spells that name — and the 56 reach
-    /// 56 different properties, so every catalogue entry is reachable by
+    /// Each of the example's 60 property names, alone in a document, sets
+    /// exactly one property, whose key spells that name — and the 60 reach
+    /// 60 different properties, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
@@ -603,7 +603,7 @@ mod tests {
             .lines()
             .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
             .collect::<Vec<_>>();
-        assert_eq!(entries.len(), 56, "42 colours, 2 optional fills, 12 widths");
+        assert_eq!(entries.len(), 60, "45 colours, 2 optional fills, 13 widths");
         let mut reached = Vec::new();
         for (name, value) in entries {
             let document = decodes(&style(&[(name, value)]));
@@ -652,8 +652,8 @@ mod tests {
     #[test]
     fn a_style_that_is_not_a_table_is_refused() {
         let in_order = [
-            ["\"#FFFFFF\""; 42].as_slice(),
-            &["0.5"; 7],
+            ["\"#FFFFFF\""; 45].as_slice(),
+            &["0.5"; 8],
             &["1"; 5],
             &["\"none\""; 2],
         ]
@@ -1089,7 +1089,7 @@ mod tests {
     }
 
     ///
-    /// The list of 56 names, colours first, is longer than the message cap,
+    /// The list of 60 names, colours first, is longer than the message cap,
     /// which cuts it and marks the cut: a mistyped property is refused with
     /// a message that names it but may not list the width or fill it meant.
     ///

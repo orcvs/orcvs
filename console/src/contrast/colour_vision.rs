@@ -19,8 +19,9 @@
 use std::fmt;
 
 use egui::Color32;
+use orcvs::render_frame::{PortalRole, PortalRoles};
 
-use super::{CursorPlacement, Role, painted};
+use super::{CursorPlacement, PORTAL_ROLE_SETS, Role, painted};
 use crate::theme::Theme;
 
 ///
@@ -88,7 +89,7 @@ impl fmt::Display for ColourVision {
 ///
 /// A Theme foreground channel some reachable Cell actually draws a glyph in
 /// — the distinction a reader reads off the colour. [`Role::glyph_channel`]
-/// maps each `(role, output_portal)` pair onto one, and says why the set is
+/// maps each `(role, portals)` pair onto one, and says why the set is
 /// this one rather than one entry per Theme colour key.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +102,7 @@ enum GlyphChannel {
     Bang,
     Diagnostic,
     OutputPortal,
+    InputPortal,
 }
 
 impl fmt::Display for GlyphChannel {
@@ -114,6 +116,7 @@ impl fmt::Display for GlyphChannel {
             Self::Bang => "Bang",
             Self::Diagnostic => "Diagnostic",
             Self::OutputPortal => "Output Portal",
+            Self::InputPortal => "Input Portal",
         })
     }
 }
@@ -193,11 +196,11 @@ fn distinguish(theme: &Theme) -> ConfusionReport {
             .source_paint_fact()
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for placement in CursorPlacement::ALL {
-            for output_portal in [false, true] {
-                let Some(channel) = role.glyph_channel(output_portal, theme) else {
+            for portals in PORTAL_ROLE_SETS {
+                let Some(channel) = role.glyph_channel(portals, theme) else {
                     continue;
                 };
-                let (foreground, background) = painted(fact, placement, output_portal, theme);
+                let (foreground, background) = painted(fact, placement, portals, theme);
                 displayed.push((channel, placement, background.blend(foreground)));
             }
         }
@@ -419,15 +422,15 @@ fn difference(first: [f32; 3], second: [f32; 3]) -> f32 {
 impl Role {
     ///
     /// Which Theme foreground channel this role's glyph actually draws in,
-    /// given whether the Cell also lies in an Output Portal Reservation —
+    /// given the Portal roles the Cell plays —
     /// the *meaning* a reader has to read off the colour, which is what
     /// [`distinguish`] compares rather than the `(role, state)` label.
     ///
     /// Several roles share one channel, by design rather than by accident:
     /// every Invalid operand draws `diagnostic.foreground` whatever Token
     /// declared the slot, and every non-Function, non-Bang Cell inside a
-    /// Reservation draws `output_portal.foreground` whatever it would
-    /// otherwise have been. Those collapses are the painting rules working;
+    /// Portal draws that Portal's foreground whatever it would
+    /// otherwise have been — Output Portal's when the Cell plays both roles. Those collapses are the painting rules working;
     /// comparing two states that share a channel would measure a distinction
     /// the console never intended to draw.
     ///
@@ -436,8 +439,17 @@ impl Role {
     /// showing, which is how a Theme carries a fact on the background
     /// alone — so the glyph is measured as the channel it reveals.
     ///
-    fn glyph_channel(self, output_portal: bool, theme: &Theme) -> Option<GlyphChannel> {
-        let portal = output_portal && theme.output_portal_foreground != Color32::TRANSPARENT;
+    fn glyph_channel(self, portals: PortalRoles, theme: &Theme) -> Option<GlyphChannel> {
+        let output = portals.contains(PortalRole::Output);
+        let portal = if output {
+            (theme.output_portal_foreground != Color32::TRANSPARENT)
+                .then_some(GlyphChannel::OutputPortal)
+        } else if portals.contains(PortalRole::Input) {
+            (theme.input_portal_foreground != Color32::TRANSPARENT)
+                .then_some(GlyphChannel::InputPortal)
+        } else {
+            None
+        };
         let diagnostic = theme.diagnostic_foreground != Color32::TRANSPARENT;
         match self {
             // "A bound Function retains all its own paint inside a Portal",
@@ -452,7 +464,7 @@ impl Role {
             | Self::Error
             | Self::Warning
             | Self::Link => None,
-            _ if portal => Some(GlyphChannel::OutputPortal),
+            _ if portal.is_some() => portal,
             Self::NumberInvalid | Self::NoteInvalid if diagnostic => Some(GlyphChannel::Diagnostic),
             Self::Ordinary => Some(GlyphChannel::Ordinary),
             Self::Comment => Some(GlyphChannel::Comment),
@@ -644,7 +656,7 @@ mod tests {
     }
 
     ///
-    /// Every unordered pair of the eight glyph channels, once per
+    /// Every unordered pair of the nine glyph channels, once per
     /// dichromacy, and nothing else: `distinguish` reports the minimum over
     /// placements rather than one row per placement, and never pairs a
     /// channel with itself.
@@ -652,10 +664,10 @@ mod tests {
     #[test]
     fn distinguish_reports_one_result_per_channel_pair_and_dichromacy() {
         let report = distinguish(&orcvs_light());
-        // 8 channels choose 2 = 28 pairs, times 3 dichromacies. Stated as
+        // 9 channels choose 2 = 36 pairs, times 3 dichromacies. Stated as
         // one literal rather than recomputed from the same lengths the code
         // iterates.
-        assert_eq!(report.results.len(), 84);
+        assert_eq!(report.results.len(), 108);
         for result in &report.results {
             assert_ne!(result.first, result.second);
         }

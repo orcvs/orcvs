@@ -192,15 +192,14 @@ impl Paint {
     /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
     /// decides what to do with its answer, not what the answer is. It reads
     /// the finished language fact on the Cell (`RenderCell::source_paint`)
-    /// and whether the Cell lies in a value Function's Output Portal
-    /// Reservation (`RenderCell::output_portal`).
+    /// and the Portal roles the Cell plays (`RenderCell::portal_roles`).
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
     /// Cell: a per-Cell resolution would add its cost to every drawn Cell of
     /// every frame. `style::SourcePaintVisuals` holds the answer
     /// `cell_visuals_with_cursor_colour` gives for each unselected fact
-    /// and Output Portal flag the walk asks for, so an unselected Cell costs
-    /// one indexed load rather than the role match, Diagnostic/Output Portal
+    /// and painting Portal the walk asks for, so an unselected Cell costs
+    /// one indexed load rather than the role match, Diagnostic/Portal
     /// blends, `cell.background` composite and border priority match. Only
     /// the single-Cell Cursor calls `cell_visuals_with_cursor_colour`
     /// directly.
@@ -262,14 +261,14 @@ impl Paint {
                 let visuals = if selected {
                     cell_visuals_with_cursor_colour(
                         cell.source_paint(),
-                        cell.output_portal(),
+                        cell.portal_roles(),
                         true,
                         cursor_visible,
                         cursor_fill,
                         theme,
                     )
                 } else {
-                    unselected.unselected(cell.source_paint(), cell.output_portal())
+                    unselected.unselected(cell.source_paint(), cell.portal_roles())
                 };
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
                 let background = cell_background(
@@ -543,7 +542,11 @@ mod tests {
     use crate::theme::okabe_ito;
     use egui::Color32;
     use orcvs::source::{OperandState, SourcePaint, Token};
-    use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
+    use orcvs::{
+        app::Orcvs,
+        grid::Grid,
+        render_frame::{PortalRole, RenderFrame},
+    };
     use std::ops::Range;
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
@@ -601,7 +604,7 @@ mod tests {
 
     ///
     /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
-    /// claim and its own Output Portal fact straight from `cell` — the same
+    /// claim and its own Portal roles straight from `cell` — the same
     /// two per-Cell inputs `Paint::derive_with_theme` reads, so a test
     /// comparing against this needs no `okabe_ito()`-only shim.
     ///
@@ -614,7 +617,7 @@ mod tests {
     ) -> crate::style::CellVisuals {
         cell_visuals_with_cursor_colour(
             cell.source_paint(),
-            cell.output_portal(),
+            cell.portal_roles(),
             selected,
             cursor_visible,
             cursor_colour,
@@ -1548,7 +1551,7 @@ mod tests {
     /// row south, so Expressions on adjacent rows would have row `N + 1`'s
     /// operands answering the Output Portal rule instead of their own tint.
     /// Two rows apart puts every Reservation on an empty row, and the tests
-    /// below assert `!output_portal()` on every Cell they read rather than
+    /// below assert no Output Portal role on every Cell they read rather than
     /// trusting this paragraph.
     ///
     /// The Cursor parks at the east end of row 0, which no Expression claims
@@ -1620,7 +1623,7 @@ mod tests {
                 let cell = frame.at(position);
 
                 assert!(
-                    !cell.output_portal(),
+                    !cell.portal_roles().contains(PortalRole::Output),
                     "row {row} column {x} is inside a Reservation, so `06`'s rule answers it"
                 );
                 assert_eq!(
@@ -1822,7 +1825,7 @@ mod tests {
                 let cell = frame.at(position);
 
                 assert!(
-                    !cell.output_portal(),
+                    !cell.portal_roles().contains(PortalRole::Output),
                     "row {row} column {x} is inside a Reservation, so `06`'s rule answers it"
                 );
                 assert_eq!(
@@ -1894,7 +1897,7 @@ mod tests {
     /// from one a Tick wrote.
     ///
     mod output_portal_paint {
-        use super::{okabe_ito, running_orcvs, tinted, whole, write_row};
+        use super::{PortalRole, okabe_ito, running_orcvs, tinted, whole, write_row};
 
         ///
         /// A scalar answer south of a Function draws in the Output Portal
@@ -1918,7 +1921,13 @@ mod tests {
 
             for x in 0..2 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 let painted = paint.at(position);
                 assert_eq!(
                     painted.foreground, theme.output_portal_foreground,
@@ -1930,7 +1939,13 @@ mod tests {
             // Cell, the same as if `.+0304` were not there.
             for x in 2..6 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    !frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 assert_eq!(paint.at(position).background, None, "column {x}");
             }
         }
@@ -1991,13 +2006,25 @@ mod tests {
 
             for x in 0..2 {
                 let portal_position = grid.position(x, 1).expect("inside the grid");
-                assert!(frame.at(portal_position).output_portal(), "column {x}");
+                assert!(
+                    frame
+                        .at(portal_position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 let portal_painted = paint.at(portal_position);
                 assert_eq!(portal_painted.foreground, theme.source_bang, "column {x}");
                 assert_eq!(portal_painted.background, Some(output_tinted), "column {x}");
 
                 let ordinary_position = grid.position(x, 2).expect("inside the grid");
-                assert!(!frame.at(ordinary_position).output_portal(), "column {x}");
+                assert!(
+                    !frame
+                        .at(ordinary_position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 let ordinary_painted = paint.at(ordinary_position);
                 assert_eq!(ordinary_painted.foreground, theme.source_bang, "column {x}");
                 assert_eq!(
@@ -2027,7 +2054,13 @@ mod tests {
 
             for x in 0..2 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 assert_eq!(frame.at(position).content(), None, "column {x}");
                 let painted = paint.at(position);
                 assert_eq!(painted.character, ' ', "column {x}");
@@ -2035,15 +2068,21 @@ mod tests {
             }
             for x in 2..6 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    !frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 assert_eq!(paint.at(position).background, None, "column {x}");
             }
         }
 
         ///
         /// A Terminal Output Function paints nothing at its Output Portal:
-        /// `!>` (RawPlay) answers Play, not a Cell, so `output_portal()` is
-        /// `None` for it and the row south of it reads exactly as if no root
+        /// `!>` (RawPlay) answers Play, not a Cell, so no Cell plays its
+        /// Output Portal role and the row south of it reads exactly as if no root
         /// stood north of it.
         ///
         #[tokio::test]
@@ -2059,7 +2098,13 @@ mod tests {
 
             for x in 0..8 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    !frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 let painted = paint.at(position);
                 assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
                 assert_eq!(painted.background, None, "column {x}");
@@ -2084,7 +2129,13 @@ mod tests {
 
             for x in 0..4 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    !frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 let painted = paint.at(position);
                 assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
                 assert_eq!(painted.background, None, "column {x}");
@@ -2114,7 +2165,13 @@ mod tests {
 
             for x in 2..6 {
                 let position = grid.position(x, 0).expect("inside the grid");
-                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert!(
+                    !frame
+                        .at(position)
+                        .portal_roles()
+                        .contains(PortalRole::Output),
+                    "column {x}"
+                );
                 let painted = paint.at(position);
                 assert_eq!(painted.foreground, theme.source_ordinary, "column {x}");
                 assert_eq!(painted.background, None, "column {x}");
@@ -2154,7 +2211,8 @@ mod tests {
                 assert_eq!(
                     frame
                         .at(grid.position(x, 1).expect("inside the grid"))
-                        .output_portal(),
+                        .portal_roles()
+                        .contains(PortalRole::Output),
                     x < 4,
                     "column {x}: the two roots above reserve columns 0 to 3"
                 );
