@@ -52,6 +52,35 @@ enum InputSite {
     },
 }
 
+/// What a Function's Turn reads at its Input Portal. The read the
+/// Interpreter is handed and the read the Tick Portals record are both this
+/// answer, so the Cells painted as read are the Cells read.
+#[derive(Clone, Copy)]
+enum InputRead {
+    /// As many Cells as the Portal Input the Function declares is wide.
+    Cells(usize),
+    /// One complete aligned Language Unit: the Cell pair a Copy copies.
+    Unit,
+}
+
+impl InputRead {
+    fn of(function: Function) -> Self {
+        match function.portal_input() {
+            Some(input) => Self::Cells(input.token().len()),
+            None => Self::Unit,
+        }
+    }
+
+    /// How many Cells the read covers. A Language Unit is the pair
+    /// [`Portal::reservation`] spans.
+    fn width(self) -> usize {
+        match self {
+            Self::Cells(width) => width,
+            Self::Unit => SCALAR_WIDTH,
+        }
+    }
+}
+
 ///
 /// Executes an established order against the original Source Snapshot.
 ///
@@ -314,18 +343,16 @@ impl<'a> Execution<'a> {
 
     ///
     /// Records the read `index`'s Turn makes at `portal`: the Cells the
-    /// Interpreter is handed, as many as [`Execution::portal_source`] reads.
+    /// Interpreter is handed, as many as [`InputRead`] answers.
     ///
     fn record_read(&mut self, index: ComputationId, function: Function, portal: InputSite) {
         let (origin, site) = match portal {
             InputSite::Undeclared => return,
             InputSite::Outside { origin, error } => (origin, Err(error)),
-            InputSite::At { origin, portal } => {
-                let width = function
-                    .portal_input()
-                    .map_or(SCALAR_WIDTH, |input| input.token().len());
-                (origin, InputSpan::read(portal, width))
-            }
+            InputSite::At { origin, portal } => (
+                origin,
+                InputSpan::read(portal, InputRead::of(function).width()),
+            ),
         };
         self.record(index, PortalEvent::Read { origin, site });
     }
@@ -419,9 +446,9 @@ impl<'a> Execution<'a> {
             InputSite::Outside { .. } => return PortalSource::from_cells(None),
             InputSite::At { portal, .. } => portal,
         };
-        PortalSource::from_cells(match function.portal_input() {
-            Some(input) => self.working.portal_cells(portal, input.token().len()),
-            None => self.working.portal_unit(portal),
+        PortalSource::from_cells(match InputRead::of(function) {
+            InputRead::Cells(width) => self.working.portal_cells(portal, width),
+            InputRead::Unit => self.working.portal_unit(portal),
         })
     }
 
@@ -830,54 +857,53 @@ impl<'a> Execution<'a> {
 
     ///
     /// Applies a lock to the Expression root at the Function's Output Portal,
-    /// as [`dependencies::lock_verdict`] answers it, words its diagnostics,
-    /// and records the lock with that verdict. An ordering defect is diagnosed at the Halt, as a late
-    /// spatial write is, and a missed lock at the root it missed. Halt itself
-    /// is not suppressed here — `opens_turn` already refused a suppressed
-    /// Halt, so reaching this arm means this Halt locks.
+    /// as [`dependencies::lock_verdict`] answers it, records the lock with
+    /// that verdict, and words its diagnostics. An ordering defect is
+    /// diagnosed at the Halt, as a late spatial write is, and a missed lock at
+    /// the root it missed. Halt itself is not suppressed here — `opens_turn`
+    /// already refused a suppressed Halt, so reaching this arm means this Halt
+    /// locks.
     ///
     fn lock_portal(&mut self, index: ComputationId, delivery: Delivery) {
-        let lookup = &self.schedule.lookup;
+        // The schedule outlives the Turn, so its nodes stay borrowed while
+        // the Turn records and applies the lock.
+        let schedule = self.schedule;
+        let locked = dependencies::lock_verdict(&schedule.locks, index, self.phase(delivery, None));
+        let lookup = &schedule.lookup;
         let node = &lookup.nodes()[index];
-        let verdict = match dependencies::lock_verdict(
-            &self.schedule.locks,
-            index,
-            self.phase(delivery, None),
-        ) {
-            Locked::Lock(target) => {
-                let root = lookup.nodes()[target.start()].anchor;
-                self.turns.suppress(target);
-                self.effects.push(Effect::Lock(root));
-                LockVerdict::Locked(root)
-            }
-            Locked::Missed(root) => {
-                let missed = &lookup.nodes()[root];
-                self.effects.push(Effect::Diagnose(diagnose(
-                    missed,
-                    "lock reached a root that has taken its Turn",
-                )));
-                LockVerdict::Missed(missed.anchor)
-            }
-            Locked::OrderingDefect => {
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    "spatial output reached an executed computation",
-                )));
-                LockVerdict::OrderingDefect
-            }
-            Locked::NotARoot => {
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    format!("{} target is not an Expression root", node.function),
-                )));
-                LockVerdict::NotARoot
-            }
+        let anchor = |id: ComputationId| lookup.nodes()[id].anchor;
+        let verdict = match &locked {
+            Locked::Lock(target) => LockVerdict::Locked(anchor(target.start())),
+            Locked::Missed(root) => LockVerdict::Missed(anchor(*root)),
+            Locked::OrderingDefect => LockVerdict::OrderingDefect,
+            Locked::NotARoot => LockVerdict::NotARoot,
             // `OrderAfter` is the schedule phase's answer, never a Turn's.
             Locked::Unchanged | Locked::OrderAfter(_) => LockVerdict::Unchanged,
         };
-        // Every Function that answers a lock declares a lock site.
-        if let Some(site) = node.portal_access.lock_site() {
-            self.record(index, PortalEvent::Lock { site, verdict });
+        let site = node.portal_access.lock_site().expect(
+            "a Function that answers a lock declares a lock Output, which a Function \
+             Replacement keeps and which resolves to a lock site for every root",
+        );
+        self.record(index, PortalEvent::Lock { site, verdict });
+        match locked {
+            Locked::Lock(target) => {
+                let root = anchor(target.start());
+                self.turns.suppress(target);
+                self.effects.push(Effect::Lock(root));
+            }
+            Locked::Missed(root) => self.effects.push(Effect::Diagnose(diagnose(
+                &lookup.nodes()[root],
+                "lock reached a root that has taken its Turn",
+            ))),
+            Locked::OrderingDefect => self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                "spatial output reached an executed computation",
+            ))),
+            Locked::NotARoot => self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                format!("{} target is not an Expression root", node.function),
+            ))),
+            Locked::Unchanged | Locked::OrderAfter(_) => {}
         }
     }
 
