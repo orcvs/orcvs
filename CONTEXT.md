@@ -323,7 +323,7 @@ One square block of Cells the console draws the Source Grid divided into, bounde
 _Avoid_: Block, tile, chunk, page
 
 **Sector Seam**:
-The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.
+The solid line the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.
 _Avoid_: Marker, guide, gridline, ruler dot
 
 **Render Frame**:

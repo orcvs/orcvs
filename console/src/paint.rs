@@ -7,10 +7,10 @@
 //! Nothing here is a `Rect`, and nothing here reads a viewport's geometry.
 //! Where a Cell *is* on screen is `GridViewport`'s arithmetic and is asserted
 //! there; a `Rect` in this layer would make every assertion about a colour
-//! acquire a viewport before it could be written. Sector Seam strengths are
-//! decided here from the Frame's spacing answer; `sector_line` turns a strength into a colour as a pure reading of
-//! the palette, while the stroke *widths* the same seams are drawn with scale
-//! with the Cell side and so belong to the step that has one.
+//! acquire a viewport before it could be written. Which Cell edges carry a
+//! Sector Seam is decided here from the Frame's spacing answer, in the
+//! Theme's `sector.seam`, while the stroke *widths* the same seams are drawn
+//! with belong to the step that has the geometry.
 //!
 //! A [`VisiblePositions`] does cross into this layer, and it is that rule kept
 //! rather than an exception to it. It is two `Range<usize>` over the Grid's own
@@ -51,10 +51,9 @@ use orcvs::{
 };
 
 use crate::{
-    marks::{sector_left_strength, sector_top_strength},
+    marks::{sector_left, sector_top},
     style::{
         SourcePaintVisuals, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill,
-        sector_line,
     },
     theme::Theme,
 };
@@ -292,22 +291,13 @@ impl Paint {
                     // that survives only as a branch shape is a rule the next
                     // reader has to rediscover.
                     //
-                    // `sector_line` is pure, so the strength becomes a colour
-                    // here, against `sector_seam` read from `theme` once
-                    // above the loop. The stroke widths are geometry and stay
-                    // out of this layer.
-                    sector_left: (!selected)
-                        .then(|| {
-                            sector_left_strength(position, sector_seam_spacing)
-                                .map(|strength| sector_line(strength, sector_seam))
-                        })
-                        .flatten(),
-                    sector_top: (!selected)
-                        .then(|| {
-                            sector_top_strength(position, sector_seam_spacing)
-                                .map(|strength| sector_line(strength, sector_seam))
-                        })
-                        .flatten(),
+                    // The colour is `sector_seam`, read from `theme` once above
+                    // the loop. The stroke widths are geometry and stay out of
+                    // this layer.
+                    sector_left: (!selected && sector_left(position, sector_seam_spacing))
+                        .then_some(sector_seam),
+                    sector_top: (!selected && sector_top(position, sector_seam_spacing))
+                        .then_some(sector_seam),
                     // A Cell's own content when it has one; the space
                     // otherwise, which `place_glyphs` (`console::shapes`) draws no
                     // Glyph for. An empty claimed operand Cell answers the same
@@ -537,8 +527,8 @@ fn test_theme() -> Theme {
 mod tests {
     use super::{BackgroundRun, CellPaint, FramePaint, Paint, Theme};
     use crate::grid_viewport::VisiblePositions;
-    use crate::marks::{sector_left_strength, sector_top_strength};
-    use crate::style::{cell_visuals_with_cursor_colour, sector_line};
+    use crate::marks::{sector_left, sector_top};
+    use crate::style::cell_visuals_with_cursor_colour;
     use crate::theme::okabe_ito;
     use egui::Color32;
     use orcvs::source::{OperandState, SourcePaint, Token};
@@ -1010,12 +1000,10 @@ mod tests {
     /// own Cell while it is framed on its own.
     ///
     /// The suppression is the derive's, so no later step learns the rule. The
-    /// Cursor is put on a Cell that wants a seam — the corner of a sector,
-    /// where the seam is at full strength — because a Cursor parked where no
-    /// seam was wanted would prove nothing.
+    /// Cursor is put on a Cell that wants a seam — the corner of a sector —
+    /// because a Cursor parked where no seam was wanted would prove nothing.
     ///
-    /// Everywhere else the colour is `sector_line`'s answer for the strength
-    /// Paint computed.
+    /// Everywhere else the colour is the Theme's own `sector.seam`.
     ///
     #[tokio::test]
     async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
@@ -1029,20 +1017,20 @@ mod tests {
         let spacing = frame.sector_seam_spacing().cells();
         let cursor = frame.cursor();
         // `whole` derives against `test_theme`, itself the Okabe–Ito built-in
-        // apart from its Cursor fill, so its `sector_seam` is the base
-        // `sector_line` attenuates below.
+        // apart from its Cursor fill, so its `sector_seam` is every seam's
+        // colour.
         let base = okabe_ito().sector_seam;
         let mut seams = 0;
 
         for cell in frame.cells() {
             let position = cell.position();
             let painted = paint.at(position);
-            let left = sector_left_strength(position, spacing);
-            let top = sector_top_strength(position, spacing);
+            let left = sector_left(position, spacing);
+            let top = sector_top(position, spacing);
 
             if position == cursor {
                 assert!(
-                    left.is_some() && top.is_some(),
+                    left && top,
                     "the Cursor must sit where seams are wanted for their absence to mean anything"
                 );
                 assert_eq!(painted.sector_left, None);
@@ -1052,12 +1040,12 @@ mod tests {
 
             assert_eq!(
                 painted.sector_left,
-                left.map(|strength| sector_line(strength, base)),
+                left.then_some(base),
                 "the left seam at {position:?}"
             );
             assert_eq!(
                 painted.sector_top,
-                top.map(|strength| sector_line(strength, base)),
+                top.then_some(base),
                 "the top seam at {position:?}"
             );
             seams += usize::from(painted.sector_left.is_some());
@@ -1085,21 +1073,12 @@ mod tests {
         let spacing = frame.sector_seam_spacing().cells();
         let painted = *whole(&frame).at(at(8, 8));
 
-        let left = sector_left_strength(at(8, 8), spacing);
-        let top = sector_top_strength(at(8, 8), spacing);
+        let left = sector_left(at(8, 8), spacing);
+        let top = sector_top(at(8, 8), spacing);
         let base = okabe_ito().sector_seam;
-        assert!(
-            left.is_some() && top.is_some(),
-            "the Cursor is off a sector corner"
-        );
-        assert_eq!(
-            painted.sector_left,
-            left.map(|strength| sector_line(strength, base))
-        );
-        assert_eq!(
-            painted.sector_top,
-            top.map(|strength| sector_line(strength, base))
-        );
+        assert!(left && top, "the Cursor is off a sector corner");
+        assert_eq!(painted.sector_left, left.then_some(base));
+        assert_eq!(painted.sector_top, top.then_some(base));
     }
 
     ///

@@ -868,10 +868,8 @@ Portal-over-role figures, read from `contrast::validate`:
 Every one clears the floor. Bang, 4.63:1, is the lowest figure the Region wash
 sets.
 
-Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
-Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
-the midpoint between neighbouring corners with relative strengths `100, 72, 34,
-13, 13, 34, 72, 100`. The faint middle also has sparse gaps derived from each
-absolute Grid Position, so the marks feel imperfect without flicker. They
-replace the historical `+` Marker Glyphs, leaving every empty Cell visually
+Sector boundaries are solid lines drawn over Cell edges, along the whole of
+every sector edge, in the Theme's `sector.seam` at `sector.seam.width`: styled
+the way a Cell grid line is styled by `grid.border` and `grid.border.width`.
+They replace the historical `+` Marker Glyphs, leaving every empty Cell visually
 empty while preserving the configured Sector Seam spacing as geometry.

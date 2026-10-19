@@ -3439,7 +3439,7 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
 /// A sector seam is drawn on the Cell edge the Paint asks for, in the
 /// colour it asks for, one sector line wide.
 ///
-/// Which Cells carry a seam, at what strength, and that the Cursor's own
+/// Which Cells carry a seam, and that the Cursor's own
 /// Cell carries none while it is framed on its own, are the Render
 /// Frame's and the derive's answers and
 /// are asserted in `paint.rs` with no Context at all. The seam's *width*
@@ -3448,7 +3448,7 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
 ///
 /// The Grid is 16 Cells square because the default Sector Seam spacing is
 /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
-/// it, so every seam strength in one is `None` and this would assert
+/// it, so no Cell in one carries a seam and this would assert
 /// nothing.
 ///
 #[tokio::test]
@@ -4435,17 +4435,17 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
             let spacing = frame.sector_seam_spacing().cells();
             let selected = position == frame.cursor();
 
-            for (strength, ends) in [
+            for (seam, ends) in [
                 (
-                    crate::marks::sector_left_strength(position, spacing),
+                    crate::marks::sector_left(position, spacing),
                     [rect.left_top(), rect.left_bottom()],
                 ),
                 (
-                    crate::marks::sector_top_strength(position, spacing),
+                    crate::marks::sector_top(position, spacing),
                     [rect.left_top(), rect.right_top()],
                 ),
             ] {
-                if strength.is_none() || selected {
+                if !seam || selected {
                     continue;
                 }
                 let span = Rect::from_two_pos(ends[0], ends[1]);
