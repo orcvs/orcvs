@@ -13,7 +13,7 @@ use crate::grid::Grid;
 use crate::opts::{CursorBloomRadius, SectorSeamSpacing};
 use crate::region::Region;
 use crate::render_frame::{PortalRole, RenderFrame, RenderFrameConfig};
-use crate::source::{Cells, Source, SourceCommander, Span, TickPlan};
+use crate::source::{Cells, Freshness, Source, SourceCommander, Span, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
 pub(super) const MISSED_BANG: &str = "Bang reached a root that has taken its Turn";
@@ -184,11 +184,10 @@ fn cells_of(span: Span) -> Vec<(usize, usize)> {
 /// The record the last Tick `source` committed left, while `source` is still
 /// at the revision that commit left.
 pub(super) fn committed_portals(source: &Source) -> TickPortals {
-    TickPortals::clone(
-        &source
-            .current_tick_portals()
-            .expect("a Tick committed a record at this revision"),
-    )
+    match source.committed_tick_portals() {
+        Some((record, Freshness::Current)) => TickPortals::clone(&record),
+        other => panic!("a Tick committed a record at this revision, not {other:?}"),
+    }
 }
 
 /// One Portal write a Tick recorded: its owner's anchor and Function, its

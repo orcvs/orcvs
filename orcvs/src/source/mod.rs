@@ -89,7 +89,43 @@ pub struct SourceRevision {
     grid: Grid,
     cells: SourceBuffer,
     language_map: Arc<LanguageMap>,
-    tick_portals: Option<Arc<TickPortals>>,
+    tick_portals: Option<(Arc<TickPortals>, Freshness)>,
+}
+
+///
+/// How a revision's Tick Portals stand against the Cells that revision holds.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Freshness {
+    /// The revision is the one the Tick's commit left, so every entry was
+    /// made against these Cells.
+    Current,
+    /// An edit has landed since the commit. Each Position still names the
+    /// Cell the Tick accessed, because an edit never moves a Cell, but the
+    /// Function that made an entry may no longer stand at its anchor.
+    Retained,
+}
+
+///
+/// The Tick Portals a [`SourceRevision`] answers, and their [`Freshness`]
+/// against it.
+///
+#[derive(Clone, Copy, Debug)]
+pub struct RevisionTickPortals<'a> {
+    record: &'a TickPortals,
+    freshness: Freshness,
+}
+
+impl<'a> RevisionTickPortals<'a> {
+    /// The record of the last Tick committed before the revision was read.
+    pub fn record(self) -> &'a TickPortals {
+        self.record
+    }
+
+    /// Whether the revision is the one that Tick's commit left.
+    pub fn freshness(self) -> Freshness {
+        self.freshness
+    }
 }
 
 impl SourceRevision {
@@ -141,12 +177,19 @@ impl SourceRevision {
     }
 
     ///
-    /// The Tick Portals committed with this revision: what the Tick whose
-    /// commit left the Source at this revision accessed. `None` before any
-    /// Tick has committed, and for a revision an edit made since.
+    /// The Tick Portals of the last Tick committed before this revision was
+    /// read, with their freshness against it: `Current` when this is the
+    /// revision that commit left, `Retained` when an edit made it since. A
+    /// later Tick or edit leaves the answer as it is. `None` before the
+    /// Source's first Tick.
     ///
-    pub fn tick_portals(&self) -> Option<&TickPortals> {
-        self.tick_portals.as_deref()
+    pub fn tick_portals(&self) -> Option<RevisionTickPortals<'_>> {
+        self.tick_portals
+            .as_ref()
+            .map(|(record, freshness)| RevisionTickPortals {
+                record,
+                freshness: *freshness,
+            })
     }
 }
 
@@ -269,7 +312,7 @@ impl SourceCommander {
             grid: source.grid(),
             cells: source.shared_cells(),
             language_map: source.shared_language_map(),
-            tick_portals: source.current_tick_portals(),
+            tick_portals: source.committed_tick_portals(),
         }
     }
 
@@ -318,7 +361,7 @@ impl SourceCommander {
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceCommander, SourceError, Tick, Token};
+    use super::{Freshness, SourceCommander, SourceError, SourceRevision, Tick, Token, file};
     use crate::grid::Grid;
 
     #[test]
@@ -542,24 +585,50 @@ mod tests {
         assert_eq!(read.token_at(gap), None);
     }
 
+    /// A Source of four Cells per row whose first row reads `&v01`.
+    fn reading_source() -> SourceCommander {
+        let grid = Grid::with_shape(4, 3);
+        let source = SourceCommander::new(grid);
+        for (idx, content) in "&v01".chars().enumerate() {
+            let cell = grid.cell_index(idx).expect("inside the Grid");
+            source.set(cell, &content.to_string()).unwrap();
+        }
+        source
+    }
+
+    /// The Tick and freshness `revision` answers its record with.
+    fn record_of(revision: &SourceRevision) -> Option<(Tick, Freshness)> {
+        revision
+            .tick_portals()
+            .map(|portals| (portals.record().tick(), portals.freshness()))
+    }
+
     #[test]
     fn a_source_answers_no_tick_portals_before_its_first_tick() {
         let source = SourceCommander::new(Grid::with_shape(4, 3));
         assert!(source.read_revision().tick_portals().is_none());
+
+        let read = file::read(b"&v01\n").expect("a Source File");
+        let opened = SourceCommander::with_source(read);
+        assert!(opened.read_revision().tick_portals().is_none());
+        opened.execute(Tick::ZERO);
+        assert_eq!(
+            record_of(&opened.read_revision()),
+            Some((Tick::ZERO, Freshness::Current))
+        );
     }
 
     #[test]
     fn a_committed_tick_that_reads_nothing_replaces_the_record_with_an_empty_one() {
-        let grid = Grid::with_shape(4, 3);
-        let source = SourceCommander::new(grid);
-        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
-        for (idx, content) in "&v01".chars().enumerate() {
-            source.set(cell(idx), &content.to_string()).unwrap();
-        }
+        let source = reading_source();
+        let cell = |idx| source.grid().cell_index(idx).expect("inside the Grid");
 
         source.execute(Tick::ZERO);
         let read = source.read_revision();
-        let record = read.tick_portals().expect("the Tick committed a record");
+        let record = read
+            .tick_portals()
+            .expect("the Tick committed a record")
+            .record();
         assert_eq!(record.tick(), Tick::ZERO);
         // The Read's read, and its write south of it.
         assert_eq!(record.uses().len(), 2, "{record:?}");
@@ -571,28 +640,60 @@ mod tests {
         let empty = source.read_revision();
         let record = empty
             .tick_portals()
-            .expect("a Tick that read nothing still commits a record");
+            .expect("a Tick that read nothing still commits a record")
+            .record();
         assert_eq!(record.tick(), Tick::new(1));
         assert!(record.uses().is_empty(), "{record:?}");
     }
 
     #[test]
-    fn a_revision_an_edit_made_after_the_commit_answers_no_tick_portals() {
-        let grid = Grid::with_shape(4, 3);
-        let source = SourceCommander::new(grid);
-        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
-        for (idx, content) in "&v01".chars().enumerate() {
-            source.set(cell(idx), &content.to_string()).unwrap();
-        }
+    fn a_revision_an_edit_made_after_the_commit_answers_the_record_as_retained() {
+        let source = reading_source();
+        let cell = source.grid().cell_index(3).expect("inside the Grid");
         source.execute(Tick::ZERO);
         let committed = source.read_revision();
+        assert_eq!(
+            record_of(&committed),
+            Some((Tick::ZERO, Freshness::Current))
+        );
 
-        source.set(cell(3), "2").unwrap();
+        source.set(cell, "2").unwrap();
+        let edited = source.read_revision();
 
-        assert!(source.read_revision().tick_portals().is_none());
-        assert!(
-            committed.tick_portals().is_some(),
-            "the revision the commit left keeps its record"
+        assert_eq!(record_of(&edited), Some((Tick::ZERO, Freshness::Retained)));
+        assert_eq!(
+            edited.tick_portals().map(|portals| portals.record()),
+            committed.tick_portals().map(|portals| portals.record()),
+            "an edit keeps the record it marks retained"
+        );
+        assert_eq!(
+            record_of(&committed),
+            Some((Tick::ZERO, Freshness::Current)),
+            "the revision the commit left still answers its record as current"
+        );
+    }
+
+    #[test]
+    fn an_older_revision_keeps_the_record_it_was_read_with() {
+        let source = reading_source();
+        let cell = source.grid().cell_index(3).expect("inside the Grid");
+        let unticked = source.read_revision();
+        source.execute(Tick::ZERO);
+        let committed = source.read_revision();
+        source.set(cell, "2").unwrap();
+        let edited = source.read_revision();
+
+        source.execute(Tick::new(1));
+
+        assert_eq!(record_of(&unticked), None);
+        assert_eq!(
+            record_of(&committed),
+            Some((Tick::ZERO, Freshness::Current))
+        );
+        assert_eq!(record_of(&edited), Some((Tick::ZERO, Freshness::Retained)));
+        assert_eq!(
+            record_of(&source.read_revision()),
+            Some((Tick::new(1), Freshness::Current))
         );
     }
 

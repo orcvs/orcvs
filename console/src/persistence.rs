@@ -378,6 +378,38 @@ mod stored_source_tests {
     }
 
     ///
+    /// Tick Portals observe a committed Tick of the running Source and are
+    /// never stored, so a restored Source has no record until its first Tick.
+    ///
+    #[test]
+    fn a_restored_source_has_no_tick_portals_until_its_first_tick() {
+        use orcvs::grid::Grid;
+        use orcvs::source::Tick;
+
+        let grid = Grid::new();
+        let saved = SourceCommander::new(grid);
+        for (index, content) in "&v01".chars().enumerate() {
+            saved
+                .set(
+                    grid.cell_index(index).expect("inside the Grid"),
+                    &content.to_string(),
+                )
+                .expect("a Cell the Source accepts");
+        }
+        saved.execute(Tick::ZERO);
+        assert!(saved.read_revision().tick_portals().is_some());
+        let mut storage = InMemoryStorage::default();
+        save(&mut storage, &saved);
+
+        let restored = SourceCommander::with_source(starting_source(Some(&storage)));
+        assert_eq!(restored.snapshot(), saved.snapshot());
+        assert!(restored.read_revision().tick_portals().is_none());
+
+        restored.execute(Tick::ZERO);
+        assert!(restored.read_revision().tick_portals().is_some());
+    }
+
+    ///
     /// A Source stored at any shape but the one is discarded rather than
     /// migrated (ADR 0054): the console starts the empty Grid, and its next
     /// save writes that Grid over the stored value.
