@@ -1062,10 +1062,10 @@ pub fn grayscale_dark() -> Theme {
         diagnostic_border: straight_rgba(0xC8_C8_C8_FF),
         output_portal_foreground: straight_rgba(0xE6_E6_E6_FF),
         output_portal_background: straight_rgba(0xFF_FF_FF_1F),
-        output_portal_border: straight_rgba(0x00_00_00_00),
+        output_portal_border: straight_rgba(0xFF_FF_FF_66),
         input_portal_foreground: straight_rgba(0xA8_A8_A8_FF),
         input_portal_background: straight_rgba(0xFF_FF_FF_14),
-        input_portal_border: straight_rgba(0x00_00_00_00),
+        input_portal_border: straight_rgba(0xFF_FF_FF_66),
         locked_foreground: straight_rgba(0x00_00_00_00),
         locked_background: straight_rgba(0x00_00_00_CC),
         locked_border: straight_rgba(0xC8_C8_C8_80),
@@ -1157,10 +1157,10 @@ pub fn grayscale_light() -> Theme {
         diagnostic_border: straight_rgba(0x30_30_30_FF),
         output_portal_foreground: straight_rgba(0x14_14_14_FF),
         output_portal_background: straight_rgba(0x00_00_00_1A),
-        output_portal_border: straight_rgba(0x00_00_00_00),
+        output_portal_border: straight_rgba(0x00_00_00_66),
         input_portal_foreground: straight_rgba(0x50_50_50_FF),
         input_portal_background: straight_rgba(0x00_00_00_0F),
-        input_portal_border: straight_rgba(0x00_00_00_00),
+        input_portal_border: straight_rgba(0x00_00_00_66),
         locked_foreground: straight_rgba(0x00_00_00_00),
         locked_background: straight_rgba(0xFF_FF_FF_CC),
         locked_border: straight_rgba(0x30_30_30_80),
@@ -1821,6 +1821,233 @@ mod tests {
         }
         assert_eq!(GRAYSCALE_DARK_IDENTITY.as_str(), "grayscale-dark");
         assert_eq!(GRAYSCALE_LIGHT_IDENTITY.as_str(), "grayscale-light");
+    }
+
+    ///
+    /// The colour a `theme.md` table cell records: `#RRGGBB`, `#RRGGBBAA`,
+    /// or `none` for a cleared optional fill.
+    ///
+    fn recorded_colour(cell: &str) -> Option<Color32> {
+        if cell.trim() == "none" {
+            return None;
+        }
+        let hex = cell.trim().trim_matches('`').trim_start_matches('#');
+        let rgba = match hex.len() {
+            6 => u32::from_str_radix(hex, 16).expect("hex") << 8 | 0xFF,
+            8 => u32::from_str_radix(hex, 16).expect("hex"),
+            _ => panic!("{cell:?} is not a recorded colour"),
+        };
+        Some(straight_rgba(rgba))
+    }
+
+    ///
+    /// `console/src/theme.md`'s grayscale table, read from the page itself so
+    /// the record and the code cannot drift: every property it names holds
+    /// the recorded value in both Themes, and it names every colour and
+    /// optional fill exactly once. The widths are Okabe–Ito's, as the page
+    /// says.
+    ///
+    #[test]
+    fn the_grayscale_built_ins_define_every_key_at_this_table() {
+        let record = include_str!("theme.md");
+        let section = record
+            .split("### The grayscale built-in Themes")
+            .nth(1)
+            .and_then(|rest| rest.split("\n### ").next())
+            .expect("theme.md records the grayscale Themes");
+        let rows = section
+            .split("\n\n")
+            .find(|block| block.starts_with("| Property | Grayscale Dark | Grayscale Light |"))
+            .expect("the grayscale property table");
+
+        let (dark, light) = (grayscale_dark(), grayscale_light());
+        let dark_fields = colour_fields(&dark);
+        let light_fields = colour_fields(&light);
+        let optional = [
+            (
+                "cursor.background",
+                dark.cursor_background,
+                light.cursor_background,
+            ),
+            (
+                "region.cursor.background",
+                dark.region_cursor_background,
+                light.region_cursor_background,
+            ),
+        ];
+        let mut named: Vec<&str> = Vec::new();
+        for row in rows.lines().skip(2) {
+            let cells: Vec<&str> = row.trim_matches('|').split('|').collect();
+            let [properties, dark_cell, light_cell] = cells[..] else {
+                panic!("{row:?} is not a three-column row");
+            };
+            for name in properties.split('`').skip(1).step_by(2) {
+                named.push(name);
+                let (dark_value, light_value) =
+                    match optional.iter().find(|(optional, ..)| *optional == name) {
+                        Some(&(_, dark_value, light_value)) => (dark_value, light_value),
+                        None => {
+                            let value = |fields: &[(&str, Color32)]| {
+                                fields
+                                    .iter()
+                                    .find(|(field, _)| *field == name)
+                                    .map(|&(_, colour)| colour)
+                                    .unwrap_or_else(|| panic!("{name} is not a colour"))
+                            };
+                            (Some(value(&dark_fields)), Some(value(&light_fields)))
+                        }
+                    };
+                assert_eq!(
+                    dark_value,
+                    recorded_colour(dark_cell),
+                    "Grayscale Dark's {name}"
+                );
+                assert_eq!(
+                    light_value,
+                    recorded_colour(light_cell),
+                    "Grayscale Light's {name}"
+                );
+            }
+        }
+
+        let mut expected: Vec<&str> = dark_fields.iter().map(|&(name, _)| name).collect();
+        expected.extend(optional.iter().map(|&(name, ..)| name));
+        expected.sort_unstable();
+        named.sort_unstable();
+        assert_eq!(named, expected, "theme.md names every colour exactly once");
+
+        for theme in [dark, light] {
+            assert_eq!(
+                theme.name,
+                if theme.appearance == Appearance::Dark {
+                    "Grayscale Dark"
+                } else {
+                    "Grayscale Light"
+                }
+            );
+            let base = okabe_ito();
+            for (width, expected) in [
+                (theme.grid_border_width, base.grid_border_width),
+                (theme.sector_seam_width, base.sector_seam_width),
+                (
+                    theme.cell_selection_border_width,
+                    base.cell_selection_border_width,
+                ),
+                (theme.cursor_border_width, base.cursor_border_width),
+                (theme.region_border_width, base.region_border_width),
+                (theme.diagnostic_border_width, base.diagnostic_border_width),
+                (
+                    theme.output_portal_border_width,
+                    base.output_portal_border_width,
+                ),
+                (
+                    theme.input_portal_border_width,
+                    base.input_portal_border_width,
+                ),
+                (theme.locked_border_width, base.locked_border_width),
+            ] {
+                assert_eq!(
+                    width, expected,
+                    "{}'s Grid widths are Okabe–Ito's",
+                    theme.identity
+                );
+            }
+            for (width, expected) in [
+                (theme.panel_border_width, base.panel_border_width),
+                (theme.selection_border_width, base.selection_border_width),
+                (theme.widget_border_width, base.widget_border_width),
+                (
+                    theme.widget_inactive_border_width,
+                    base.widget_inactive_border_width,
+                ),
+                (theme.input_cursor_width, base.input_cursor_width),
+            ] {
+                assert_eq!(
+                    width, expected,
+                    "{}'s chrome widths are Okabe–Ito's",
+                    theme.identity
+                );
+            }
+        }
+    }
+
+    ///
+    /// Where two Source roles draw their glyph in one grey, the Cell around
+    /// it must still differ, in fill or in border, or the two meanings read
+    /// as one. `theme.md` lists the pairs this accepts.
+    ///
+    #[test]
+    fn the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border() {
+        for theme in [grayscale_dark(), grayscale_light()] {
+            let clear = Color32::TRANSPARENT;
+            let roles = [
+                (
+                    "Ordinary",
+                    theme.source_ordinary,
+                    theme.source_ordinary_background,
+                    clear,
+                ),
+                (
+                    "Comment",
+                    theme.source_comment,
+                    theme.source_comment_background,
+                    clear,
+                ),
+                (
+                    "Number",
+                    theme.source_number,
+                    theme.source_number_background,
+                    clear,
+                ),
+                (
+                    "Note",
+                    theme.source_note,
+                    theme.source_note_background,
+                    clear,
+                ),
+                (
+                    "Function",
+                    theme.source_function,
+                    theme.source_function_background,
+                    clear,
+                ),
+                (
+                    "Bang",
+                    theme.source_bang,
+                    theme.source_bang_background,
+                    clear,
+                ),
+                (
+                    "Diagnostic",
+                    theme.diagnostic_foreground,
+                    theme.diagnostic_background,
+                    theme.diagnostic_border,
+                ),
+                (
+                    "Output Portal",
+                    theme.output_portal_foreground,
+                    theme.output_portal_background,
+                    theme.output_portal_border,
+                ),
+                (
+                    "Input Portal",
+                    theme.input_portal_foreground,
+                    theme.input_portal_background,
+                    theme.input_portal_border,
+                ),
+            ];
+            for (index, (first, glyph, fill, border)) in roles.iter().enumerate() {
+                for (second, other_glyph, other_fill, other_border) in &roles[index + 1..] {
+                    if glyph == other_glyph {
+                        assert!(
+                            (fill, border) != (other_fill, other_border),
+                            "{}: {first} and {second} share a grey, a fill and a border",
+                            theme.identity
+                        );
+                    }
+                }
+            }
+        }
     }
 
     ///

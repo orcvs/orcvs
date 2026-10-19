@@ -553,11 +553,14 @@ equal red, green and blue at any opacity
 (`theme::tests::the_grayscale_built_ins_are_the_neutral_defaults`).
 Grayscale Dark sets light grey text and Cells on black, never pure white;
 Grayscale Light sets dark grey text and Cells on white. Widths are Okabe–Ito's.
+`theme::tests::the_grayscale_built_ins_define_every_key_at_this_table` reads
+the table below and fails when it and the code disagree, or when it leaves a
+colour out.
 
 | Property | Grayscale Dark | Grayscale Light |
 |---|---|---|
 | `window.background`, `panel.background`, `grid.background`, `input.background` | `#000000` | `#FFFFFF` |
-| `cell.background` and every other omitted fill | `#00000000` | `#00000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.number.background`, `source.bang.background`, `diagnostic.background`, `locked.foreground` | `#00000000` | `#00000000` |
 | `source.ordinary`, `text` | `#C8C8C8` | `#303030` |
 | `source.comment` | `#8A8A8A` | `#616161` |
 | `source.number`, `source.note`, `input_portal.foreground` | `#A8A8A8` | `#505050` |
@@ -565,6 +568,7 @@ Grayscale Light sets dark grey text and Cells on white. Widths are Okabe–Ito's
 | `source.note.background`, `input_portal.background` | `#FFFFFF14` | `#0000000F` |
 | `source.function.background`, `output_portal.background` | `#FFFFFF1F` | `#0000001A` |
 | `diagnostic.border` | `#C8C8C8` | `#303030` |
+| `output_portal.border`, `input_portal.border` | `#FFFFFF66` | `#00000066` |
 | `locked.background` | `#000000CC` | `#FFFFFFCC` |
 | `locked.border` | `#C8C8C880` | `#30303080` |
 | `grid.border` | `#FFFFFF1A` | `#0000001A` |
@@ -582,13 +586,22 @@ Grayscale Light sets dark grey text and Cells on white. Widths are Okabe–Ito's
 Both clear the 4.5:1 floor in every reachable state with no accepted
 exception (`contrast::tests::shipped_theme_gate`). The lowest is Comment
 under the Region wash: 4.77:1 in Grayscale Dark and 4.92:1 in Grayscale
-Light. They tell Source roles apart by three grey levels and two fill
-strengths rather than by hue, so some glyph channels share a grey by design
-and the red–green colour-vision gate does not apply to them: a dichromacy
-leaves a neutral grey where it is
+Light. They tell Source roles apart by three grey levels, two fill
+strengths and a border rather than by hue, so some glyph channels share a grey
+by design, and the red–green colour-vision gate does not apply to them: a
+dichromacy leaves a neutral grey where it is
 (`contrast::colour_vision::tests::the_grayscale_built_ins_look_alike_to_every_reader`).
-A reader who needs every role in its own colour selects `okabe-ito` or
-`orcvs-light`.
+The accepted pairs, each told apart by what the Cell carries around the glyph
+(`theme::tests::the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border`):
+
+| Shared glyph grey | Told apart by |
+|---|---|
+| Number, Note, Input Portal | Note's fill; Input Portal's fill and border |
+| Function, Bang, Diagnostic, Output Portal | Function's fill; Diagnostic's border; Output Portal's fill and border |
+
+The weakest is a fill alone: Note's wash (8% dark, 6% light) against
+Number's none, and Function's (12% dark, 10% light) against Bang's none. A reader who needs every role in its own
+colour selects `okabe-ito` or `orcvs-light`.
 
 ### Shipped Themes
 

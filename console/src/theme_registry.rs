@@ -1330,6 +1330,12 @@ pub(crate) mod tests_support {
     #[cfg(not(target_arch = "wasm32"))]
     use std::path::{Path, PathBuf};
 
+    /// The built-in Themes a registry holds, for the contrast gate to check
+    /// it covers every one.
+    pub(crate) fn built_ins(registry: &super::ThemeRegistry) -> &[crate::theme::Theme] {
+        &registry.built_ins
+    }
+
     /// A custom Theme's identity, as a file named `stem` supplies it.
     pub(crate) fn id(stem: &str) -> crate::theme::ThemeIdentity {
         crate::theme::ThemeIdentity::from_stem(stem).expect("a non-empty stem")
