@@ -67,7 +67,7 @@ jobs:
       # a CPU adapter, and the manifest check below holds that it got this one.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libvulkan1 mesa-vulkan-drivers
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The test asserts the seeded Source, the mode, the Theme, egui zoom 1.0
