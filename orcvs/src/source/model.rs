@@ -18,7 +18,7 @@ use super::tick;
 use super::tick::ExecutedTick;
 use super::tick::execution::ComputationState;
 use super::tick::portals::TickPortals;
-use super::{CellContent, Freshness, SourceError};
+use super::{CellContent, CommittedRecord, Freshness, SourceError};
 
 const SPACE_BYTE: u8 = b' ';
 
@@ -145,11 +145,12 @@ pub struct Source {
     tick_portals: Option<CommittedPortals>,
 }
 
-/// One committed Tick's record, and the revision its commit left the Source
-/// at.
+/// One committed Tick's record, the revision its commit left the Source at,
+/// and the Cells that revision holds, shared rather than copied.
 struct CommittedPortals {
     record: Arc<TickPortals>,
     revision: RevisionId,
+    cells: SourceBuffer,
 }
 
 static NEXT_REVISION_ID: AtomicU64 = AtomicU64::new(1);
@@ -416,28 +417,39 @@ impl Source {
     ///
     pub(in crate::source) fn commit_tick(&mut self, executed: ExecutedTick) -> TickPlan {
         let (plan, portals) = executed.into_parts();
+        // The record before this one shares the Cells it was committed with.
+        // Released before the write, so a commit no reader shares writes the
+        // Cells in place rather than copying them to keep the old record's.
+        self.tick_portals = None;
         self.write_cells(&plan.writes);
         self.tick_portals = Some(CommittedPortals {
             record: Arc::new(portals),
             revision: self.revision,
+            cells: self.inner.clone(),
         });
         plan
     }
 
     ///
-    /// The record of the last committed Tick, and how it stands against the
-    /// revision the Source is at: [`Freshness::Current`] while that is the
+    /// The record of the last committed Tick, how it stands against the
+    /// revision the Source is at — [`Freshness::Current`] while that is the
     /// revision the commit left, [`Freshness::Retained`] once an edit has
-    /// landed since.
+    /// landed since — and the Cells the commit left, which a revision compares
+    /// its own against.
     ///
-    pub(super) fn committed_tick_portals(&self) -> Option<(Arc<TickPortals>, Freshness)> {
-        self.tick_portals.as_ref().map(|committed| {
-            let freshness = if committed.revision == self.revision {
+    /// The Cells are shared with the record. An edit made while the record
+    /// holds them copies them once, as it does while any reader holds a
+    /// revision, and later edits before the next commit write in place.
+    ///
+    pub(super) fn committed_tick_portals(&self) -> Option<CommittedRecord> {
+        self.tick_portals.as_ref().map(|committed| CommittedRecord {
+            record: Arc::clone(&committed.record),
+            freshness: if committed.revision == self.revision {
                 Freshness::Current
             } else {
                 Freshness::Retained
-            };
-            (Arc::clone(&committed.record), freshness)
+            },
+            cells: committed.cells.clone(),
         })
     }
 

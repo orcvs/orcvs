@@ -148,8 +148,12 @@ impl RenderCell {
     /// access, a lock and a Source Bundle part set neither.
     ///
     /// A [`Freshness::Retained`] record sets either role only for an entry
-    /// whose Function still stands at its anchor in this revision. A Source
-    /// no Tick has committed sets no role from a record.
+    /// whose Function still stands at its anchor in this revision, inside an
+    /// Expression whose every Cell holds what the Tick's commit left there:
+    /// an edit to the Function or to an operand that selects where it reads
+    /// or writes puts out that Function's entries, and an edit anywhere else
+    /// leaves them lit. A Source no Tick has committed sets no role from a
+    /// record.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
         self.portal_roles
@@ -245,7 +249,10 @@ impl RenderFrame {
                     | PortalEvent::Lock { .. }
                     | PortalEvent::Bundle { .. } => continue,
                 };
-                if retained && !owner_stands(grid, &claims, access) {
+                if retained
+                    && !(owner_stands(grid, &claims, access)
+                        && source.expression_as_committed(access.anchor()))
+                {
                     continue;
                 }
                 for position in span.positions() {
@@ -1252,16 +1259,9 @@ mod tests {
         );
 
         // The second voice is now a Read North, which never made the read
-        // the record holds, so only the first voice's read paints.
+        // the record holds, so only the first voice's read paints: the edit
+        // stands outside the first voice's Expression.
         source.set(cell(grid, 5), "^").unwrap();
-        assert_eq!(
-            input_cells(&derive_frame(&source, grid.origin())),
-            [(2, 1), (3, 1)]
-        );
-
-        // An operand edit leaves the first voice's Function standing, so its
-        // read still paints where the Tick made it.
-        source.set(cell(grid, 3), "2").unwrap();
         assert_eq!(
             input_cells(&derive_frame(&source, grid.origin())),
             [(2, 1), (3, 1)]
@@ -1274,6 +1274,32 @@ mod tests {
         let frame = derive_frame(&source, grid.origin());
         assert_eq!(input_cells(&frame), []);
         assert_eq!(output_cells(&frame), [(4, 1), (5, 1)]);
+    }
+
+    #[test]
+    fn a_paused_edit_inside_an_owners_expression_puts_out_its_accesses_and_no_others() {
+        // Two voices: `&v01` at (0, 0) reads (2, 1) and (3, 1), and `&v02`
+        // at (4, 0) reads (6, 2) and (7, 2). No Tick runs after the edits.
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v01&v02");
+        source.execute(Tick::ZERO);
+
+        // The first voice's operand now selects (2, 2): the Function still
+        // stands, but the record no longer says what it reads or writes.
+        source.set(cell(grid, 3), "2").unwrap();
+        let frame = derive_frame(&source, grid.origin());
+        assert_eq!(input_cells(&frame), [(6, 2), (7, 2)]);
+        assert_eq!(output_cells(&frame), [(0, 1), (1, 1), (4, 1), (5, 1)]);
+
+        // Restoring what the commit left lights the first voice again, and an
+        // edit outside every owner's Expression puts out nothing.
+        source.set(cell(grid, 3), "1").unwrap();
+        source.set(cell(grid, 24), "x").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1), (6, 2), (7, 2)]
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]

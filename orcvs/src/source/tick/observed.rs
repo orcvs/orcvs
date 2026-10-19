@@ -185,9 +185,15 @@ fn cells_of(span: Span) -> Vec<(usize, usize)> {
 /// The record the last Tick `source` committed left, while `source` is still
 /// at the revision that commit left.
 pub(super) fn committed_portals(source: &Source) -> TickPortals {
-    match source.committed_tick_portals() {
-        Some((record, Freshness::Current)) => TickPortals::clone(&record),
-        other => panic!("a Tick committed a record at this revision, not {other:?}"),
+    let freshness = source
+        .committed_tick_portals()
+        .map(|committed| (committed.freshness, committed.record));
+    match freshness {
+        Some((Freshness::Current, record)) => TickPortals::clone(&record),
+        other => panic!(
+            "a Tick committed a record at this revision, not {:?}",
+            other.map(|(freshness, _)| freshness)
+        ),
     }
 }
 

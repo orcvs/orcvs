@@ -89,7 +89,19 @@ pub struct SourceRevision {
     grid: Grid,
     cells: SourceBuffer,
     language_map: Arc<LanguageMap>,
-    tick_portals: Option<(Arc<TickPortals>, Freshness)>,
+    tick_portals: Option<CommittedRecord>,
+}
+
+///
+/// The last committed Tick's record as a revision read it: the record, its
+/// freshness against that revision, and the Cells the commit left, shared
+/// with the Source rather than copied.
+///
+#[derive(Clone)]
+struct CommittedRecord {
+    record: Arc<TickPortals>,
+    freshness: Freshness,
+    cells: SourceBuffer,
 }
 
 ///
@@ -102,7 +114,8 @@ pub enum Freshness {
     Current,
     /// An edit has landed since the commit. Each Position still names the
     /// Cell the Tick accessed, because an edit never moves a Cell, but the
-    /// Function that made an entry may no longer stand at its anchor.
+    /// Function that made an entry may no longer stand at its anchor, or may
+    /// select a different Portal from operands the edit changed.
     Retained,
 }
 
@@ -186,9 +199,30 @@ impl SourceRevision {
     pub fn tick_portals(&self) -> Option<RevisionTickPortals<'_>> {
         self.tick_portals
             .as_ref()
-            .map(|(record, freshness)| RevisionTickPortals {
-                record,
-                freshness: *freshness,
+            .map(|committed| RevisionTickPortals {
+                record: &committed.record,
+                freshness: committed.freshness,
+            })
+    }
+
+    ///
+    /// Whether the Expression that covers `anchor` in this revision holds,
+    /// Cell for Cell, what the last committed Tick left there. `false` where
+    /// no Expression covers it or no Tick has committed.
+    ///
+    /// Every operand that selects a dynamic Portal, and the Function itself,
+    /// stands inside its Expression, so an Expression that holds what the
+    /// commit left selects the Portals it selected then. Allocates nothing.
+    ///
+    pub(crate) fn expression_as_committed(&self, anchor: Position) -> bool {
+        let Some(committed) = &self.tick_portals else {
+            return false;
+        };
+        self.language_map
+            .expression_span_at(anchor)
+            .is_some_and(|span| {
+                let range = span.range();
+                self.cells.bytes()[range.clone()] == committed.cells.bytes()[range]
             })
     }
 }
