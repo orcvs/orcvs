@@ -59,8 +59,8 @@ pub(crate) struct ThemeSelection(ByAppearance<ThemeIdentity>);
 
 impl Default for ThemeSelection {
     ///
-    /// Each appearance's default built-in: `okabe-ito` for dark, and
-    /// `orcvs-light` for light.
+    /// Each appearance's default built-in: `grayscale-dark` for dark, and
+    /// `grayscale-light` for light.
     ///
     fn default() -> Self {
         Self(ByAppearance::from_fn(ThemeIdentity::default_for))
@@ -209,7 +209,8 @@ impl SelectedThemes {
 mod tests {
     use super::{SelectedThemes, ThemeSelection};
     use crate::theme::{
-        Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, okabe_ito, orcvs_light,
+        Appearance, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, OKABE_ITO_IDENTITY,
+        grayscale_dark, grayscale_light,
     };
     use crate::theme_registry::ThemeRegistry;
     use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
@@ -221,15 +222,15 @@ mod tests {
     #[test]
     fn a_default_selection_presents_each_appearances_built_in_and_raises_no_notice() {
         let themes = SelectedThemes::new(ThemeRegistry::built_in(), ThemeSelection::default());
-        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
-        assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
+        assert_eq!(*themes.presented(Appearance::Dark), grayscale_dark());
+        assert_eq!(*themes.presented(Appearance::Light), grayscale_light());
         assert_eq!(
             *themes.selection().identity(Appearance::Dark),
-            OKABE_ITO_IDENTITY
+            GRAYSCALE_DARK_IDENTITY
         );
         assert_eq!(
             *themes.selection().identity(Appearance::Light),
-            ORCVS_LIGHT_IDENTITY
+            GRAYSCALE_LIGHT_IDENTITY
         );
         assert_eq!(themes.notice_count(), 0, "{:?}", themes.notice_list());
     }
@@ -258,8 +259,8 @@ mod tests {
     fn an_unavailable_or_wrong_appearance_selection_falls_back_and_is_kept() {
         let selection = ThemeSelection::new(id("missing"), OKABE_ITO_IDENTITY);
         let themes = SelectedThemes::new(ThemeRegistry::built_in(), selection.clone());
-        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
-        assert_eq!(*themes.presented(Appearance::Light), orcvs_light());
+        assert_eq!(*themes.presented(Appearance::Dark), grayscale_dark());
+        assert_eq!(*themes.presented(Appearance::Light), grayscale_light());
         assert_eq!(*themes.selection(), selection);
         assert!(mentions(&themes, "dark Theme \"missing\""));
         assert!(mentions(
@@ -267,6 +268,6 @@ mod tests {
             "light Theme \"okabe-ito\" that `theme.light` names"
         ));
         assert!(mentions(&themes, "it is a dark Theme"));
-        assert!(mentions(&themes, "Orcvs Light is shown in its place"));
+        assert!(mentions(&themes, "Grayscale Light is shown in its place"));
     }
 }

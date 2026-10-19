@@ -15,7 +15,7 @@ use crate::persistence::{InMemoryStorage, SOURCE_KEY, edited_source, save, start
 #[cfg(not(target_arch = "wasm32"))]
 use crate::persistence::{IsolatedRonDir, RonFileStorage};
 use crate::theme::ThemeIdentity;
-use crate::theme::{Appearance, okabe_ito, orcvs_light};
+use crate::theme::{Appearance, grayscale_dark, grayscale_light};
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_registry::tests_support::{id, my_dark, with_my_themes};
 use crate::theme_selection::ThemeSelection;
@@ -135,12 +135,18 @@ async fn configured_theme_references_are_presented_or_fall_back() {
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx.clone());
     let console = start_console(&cc, ThemeRegistry::built_in(), config());
-    assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
-    assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
+    assert_eq!(
+        *console.themes.presented(Appearance::Dark),
+        grayscale_dark()
+    );
+    assert_eq!(
+        *console.themes.presented(Appearance::Light),
+        grayscale_light()
+    );
     assert_chrome(
         &ctx,
-        &okabe_ito(),
-        &orcvs_light(),
+        &grayscale_dark(),
+        &grayscale_light(),
         "an unavailable dark reference beside the default light one",
     );
     let notices: Vec<&String> = console.themes.notices().collect();
@@ -161,7 +167,7 @@ async fn configured_theme_references_are_presented_or_fall_back() {
     assert_chrome(
         &ctx,
         &my_dark(),
-        &orcvs_light(),
+        &grayscale_light(),
         "the next launch, with the configured dark Theme's file loaded",
     );
     // My Dark's own contrast notice is the only one.
@@ -194,8 +200,14 @@ async fn the_retired_settings_keys_are_neither_read_nor_written() {
     cc.storage = Some(&storage);
     let mut console = start_console(&cc, with_my_themes(), crate::config::Config::default());
 
-    assert_eq!(*console.themes.presented(Appearance::Dark), okabe_ito());
-    assert_eq!(*console.themes.presented(Appearance::Light), orcvs_light());
+    assert_eq!(
+        *console.themes.presented(Appearance::Dark),
+        grayscale_dark()
+    );
+    assert_eq!(
+        *console.themes.presented(Appearance::Light),
+        grayscale_light()
+    );
     // My Dark's own contrast notice is the only one.
     assert!(
         console

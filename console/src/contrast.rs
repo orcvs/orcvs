@@ -716,7 +716,10 @@ mod tests {
         AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
         painted, validate,
     };
-    use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
+    use crate::theme::{
+        OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, grayscale_dark, grayscale_light,
+        okabe_ito, orcvs_light,
+    };
 
     /// The roles of a Cell only an Output Portal covers.
     const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
@@ -1616,15 +1619,20 @@ mod tests {
     /// for `okabe-ito` is empty, and this test's own run is what proves that
     /// emptiness is correct rather than merely convenient.
     ///
-    /// `orcvs_light()` clears the floor in every reachable state the same
-    /// way rather than by exception. `shipped` is a hand-kept array rather
+    /// `orcvs_light()`, `grayscale_dark()` and `grayscale_light()` clear the
+    /// floor in every reachable state the same way rather than by exception. `shipped` is a hand-kept array rather
     /// than the Theme registry's built-ins, which are private to
     /// `crate::theme_registry`: a built-in added there is not gated until it
     /// is added here too.
     ///
     #[test]
     fn shipped_theme_gate() {
-        let shipped = [okabe_ito(), orcvs_light()];
+        let shipped = [
+            grayscale_dark(),
+            grayscale_light(),
+            okabe_ito(),
+            orcvs_light(),
+        ];
 
         for theme in &shipped {
             let report = validate(theme);

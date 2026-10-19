@@ -7,7 +7,7 @@ use orcvs::render_frame::RenderFrame;
 
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::paint::{FramePaint, Paint};
-use crate::theme::{Theme, okabe_ito, orcvs_light};
+use crate::theme::{Theme, grayscale_dark, grayscale_light, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
@@ -1011,8 +1011,8 @@ async fn console_new_keeps_a_theme_preference_already_on_the_context() {
 
     assert_chrome(
         &ctx,
-        &okabe_ito(),
-        &orcvs_light(),
+        &grayscale_dark(),
+        &grayscale_light(),
         "Console::new under a restored Light preference",
     );
 }
@@ -2379,7 +2379,7 @@ async fn the_bottom_panel_separator_is_the_grid_line() {
     assert!(
         strokes.iter().any(|(color, rect)| {
             *color
-                == crate::style::style(&okabe_ito())
+                == crate::style::style(&grayscale_dark())
                     .visuals
                     .window_stroke
                     .color
@@ -2404,7 +2404,7 @@ async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
     );
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let theme = okabe_ito();
+    let theme = grayscale_dark();
     let field = ctx
         .read_response(bpm_field_id(&console))
         .expect("the BPM field was not shown")
@@ -3778,8 +3778,8 @@ async fn clear_color_is_the_resolved_themes_opaque_window_background() {
     let (ctx, console, _host) = fresh_console();
 
     for (slot, theme) in [
-        (egui::Theme::Dark, okabe_ito()),
-        (egui::Theme::Light, orcvs_light()),
+        (egui::Theme::Dark, grayscale_dark()),
+        (egui::Theme::Light, grayscale_light()),
     ] {
         assert_eq!(
             theme.window_background.a(),

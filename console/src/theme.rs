@@ -756,8 +756,8 @@ impl ThemeIdentity {
     ///
     pub(crate) const fn default_for(appearance: Appearance) -> Self {
         match appearance {
-            Appearance::Dark => OKABE_ITO_IDENTITY,
-            Appearance::Light => ORCVS_LIGHT_IDENTITY,
+            Appearance::Dark => GRAYSCALE_DARK_IDENTITY,
+            Appearance::Light => GRAYSCALE_LIGHT_IDENTITY,
         }
     }
 
@@ -770,7 +770,13 @@ impl ThemeIdentity {
         )
     )]
     pub(crate) fn is_reserved(&self) -> bool {
-        *self == OKABE_ITO_IDENTITY || *self == ORCVS_LIGHT_IDENTITY
+        [
+            GRAYSCALE_DARK_IDENTITY,
+            GRAYSCALE_LIGHT_IDENTITY,
+            OKABE_ITO_IDENTITY,
+            ORCVS_LIGHT_IDENTITY,
+        ]
+        .contains(self)
     }
 
     #[cfg_attr(
@@ -791,8 +797,7 @@ impl std::fmt::Display for ThemeIdentity {
     }
 }
 
-/// The reserved identity of the Okabe–Ito built-in, and the dark Theme
-/// selection's default and fallback.
+/// The reserved identity of the Okabe–Ito built-in dark Theme.
 ///
 pub(crate) const OKABE_ITO_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("okabe-ito");
 
@@ -924,10 +929,6 @@ pub(crate) const ORCVS_LIGHT_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("
 /// each value, its hue and lightness, the measured ratios and the
 /// colour-vision separations.
 ///
-/// This is the light Theme selection's default and fallback
-/// (`crate::theme_selection`), which `crate::style::install` registers for
-/// `egui::Theme::Light`.
-///
 /// `orcvs_light_defines_every_key_at_the_recorded_values` in this module's
 /// tests pins every field against that record,
 /// `style::tests::orcvs_light_chrome_matches_the_decided_record` cross-checks
@@ -994,6 +995,198 @@ pub fn orcvs_light() -> Theme {
         input_cursor: straight_rgba(0x00_53_7D_FF),
         error: straight_rgba(0x90_42_6F_FF),
         warning: straight_rgba(0x90_42_6F_FF),
+
+        cursor_background: None,
+        region_cursor_background: None,
+
+        grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
+        cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+
+        panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
+        input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+    }
+}
+
+/// The reserved identity of the grayscale dark built-in, and the dark Theme
+/// selection's default and fallback.
+pub(crate) const GRAYSCALE_DARK_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("grayscale-dark");
+
+///
+/// The Grayscale Dark built-in Theme: a minimal neutral palette on black, at
+/// the reserved identity `GRAYSCALE_DARK_IDENTITY`. Every colour is a grey
+/// (equal red, green and blue), and text and Cells are light greys rather
+/// than white. Source roles are told apart by lightness and by translucent
+/// grey fills alone, so the glyph roles are not all pairwise distinct: the
+/// hue-separated roles are [`okabe_ito`]'s to carry, which stays selectable.
+/// Every field is spelled out explicitly for the reason [`okabe_ito`]'s is.
+///
+/// This is the dark Theme selection's default and fallback
+/// (`crate::theme_selection`). `console/src/theme.md` records its values.
+///
+pub fn grayscale_dark() -> Theme {
+    Theme {
+        identity: GRAYSCALE_DARK_IDENTITY,
+        name: "Grayscale Dark".to_owned(),
+        appearance: Appearance::Dark,
+
+        window_background: straight_rgba(0x00_00_00_FF),
+        panel_background: straight_rgba(0x00_00_00_FF),
+        grid_background: straight_rgba(0x00_00_00_FF),
+        cell_background: straight_rgba(0x00_00_00_00),
+
+        source_ordinary: straight_rgba(0xC8_C8_C8_FF),
+        source_comment: straight_rgba(0x8A_8A_8A_FF),
+        source_number: straight_rgba(0xA8_A8_A8_FF),
+        source_note: straight_rgba(0xA8_A8_A8_FF),
+        source_function: straight_rgba(0xE6_E6_E6_FF),
+        source_bang: straight_rgba(0xE6_E6_E6_FF),
+        source_ordinary_background: straight_rgba(0x00_00_00_00),
+        source_comment_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0x00_00_00_00),
+        source_note_background: straight_rgba(0xFF_FF_FF_14),
+        source_function_background: straight_rgba(0xFF_FF_FF_1F),
+        source_bang_background: straight_rgba(0x00_00_00_00),
+
+        diagnostic_foreground: straight_rgba(0xE6_E6_E6_FF),
+        diagnostic_background: straight_rgba(0x00_00_00_00),
+        diagnostic_border: straight_rgba(0xC8_C8_C8_FF),
+        output_portal_foreground: straight_rgba(0xE6_E6_E6_FF),
+        output_portal_background: straight_rgba(0xFF_FF_FF_1F),
+        output_portal_border: straight_rgba(0x00_00_00_00),
+        input_portal_foreground: straight_rgba(0xA8_A8_A8_FF),
+        input_portal_background: straight_rgba(0xFF_FF_FF_14),
+        input_portal_border: straight_rgba(0x00_00_00_00),
+        locked_foreground: straight_rgba(0x00_00_00_00),
+        locked_background: straight_rgba(0x00_00_00_CC),
+        locked_border: straight_rgba(0xC8_C8_C8_80),
+
+        grid_border: straight_rgba(0xFF_FF_FF_1A),
+        sector_seam: straight_rgba(0xFF_FF_FF_33),
+        cursor_border: straight_rgba(0xE6_E6_E6_FF),
+        region_border: straight_rgba(0xE6_E6_E6_FF),
+        cursor_area: straight_rgba(0x80_80_80_FF),
+        region_background: straight_rgba(0xFF_FF_FF_1F),
+
+        panel_border: straight_rgba(0x2A_2A_2A_FF),
+        selection_background: straight_rgba(0x33_33_33_FF),
+        selection_border: straight_rgba(0xE6_E6_E6_FF),
+        selection_border_rest: straight_rgba(0xA8_A8_A8_FF),
+        widget_inactive_border: straight_rgba(0x2A_2A_2A_FF),
+
+        text: straight_rgba(0xC8_C8_C8_FF),
+        text_active: straight_rgba(0xE6_E6_E6_FF),
+        text_muted: straight_rgba(0xC8_C8_C8_99),
+        input_background: straight_rgba(0x00_00_00_FF),
+        link: straight_rgba(0xE6_E6_E6_FF),
+        code_background: straight_rgba(0x2A_2A_2A_FF),
+        input_cursor: straight_rgba(0xE6_E6_E6_FF),
+        error: straight_rgba(0xE6_E6_E6_FF),
+        warning: straight_rgba(0xE6_E6_E6_FF),
+
+        cursor_background: None,
+        region_cursor_background: None,
+
+        grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
+        cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+
+        panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
+        input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+    }
+}
+
+/// The reserved identity of the grayscale light built-in, and the light
+/// Theme selection's default and fallback.
+pub(crate) const GRAYSCALE_LIGHT_IDENTITY: ThemeIdentity =
+    ThemeIdentity::reserved("grayscale-light");
+
+///
+/// The Grayscale Light built-in Theme: [`grayscale_dark`]'s minimal neutral
+/// palette inverted onto white, at the reserved identity
+/// `GRAYSCALE_LIGHT_IDENTITY`, with dark grey text and Cells. Every field is
+/// spelled out explicitly for the reason [`okabe_ito`]'s is.
+///
+/// This is the light Theme selection's default and fallback
+/// (`crate::theme_selection`). `console/src/theme.md` records its values.
+///
+pub fn grayscale_light() -> Theme {
+    Theme {
+        identity: GRAYSCALE_LIGHT_IDENTITY,
+        name: "Grayscale Light".to_owned(),
+        appearance: Appearance::Light,
+
+        window_background: straight_rgba(0xFF_FF_FF_FF),
+        panel_background: straight_rgba(0xFF_FF_FF_FF),
+        grid_background: straight_rgba(0xFF_FF_FF_FF),
+        cell_background: straight_rgba(0x00_00_00_00),
+
+        source_ordinary: straight_rgba(0x30_30_30_FF),
+        source_comment: straight_rgba(0x61_61_61_FF),
+        source_number: straight_rgba(0x50_50_50_FF),
+        source_note: straight_rgba(0x50_50_50_FF),
+        source_function: straight_rgba(0x14_14_14_FF),
+        source_bang: straight_rgba(0x14_14_14_FF),
+        source_ordinary_background: straight_rgba(0x00_00_00_00),
+        source_comment_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0x00_00_00_00),
+        source_note_background: straight_rgba(0x00_00_00_0F),
+        source_function_background: straight_rgba(0x00_00_00_1A),
+        source_bang_background: straight_rgba(0x00_00_00_00),
+
+        diagnostic_foreground: straight_rgba(0x14_14_14_FF),
+        diagnostic_background: straight_rgba(0x00_00_00_00),
+        diagnostic_border: straight_rgba(0x30_30_30_FF),
+        output_portal_foreground: straight_rgba(0x14_14_14_FF),
+        output_portal_background: straight_rgba(0x00_00_00_1A),
+        output_portal_border: straight_rgba(0x00_00_00_00),
+        input_portal_foreground: straight_rgba(0x50_50_50_FF),
+        input_portal_background: straight_rgba(0x00_00_00_0F),
+        input_portal_border: straight_rgba(0x00_00_00_00),
+        locked_foreground: straight_rgba(0x00_00_00_00),
+        locked_background: straight_rgba(0xFF_FF_FF_CC),
+        locked_border: straight_rgba(0x30_30_30_80),
+
+        grid_border: straight_rgba(0x00_00_00_1A),
+        sector_seam: straight_rgba(0x00_00_00_33),
+        cursor_border: straight_rgba(0x14_14_14_FF),
+        region_border: straight_rgba(0x14_14_14_FF),
+        cursor_area: straight_rgba(0x80_80_80_FF),
+        region_background: straight_rgba(0x00_00_00_1A),
+
+        panel_border: straight_rgba(0xD6_D6_D6_FF),
+        selection_background: straight_rgba(0xE0_E0_E0_FF),
+        selection_border: straight_rgba(0x14_14_14_FF),
+        selection_border_rest: straight_rgba(0x50_50_50_FF),
+        widget_inactive_border: straight_rgba(0xD6_D6_D6_FF),
+
+        text: straight_rgba(0x30_30_30_FF),
+        text_active: straight_rgba(0x14_14_14_FF),
+        text_muted: straight_rgba(0x30_30_30_BF),
+        input_background: straight_rgba(0xFF_FF_FF_FF),
+        link: straight_rgba(0x14_14_14_FF),
+        code_background: straight_rgba(0xEB_EB_EB_FF),
+        input_cursor: straight_rgba(0x14_14_14_FF),
+        error: straight_rgba(0x14_14_14_FF),
+        warning: straight_rgba(0x14_14_14_FF),
 
         cursor_background: None,
         region_cursor_background: None,
@@ -1242,8 +1435,10 @@ mod tests {
     use egui::Color32;
 
     use super::{
-        Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
-        ThemeDocument, ThemeError, ThemeIdentity, okabe_ito, orcvs_light, resolve, straight_rgba,
+        Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GRAYSCALE_DARK_IDENTITY,
+        GRAYSCALE_LIGHT_IDENTITY, GridWidth, GridWidthKey, OptionalFill, Theme, ThemeDocument,
+        ThemeError, ThemeIdentity, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
+        resolve, straight_rgba,
     };
 
     /// A custom Theme's identity, as a file named `stem` supplies it.
@@ -1577,6 +1772,80 @@ mod tests {
                 "{name} must differ between the built-ins"
             );
         }
+    }
+
+    /// Every colour a Theme holds, by its `schema.md` name: each [`ColorKey`]
+    /// and each optional fill that holds one.
+    macro_rules! colour_fields {
+        (
+            OptionalFill { $($fill:ident($fill_field:ident) => $fill_name:literal),* $(,)? }
+            ColorKey { $($colour:ident($colour_field:ident) => $colour_name:literal),* $(,)? }
+            $($width:ident { $($rest:tt)* })*
+        ) => {
+            fn colour_fields(theme: &Theme) -> Vec<(&'static str, Color32)> {
+                let mut fields = vec![$(($colour_name, theme.$colour_field)),*];
+                fields.extend(
+                    [$(($fill_name, theme.$fill_field)),*]
+                        .into_iter()
+                        .filter_map(|(name, fill)| Some((name, fill?))),
+                );
+                fields
+            }
+        };
+    }
+    super::style_catalogue!(colour_fields);
+
+    ///
+    /// The grayscale built-ins are each appearance's default, and every
+    /// colour either holds is a neutral grey: equal red, green and blue,
+    /// at any opacity. Straight bytes are compared, since premultiplying
+    /// keeps a grey's channels equal.
+    ///
+    #[test]
+    fn the_grayscale_built_ins_are_the_neutral_defaults() {
+        for (theme, appearance) in [
+            (grayscale_dark(), Appearance::Dark),
+            (grayscale_light(), Appearance::Light),
+        ] {
+            assert_eq!(theme.appearance, appearance);
+            assert_eq!(ThemeIdentity::default_for(appearance), theme.identity);
+            assert!(theme.identity.is_reserved());
+            for (name, colour) in colour_fields(&theme) {
+                let [r, g, b, _] = colour.to_srgba_unmultiplied();
+                assert!(
+                    r == g && g == b,
+                    "{}'s {name} is {colour:?}, not a grey",
+                    theme.identity
+                );
+            }
+        }
+        assert_eq!(GRAYSCALE_DARK_IDENTITY.as_str(), "grayscale-dark");
+        assert_eq!(GRAYSCALE_LIGHT_IDENTITY.as_str(), "grayscale-light");
+    }
+
+    ///
+    /// Grayscale Dark's text and Cells are a light grey and never white, and
+    /// Grayscale Light's sit dark on white.
+    ///
+    #[test]
+    fn the_grayscale_built_ins_set_light_on_black_and_dark_on_white() {
+        let dark = grayscale_dark();
+        assert_eq!(dark.window_background, Color32::BLACK);
+        assert_eq!(dark.grid_background, Color32::BLACK);
+        for (name, colour) in [
+            ("text", dark.text),
+            ("source.ordinary", dark.source_ordinary),
+            ("source.function", dark.source_function),
+            ("cursor.border", dark.cursor_border),
+        ] {
+            assert_ne!(colour, Color32::WHITE, "Grayscale Dark's {name} is white");
+        }
+
+        let light = grayscale_light();
+        assert_eq!(light.window_background, Color32::WHITE);
+        assert_eq!(light.grid_background, Color32::WHITE);
+        assert_eq!(light.text, straight_rgba(0x30_30_30_FF));
+        assert_eq!(light.source_ordinary, straight_rgba(0x30_30_30_FF));
     }
 
     ///

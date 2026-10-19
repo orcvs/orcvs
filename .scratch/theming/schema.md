@@ -24,8 +24,9 @@ text = "#E0E0E0"
 Required root fields are `format`, `version`, `name` and `inherits`. `style` is
 optional; omitting it or leaving it empty inherits the complete parent unchanged.
 Optional `appearance` is `dark` or `light` and must match the parent. The filename
-stem is the identity; `name` is a nonempty display label. `okabe-ito` is the reserved
-dark built-in identity, `orcvs-light` the reserved light identity. The latter's
+stem is the identity; `name` is a nonempty display label. `grayscale-dark` and
+`okabe-ito` are the reserved dark built-in identities, `grayscale-light` and
+`orcvs-light` the reserved light ones; the grayscale pair are the defaults. `orcvs-light`'s
 palette must pass the separate review gate before switching is exposed.
 
 This is one versioned Orcvs Theme data model, represented in TOML and nothing

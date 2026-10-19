@@ -4,10 +4,12 @@ This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
 change, not drift.
 
-Under ADR 0053 the page records both built-in Themes: Okabe–Ito, the dark
-Theme and the console's default, and Orcvs Light, the light one. A value belongs
-to Okabe–Ito unless it sits under **The Orcvs Light built-in Theme** or names
-Orcvs Light; the values above the Themes section are Okabe–Ito's. Each one maps
+Under ADR 0053 the page records the four built-in Themes: Grayscale Dark and
+Grayscale Light, the console's defaults; Okabe–Ito, the hue-separated dark
+Theme; and Orcvs Light, its light counterpart. A value belongs to Okabe–Ito
+unless it sits under **The Orcvs Light built-in Theme** or **The grayscale
+built-in Themes**, or names one of those Themes; the values above the Themes
+section are Okabe–Ito's. Each one maps
 to a named property, recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
 Source Grid, its borders and the Cursor Effect's colours paint from the
 resolved Theme (`console/src/theme.rs`). Since `03`, the rest of the chrome —
@@ -543,10 +545,57 @@ lowers a built-in's lowest state. A glyph dimmed as Orca dims a locked Cell
 would fall below the floor in Orcvs Light, whose Function, Number and Note are
 already at it on their own tints.
 
+### The grayscale built-in Themes
+
+`grayscale-dark` and `grayscale-light` are the minimal built-ins and each
+appearance's default and fallback. Every colour in both is a neutral grey:
+equal red, green and blue at any opacity
+(`theme::tests::the_grayscale_built_ins_are_the_neutral_defaults`).
+Grayscale Dark sets light grey text and Cells on black, never pure white;
+Grayscale Light sets dark grey text and Cells on white. Widths are Okabe–Ito's.
+
+| Property | Grayscale Dark | Grayscale Light |
+|---|---|---|
+| `window.background`, `panel.background`, `grid.background`, `input.background` | `#000000` | `#FFFFFF` |
+| `cell.background` and every other omitted fill | `#00000000` | `#00000000` |
+| `source.ordinary`, `text` | `#C8C8C8` | `#303030` |
+| `source.comment` | `#8A8A8A` | `#616161` |
+| `source.number`, `source.note`, `input_portal.foreground` | `#A8A8A8` | `#505050` |
+| `source.function`, `source.bang`, `diagnostic.foreground`, `output_portal.foreground` | `#E6E6E6` | `#141414` |
+| `source.note.background`, `input_portal.background` | `#FFFFFF14` | `#0000000F` |
+| `source.function.background`, `output_portal.background` | `#FFFFFF1F` | `#0000001A` |
+| `diagnostic.border` | `#C8C8C8` | `#303030` |
+| `locked.background` | `#000000CC` | `#FFFFFFCC` |
+| `locked.border` | `#C8C8C880` | `#30303080` |
+| `grid.border` | `#FFFFFF1A` | `#0000001A` |
+| `sector.seam` | `#FFFFFF33` | `#00000033` |
+| `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` | `#141414` |
+| `cursor.area` | `#808080` | `#808080` |
+| `region.background` | `#FFFFFF1F` | `#0000001A` |
+| `cursor.background`, `region.cursor.background` | none | none |
+| `panel.border`, `widget.inactive.border` | `#2A2A2A` | `#D6D6D6` |
+| `code.background` | `#2A2A2A` | `#EBEBEB` |
+| `selection.background` | `#333333` | `#E0E0E0` |
+| `selection.border.rest` | `#A8A8A8` | `#505050` |
+| `text.muted` | `#C8C8C899` | `#303030BF` |
+
+Both clear the 4.5:1 floor in every reachable state with no accepted
+exception (`contrast::tests::shipped_theme_gate`). The lowest is Comment
+under the Region wash: 4.77:1 in Grayscale Dark and 4.92:1 in Grayscale
+Light. They tell Source roles apart by three grey levels and two fill
+strengths rather than by hue, so some glyph channels share a grey by design
+and the red–green colour-vision gate does not apply to them: a dichromacy
+leaves a neutral grey where it is
+(`contrast::colour_vision::tests::the_grayscale_built_ins_look_alike_to_every_reader`).
+A reader who needs every role in its own colour selects `okabe-ito` or
+`orcvs-light`.
+
 ### Shipped Themes
 
 | Identity | Appearance | Status |
 |---|---|---|
+| `grayscale-dark` | dark | Built in and the dark default; sets every named property at the values above. |
+| `grayscale-light` | light | Built in and the light default; sets every named property at the values above. |
 | `okabe-ito` | dark | Built in; sets every named property at the values above. |
 | `orcvs-light` | light | Built in; sets every named property at the values above. |
 
@@ -559,8 +608,8 @@ names them, read once at startup; the web runs on the built-ins.
 
 ```toml
 [theme]
-dark = "okabe-ito"
-light = "orcvs-light"
+dark = "okabe-ito"      # default: grayscale-dark
+light = "orcvs-light"   # default: grayscale-light
 
 [cursor_effects]
 glitch_amount = 60      # 0–100

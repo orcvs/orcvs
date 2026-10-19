@@ -88,7 +88,7 @@ use super::source_view::SOURCE_MARGIN_CELLS;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
-use crate::theme::{Appearance, okabe_ito, orcvs_light};
+use crate::theme::{Appearance, grayscale_dark, grayscale_light};
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
 
@@ -626,10 +626,10 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
     let mut harness =
         configured_console_under_os_appearance(egui::Theme::Dark, with_my_themes(), config);
 
-    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "a dark OS");
+    assert_frame_presents(&harness, &my_dark(), &[grayscale_dark()], "a dark OS");
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
-    assert_frame_presents(&harness, &my_light(), &[orcvs_light()], "a light OS");
+    assert_frame_presents(&harness, &my_light(), &[grayscale_light()], "a light OS");
 
     let effects = harness.state().cursor_effects;
     assert_eq!((effects.amount(), effects.frequency()), (12, 34));
@@ -964,8 +964,8 @@ async fn the_mode_switches_source_and_chrome_together() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     assert_frame_presents(
         &harness,
-        &okabe_ito(),
-        &[orcvs_light()],
+        &grayscale_dark(),
+        &[grayscale_light()],
         "following a dark OS",
     );
 
@@ -975,7 +975,12 @@ async fn the_mode_switches_source_and_chrome_together() {
         egui::ThemePreference::Light
     );
     harness.run_steps(1);
-    assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "holding Light");
+    assert_frame_presents(
+        &harness,
+        &grayscale_light(),
+        &[grayscale_dark()],
+        "holding Light",
+    );
 
     choose_mode(&mut harness, "Follow the OS");
     assert_eq!(
@@ -985,8 +990,8 @@ async fn the_mode_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
-        &okabe_ito(),
-        &[orcvs_light()],
+        &grayscale_dark(),
+        &[grayscale_light()],
         "following a dark OS again",
     );
 }
@@ -1014,13 +1019,18 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
     );
     assert_frame_paints(
         &harness,
-        &okabe_ito(),
-        &[orcvs_light()],
+        &grayscale_dark(),
+        &[grayscale_light()],
         "the frame Light was chosen in",
     );
 
     harness.run_steps(1);
-    assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "the frame after");
+    assert_frame_presents(
+        &harness,
+        &grayscale_light(),
+        &[grayscale_dark()],
+        "the frame after",
+    );
 }
 
 ///
@@ -1039,21 +1049,28 @@ async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
     harness.step();
     assert_frame_paints(
         &harness,
-        &okabe_ito(),
-        &[orcvs_light()],
+        &grayscale_dark(),
+        &[grayscale_light()],
         "the frame Light was chosen in",
     );
     assert_eq!(
         harness.state().web_clear_color(),
-        okabe_ito().window_background.to_normalized_gamma_f32(),
+        grayscale_dark().window_background.to_normalized_gamma_f32(),
         "the web backdrop under the frame Light was chosen in is not Okabe–Ito's"
     );
 
     harness.run_steps(1);
-    assert_frame_paints(&harness, &orcvs_light(), &[okabe_ito()], "the frame after");
+    assert_frame_paints(
+        &harness,
+        &grayscale_light(),
+        &[grayscale_dark()],
+        "the frame after",
+    );
     assert_eq!(
         harness.state().web_clear_color(),
-        orcvs_light().window_background.to_normalized_gamma_f32(),
+        grayscale_light()
+            .window_background
+            .to_normalized_gamma_f32(),
         "the web backdrop under the frame after is not Orcvs Light's"
     );
 }
@@ -1206,23 +1223,38 @@ async fn a_custom_themes_transparent_or_translucent_grid_composites_over_the_win
 #[tokio::test]
 async fn an_os_appearance_change_switches_source_and_chrome_together() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
-    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "a dark OS");
+    assert_frame_presents(
+        &harness,
+        &grayscale_dark(),
+        &[grayscale_light()],
+        "a dark OS",
+    );
 
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(1);
-    assert_frame_presents(&harness, &orcvs_light(), &[okabe_ito()], "a light OS");
+    assert_frame_presents(
+        &harness,
+        &grayscale_light(),
+        &[grayscale_dark()],
+        "a light OS",
+    );
 
     harness.input_mut().system_theme = Some(egui::Theme::Dark);
     harness.run_steps(1);
-    assert_frame_presents(&harness, &okabe_ito(), &[orcvs_light()], "a dark OS again");
+    assert_frame_presents(
+        &harness,
+        &grayscale_dark(),
+        &[grayscale_light()],
+        "a dark OS again",
+    );
 
     choose_mode(&mut harness, "Dark");
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
     assert_frame_presents(
         &harness,
-        &okabe_ito(),
-        &[orcvs_light()],
+        &grayscale_dark(),
+        &[grayscale_light()],
         "holding Dark under a light OS",
     );
 }
@@ -2039,7 +2071,7 @@ async fn an_open_leaves_every_setting_standing() {
         "an Open changed the Cursor effects"
     );
     assert!(console.diagnostics_open, "an Open closed Diagnostics");
-    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "after the Open");
+    assert_frame_presents(&harness, &my_dark(), &[grayscale_dark()], "after the Open");
 }
 
 ///
@@ -3014,7 +3046,7 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
         console.cursor_effects, cursor_effects,
         "New changed the Cursor effects"
     );
-    assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "after New");
+    assert_frame_presents(&harness, &my_dark(), &[grayscale_dark()], "after New");
     // The replaced engine's task owns the only sender of its observation,
     // so the watch closing is that engine having ended.
     assert!(
