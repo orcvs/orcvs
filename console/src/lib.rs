@@ -18,6 +18,7 @@ mod contrast;
 #[doc(hidden)]
 pub mod cursor_effects;
 pub mod diagnostics;
+mod examples;
 mod function_reference;
 mod grid_viewport;
 mod marks;

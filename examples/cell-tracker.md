@@ -1,9 +1,10 @@
 # Cell tracker
 
 `cell-tracker.orcvs` plays a repeating row of eight Notes that you edit where
-they stand. Open it with **File > Open**, press Space to start Playback, and
-type over any pair while it plays. The first MIDI output is chosen for you;
-change it in the bottom Panel.
+they stand. Open it with **Help > Examples > Cell Tracker**, press Space to
+start Playback, and type over any pair while it plays. The first MIDI output is
+chosen for you; change it in the bottom Panel. The example opens Untitled, so
+**File > Save** asks where to keep your edits.
 
 ```text
 col  0         1         2
