@@ -67,7 +67,9 @@ use egui::{Color32, Style};
 use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
-use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style};
+use crate::style::{
+    PORTAL_ROLE_SETS, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style,
+};
 use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity};
 
 ///
@@ -204,38 +206,19 @@ impl CursorPlacement {
 }
 
 ///
-/// Every set of Portal roles a Cell can play: none, Input Portal alone,
-/// Output Portal alone, and both, each with and without Locked. Both paints
-/// as Output Portal alone, and either Portal over Locked as that Portal
-/// alone; each is measured anyway so that the matrix covers every set a Cell
-/// can carry rather than the sets the precedence rule happens to tell apart.
-/// A set holding Locked is reachable only for a Function's own spelling
-/// ([`reachable`]).
+/// Every set of Portal roles a Cell carrying `fact` can play:
+/// [`PORTAL_ROLE_SETS`], less a set holding Locked unless `fact` is a
+/// Function's own spelling. A lock marks only the two Cells of the Function of
+/// the Expression root it withheld, a Bang Function's among them. Each set is
+/// measured, including those the precedence rule paints alike, so that the
+/// matrix covers every set a Cell can carry rather than the sets that rule
+/// happens to tell apart.
 ///
-const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
-    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
-    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
-    const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
-    [
-        PortalRoles::NONE,
-        INPUT,
-        OUTPUT,
-        BOTH,
-        PortalRoles::NONE.with(PortalRole::Locked),
-        INPUT.with(PortalRole::Locked),
-        OUTPUT.with(PortalRole::Locked),
-        BOTH.with(PortalRole::Locked),
-    ]
-};
-
-///
-/// Whether a Cell carrying `fact` can play `portals`: a lock marks only the
-/// two Cells of the Function of the Expression root it withheld, a Bang
-/// Function's among them, so no other fact is ever Locked.
-///
-pub(super) fn reachable(fact: SourcePaint, portals: PortalRoles) -> bool {
-    !portals.contains(PortalRole::Locked)
-        || matches!(fact, SourcePaint::Function | SourcePaint::Bang)
+pub(super) fn reachable_portal_sets(fact: SourcePaint) -> impl Iterator<Item = PortalRoles> {
+    PORTAL_ROLE_SETS.into_iter().filter(move |portals| {
+        !portals.contains(PortalRole::Locked)
+            || matches!(fact, SourcePaint::Function | SourcePaint::Bang)
+    })
 }
 
 impl fmt::Display for CursorPlacement {
@@ -590,10 +573,7 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
             .source_paint_fact()
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for cursor in CursorPlacement::ALL {
-            for portals in PORTAL_ROLE_SETS {
-                if !reachable(fact, portals) {
-                    continue;
-                }
+            for portals in reachable_portal_sets(fact) {
                 let state = State::SourceGrid { cursor, portals };
                 let (foreground, background) = painted(fact, cursor, portals, theme);
                 results.push(measure(

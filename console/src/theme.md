@@ -527,7 +527,8 @@ withheld in the last Tick, as Orca draws the Cells an operator locks in a style
 of their own. It is a Theme role with the same channels as the Portals
 (`locked.foreground`, `.background`, `.border` and `.border.width`), and paints
 only a Cell that plays no Portal role: a locked Cell a Function also reads or
-writes paints as that read or write, as Orca draws a port over a locked Cell.
+writes paints as that read or write, as Orca draws a port over a locked Cell,
+so a locked Function's spelling there keeps its own paint and shows no lock.
 A lock marks nothing but a Function's own spelling, so unlike the Portals
 Locked paints a bound Function and a Bang too; the contrast validator measures
 it only over those two facts, the only ones it can land on.
