@@ -17,7 +17,7 @@ mod planning;
 mod portal;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
-use buffer::{Cells, SourceBuffer};
+use buffer::{Cells, EditedCells, SourceBuffer};
 pub use error::SourceError;
 pub use lang::Tick;
 pub use model::{
@@ -94,14 +94,14 @@ pub struct SourceRevision {
 
 ///
 /// The last committed Tick's record as a revision read it: the record, its
-/// freshness against that revision, and the Cells the commit left, shared
-/// with the Source rather than copied.
+/// freshness against that revision, and the Cells edits had written since the
+/// commit, shared with the Source rather than copied.
 ///
 #[derive(Clone)]
 struct CommittedRecord {
     record: Arc<TickPortals>,
     freshness: Freshness,
-    cells: SourceBuffer,
+    edited: EditedCells,
 }
 
 ///
@@ -206,24 +206,23 @@ impl SourceRevision {
     }
 
     ///
-    /// Whether the Expression that covers `anchor` in this revision holds,
-    /// Cell for Cell, what the last committed Tick left there. `false` where
-    /// no Expression covers it or no Tick has committed.
+    /// Whether no edit since the last committed Tick, up to this revision, has
+    /// written a Cell of the Expression that covers `anchor`. `false` where no
+    /// Expression covers it or no Tick has committed.
     ///
     /// Every operand that selects a dynamic Portal, and the Function itself,
-    /// stands inside its Expression, so an Expression that holds what the
-    /// commit left selects the Portals it selected then. Allocates nothing.
+    /// stands inside its Expression, so an Expression no edit has touched
+    /// selects the Portals it selected then. An edit that writes back what
+    /// stood there still counts: the question is whether the Expression was
+    /// edited, not what it holds. Allocates nothing.
     ///
-    pub(crate) fn expression_as_committed(&self, anchor: Position) -> bool {
+    pub(crate) fn expression_unedited(&self, anchor: Position) -> bool {
         let Some(committed) = &self.tick_portals else {
             return false;
         };
         self.language_map
             .expression_span_at(anchor)
-            .is_some_and(|span| {
-                let range = span.range();
-                self.cells.bytes()[range.clone()] == committed.cells.bytes()[range]
-            })
+            .is_some_and(|span| !committed.edited.any_in(span.range()))
     }
 }
 

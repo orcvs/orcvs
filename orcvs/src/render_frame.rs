@@ -149,10 +149,10 @@ impl RenderCell {
     ///
     /// A [`Freshness::Retained`] record sets either role only for an entry
     /// whose Function still stands at its anchor in this revision, inside an
-    /// Expression whose every Cell holds what the Tick's commit left there:
-    /// an edit to the Function or to an operand that selects where it reads
-    /// or writes puts out that Function's entries, and an edit anywhere else
-    /// leaves them lit. A Source no Tick has committed sets no role from a
+    /// Expression no edit has written a Cell of since the Tick's commit: an
+    /// edit to the Function or to an operand that selects where it reads or
+    /// writes puts out that Function's entries until the next Tick, and an
+    /// edit anywhere else leaves them lit. A Source no Tick has committed sets no role from a
     /// record.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
@@ -251,7 +251,7 @@ impl RenderFrame {
                 };
                 if retained
                     && !(owner_stands(grid, &claims, access)
-                        && source.expression_as_committed(access.anchor()))
+                        && source.expression_unedited(access.anchor()))
                 {
                     continue;
                 }
@@ -1292,10 +1292,18 @@ mod tests {
         assert_eq!(input_cells(&frame), [(6, 2), (7, 2)]);
         assert_eq!(output_cells(&frame), [(0, 1), (1, 1), (4, 1), (5, 1)]);
 
-        // Restoring what the commit left lights the first voice again, and an
-        // edit outside every owner's Expression puts out nothing.
+        // Writing back what the commit left is still an edit of the first
+        // voice, so it stays out until the next Tick, and an edit outside
+        // every owner's Expression puts out nothing.
         source.set(cell(grid, 3), "1").unwrap();
         source.set(cell(grid, 24), "x").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(6, 2), (7, 2)]
+        );
+
+        // The next Tick's record lights both voices again.
+        source.execute(Tick::new(1));
         assert_eq!(
             input_cells(&derive_frame(&source, grid.origin())),
             [(2, 1), (3, 1), (6, 2), (7, 2)]
@@ -1310,9 +1318,10 @@ mod tests {
         // Two Sources holding the same Cells, one whose revision a Tick
         // committed with a record of reads and writes, one of them selected,
         // and one written by hand with none, so every other input to the
-        // derivation is the same. A rewrite of one Cell to what it already
-        // holds then makes the record retained over the same Cells, so every
-        // painted entry asks whether its Function still stands.
+        // derivation is the same. Emptying an empty Cell outside every
+        // Expression then makes the record retained over the same Cells, with
+        // an edited Cell marked, so every painted entry asks whether its
+        // Function still stands and its Expression is unedited.
         let grid = Grid::with_shape(16, 4);
         let ticked = SourceCommander::new(grid);
         write_row(&ticked, grid, "&v01&v02@$0E03C4");
@@ -1325,7 +1334,7 @@ mod tests {
                 .map(|portals| (portals.freshness(), portals.record().uses().len())),
             Some((Freshness::Current, 5))
         );
-        ticked.set(cell(grid, 0), "&").unwrap();
+        ticked.unset(cell(grid, 48));
         let retained = ticked.read_revision();
         assert_eq!(
             retained.tick_portals().map(|portals| portals.freshness()),

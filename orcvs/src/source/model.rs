@@ -12,7 +12,7 @@ use crate::grid::{CellIndex, Grid, Position};
 
 use std::collections::BTreeSet;
 
-use super::buffer::SourceBuffer;
+use super::buffer::{EditedCells, SourceBuffer};
 use super::language_map::{LanguageMap, Span};
 use super::tick;
 use super::tick::ExecutedTick;
@@ -146,11 +146,11 @@ pub struct Source {
 }
 
 /// One committed Tick's record, the revision its commit left the Source at,
-/// and the Cells that revision holds, shared rather than copied.
+/// and the Cells an edit has written since.
 struct CommittedPortals {
     record: Arc<TickPortals>,
     revision: RevisionId,
-    cells: SourceBuffer,
+    edited: EditedCells,
 }
 
 static NEXT_REVISION_ID: AtomicU64 = AtomicU64::new(1);
@@ -300,6 +300,7 @@ impl Source {
     /// the console observes, so the edit reports nothing of its own.
     ///
     fn edit(&mut self, cell: CellIndex, byte: CellContent) {
+        self.mark_edited(cell);
         self.set_source(cell, byte);
         // One Cell changes one row, and a row is the largest thing a Cell can
         // change: a run never crosses the row edge.
@@ -417,15 +418,18 @@ impl Source {
     ///
     pub(in crate::source) fn commit_tick(&mut self, executed: ExecutedTick) -> TickPlan {
         let (plan, portals) = executed.into_parts();
-        // The record before this one shares the Cells it was committed with.
-        // Released before the write, so a commit no reader shares writes the
-        // Cells in place rather than copying them to keep the old record's.
-        self.tick_portals = None;
-        self.write_cells(&plan.writes);
+        // The Tick's own writes are what the record was made against, not
+        // edits since it.
+        self.write_rows(&plan.writes);
+        // The set the last commit kept, cleared, so a Tick reuses its storage.
+        let edited = match self.tick_portals.take() {
+            Some(committed) => committed.edited.cleared(),
+            None => EditedCells::none(self.grid.count()),
+        };
         self.tick_portals = Some(CommittedPortals {
             record: Arc::new(portals),
             revision: self.revision,
-            cells: self.inner.clone(),
+            edited,
         });
         plan
     }
@@ -434,12 +438,8 @@ impl Source {
     /// The record of the last committed Tick, how it stands against the
     /// revision the Source is at — [`Freshness::Current`] while that is the
     /// revision the commit left, [`Freshness::Retained`] once an edit has
-    /// landed since — and the Cells the commit left, which a revision compares
-    /// its own against.
-    ///
-    /// The Cells are shared with the record. An edit made while the record
-    /// holds them copies them once, as it does while any reader holds a
-    /// revision, and later edits before the next commit write in place.
+    /// landed since — and the Cells edits have written since the commit,
+    /// shared rather than copied.
     ///
     pub(super) fn committed_tick_portals(&self) -> Option<CommittedRecord> {
         self.tick_portals.as_ref().map(|committed| CommittedRecord {
@@ -449,7 +449,7 @@ impl Source {
             } else {
                 Freshness::Retained
             },
-            cells: committed.cells.clone(),
+            edited: committed.edited.clone(),
         })
     }
 
@@ -482,6 +482,17 @@ impl Source {
     /// ```
     ///
     pub fn write_cells(&mut self, writes: &[CellWrite]) {
+        for write in writes {
+            self.mark_edited(write.cell);
+        }
+        self.write_rows(writes);
+    }
+
+    ///
+    /// [`Self::write_cells`] for a write that is not an edit: the Tick
+    /// commit's own, which its record was made against.
+    ///
+    fn write_rows(&mut self, writes: &[CellWrite]) {
         let mut written = BTreeSet::new();
         for write in writes {
             self.set_source(write.cell, write.content);
@@ -515,6 +526,17 @@ impl Source {
             ));
         }
         self.revision = RevisionId::mint();
+    }
+
+    ///
+    /// Marks `cell` edited since the last committed Tick. Every write but a
+    /// Tick commit's is an edit. Before the first Tick there is no record to
+    /// mark against.
+    ///
+    fn mark_edited(&mut self, cell: CellIndex) {
+        if let Some(committed) = &mut self.tick_portals {
+            committed.edited.mark(cell.get());
+        }
     }
 
     ///

@@ -123,8 +123,8 @@ and a benchmark measures the derive with a record present.
   and do not paint.
 - A `Current` record paints every admitted read and write. A `Retained` record
   paints only entries whose owner Function still stands at its anchor in the
-  displayed revision, in an Expression whose every Cell holds what the commit
-  left (ADR 0077).
+  displayed revision, in an Expression no edit has written a Cell of since the
+  commit (ADR 0077).
 - Precedence is the existing schema's (`.scratch/theming/schema.md`,
   composition steps 4 and 5): Portal channels over every other non-Function
   fact, Diagnostic included, as `console/src/style.rs` already pins. Between
