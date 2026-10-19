@@ -149,10 +149,13 @@ impl RenderCell {
     /// It also covers each Cell a write of this revision's Tick Portals was
     /// admitted to, declared or selected. [`PortalRole::Input`] covers each
     /// Cell a read of them resolved, whatever the Cells held.
-    /// [`PortalRole::Locked`] covers the two Cells of the Function of each
-    /// Expression root a lock they record withheld. A refused access, a
-    /// lock that withheld no root and a Source Bundle part set none. Roles
-    /// combine: which of them a Cell shows is the console's decision.
+    /// [`PortalRole::Locked`] covers the Cells of the Function of each
+    /// Expression root a lock they record withheld, where this revision
+    /// still begins an Expression with a Function there: a later write of
+    /// the same Tick, or an edit since, can leave no root to mark. A refused
+    /// access, a lock that withheld no root and a Source Bundle part set
+    /// none. Roles combine: which of them a Cell shows is the console's
+    /// decision.
     ///
     /// A [`Freshness::Retained`] record sets a role only for an entry
     /// whose Function still stands at its anchor in this revision, and whose
@@ -166,7 +169,8 @@ impl RenderCell {
     /// edit anywhere else, the rest of its Expression included, leaves them
     /// lit. A lock also needs no edit to have written the Cells it marks, so
     /// overwriting the locked root's spelling puts it out, and editing that
-    /// root's operands leaves it marked. A Source no Tick has committed sets no role from a record.
+    /// root's operands leaves it marked. A Source no Tick has committed sets
+    /// no role from a record.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
         self.portal_roles
@@ -268,21 +272,30 @@ impl RenderFrame {
                 any.then_some(marks)
             });
             for access in portals.record().uses() {
-                let (span, role, place) = match access.event() {
+                let (marked, role, place) = match access.event() {
                     PortalEvent::Read {
                         site: Ok(read),
                         origin,
-                    } => (read.span(), PortalRole::Input, Place::Portal(*origin)),
+                    } => (
+                        read.span().range(),
+                        PortalRole::Input,
+                        Place::Portal(*origin),
+                    ),
                     PortalEvent::Write {
                         outcome: Ok(written),
                         origin,
-                    } => (written.span(), PortalRole::Output, Place::Portal(*origin)),
-                    // A root that stood at its anchor fits its spelling in its
-                    // row, so a lock marks nothing only where no root stood.
+                    } => (
+                        written.span().range(),
+                        PortalRole::Output,
+                        Place::Portal(*origin),
+                    ),
+                    // A later write of the same Tick can cover the root it
+                    // locked, so even a current record's lock marks only a
+                    // root this revision holds.
                     PortalEvent::Lock {
                         verdict: LockVerdict::Locked(root),
                         ..
-                    } => match Span::of_function(grid, *root) {
+                    } => match standing_root(grid, &claims, &source, *root) {
                         Some(spelling) => (spelling, PortalRole::Locked, Place::Lock),
                         None => continue,
                     },
@@ -303,13 +316,12 @@ impl RenderFrame {
                                     !descendant_read_edited(grid, edited_reads, access)
                                 })
                             }
-                            Place::Lock => !source.span_edited(span),
+                            Place::Lock => !source.cells_edited(marked.clone()),
                         })
                 {
                     continue;
                 }
-                for position in span.positions() {
-                    let cell = &mut cells[grid.index(position).get()];
+                for cell in &mut cells[marked] {
                     cell.portal_roles = cell.portal_roles.with(role);
                 }
             }
@@ -493,6 +505,30 @@ fn owner_stands(grid: Grid, claims: &[Option<Arc<Claim>>], access: &PortalUse) -
     claims[anchor].as_deref().is_some_and(|claim| {
         claim.cells.start == anchor && claim.atom == Some(Atom::Function(access.function()))
     })
+}
+
+///
+/// The Cells of the Function spelled at `root` in the revision `claims` were
+/// read from, when an Expression of `source` begins there with a Function: a
+/// root, as a lock's site needs, rather than a Function nested as an operand
+/// of one before it. `None` where no root stands at `root`.
+///
+fn standing_root(
+    grid: Grid,
+    claims: &[Option<Arc<Claim>>],
+    source: &SourceRevision,
+    root: Position,
+) -> Option<std::ops::Range<usize>> {
+    let anchor = grid.index(root).get();
+    let claim = claims[anchor].as_deref()?;
+    let function = claim.cells.start == anchor && matches!(claim.atom, Some(Atom::Function(_)));
+    let leads = || {
+        source
+            .language_map()
+            .expressions()
+            .any(|expression| expression.span().positions().next() == Some(root))
+    };
+    (function && leads()).then(|| claim.cells.clone())
 }
 
 ///
@@ -1097,8 +1133,15 @@ mod tests {
     }
 
     fn write_row(source: &SourceCommander, grid: Grid, text: &str) {
-        for (index, content) in text.chars().enumerate() {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
+        write_row_at(source, grid, 0, text);
+    }
+
+    /// Writes `text` into the Cells from index `start`, row after row.
+    fn write_row_at(source: &SourceCommander, grid: Grid, start: usize, text: &str) {
+        for (offset, content) in text.chars().enumerate() {
+            source
+                .set(cell(grid, start + offset), &content.to_string())
+                .unwrap();
         }
     }
 
@@ -1595,6 +1638,50 @@ mod tests {
             assert!(!roles.contains(PortalRole::Input), "({x}, 2): {roles:?}");
             assert!(!roles.contains(PortalRole::Output), "({x}, 2): {roles:?}");
         }
+    }
+
+    #[test]
+    fn a_retained_lock_marks_nothing_where_its_root_no_longer_stands_as_a_root() {
+        let grid = Grid::with_shape(8, 4);
+        // `||` opens a Comment over the locked Add's Cells, and a Function
+        // written before it, such as `.=`, takes the Add as an operand; each
+        // leaves the Add's own Cells and the Halt unedited.
+        for spelling in ["||", ".=", ".+", "&v", "@$"] {
+            let source = SourceCommander::new(grid);
+            write_row(&source, grid, HALTED_ADD);
+            source.execute(Tick::ZERO);
+            write_row_at(&source, grid, 16, spelling);
+            assert_eq!(
+                locked_cells(&derive_frame(&source, grid.origin())),
+                [],
+                "{spelling:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lock_marks_nothing_where_the_committed_tick_overwrote_its_root() {
+        // The Write at (0, 3) writes `C4` over the Add's anchor before the
+        // Add's Turn, so the revision the Tick commits holds no Add there.
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, HALTED_ADD);
+        write_row_at(&source, grid, 24, "@$0202C4");
+        source.execute(Tick::ZERO);
+        let revision = source.read_revision();
+        let portals = revision.tick_portals().expect("a Tick committed");
+        assert_eq!(portals.freshness(), crate::source::Freshness::Current);
+        assert!(
+            portals.record().uses().iter().any(|access| matches!(
+                access.event(),
+                crate::source::PortalEvent::Lock {
+                    verdict: crate::source::LockVerdict::Locked(_),
+                    ..
+                }
+            )),
+            "the Halt locked a root"
+        );
+        assert_eq!(locked_cells(&derive_frame(&source, grid.origin())), []);
     }
 
     #[test]

@@ -86,7 +86,7 @@ use ordering::{Order, Stall};
 /// is the Cells a scalar result reserves, a different fact that happens to
 /// share the number.
 ///
-pub(super) const FUNCTION_WIDTH: usize = 2;
+const FUNCTION_WIDTH: usize = 2;
 
 ///
 /// One revision's computations and the order their Turns are taken in. No

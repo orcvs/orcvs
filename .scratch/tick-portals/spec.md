@@ -146,7 +146,10 @@ and a benchmark measures the derive with a record present.
   Halt's lock site is a fixed offset, so a lock is retained as a `Declared`
   entry that also needs no edit to have written the Cells it marks: it stays
   marked until an edit reaches the Halt's own Cells or the locked root's own
-  spelling, and an edit to that root's operands leaves it marked.
+  spelling, and an edit to that root's operands leaves it marked. Current or
+  retained, a lock marks only where an Expression of the displayed revision
+  begins with a Function at the locked anchor, and marks that Function's
+  claim; an edit to what activated the Halt leaves it marked (ADR 0077).
 - Precedence is the existing schema's (`.scratch/theming/schema.md`,
   composition steps 4 and 5): Portal channels over every other non-Function
   fact, Diagnostic included, as `console/src/style.rs` already pins. Between

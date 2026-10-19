@@ -197,15 +197,6 @@ impl Span {
         Self { grid, start, end }
     }
 
-    ///
-    /// The Cells the spelling of a Function anchored at `anchor` covers, or
-    /// `None` where its row ends first and so no Function stands there.
-    ///
-    pub(crate) fn of_function(grid: Grid, anchor: Position) -> Option<Self> {
-        let last = grid.offset_in_row(anchor, super::tick::FUNCTION_WIDTH - 1)?;
-        Some(Self::new(grid, grid.index(anchor), last))
-    }
-
     /// The first Cell of this Span.
     pub(super) fn start(self) -> CellIndex {
         self.start
@@ -218,7 +209,7 @@ impl Span {
 
     /// The existing endpoints as a half-open range for Source slicing and
     /// relationship lookup. This does not resolve or revalidate geometry.
-    pub(super) fn range(self) -> std::ops::Range<usize> {
+    pub(crate) fn range(self) -> std::ops::Range<usize> {
         self.start.get()..self.end.get() + 1
     }
 

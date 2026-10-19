@@ -9,8 +9,9 @@ locks. See `../spec.md` section 6.
 
 **Status:** resolved
 
-- [x] A lock with a `Locked` verdict marks the locked root's Function Cells;
-      every other verdict marks nothing.
+- [x] A lock with a `Locked` verdict marks the locked root's Function Cells,
+      where the displayed revision still begins an Expression with a Function
+      there; every other verdict marks nothing.
 - [x] A retained lock goes out until the next Tick when an edit reaches the
       Halt or the locked root's own spelling, and an edit elsewhere, the
       locked root's operands included, leaves it marked.
