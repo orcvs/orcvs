@@ -426,7 +426,8 @@ mod tests {
         let revision = source.read_revision();
         let record = revision
             .tick_portals()
-            .expect("the locked attempt publishes its record");
+            .expect("the locked attempt publishes its record")
+            .record();
         let read: Vec<_> = record
             .uses()
             .iter()

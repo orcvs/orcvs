@@ -5,7 +5,8 @@ use crate::{
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
     source::{
-        Claim, Diagnostic, OperandState, PortalEvent, SourcePaint, SourceRevision, Span, Token,
+        Claim, Diagnostic, Freshness, OperandState, PortalEvent, PortalUse, SourcePaint,
+        SourceRevision, Span, Token,
     },
 };
 use lang::{Atom, Function};
@@ -141,9 +142,11 @@ impl RenderCell {
     /// never set it, and neither does a scalar destination the row edge
     /// leaves no room for.
     ///
-    /// [`PortalRole::Input`] covers each Cell a read of the Tick Portals
-    /// committed with this revision resolved, whatever the Cells held. A
-    /// revision no Tick committed sets none.
+    /// [`PortalRole::Input`] covers each Cell a read of this revision's Tick
+    /// Portals resolved, whatever the Cells held. A
+    /// [`Freshness::Retained`] record sets it only for a read whose Function
+    /// still stands at its anchor in this revision. A Source no Tick has
+    /// committed sets none.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
         self.portal_roles
@@ -221,11 +224,15 @@ impl RenderFrame {
             })
             .collect();
         // In place over the Cells just built, so a record costs no allocation.
-        if let Some(record) = source.tick_portals() {
-            for access in record.uses() {
+        if let Some(portals) = source.tick_portals() {
+            let retained = portals.freshness() == Freshness::Retained;
+            for access in portals.record().uses() {
                 let PortalEvent::Read { site: Ok(read), .. } = access.event() else {
                     continue;
                 };
+                if retained && !owner_stands(grid, &claims, access) {
+                    continue;
+                }
                 for position in read.span().positions() {
                     let cell = &mut cells[grid.index(position).get()];
                     cell.portal_roles = cell.portal_roles.with(PortalRole::Input);
@@ -383,6 +390,19 @@ impl RenderFrame {
             .any(|diagnostic| diagnostic_span_covers(diagnostic, position));
         expression_diagnostic || lexical
     }
+}
+
+///
+/// Whether the Function whose Turn made `access` still stands at its anchor
+/// in the revision `claims` were read from: the Language Map claims the
+/// anchor's Cell for an entry that begins there and parsed as that Function,
+/// which is how a schedule anchors the computation that runs it.
+///
+fn owner_stands(grid: Grid, claims: &[Option<Arc<Claim>>], access: &PortalUse) -> bool {
+    let anchor = grid.index(access.anchor()).get();
+    claims[anchor].as_deref().is_some_and(|claim| {
+        claim.cells.start == anchor && claim.atom == Some(Atom::Function(access.function()))
+    })
 }
 
 fn diagnostic_span_covers(diagnostic: &Diagnostic, position: Position) -> bool {
@@ -1171,20 +1191,67 @@ mod tests {
         );
     }
 
+    #[test]
+    fn after_an_edit_only_the_reads_whose_function_still_stands_at_its_anchor_paint() {
+        // Two voices: `&v01` at (0, 0) reads (2, 1) and (3, 1), and `&v02`
+        // at (4, 0) reads (6, 2) and (7, 2).
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v01&v02");
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1), (6, 2), (7, 2)]
+        );
+
+        // The second voice is now a Read North, which never made the read
+        // the record holds, so only the first voice's read paints.
+        source.set(cell(grid, 5), "^").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1)]
+        );
+
+        // An operand edit leaves the first voice's Function standing, so its
+        // read still paints where the Tick made it.
+        source.set(cell(grid, 3), "2").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1)]
+        );
+
+        // With no Function at its anchor, the first voice claims nothing.
+        source.unset(cell(grid, 0));
+        assert_eq!(input_cells(&derive_frame(&source, grid.origin())), []);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn deriving_with_tick_portals_allocates_no_more_than_without() {
+        use crate::source::Freshness;
+
         // Two Sources holding the same Cells, one whose revision a Tick
         // committed with a record of four reads and one written by hand with
-        // none, so every other input to the derivation is the same.
+        // none, so every other input to the derivation is the same. A
+        // rewrite of one Cell to what it already holds then makes the record
+        // retained over the same Cells, so every read asks whether its
+        // Function still stands.
         let grid = Grid::with_shape(16, 4);
         let ticked = SourceCommander::new(grid);
         write_row(&ticked, grid, "&v01&v02&v01&v02");
         ticked.execute(Tick::ZERO);
         let revision = ticked.read_revision();
         assert_eq!(
-            revision.tick_portals().map(|record| record.uses().len()),
-            Some(4)
+            revision
+                .tick_portals()
+                .map(|portals| (portals.freshness(), portals.record().uses().len())),
+            Some((Freshness::Current, 4))
+        );
+        ticked.set(cell(grid, 0), "&").unwrap();
+        let retained = ticked.read_revision();
+        assert_eq!(
+            retained.tick_portals().map(|portals| portals.freshness()),
+            Some(Freshness::Retained)
         );
 
         let written = SourceCommander::new(grid);
@@ -1215,10 +1282,20 @@ mod tests {
         };
         let (with_record, frame) = crate::allocation::blocks(|| derive(revision));
         assert_eq!(input_cells(&frame).len(), 8, "the record was folded");
+        let (with_retained, frame) = crate::allocation::blocks(|| derive(retained));
+        assert_eq!(
+            input_cells(&frame).len(),
+            8,
+            "the retained record was folded"
+        );
         let (without, _) = crate::allocation::blocks(|| derive(bare));
         assert!(
             with_record <= without,
             "{with_record} blocks with a record, {without} without"
+        );
+        assert!(
+            with_retained <= without,
+            "{with_retained} blocks with a retained record, {without} without"
         );
     }
 

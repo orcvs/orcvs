@@ -18,18 +18,19 @@ Orca lights each operator's ports as it runs, so its tracker shows a read head m
 
 **The record is committed through the one commit path.** The optimistic attempt carries the record in its planned Tick, and the locked attempt plans it under the guard; both hand plan and record to the same Source commit, which stores the record with the revision that commit leaves. A refused attempt is dropped whole and publishes neither. Every committed Tick replaces the record, so a Tick that accessed no Portal leaves an empty record rather than the last one.
 
-**A Source revision answers the record committed with it.** A revision read while the Source is still at the revision a Tick's commit left carries that record; a revision an edit has made since carries none, so a record is never painted against Cells it was not committed with. A new or loaded Source has none until its first Tick, and the record is not persisted.
+**A Source revision answers the last record with its freshness.** The Source keeps the last committed record with the revision that commit left, and a revision captures it as it is read, so an older revision keeps the record it was read with. The record is `Current` for the revision the commit left, and `Retained` for a revision an edit has made since. A retained record's Positions still name the Cells the Tick accessed, because an edit never moves a Cell, but the Function that made an entry may no longer stand at its anchor. Stopping Playback changes no revision, so a paused tracker keeps its record. Opening or loading a Source builds a new Source, which has none until its first Tick, and the record is not persisted.
 
-**The Render Frame paints resolved reads as Input Portal.** Derivation sets the Input Portal role on each Cell a resolved read covers, in place over the Cells it has built, so a record costs no allocation per frame. A read whose site did not resolve stays in the record and paints nothing.
+**The Render Frame paints resolved reads as Input Portal.** Derivation sets the Input Portal role on each Cell a resolved read covers, in place over the Cells it has built, so a record costs no allocation per frame. A `Current` record paints every resolved read. A `Retained` record paints only the reads whose owner still stands: the displayed revision's Language Map claims the entry's anchor for a Function that begins there and parsed as the entry's Function, the way a schedule anchors a computation. Editing one voice of a paused tracker therefore leaves the other voices' reads lit, and a Function the edit changed stops claiming a read it no longer makes. A read whose site did not resolve stays in the record and paints nothing.
 
 ## Consequences
 
 - The console lights each `&v` read of the tracker as it steps, with the Input Portal role ADR 0009's static Output Portal highlight sits beside.
-- `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan` and `PortalError` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
+- `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan`, `PortalError`, `Freshness` and `RevisionTickPortals` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
 - Every Tick allocates its record, including a Tick that reads nothing, which allocates the empty record's handle and no entries.
 
 ## Considered options
 
 - **A recorder the caller installs.** Execution would call out to an observer at each access. It splits the record a test reads from the one Playback commits, and a shipped seam a caller can leave empty is a branch only a test needs.
 - **Folding the record into the Tick Plan.** The Tick Plan is what the Playback Engine applies; the record is what the console observes. Keeping them apart leaves the engine's input unchanged.
+- **Dropping the record at the first edit.** A revision an edit made would answer no record, so no read could paint against Cells it was not committed with. Every keystroke into a paused tracker would then put out every voice's read, not only the one the edit changed.
 - **Deriving the paint from the committed Source.** A Tick may rewrite the Cells its owners stood in, and a dynamic read's site depends on operands the Tick itself wrote. Only execution knows which Cells were read.

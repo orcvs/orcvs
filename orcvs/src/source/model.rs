@@ -17,7 +17,7 @@ use super::language_map::{LanguageMap, Span};
 use super::tick;
 use super::tick::execution::ComputationState;
 use super::tick::portals::TickPortals;
-use super::{CellContent, SourceError};
+use super::{CellContent, Freshness, SourceError};
 
 const SPACE_BYTE: u8 = b' ';
 
@@ -423,14 +423,20 @@ impl Source {
     }
 
     ///
-    /// The record of the last committed Tick, when the Source is still at
-    /// the revision that commit left.
+    /// The record of the last committed Tick, and how it stands against the
+    /// revision the Source is at: [`Freshness::Current`] while that is the
+    /// revision the commit left, [`Freshness::Retained`] once an edit has
+    /// landed since.
     ///
-    pub(super) fn current_tick_portals(&self) -> Option<Arc<TickPortals>> {
-        self.tick_portals
-            .as_ref()
-            .filter(|committed| committed.revision == self.revision)
-            .map(|committed| Arc::clone(&committed.record))
+    pub(super) fn committed_tick_portals(&self) -> Option<(Arc<TickPortals>, Freshness)> {
+        self.tick_portals.as_ref().map(|committed| {
+            let freshness = if committed.revision == self.revision {
+                Freshness::Current
+            } else {
+                Freshness::Retained
+            };
+            (Arc::clone(&committed.record), freshness)
+        })
     }
 
     ///

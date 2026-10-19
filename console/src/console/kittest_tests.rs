@@ -3170,6 +3170,49 @@ async fn a_tracker_voices_read_is_lit_as_input_portal_and_steps_down_its_column(
 }
 
 ///
+/// Two voices of a paused tracker, `&v01` at column 8 and `&v02` at column
+/// 16 of row 5. Turning the second into `&^02` stops it claiming the read its
+/// `&v` made, and the first voice's read stays lit.
+///
+#[tokio::test]
+async fn editing_one_voice_of_a_paused_tracker_keeps_the_other_voices_read_lit() {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    let set = |x: usize, content: char| {
+        let position = grid.position(x, 5).expect("inside the Grid");
+        source
+            .set(grid.index(position), &content.to_string())
+            .expect("a Cell the Source accepts");
+    };
+    for (x, content) in "&v01    &v02".chars().enumerate() {
+        set(8 + x, content);
+    }
+    source.execute(Tick::ZERO);
+    harness.run_steps(1);
+    let lit = |harness: &Harness<'_, Console>, column: usize, row: usize| {
+        (column..=column + 1).all(|column| painted_as_input_portal(harness, column, row))
+    };
+    assert!(lit(&harness, 10, 6), "the first voice's read is lit");
+    assert!(lit(&harness, 18, 7), "the second voice's read is lit");
+
+    set(17, '^');
+    harness.run_steps(1);
+
+    assert!(
+        lit(&harness, 10, 6),
+        "the first voice's read went dark after an edit to the second"
+    );
+    assert!(
+        !painted_as_input_portal(&harness, 18, 7) && !painted_as_input_portal(&harness, 19, 7),
+        "the edited voice still claims a read its new Function never made"
+    );
+}
+
+///
 /// A console whose Source holds one written Cell, at the origin, with the
 /// Cursor moved on past it and egui zoomed in: an environment New would
 /// visibly discard, and a zoom it leaves standing.
