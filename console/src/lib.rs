@@ -16,6 +16,7 @@ pub mod console_midi;
 )]
 mod contrast;
 pub mod diagnostics;
+mod examples;
 mod function_reference;
 mod grid_viewport;
 mod marks;

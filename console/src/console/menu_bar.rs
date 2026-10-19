@@ -2,9 +2,11 @@
 //! mode control.
 
 use super::Console;
+use super::files::EXAMPLE_CONFIRMATIONS;
 #[cfg(not(target_arch = "wasm32"))]
 use super::files::FUNCTION_REFERENCE_CONFIRMATION;
 use super::input::FileCommand;
+use crate::examples::EXAMPLES;
 use crate::theme_selection::SelectedThemes;
 
 /// The height the top panel takes from the window, leaving the rest to the
@@ -154,8 +156,8 @@ pub(super) struct MenuBarChoice {
 
 impl Console {
     ///
-    /// Shows the top bar: File, View and Help, then at its right edge the
-    /// mode control and the Notices menu.
+    /// Shows the top bar: File, View and Help with its Examples, then at its
+    /// right edge the mode control and the Notices menu.
     ///
     /// View's zoom items on native are egui's own, which step the whole UI's
     /// zoom as its chords do; the web's View menu has none. Help's Function
@@ -218,6 +220,14 @@ impl Console {
                         #[cfg(target_arch = "wasm32")]
                         self.load_function_reference();
                     }
+                    // Each example asks before discarding, as New does.
+                    ui.menu_button("Examples", |ui| {
+                        for (example, confirmation) in EXAMPLES.iter().zip(EXAMPLE_CONFIRMATIONS) {
+                            if ui.button(example.name).clicked() {
+                                self.discard_asking_first(confirmation);
+                            }
+                        }
+                    });
                 });
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.

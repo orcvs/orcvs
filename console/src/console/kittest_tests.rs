@@ -3736,6 +3736,89 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
 }
 
 ///
+/// Opens `Help → Examples` and clicks the example named `name` in it.
+///
+fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {
+    harness.get_by_label("Help").click();
+    harness.step();
+    harness.run_steps(1);
+    // egui labels a submenu's button with its arrow.
+    harness.get_by_label("Examples ⏵").hover();
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label(name).click();
+    harness.step();
+    harness.run_steps(2);
+}
+
+///
+/// Every `Help → Examples` item opens its shipped Source File as an
+/// Untitled, saved Source, so Save asks where to write it and the shipped
+/// file is never overwritten.
+///
+#[tokio::test]
+async fn the_help_menu_opens_every_shipped_example() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    for example in &crate::examples::EXAMPLES {
+        choose_example(&mut harness, example.name);
+        assert!(
+            !asking(&harness),
+            "{} asked over a saved Source",
+            example.name
+        );
+        assert_eq!(
+            harness.state().orcvs.source().snapshot(),
+            example.source().snapshot(),
+            "Help → Examples → {} did not open it",
+            example.name
+        );
+        assert_eq!(
+            harness.state().shown_title.as_deref(),
+            Some("Untitled — Orcvs"),
+            "{} opened with a name or as unsaved",
+            example.name
+        );
+    }
+}
+
+///
+/// An example asks before discarding unsaved changes, and cancelling
+/// changes nothing.
+///
+#[tokio::test]
+async fn an_example_asks_before_discarding_unsaved_changes() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+    let example = &crate::examples::EXAMPLES[0];
+
+    choose_example(&mut harness, example.name);
+    assert!(
+        asking(&harness),
+        "{} discarded unsaved changes unasked",
+        example.name
+    );
+    answer(&mut harness, "Cancel");
+    harness.run_steps(1);
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "cancelling changed the Source"
+    );
+
+    choose_example(&mut harness, example.name);
+    answer(&mut harness, DISCARD);
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().orcvs.source().snapshot(),
+        example.source().snapshot(),
+        "confirming did not open {}",
+        example.name
+    );
+}
+
+///
 /// Help → Function Reference asks before discarding unsaved changes and
 /// changes nothing when cancelled; confirmed, it opens the reference as a
 /// saved Source, so opening it again, or New over it, asks nothing.
