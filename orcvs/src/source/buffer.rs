@@ -68,6 +68,9 @@ impl SourceBuffer {
 #[derive(Clone)]
 pub(super) struct EditedCells {
     bits: Arc<[u64]>,
+    /// The Cells the set covers. The last word's bits past it are never
+    /// marked.
+    len: usize,
     /// Whether any bit is set, so a set no edit has marked answers without a
     /// walk and is cleared without one.
     any: bool,
@@ -78,13 +81,15 @@ impl EditedCells {
     pub(super) fn none(len: usize) -> Self {
         Self {
             bits: std::iter::repeat_n(0, len.div_ceil(64)).collect(),
+            len,
             any: false,
         }
     }
 
-    /// Marks the Cell at `index` edited. Panics when `index` is past the last
-    /// Cell.
+    /// Marks the Cell at `index` edited. `index` must name one of the Cells
+    /// the set covers, which a debug build asserts.
     pub(super) fn mark(&mut self, index: usize) {
+        debug_assert!(index < self.len, "Cell {index} of {}", self.len);
         let (word, bit) = (index / 64, 1 << (index % 64));
         if self.bits[word] & bit == 0 {
             Arc::make_mut(&mut self.bits)[word] |= bit;
@@ -102,16 +107,17 @@ impl EditedCells {
         if self.any {
             match Arc::get_mut(&mut self.bits) {
                 Some(bits) => bits.fill(0),
-                None => return Self::none(self.bits.len() * 64),
+                None => return Self::none(self.len),
             }
             self.any = false;
         }
         self
     }
 
-    /// Whether any Cell in `range` is marked. Panics when `range` runs past
-    /// the last Cell.
+    /// Whether any Cell in `range` is marked. `range` must lie within the
+    /// Cells the set covers, which a debug build asserts.
     pub(super) fn any_in(&self, range: Range<usize>) -> bool {
+        debug_assert!(range.end <= self.len, "Cells {range:?} of {}", self.len);
         self.any
             && range
                 .into_iter()

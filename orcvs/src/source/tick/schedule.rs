@@ -240,3 +240,35 @@ fn a_stated_answer_at_no_computations_anchor_is_a_fixture_error() {
     let grid = Grid::with_shape(16, 2);
     stated_source(grid, &[".+0203", ""], &[(0, 16)], &[(2, Atom::Number(1))]);
 }
+
+/// The first and last column of the Cells each computation's subtree holds
+/// in `row`, in Parser preorder.
+fn subtree_columns(width: usize, row: &str) -> Vec<(usize, usize)> {
+    let grid = Grid::with_shape(width, 1);
+    let source = seeded_source(grid, &[row]);
+    let (nodes, _) = super::computations(grid, source.shared_language_map().schedule_inputs());
+    let lookup = super::Lookup::new(grid, nodes);
+    lookup
+        .nodes()
+        .ids()
+        .map(|id| {
+            let span = lookup.subtree_cells(id);
+            let columns: Vec<_> = span.positions().map(|position| position.x()).collect();
+            (columns[0], columns[columns.len() - 1])
+        })
+        .collect()
+}
+
+#[test]
+fn a_subtree_holds_its_anchor_to_the_last_operand_any_of_its_computations_holds() {
+    // Deep: each Read's subtree runs to the end of the innermost's operand.
+    assert_eq!(subtree_columns(8, "&v&v&v01"), [(0, 7), (2, 7), (4, 7)]);
+    // Wide: two sibling Reads hold their own Cells, and the Add holds both.
+    assert_eq!(subtree_columns(10, ".+&v01&v02"), [(0, 9), (2, 5), (6, 9)]);
+    // Nested, then a literal: the Add's last operand follows the nested Reads.
+    assert_eq!(subtree_columns(10, ".+&v&v0102"), [(0, 9), (2, 7), (4, 7)]);
+    // Missing operands at the row edge claim no Cells, so a subtree ends with
+    // the last Cell the row holds of it.
+    assert_eq!(subtree_columns(6, "  .+01"), [(2, 5)]);
+    assert_eq!(subtree_columns(6, "    .+"), [(4, 5)]);
+}

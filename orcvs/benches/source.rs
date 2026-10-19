@@ -706,9 +706,10 @@ enum FrameRecord {
     None,
     /// The revision the last Tick's commit left.
     Current,
-    /// A revision an edit made since that commit: one Cell rewritten with
-    /// what it already holds, so every entry's Function still stands and the
-    /// frame asks that of each entry it paints.
+    /// A revision an edit made since that commit: the Grid's last Cell,
+    /// empty and outside every Expression and every Portal the Tick accessed,
+    /// emptied again. Every entry's Function still stands with its subtree
+    /// unedited, so the frame asks that of each entry and paints every one.
     Retained,
 }
 
@@ -772,35 +773,50 @@ fn tick_portals_app(cols: usize, rows: usize, record: FrameRecord) -> Orcvs<()> 
         }
         FrameRecord::Current => {}
         FrameRecord::Retained => {
-            // The first voice's Write anchor, rewritten with its own `@`.
-            source
-                .set(cell(grid, 0), "@")
-                .expect("benchmark Source content is accepted");
+            let last = cell(grid, grid.count() - 1);
+            assert_eq!(source.get(last), None, "the Grid's last Cell is empty");
+            source.unset(last);
         }
     }
     let _runtime = benchmark_runtime().enter();
     let orcvs = Orcvs::with_source_and_output_adapter(source, InMemoryOutputAdapter::default())
         .expect("a benchmark runtime");
 
-    // A record the frame did not fold, or a hand-written Source that carried
-    // one, would measure the wrong derive and still report a plausible number.
-    let reads = orcvs
-        .render_frame()
-        .cells()
-        .iter()
-        .filter(|cell| cell.portal_roles().contains(PortalRole::Input))
-        .count();
+    // Each of these would measure the wrong derive and still report a
+    // plausible number: a record the frame did not fold, a hand-written
+    // Source that carried one, or a retained record whose edit stopped some
+    // entry from painting.
+    let (reads, writes) = painted(&orcvs);
     let voices = dynamic_writer_voices(cols, rows).len();
     match record {
         FrameRecord::None => assert_eq!(reads, 0, "no record paints no read"),
-        FrameRecord::Current | FrameRecord::Retained => assert_eq!(
+        FrameRecord::Current => assert_eq!(
             reads,
             4 * voices,
             "each of the {voices} voices paints both of its reads"
         ),
+        FrameRecord::Retained => assert_eq!(
+            (reads, writes),
+            painted(&tick_portals_app(cols, rows, FrameRecord::Current)),
+            "the retained record paints every read and write the current one does"
+        ),
     }
 
     orcvs
+}
+
+/// The Cells `orcvs`'s Render Frame paints as Input Portal and as Output
+/// Portal.
+fn painted(orcvs: &Orcvs<()>) -> (usize, usize) {
+    let frame = orcvs.render_frame();
+    let count = |role| {
+        frame
+            .cells()
+            .iter()
+            .filter(|cell| cell.portal_roles().contains(role))
+            .count()
+    };
+    (count(PortalRole::Input), count(PortalRole::Output))
 }
 
 ///

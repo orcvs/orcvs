@@ -465,19 +465,6 @@ impl LanguageMap {
     }
 
     ///
-    /// The Span of the Expression that covers `position`, when one does. Walks
-    /// only the row `position` is in.
-    ///
-    pub(super) fn expression_span_at(&self, position: Position) -> Option<Span> {
-        let index = self.grid.index(position).get();
-        self.rows[index / self.grid.columns()]
-            .expressions
-            .iter()
-            .map(|expression| expression.span)
-            .find(|span| span.range().contains(&index))
-    }
-
-    ///
     /// The Token of the Expression that covers `position`, when one does.
     ///
     pub fn token_at(&self, position: Position) -> Option<Token> {

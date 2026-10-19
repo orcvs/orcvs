@@ -416,13 +416,16 @@ impl<'a> Execution<'a> {
     }
 
     ///
-    /// Appends `event` to the Tick Portals as `index`'s: its anchor, and the
-    /// Function its Turn is running now. Every caller records before the
-    /// access changes any Turn, so that is the Function the Turn executed.
+    /// Appends `event` to the Tick Portals as `index`'s: its anchor, the
+    /// Cells its subtree holds, and the Function its Turn is running now.
+    /// Every caller records before the access changes any Turn, so that is
+    /// the Function the Turn executed.
     ///
     fn record(&mut self, index: ComputationId, event: PortalEvent) {
+        let lookup = &self.schedule.lookup;
         let owner = Owner {
-            anchor: self.schedule.lookup.nodes()[index].anchor,
+            anchor: lookup.nodes()[index].anchor,
+            subtree: lookup.subtree_cells(index),
             function: self.turns.function(index),
         };
         self.portals.push(owner, event);

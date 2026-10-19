@@ -206,23 +206,13 @@ impl SourceRevision {
     }
 
     ///
-    /// Whether no edit since the last committed Tick, up to this revision, has
-    /// written a Cell of the Expression that covers `anchor`. `false` where no
-    /// Expression covers it or no Tick has committed.
+    /// Whether an edit since the last committed Tick, up to this revision, has
+    /// written a Cell of `span`. `false` where no Tick has committed.
     ///
-    /// Every operand that selects a dynamic Portal, and the Function itself,
-    /// stands inside its Expression, so an Expression no edit has touched
-    /// selects the Portals it selected then. An edit that writes back what
-    /// stood there still counts: the question is whether the Expression was
-    /// edited, not what it holds. Allocates nothing.
-    ///
-    pub(crate) fn expression_unedited(&self, anchor: Position) -> bool {
-        let Some(committed) = &self.tick_portals else {
-            return false;
-        };
-        self.language_map
-            .expression_span_at(anchor)
-            .is_some_and(|span| !committed.edited.any_in(span.range()))
+    pub(crate) fn span_edited(&self, span: Span) -> bool {
+        self.tick_portals
+            .as_ref()
+            .is_some_and(|committed| committed.edited.any_in(span.range()))
     }
 }
 

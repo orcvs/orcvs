@@ -4,8 +4,8 @@
 //! The record is an observation of a committed Tick, not a Portal: a Portal is
 //! a local of the Turn that resolved it, and what survives here is what that
 //! Turn did with it. Execution is the only writer, so each entry is built from
-//! the facts the Turn held as it acted — the schedule's anchor and the
-//! Function the Turn was running — and never recovered from the Source the
+//! the facts the Turn held as it acted — the schedule's anchor and subtree and
+//! the Function the Turn was running — and never recovered from the Source the
 //! Tick committed, which the Tick may have rewritten.
 
 use lang::{Function, ReplacementChange, Tick};
@@ -42,6 +42,7 @@ impl TickPortals {
     pub(super) fn push(&mut self, owner: Owner, event: PortalEvent) {
         self.uses.push(PortalUse {
             anchor: owner.anchor,
+            subtree: owner.subtree,
             function: owner.function,
             event,
         });
@@ -62,6 +63,7 @@ impl TickPortals {
 #[derive(Clone, Copy)]
 pub(super) struct Owner {
     pub(super) anchor: Position,
+    pub(super) subtree: Span,
     pub(super) function: Function,
 }
 
@@ -71,6 +73,7 @@ pub(super) struct Owner {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PortalUse {
     anchor: Position,
+    subtree: Span,
     function: Function,
     event: PortalEvent,
 }
@@ -79,6 +82,20 @@ impl PortalUse {
     /// The anchor of the Function whose Turn made this access.
     pub fn anchor(&self) -> Position {
         self.anchor
+    }
+
+    ///
+    /// The Cells the subtree of the Function whose Turn made this access
+    /// holds, from its anchor to the end of its last operand, nested
+    /// Functions' operands included.
+    ///
+    /// Another entry of the same record was made by one of that Function's
+    /// descendants exactly when its anchor lies in these Cells, so this
+    /// answers which computation an access feeds even where a Function
+    /// between them made no access of its own.
+    ///
+    pub fn subtree(&self) -> Span {
+        self.subtree
     }
 
     /// The Function that Turn executed, after any Function Replacement the

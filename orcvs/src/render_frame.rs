@@ -5,8 +5,8 @@ use crate::{
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
     source::{
-        Claim, Diagnostic, Freshness, OperandState, PortalEvent, PortalUse, SourcePaint,
-        SourceRevision, Span, Token,
+        Claim, Diagnostic, Freshness, OperandState, PortalEvent, PortalOrigin, PortalUse,
+        SourcePaint, SourceRevision, Span, Token,
     },
 };
 use lang::{Atom, Function};
@@ -148,12 +148,16 @@ impl RenderCell {
     /// access, a lock and a Source Bundle part set neither.
     ///
     /// A [`Freshness::Retained`] record sets either role only for an entry
-    /// whose Function still stands at its anchor in this revision, inside an
-    /// Expression no edit has written a Cell of since the Tick's commit: an
-    /// edit to the Function or to an operand that selects where it reads or
-    /// writes puts out that Function's entries until the next Tick, and an
-    /// edit anywhere else leaves them lit. A Source no Tick has committed sets no role from a
-    /// record.
+    /// whose Function still stands at its anchor in this revision, and whose
+    /// subtree at the commit ([`PortalUse::subtree`]) holds no Cell an edit
+    /// has written since. An entry whose operands selected its place also
+    /// needs every read the record holds from one of that Function's
+    /// descendants to have resolved no Cell an edit has written since,
+    /// because such a read answers an operand's value. An edit to the
+    /// Function, to one of its operands, or to a Cell a read nested in it
+    /// resolved puts out that Function's entries until the next Tick, and an
+    /// edit anywhere else, the rest of its Expression included, leaves them
+    /// lit. A Source no Tick has committed sets no role from a record.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
         self.portal_roles
@@ -234,14 +238,32 @@ impl RenderFrame {
         // A refused access carries no Span, so it has nothing to paint. Locks
         // and Source Bundles stay in the record and paint nothing.
         if let Some(portals) = source.tick_portals() {
-            let retained = portals.freshness() == Freshness::Retained;
+            // Only a retained record has edited reads. The highlight is in the
+            // Cells now, so its storage marks the anchor of each recorded read
+            // an edit has written a Cell of, before any entry asks whether one
+            // of its descendants made one.
+            let edited_reads = (portals.freshness() == Freshness::Retained).then(|| {
+                let mut marks = output_portals;
+                marks.fill(false);
+                for access in portals.record().uses() {
+                    if let PortalEvent::Read { site: Ok(read), .. } = access.event()
+                        && source.span_edited(read.span())
+                    {
+                        marks[grid.index(access.anchor()).get()] = true;
+                    }
+                }
+                marks
+            });
             for access in portals.record().uses() {
-                let (span, role) = match access.event() {
-                    PortalEvent::Read { site: Ok(read), .. } => (read.span(), PortalRole::Input),
+                let (span, role, origin) = match access.event() {
+                    PortalEvent::Read {
+                        site: Ok(read),
+                        origin,
+                    } => (read.span(), PortalRole::Input, *origin),
                     PortalEvent::Write {
                         outcome: Ok(written),
-                        ..
-                    } => (written.span(), PortalRole::Output),
+                        origin,
+                    } => (written.span(), PortalRole::Output, *origin),
                     PortalEvent::Read { site: Err(_), .. }
                     | PortalEvent::Write {
                         outcome: Err(_), ..
@@ -249,9 +271,11 @@ impl RenderFrame {
                     | PortalEvent::Lock { .. }
                     | PortalEvent::Bundle { .. } => continue,
                 };
-                if retained
+                if let Some(edited_reads) = &edited_reads
                     && !(owner_stands(grid, &claims, access)
-                        && source.expression_unedited(access.anchor()))
+                        && !source.span_edited(access.subtree())
+                        && (origin == PortalOrigin::Declared
+                            || !descendant_read_edited(grid, edited_reads, access)))
                 {
                     continue;
                 }
@@ -425,6 +449,18 @@ fn owner_stands(grid: Grid, claims: &[Option<Arc<Claim>>], access: &PortalUse) -
     claims[anchor].as_deref().is_some_and(|claim| {
         claim.cells.start == anchor && claim.atom == Some(Atom::Function(access.function()))
     })
+}
+
+///
+/// Whether `edited_reads`, marked at the anchor of each recorded read an edit
+/// has since written a Cell of, marks a descendant of the Function whose Turn
+/// made `access`: an anchor in the Cells its subtree holds, other than its own.
+///
+fn descendant_read_edited(grid: Grid, edited_reads: &[bool], access: &PortalUse) -> bool {
+    access
+        .subtree()
+        .positions()
+        .any(|position| position != access.anchor() && edited_reads[grid.index(position).get()])
 }
 
 fn diagnostic_span_covers(diagnostic: &Diagnostic, position: Position) -> bool {
@@ -1310,6 +1346,180 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_paused_edit_to_a_cell_a_nested_read_selects_from_puts_out_the_outer_read() {
+        // `&v&v01` at (0, 0): the inner Read at (2, 0) reads `01` from (4, 1)
+        // and (5, 1), and that value is the outer Read's operand, so the
+        // outer Read reads (2, 1) and (3, 1). No Tick runs after the edit.
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v&v01");
+        source.set(cell(grid, 12), "0").unwrap();
+        source.set(cell(grid, 13), "1").unwrap();
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1), (4, 1), (5, 1)]
+        );
+
+        // (5, 1) stands outside the Expression, but the inner Read now reads
+        // `02`, so the outer Read selects (2, 2): the record no longer says
+        // what it reads, and only the inner Read's read stays lit.
+        source.set(cell(grid, 13), "2").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(4, 1), (5, 1)]
+        );
+    }
+
+    #[test]
+    fn a_paused_edit_inside_a_chain_of_nested_reads_puts_out_every_read_it_feeds() {
+        // `&v&v&v01` at (0, 0): the innermost Read at (4, 0) reads `01` from
+        // (6, 1) and writes it to (4, 1), where the middle Read at (2, 0)
+        // reads it and writes it to (2, 1), where the outer Read reads it.
+        let grid = Grid::with_shape(8, 4);
+        let committed = || {
+            let source = SourceCommander::new(grid);
+            write_row(&source, grid, "&v&v&v01");
+            source.set(cell(grid, 14), "0").unwrap();
+            source.set(cell(grid, 15), "1").unwrap();
+            source.execute(Tick::ZERO);
+            assert_eq!(
+                input_cells(&derive_frame(&source, grid.origin())),
+                [(2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1)]
+            );
+            source
+        };
+
+        // The middle Read's Cells feed only the outer Read.
+        let source = committed();
+        source.set(cell(grid, 13), "2").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(4, 1), (5, 1), (6, 1), (7, 1)]
+        );
+
+        // The innermost Read's Cells feed both Reads it is nested in.
+        let source = committed();
+        source.set(cell(grid, 15), "2").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(6, 1), (7, 1)]
+        );
+    }
+
+    #[test]
+    fn a_paused_edit_to_one_reads_cells_leaves_a_sibling_read_lit() {
+        // `.+&v01&v02` at (0, 0): the Reads at (2, 0) and (6, 0) are both
+        // operands of the Add, and neither answers an operand of the other.
+        let grid = Grid::with_shape(16, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+&v01&v02");
+        source.execute(Tick::ZERO);
+        let committed = [(4, 1), (5, 1), (8, 2), (9, 2)];
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            committed
+        );
+
+        // The second Read's Cells feed the Add, not the first Read, and a
+        // Read's own entries stay lit when the Cells it read are edited.
+        source.set(cell(grid, 41), "3").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            committed
+        );
+    }
+
+    #[test]
+    fn a_paused_edit_elsewhere_in_an_expression_leaves_the_reads_it_does_not_feed_lit() {
+        // `.+&v01&v02` at (0, 0). Rewriting the Add as a Subtract changes
+        // neither Read's operands, so both still read where they read.
+        let grid = Grid::with_shape(16, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+&v01&v02");
+        source.execute(Tick::ZERO);
+        let committed = [(4, 1), (5, 1), (8, 2), (9, 2)];
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            committed
+        );
+
+        source.set(cell(grid, 1), "-").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            committed
+        );
+    }
+
+    #[test]
+    fn a_nested_read_whose_parent_is_edited_away_stays_lit_where_it_still_reads() {
+        // `&v&v01` at (0, 0), with `01` at (4, 1). Overwriting the outer
+        // Read's `&` leaves the inner Read standing as a root of its own, with
+        // its own Cells unedited, so it still reads (4, 1) and (5, 1). The
+        // outer Read no longer stands.
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v&v01");
+        source.set(cell(grid, 12), "0").unwrap();
+        source.set(cell(grid, 13), "1").unwrap();
+        source.execute(Tick::ZERO);
+
+        source.set(cell(grid, 0), "x").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(4, 1), (5, 1)]
+        );
+    }
+
+    #[test]
+    fn a_paused_edit_to_a_nested_reads_cells_leaves_a_declared_read_lit() {
+        // `~+&v0110` at (0, 0): the Increment reads its previous value at the
+        // Portal it declares, one row south, and its step is what the Read at
+        // (2, 0) reads from (4, 1) and (5, 1).
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "~+&v0110");
+        source.set(cell(grid, 12), "0").unwrap();
+        source.set(cell(grid, 13), "1").unwrap();
+        source.execute(Tick::ZERO);
+        let committed = [(0, 1), (1, 1), (4, 1), (5, 1)];
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            committed
+        );
+
+        // The step changes, but no operand chose where the Increment reads.
+        source.set(cell(grid, 13), "2").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            committed
+        );
+    }
+
+    #[test]
+    fn a_function_that_selects_nothing_between_two_reads_still_passes_the_edit_up() {
+        // `&v.+&v0100` at (0, 0): the inner Read at (4, 0) reads `01` from
+        // (6, 1), the Add at (2, 0) adds `00` to it, and the outer Read reads
+        // where that sum selects, (2, 1). The Add's own place is declared.
+        let grid = Grid::with_shape(10, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v.+&v0100");
+        source.set(cell(grid, 16), "0").unwrap();
+        source.set(cell(grid, 17), "1").unwrap();
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1), (6, 1), (7, 1)]
+        );
+
+        source.set(cell(grid, 17), "2").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(6, 1), (7, 1)]
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn deriving_with_tick_portals_allocates_no_more_than_without() {
@@ -1321,7 +1531,8 @@ mod tests {
         // derivation is the same. Emptying an empty Cell outside every
         // Expression then makes the record retained over the same Cells, with
         // an edited Cell marked, so every painted entry asks whether its
-        // Function still stands and its Expression is unedited.
+        // Function still stands, its subtree is unedited, and, for a selected
+        // place, no read nested in it read an edited Cell.
         let grid = Grid::with_shape(16, 4);
         let ticked = SourceCommander::new(grid);
         write_row(&ticked, grid, "&v01&v02@$0E03C4");
