@@ -1,6 +1,6 @@
 # Tick Portals: the typed record of every Portal access a committed Tick made
 
-Status: ready-for-agent
+Status: resolved
 
 Tickets: `issues/01`–`06`, vertical slices, 01 first.
 
