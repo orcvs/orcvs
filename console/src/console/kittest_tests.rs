@@ -3100,6 +3100,76 @@ async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
 }
 
 ///
+/// Whether the last frame painted the Cell at `column`, `row` on the
+/// presented Theme's `input_portal.background`.
+///
+fn painted_as_input_portal(harness: &Harness<'_, Console>, column: usize, row: usize) -> bool {
+    let fill = harness
+        .state()
+        .themes
+        .presented(Appearance::Dark)
+        .input_portal_background;
+    let point = presented_source(harness).cell_rect(column, row).center();
+    painted_source_shapes(harness).iter().any(|shape| {
+        matches!(shape, egui::Shape::Rect(rect) if rect.fill == fill && rect.rect.contains(point))
+    })
+}
+
+///
+/// One voice of the Orca tracker, stepping down its column: `.+02~.0104`
+/// writes `n` as 2 plus the Tick modulo 4 into the operand of the `&v` below
+/// it, which reads the pair `n` rows south of that operand. Each Tick the
+/// pair it read is lit as Input Portal and the pair the Tick before read is
+/// not, as Orca lights its ports.
+///
+/// Playback is stopped, so each Tick is the one `SourceCommander::execute`
+/// the Playback Engine would run, taken here by number.
+///
+#[tokio::test]
+async fn a_tracker_voices_read_is_lit_as_input_portal_and_steps_down_its_column() {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    for (y, row) in [(4, "  .+02~.0104"), (5, "&v")] {
+        for (x, character) in row.chars().enumerate() {
+            let position = grid.position(8 + x, y).expect("inside the Grid");
+            source
+                .set(grid.index(position), &character.to_string())
+                .expect("a Cell the Source accepts");
+        }
+    }
+    harness.run_steps(1);
+    for row in 7..=10 {
+        assert!(
+            !painted_as_input_portal(&harness, 10, row),
+            "row {row} is lit before any Tick"
+        );
+    }
+
+    let mut lit = Vec::new();
+    for tick in 0..4 {
+        source.execute(Tick::new(tick));
+        harness.run_steps(1);
+        let read = 7 + usize::try_from(tick).expect("a small Tick");
+        lit.push(
+            (7..=10)
+                .filter(|&row| {
+                    (10..=11).all(|column| painted_as_input_portal(&harness, column, row))
+                })
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            !painted_as_input_portal(&harness, 12, read),
+            "Tick {tick} lit past the pair it read"
+        );
+    }
+    assert_eq!(lit, [[7], [8], [9], [10]]);
+}
+
+///
 /// A console whose Source holds one written Cell, at the origin, with the
 /// Cursor moved on past it and egui zoomed in: an environment New would
 /// visibly discard, and a zoom it leaves standing.

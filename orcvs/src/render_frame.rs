@@ -4,7 +4,9 @@ use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
-    source::{Claim, Diagnostic, OperandState, SourcePaint, SourceRevision, Span, Token},
+    source::{
+        Claim, Diagnostic, OperandState, PortalEvent, SourcePaint, SourceRevision, Span, Token,
+    },
 };
 use lang::{Atom, Function};
 
@@ -139,8 +141,9 @@ impl RenderCell {
     /// never set it, and neither does a scalar destination the row edge
     /// leaves no room for.
     ///
-    /// Derivation sets no [`PortalRole::Input`]: the current Source revision
-    /// alone does not say which Cells a Tick reads.
+    /// [`PortalRole::Input`] covers each Cell a read of the Tick Portals
+    /// committed with this revision resolved, whatever the Cells held. A
+    /// revision no Tick committed sets none.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
         self.portal_roles
@@ -200,7 +203,7 @@ impl RenderFrame {
         grid.assert_owns(region.cursor());
         let claims = source.claims_by_cell();
         let output_portals = source.output_portal_highlight();
-        let cells = grid
+        let mut cells: Vec<RenderCell> = grid
             .positions_by_row()
             .flatten()
             .map(|position| {
@@ -217,6 +220,18 @@ impl RenderFrame {
                 }
             })
             .collect();
+        // In place over the Cells just built, so a record costs no allocation.
+        if let Some(record) = source.tick_portals() {
+            for access in record.uses() {
+                let PortalEvent::Read { site: Ok(read), .. } = access.event() else {
+                    continue;
+                };
+                for position in read.span().positions() {
+                    let cell = &mut cells[grid.index(position).get()];
+                    cell.portal_roles = cell.portal_roles.with(PortalRole::Input);
+                }
+            }
+        }
         let expressions = source
             .language_map()
             .expressions()
@@ -1121,6 +1136,90 @@ mod tests {
             );
             assert!(!roles.contains(PortalRole::Input));
         }
+    }
+
+    /// The Cells of `frame` that play the Input role, by column and row.
+    fn input_cells(frame: &RenderFrame) -> Vec<(usize, usize)> {
+        frame
+            .cells()
+            .iter()
+            .filter(|cell| cell.portal_roles().contains(PortalRole::Input))
+            .map(|cell| (cell.position().x(), cell.position().y()))
+            .collect()
+    }
+
+    #[test]
+    fn each_cell_a_committed_tick_read_plays_the_input_role_and_moves_with_the_read() {
+        // `&v` reads the pair `n` rows south of its operand: (2, 1) at `01`,
+        // and (2, 2) once `n` is `02`.
+        let grid = Grid::with_shape(4, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v01");
+        assert_eq!(input_cells(&derive_frame(&source, grid.origin())), []);
+
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1)]
+        );
+
+        source.set(cell(grid, 3), "2").unwrap();
+        source.execute(Tick::new(1));
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 2), (3, 2)]
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn deriving_with_tick_portals_allocates_no_more_than_without() {
+        // Two Sources holding the same Cells, one whose revision a Tick
+        // committed with a record of four reads and one written by hand with
+        // none, so every other input to the derivation is the same.
+        let grid = Grid::with_shape(16, 4);
+        let ticked = SourceCommander::new(grid);
+        write_row(&ticked, grid, "&v01&v02&v01&v02");
+        ticked.execute(Tick::ZERO);
+        let revision = ticked.read_revision();
+        assert_eq!(
+            revision.tick_portals().map(|record| record.uses().len()),
+            Some(4)
+        );
+
+        let written = SourceCommander::new(grid);
+        let cells: Vec<_> = ticked
+            .snapshot()
+            .bytes()
+            .enumerate()
+            .map(|(idx, byte)| crate::source::CellWrite {
+                cell: cell(grid, idx),
+                content: crate::source::CellContent::new(byte).expect("a Cell"),
+            })
+            .collect();
+        written.write_cells(&cells);
+        let bare = written.read_revision();
+        assert_eq!(ticked.snapshot(), written.snapshot());
+        assert!(bare.tick_portals().is_none());
+
+        let derive = |revision| {
+            RenderFrame::derive(
+                revision,
+                Region::at(grid, grid.origin()),
+                false,
+                RenderFrameConfig {
+                    sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                    cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
+                },
+            )
+        };
+        let (with_record, frame) = crate::allocation::blocks(|| derive(revision));
+        assert_eq!(input_cells(&frame).len(), 8, "the record was folded");
+        let (without, _) = crate::allocation::blocks(|| derive(bare));
+        assert!(
+            with_record <= without,
+            "{with_record} blocks with a record, {without} without"
+        );
     }
 
     #[test]

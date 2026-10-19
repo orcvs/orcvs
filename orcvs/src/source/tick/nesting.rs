@@ -344,7 +344,7 @@ mod nested_property {
         let bytes = format!("{:width$}{source:width$}{:width$}", "", "");
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-        let (tick, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (tick, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
         prop_assert!(
             !tick
@@ -431,7 +431,7 @@ mod nested_property {
         );
         let bytes = format!("{:width$}{source}{:width$}", "", "");
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-        let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let (_, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
         assert_eq!(states[0].interpreted(), None);
     }
 

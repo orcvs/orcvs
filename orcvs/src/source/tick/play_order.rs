@@ -31,7 +31,7 @@ fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
     .into_iter()
     .collect();
 
-    let (plan, _) = super::plan_carrying(
+    let (plan, _, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -69,7 +69,7 @@ fn two_current_bang_results_still_execute_midi_once() {
     .into_iter()
     .collect();
 
-    let (plan, _) = super::plan_carrying(
+    let (plan, _, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -103,7 +103,7 @@ fn one_failed_bang_candidate_does_not_suppress_another_fresh_bang() {
     .into_iter()
     .collect();
 
-    let (plan, _) = super::plan_carrying(
+    let (plan, _, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,

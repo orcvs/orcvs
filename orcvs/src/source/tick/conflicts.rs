@@ -95,7 +95,7 @@ fn competing_writers_publish_but_a_dependency_cycle_writes_nothing() {
     ]
     .into_iter()
     .collect();
-    let (conflict, _) = super::plan_carrying(
+    let (conflict, _, _) = super::plan_carrying(
         conflict_grid,
         Cells::of(conflict_bytes.as_bytes()),
         &conflict_map,
@@ -121,7 +121,7 @@ fn competing_writers_publish_but_a_dependency_cycle_writes_nothing() {
     ]
     .into_iter()
     .collect();
-    let (cycle, _) = super::plan_carrying(
+    let (cycle, _, _) = super::plan_carrying(
         cycle_grid,
         Cells::of(cycle_bytes.as_bytes()),
         &cycle_map,
@@ -145,7 +145,7 @@ fn test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write() {
     let bytes = snapshot(grid, &["", ".+0102"]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-    let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, _, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
     assert!(plan.writes.is_empty());
     assert_eq!(

@@ -33,7 +33,7 @@ fn a_bang_activates_its_aligned_neighbours_and_no_further_root() {
     .into_iter()
     .collect();
 
-    let (plan, _) = super::plan_carrying(
+    let (plan, _, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -199,7 +199,7 @@ fn a_bang_rejected_in_a_typed_operand_never_activates() {
     let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-    let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, _, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
     assert_eq!(plan.play_commands, vec![]);
     assert_eq!(planned(&plan), vec![(20, '*'), (21, '*')]);
@@ -220,7 +220,7 @@ fn a_result_written_over_a_standing_bang_joins_nothing() {
     let bytes = snapshot(grid, &[".=0101", "**", ""]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-    let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, _, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
     assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
     assert_eq!(

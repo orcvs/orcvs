@@ -21,7 +21,8 @@ use lang::Tick;
 
 use super::super::{ComputationId, Lookup, carry, computations, order_turns, take_turns};
 use super::{
-    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, Turn, resolve,
+    Atom, ComputationState, Execution, Grid, LanguageMap, Position, TickPlan, TickPortals, Turn,
+    resolve,
 };
 use crate::grid::CellIndex;
 use crate::source::Cells;
@@ -38,7 +39,7 @@ pub(in crate::source::tick) fn plan_with_answers(
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
     answers: &[(CellIndex, Atom)],
-) -> (TickPlan, Vec<ComputationState>) {
+) -> (TickPlan, TickPortals, Vec<ComputationState>) {
     let inputs = map.schedule_inputs();
     let (mut nodes, diagnostics) = computations(grid, inputs);
     carry(grid, &mut nodes, destinations);
@@ -104,7 +105,11 @@ pub(in crate::source::tick) fn plan_with_answers(
         stated.iter().all(|stated| *stated),
         "every stated answer reached the Turn of the computation it names"
     );
-    (resolve(execution.effects), execution.turns.into_states())
+    (
+        resolve(execution.effects),
+        execution.portals,
+        execution.turns.into_states(),
+    )
 }
 
 ///

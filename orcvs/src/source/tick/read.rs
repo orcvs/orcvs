@@ -7,11 +7,12 @@
 //! Portal. The pair is known only at the Read's Turn, so these tests also
 //! state the order that Turn takes against the writers of the Cells it reads.
 
-use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
+use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::observed::{
-    diagnostic, first, observe_at, quiet_rows, raw, rows_of, source_of, turn_before, turns,
+    diagnostic, first, observe_at, quiet_rows, raw, reads, rows_of, source_of, turn_before, turns,
 };
+use super::portals::PortalOrigin;
 use crate::grid::Grid;
 
 /// The diagnostic a Read spelled `spelling` gives a pair it cannot read.
@@ -347,6 +348,34 @@ fn a_writer_below_the_selected_pair_takes_its_turn_first() {
     assert_eq!(first(grid, &rows).rows[1], "D4D4");
     let turns = turns(grid, &rows);
     turn_before(&turns, (2, 2), (0, 0));
+}
+
+#[test]
+fn a_read_that_waits_for_a_writer_is_recorded_once_when_it_is_retaken() {
+    // The Read at (0, 0) comes first in Grid order and waits for `=^` at
+    // (2, 2), which writes the pair it selects: its Turn is taken again once
+    // `=^` has taken its own, and only that Turn is handed the pair.
+    let grid = Grid::with_shape(4, 4);
+    let rows = ["&v01", "", "  =^", "  D4"];
+    turn_before(&turns(grid, &rows), (2, 2), (0, 0));
+
+    assert_eq!(
+        reads(grid, &rows),
+        [
+            (
+                (2, 2),
+                Function::CopyNorth,
+                PortalOrigin::Declared,
+                Ok(vec![(2, 3), (3, 3)])
+            ),
+            (
+                (0, 0),
+                Function::ReadSouth,
+                PortalOrigin::Selected,
+                Ok(vec![(2, 1), (3, 1)])
+            ),
+        ]
+    );
 }
 
 #[test]

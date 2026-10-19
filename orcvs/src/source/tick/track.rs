@@ -301,7 +301,7 @@ fn a_writer_that_waits_on_track_forms_a_cycle_and_the_rest_of_the_tick_runs() {
     .into();
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (plan, states) = plan_carrying(
+    let (plan, _, states) = plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -421,7 +421,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
     let source = source_of(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (_, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     let schedule = shared_schedule(grid, &map);
     let nodes = schedule.lookup.nodes();
     let interpretations: BTreeMap<_, _> = nodes
@@ -592,7 +592,7 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     let source = source_of(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (plan, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     let nodes = shared_schedule(grid, &map).lookup.nodes();
     let addition = nodes
@@ -656,7 +656,7 @@ fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(14, 0)])].into();
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (planned, states) = plan_carrying(
+    let (planned, _, states) = plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -690,7 +690,7 @@ fn a_late_cycle_preserves_a_completed_nested_operands_write() {
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(18, 0)])].into();
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (planned, states) = plan_carrying(
+    let (planned, _, states) = plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -752,7 +752,7 @@ fn a_completed_operands_consumer_survives_a_late_cycle_after_an_earlier_wait() {
         .into();
         let map = source.shared_language_map();
         let bytes = source.snapshot();
-        let (planned, states) = plan_carrying(
+        let (planned, _, states) = plan_carrying(
             grid,
             Cells::of(bytes.as_bytes()),
             &map,

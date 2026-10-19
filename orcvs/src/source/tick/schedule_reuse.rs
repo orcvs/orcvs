@@ -58,19 +58,24 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
     let grid = source.grid();
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (shared, shared_states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
-    let (fresh, fresh_states) =
+    let (shared, shared_portals, shared_states) =
+        plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
+    let (fresh, fresh_portals, fresh_states) =
         plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     assert_eq!(
         shared, fresh,
         "the shared schedule planned Tick {tick} differently"
     );
     assert_eq!(
+        shared_portals, fresh_portals,
+        "the shared schedule recorded Tick {tick}'s Portals differently"
+    );
+    assert_eq!(
         turns(&shared_states),
         turns(&fresh_states),
         "the shared schedule ordered Tick {tick} differently"
     );
-    source.commit_tick(&shared);
+    source.commit_tick(&shared, shared_portals);
     shared
 }
 
@@ -105,7 +110,7 @@ fn takes_turns_in_the_scheduled_order(source: &Source, tick: u64) -> bool {
     if reads || (writes && inactive_root) {
         return false;
     }
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
+    let (_, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     let mut scheduled = vec![None; states.len()];
     for (turn, &index) in schedule.ordered.order.iter().enumerate() {
         scheduled[index.index()] = Some(turn);
@@ -679,7 +684,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
     assert!(cached_turn(track) < cached_turn(writer));
 
     let bytes = source.snapshot();
-    let (planned, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
+    let (planned, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
     assert!(planned.diagnostics.is_empty(), "{:?}", planned.diagnostics);
     let turn = |index: ComputationId| {
         states[index.index()]
@@ -701,7 +706,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
     );
     assert_eq!(
         turns(&states),
-        turns(&plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1)).1),
+        turns(&plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1)).2),
         "fresh and cached ordering have identical continuation",
     );
 }

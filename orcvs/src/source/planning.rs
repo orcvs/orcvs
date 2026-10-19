@@ -13,6 +13,7 @@ use std::sync::Arc;
 use super::buffer::SourceBuffer;
 use super::language_map::LanguageMap;
 use super::tick;
+use super::tick::portals::TickPortals;
 use super::{OPTIMISTIC_TICK_ATTEMPTS, RevisionId, Source, SourceCommander, Tick, TickPlan};
 use crate::grid::Grid;
 
@@ -47,24 +48,27 @@ impl PlanningSnapshot {
     /// Interprets this revision at `tick`. Touches no Source.
     pub(super) fn plan(&self, tick: Tick) -> PlannedTick {
         // Each computation's Turn is discarded, as `Source::execute` discards it.
-        let (plan, _) = tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
+        let (plan, portals, _) =
+            tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
         PlannedTick {
             revision: self.revision,
             plan,
+            portals,
         }
     }
 }
 
 ///
-/// A Tick Plan that has not been committed, and the revision it was planned
-/// against.
+/// A Tick Plan and its Tick Portals that have not been committed, and the
+/// revision they were planned against.
 ///
-/// The plan is reachable only through [`Self::commit`], so nothing can publish
-/// a plan the Source has not accepted.
+/// Both are reachable only through [`Self::commit`], so nothing can publish
+/// a plan or a record the Source has not accepted.
 ///
 pub(super) struct PlannedTick {
     revision: RevisionId,
     plan: TickPlan,
+    portals: TickPortals,
 }
 
 impl PlannedTick {
@@ -82,7 +86,7 @@ impl PlannedTick {
         if source.revision() != self.revision {
             return Err(StalePlan);
         }
-        source.commit_tick(&self.plan);
+        source.commit_tick(&self.plan, self.portals);
         Ok(self.plan)
     }
 }
@@ -197,7 +201,7 @@ mod tests {
     use super::{StalePlan, TickCommit};
     use crate::grid::{CellIndex, Grid};
     use crate::source::tick::observed::raw_c4;
-    use crate::source::{OPTIMISTIC_TICK_ATTEMPTS, SourceCommander, Tick};
+    use crate::source::{OPTIMISTIC_TICK_ATTEMPTS, PortalEvent, SourceCommander, Tick};
 
     fn cell(grid: Grid, idx: usize) -> CellIndex {
         grid.cell_index(idx).expect("inside the Grid")
@@ -388,6 +392,54 @@ mod tests {
         assert_eq!(row(&source, 0), ".+010A  ");
         assert_eq!(row(&source, 1), "0B      ");
         assert_eq!(plan.writes.len(), 2);
+    }
+
+    #[test]
+    fn a_refused_plan_publishes_no_tick_portals_and_the_locked_attempt_does() {
+        // Each optimistic attempt plans the Read at the distance its `n`
+        // held, and an edit to that `n` refuses it. Only the locked attempt
+        // commits, so the one record published is the one that read where
+        // the last edit pointed.
+        let grid = Grid::with_shape(4, 4);
+        let source = SourceCommander::new(grid);
+        type_at(&source, 0, "&v01");
+        let mut commit = TickCommit::new(&source, Tick::ZERO);
+
+        for attempt in 1..=OPTIMISTIC_TICK_ATTEMPTS {
+            let planned = commit.plan();
+            assert!(!planned.is_locked(), "attempt {attempt} took the lock");
+            type_at(&source, 3, &format!("{}", attempt % 2 + 1));
+            assert_eq!(planned.commit(), Err(StalePlan));
+            assert!(
+                source.read_revision().tick_portals().is_none(),
+                "refused attempt {attempt} published a record"
+            );
+        }
+
+        let locked = commit.plan();
+        assert!(locked.is_locked());
+        type_at(&source, 3, "3");
+        locked
+            .commit()
+            .expect("the locked attempt cannot be refused");
+
+        let revision = source.read_revision();
+        let record = revision
+            .tick_portals()
+            .expect("the locked attempt publishes its record");
+        let read: Vec<_> = record
+            .uses()
+            .iter()
+            .map(|access| {
+                let PortalEvent::Read { site, .. } = access.event();
+                site.expect("the pair is inside the Grid")
+                    .span()
+                    .positions()
+                    .map(|position| (position.x(), position.y()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(read, [[(2, 3), (3, 3)]]);
     }
 
     #[test]

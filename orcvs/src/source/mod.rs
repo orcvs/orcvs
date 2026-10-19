@@ -11,6 +11,7 @@ pub use lang::Token;
 // dependency on `lang`.
 pub use lang::Atom;
 pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
+pub use portal::PortalError;
 mod model;
 mod planning;
 mod portal;
@@ -25,6 +26,7 @@ pub use model::{
 };
 use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+pub use tick::portals::{InputSpan, PortalEvent, PortalOrigin, PortalUse, TickPortals};
 
 ///
 /// How many times [`SourceCommander::execute`] plans a Tick with no Source lock
@@ -84,6 +86,7 @@ pub struct SourceRevision {
     grid: Grid,
     cells: SourceBuffer,
     language_map: Arc<LanguageMap>,
+    tick_portals: Option<Arc<TickPortals>>,
 }
 
 impl SourceRevision {
@@ -132,6 +135,15 @@ impl SourceRevision {
     ///
     pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
         self.language_map.output_portal_highlight()
+    }
+
+    ///
+    /// The Tick Portals committed with this revision: what the Tick whose
+    /// commit left the Source at this revision accessed. `None` before any
+    /// Tick has committed, and for a revision an edit made since.
+    ///
+    pub fn tick_portals(&self) -> Option<&TickPortals> {
+        self.tick_portals.as_deref()
     }
 }
 
@@ -254,6 +266,7 @@ impl SourceCommander {
             grid: source.grid(),
             cells: source.shared_cells(),
             language_map: source.shared_language_map(),
+            tick_portals: source.current_tick_portals(),
         }
     }
 
@@ -524,6 +537,59 @@ mod tests {
         assert_eq!(read.content_at(gap), None);
         assert_eq!(read.language_map().token_at(gap), None);
         assert_eq!(read.token_at(gap), None);
+    }
+
+    #[test]
+    fn a_source_answers_no_tick_portals_before_its_first_tick() {
+        let source = SourceCommander::new(Grid::with_shape(4, 3));
+        assert!(source.read_revision().tick_portals().is_none());
+    }
+
+    #[test]
+    fn a_committed_tick_that_reads_nothing_replaces_the_record_with_an_empty_one() {
+        let grid = Grid::with_shape(4, 3);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        for (idx, content) in "&v01".chars().enumerate() {
+            source.set(cell(idx), &content.to_string()).unwrap();
+        }
+
+        source.execute(Tick::ZERO);
+        let read = source.read_revision();
+        let record = read.tick_portals().expect("the Tick committed a record");
+        assert_eq!(record.tick(), Tick::ZERO);
+        assert_eq!(record.uses().len(), 1, "{record:?}");
+
+        // The Read is gone, so the next Tick accesses no Portal.
+        source.unset(cell(0));
+        source.unset(cell(1));
+        source.execute(Tick::new(1));
+        let empty = source.read_revision();
+        let record = empty
+            .tick_portals()
+            .expect("a Tick that read nothing still commits a record");
+        assert_eq!(record.tick(), Tick::new(1));
+        assert!(record.uses().is_empty(), "{record:?}");
+    }
+
+    #[test]
+    fn a_revision_an_edit_made_after_the_commit_answers_no_tick_portals() {
+        let grid = Grid::with_shape(4, 3);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        for (idx, content) in "&v01".chars().enumerate() {
+            source.set(cell(idx), &content.to_string()).unwrap();
+        }
+        source.execute(Tick::ZERO);
+        let committed = source.read_revision();
+
+        source.set(cell(3), "2").unwrap();
+
+        assert!(source.read_revision().tick_portals().is_none());
+        assert!(
+            committed.tick_portals().is_some(),
+            "the revision the commit left keeps its record"
+        );
     }
 
     ///

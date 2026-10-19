@@ -7,13 +7,14 @@
 //! [`working::WorkingSource`]'s. Nothing here survives the Tick.
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, Output, PortalAddress,
-    PortalSource, SourceBundle, SourceEffect, Tick,
+    Atom, Function, FunctionInputs, InputPortal, Interpretation, Interpreter, Output,
+    PortalAddress, PortalSource, SourceBundle, SourceEffect, Tick,
 };
 
 use super::Schedule;
 use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
+use super::portals::{InputSpan, Owner, PortalEvent, PortalOrigin, TickPortals};
 use super::{
     Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
     Operand, Portal, PortalError, PortalUnit, Position, SCALAR_WIDTH, SpanWrite, TickPlan,
@@ -35,19 +36,27 @@ pub(in crate::source) use turns::ComputationState;
 enum InputSite {
     /// The Function declares no Input Portal.
     Undeclared,
-    /// The Portal its operands select stands outside the Grid.
-    Outside,
-    /// The Portal its operands select.
-    At(Portal),
+    /// The Portal it declares or its operands select stands outside the
+    /// Grid.
+    Outside {
+        origin: PortalOrigin,
+        error: PortalError,
+    },
+    /// The Portal it declares or its operands select.
+    At {
+        origin: PortalOrigin,
+        portal: Portal,
+    },
 }
 
 ///
 /// Executes an established order against the original Source Snapshot.
 ///
-/// The caller supplies no mutable state and receives two things: the
-/// publishable Tick Plan, and what each computation's Turn actually did. They
-/// are different facts, which is why the second is not folded into the first —
-/// a Tick Plan says what to apply, and a Turn that ran can apply nothing.
+/// The caller supplies no mutable state and receives three things: the
+/// publishable Tick Plan, the Tick Portals its Turns accessed, and what each
+/// computation's Turn actually did. They are different facts, which is why
+/// neither of the others is folded into the plan — a Tick Plan says what to
+/// apply, and a Turn that ran can apply nothing.
 ///
 /// The schedule is borrowed and left as it was: every Tick planned against the
 /// same scheduling inputs executes the one schedule they share.
@@ -60,7 +69,7 @@ pub(super) fn execute(
     map: &LanguageMap,
     tick: Tick,
     schedule: &Schedule,
-) -> (TickPlan, Vec<ComputationState>) {
+) -> (TickPlan, TickPortals, Vec<ComputationState>) {
     let mut execution = Execution::new(grid, cells, map, tick, schedule);
     let diagnostics = super::take_turns(schedule, |index, progress| {
         execution.take_turn(index, progress)
@@ -68,7 +77,11 @@ pub(super) fn execute(
     execution
         .effects
         .extend(diagnostics.into_iter().map(Effect::Diagnose));
-    (resolve(execution.effects), execution.turns.into_states())
+    (
+        resolve(execution.effects),
+        execution.portals,
+        execution.turns.into_states(),
+    )
 }
 
 struct Execution<'a> {
@@ -79,6 +92,9 @@ struct Execution<'a> {
     schedule: &'a Schedule,
     turns: Turns,
     effects: Vec<Effect>,
+    /// Every Portal access the Turns have made so far, in the order they
+    /// made them.
+    portals: TickPortals,
     /// The roots the Turn being taken has activated through a dynamic
     /// write, which only the Turn can know of.
     activated: Vec<ComputationId>,
@@ -110,6 +126,7 @@ impl<'a> Execution<'a> {
             schedule,
             turns: Turns::new(lookup),
             effects: diagnostics.iter().cloned().map(Effect::Diagnose).collect(),
+            portals: TickPortals::new(tick),
             activated: Vec::new(),
         }
     }
@@ -218,7 +235,7 @@ impl<'a> Execution<'a> {
         // The schedule orders a static Input Portal after its writers, and a
         // Function Replacement keeps the declared Input Portal, so only a
         // dynamic one finds writers still to take their Turn here.
-        if let InputSite::At(portal) = portal
+        if let InputSite::At { portal, .. } = portal
             && let Ok(span) = portal.span(SCALAR_WIDTH)
         {
             let writers = progress.unresolved(dependencies::input_writers(
@@ -236,6 +253,10 @@ impl<'a> Execution<'a> {
         // the record says which of the two happened.
         #[cfg(test)]
         self.turns.interpret(index, tick);
+        // Recorded here for the same reason, and after the writer wait: a
+        // Turn that waits is retaken, and only the Turn that is handed its
+        // Input Portal read it.
+        self.record_read(index, function, portal);
         let delivery = if destination.is_some() {
             Delivery::Selected
         } else if progress.joined(index) {
@@ -276,12 +297,47 @@ impl<'a> Execution<'a> {
         let Some(declared) = function.input_portal() else {
             return Ok(InputSite::Undeclared);
         };
+        let origin = match declared {
+            InputPortal::Static(_) => PortalOrigin::Declared,
+            InputPortal::Dynamic(_) => PortalOrigin::Selected,
+        };
         Ok(
             match self.select(index, |columns| declared.resolve(operands, columns))? {
-                Ok(portal) => InputSite::At(portal),
-                Err(_) => InputSite::Outside,
+                Ok(portal) => InputSite::At { origin, portal },
+                Err(error) => InputSite::Outside { origin, error },
             },
         )
+    }
+
+    ///
+    /// Records the read `index`'s Turn makes at `portal`: the Cells the
+    /// Interpreter is handed, as many as [`Execution::portal_source`] reads.
+    ///
+    fn record_read(&mut self, index: ComputationId, function: Function, portal: InputSite) {
+        let (origin, site) = match portal {
+            InputSite::Undeclared => return,
+            InputSite::Outside { origin, error } => (origin, Err(error)),
+            InputSite::At { origin, portal } => {
+                let width = function
+                    .portal_input()
+                    .map_or(SCALAR_WIDTH, |input| input.token().len());
+                (origin, InputSpan::read(portal, width))
+            }
+        };
+        self.record(index, PortalEvent::Read { origin, site });
+    }
+
+    ///
+    /// Appends `event` to the Tick Portals as `index`'s: its anchor, and the
+    /// Function its Turn is running now. Every caller records before the
+    /// access changes any Turn, so that is the Function the Turn executed.
+    ///
+    fn record(&mut self, index: ComputationId, event: PortalEvent) {
+        let owner = Owner {
+            anchor: self.schedule.lookup.nodes()[index].anchor,
+            function: self.turns.function(index),
+        };
+        self.portals.push(owner, event);
     }
 
     ///
@@ -357,8 +413,8 @@ impl<'a> Execution<'a> {
     fn portal_source(&self, function: Function, portal: InputSite) -> PortalSource<'_> {
         let portal = match portal {
             InputSite::Undeclared => return PortalSource::none(),
-            InputSite::Outside => return PortalSource::from_cells(None),
-            InputSite::At(portal) => portal,
+            InputSite::Outside { .. } => return PortalSource::from_cells(None),
+            InputSite::At { portal, .. } => portal,
         };
         PortalSource::from_cells(match function.portal_input() {
             Some(input) => self.working.portal_cells(portal, input.token().len()),

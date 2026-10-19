@@ -354,7 +354,7 @@ fn halt_precedes_its_south_root_by_a_lock_edge() {
     let grid = Grid::with_shape(8, 4);
     let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-    let (_, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (_, _, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     let order = turns(&states);
     // Parser preorder: Equality, Halt, Add.
     assert_eq!(order, vec![Some(0), Some(1), Some(2)]);
@@ -375,7 +375,7 @@ fn a_late_halt_lock_is_refused_and_the_tick_continues() {
     let mut schedule = super::schedule(grid, map.schedule_inputs());
     // Parser preorder: Equality, Halt, Add.
     schedule.ordered.order = [0, 2, 1].map(super::ComputationId).to_vec();
-    let (plan, states) = super::execution::execute(
+    let (plan, _, states) = super::execution::execute(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
@@ -515,7 +515,7 @@ fn halt_is_interpreted_once_per_tick() {
     let grid = Grid::with_shape(8, 4);
     let bytes = snapshot(grid, &[".=0101  ", "  *!<<  ", "  .+0304", "        "]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
-    let (plan, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, _, states) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
 
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(

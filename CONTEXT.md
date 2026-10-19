@@ -206,6 +206,10 @@ _Avoid_: Cycle, frame
 The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including activation routing, Source writes, ordered Play Commands, and diagnostics.
 _Avoid_: Play sequence, command batch
 
+**Tick Portals**:
+The ordered record of every Portal access one committed Tick made, each entry naming the anchor and the Function of the Turn that made it as execution held them. It is an observation of a committed Tick, not a Portal: a Portal still does not survive its Tick (ADR 0009), and what survives is what each Turn did with one. A read is recorded once its Turn passes the writer wait, as the Cells it resolved or why none resolved; a resolved read says a site was read, not that it held a value. Per ADR 0077 it is planned with the Tick Plan, committed or dropped with it, replaced by every committed Tick, and answered only by the Source revision that commit left; the Render Frame paints its resolved reads as Input Portal.
+_Avoid_: Portal log, trace, Portal history
+
 **Producer**:
 An original Function with an anchor Position and an opportunity to contribute ordered Effects during a Tick. Bang is a result a Producer can emit, not a Producer of its own; the Bang Function, a standalone `**`, is a Producer like any other, and so is the Halt Function.
 _Avoid_: Emitter, actor, source operator

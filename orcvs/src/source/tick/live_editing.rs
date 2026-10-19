@@ -520,7 +520,7 @@ fn a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_
                     .id
             })
             .collect();
-        let (plan, states) = super::execution::execute(
+        let (plan, _, states) = super::execution::execute(
             grid,
             Cells::of(bytes.as_bytes()),
             &map,

@@ -3,9 +3,10 @@
 
 use std::collections::BTreeMap;
 
-use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
+use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::{plan, shared_schedule};
+use super::portals::{PortalEvent, PortalOrigin};
+use super::{PortalError, plan, shared_schedule};
 use crate::grid::Grid;
 use crate::source::{Cells, Source, TickPlan};
 
@@ -125,13 +126,49 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
     let source = source_of(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (_, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     shared_schedule(grid, &map)
         .lookup
         .nodes()
         .iter()
         .zip(&states)
         .map(|(node, state)| ((node.anchor.x(), node.anchor.y()), state.turn()))
+        .collect()
+}
+
+/// One Portal read Tick zero of `rows` recorded: its owner's anchor and
+/// Function, its origin, and the Cells it read or why it read none.
+pub(super) type ObservedRead = (
+    (usize, usize),
+    Function,
+    PortalOrigin,
+    Result<Vec<(usize, usize)>, PortalError>,
+);
+
+/// Every read the Tick Portals of Tick zero of `rows` recorded, in order.
+pub(super) fn reads(grid: Grid, rows: &[&str]) -> Vec<ObservedRead> {
+    let source = source_of(grid, rows);
+    let map = source.shared_language_map();
+    let bytes = source.snapshot();
+    let (_, portals, _) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    portals
+        .uses()
+        .iter()
+        .map(|access| {
+            let PortalEvent::Read { origin, site } = access.event();
+            let anchor = access.anchor();
+            (
+                (anchor.x(), anchor.y()),
+                access.function(),
+                *origin,
+                site.map(|span| {
+                    span.span()
+                        .positions()
+                        .map(|position| (position.x(), position.y()))
+                        .collect()
+                }),
+            )
+        })
         .collect()
 }
 
