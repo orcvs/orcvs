@@ -26,7 +26,6 @@ pub use model::{
 };
 use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-pub(crate) use tick::FUNCTION_WIDTH;
 pub use tick::portals::{
     BundlePart, BundleRefusal, InputSpan, LockVerdict, OutputSpan, PortalEvent, PortalOrigin,
     PortalUse, TickPortals, WriteRefusal,

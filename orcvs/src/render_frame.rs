@@ -5,8 +5,8 @@ use crate::{
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
     source::{
-        Claim, Diagnostic, FUNCTION_WIDTH, Freshness, LockVerdict, OperandState, PortalEvent,
-        PortalOrigin, PortalUse, SourcePaint, SourceRevision, Span, Token,
+        Claim, Diagnostic, Freshness, LockVerdict, OperandState, PortalEvent, PortalOrigin,
+        PortalUse, SourcePaint, SourceRevision, Span, Token,
     },
 };
 use lang::{Atom, Function};
@@ -164,7 +164,9 @@ impl RenderCell {
     /// Function, to one of its operands, or to a Cell a read nested in it
     /// resolved puts out that Function's entries until the next Tick, and an
     /// edit anywhere else, the rest of its Expression included, leaves them
-    /// lit. A Source no Tick has committed sets no role from a record.
+    /// lit. A lock also needs no edit to have written the Cells it marks, so
+    /// overwriting the locked root's spelling puts it out, and editing that
+    /// root's operands leaves it marked. A Source no Tick has committed sets no role from a record.
     ///
     pub fn portal_roles(&self) -> PortalRoles {
         self.portal_roles
@@ -266,24 +268,24 @@ impl RenderFrame {
                 any.then_some(marks)
             });
             for access in portals.record().uses() {
-                let (place, role, origin) = match access.event() {
+                let (span, role, place) = match access.event() {
                     PortalEvent::Read {
                         site: Ok(read),
                         origin,
-                    } => (Place::Span(read.span()), PortalRole::Input, *origin),
+                    } => (read.span(), PortalRole::Input, Place::Portal(*origin)),
                     PortalEvent::Write {
                         outcome: Ok(written),
                         origin,
-                    } => (Place::Span(written.span()), PortalRole::Output, *origin),
-                    // A Halt's site is a fixed offset from its anchor.
+                    } => (written.span(), PortalRole::Output, Place::Portal(*origin)),
+                    // A root that stood at its anchor fits its spelling in its
+                    // row, so a lock marks nothing only where no root stood.
                     PortalEvent::Lock {
                         verdict: LockVerdict::Locked(root),
                         ..
-                    } => (
-                        Place::Root(*root),
-                        PortalRole::Locked,
-                        PortalOrigin::Declared,
-                    ),
+                    } => match Span::of_function(grid, *root) {
+                        Some(spelling) => (spelling, PortalRole::Locked, Place::Lock),
+                        None => continue,
+                    },
                     PortalEvent::Read { site: Err(_), .. }
                     | PortalEvent::Write {
                         outcome: Err(_), ..
@@ -294,17 +296,22 @@ impl RenderFrame {
                 if let Some(edited_reads) = &edited_reads
                     && !(owner_stands(grid, &claims, access)
                         && !source.span_edited(access.subtree())
-                        && (origin == PortalOrigin::Declared
-                            || edited_reads.as_deref().is_none_or(|edited_reads| {
-                                !descendant_read_edited(grid, edited_reads, access)
-                            })))
+                        && match place {
+                            Place::Portal(PortalOrigin::Declared) => true,
+                            Place::Portal(PortalOrigin::Selected) => {
+                                edited_reads.as_deref().is_none_or(|edited_reads| {
+                                    !descendant_read_edited(grid, edited_reads, access)
+                                })
+                            }
+                            Place::Lock => !source.span_edited(span),
+                        })
                 {
                     continue;
                 }
-                place.for_each_cell(grid, |index| {
-                    let cell = &mut cells[index];
+                for position in span.positions() {
+                    let cell = &mut cells[grid.index(position).get()];
                     cell.portal_roles = cell.portal_roles.with(role);
-                });
+                }
             }
         }
         let expressions = source
@@ -461,32 +468,18 @@ impl RenderFrame {
 }
 
 ///
-/// The Cells one recorded access marks.
+/// How a recorded entry found the Cells it marks, which decides what else a
+/// retained entry needs, beyond its owner standing unedited, to mark them.
 ///
 #[derive(Clone, Copy)]
 enum Place {
-    /// The Cells a read resolved or a write was admitted to.
-    Span(Span),
-    /// The anchor of an Expression root a lock withheld: its Function's own
-    /// spelling marks.
-    Root(Position),
-}
-
-impl Place {
-    /// Calls `mark` with the flat index of each Cell this place covers.
-    fn for_each_cell(self, grid: Grid, mut mark: impl FnMut(usize)) {
-        match self {
-            Self::Span(span) => span
-                .positions()
-                .for_each(|position| mark(grid.index(position).get())),
-            Self::Root(anchor) => (0..FUNCTION_WIDTH).for_each(|offset| {
-                let index = grid
-                    .offset_in_row(anchor, offset)
-                    .expect("a root's Function stood at its anchor, so its spelling fits the row");
-                mark(index.get());
-            }),
-        }
-    }
+    /// A read or a write, through a Portal its Function declares or one its
+    /// operands selected. A declared place needs nothing more; a selected one
+    /// needs no read nested in its owner to have read an edited Cell.
+    Portal(PortalOrigin),
+    /// A lock, at the fixed offset a Halt declares. It marks the locked
+    /// root's own spelling, so it needs no edit to have written those Cells.
+    Lock,
 }
 
 ///
@@ -1615,7 +1608,7 @@ mod tests {
     }
 
     #[test]
-    fn a_retained_lock_stays_marked_until_an_edit_reaches_its_halt() {
+    fn a_retained_lock_stays_marked_until_an_edit_reaches_its_halt_or_its_root() {
         let grid = Grid::with_shape(8, 4);
         let committed = || {
             let source = SourceCommander::new(grid);
@@ -1625,8 +1618,8 @@ mod tests {
         };
 
         // The lock's site is a fixed offset from the Halt, so an edit outside
-        // the Halt's own Cells, the locked root's operands included, leaves
-        // the mark standing.
+        // the Halt's own Cells and the Cells it marks, the locked root's
+        // operands included, leaves the mark standing.
         let source = committed();
         source.set(cell(grid, 31), "x").unwrap();
         source.set(cell(grid, 21), "5").unwrap();
@@ -1634,6 +1627,19 @@ mod tests {
             locked_cells(&derive_frame(&source, grid.origin())),
             [(2, 2), (3, 2)]
         );
+
+        // Overwriting either Cell of the locked root's own spelling leaves
+        // the Cells the mark lands on edited, so the mark goes out until the
+        // next Tick.
+        for edited in [18, 19] {
+            let source = committed();
+            source.set(cell(grid, edited), "x").unwrap();
+            assert_eq!(
+                locked_cells(&derive_frame(&source, grid.origin())),
+                [],
+                "Cell {edited}"
+            );
+        }
 
         // Overwriting the Halt leaves no Function standing at its anchor.
         let source = committed();
