@@ -80,6 +80,15 @@ pub(super) use inputs::{RowInputs, ScheduleInputs, ScheduledExpression};
 use ordering::{Order, Stall};
 
 ///
+/// The Cells a Function's own spelling covers from its anchor.
+///
+/// A glyph width, not a result width: do not spell it `SCALAR_WIDTH`, which
+/// is the Cells a scalar result reserves, a different fact that happens to
+/// share the number.
+///
+const FUNCTION_WIDTH: usize = 2;
+
+///
 /// One revision's computations and the order their Turns are taken in. No
 /// Tick changes it: every Tick planned against the same scheduling inputs
 /// executes the one schedule they share.
@@ -462,6 +471,9 @@ struct Lookup {
     /// The index one past each computation's last descendant, which ends
     /// the contiguous range its subtree holds in Parser preorder.
     subtree_ends: PerComputation<usize>,
+    /// The Cell one past the last each computation's subtree holds, which
+    /// ends the contiguous run of Cells from its anchor.
+    subtree_cell_ends: PerComputation<usize>,
 }
 
 impl Lookup {
@@ -474,13 +486,20 @@ impl Lookup {
             "each computation's id is its index",
         );
         let mut subtree_ends: PerComputation<_> = (1..=nodes.len()).collect();
+        let mut subtree_cell_ends: PerComputation<_> = nodes
+            .iter()
+            .map(|node| {
+                let spelling_end = grid.index(node.anchor).get() + FUNCTION_WIDTH;
+                node.operands
+                    .iter()
+                    .map(|operand| operand.cells.end)
+                    .fold(spelling_end, usize::max)
+            })
+            .collect();
         for (index, node) in nodes.iter_enumerated() {
             let start = grid.index(node.anchor).get();
-            // A Function's own spelling, not a result: this 2 is the glyph
-            // width and stays a literal, because `SCALAR_WIDTH` would tie it to
-            // the Cells a scalar result reserves, which is a different fact.
             functions.push(Claim {
-                cells: start..start + 2,
+                cells: start..start + FUNCTION_WIDTH,
                 node: index,
             });
             for operand in &node.operands {
@@ -501,10 +520,15 @@ impl Lookup {
             // are disjoint.
         }
         // Nodes retain the Parser's depth-first preorder. Every subtree is a
-        // contiguous range, including its root, even with missing operands.
+        // contiguous range, including its root, even with missing operands,
+        // and a contiguous run of Cells, because an operand follows its
+        // Function in the row. Each child precedes nothing it nests, so in
+        // reverse every child's subtree is whole before its parent reads it.
         for node in nodes.iter().rev() {
             if let Some(parent) = node.parent() {
                 subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[node.id]);
+                subtree_cell_ends[parent] =
+                    subtree_cell_ends[parent].max(subtree_cell_ends[node.id]);
             }
         }
         let mut writes = Vec::new();
@@ -544,6 +568,7 @@ impl Lookup {
             writes: WriteClaims::new(grid, writes),
             reads: WriteClaims::new(grid, reads),
             subtree_ends,
+            subtree_cell_ends,
         }
     }
 
@@ -553,6 +578,22 @@ impl Lookup {
 
     fn descendants(&self, ancestor: ComputationId) -> ComputationRange {
         ComputationRange::new(ancestor, self.subtree_ends[ancestor])
+    }
+
+    ///
+    /// The Cells `index`'s subtree holds: its Function's spelling, every
+    /// operand, and every nested computation's, from its anchor to the end of
+    /// the last operand any of them holds. An operand follows its Function in
+    /// the row, so these Cells are one contiguous run, and every computation
+    /// anchored inside them, other than `index`, is one of its descendants.
+    ///
+    fn subtree_cells(&self, index: ComputationId) -> Span {
+        let start = self.grid.index(self.nodes[index].anchor);
+        let end = self
+            .grid
+            .cell_index(self.subtree_cell_ends[index] - 1)
+            .expect("a subtree ends inside the Grid");
+        Span::new(self.grid, start, end)
     }
 
     fn root_at(&self, anchor: Position) -> Option<ComputationId> {

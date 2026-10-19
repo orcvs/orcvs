@@ -420,7 +420,7 @@ impl Source {
         let (plan, portals) = executed.into_parts();
         // The Tick's own writes are what the record was made against, not
         // edits since it.
-        self.write_rows(&plan.writes);
+        self.write_unmarked(&plan.writes);
         // The set the last commit kept, cleared, so a Tick reuses its storage.
         let edited = match self.tick_portals.take() {
             Some(committed) => committed.edited.cleared(),
@@ -485,14 +485,17 @@ impl Source {
         for write in writes {
             self.mark_edited(write.cell);
         }
-        self.write_rows(writes);
+        self.write_unmarked(writes);
     }
 
     ///
-    /// [`Self::write_cells`] for a write that is not an edit: the Tick
-    /// commit's own, which its record was made against.
+    /// Writes every Cell of `writes` and rebuilds the rows they touched once,
+    /// without marking any Cell edited. The Tick commit writes through it
+    /// alone, because its record was made against those Cells, and
+    /// [`Self::write_cells`] writes through it after marking the Cells it
+    /// edits.
     ///
-    fn write_rows(&mut self, writes: &[CellWrite]) {
+    fn write_unmarked(&mut self, writes: &[CellWrite]) {
         let mut written = BTreeSet::new();
         for write in writes {
             self.set_source(write.cell, write.content);

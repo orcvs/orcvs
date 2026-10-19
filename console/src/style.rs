@@ -455,15 +455,13 @@ pub(crate) fn cell_background(
 /// plays that one. Only one Portal's channels paint a Cell; Output Portal's
 /// win outright rather than compositing over Input Portal's.
 ///
-/// The Portal is read first, because the
-/// Cell it names is a Portal Cell whatever else
-/// claims it — a written answer, an
-/// empty Cell still waiting for one, or another Expression's operand slot the
-/// Portal happens to land on; Diagnostic included, so an Invalid operand
-/// inside a Portal draws the Portal foreground. The one exception is a bound Function
-/// claim: a Cell that is itself a Function's own two-Cell spelling keeps its
-/// Function paint
-/// outright, root or nested, the same as when no Portal covers it. That
+/// The Portal is read first, because the Cell it names is a Portal Cell
+/// whatever else claims it — a written answer, an empty Cell still waiting for
+/// one, or another Expression's operand slot the Portal happens to land on;
+/// Diagnostic included, so an Invalid operand inside a Portal draws the Portal
+/// foreground. The one exception is a bound Function claim: a Cell that is
+/// itself a Function's own two-Cell spelling keeps its Function paint outright,
+/// root or nested, the same as when no Portal covers it. That
 /// is the smallest rule that both lets a producer's Output Portal show
 /// through a consumer's operand Cells (the written value is the producer's
 /// output) and still lets a reader find the Function that stands on a Cell:

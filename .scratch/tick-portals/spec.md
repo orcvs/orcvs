@@ -28,9 +28,11 @@ generic recorder and no test-only switch in shipped code.
 carries:
 
 - **Owner.** The anchor `Position` of the Function whose Turn made the access,
-  and the `Function` that Turn executed (after any Function Replacement). Both
-  are captured during execution from the schedule's node and `Turns`, never
-  recovered from committed Source, which the Tick may have rewritten.
+  the `Span` its subtree holds (its spelling and every operand, nested
+  Functions' included), and the `Function` that Turn executed (after any
+  Function Replacement). All three are captured during execution from the
+  schedule's node and `Turns`, never recovered from committed Source, which
+  the Tick may have rewritten.
 - **What happened**, one of:
   - `Read { origin, site }`. The Input Portal handed to the Interpreter for a
     Turn that got past the writer wait. `site` is `Ok(InputSpan)` when the
@@ -83,10 +85,12 @@ neither converts into the other.
 
 ### 4. Commit: one path, atomic with the Tick Plan
 
-`tick::plan` returns the Tick Plan and its `TickPortals` together. Both
-`PlannedTick` (the optimistic path) and `Source::execute` (the locked fallback,
-`orcvs/src/source/model.rs`) hand both to the one `Source::commit_tick`, which
-stores the record with the revision the commit leaves the Source at. A refused
+`tick::plan` returns one `ExecutedTick`, which only execution builds and which
+holds the Tick Plan and its `TickPortals` together. Both `PlannedTick` (the
+optimistic path) and `Source::execute` (the locked fallback,
+`orcvs/src/source/model.rs`) hand that one value to `Source::commit_tick`, the
+only thing commit takes, which stores the record with the revision the commit
+leaves the Source at and clears the set of Cells edited since. A refused
 `PlannedTick` is dropped whole and publishes neither. A committed Tick that
 accessed no Portal replaces the previous record with an empty one. The Playback
 Engine and `TickPlan` are unchanged.
@@ -94,8 +98,11 @@ Engine and `TickPlan` are unchanged.
 ### 5. Freshness
 
 The Source keeps the last committed record, carrying its Tick and the
-`RevisionId` the commit left. `SourceRevision` captures the record that was
-current when it was read, so an older `SourceRevision` keeps its own.
+`RevisionId` the commit left, and the Cells an edit has written since that
+commit, one bit per Cell; a Tick commit's own writes mark none. A
+`SourceRevision` captures the record and those edited Cells as they were when it
+was read, sharing both rather than copying them, so an older `SourceRevision`
+keeps its own.
 `SourceRevision::tick_portals()` answers the record with its freshness:
 
 - `Current` when the revision is the one the commit left.
@@ -123,8 +130,13 @@ and a benchmark measures the derive with a record present.
   and do not paint.
 - A `Current` record paints every admitted read and write. A `Retained` record
   paints only entries whose owner Function still stands at its anchor in the
-  displayed revision, in an Expression no edit has written a Cell of since the
-  commit (ADR 0077).
+  displayed revision, and whose recorded subtree holds no Cell an edit has
+  written since the commit; an edit elsewhere in the Expression leaves them
+  lit. A `Selected` entry also needs every resolved read recorded by a strict
+  descendant of its owner, an anchor in the owner's subtree other than its
+  own, to have read no Cell an edit has written since: a nested read answers
+  an operand with Cells outside the subtree. A `Declared` entry's
+  place cannot move, so a nested read does not put it out (ADR 0077).
 - Precedence is the existing schema's (`.scratch/theming/schema.md`,
   composition steps 4 and 5): Portal channels over every other non-Function
   fact, Diagnostic included, as `console/src/style.rs` already pins. Between
