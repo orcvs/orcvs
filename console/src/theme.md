@@ -144,6 +144,9 @@ reproduces the values on this page:
 | `input_portal.foreground` | `#AC77FA` | decided here: Input Portal, see **Input Portal** below |
 | `input_portal.background` | `#AC77FA1A` | Input Portal's own colour at 10% opacity |
 | `input_portal.border` | `#00000000` | no Portal border, as for Output Portal |
+| `locked.foreground` | `#00000000` | decided here: Locked keeps the glyph, see **Locked** below |
+| `locked.background` | `#000000CC` | `grid.background` at 80%, washing out the role tint |
+| `locked.border` | `#EAEBE580` | `source.ordinary` at 50%, framing each locked Cell |
 | `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
 | `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
 | `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
@@ -181,8 +184,8 @@ properties that preserve Bang's built-in value without being computed from it
 The border widths are Theme properties too, in display points: `grid.border.width`
 0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
 `cursor.border.width` and `region.border.width` 1,
-`diagnostic.border.width`, `output_portal.border.width` and
-`input_portal.border.width` 0.5,
+`diagnostic.border.width`, `output_portal.border.width`,
+`input_portal.border.width` and `locked.border.width` 0.5,
 `panel.border.width`, `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0 (which is why that border stays absent at
 its default) and `input.cursor.width` 2. `schema.md`
@@ -256,6 +259,9 @@ or decided here.
 | `input_portal.foreground` | `#6407AF` | Okabe–Ito's Input Portal violet hue, darkened |
 | `input_portal.background` | `#6407AF1A` | Input Portal's own colour at 10% opacity |
 | `input_portal.border` | `#00000000` | shared with Okabe–Ito |
+| `locked.foreground` | `#00000000` | shared with Okabe–Ito |
+| `locked.background` | `#FAFCFBCC` | `grid.background` at 80%, as in Okabe–Ito |
+| `locked.border` | `#303F3B80` | `source.ordinary` at 50%, as in Okabe–Ito |
 | `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
 | `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
 | `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
@@ -319,7 +325,8 @@ Every border width is Okabe–Ito's, recorded rather than inherited:
 `grid.border.width` 0.5, `sector.seam.width` 0.75,
 `cell.selection.border.width` 0.5, `cursor.border.width` and
 `region.border.width` 1, `diagnostic.border.width`,
-`output_portal.border.width` and `input_portal.border.width` 0.5, `panel.border.width`,
+`output_portal.border.width`, `input_portal.border.width` and
+`locked.border.width` 0.5, `panel.border.width`,
 `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0, `input.cursor.width` 2.
 
@@ -355,8 +362,8 @@ charcoal page.
 
 #### Orcvs Light's contrast report
 
-`console/src/contrast.rs::validate` measures all 143 reachable painted text
-states — 128 Source Grid states and 15 console-chrome states. **Every one
+`console/src/contrast.rs::validate` measures all 175 reachable painted text
+states — 160 Source Grid states and 15 console-chrome states. **Every one
 clears the 4.5:1 floor. There are no deliberate exceptions**
 — `contrast::accepted_failures("orcvs-light")` is empty, and
 `contrast::tests::orcvs_light_has_nothing_to_except` pins that the emptiness is
@@ -512,6 +519,28 @@ which moves either built-in's closest pair in the table above:
 
 Its lowest contrast is 5.10:1 in Okabe–Ito, over a Note's tint, and 6.72:1 in
 Orcvs Light, over a Number's; neither built-in's lowest state moves.
+
+#### Locked
+
+Locked marks the two Cells of the Function of an Expression root a Halt's lock
+withheld in the last Tick, as Orca draws the Cells an operator locks in a style
+of their own. It is a Theme role with the same channels as the Portals
+(`locked.foreground`, `.background`, `.border` and `.border.width`), and paints
+only a Cell that plays no Portal role: a locked Cell a Function also reads or
+writes paints as that read or write, as Orca draws a port over a locked Cell.
+A lock marks nothing but a Function's own spelling, so unlike the Portals
+Locked paints a bound Function and a Bang too; the contrast validator measures
+it only over those two facts, the only ones it can land on.
+
+Both built-ins keep the glyph colour (`locked.foreground` transparent) and
+subdue the Cell instead: `locked.background` is the Source background at 80%,
+which washes a Function's own 10% tint nearly out, and `locked.border` is the
+Ordinary ink at 50%, which frames each locked Cell, a locked `**` included,
+whose own background is already transparent. Neither darkens a light Cell nor
+lightens a dark one, so no glyph moves toward the contrast floor: a lock never
+lowers a built-in's lowest state. A glyph dimmed as Orca dims a locked Cell
+would fall below the floor in Orcvs Light, whose Function, Number and Note are
+already at it on their own tints.
 
 ### Shipped Themes
 

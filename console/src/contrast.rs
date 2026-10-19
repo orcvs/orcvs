@@ -205,18 +205,38 @@ impl CursorPlacement {
 
 ///
 /// Every set of Portal roles a Cell can play: none, Input Portal alone,
-/// Output Portal alone, and both. Both paints as Output Portal alone, and is
-/// measured anyway so that the matrix covers every set a Cell can carry
-/// rather than the sets the precedence rule happens to tell apart.
+/// Output Portal alone, and both, each with and without Locked. Both paints
+/// as Output Portal alone, and either Portal over Locked as that Portal
+/// alone; each is measured anyway so that the matrix covers every set a Cell
+/// can carry rather than the sets the precedence rule happens to tell apart.
+/// A set holding Locked is reachable only for a Function's own spelling
+/// ([`reachable`]).
 ///
-const PORTAL_ROLE_SETS: [PortalRoles; 4] = [
-    PortalRoles::NONE,
-    PortalRoles::NONE.with(PortalRole::Input),
-    PortalRoles::NONE.with(PortalRole::Output),
-    PortalRoles::NONE
-        .with(PortalRole::Output)
-        .with(PortalRole::Input),
-];
+const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
+    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
+    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
+    const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
+    [
+        PortalRoles::NONE,
+        INPUT,
+        OUTPUT,
+        BOTH,
+        PortalRoles::NONE.with(PortalRole::Locked),
+        INPUT.with(PortalRole::Locked),
+        OUTPUT.with(PortalRole::Locked),
+        BOTH.with(PortalRole::Locked),
+    ]
+};
+
+///
+/// Whether a Cell carrying `fact` can play `portals`: a lock marks only the
+/// two Cells of the Function of the Expression root it withheld, a Bang
+/// Function's among them, so no other fact is ever Locked.
+///
+pub(super) fn reachable(fact: SourcePaint, portals: PortalRoles) -> bool {
+    !portals.contains(PortalRole::Locked)
+        || matches!(fact, SourcePaint::Function | SourcePaint::Bang)
+}
 
 impl fmt::Display for CursorPlacement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -281,11 +301,15 @@ impl fmt::Display for State {
                     portals.contains(PortalRole::Output),
                     portals.contains(PortalRole::Input),
                 ) {
-                    (false, false) => write!(f, "{cursor}"),
-                    (true, false) => write!(f, "{cursor}, Output Portal"),
-                    (false, true) => write!(f, "{cursor}, Input Portal"),
-                    (true, true) => write!(f, "{cursor}, Output and Input Portal"),
+                    (false, false) => write!(f, "{cursor}")?,
+                    (true, false) => write!(f, "{cursor}, Output Portal")?,
+                    (false, true) => write!(f, "{cursor}, Input Portal")?,
+                    (true, true) => write!(f, "{cursor}, Output and Input Portal")?,
                 }
+                if portals.contains(PortalRole::Locked) {
+                    f.write_str(", Locked")?;
+                }
+                Ok(())
             }
             Self::Panel => f.write_str("vs panel.background"),
             Self::Input => f.write_str("vs input.background"),
@@ -567,6 +591,9 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for cursor in CursorPlacement::ALL {
             for portals in PORTAL_ROLE_SETS {
+                if !reachable(fact, portals) {
+                    continue;
+                }
                 let state = State::SourceGrid { cursor, portals };
                 let (foreground, background) = painted(fact, cursor, portals, theme);
                 results.push(measure(
@@ -813,7 +840,8 @@ mod tests {
      {
         let report = validate(&okabe_ito());
         // 8 Source Grid roles x 4 CursorPlacements x 4 Portal role sets
-        // = 128, plus 15 chrome states: text on panel, input and the
+        // = 128, the Function and Bang roles x 4 CursorPlacements x the 4
+        // sets holding Locked = 32, plus 15 chrome states: text on panel, input and the
         // inactive and open fills (4); text.muted on panel and input (2);
         // text.active on the hovered and active fills, framed and frameless
         // (4); selected text on selection.background over panel and input
@@ -821,7 +849,7 @@ mod tests {
         // rather than recomputed from the same lengths `validate` sizes its
         // `Vec` from, so a change to either count is caught by an
         // independent number.
-        assert_eq!(report.results.len(), 143);
+        assert_eq!(report.results.len(), 175);
     }
 
     ///

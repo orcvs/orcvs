@@ -21,7 +21,7 @@ use std::fmt;
 use egui::Color32;
 use orcvs::render_frame::{PortalRole, PortalRoles};
 
-use super::{CursorPlacement, PORTAL_ROLE_SETS, Role, painted};
+use super::{CursorPlacement, PORTAL_ROLE_SETS, Role, painted, reachable};
 use crate::theme::Theme;
 
 ///
@@ -103,6 +103,7 @@ enum GlyphChannel {
     Diagnostic,
     OutputPortal,
     InputPortal,
+    Locked,
 }
 
 impl fmt::Display for GlyphChannel {
@@ -117,6 +118,7 @@ impl fmt::Display for GlyphChannel {
             Self::Diagnostic => "Diagnostic",
             Self::OutputPortal => "Output Portal",
             Self::InputPortal => "Input Portal",
+            Self::Locked => "Locked",
         })
     }
 }
@@ -197,6 +199,9 @@ fn distinguish(theme: &Theme) -> ConfusionReport {
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for placement in CursorPlacement::ALL {
             for portals in PORTAL_ROLE_SETS {
+                if !reachable(fact, portals) {
+                    continue;
+                }
                 let Some(channel) = role.glyph_channel(portals, theme) else {
                     continue;
                 };
@@ -430,7 +435,10 @@ impl Role {
     /// every Invalid operand draws `diagnostic.foreground` whatever Token
     /// declared the slot, and every non-Function, non-Bang Cell inside a
     /// Portal draws that Portal's foreground whatever it would
-    /// otherwise have been — Output Portal's when the Cell plays both roles. Those collapses are the painting rules working;
+    /// otherwise have been — Output Portal's when the Cell plays both roles.
+    /// A Cell only a lock marks draws `locked.foreground` whatever it would
+    /// otherwise have been, a Function and a Bang included. Those collapses
+    /// are the painting rules working;
     /// comparing two states that share a channel would measure a distinction
     /// the console never intended to draw.
     ///
@@ -450,13 +458,12 @@ impl Role {
         } else {
             None
         };
+        let locked = !output
+            && !portals.contains(PortalRole::Input)
+            && portals.contains(PortalRole::Locked)
+            && theme.locked_foreground != Color32::TRANSPARENT;
         let diagnostic = theme.diagnostic_foreground != Color32::TRANSPARENT;
         match self {
-            // "A bound Function retains all its own paint inside a Portal",
-            // and "Bang retains its glyph foreground" — both answered before
-            // the Portal, exactly as `style::role_and_portal` bypasses them.
-            Self::Function => Some(GlyphChannel::Function),
-            Self::Bang => Some(GlyphChannel::Bang),
             Self::Text
             | Self::TextMuted
             | Self::TextActive
@@ -464,6 +471,13 @@ impl Role {
             | Self::Error
             | Self::Warning
             | Self::Link => None,
+            // Locked paints every fact, as `style::role_and_portal` does.
+            _ if locked => Some(GlyphChannel::Locked),
+            // "A bound Function retains all its own paint inside a Portal",
+            // and "Bang retains its glyph foreground" — both answered before
+            // the Portal, exactly as `style::role_and_portal` bypasses them.
+            Self::Function => Some(GlyphChannel::Function),
+            Self::Bang => Some(GlyphChannel::Bang),
             _ if portal.is_some() => portal,
             Self::NumberInvalid | Self::NoteInvalid if diagnostic => Some(GlyphChannel::Diagnostic),
             Self::Ordinary => Some(GlyphChannel::Ordinary),

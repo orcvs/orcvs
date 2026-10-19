@@ -3183,6 +3183,39 @@ async fn a_cell_a_tick_both_read_and_wrote_paints_as_output_portal() {
 }
 
 #[tokio::test]
+async fn the_function_a_tick_locked_paints_as_locked() {
+    use orcvs::render_frame::{PortalRole, PortalRoles};
+    use orcvs::source::SourcePaint;
+
+    // Equality at (8, 4) bangs the Halt at (10, 5), which locks the Add at
+    // (10, 6) for the Tick.
+    let harness = ticked_console(&[".=0101", "  *!", "  .+0304"]);
+    let theme = harness.state().themes.presented(Appearance::Dark).clone();
+    let locked = crate::style::cell_visuals_with_cursor_colour(
+        SourcePaint::Function,
+        PortalRoles::NONE.with(PortalRole::Locked),
+        false,
+        false,
+        None,
+        &theme,
+    )
+    .background
+    .expect("the presented Theme fills a locked Cell");
+    for column in [10, 11] {
+        assert!(
+            painted_on(&harness, locked, column, 6),
+            "({column}, 6) is not Locked"
+        );
+    }
+    for column in 8..14 {
+        assert!(
+            !painted_on(&harness, locked, column, 4),
+            "({column}, 4) is Locked, though nothing locked the Equality"
+        );
+    }
+}
+
+#[tokio::test]
 async fn an_empty_cell_a_tick_read_shows_the_input_portal_background() {
     // The Read at (8, 4) reads the empty pair at (10, 6): it holds no glyph,
     // and still shows where the Tick read.
