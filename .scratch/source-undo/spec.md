@@ -28,12 +28,20 @@ rather than the edit.
 1. **What does an Undo restore while Playback runs?** The Cells an edit wrote
    may have been written again by Tick writes since. Restoring the whole Source
    from before the edit, as Orca's whole-Source history does, discards those
-   Tick writes; restoring only the edited Cells keeps them.
-   The default proposed here is per-Cell: an Undo writes back the prior content
-   of the Cells the edit wrote, and nothing else.
-2. **Are consecutive typed characters one step or several?** The default
-   proposed here is one step per edit, so each typed character is its own
-   step.
+   Tick writes; restoring only the edited Cells keeps them. Per-Cell restore
+   meets a conflict when a Tick write has since rewritten one of the edit's
+   Cells: writing the prior content back would discard that Tick write. The
+   default proposed here is per-Cell and skips the conflict: an Undo writes
+   back the prior content of each Cell the edit wrote that still holds what
+   the edit wrote, and leaves a Cell a Tick write has changed since as it is.
+   A Redo does the same in reverse. The step is consumed either way, so the
+   next Undo reaches the edit before it.
+2. **Are consecutive typed characters one step or several?** One step per
+   character would take twenty presses to remove a twenty-character
+   Expression, and a bound of a few hundred steps would hold only a few dozen
+   typed phrases. The default proposed here groups them: characters typed one
+   after another, with no other input between, are one step. A Cursor move, a
+   Selection change or any other kind of edit ends the group.
 3. **Does the history survive an Open, a New or a Save?** `.scratch/file-new`
    notes that nothing survives an Open today. The default proposed here clears
    the history on Open and New and keeps it across Save.
@@ -41,8 +49,16 @@ rather than the edit.
    fixed bound such as a few hundred steps costs little.
 5. **Does an Undo restore the Cursor and Selection?** The default proposed
    here puts the Cursor back where the edit began, so the Undo is visible.
-6. **Web chords.** Command Z is not reserved by the browser, so the web binds
-   it too, unlike the Rewind chord.
+6. **Which control has the chord?** egui's text fields, such as the Panel's
+   BPM field, keep their own undo for their text. The default proposed here is
+   that Command Z and Command Shift Z act on the Source only while no text
+   field has keyboard focus, on native and on the web alike. The browser
+   reserves neither chord for the page, so the web binds both, unlike the
+   Rewind chord.
+7. **Where are the commands listed?** The console has File, View and Help
+   menus and no Edit menu, and Copy, Cut and Paste are chords that no menu
+   lists. The default proposed here adds no menu item, as Rewind added none;
+   an Edit menu for every editing command is its own decision.
 
 ## Relation to Tick navigation
 

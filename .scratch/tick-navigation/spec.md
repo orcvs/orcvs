@@ -19,6 +19,23 @@ its seed, the Tick and its Position rather than any outside generator
 (`CONTEXT.md`, Random Function). So from a known Source at Tick `0`, executing
 Ticks `0` to `N - 1` always produces the same Source at Tick `N`.
 
+That holds only if nothing outside the Source's Cells feeds evaluation from one
+Tick to the next. Read from `Source` (`orcvs/src/source/model.rs`) and
+`PlaybackInner` (`orcvs/src/playback.rs`), the state that outlives a Tick is:
+
+- **The Source's Cells**, which a replay rebuilds.
+- **The committed Tick Portals record** (ADR 0077), which the Render Frame
+  paints and evaluation does not read. A replay commits the last replayed
+  Tick's record, so the Grid lights what that Tick read and wrote.
+- **The owed Note Off schedule** of Timed and Monophonic Plays, which is
+  output and is not read by evaluation. A jump discards it, as a stop does.
+- **The Tick counter and the Run Clock**, which a jump sets.
+
+A Play whose note slot is cleared rests (ADR 0075) by reading its Cells on the
+Tick, not by remembering an earlier one. The first implementation test pins
+this list: a jump to Tick `N` reaches the Source, Tick Plan and Tick Portals
+record that running `N` Ticks reaches, over every shipped example.
+
 ## What makes it hard
 
 1. **Tick writes mutate the Source.** The Source at Tick `N` is not the Source
@@ -35,9 +52,13 @@ Ticks `0` to `N - 1` always produces the same Source at Tick `N`.
 
 ## Open questions
 
-1. **What is the base?** The default proposed here is the Source at the moment
-   Playback last left Tick `0`: a Rewind or an Open sets it, and Tick `0`'s
-   first execution captures it.
+1. **What is the base?** The default proposed here is the Source as it stood
+   immediately before Tick `0` last executed, before any of its writes. A
+   Rewind changes no Cell: it makes Tick `0` the next Tick, so the run after
+   it captures a new base from the Source as the Rewind left it, Tick writes
+   included, and the Ticks before that Rewind cannot be reached again. An
+   Open, a New or an Example replaces the Source, so it discards the base;
+   until the next Tick `0` captures one, only stepping forward is available.
 2. **What happens to live edits?** The default proposed here records each user
    edit with the Tick it landed before, and a replay applies it at that Tick,
    so a jump reproduces what was heard. The alternative is that an edit makes
@@ -48,8 +69,8 @@ Ticks `0` to `N - 1` always produces the same Source at Tick `N`.
    field. Chords are picked so the web can bind them.
 4. **Does a jump work while playing?** The default proposed here stops, jumps
    and resumes, as a live Rewind restarts the run.
-5. **How far apart are checkpoints?** Settled by a benchmark of replay cost
-   over the shipped examples.
+5. **How far apart are checkpoints?** Issue 04 settles it with a benchmark of
+   replay cost over the shipped examples.
 
 ## Relation to Undo
 
