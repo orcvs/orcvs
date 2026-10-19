@@ -3100,6 +3100,203 @@ async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
 }
 
 ///
+/// Whether the last frame painted the Cell at `column`, `row` on the
+/// presented Theme's `input_portal.background`.
+///
+fn painted_as_input_portal(harness: &Harness<'_, Console>, column: usize, row: usize) -> bool {
+    let fill = harness
+        .state()
+        .themes
+        .presented(Appearance::Dark)
+        .input_portal_background;
+    painted_on(harness, fill, column, row)
+}
+
+///
+/// Whether the last frame painted the Cell at `column`, `row` on the
+/// presented Theme's `output_portal.background`.
+///
+fn painted_as_output_portal(harness: &Harness<'_, Console>, column: usize, row: usize) -> bool {
+    let fill = harness
+        .state()
+        .themes
+        .presented(Appearance::Dark)
+        .output_portal_background;
+    painted_on(harness, fill, column, row)
+}
+
+/// Whether the last frame filled the Cell at `column`, `row` with `fill`.
+fn painted_on(
+    harness: &Harness<'_, Console>,
+    fill: egui::Color32,
+    column: usize,
+    row: usize,
+) -> bool {
+    let point = presented_source(harness).cell_rect(column, row).center();
+    painted_source_shapes(harness).iter().any(|shape| {
+        matches!(shape, egui::Shape::Rect(rect) if rect.fill == fill && rect.rect.contains(point))
+    })
+}
+
+///
+/// A console whose Source holds `rows` from Grid column 8, row 4, after the
+/// Tick at zero has committed, so its last frame paints that Tick's record.
+///
+fn ticked_console(rows: &[&str]) -> Harness<'static, Console> {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    for (y, row) in rows.iter().enumerate() {
+        for (x, character) in row.chars().enumerate() {
+            if character == ' ' {
+                continue;
+            }
+            let position = grid.position(8 + x, 4 + y).expect("inside the Grid");
+            source
+                .set(grid.index(position), &character.to_string())
+                .expect("a Cell the Source accepts");
+        }
+    }
+    source.execute(Tick::ZERO);
+    harness.run_steps(1);
+    harness
+}
+
+#[tokio::test]
+async fn a_cell_a_tick_both_read_and_wrote_paints_as_output_portal() {
+    // `@$` writes `C4` at (10, 5), and the Read at (16, 4) then reads that
+    // pair: Output Portal wins the Cells both roles cover.
+    let harness = ticked_console(&["@$0A05C4&$0A05"]);
+    for column in [10, 11] {
+        assert!(
+            painted_as_output_portal(&harness, column, 5),
+            "({column}, 5) is not Output Portal"
+        );
+        assert!(
+            !painted_as_input_portal(&harness, column, 5),
+            "({column}, 5) composites Input Portal under Output Portal"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_empty_cell_a_tick_read_shows_the_input_portal_background() {
+    // The Read at (8, 4) reads the empty pair at (10, 6): it holds no glyph,
+    // and still shows where the Tick read.
+    let harness = ticked_console(&["&$0A06"]);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    for column in [10, 11] {
+        let position = grid.position(column, 6).expect("inside the Grid");
+        assert_eq!(source.get(grid.index(position)), None);
+        assert!(
+            painted_as_input_portal(&harness, column, 6),
+            "({column}, 6) is not Input Portal"
+        );
+    }
+}
+
+///
+/// One voice of the Orca tracker, stepping down its column: `.+02~.0104`
+/// writes `n` as 2 plus the Tick modulo 4 into the operand of the `&v` below
+/// it, which reads the pair `n` rows south of that operand. Each Tick the
+/// pair it read is lit as Input Portal and the pair the Tick before read is
+/// not, as Orca lights its ports.
+///
+/// Playback is stopped, so each Tick is the one `SourceCommander::execute`
+/// the Playback Engine would run, taken here by number.
+///
+#[tokio::test]
+async fn a_tracker_voices_read_is_lit_as_input_portal_and_steps_down_its_column() {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    for (y, row) in [(4, "  .+02~.0104"), (5, "&v")] {
+        for (x, character) in row.chars().enumerate() {
+            let position = grid.position(8 + x, y).expect("inside the Grid");
+            source
+                .set(grid.index(position), &character.to_string())
+                .expect("a Cell the Source accepts");
+        }
+    }
+    harness.run_steps(1);
+    for row in 7..=10 {
+        assert!(
+            !painted_as_input_portal(&harness, 10, row),
+            "row {row} is lit before any Tick"
+        );
+    }
+
+    let mut lit = Vec::new();
+    for tick in 0..4 {
+        source.execute(Tick::new(tick));
+        harness.run_steps(1);
+        let read = 7 + usize::try_from(tick).expect("a small Tick");
+        lit.push(
+            (7..=10)
+                .filter(|&row| {
+                    (10..=11).all(|column| painted_as_input_portal(&harness, column, row))
+                })
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            !painted_as_input_portal(&harness, 12, read),
+            "Tick {tick} lit past the pair it read"
+        );
+    }
+    assert_eq!(lit, [[7], [8], [9], [10]]);
+}
+
+///
+/// Two voices of a paused tracker, `&v01` at column 8 and `&v02` at column
+/// 16 of row 5. Turning the second into `&^02` stops it claiming the read its
+/// `&v` made, and the first voice's read stays lit.
+///
+#[tokio::test]
+async fn editing_one_voice_of_a_paused_tracker_keeps_the_other_voices_read_lit() {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    let set = |x: usize, content: char| {
+        let position = grid.position(x, 5).expect("inside the Grid");
+        source
+            .set(grid.index(position), &content.to_string())
+            .expect("a Cell the Source accepts");
+    };
+    for (x, content) in "&v01    &v02".chars().enumerate() {
+        set(8 + x, content);
+    }
+    source.execute(Tick::ZERO);
+    harness.run_steps(1);
+    let lit = |harness: &Harness<'_, Console>, column: usize, row: usize| {
+        (column..=column + 1).all(|column| painted_as_input_portal(harness, column, row))
+    };
+    assert!(lit(&harness, 10, 6), "the first voice's read is lit");
+    assert!(lit(&harness, 18, 7), "the second voice's read is lit");
+
+    set(17, '^');
+    harness.run_steps(1);
+
+    assert!(
+        lit(&harness, 10, 6),
+        "the first voice's read went dark after an edit to the second"
+    );
+    assert!(
+        !painted_as_input_portal(&harness, 18, 7) && !painted_as_input_portal(&harness, 19, 7),
+        "the edited voice still claims a read its new Function never made"
+    );
+}
+
+///
 /// A console whose Source holds one written Cell, at the origin, with the
 /// Cursor moved on past it and egui zoomed in: an environment New would
 /// visibly discard, and a zoom it leaves standing.

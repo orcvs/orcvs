@@ -38,6 +38,7 @@ fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(plan.diagnostics.is_empty());
@@ -76,6 +77,7 @@ fn two_current_bang_results_still_execute_midi_once() {
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(plan.diagnostics.is_empty());
@@ -110,6 +112,7 @@ fn one_failed_bang_candidate_does_not_suppress_another_fresh_bang() {
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(

@@ -62,16 +62,21 @@ fn agreeing_tick(source: &mut Source, tick: u64) -> TickPlan {
     let (fresh, fresh_states) =
         plan_unshared(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(tick));
     assert_eq!(
-        shared, fresh,
+        shared.plan(),
+        fresh.plan(),
         "the shared schedule planned Tick {tick} differently"
+    );
+    assert_eq!(
+        shared.portals(),
+        fresh.portals(),
+        "the shared schedule recorded Tick {tick}'s Portals differently"
     );
     assert_eq!(
         turns(&shared_states),
         turns(&fresh_states),
         "the shared schedule ordered Tick {tick} differently"
     );
-    source.commit_tick(&shared);
-    shared
+    source.commit_tick(shared)
 }
 
 ///
@@ -130,6 +135,7 @@ fn stale_tick(source: &Source, earlier: &LanguageMap, tick: u64) -> TickPlan {
         shared_schedule(grid, earlier),
     )
     .0
+    .into_plan()
 }
 
 /// Writes `text` from Column `x` of Row `y` onward, for each edit, as one
@@ -680,6 +686,7 @@ fn a_waiting_track_preserves_dependencies_tie_breaking_and_the_cached_order() {
 
     let bytes = source.snapshot();
     let (planned, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
+    let planned = planned.into_plan();
     assert!(planned.diagnostics.is_empty(), "{:?}", planned.diagnostics);
     let turn = |index: ComputationId| {
         states[index.index()]

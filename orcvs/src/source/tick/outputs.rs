@@ -44,6 +44,7 @@ fn a_destination_at_the_row_edge_costs_one_expression_its_turn_not_the_tick() {
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(
         planned(&plan),
@@ -86,6 +87,7 @@ fn source_after_an_expression_is_the_next_expressions_and_costs_the_tick_nothing
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     // The Bang the Equality writes, and the Addition's own `03` below it.
@@ -108,6 +110,7 @@ fn a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing(
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(
@@ -133,6 +136,7 @@ fn a_banged_play_with_an_unwritten_note_is_invalid_and_emits_nothing() {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
         let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let plan = plan.into_plan();
 
         assert_eq!(plan.play_commands, commands, "{play:?}");
         assert!(
@@ -164,6 +168,7 @@ fn a_banged_play_whose_nested_track_copies_an_empty_pair_rests() {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
         let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let plan = plan.into_plan();
 
         assert_eq!(plan.play_commands, commands, "{play:?}");
         assert!(

@@ -345,6 +345,7 @@ mod nested_property {
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
         let (tick, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+        let tick = tick.into_plan();
 
         prop_assert!(
             !tick

@@ -10,12 +10,15 @@
 //! remembered between Ticks, so whether a `**` fires depends on the Source
 //! Snapshot and the Tick alone.
 
-use lang::Tick;
+use lang::{Function, Tick};
 
 use super::observed::{
-    MISSED_BANG, Observed, diagnostic, observe_at, observed, quiet, raw, raw_c4, rows_of, source_of,
+    MISSED_BANG, Observed, bundles, committed_portals, diagnostic, observe_at, observed, painted,
+    quiet, raw, raw_c4, rows_of, source_of,
 };
+use super::portals::BundlePart;
 use crate::grid::Grid;
+use crate::render_frame::PortalRole;
 use crate::source::{Source, TickPlan};
 
 /// Writes `text` into `source` from column `x` of row `y`, one Cell at a
@@ -803,4 +806,22 @@ fn a_locked_bang_blocks_a_mover_from_every_side_it_can_be_reached() {
         assert_eq!(seen.rows[mover_row], blocked, "{rows:?}");
         quiet(&seen);
     }
+}
+
+#[test]
+fn a_bang_functions_clear_is_recorded_as_its_fire_and_paints_nothing() {
+    let mut source = source_of(Grid::with_shape(8, 2), &["**", "!>007FC4"]);
+    let (plan, seen) = tick(&mut source, 0);
+    assert_eq!(plan.play_commands, [raw_c4()]);
+    assert_eq!(seen.rows[0], "        ");
+    assert_eq!(
+        bundles(&committed_portals(&source)),
+        [(
+            (0, 0),
+            Function::Bang,
+            BundlePart::Fire,
+            Ok(vec![(0, 0), (1, 0)])
+        )]
+    );
+    assert_eq!(painted(source, PortalRole::Output), []);
 }

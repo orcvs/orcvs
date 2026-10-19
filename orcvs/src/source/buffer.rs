@@ -57,6 +57,69 @@ impl SourceBuffer {
 }
 
 ///
+/// Which Cells an edit has written since the last committed Tick: one bit per
+/// Cell, in Grid order, so the shipped 256 × 256 Grid holds 8 KiB.
+///
+/// A clone shares the bits, as a [`SourceBuffer`] clone shares its Cells, so a
+/// revision captures them for a reference count. Marking a Cell already
+/// marked writes nothing, and marking one copies the bits first only while a
+/// revision still shares them.
+///
+#[derive(Clone)]
+pub(super) struct EditedCells {
+    bits: Arc<[u64]>,
+    /// Whether any bit is set, so a set no edit has marked answers without a
+    /// walk and is cleared without one.
+    any: bool,
+}
+
+impl EditedCells {
+    /// No Cell of `len` edited.
+    pub(super) fn none(len: usize) -> Self {
+        Self {
+            bits: std::iter::repeat_n(0, len.div_ceil(64)).collect(),
+            any: false,
+        }
+    }
+
+    /// Marks the Cell at `index` edited. Panics when `index` is past the last
+    /// Cell.
+    pub(super) fn mark(&mut self, index: usize) {
+        let (word, bit) = (index / 64, 1 << (index % 64));
+        if self.bits[word] & bit == 0 {
+            Arc::make_mut(&mut self.bits)[word] |= bit;
+            self.any = true;
+        }
+    }
+
+    ///
+    /// No Cell edited, over the same Cells. The bits are cleared in place
+    /// where no revision shares them, and only where an edit marked one, so a
+    /// commit after a Tick with no edit writes nothing; a shared set is left
+    /// to its revisions and replaced.
+    ///
+    pub(super) fn cleared(mut self) -> Self {
+        if self.any {
+            match Arc::get_mut(&mut self.bits) {
+                Some(bits) => bits.fill(0),
+                None => return Self::none(self.bits.len() * 64),
+            }
+            self.any = false;
+        }
+        self
+    }
+
+    /// Whether any Cell in `range` is marked. Panics when `range` runs past
+    /// the last Cell.
+    pub(super) fn any_in(&self, range: Range<usize>) -> bool {
+        self.any
+            && range
+                .into_iter()
+                .any(|index| self.bits[index / 64] & (1 << (index % 64)) != 0)
+    }
+}
+
+///
 /// A borrowed run of Cells: one printable ASCII byte per Cell, in Grid order.
 ///
 /// Tick planning, the Language Map and Claim lookup read the Cells through
@@ -152,7 +215,7 @@ impl WorkingCells {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cells, SourceBuffer};
+    use super::{Cells, EditedCells, SourceBuffer};
     use crate::source::CellContent;
 
     fn content(byte: u8) -> CellContent {
@@ -222,5 +285,27 @@ mod tests {
 
         assert_eq!(rows, [".+01", "02  "]);
         assert_eq!(buffer.cells().slice(2..6).as_str(), "0102");
+    }
+
+    #[test]
+    fn edited_cells_answer_each_mark_and_a_shared_set_keeps_its_own() {
+        let mut edited = EditedCells::none(130);
+        assert!(!edited.any_in(0..130));
+        edited.mark(64);
+        edited.mark(129);
+        assert!(edited.any_in(64..65));
+        assert!(edited.any_in(100..130));
+        assert!(!edited.any_in(0..64));
+        assert!(!edited.any_in(65..129));
+
+        // A revision's copy keeps the marks it was read with, while the
+        // Source's set is cleared for the next commit and marked again.
+        let revision = edited.clone();
+        let mut next = edited.cleared();
+        assert!(!next.any_in(0..130));
+        next.mark(3);
+        assert!(revision.any_in(64..65));
+        assert!(!revision.any_in(3..4));
+        assert!(next.any_in(3..4));
     }
 }

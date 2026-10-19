@@ -64,6 +64,7 @@ use std::fmt;
 
 use egui::widget_style::{Classes, HasClasses as _, SELECTED_CLASS, WidgetState};
 use egui::{Color32, Style};
+use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::style::{cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style};
@@ -182,8 +183,8 @@ impl fmt::Display for Role {
 /// Where a Source Grid role's Cell sits relative to the Cursor and a Region
 /// spanning more than one Cell — the axis
 /// [`crate::paint::Paint::derive_with_theme`] decides once per Cell,
-/// independently of whether that Cell also lies in an Output Portal
-/// Reservation (see [`State::SourceGrid`]).
+/// independently of the Portal roles that Cell plays (see
+/// [`State::SourceGrid`]).
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CursorPlacement {
@@ -202,6 +203,21 @@ impl CursorPlacement {
     const ALL: [Self; 4] = [Self::Plain, Self::Cursor, Self::Region, Self::RegionCursor];
 }
 
+///
+/// Every set of Portal roles a Cell can play: none, Input Portal alone,
+/// Output Portal alone, and both. Both paints as Output Portal alone, and is
+/// measured anyway so that the matrix covers every set a Cell can carry
+/// rather than the sets the precedence rule happens to tell apart.
+///
+const PORTAL_ROLE_SETS: [PortalRoles; 4] = [
+    PortalRoles::NONE,
+    PortalRoles::NONE.with(PortalRole::Input),
+    PortalRoles::NONE.with(PortalRole::Output),
+    PortalRoles::NONE
+        .with(PortalRole::Output)
+        .with(PortalRole::Input),
+];
+
 impl fmt::Display for CursorPlacement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -216,9 +232,9 @@ impl fmt::Display for CursorPlacement {
 ///
 /// The reachable painted state a [`ContrastResult`] was measured in.
 ///
-/// [`Self::SourceGrid`] crosses [`CursorPlacement`] with whether the Cell
-/// also lies in a value Function's Output Portal Reservation: the two are
-/// independent — the Cursor can sit on a Cell an Output Portal covers, and a
+/// [`Self::SourceGrid`] crosses [`CursorPlacement`] with the Portal roles the
+/// Cell plays: the two are
+/// independent — the Cursor can sit on a Cell a Portal covers, and a
 /// Region can span over one, per `.scratch/theming/schema.md`'s own Overlap
 /// rule ("covers every Cell of the Reservation whatever else claims it") and
 /// its Cursor-precedence exception ("The Cursor's own fill still wins
@@ -228,7 +244,7 @@ impl fmt::Display for CursorPlacement {
 pub(crate) enum State {
     SourceGrid {
         cursor: CursorPlacement,
-        output_portal: bool,
+        portals: PortalRoles,
     },
     /// Against `panel.background` over the window backdrop: a label and the
     /// `error`/`warning`/`link` foregrounds.
@@ -260,14 +276,17 @@ pub(crate) enum State {
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SourceGrid {
-                cursor,
-                output_portal: false,
-            } => write!(f, "{cursor}"),
-            Self::SourceGrid {
-                cursor,
-                output_portal: true,
-            } => write!(f, "{cursor}, Output Portal"),
+            Self::SourceGrid { cursor, portals } => {
+                match (
+                    portals.contains(PortalRole::Output),
+                    portals.contains(PortalRole::Input),
+                ) {
+                    (false, false) => write!(f, "{cursor}"),
+                    (true, false) => write!(f, "{cursor}, Output Portal"),
+                    (false, true) => write!(f, "{cursor}, Input Portal"),
+                    (true, true) => write!(f, "{cursor}, Output and Input Portal"),
+                }
+            }
             Self::Panel => f.write_str("vs panel.background"),
             Self::Input => f.write_str("vs input.background"),
             Self::Inactive => f.write_str("vs the inactive widget fill"),
@@ -284,7 +303,7 @@ impl fmt::Display for State {
 
 ///
 /// The effective foreground and *opaque* background a `(fact, cursor,
-/// output_portal)` triple actually paints, composited exactly as
+/// portals)` triple actually paints, composited exactly as
 /// [`crate::paint::Paint::derive_with_theme`] composes one Cell — the same
 /// functions, standalone rather than read off one Cell of a whole Render
 /// Frame.
@@ -300,7 +319,7 @@ impl fmt::Display for State {
 fn painted(
     fact: SourcePaint,
     cursor: CursorPlacement,
-    output_portal: bool,
+    portals: PortalRoles,
     theme: &Theme,
 ) -> (Color32, Color32) {
     let is_cursor = matches!(
@@ -316,7 +335,7 @@ fn painted(
 
     let visuals = cell_visuals_with_cursor_colour(
         fact,
-        output_portal,
+        portals,
         selected,
         // `cursor_visible` decides only the Cell's border, never its
         // foreground or background (`cell_visuals_with_cursor_colour`'s own
@@ -538,7 +557,8 @@ text instead).";
 ///
 pub(crate) fn validate(theme: &Theme) -> ContrastReport {
     let mut results = Vec::with_capacity(
-        Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * 2 + CHROME_STATES,
+        Role::SOURCE_ROLES.len() * CursorPlacement::ALL.len() * PORTAL_ROLE_SETS.len()
+            + CHROME_STATES,
     );
 
     for &role in &Role::SOURCE_ROLES {
@@ -546,12 +566,9 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
             .source_paint_fact()
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
         for cursor in CursorPlacement::ALL {
-            for output_portal in [false, true] {
-                let state = State::SourceGrid {
-                    cursor,
-                    output_portal,
-                };
-                let (foreground, background) = painted(fact, cursor, output_portal, theme);
+            for portals in PORTAL_ROLE_SETS {
+                let state = State::SourceGrid { cursor, portals };
+                let (foreground, background) = painted(fact, cursor, portals, theme);
                 results.push(measure(
                     role,
                     state,
@@ -682,6 +699,7 @@ mod colour_vision;
 #[cfg(test)]
 mod tests {
     use egui::Color32;
+    use orcvs::render_frame::{PortalRole, PortalRoles};
     use orcvs::source::SourcePaint;
 
     use super::{
@@ -689,6 +707,12 @@ mod tests {
         painted, validate,
     };
     use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
+
+    /// The roles of a Cell only an Output Portal covers.
+    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
+
+    /// The roles of a Cell only an Input Portal covers.
+    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
 
     fn find(report: &ContrastReport, role: Role, state: State) -> ContrastResult {
         report
@@ -785,11 +809,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_reports_one_result_per_role_cursor_placement_and_output_portal_plus_fifteen_chrome_states()
+    fn validate_reports_one_result_per_role_cursor_placement_and_portal_role_set_plus_fifteen_chrome_states()
      {
         let report = validate(&okabe_ito());
-        // 8 Source Grid roles x 4 CursorPlacements x 2 output_portal states
-        // = 64, plus 15 chrome states: text on panel, input and the
+        // 8 Source Grid roles x 4 CursorPlacements x 4 Portal role sets
+        // = 128, plus 15 chrome states: text on panel, input and the
         // inactive and open fills (4); text.muted on panel and input (2);
         // text.active on the hovered and active fills, framed and frameless
         // (4); selected text on selection.background over panel and input
@@ -797,7 +821,7 @@ mod tests {
         // rather than recomputed from the same lengths `validate` sizes its
         // `Vec` from, so a change to either count is caught by an
         // independent number.
-        assert_eq!(report.results.len(), 79);
+        assert_eq!(report.results.len(), 143);
     }
 
     ///
@@ -838,7 +862,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert!(
@@ -1032,7 +1056,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert!(
@@ -1046,7 +1070,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Region,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert!(
@@ -1080,7 +1104,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert!(
@@ -1094,7 +1118,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Cursor,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert!(
@@ -1172,7 +1196,7 @@ mod tests {
             Role::NumberInvalid,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
 
@@ -1185,7 +1209,7 @@ mod tests {
     // === `painted`'s reuse of `style`'s own composition ===
 
     ///
-    /// `painted`'s `output_portal: false` and `output_portal: true` for
+    /// `painted` with no Portal role and with the Output Portal role for
     /// `Function` are identical — "A bound Function retains all its own
     /// paint inside a Portal" (`style::role_and_portal`'s own doc), the one
     /// named bypass the reused composition functions apply. This is a real
@@ -1196,8 +1220,18 @@ mod tests {
     #[test]
     fn function_is_unaffected_by_output_portal_placement() {
         let theme = okabe_ito();
-        let plain = painted(SourcePaint::Function, CursorPlacement::Plain, false, &theme);
-        let portal = painted(SourcePaint::Function, CursorPlacement::Plain, true, &theme);
+        let plain = painted(
+            SourcePaint::Function,
+            CursorPlacement::Plain,
+            PortalRoles::NONE,
+            &theme,
+        );
+        let portal = painted(
+            SourcePaint::Function,
+            CursorPlacement::Plain,
+            OUTPUT,
+            &theme,
+        );
         assert_eq!(plain, portal);
     }
 
@@ -1209,7 +1243,7 @@ mod tests {
     /// than an impossible cross-product. `Number, Valid`'s foreground
     /// differs between `plain` and `Output Portal` (the Output Portal
     /// foreground channel blends over the Token's own), proving the
-    /// `output_portal` flag is actually threaded through every
+    /// Portal role set is actually threaded through every
     /// `CursorPlacement`, not only `Plain`.
     ///
     #[test]
@@ -1227,7 +1261,7 @@ mod tests {
                 Role::NumberValid,
                 State::SourceGrid {
                     cursor,
-                    output_portal: false,
+                    portals: PortalRoles::NONE,
                 },
             );
             let portal = find(
@@ -1235,13 +1269,95 @@ mod tests {
                 Role::NumberValid,
                 State::SourceGrid {
                     cursor,
-                    output_portal: true,
+                    portals: OUTPUT,
                 },
             );
             assert_ne!(
                 plain.foreground, portal.foreground,
                 "{cursor}: Output Portal must still blend its foreground channel over Number's"
             );
+        }
+    }
+
+    ///
+    /// The Input Portal channel reaches every Cursor placement too: under the
+    /// Cursor, a Region and the Region's Cursor Cell, `Number, Valid` draws
+    /// the Input Portal foreground rather than Number's own.
+    ///
+    #[test]
+    fn cursor_and_region_placements_still_answer_the_input_portal_channel() {
+        let theme = okabe_ito();
+        let report = validate(&theme);
+
+        for cursor in CursorPlacement::ALL {
+            let input = find(
+                &report,
+                Role::NumberValid,
+                State::SourceGrid {
+                    cursor,
+                    portals: INPUT,
+                },
+            );
+            assert_eq!(
+                input.foreground, theme.input_portal_foreground,
+                "{cursor}: Input Portal must blend its foreground channel over Number's"
+            );
+        }
+    }
+
+    ///
+    /// Every Source role, at every Cursor placement, under Input Portal alone
+    /// and under both Portal roles, is measured and clears the floor in both
+    /// built-ins. A Cell playing both roles measures exactly what an Output
+    /// Portal Cell does, because Output Portal wins.
+    ///
+    #[test]
+    fn every_source_role_under_input_portal_clears_the_floor_in_both_built_ins() {
+        let both_roles = OUTPUT.with(PortalRole::Input);
+        for theme in [okabe_ito(), orcvs_light()] {
+            let report = validate(&theme);
+            for &role in &Role::SOURCE_ROLES {
+                for cursor in CursorPlacement::ALL {
+                    let input = find(
+                        &report,
+                        role,
+                        State::SourceGrid {
+                            cursor,
+                            portals: INPUT,
+                        },
+                    );
+                    assert!(
+                        input.passes(),
+                        "{}: {role} / {} at {:.2}:1",
+                        theme.identity,
+                        input.state,
+                        input.ratio
+                    );
+                    let output = find(
+                        &report,
+                        role,
+                        State::SourceGrid {
+                            cursor,
+                            portals: OUTPUT,
+                        },
+                    );
+                    let both = find(
+                        &report,
+                        role,
+                        State::SourceGrid {
+                            cursor,
+                            portals: both_roles,
+                        },
+                    );
+                    assert_eq!(
+                        (both.foreground, both.background),
+                        (output.foreground, output.background),
+                        "{}: {role} / {}",
+                        theme.identity,
+                        both.state
+                    );
+                }
+            }
         }
     }
 
@@ -1264,7 +1380,7 @@ mod tests {
             Role::NumberInvalid,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         let nonzero_alpha_role_region = find(
@@ -1272,7 +1388,7 @@ mod tests {
             Role::NumberInvalid,
             State::SourceGrid {
                 cursor: CursorPlacement::Region,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert_eq!(
@@ -1290,7 +1406,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         let transparent_region = find(
@@ -1298,7 +1414,7 @@ mod tests {
             Role::Comment,
             State::SourceGrid {
                 cursor: CursorPlacement::Region,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert_ne!(
@@ -1332,7 +1448,7 @@ mod tests {
             Role::NumberInvalid,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         let cursor = find(
@@ -1340,7 +1456,7 @@ mod tests {
             Role::NumberInvalid,
             State::SourceGrid {
                 cursor: CursorPlacement::Cursor,
-                output_portal: false,
+                portals: PortalRoles::NONE,
             },
         );
         assert_ne!(
@@ -1374,7 +1490,7 @@ mod tests {
 
         let state = State::SourceGrid {
             cursor: CursorPlacement::Plain,
-            output_portal: false,
+            portals: PortalRoles::NONE,
         };
         let comment_base = find(&report_base, Role::Comment, state);
         let comment_distinct = find(&report_distinct, Role::Comment, state);
@@ -1396,7 +1512,7 @@ mod tests {
     fn accepted_failure_match_requires_the_same_colour_pair_not_only_role_and_state() {
         let state = State::SourceGrid {
             cursor: CursorPlacement::Plain,
-            output_portal: false,
+            portals: PortalRoles::NONE,
         };
         let entry = AcceptedFailure {
             role: Role::NoteInvalid,

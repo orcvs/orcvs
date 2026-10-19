@@ -9,6 +9,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use orcvs::app::Orcvs;
 use orcvs::grid::{CellIndex, Grid};
 use orcvs::playback::InMemoryOutputAdapter;
+use orcvs::render_frame::PortalRole;
 use orcvs::source::{CellContent, CellWrite, LanguageMap, Source, SourceCommander, Tick, file};
 use std::hint::black_box;
 use std::sync::OnceLock;
@@ -697,6 +698,138 @@ fn execute_tick_with_dynamic_writers(c: &mut Criterion) {
 }
 
 ///
+/// A Render Frame's Tick Portals, by the record the frame's revision answers.
+///
+#[derive(Clone, Copy)]
+enum FrameRecord {
+    /// The same Cells written by hand, so no Tick has committed a record.
+    None,
+    /// The revision the last Tick's commit left.
+    Current,
+    /// A revision an edit made since that commit: one Cell rewritten with
+    /// what it already holds, so every entry's Function still stands and the
+    /// frame asks that of each entry it paints.
+    Retained,
+}
+
+impl FrameRecord {
+    const ALL: [Self; 3] = [Self::None, Self::Current, Self::Retained];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Current => "current",
+            Self::Retained => "retained",
+        }
+    }
+}
+
+///
+/// The dynamic-writer fixture at `cols` by `rows`, with the record `record`
+/// names, in an Orcvs whose frames derive from it.
+///
+/// Every voice's last Tick reads two selected pairs and makes selected and
+/// declared writes, Bangs and Raw Plays, so the record holds reads and writes
+/// across the whole Grid. The Cells are written in one revision rather than
+/// one Cell at a time, and two Ticks settle them, so the frame paints the
+/// steady state a playing Source holds.
+///
+fn tick_portals_app(cols: usize, rows: usize, record: FrameRecord) -> Orcvs<()> {
+    let grid = Grid::with_shape(cols, rows);
+    let mut source = Source::new(grid);
+    let writes = dynamic_writer_source_text(cols, rows)
+        .bytes()
+        .enumerate()
+        .filter(|(_, byte)| *byte != b' ')
+        .map(|(idx, byte)| CellWrite {
+            cell: cell(grid, idx),
+            content: CellContent::new(byte).expect("benchmark Source is printable ASCII"),
+        })
+        .collect::<Vec<_>>();
+    source.write_cells(&writes);
+    source.execute(Tick::new(0));
+    let plan = source.execute(Tick::new(1));
+    assert!(
+        plan.diagnostics.is_empty(),
+        "the {cols}x{rows} Tick Portals fixture is quiet: {:?}",
+        plan.diagnostics
+    );
+    match record {
+        FrameRecord::None => {
+            let settled = source.snapshot();
+            source = Source::new(grid);
+            let writes = settled
+                .bytes()
+                .enumerate()
+                .filter(|(_, byte)| *byte != b' ')
+                .map(|(idx, byte)| CellWrite {
+                    cell: cell(grid, idx),
+                    content: CellContent::new(byte).expect("benchmark Source is printable ASCII"),
+                })
+                .collect::<Vec<_>>();
+            source.write_cells(&writes);
+            assert_eq!(source.snapshot(), settled, "the hand-written Cells match");
+        }
+        FrameRecord::Current => {}
+        FrameRecord::Retained => {
+            // The first voice's Write anchor, rewritten with its own `@`.
+            source
+                .set(cell(grid, 0), "@")
+                .expect("benchmark Source content is accepted");
+        }
+    }
+    let _runtime = benchmark_runtime().enter();
+    let orcvs = Orcvs::with_source_and_output_adapter(source, InMemoryOutputAdapter::default())
+        .expect("a benchmark runtime");
+
+    // A record the frame did not fold, or a hand-written Source that carried
+    // one, would measure the wrong derive and still report a plausible number.
+    let reads = orcvs
+        .render_frame()
+        .cells()
+        .iter()
+        .filter(|cell| cell.portal_roles().contains(PortalRole::Input))
+        .count();
+    let voices = dynamic_writer_voices(cols, rows).len();
+    match record {
+        FrameRecord::None => assert_eq!(reads, 0, "no record paints no read"),
+        FrameRecord::Current | FrameRecord::Retained => assert_eq!(
+            reads,
+            4 * voices,
+            "each of the {voices} voices paints both of its reads"
+        ),
+    }
+
+    orcvs
+}
+
+///
+/// Measures one Render Frame derived with Tick Portals present, across
+/// `TICK_SIZES`: with no record, with the record the last Tick's commit left,
+/// and with that record retained after an edit.
+///
+/// The fixture is the dynamic-writer Tick fixture at the sizes its Tick is
+/// measured at, and the three records hold the same Cells, so each size reads
+/// the derive's cost with each record against the same frame without one.
+///
+fn render_frame_tick_portals(c: &mut Criterion) {
+    let mut group = c.benchmark_group("source_render_frame_tick_portals");
+
+    for &(cols, rows) in TICK_SIZES {
+        for record in FrameRecord::ALL {
+            let orcvs = tick_portals_app(cols, rows, record);
+
+            group.bench_function(
+                BenchmarkId::new(record.name(), format!("{cols}x{rows}")),
+                |b| b.iter(|| black_box(black_box(&orcvs).render_frame())),
+            );
+        }
+    }
+
+    group.finish();
+}
+
+///
 /// Measures one Tick series on both paths a Tick can take, over the same
 /// settled Sources: `name` plans and commits under `&mut Source`, the locked
 /// path, and `commander_name` is the path the Playback Engine takes, through
@@ -838,6 +971,7 @@ criterion_group!(
     read_revision,
     render_frame,
     render_frame_nested,
+    render_frame_tick_portals,
     edit_rebuild_valid,
     edit_rebuild_invalid,
     execute_tick,

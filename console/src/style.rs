@@ -4,6 +4,7 @@ use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
 
+use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::theme::{Appearance, Theme};
@@ -32,7 +33,7 @@ pub(crate) struct CellVisuals {
 /// Cursor's own Cell is one such arm when its own fill is unset: painting a
 /// fill there would hide the Cursor Effect's presentation. `Some` answers a
 /// composited colour: the Cursor's own fill on the selected Cell, which wins
-/// outright, or otherwise the resolved Theme's role/Diagnostic/Output Portal
+/// outright, or otherwise the resolved Theme's role/Diagnostic/Portal
 /// channel for the Cell's fact, each composited over `theme.cell_background`
 /// (see [`source_paint_visuals`]).
 ///
@@ -41,23 +42,22 @@ pub(crate) struct CellVisuals {
 /// (`selection.border`/`.rest`) draws regardless of what stands on the Cell,
 /// and every other Cell's border is [`ordinary_border`]'s. `paint` is the per-Cell language fact
 /// `RenderCell::source_paint` answers from the shared Claim, including
-/// Pending, Valid, or Invalid for an Operand. `output_portal` is an
-/// independent fact: whether this Cell
-/// lies in a value Function's Output Portal Reservation
-/// (`RenderCell::output_portal`), known from the current Source revision
-/// alone.
+/// Pending, Valid, or Invalid for an Operand. `portal_roles` is an
+/// independent fact: the Portal roles this Cell plays
+/// (`RenderCell::portal_roles`).
 ///
 pub(crate) fn cell_visuals_with_cursor_colour(
     paint: SourcePaint,
-    output_portal: bool,
+    portal_roles: PortalRoles,
     selected: bool,
     cursor_visible: bool,
     cursor_fill: Option<Color32>,
     theme: &Theme,
 ) -> CellVisuals {
-    let (foreground, role_background) = source_paint_visuals(paint, output_portal, theme);
+    let portal = painting_portal(portal_roles);
+    let (foreground, role_background) = source_paint_visuals(paint, portal, theme);
     // The Cursor's own fill wins outright on its Cell, discarding whatever
-    // the role/Diagnostic/Output Portal channels above answered: `cursor_fill`
+    // the role/Diagnostic/Portal channels above answered: `cursor_fill`
     // decides alone, composited over the uniform Cell base the same way a
     // role channel is. Every other Cell keeps the role answer.
     let background = if selected {
@@ -66,7 +66,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
         role_background
     };
     // The single-Cell Cursor's own border is `selection.border`/`.rest` at
-    // `cell.selection.border.width`, unaffected by Diagnostic/Output Portal —
+    // `cell.selection.border.width`, unaffected by Diagnostic/Portal —
     // `.scratch/theming/schema.md`'s Source composition step 5. Every other
     // Cell, including a multi-Cell Region's Cursor Cell (`selected` is false
     // there — see [`crate::paint::Paint::derive_with_theme`]), keeps the
@@ -82,7 +82,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
             theme.cell_selection_border_width.points(),
         )
     } else {
-        ordinary_border(paint, output_portal, theme)
+        ordinary_border(paint, portal, theme)
     };
     CellVisuals {
         background,
@@ -123,13 +123,14 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 /// the single-Cell Cursor, resolved from `theme` once per Paint rather than
 /// once per Cell.
 ///
-/// An unselected Cell's visuals depend only on its Source Paint fact and its
-/// Output Portal flag (`selected`, `cursor_visible` and the Cursor fill are
-/// all inert when `selected` is false), so the 10 facts × 2 flags are every
-/// answer the walk can need. Each entry is built by calling
+/// An unselected Cell's visuals depend only on its Source Paint fact and the
+/// Portal that paints it, [`painting_portal`]'s answer (`selected`,
+/// `cursor_visible` and the Cursor fill are all inert when `selected` is
+/// false), so the 10 facts × 3 Portal answers are every answer the walk can
+/// need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
-/// indexed load instead of the role match, the Diagnostic/Output Portal
+/// indexed load instead of the role match, the Diagnostic/Portal
 /// blends, the `cell.background` composite and the border priority match.
 ///
 /// Entries are filled on first ask rather than up front. Resolving every
@@ -143,30 +144,42 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 pub(crate) struct SourcePaintVisuals<'a> {
     theme: &'a Theme,
-    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * 2],
+    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS],
 }
+
+/// How many answers [`painting_portal`] gives: none, Input or Output.
+const PORTAL_ANSWERS: usize = 3;
 
 impl<'a> SourcePaintVisuals<'a> {
     pub(crate) fn new(theme: &'a Theme) -> Self {
         Self {
             theme,
-            entries: [None; SOURCE_PAINT_FACTS.len() * 2],
+            entries: [None; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS],
         }
     }
 
     ///
-    /// The visuals of an unselected Cell carrying `paint`, inside a root
-    /// Function's Output Portal Reservation when `output_portal` is true.
+    /// The visuals of an unselected Cell carrying `paint` and playing
+    /// `portal_roles`.
     ///
     #[inline]
-    pub(crate) fn unselected(&mut self, paint: SourcePaint, output_portal: bool) -> CellVisuals {
-        let index = fact_index(paint) * 2 + usize::from(output_portal);
+    pub(crate) fn unselected(
+        &mut self,
+        paint: SourcePaint,
+        portal_roles: PortalRoles,
+    ) -> CellVisuals {
+        let portal = match painting_portal(portal_roles) {
+            None => 0,
+            Some(PortalRole::Input) => 1,
+            Some(PortalRole::Output) => 2,
+        };
+        let index = fact_index(paint) * PORTAL_ANSWERS + portal;
         match self.entries[index] {
             Some(visuals) => visuals,
             None => {
                 let visuals = cell_visuals_with_cursor_colour(
                     paint,
-                    output_portal,
+                    portal_roles,
                     false,
                     false,
                     None,
@@ -209,32 +222,36 @@ fn fact_index(paint: SourcePaint) -> usize {
 
 ///
 /// The ordinary Grid border's colour and width, composited with the
-/// Diagnostic and Output Portal border channels by the same fact priority
+/// Diagnostic and Portal border channels by the same fact priority
 /// [`role_and_portal`] applies to foreground and background —
 /// `.scratch/theming/schema.md`'s composition step 4, "Border channels use
-/// the same fact priority and compose over the ordinary Grid border": Output
-/// Portal over Diagnostic over the plain Grid border, with a bound Function
-/// bypassed exactly as it is there.
+/// the same fact priority and compose over the ordinary Grid border": the
+/// painting Portal over Diagnostic over the plain Grid border, with a bound
+/// Function bypassed exactly as it is there.
 ///
 /// Colour composites with [`blend_channel`], equivalent to the pinned [`Color32::blend`] operation
-/// every other channel in this module uses, so `diagnostic.border`'s and
-/// `output_portal.border`'s transparent Okabe–Ito defaults leave
+/// every other channel in this module uses, so the transparent Okabe–Ito
+/// defaults of `diagnostic.border` and each Portal's border leave
 /// `theme.grid_border` showing unchanged.
 ///
 /// Width is *picked* rather than blended — a stroke has one width, and
 /// composing two would not mean alpha compositing — so whichever channel
 /// wins the same priority decides the stroke's own display-point width.
-/// `diagnostic.border.width`/`output_portal.border.width` at zero therefore
+/// A Diagnostic or Portal border width of zero therefore
 /// hides that Cell's whole border exactly as `grid.border.width` zero
 /// already hides an unaffected Cell's, per schema's "Width 0 hides the
 /// stroke" — extended here to whichever channel is actually drawn once
-/// Diagnostic or Output Portal wins.
+/// Diagnostic or a Portal wins.
 ///
 /// Called only for a Cell keeping the ordinary Grid border: the single-Cell
 /// Cursor's own frame is decided in [`cell_visuals_with_cursor_colour`]
 /// before this function is ever reached.
 ///
-fn ordinary_border(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (Color32, f32) {
+fn ordinary_border(
+    paint: SourcePaint,
+    portal: Option<PortalRole>,
+    theme: &Theme,
+) -> (Color32, f32) {
     let invalid_operand = matches!(
         paint,
         SourcePaint::Operand {
@@ -244,25 +261,71 @@ fn ordinary_border(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (C
     );
     // "A bound Function retains all its own paint inside a Portal" — the
     // same bypass `role_and_portal` applies to foreground and background.
-    let portal_applies = output_portal && paint != SourcePaint::Function;
+    let portal = portal
+        .filter(|_| paint != SourcePaint::Function)
+        .map(|role| PortalChannels::of(role, theme));
 
-    match (invalid_operand, portal_applies) {
-        (false, false) => (theme.grid_border, theme.grid_border_width.points()),
-        (true, false) => (
+    match (invalid_operand, portal) {
+        (false, None) => (theme.grid_border, theme.grid_border_width.points()),
+        (true, None) => (
             blend_channel(theme.grid_border, theme.diagnostic_border),
             theme.diagnostic_border_width.points(),
         ),
-        (false, true) => (
-            blend_channel(theme.grid_border, theme.output_portal_border),
-            theme.output_portal_border_width.points(),
+        (false, Some(portal)) => (
+            blend_channel(theme.grid_border, portal.border),
+            portal.border_width,
         ),
-        (true, true) => (
+        (true, Some(portal)) => (
             blend_channel(
                 blend_channel(theme.grid_border, theme.diagnostic_border),
-                theme.output_portal_border,
+                portal.border,
             ),
-            theme.output_portal_border_width.points(),
+            portal.border_width,
         ),
+    }
+}
+
+///
+/// The Portal whose channels paint a Cell playing `portal_roles`: Output
+/// Portal over Input Portal, so a Cell a Function both reads and writes
+/// shows the write.
+///
+fn painting_portal(portal_roles: PortalRoles) -> Option<PortalRole> {
+    if portal_roles.contains(PortalRole::Output) {
+        Some(PortalRole::Output)
+    } else if portal_roles.contains(PortalRole::Input) {
+        Some(PortalRole::Input)
+    } else {
+        None
+    }
+}
+
+///
+/// One Portal role's Theme channels: `output_portal.*` or `input_portal.*`.
+///
+struct PortalChannels {
+    foreground: Color32,
+    background: Color32,
+    border: Color32,
+    border_width: f32,
+}
+
+impl PortalChannels {
+    fn of(role: PortalRole, theme: &Theme) -> Self {
+        match role {
+            PortalRole::Output => Self {
+                foreground: theme.output_portal_foreground,
+                background: theme.output_portal_background,
+                border: theme.output_portal_border,
+                border_width: theme.output_portal_border_width.points(),
+            },
+            PortalRole::Input => Self {
+                foreground: theme.input_portal_foreground,
+                background: theme.input_portal_background,
+                border: theme.input_portal_border,
+                border_width: theme.input_portal_border_width.points(),
+            },
+        }
     }
 }
 
@@ -340,7 +403,7 @@ pub(crate) fn cell_background(
 
 ///
 /// Foreground and background together, from a Cell's finished Source Paint
-/// fact and whether it lies in a value Function's Output Portal Reservation,
+/// fact and the Portal that paints it,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below
 /// is a direct read of, never a per-Cell walk, match over a table, or hash.
 ///
@@ -354,7 +417,7 @@ pub(crate) fn cell_background(
 /// transparent — reproduce its recorded appearance while an arbitrary custom Theme can
 /// still compose partial alpha correctly. [`role_and_portal`] answers the
 /// foreground and the *raw*, not-yet-composited background (a role's own
-/// channel, blended with Diagnostic and Output Portal as those apply); this
+/// channel, blended with Diagnostic and the painting Portal as those apply); this
 /// function composites that raw answer over `theme.cell_background` and
 /// collapses a fully transparent result to `None` for [`CellVisuals`]'s
 /// existing "nothing to paint" fast path.
@@ -367,9 +430,12 @@ pub(crate) fn cell_background(
 /// | Function | `source.function` | `source.function.background` |
 /// | Operand, Pending/Valid | declared Token colour | declared Token background |
 /// | Operand, Invalid | Token colour ▸ `diagnostic.foreground` | Token background ▸ `diagnostic.background` |
-/// | any non-Function, Portal | above ▸ `output_portal.foreground` | above ▸ `output_portal.background` |
-/// | Bang, Portal | `source.bang` (no blend) | `source.bang.background` ▸ `output_portal.background` |
+/// | any non-Function, Portal | above ▸ Portal foreground | above ▸ Portal background |
+/// | Bang, Portal | `source.bang` (no blend) | `source.bang.background` ▸ Portal background |
 /// | Function, Portal | `source.function` (bypassed) | `source.function.background` (bypassed) |
+///
+/// "Portal" is the painting Portal's channels, `output_portal.*` or
+/// `input_portal.*` (see the next section).
 ///
 /// "▸" is [`Color32::blend`]: the right side composited over the left, so an
 /// opaque right side replaces the left outright and a transparent one leaves
@@ -382,27 +448,33 @@ pub(crate) fn cell_background(
 /// fallback [`crate::paint::Paint::derive_with_theme`] applies when a Cell's
 /// answer here is `None`.
 ///
-/// # Output Portal precedence
+/// # Portal precedence
 ///
-/// `output_portal` (`RenderCell::output_portal()`) is read first, because the
-/// Reservation it names covers every Cell of the Reservation whatever else
+/// `portal` is [`painting_portal`]'s answer from `RenderCell::portal_roles()`:
+/// Output Portal when the Cell plays that role, else Input Portal when it
+/// plays that one. Only one Portal's channels paint a Cell; Output Portal's
+/// win outright rather than compositing over Input Portal's.
+///
+/// The Portal is read first, because the
+/// Cell it names is a Portal Cell whatever else
 /// claims it — a written answer, an
 /// empty Cell still waiting for one, or another Expression's operand slot the
-/// Reservation happens to land on. The one exception is a bound Function
+/// Portal happens to land on; Diagnostic included, so an Invalid operand
+/// inside a Portal draws the Portal foreground. The one exception is a bound Function
 /// claim: a Cell that is itself a Function's own two-Cell spelling keeps its
 /// Function paint
-/// outright, root or nested, the same as when `output_portal` is false. That
+/// outright, root or nested, the same as when no Portal covers it. That
 /// is the smallest rule that both lets a producer's Output Portal show
 /// through a consumer's operand Cells (the written value is the producer's
 /// output) and still lets a reader find the Function that stands on a Cell:
 /// distinguishing a root's own spelling from a nested one would need the
 /// Expression itself, which this decision does not have and does not need.
-/// A Bang answer is the one further exception among non-Function claims: it
-/// keeps its own Bang glyph colour rather than blending with the Output
+/// A Bang is the one further exception among non-Function claims: it
+/// keeps its own Bang glyph colour rather than blending with the
 /// Portal foreground, because a Bang is what a Producer emits rather than a
-/// value it writes, but its background still takes the Output Portal's own
-/// channel in place of Bang's usual transparent one — so a Bang answer still
-/// reads as an Output Portal Cell.
+/// value it writes, but its background still takes the Portal's own
+/// channel in place of Bang's usual transparent one — so a Bang still
+/// reads as a Portal Cell.
 ///
 /// # Otherwise, from the Source Paint fact
 ///
@@ -417,10 +489,10 @@ pub(crate) fn cell_background(
 ///
 fn source_paint_visuals(
     paint: SourcePaint,
-    output_portal: bool,
+    portal: Option<PortalRole>,
     theme: &Theme,
 ) -> (Color32, Option<Color32>) {
-    let (foreground, background) = role_and_portal(paint, output_portal, theme);
+    let (foreground, background) = role_and_portal(paint, portal, theme);
 
     // The `None`/`Some` decision reads `background`'s *own* alpha — before
     // it is composited with `theme.cell_background` — not the composited
@@ -444,33 +516,35 @@ fn source_paint_visuals(
 /// function performs — factored out so [`source_paint_visuals`] is the one
 /// place that composite happens.
 ///
-fn role_and_portal(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (Color32, Color32) {
+fn role_and_portal(
+    paint: SourcePaint,
+    portal: Option<PortalRole>,
+    theme: &Theme,
+) -> (Color32, Color32) {
     let (foreground, background) = role(paint, theme);
 
     if paint == SourcePaint::Function {
         // "A bound Function retains all its own paint inside a Portal."
         return (foreground, background);
     }
-    if output_portal {
+    if let Some(role) = portal {
+        let portal = PortalChannels::of(role, theme);
         let bang = paint == SourcePaint::Bang;
         // "Bang retains its glyph foreground" — no blend at all, not even
-        // with an opaque Output Portal foreground.
+        // with an opaque Portal foreground.
         let foreground = if bang {
             foreground
         } else {
-            blend_channel(foreground, theme.output_portal_foreground)
+            blend_channel(foreground, portal.foreground)
         };
-        return (
-            foreground,
-            blend_channel(background, theme.output_portal_background),
-        );
+        return (foreground, blend_channel(background, portal.background));
     }
     (foreground, background)
 }
 
 ///
 /// The declared role's own foreground and raw background for `paint`, before
-/// Output Portal composition — Diagnostic already applied for an Invalid
+/// Portal composition — Diagnostic already applied for an Invalid
 /// Operand by [`operand_paint`].
 ///
 fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
@@ -746,12 +820,35 @@ pub(crate) fn install(ctx: &egui::Context, dark: &Theme, light: &Theme) {
 mod tests {
 
     use super::{
-        CellVisuals, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_visuals_with_cursor_colour,
-        fact_index, install, sector_line, style,
+        CellVisuals, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_background,
+        cell_visuals_with_cursor_colour, compose_cell_fill, fact_index, install, sector_line,
+        style,
     };
     use crate::theme::{Theme, okabe_ito, orcvs_light};
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
+    use orcvs::render_frame::{PortalRole, PortalRoles};
     use orcvs::source::{OperandState, SourcePaint, Token};
+
+    /// The roles of a Cell only an Output Portal covers.
+    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
+
+    /// The roles of a Cell only an Input Portal covers.
+    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
+
+    /// The roles of a Cell a Function both reads and writes.
+    const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
+
+    /// Every Portal role set a Cell can carry.
+    const ALL_PORTAL_ROLES: [PortalRoles; 4] = [PortalRoles::NONE, INPUT, OUTPUT, BOTH];
+
+    /// [`OUTPUT`] when `output_portal` is true, and no role otherwise.
+    fn output_portal_roles(output_portal: bool) -> PortalRoles {
+        if output_portal {
+            OUTPUT
+        } else {
+            PortalRoles::NONE
+        }
+    }
 
     ///
     /// `fact_index` and `SOURCE_PAINT_FACTS` name the same order, so no two
@@ -766,7 +863,7 @@ mod tests {
 
     ///
     /// The once-per-Paint table answers exactly what the per-Cell definition
-    /// answers for every unselected fact and Output Portal flag, under the
+    /// answers for every unselected fact and Portal role set, under the
     /// built-in and under a Theme whose Cell base and fact channels are all
     /// partly transparent — the case where every composite in
     /// `source_paint_visuals`, `role_and_portal` and `ordinary_border` shows.
@@ -781,24 +878,27 @@ mod tests {
             output_portal_foreground: Color32::from_rgba_unmultiplied(230, 160, 0, 90),
             output_portal_background: Color32::from_rgba_unmultiplied(40, 30, 0, 80),
             output_portal_border: Color32::from_rgba_unmultiplied(230, 160, 0, 50),
+            input_portal_foreground: Color32::from_rgba_unmultiplied(170, 120, 250, 110),
+            input_portal_background: Color32::from_rgba_unmultiplied(30, 20, 60, 70),
+            input_portal_border: Color32::from_rgba_unmultiplied(170, 120, 250, 40),
             ..okabe_ito()
         };
 
         for theme in [okabe_ito(), translucent] {
             let mut table = SourcePaintVisuals::new(&theme);
             for fact in SOURCE_PAINT_FACTS {
-                for output_portal in [false, true] {
+                for roles in ALL_PORTAL_ROLES {
                     assert_eq!(
-                        table.unselected(fact, output_portal),
+                        table.unselected(fact, roles),
                         cell_visuals_with_cursor_colour(
                             fact,
-                            output_portal,
+                            roles,
                             false,
                             false,
                             theme.cursor_background,
                             &theme,
                         ),
-                        "{fact:?}, output_portal: {output_portal}"
+                        "{fact:?}, {roles:?}"
                     );
                 }
             }
@@ -825,9 +925,14 @@ mod tests {
     /// layer's subject is the colour a finished fact paints, not the fact.
     ///
     fn painted(paint: SourcePaint, output_portal: bool, theme: &Theme) -> CellVisuals {
+        painted_in(paint, output_portal_roles(output_portal), theme)
+    }
+
+    /// [`painted`] for a Cell playing any set of Portal roles.
+    fn painted_in(paint: SourcePaint, portal_roles: PortalRoles, theme: &Theme) -> CellVisuals {
         cell_visuals_with_cursor_colour(
             paint,
-            output_portal,
+            portal_roles,
             false,
             false,
             Some(theme.selection_background),
@@ -1518,7 +1623,7 @@ mod tests {
         let cursor_colour = Some(theme.selection_background);
         let ordinary = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            false,
+            PortalRoles::NONE,
             false,
             false,
             cursor_colour,
@@ -1526,7 +1631,7 @@ mod tests {
         );
         let selected = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            false,
+            PortalRoles::NONE,
             true,
             false,
             cursor_colour,
@@ -1534,7 +1639,7 @@ mod tests {
         );
         let cursor = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            false,
+            PortalRoles::NONE,
             true,
             true,
             cursor_colour,
@@ -1567,7 +1672,7 @@ mod tests {
         };
         let ordinary = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            false,
+            PortalRoles::NONE,
             false,
             false,
             None,
@@ -1582,7 +1687,7 @@ mod tests {
         };
         let selected = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            false,
+            PortalRoles::NONE,
             true,
             false,
             None,
@@ -1597,7 +1702,7 @@ mod tests {
         };
         let cursor = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            false,
+            PortalRoles::NONE,
             true,
             true,
             None,
@@ -1624,7 +1729,7 @@ mod tests {
         assert_eq!(
             super::cell_visuals_with_cursor_colour(
                 SourcePaint::Unclaimed,
-                false,
+                PortalRoles::NONE,
                 true,
                 true,
                 None,
@@ -1636,7 +1741,7 @@ mod tests {
         assert_eq!(
             super::cell_visuals_with_cursor_colour(
                 SourcePaint::Unclaimed,
-                false,
+                PortalRoles::NONE,
                 true,
                 true,
                 Some(colour),
@@ -1652,7 +1757,7 @@ mod tests {
         assert_eq!(
             super::cell_visuals_with_cursor_colour(
                 SourcePaint::Unclaimed,
-                false,
+                PortalRoles::NONE,
                 true,
                 true,
                 Some(Color32::TRANSPARENT),
@@ -1844,7 +1949,7 @@ mod tests {
         let tinted_function = theme.source_function_background;
         let unselected = super::cell_visuals_with_cursor_colour(
             SourcePaint::Function,
-            false,
+            PortalRoles::NONE,
             false,
             false,
             Some(cursor_colour),
@@ -1852,7 +1957,7 @@ mod tests {
         );
         let selected = super::cell_visuals_with_cursor_colour(
             SourcePaint::Function,
-            false,
+            PortalRoles::NONE,
             true,
             false,
             Some(cursor_colour),
@@ -1860,7 +1965,7 @@ mod tests {
         );
         let cursor = super::cell_visuals_with_cursor_colour(
             SourcePaint::Function,
-            false,
+            PortalRoles::NONE,
             true,
             true,
             Some(cursor_colour),
@@ -2195,7 +2300,7 @@ mod tests {
 
         let cursor = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
-            true,
+            OUTPUT,
             true,
             true,
             Some(cursor_colour),
@@ -2203,6 +2308,205 @@ mod tests {
         );
 
         assert_eq!(cursor.background, Some(cursor_colour));
+    }
+
+    // === Input Portal, and Output Portal over it ===
+
+    ///
+    /// Input Portal takes precedence over every non-Function, non-Bang fact,
+    /// Diagnostic included: each draws the Input Portal foreground over its
+    /// own, on its own raw role background with the Input Portal background
+    /// composited on top — the same rule Output Portal follows
+    /// (`output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell`,
+    /// `invalid_operand_under_output_portal_takes_the_portal_colour`).
+    ///
+    #[test]
+    fn input_portal_paints_over_every_non_function_fact_including_diagnostic() {
+        for theme in [okabe_ito(), orcvs_light()] {
+            for (paint, role_background) in [
+                (SourcePaint::Unclaimed, theme.source_ordinary_background),
+                (SourcePaint::Comment, theme.source_comment_background),
+                (
+                    operand(Token::Number, OperandState::Valid),
+                    theme.source_number_background,
+                ),
+                (
+                    operand(Token::Number, OperandState::Invalid),
+                    theme.source_number_background,
+                ),
+                (
+                    operand(Token::Note, OperandState::Valid),
+                    theme.source_note_background,
+                ),
+                (
+                    operand(Token::Note, OperandState::Invalid),
+                    theme.source_note_background,
+                ),
+            ] {
+                let visuals = painted_in(paint, INPUT, &theme);
+                assert_eq!(
+                    visuals.foreground, theme.input_portal_foreground,
+                    "{}: {paint:?} did not draw the Input Portal colour",
+                    theme.identity
+                );
+                assert_eq!(
+                    visuals.background,
+                    Some(
+                        theme
+                            .cell_background
+                            .blend(role_background.blend(theme.input_portal_background))
+                    ),
+                    "{}: {paint:?} did not carry its role background under the Input Portal tint",
+                    theme.identity
+                );
+            }
+        }
+    }
+
+    ///
+    /// A Bang keeps its own glyph colour inside an Input Portal and takes the
+    /// Input Portal's background, as it does inside an Output Portal.
+    ///
+    #[test]
+    fn input_portal_keeps_the_bang_glyph_colour_but_takes_its_own_tint() {
+        let theme = okabe_ito();
+
+        let bang = painted_in(SourcePaint::Bang, INPUT, &theme);
+
+        assert_eq!(bang.foreground, theme.source_bang);
+        assert_eq!(bang.background, Some(theme.input_portal_background));
+    }
+
+    ///
+    /// A bound Function keeps all its own paint whichever Portal roles its
+    /// Cell plays, borders included.
+    ///
+    #[test]
+    fn a_bound_function_spelling_wins_over_every_portal_role() {
+        let theme = Theme {
+            output_portal_border: Color32::from_rgb(30, 30, 200),
+            input_portal_border: Color32::from_rgb(200, 30, 200),
+            ..okabe_ito()
+        };
+        let ordinary = painted_in(SourcePaint::Function, PortalRoles::NONE, &theme);
+
+        for roles in [INPUT, OUTPUT, BOTH] {
+            assert_eq!(
+                painted_in(SourcePaint::Function, roles, &theme),
+                ordinary,
+                "{roles:?} changed a Function's own paint"
+            );
+        }
+    }
+
+    ///
+    /// An Invalid operand inside an Input Portal takes the Input Portal's own
+    /// border colour and width over the Diagnostic border, as foreground and
+    /// background do.
+    ///
+    #[test]
+    fn input_portal_border_takes_precedence_over_diagnostic_border() {
+        let theme = Theme {
+            diagnostic_border: Color32::from_rgb(200, 30, 30),
+            input_portal_border: Color32::from_rgb(200, 30, 200),
+            input_portal_border_width: crate::theme::GridWidth::from_points(0.25)
+                .expect("0.25 is within 0..=1"),
+            ..okabe_ito()
+        };
+
+        let invalid = painted_in(operand(Token::Number, OperandState::Invalid), INPUT, &theme);
+
+        assert_eq!(invalid.border, theme.input_portal_border);
+        assert_eq!(invalid.border_width, 0.25);
+    }
+
+    ///
+    /// A Cell that plays both Portal roles paints exactly as an Output Portal
+    /// Cell, for every fact: Output Portal's channels win outright over Input
+    /// Portal's, foreground, background and border alike, rather than
+    /// compositing over them. The fixture gives each Portal a distinct,
+    /// translucent value on every channel, so a composite would show.
+    ///
+    #[test]
+    fn output_portal_wins_over_input_portal_on_every_channel() {
+        let theme = Theme {
+            output_portal_foreground: Color32::from_rgba_unmultiplied(230, 160, 0, 200),
+            output_portal_background: Color32::from_rgba_unmultiplied(230, 160, 0, 60),
+            output_portal_border: Color32::from_rgba_unmultiplied(230, 160, 0, 120),
+            output_portal_border_width: crate::theme::GridWidth::from_points(0.75)
+                .expect("0.75 is within 0..=1"),
+            input_portal_foreground: Color32::from_rgba_unmultiplied(170, 120, 250, 200),
+            input_portal_background: Color32::from_rgba_unmultiplied(170, 120, 250, 60),
+            input_portal_border: Color32::from_rgba_unmultiplied(170, 120, 250, 120),
+            input_portal_border_width: crate::theme::GridWidth::from_points(0.25)
+                .expect("0.25 is within 0..=1"),
+            ..okabe_ito()
+        };
+
+        for fact in SOURCE_PAINT_FACTS {
+            assert_eq!(
+                painted_in(fact, BOTH, &theme),
+                painted_in(fact, OUTPUT, &theme),
+                "{fact:?}"
+            );
+        }
+        let both = painted_in(SourcePaint::Unclaimed, BOTH, &theme);
+        let input = painted_in(SourcePaint::Unclaimed, INPUT, &theme);
+        assert_ne!(both.foreground, input.foreground);
+        assert_ne!(both.background, input.background);
+        assert_ne!(both.border, input.border);
+        assert_eq!(both.border_width, 0.75);
+    }
+
+    ///
+    /// Cursor and Region keep their precedence over Input Portal: the
+    /// single-Cell Cursor's own fill and border win on its Cell, and the
+    /// Cursor's Cell inside a spanning Region takes the Region Cursor fill.
+    /// Every other Region Cell keeps the Input Portal background, because a
+    /// visible fact fill suppresses the Region fill.
+    ///
+    #[test]
+    fn cursor_and_region_keep_their_precedence_over_input_portal() {
+        let theme = Theme {
+            region_cursor_background: Some(Color32::from_rgb(4, 5, 6)),
+            ..okabe_ito()
+        };
+        let cursor_colour = Color32::from_rgb(9, 8, 7);
+
+        let cursor = cell_visuals_with_cursor_colour(
+            SourcePaint::Unclaimed,
+            INPUT,
+            true,
+            true,
+            Some(cursor_colour),
+            &theme,
+        );
+        assert_eq!(cursor.background, Some(cursor_colour));
+        assert_eq!(cursor.border, theme.selection_border);
+
+        let unselected = painted_in(SourcePaint::Unclaimed, INPUT, &theme);
+        let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
+        let region_cursor = cell_background(
+            unselected.background,
+            true,
+            false,
+            theme.region_cursor_fill(),
+            region_fill,
+            None,
+            theme.cell_background,
+        );
+        assert_eq!(region_cursor, Some(Color32::from_rgb(4, 5, 6)));
+
+        let region_cell = cell_background(
+            unselected.background,
+            false,
+            true,
+            theme.region_cursor_fill(),
+            region_fill,
+            None,
+            theme.cell_background,
+        );
+        assert_eq!(region_cell, Some(theme.input_portal_background));
     }
 
     ///
@@ -2219,7 +2523,7 @@ mod tests {
 
         let unselected = cell_visuals_with_cursor_colour(
             operand(Token::Number, OperandState::Invalid),
-            false,
+            PortalRoles::NONE,
             false,
             false,
             Some(cursor_colour),
@@ -2227,7 +2531,7 @@ mod tests {
         );
         let cursor = cell_visuals_with_cursor_colour(
             operand(Token::Number, OperandState::Invalid),
-            false,
+            PortalRoles::NONE,
             true,
             true,
             Some(cursor_colour),
@@ -2534,7 +2838,7 @@ mod tests {
         for case in cases {
             let visuals = cell_visuals_with_cursor_colour(
                 case.fact,
-                case.output_portal,
+                output_portal_roles(case.output_portal),
                 case.selected,
                 case.cursor_visible,
                 cursor_colour,

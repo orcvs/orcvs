@@ -2,11 +2,16 @@
 //! is blocked or bangs where it stops, and how emissions and moves contest Cells
 //! in Source order.
 
+use lang::Function;
+
 use crate::grid::Grid;
 use crate::source::language_map::LanguageUnitKind;
 
+use super::PortalError;
 use super::fixture::{messages, tick_by_tick};
-use super::observed::raw;
+use super::observed::{Refused, accesses, bundles, committed_portals, painted, raw, writes};
+use super::portals::{BundlePart, PortalOrigin};
+use crate::render_frame::PortalRole;
 
 #[test]
 fn a_self_banging_function_advances_its_whole_span_by_one_cell() {
@@ -195,6 +200,47 @@ fn a_movers_new_cells_can_be_overwritten_after_its_turn() {
         plans[0].diagnostics.is_empty(),
         "{:?}",
         plans[0].diagnostics
+    );
+}
+
+#[test]
+fn reads_and_writes_keep_their_order_and_owners_when_a_mover_rewrites_the_source() {
+    // The mover leaves (2, 0) for (2, 1), and `=^` then writes `03` over the
+    // Cells it moved into. Each access is still the mover's, `=^`'s or `.+`'s
+    // as their Turns made it, in the order they were made: `=^` and `.+` are
+    // independent, so `=^` goes first in Grid order.
+    let (_, _, source) = tick_by_tick(
+        Grid::with_shape(8, 5),
+        &["  vv", "", "  =^", ".+0300", ""],
+        1,
+    );
+    let record = committed_portals(&source);
+    assert_eq!(
+        accesses(&record),
+        [
+            ((2, 0), Function::SelfBangingSouth, "bundle"),
+            ((2, 0), Function::SelfBangingSouth, "bundle"),
+            ((2, 2), Function::CopyNorth, "read"),
+            ((2, 2), Function::CopyNorth, "write"),
+            ((0, 3), Function::Add, "write"),
+        ]
+    );
+    assert_eq!(
+        writes(&record),
+        [
+            (
+                (2, 2),
+                Function::CopyNorth,
+                PortalOrigin::Declared,
+                Ok(vec![(2, 1), (3, 1)])
+            ),
+            (
+                (0, 3),
+                Function::Add,
+                PortalOrigin::Declared,
+                Ok(vec![(0, 4), (1, 4)])
+            ),
+        ]
     );
 }
 
@@ -966,5 +1012,142 @@ fn a_self_banging_function_is_not_scheduled_inside_another_expression() {
             .map(|diagnostic| diagnostic.message.as_str())
             .collect::<Vec<_>>(),
         ["a Function that answers an effect is valid only at the root of an Expression"]
+    );
+}
+
+#[test]
+fn a_move_records_its_vacate_then_its_place_and_paints_neither() {
+    let (_, grids, source) = tick_by_tick(Grid::with_shape(6, 3), &["", "vv", ""], 1);
+    assert_eq!(grids[0], ["      ", "      ", "vv    "]);
+    assert_eq!(
+        bundles(&committed_portals(&source)),
+        [
+            (
+                (0, 1),
+                Function::SelfBangingSouth,
+                BundlePart::Vacate,
+                Ok(vec![(0, 1), (1, 1)])
+            ),
+            (
+                (0, 1),
+                Function::SelfBangingSouth,
+                BundlePart::Place,
+                Ok(vec![(0, 2), (1, 2)])
+            ),
+        ]
+    );
+    assert_eq!(painted(source, PortalRole::Output), []);
+}
+
+#[test]
+fn a_blocked_move_records_its_refused_place_then_the_bang_it_leaves() {
+    // Past the row edge, the destination's Position is kept; off the Grid,
+    // there is none. Neither paints.
+    let at = |x, y| Some((x, y));
+    for (grid, rows, mover, refused, left) in [
+        (
+            Grid::with_shape(6, 1),
+            vec!["    >>"],
+            ((4, 0), Function::SelfBangingEast),
+            Refused::Portal(PortalError::CrossesRowEdge, at(5, 0)),
+            vec![(4, 0), (5, 0)],
+        ),
+        (
+            Grid::with_shape(4, 2),
+            vec!["^^", ""],
+            ((0, 0), Function::SelfBangingNorth),
+            Refused::Portal(PortalError::OutsideGrid, None),
+            vec![(0, 0), (1, 0)],
+        ),
+    ] {
+        let (_, _, source) = tick_by_tick(grid, &rows, 1);
+        let (anchor, function) = mover;
+        assert_eq!(
+            bundles(&committed_portals(&source)),
+            [
+                (anchor, function, BundlePart::Place, Err(refused)),
+                (anchor, function, BundlePart::LeftBang, Ok(left)),
+            ],
+            "{rows:?}"
+        );
+        assert_eq!(painted(source, PortalRole::Output), [], "{rows:?}");
+    }
+}
+
+#[test]
+fn a_move_blocked_by_occupied_cells_records_the_cells_it_needed() {
+    // `.+` writes `03` over (1, 1) first, so `<<` cannot step into it.
+    let (_, grids, source) = tick_by_tick(Grid::with_shape(8, 3), &[".+0102", "  <<", ""], 1);
+    assert_eq!(grids[0], [".+0102  ", "03**    ", "        "]);
+    let record = committed_portals(&source);
+    assert_eq!(
+        accesses(&record),
+        [
+            ((0, 0), Function::Add, "write"),
+            ((2, 1), Function::SelfBangingWest, "bundle"),
+            ((2, 1), Function::SelfBangingWest, "bundle"),
+        ]
+    );
+    assert_eq!(
+        bundles(&record),
+        [
+            (
+                (2, 1),
+                Function::SelfBangingWest,
+                BundlePart::Place,
+                Err(Refused::Occupied(vec![(1, 1), (2, 1)]))
+            ),
+            (
+                (2, 1),
+                Function::SelfBangingWest,
+                BundlePart::LeftBang,
+                Ok(vec![(2, 1), (3, 1)])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_refused_emission_records_its_refused_place_and_nothing_else() {
+    // Occupied: `vv` stands in the destination of `*v` and moves only after
+    // the emission's Turn. Off the Grid: `*v` stands on the last row.
+    let (_, _, source) = tick_by_tick(Grid::with_shape(8, 4), &[".=0101", "  *v", "  vv", ""], 1);
+    assert_eq!(
+        bundles(&committed_portals(&source)),
+        [
+            (
+                (2, 1),
+                Function::DirectionalBangSouth,
+                BundlePart::Place,
+                Err(Refused::Occupied(vec![(2, 2), (3, 2)]))
+            ),
+            (
+                (2, 2),
+                Function::SelfBangingSouth,
+                BundlePart::Vacate,
+                Ok(vec![(2, 2), (3, 2)])
+            ),
+            (
+                (2, 2),
+                Function::SelfBangingSouth,
+                BundlePart::Place,
+                Ok(vec![(2, 3), (3, 3)])
+            ),
+        ]
+    );
+
+    let (plans, _, source) = tick_by_tick(Grid::with_shape(8, 2), &[".=0101", "  *v"], 1);
+    assert_eq!(
+        messages(&plans[0]),
+        ["*v has no empty destination inside the Grid for vv"]
+    );
+    assert_eq!(
+        bundles(&committed_portals(&source)),
+        [(
+            (2, 1),
+            Function::DirectionalBangSouth,
+            BundlePart::Place,
+            Err(Refused::Portal(PortalError::OutsideGrid, None))
+        )]
     );
 }

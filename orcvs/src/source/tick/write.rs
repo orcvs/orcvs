@@ -7,13 +7,16 @@
 //! order that Turn takes against the readers of that pair and against what
 //! feeds the Write.
 
-use lang::Tick;
+use lang::{Function, Tick};
 
+use super::PortalError;
 use super::observed::{
-    MISSED_BANG, diagnostic, first, observe_at, observed, quiet, raw, rows_of, source_of,
-    turn_before, turns,
+    MISSED_BANG, accesses, committed_portals, diagnostic, first, observe_at, observed, painted,
+    quiet, raw, rows_of, source_of, turn_before, turns, writes,
 };
+use super::portals::{PortalOrigin, WriteRefusal};
 use crate::grid::Grid;
+use crate::render_frame::PortalRole;
 use crate::source::Source;
 use crate::source::language_map::LanguageUnitKind;
 
@@ -607,4 +610,168 @@ fn a_read_nested_in_a_write_copies_one_pair_to_another_place() {
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(plan.play_commands.len(), 1);
+}
+
+#[test]
+fn a_write_is_recorded_where_it_landed_and_paints_there() {
+    // A selected write's pair is known only at its Turn, so before any Tick
+    // nothing paints it; once the Tick commits, its Cells play Output.
+    let grid = Grid::with_shape(8, 3);
+    let rows = ["@$0602C4", "xxxxxxxx"];
+    assert_eq!(painted(source_of(grid, &rows), PortalRole::Output), []);
+
+    let mut source = source_of(grid, &rows);
+    source.execute(Tick::ZERO);
+    assert_eq!(
+        writes(&committed_portals(&source)),
+        [(
+            (0, 0),
+            Function::AbsoluteWrite,
+            PortalOrigin::Selected,
+            Ok(vec![(6, 2), (7, 2)])
+        )]
+    );
+    assert_eq!(painted(source, PortalRole::Output), [(6, 2), (7, 2)]);
+}
+
+#[test]
+fn a_refused_write_keeps_its_geometric_reason_and_paints_nothing() {
+    // The attempted Position is kept where one resolved inside the Grid: the
+    // pair that starts at (7, 0) is cut short by the row edge, and a site
+    // outside the Grid has no Position at all.
+    let grid = Grid::with_shape(8, 2);
+    let at = |x, y| Some(grid.position(x, y).expect("inside the Grid"));
+    for (row, function, error, attempted) in [
+        (
+            "@$0800C4",
+            Function::AbsoluteWrite,
+            PortalError::OutsideGrid,
+            None,
+        ),
+        (
+            "@>FFC4",
+            Function::WriteEast,
+            PortalError::OutsideGrid,
+            None,
+        ),
+        (
+            "@$0700C4",
+            Function::AbsoluteWrite,
+            PortalError::CrossesRowEdge,
+            at(7, 0),
+        ),
+    ] {
+        let mut source = source_of(grid, &[row, "xxxxxxxx"]);
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            writes(&committed_portals(&source)),
+            [(
+                (0, 0),
+                function,
+                PortalOrigin::Selected,
+                Err(WriteRefusal::Portal {
+                    error,
+                    at: attempted
+                })
+            )],
+            "{row}"
+        );
+        assert_eq!(painted(source, PortalRole::Output), [], "{row}");
+    }
+}
+
+#[test]
+fn a_turn_records_its_writes_in_order_with_the_owner_that_made_each() {
+    // The nested Write is refused before its parent answers, and the parent
+    // still writes at the pair it declares.
+    let mut source = source_of(Grid::with_shape(12, 2), &[".+@$FF010503"]);
+    source.execute(Tick::ZERO);
+    assert_eq!(
+        writes(&committed_portals(&source)),
+        [
+            (
+                (2, 0),
+                Function::AbsoluteWrite,
+                PortalOrigin::Selected,
+                Err(WriteRefusal::Portal {
+                    error: PortalError::OutsideGrid,
+                    at: None
+                })
+            ),
+            (
+                (0, 0),
+                Function::Add,
+                PortalOrigin::Declared,
+                Ok(vec![(0, 1), (1, 1)])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn an_owner_the_tick_overwrote_after_its_turn_still_owns_its_write() {
+    // The nested `.+` writes `02` south of itself, and the Write it feeds
+    // then puts `02` over the Cells `.+` stood in. The committed Source holds
+    // no `.+`, and the record still names it.
+    let mut source = source_of(Grid::with_shape(12, 2), &["@$0600.+0101"]);
+    source.execute(Tick::ZERO);
+    assert_eq!(rows_of(&source)[0], "@$0600020101");
+    assert_eq!(
+        writes(&committed_portals(&source)),
+        [
+            (
+                (6, 0),
+                Function::Add,
+                PortalOrigin::Declared,
+                Ok(vec![(6, 1), (7, 1)])
+            ),
+            (
+                (0, 0),
+                Function::AbsoluteWrite,
+                PortalOrigin::Selected,
+                Ok(vec![(6, 0), (7, 0)])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_replaced_function_owns_its_writes_as_the_function_its_turn_ran() {
+    // The Write replaces `.+` at (0, 1) with the `.-` its nested Read
+    // passes on, before `.+` takes its Turn. That Turn runs `.-`, and its
+    // write is recorded as `.-`'s, after the write that replaced it. The
+    // `.-` at (0, 3) depends on none of it and comes last in Grid order.
+    let mut source = source_of(
+        Grid::with_shape(12, 5),
+        &["@$0001&$0003", ".+0302", "xx", ".-0101"],
+    );
+    source.execute(Tick::ZERO);
+    let record = committed_portals(&source);
+    assert_eq!(
+        accesses(&record),
+        [
+            ((6, 0), Function::AbsoluteRead, "read"),
+            ((6, 0), Function::AbsoluteRead, "write"),
+            ((0, 0), Function::AbsoluteWrite, "write"),
+            ((0, 1), Function::Subtract, "write"),
+            ((0, 3), Function::Subtract, "write"),
+        ]
+    );
+    assert_eq!(
+        writes(&record)[1..3],
+        [
+            (
+                (0, 0),
+                Function::AbsoluteWrite,
+                PortalOrigin::Selected,
+                Ok(vec![(0, 1), (1, 1)])
+            ),
+            (
+                (0, 1),
+                Function::Subtract,
+                PortalOrigin::Declared,
+                Ok(vec![(0, 2), (1, 2)])
+            ),
+        ]
+    );
 }

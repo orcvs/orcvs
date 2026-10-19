@@ -54,7 +54,7 @@ use eframe::egui_wgpu::{self, RenderState};
 use egui::{Key, Modifiers, Rect, Vec2};
 use egui_kittest::Harness;
 use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state, default_wgpu_setup};
-use orcvs::render_frame::RenderFrame;
+use orcvs::render_frame::{PortalRole, RenderFrame};
 use orcvs::source::{OperandState, Source, SourceCommander, SourcePaint, Token, file};
 
 use super::super::tests::start_console;
@@ -354,7 +354,7 @@ fn states_drawn(
             }
             SourcePaint::Unclaimed => {}
         }
-        if cell.output_portal() {
+        if cell.portal_roles().contains(PortalRole::Output) {
             drawn.insert("Output Portal");
         }
         if painted.sector_left.is_some() || painted.sector_top.is_some() {

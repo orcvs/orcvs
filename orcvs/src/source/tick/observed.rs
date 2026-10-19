@@ -3,11 +3,17 @@
 
 use std::collections::BTreeMap;
 
-use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
+use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::{plan, shared_schedule};
+use super::portals::{
+    BundlePart, BundleRefusal, LockVerdict, PortalEvent, PortalOrigin, TickPortals, WriteRefusal,
+};
+use super::{PortalError, plan, shared_schedule};
 use crate::grid::Grid;
-use crate::source::{Cells, Source, TickPlan};
+use crate::opts::{CursorBloomRadius, SectorSeamSpacing};
+use crate::region::Region;
+use crate::render_frame::{PortalRole, RenderFrame, RenderFrameConfig};
+use crate::source::{Cells, Freshness, Source, SourceCommander, Span, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
 pub(super) const MISSED_BANG: &str = "Bang reached a root that has taken its Turn";
@@ -132,6 +138,206 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
         .iter()
         .zip(&states)
         .map(|(node, state)| ((node.anchor.x(), node.anchor.y()), state.turn()))
+        .collect()
+}
+
+/// One Portal read Tick zero of `rows` recorded: its owner's anchor and
+/// Function, its origin, and the Cells it read or why it read none.
+pub(super) type ObservedRead = (
+    (usize, usize),
+    Function,
+    PortalOrigin,
+    Result<Vec<(usize, usize)>, PortalError>,
+);
+
+/// Every read the Tick Portals of Tick zero of `rows` recorded, in order.
+pub(super) fn reads(grid: Grid, rows: &[&str]) -> Vec<ObservedRead> {
+    let source = source_of(grid, rows);
+    let map = source.shared_language_map();
+    let bytes = source.snapshot();
+    let (executed, _) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    executed
+        .portals()
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Read { origin, site } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                *origin,
+                site.map(|span| cells_of(span.span())),
+            ))
+        })
+        .collect()
+}
+
+/// The Cells of `span`, by column and row.
+fn cells_of(span: Span) -> Vec<(usize, usize)> {
+    span.positions()
+        .map(|position| (position.x(), position.y()))
+        .collect()
+}
+
+/// The record the last Tick `source` committed left, while `source` is still
+/// at the revision that commit left.
+pub(super) fn committed_portals(source: &Source) -> TickPortals {
+    let freshness = source
+        .committed_tick_portals()
+        .map(|committed| (committed.freshness, committed.record));
+    match freshness {
+        Some((Freshness::Current, record)) => TickPortals::clone(&record),
+        other => panic!(
+            "a Tick committed a record at this revision, not {:?}",
+            other.map(|(freshness, _)| freshness)
+        ),
+    }
+}
+
+/// One Portal write a Tick recorded: its owner's anchor and Function, its
+/// origin, and the Cells it was admitted to or why it was refused.
+pub(super) type ObservedWrite = (
+    (usize, usize),
+    Function,
+    PortalOrigin,
+    Result<Vec<(usize, usize)>, WriteRefusal>,
+);
+
+/// Every write `record` holds, in order.
+pub(super) fn writes(record: &TickPortals) -> Vec<ObservedWrite> {
+    record
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Write { origin, outcome } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                *origin,
+                outcome.map(|span| cells_of(span.span())),
+            ))
+        })
+        .collect()
+}
+
+/// One Halt lock a Tick recorded: its owner's anchor and Function, the site
+/// it declares or why that site is outside the Grid, and what it did there.
+pub(super) type ObservedLock = (
+    (usize, usize),
+    Function,
+    Result<(usize, usize), PortalError>,
+    LockVerdict,
+);
+
+/// Every lock `record` holds, in order.
+pub(super) fn locks(record: &TickPortals) -> Vec<ObservedLock> {
+    record
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Lock { site, verdict } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                site.map(|site| (site.x(), site.y())),
+                *verdict,
+            ))
+        })
+        .collect()
+}
+
+/// Why a Source Bundle part was refused, by column and row.
+#[derive(Debug, PartialEq)]
+pub(super) enum Refused {
+    /// The Portal's reason, and the Position it was attempted from.
+    Portal(PortalError, Option<(usize, usize)>),
+    /// The Cells the destination needed that were not vacant.
+    Occupied(Vec<(usize, usize)>),
+}
+
+/// One Source Bundle part a Tick recorded: its owner's anchor and Function,
+/// which part, and the Cells it wrote or why it was refused.
+pub(super) type ObservedBundle = (
+    (usize, usize),
+    Function,
+    BundlePart,
+    Result<Vec<(usize, usize)>, Refused>,
+);
+
+/// Every Source Bundle part `record` holds, in order.
+pub(super) fn bundles(record: &TickPortals) -> Vec<ObservedBundle> {
+    record
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Bundle { part, outcome } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                *part,
+                match outcome {
+                    Ok(span) => Ok(cells_of(span.span())),
+                    Err(BundleRefusal::Portal { error, at }) => {
+                        Err(Refused::Portal(*error, at.map(|at| (at.x(), at.y()))))
+                    }
+                    Err(BundleRefusal::Occupied(span)) => {
+                        Err(Refused::Occupied(cells_of(span.span())))
+                    }
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Which access each entry of `record` is, with its owner's anchor and
+/// Function, in the order execution made them.
+pub(super) fn accesses(record: &TickPortals) -> Vec<((usize, usize), Function, &'static str)> {
+    record
+        .uses()
+        .iter()
+        .map(|access| {
+            let anchor = access.anchor();
+            let kind = match access.event() {
+                PortalEvent::Read { .. } => "read",
+                PortalEvent::Write { .. } => "write",
+                PortalEvent::Lock { .. } => "lock",
+                PortalEvent::Bundle { .. } => "bundle",
+            };
+            ((anchor.x(), anchor.y()), access.function(), kind)
+        })
+        .collect()
+}
+
+/// The Cells a Render Frame derived from `source`'s current revision paints
+/// in `role`, by column and row.
+pub(super) fn painted(source: Source, role: PortalRole) -> Vec<(usize, usize)> {
+    let grid = source.grid();
+    let frame = RenderFrame::derive(
+        SourceCommander::with_source(source).read_revision(),
+        Region::at(grid, grid.origin()),
+        false,
+        RenderFrameConfig {
+            sector_seam_spacing: SectorSeamSpacing::new(2).expect("a seam spacing"),
+            cursor_bloom_radius: CursorBloomRadius::new(1).expect("a bloom radius"),
+        },
+    );
+    frame
+        .cells()
+        .iter()
+        .filter(|cell| cell.portal_roles().contains(role))
+        .map(|cell| (cell.position().x(), cell.position().y()))
         .collect()
 }
 

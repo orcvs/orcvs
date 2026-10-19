@@ -40,6 +40,7 @@ fn a_bang_activates_its_aligned_neighbours_and_no_further_root() {
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     // North of the Bang, then south. The root at row 4 is two rows from
     // the Bang and never performs.
@@ -200,6 +201,7 @@ fn a_bang_rejected_in_a_typed_operand_never_activates() {
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![]);
     assert_eq!(planned(&plan), vec![(20, '*'), (21, '*')]);
@@ -221,6 +223,7 @@ fn a_result_written_over_a_standing_bang_joins_nothing() {
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let plan = plan.into_plan();
 
     assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
     assert_eq!(

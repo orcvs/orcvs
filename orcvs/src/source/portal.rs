@@ -108,10 +108,10 @@ pub(super) enum PortalUnit {
 /// instead. A producer distinguishes them only to say which it was.
 ///
 /// Whether the content can be Cells at all is not among them. That is true of
-/// a value wherever it lands and is settled by [`Encoding`] before a
+/// a value wherever it lands and is settled by the encoding before a
 /// destination is asked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PortalError {
+pub enum PortalError {
     /// There is no row below the producer's root, so no default Portal
     /// exists at all.
     BelowSource,

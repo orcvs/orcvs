@@ -12,11 +12,13 @@ use crate::grid::{CellIndex, Grid, Position};
 
 use std::collections::BTreeSet;
 
-use super::buffer::SourceBuffer;
+use super::buffer::{EditedCells, SourceBuffer};
 use super::language_map::{LanguageMap, Span};
 use super::tick;
+use super::tick::ExecutedTick;
 use super::tick::execution::ComputationState;
-use super::{CellContent, SourceError};
+use super::tick::portals::TickPortals;
+use super::{CellContent, CommittedRecord, Freshness, SourceError};
 
 const SPACE_BYTE: u8 = b' ';
 
@@ -138,6 +140,17 @@ pub struct Source {
     inner: SourceBuffer,
     language_map: Arc<LanguageMap>,
     revision: RevisionId,
+    /// The Tick Portals the last committed Tick recorded, and the revision
+    /// that commit left. `None` until a Tick commits.
+    tick_portals: Option<CommittedPortals>,
+}
+
+/// One committed Tick's record, the revision its commit left the Source at,
+/// and the Cells an edit has written since.
+struct CommittedPortals {
+    record: Arc<TickPortals>,
+    revision: RevisionId,
+    edited: EditedCells,
 }
 
 static NEXT_REVISION_ID: AtomicU64 = AtomicU64::new(1);
@@ -234,6 +247,7 @@ impl Source {
             inner,
             language_map,
             revision: RevisionId::mint(),
+            tick_portals: None,
         }
     }
 
@@ -286,6 +300,7 @@ impl Source {
     /// the console observes, so the edit reports nothing of its own.
     ///
     fn edit(&mut self, cell: CellIndex, byte: CellContent) {
+        self.mark_edited(cell);
         self.set_source(cell, byte);
         // One Cell changes one row, and a row is the largest thing a Cell can
         // change: a run never crosses the row edge.
@@ -360,9 +375,8 @@ impl Source {
     pub fn execute(&mut self, tick: Tick) -> TickPlan {
         // What each computation's Turn did is discarded here: a Playback
         // Engine applies a Tick Plan and asks nothing about how it was reached.
-        let (plan, _) = self.plan_tick(tick);
-        self.commit_tick(&plan);
-        plan
+        let (executed, _) = self.plan_tick(tick);
+        self.commit_tick(executed)
     }
 
     ///
@@ -377,27 +391,66 @@ impl Source {
         tick: Tick,
         destinations: &std::collections::BTreeMap<CellIndex, Vec<crate::grid::Position>>,
     ) -> (TickPlan, Vec<ComputationState>) {
-        let (plan, states) = super::tick::plan_carrying(
+        let (executed, states) = super::tick::plan_carrying(
             self.grid,
             self.inner.cells(),
             &self.language_map,
             tick,
             destinations,
         );
-        self.commit_tick(&plan);
-        (plan, states)
+        (self.commit_tick(executed), states)
     }
 
-    fn plan_tick(&self, tick: Tick) -> (TickPlan, Vec<ComputationState>) {
+    fn plan_tick(&self, tick: Tick) -> (ExecutedTick, Vec<ComputationState>) {
         tick::plan(self.grid, self.inner.cells(), &self.language_map, tick)
     }
 
+    ///
+    /// Commits `executed`'s plan through [`Source::write_cells`] and keeps its
+    /// Tick Portals as the record of the Tick, with the revision the commit
+    /// leaves, and answers the plan to publish.
+    ///
     /// Visible across the Source module so a Tick planned without going
     /// through [`Source::execute`] — from a planning snapshot, or by a test in
-    /// the Tick module — is still committed the one way a Tick is committed,
-    /// through [`Source::write_cells`].
-    pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan) {
-        self.write_cells(&plan.writes);
+    /// the Tick module — is still committed the one way a Tick is committed.
+    /// Every commit replaces the record, so a Tick that accessed no Portal
+    /// leaves an empty one rather than the record of the Tick before it.
+    ///
+    pub(in crate::source) fn commit_tick(&mut self, executed: ExecutedTick) -> TickPlan {
+        let (plan, portals) = executed.into_parts();
+        // The Tick's own writes are what the record was made against, not
+        // edits since it.
+        self.write_rows(&plan.writes);
+        // The set the last commit kept, cleared, so a Tick reuses its storage.
+        let edited = match self.tick_portals.take() {
+            Some(committed) => committed.edited.cleared(),
+            None => EditedCells::none(self.grid.count()),
+        };
+        self.tick_portals = Some(CommittedPortals {
+            record: Arc::new(portals),
+            revision: self.revision,
+            edited,
+        });
+        plan
+    }
+
+    ///
+    /// The record of the last committed Tick, how it stands against the
+    /// revision the Source is at — [`Freshness::Current`] while that is the
+    /// revision the commit left, [`Freshness::Retained`] once an edit has
+    /// landed since — and the Cells edits have written since the commit,
+    /// shared rather than copied.
+    ///
+    pub(super) fn committed_tick_portals(&self) -> Option<CommittedRecord> {
+        self.tick_portals.as_ref().map(|committed| CommittedRecord {
+            record: Arc::clone(&committed.record),
+            freshness: if committed.revision == self.revision {
+                Freshness::Current
+            } else {
+                Freshness::Retained
+            },
+            edited: committed.edited.clone(),
+        })
     }
 
     ///
@@ -429,6 +482,17 @@ impl Source {
     /// ```
     ///
     pub fn write_cells(&mut self, writes: &[CellWrite]) {
+        for write in writes {
+            self.mark_edited(write.cell);
+        }
+        self.write_rows(writes);
+    }
+
+    ///
+    /// [`Self::write_cells`] for a write that is not an edit: the Tick
+    /// commit's own, which its record was made against.
+    ///
+    fn write_rows(&mut self, writes: &[CellWrite]) {
         let mut written = BTreeSet::new();
         for write in writes {
             self.set_source(write.cell, write.content);
@@ -462,6 +526,17 @@ impl Source {
             ));
         }
         self.revision = RevisionId::mint();
+    }
+
+    ///
+    /// Marks `cell` edited since the last committed Tick. Every write but a
+    /// Tick commit's is an edit. Before the first Tick there is no record to
+    /// mark against.
+    ///
+    fn mark_edited(&mut self, cell: CellIndex) {
+        if let Some(committed) = &mut self.tick_portals {
+            committed.edited.mark(cell.get());
+        }
     }
 
     ///
@@ -501,7 +576,7 @@ mod test {
             encoding::Encoding,
             portal::Portal,
             tick::{
-                Effect,
+                Effect, ExecutedTick,
                 observed::{raw, raw_c4},
                 resolve,
             },
@@ -612,7 +687,7 @@ mod test {
         let write = Portal::below(grid, root)
             .and_then(|portal| portal.admit(&cells))
             .expect("the printable range fits one row");
-        source.commit_tick(&resolve(vec![Effect::Write(write)]));
+        source.commit_tick(stated(resolve(vec![Effect::Write(write)])));
         let snapshot = source.snapshot();
         let row = grid.columns();
         assert_eq!(&snapshot[row..row + encoding.len()], encoding);
@@ -629,6 +704,14 @@ mod test {
             let restored: Source = serde_json::from_str(&encoded).unwrap();
             assert_eq!(restored.snapshot(), source.snapshot());
         }
+    }
+
+    ///
+    /// A plan these tests state rather than execute, as the Tick zero they
+    /// state it for: no Turn made it, so it records no Portal access.
+    ///
+    fn stated(plan: TickPlan) -> ExecutedTick {
+        ExecutedTick::stated(Tick::ZERO, plan)
     }
 
     ///
@@ -2804,8 +2887,11 @@ mod test {
         src.write(at(10), "0A0B0C");
         let root = grid.position(0, 0).expect("inside the Grid");
 
-        let result = plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0D)));
-        src.commit_tick(&result);
+        let result = src.commit_tick(stated(plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Number(0x0D)),
+        )));
 
         assert_eq!(result.writes.len(), 2, "a result plans only its own Cells");
         assert_eq!(src.row(1), "0D0B0C    ");
@@ -2834,11 +2920,11 @@ mod test {
         let mut generated = source();
         let grid = generated.grid;
         let root = grid.position(0, 0).expect("inside the Grid");
-        generated.commit_tick(&plan_result(
+        generated.commit_tick(stated(plan_result(
             grid,
             root,
             Interpretation::Cell(Atom::Number(0x0A)),
-        ));
+        )));
 
         let mut typed = source();
         let at = typed.cells();
@@ -2862,11 +2948,11 @@ mod test {
         let mut src = source();
         let grid = src.grid;
         let root = grid.position(0, 0).expect("inside the Grid");
-        src.commit_tick(&plan_result(
+        src.commit_tick(stated(plan_result(
             grid,
             root,
             Interpretation::Cell(Atom::Number(0x0A)),
-        ));
+        )));
 
         let tick = src.execute();
 
@@ -2888,11 +2974,11 @@ mod test {
         let at = generated.cells();
         generated.write(at(12), "0102");
         let root = grid.position(0, 0).unwrap();
-        generated.commit_tick(&plan_result(
+        generated.commit_tick(stated(plan_result(
             grid,
             root,
             Interpretation::Cell(Atom::Function(Function::Add)),
-        ));
+        )));
         assert_eq!(generated.row(1), ".+0102    ");
         assert_eq!(generated.row(2), "          ");
 
@@ -2918,8 +3004,7 @@ mod test {
         let halt = grid.position(0, 0).unwrap();
         let below = grid.position(0, 1).unwrap();
         let before = src.snapshot();
-        let plan = plan_result(grid, halt, Interpretation::Lock);
-        src.commit_tick(&plan);
+        let plan = src.commit_tick(stated(plan_result(grid, halt, Interpretation::Lock)));
         assert_eq!(src.snapshot(), before);
         assert_eq!(plan.locks, vec![below]);
         assert!(plan.writes.is_empty());

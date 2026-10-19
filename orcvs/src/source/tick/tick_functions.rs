@@ -71,6 +71,7 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
     // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
     // Both answer a Clear and clear their pair.
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
+    let plan = plan.into_plan();
 
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(
@@ -91,6 +92,7 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
     // its own would move all three at once, so the pair of assertions is
     // what makes this about the Tick rather than about the formulas.
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(4));
+    let plan = plan.into_plan();
 
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(
@@ -117,6 +119,7 @@ fn a_tick_function_with_no_cycle_diagnoses_and_writes_nothing() {
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(3));
+    let plan = plan.into_plan();
 
     assert!(plan.writes.is_empty(), "{:?}", plan.writes);
     assert_eq!(
@@ -162,6 +165,7 @@ fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
             Tick::new(banging),
             &destinations,
         );
+        let plan = plan.into_plan();
 
         assert_eq!(
             plan.play_commands,
@@ -177,6 +181,7 @@ fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
             Tick::new(silent),
             &destinations,
         );
+        let plan = plan.into_plan();
 
         assert!(
             plan.play_commands.is_empty(),
@@ -415,5 +420,5 @@ fn moving_a_random_changes_its_stream_and_identical_inputs_reproduce_it() {
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
     let first = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     let second = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    assert_eq!(first.0.writes, second.0.writes);
+    assert_eq!(first.0.plan().writes, second.0.plan().writes);
 }

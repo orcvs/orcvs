@@ -4,7 +4,10 @@ use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
-    source::{Claim, Diagnostic, OperandState, SourcePaint, SourceRevision, Span, Token},
+    source::{
+        Claim, Diagnostic, Freshness, OperandState, PortalEvent, PortalUse, SourcePaint,
+        SourceRevision, Span, Token,
+    },
 };
 use lang::{Atom, Function};
 
@@ -14,12 +17,61 @@ pub(crate) struct RenderFrameConfig {
     pub cursor_bloom_radius: CursorBloomRadius,
 }
 
+///
+/// One part a Cell can play in a Portal.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortalRole {
+    /// The Cell is where a Function writes its answer.
+    Output,
+    /// The Cell is where a Function reads an input.
+    Input,
+}
+
+///
+/// The set of [`PortalRole`]s one Cell plays: none, either, or both.
+///
+/// ```
+/// use orcvs::render_frame::{PortalRole, PortalRoles};
+///
+/// let roles = PortalRoles::NONE.with(PortalRole::Output);
+/// assert!(roles.contains(PortalRole::Output));
+/// assert!(!roles.contains(PortalRole::Input));
+/// assert_eq!(roles.with(PortalRole::Output), roles);
+/// ```
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PortalRoles(u8);
+
+impl PortalRoles {
+    /// The Cell plays no part in any Portal.
+    pub const NONE: Self = Self(0);
+
+    const fn bit(role: PortalRole) -> u8 {
+        match role {
+            PortalRole::Output => 1,
+            PortalRole::Input => 1 << 1,
+        }
+    }
+
+    /// This set with `role` added.
+    #[must_use]
+    pub const fn with(self, role: PortalRole) -> Self {
+        Self(self.0 | Self::bit(role))
+    }
+
+    /// Whether the Cell plays `role`.
+    pub const fn contains(self, role: PortalRole) -> bool {
+        self.0 & Self::bit(role) != 0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RenderCell {
     position: Position,
     content: Option<char>,
     claim: Option<Arc<Claim>>,
-    output_portal: bool,
+    portal_roles: PortalRoles,
 }
 
 impl RenderCell {
@@ -79,18 +131,32 @@ impl RenderCell {
     }
 
     ///
-    /// Whether this Cell draws as a value Function's Output Portal, derived
-    /// from the current Source revision alone and known before any Tick runs.
+    /// The Portal roles this Cell plays.
     ///
-    /// `true` covers the Cell pair from the Output Portal, the Reservation the
-    /// Tick scheduler reserves for that Function's answer, whether it is a
-    /// root or nested. A Terminal Output Function, Halt, a Source-writing
-    /// Function (including an Advance's cleared anchor), and a nested
-    /// Function the Parser refuses never set it, and neither does a scalar
-    /// destination the row edge leaves no room for.
+    /// [`PortalRole::Output`] covers the Cell pair from a value Function's
+    /// Output Portal, the Reservation the Tick scheduler reserves for that
+    /// Function's answer, whether it is a root or nested. That pair is
+    /// derived from the current Source revision alone and known before any
+    /// Tick runs. A Terminal Output Function, Halt, a Source-writing Function
+    /// (including an Advance's cleared anchor), and a nested Function the
+    /// Parser refuses reserve none, and neither does a scalar destination the
+    /// row edge leaves no room for.
     ///
-    pub fn output_portal(&self) -> bool {
-        self.output_portal
+    /// It also covers each Cell a write of this revision's Tick Portals was
+    /// admitted to, declared or selected. [`PortalRole::Input`] covers each
+    /// Cell a read of them resolved, whatever the Cells held. A refused
+    /// access, a lock and a Source Bundle part set neither.
+    ///
+    /// A [`Freshness::Retained`] record sets either role only for an entry
+    /// whose Function still stands at its anchor in this revision, inside an
+    /// Expression no edit has written a Cell of since the Tick's commit: an
+    /// edit to the Function or to an operand that selects where it reads or
+    /// writes puts out that Function's entries until the next Tick, and an
+    /// edit anywhere else leaves them lit. A Source no Tick has committed sets no role from a
+    /// record.
+    ///
+    pub fn portal_roles(&self) -> PortalRoles {
+        self.portal_roles
     }
 }
 
@@ -147,7 +213,7 @@ impl RenderFrame {
         grid.assert_owns(region.cursor());
         let claims = source.claims_by_cell();
         let output_portals = source.output_portal_highlight();
-        let cells = grid
+        let mut cells: Vec<RenderCell> = grid
             .positions_by_row()
             .flatten()
             .map(|position| {
@@ -156,10 +222,45 @@ impl RenderFrame {
                     position,
                     content: source.content_at(position),
                     claim: claims[index].clone(),
-                    output_portal: output_portals[index],
+                    portal_roles: if output_portals[index] {
+                        PortalRoles::NONE.with(PortalRole::Output)
+                    } else {
+                        PortalRoles::NONE
+                    },
                 }
             })
             .collect();
+        // In place over the Cells just built, so a record costs no allocation.
+        // A refused access carries no Span, so it has nothing to paint. Locks
+        // and Source Bundles stay in the record and paint nothing.
+        if let Some(portals) = source.tick_portals() {
+            let retained = portals.freshness() == Freshness::Retained;
+            for access in portals.record().uses() {
+                let (span, role) = match access.event() {
+                    PortalEvent::Read { site: Ok(read), .. } => (read.span(), PortalRole::Input),
+                    PortalEvent::Write {
+                        outcome: Ok(written),
+                        ..
+                    } => (written.span(), PortalRole::Output),
+                    PortalEvent::Read { site: Err(_), .. }
+                    | PortalEvent::Write {
+                        outcome: Err(_), ..
+                    }
+                    | PortalEvent::Lock { .. }
+                    | PortalEvent::Bundle { .. } => continue,
+                };
+                if retained
+                    && !(owner_stands(grid, &claims, access)
+                        && source.expression_unedited(access.anchor()))
+                {
+                    continue;
+                }
+                for position in span.positions() {
+                    let cell = &mut cells[grid.index(position).get()];
+                    cell.portal_roles = cell.portal_roles.with(role);
+                }
+            }
+        }
         let expressions = source
             .language_map()
             .expressions()
@@ -313,6 +414,19 @@ impl RenderFrame {
     }
 }
 
+///
+/// Whether the Function whose Turn made `access` still stands at its anchor
+/// in the revision `claims` were read from: the Language Map claims the
+/// anchor's Cell for an entry that begins there and parsed as that Function,
+/// which is how a schedule anchors the computation that runs it.
+///
+fn owner_stands(grid: Grid, claims: &[Option<Arc<Claim>>], access: &PortalUse) -> bool {
+    let anchor = grid.index(access.anchor()).get();
+    claims[anchor].as_deref().is_some_and(|claim| {
+        claim.cells.start == anchor && claim.atom == Some(Atom::Function(access.function()))
+    })
+}
+
 fn diagnostic_span_covers(diagnostic: &Diagnostic, position: Position) -> bool {
     diagnostic
         .span()
@@ -328,7 +442,7 @@ mod tests {
         grid::{CellIndex, Grid},
         opts::{CursorBloomRadius, SectorSeamSpacing},
         region::Region,
-        render_frame::{RenderFrame, RenderFrameConfig},
+        render_frame::{PortalRole, PortalRoles, RenderFrame, RenderFrameConfig},
         source::{OperandState, SourceCommander, SourcePaint, Tick, Token},
     };
 
@@ -1038,5 +1152,272 @@ mod tests {
             vec![leftover]
         );
         assert!(frame.diagnostic_covers(leftover));
+    }
+
+    #[test]
+    fn each_cell_plays_the_output_role_its_revision_highlights_and_no_input_role() {
+        let grid = Grid::with_shape(8, 2);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+0304");
+        let revision = source.read_revision();
+        let highlight = revision.output_portal_highlight();
+        let frame = derive_frame(&source, grid.origin());
+
+        assert!(
+            highlight.iter().any(|covered| *covered),
+            "the Add reserves an Output Portal, so the comparison is not vacuous"
+        );
+        for position in grid.positions_by_row().flatten() {
+            let roles = frame.at(position).portal_roles();
+            assert_eq!(
+                roles.contains(PortalRole::Output),
+                highlight[grid.index(position).get()],
+                "({}, {})",
+                position.x(),
+                position.y()
+            );
+            assert!(!roles.contains(PortalRole::Input));
+        }
+    }
+
+    /// The Cells of `frame` that play the Input role, by column and row.
+    fn input_cells(frame: &RenderFrame) -> Vec<(usize, usize)> {
+        frame
+            .cells()
+            .iter()
+            .filter(|cell| cell.portal_roles().contains(PortalRole::Input))
+            .map(|cell| (cell.position().x(), cell.position().y()))
+            .collect()
+    }
+
+    #[test]
+    fn each_cell_a_committed_tick_read_plays_the_input_role_and_moves_with_the_read() {
+        // `&v` reads the pair `n` rows south of its operand: (2, 1) at `01`,
+        // and (2, 2) once `n` is `02`.
+        let grid = Grid::with_shape(4, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v01");
+        assert_eq!(input_cells(&derive_frame(&source, grid.origin())), []);
+
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1)]
+        );
+
+        source.set(cell(grid, 3), "2").unwrap();
+        source.execute(Tick::new(1));
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 2), (3, 2)]
+        );
+    }
+
+    #[test]
+    fn a_cell_a_committed_tick_both_read_and_wrote_plays_both_roles() {
+        // `@$` writes `C4` at (2, 1), and the Read at (8, 0) then reads it.
+        // Neither pair is a static Output Portal, so only the record lights
+        // them.
+        let grid = Grid::with_shape(16, 3);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "@$0201C4&$0201");
+        source.execute(Tick::ZERO);
+        let frame = derive_frame(&source, grid.origin());
+        for x in [2, 3] {
+            let roles = cell_at(&frame, grid.position(x, 1).unwrap()).portal_roles();
+            assert!(roles.contains(PortalRole::Output), "({x}, 1): {roles:?}");
+            assert!(roles.contains(PortalRole::Input), "({x}, 1): {roles:?}");
+        }
+    }
+
+    /// The Cells of `frame` that play the Output role, by column and row.
+    fn output_cells(frame: &RenderFrame) -> Vec<(usize, usize)> {
+        frame
+            .cells()
+            .iter()
+            .filter(|cell| cell.portal_roles().contains(PortalRole::Output))
+            .map(|cell| (cell.position().x(), cell.position().y()))
+            .collect()
+    }
+
+    #[test]
+    fn after_an_edit_only_the_accesses_whose_function_still_stands_at_its_anchor_paint() {
+        // Two voices: `&v01` at (0, 0) reads (2, 1) and (3, 1), and `&v02`
+        // at (4, 0) reads (6, 2) and (7, 2).
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v01&v02");
+        source.execute(Tick::ZERO);
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1), (6, 2), (7, 2)]
+        );
+        // Each voice writes what it reads one row south of its anchor.
+        assert_eq!(
+            output_cells(&derive_frame(&source, grid.origin())),
+            [(0, 1), (1, 1), (4, 1), (5, 1)]
+        );
+
+        // The second voice is now a Read North, which never made the read
+        // the record holds, so only the first voice's read paints: the edit
+        // stands outside the first voice's Expression.
+        source.set(cell(grid, 5), "^").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1)]
+        );
+
+        // With no Function at its anchor, the first voice claims nothing:
+        // neither its read nor the write the record holds at (0, 1) and
+        // (1, 1). The Read North still reserves its own Output Portal.
+        source.unset(cell(grid, 0));
+        let frame = derive_frame(&source, grid.origin());
+        assert_eq!(input_cells(&frame), []);
+        assert_eq!(output_cells(&frame), [(4, 1), (5, 1)]);
+    }
+
+    #[test]
+    fn a_paused_edit_inside_an_owners_expression_puts_out_its_accesses_and_no_others() {
+        // Two voices: `&v01` at (0, 0) reads (2, 1) and (3, 1), and `&v02`
+        // at (4, 0) reads (6, 2) and (7, 2). No Tick runs after the edits.
+        let grid = Grid::with_shape(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "&v01&v02");
+        source.execute(Tick::ZERO);
+
+        // The first voice's operand now selects (2, 2): the Function still
+        // stands, but the record no longer says what it reads or writes.
+        source.set(cell(grid, 3), "2").unwrap();
+        let frame = derive_frame(&source, grid.origin());
+        assert_eq!(input_cells(&frame), [(6, 2), (7, 2)]);
+        assert_eq!(output_cells(&frame), [(0, 1), (1, 1), (4, 1), (5, 1)]);
+
+        // Writing back what the commit left is still an edit of the first
+        // voice, so it stays out until the next Tick, and an edit outside
+        // every owner's Expression puts out nothing.
+        source.set(cell(grid, 3), "1").unwrap();
+        source.set(cell(grid, 24), "x").unwrap();
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(6, 2), (7, 2)]
+        );
+
+        // The next Tick's record lights both voices again.
+        source.execute(Tick::new(1));
+        assert_eq!(
+            input_cells(&derive_frame(&source, grid.origin())),
+            [(2, 1), (3, 1), (6, 2), (7, 2)]
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn deriving_with_tick_portals_allocates_no_more_than_without() {
+        use crate::source::Freshness;
+
+        // Two Sources holding the same Cells, one whose revision a Tick
+        // committed with a record of reads and writes, one of them selected,
+        // and one written by hand with none, so every other input to the
+        // derivation is the same. Emptying an empty Cell outside every
+        // Expression then makes the record retained over the same Cells, with
+        // an edited Cell marked, so every painted entry asks whether its
+        // Function still stands and its Expression is unedited.
+        let grid = Grid::with_shape(16, 4);
+        let ticked = SourceCommander::new(grid);
+        write_row(&ticked, grid, "&v01&v02@$0E03C4");
+        ticked.execute(Tick::ZERO);
+        let revision = ticked.read_revision();
+        // Two reads, the two writes the Reads declare, and the Write's.
+        assert_eq!(
+            revision
+                .tick_portals()
+                .map(|portals| (portals.freshness(), portals.record().uses().len())),
+            Some((Freshness::Current, 5))
+        );
+        ticked.unset(cell(grid, 48));
+        let retained = ticked.read_revision();
+        assert_eq!(
+            retained.tick_portals().map(|portals| portals.freshness()),
+            Some(Freshness::Retained)
+        );
+
+        let written = SourceCommander::new(grid);
+        let cells: Vec<_> = ticked
+            .snapshot()
+            .bytes()
+            .enumerate()
+            .map(|(idx, byte)| crate::source::CellWrite {
+                cell: cell(grid, idx),
+                content: crate::source::CellContent::new(byte).expect("a Cell"),
+            })
+            .collect();
+        written.write_cells(&cells);
+        let bare = written.read_revision();
+        assert_eq!(ticked.snapshot(), written.snapshot());
+        assert!(bare.tick_portals().is_none());
+
+        let derive = |revision| {
+            RenderFrame::derive(
+                revision,
+                Region::at(grid, grid.origin()),
+                false,
+                RenderFrameConfig {
+                    sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                    cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
+                },
+            )
+        };
+        let (with_record, frame) = crate::allocation::blocks(|| derive(revision));
+        assert_eq!(input_cells(&frame).len(), 4, "the reads were folded");
+        assert!(
+            cell_at(&frame, grid.position(14, 3).unwrap())
+                .portal_roles()
+                .contains(PortalRole::Output),
+            "the Write was folded"
+        );
+        let (with_retained, frame) = crate::allocation::blocks(|| derive(retained));
+        assert_eq!(
+            input_cells(&frame).len(),
+            4,
+            "the retained reads were folded"
+        );
+        assert!(
+            cell_at(&frame, grid.position(14, 3).unwrap())
+                .portal_roles()
+                .contains(PortalRole::Output),
+            "the retained Write was folded"
+        );
+        let (without, _) = crate::allocation::blocks(|| derive(bare));
+        assert!(
+            with_record <= without,
+            "{with_record} blocks with a record, {without} without"
+        );
+        assert!(
+            with_retained <= without,
+            "{with_retained} blocks with a retained record, {without} without"
+        );
+    }
+
+    #[test]
+    fn portal_roles_hold_each_role_independently() {
+        let output = PortalRoles::NONE.with(PortalRole::Output);
+        let input = PortalRoles::NONE.with(PortalRole::Input);
+        let both = output.with(PortalRole::Input);
+
+        for (roles, holds_output, holds_input) in [
+            (PortalRoles::NONE, false, false),
+            (output, true, false),
+            (input, false, true),
+            (both, true, true),
+        ] {
+            assert_eq!(
+                roles.contains(PortalRole::Output),
+                holds_output,
+                "{roles:?}"
+            );
+            assert_eq!(roles.contains(PortalRole::Input), holds_input, "{roles:?}");
+        }
+        assert_eq!(both, input.with(PortalRole::Output));
+        assert_eq!(both.with(PortalRole::Output), both);
     }
 }
