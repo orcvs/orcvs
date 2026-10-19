@@ -2,11 +2,14 @@
 //! is blocked or bangs where it stops, and how emissions and moves contest Cells
 //! in Source order.
 
+use lang::Function;
+
 use crate::grid::Grid;
 use crate::source::language_map::LanguageUnitKind;
 
 use super::fixture::{messages, tick_by_tick};
-use super::observed::raw;
+use super::observed::{accesses, committed_portals, raw, writes};
+use super::portals::PortalOrigin;
 
 #[test]
 fn a_self_banging_function_advances_its_whole_span_by_one_cell() {
@@ -195,6 +198,45 @@ fn a_movers_new_cells_can_be_overwritten_after_its_turn() {
         plans[0].diagnostics.is_empty(),
         "{:?}",
         plans[0].diagnostics
+    );
+}
+
+#[test]
+fn reads_and_writes_keep_their_order_and_owners_when_a_mover_rewrites_the_source() {
+    // The mover leaves (2, 0) for (2, 1), and `=^` then writes `03` over the
+    // Cells it moved into. Each access is still `=^`'s or `.+`'s as their
+    // Turns made it, in the order they were made: the two are independent,
+    // so `=^` goes first in Grid order.
+    let (_, _, source) = tick_by_tick(
+        Grid::with_shape(8, 5),
+        &["  vv", "", "  =^", ".+0300", ""],
+        1,
+    );
+    let record = committed_portals(&source);
+    assert_eq!(
+        accesses(&record),
+        [
+            ((2, 2), Function::CopyNorth, "read"),
+            ((2, 2), Function::CopyNorth, "write"),
+            ((0, 3), Function::Add, "write"),
+        ]
+    );
+    assert_eq!(
+        writes(&record),
+        [
+            (
+                (2, 2),
+                Function::CopyNorth,
+                PortalOrigin::Declared,
+                Ok(vec![(2, 1), (3, 1)])
+            ),
+            (
+                (0, 3),
+                Function::Add,
+                PortalOrigin::Declared,
+                Ok(vec![(0, 4), (1, 4)])
+            ),
+        ]
     );
 }
 

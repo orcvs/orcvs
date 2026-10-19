@@ -8,11 +8,11 @@
 //! order that Turn takes against the writers of its source and the readers of
 //! its destination.
 
-use lang::Tick;
+use lang::{Function, Tick};
 
 use super::observed::{
-    MISSED_BANG, Observed, diagnostic, first, observe_at, observed, quiet, raw, rows_of, source_of,
-    turn_before, turns,
+    MISSED_BANG, Observed, accesses, committed_portals, diagnostic, first, observe_at, observed,
+    quiet, raw, rows_of, source_of, turn_before, turns,
 };
 use crate::grid::Grid;
 use crate::source::{CellContent, CellWrite};
@@ -111,6 +111,26 @@ fn an_absolute_copy_diagnoses_the_pairs_a_read_diagnoses() {
             composition.diagnostics
         );
     }
+}
+
+#[test]
+fn a_destination_the_turn_resolved_before_its_interpretation_failed_is_not_recorded() {
+    // `=$` resolves (6, 3) as its destination, reads the partial pair at
+    // (10, 1), and its interpretation fails: the read is recorded and no
+    // write, because nothing was delivered to (6, 3).
+    let mut source = source_of(
+        Grid::with_shape(16, 4),
+        &["=$0A010603", "        C4D 4", "", ""],
+    );
+    let plan = source.execute(Tick::ZERO);
+    assert_eq!(
+        observed(&source, &plan).diagnostics,
+        [diagnostic(0, 0, INVALID)]
+    );
+    assert_eq!(
+        accesses(&committed_portals(&source)),
+        [((0, 0), Function::AbsoluteCopy, "read")]
+    );
 }
 
 #[test]

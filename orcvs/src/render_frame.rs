@@ -134,12 +134,16 @@ impl RenderCell {
     ///
     /// [`PortalRole::Output`] covers the Cell pair from a value Function's
     /// Output Portal, the Reservation the Tick scheduler reserves for that
-    /// Function's answer, whether it is a root or nested. It is derived from
-    /// the current Source revision alone and known before any Tick runs. A
-    /// Terminal Output Function, Halt, a Source-writing Function (including
-    /// an Advance's cleared anchor), and a nested Function the Parser refuses
-    /// never set it, and neither does a scalar destination the row edge
-    /// leaves no room for.
+    /// Function's answer, whether it is a root or nested. That pair is
+    /// derived from the current Source revision alone and known before any
+    /// Tick runs. A Terminal Output Function, Halt, a Source-writing Function
+    /// (including an Advance's cleared anchor), and a nested Function the
+    /// Parser refuses reserve none, and neither does a scalar destination the
+    /// row edge leaves no room for.
+    ///
+    /// It also covers each Cell a write of the Tick Portals committed with
+    /// this revision was admitted to, declared or selected. A refused write
+    /// sets nothing.
     ///
     /// [`PortalRole::Input`] covers each Cell a read of the Tick Portals
     /// committed with this revision resolved, whatever the Cells held. A
@@ -221,14 +225,23 @@ impl RenderFrame {
             })
             .collect();
         // In place over the Cells just built, so a record costs no allocation.
+        // A refused access carries no Span, so it has nothing to paint.
         if let Some(record) = source.tick_portals() {
             for access in record.uses() {
-                let PortalEvent::Read { site: Ok(read), .. } = access.event() else {
-                    continue;
+                let (span, role) = match access.event() {
+                    PortalEvent::Read { site: Ok(read), .. } => (read.span(), PortalRole::Input),
+                    PortalEvent::Write {
+                        outcome: Ok(written),
+                        ..
+                    } => (written.span(), PortalRole::Output),
+                    PortalEvent::Read { site: Err(_), .. }
+                    | PortalEvent::Write {
+                        outcome: Err(_), ..
+                    } => continue,
                 };
-                for position in read.span().positions() {
+                for position in span.positions() {
                     let cell = &mut cells[grid.index(position).get()];
-                    cell.portal_roles = cell.portal_roles.with(PortalRole::Input);
+                    cell.portal_roles = cell.portal_roles.with(role);
                 }
             }
         }
@@ -1171,6 +1184,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_cell_a_committed_tick_both_read_and_wrote_plays_both_roles() {
+        // `@$` writes `C4` at (2, 1), and the Read at (8, 0) then reads it.
+        // Neither pair is a static Output Portal, so only the record lights
+        // them.
+        let grid = Grid::with_shape(16, 3);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "@$0201C4&$0201");
+        source.execute(Tick::ZERO);
+        let frame = derive_frame(&source, grid.origin());
+        for x in [2, 3] {
+            let roles = cell_at(&frame, grid.position(x, 1).unwrap()).portal_roles();
+            assert!(roles.contains(PortalRole::Output), "({x}, 1): {roles:?}");
+            assert!(roles.contains(PortalRole::Input), "({x}, 1): {roles:?}");
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn deriving_with_tick_portals_allocates_no_more_than_without() {
@@ -1179,12 +1209,13 @@ mod tests {
         // none, so every other input to the derivation is the same.
         let grid = Grid::with_shape(16, 4);
         let ticked = SourceCommander::new(grid);
-        write_row(&ticked, grid, "&v01&v02&v01&v02");
+        write_row(&ticked, grid, "&v01&v02@$0E03C4");
         ticked.execute(Tick::ZERO);
         let revision = ticked.read_revision();
+        // Two reads, the two writes the Reads declare, and the Write's.
         assert_eq!(
             revision.tick_portals().map(|record| record.uses().len()),
-            Some(4)
+            Some(5)
         );
 
         let written = SourceCommander::new(grid);
@@ -1214,7 +1245,13 @@ mod tests {
             )
         };
         let (with_record, frame) = crate::allocation::blocks(|| derive(revision));
-        assert_eq!(input_cells(&frame).len(), 8, "the record was folded");
+        assert_eq!(input_cells(&frame).len(), 4, "the reads were folded");
+        assert!(
+            cell_at(&frame, grid.position(14, 3).unwrap())
+                .portal_roles()
+                .contains(PortalRole::Output),
+            "the Write was folded"
+        );
         let (without, _) = crate::allocation::blocks(|| derive(bare));
         assert!(
             with_record <= without,

@@ -12,20 +12,22 @@ Orca lights each operator's ports as it runs, so its tracker shows a read head m
 
 **A read is recorded once the Turn passes the writer wait.** It is the Input Portal the Interpreter is handed, with its origin — `Declared` where the Function declares the Portal at a fixed offset, `Selected` where its operands chose it this Turn — and its site. The site is the Input Span it resolved inside the Grid, as many Cells as the Turn reads, or the Portal Error that says why none resolved. A resolved site says a site was read, not that it held a value: whether the operand bound is the Turn's diagnostic, not the record's. A Turn that waits for a writer records nothing until it is retaken, so a retried Turn leaves exactly one read. A Turn the schedule refuses before interpretation — syntax, arity, suppression, an operand that does not decode, a Rest — records nothing, and its diagnostic stands as before.
 
-**Order is execution's.** Turns appear in the order they settled, and within a Turn its read comes first. Writes, Halt locks and Source Bundle parts belong to the same record, after the read in the order they ran, each recorded where the decision that admits or refuses it is made; `.scratch/tick-portals/` tickets 03 and 04 add them.
+**A write is recorded for each site delivery is asked to deliver to.** Declared or Selected as a read is, it is either the Output Span the Portal admitted or the Write Refusal that refused it whole: a geometric Portal Error, with the Position the write was attempted from where one exists inside the Grid; a Function Replacement that would change a fact the schedule was ordered by; or an ordering defect. The admitted write is recorded before any Contact it makes replaces a Function, so its owner is the Function whose Turn made it. A destination that resolved for a Turn whose interpretation then failed was never delivered to, and is absent.
 
-**An Input Span is minted only from the Input Portal a Turn resolved.** Its constructor is private to Tick execution and it exposes only a read-only Span, so no Span from anywhere else can stand for a read.
+**Order is execution's.** Turns appear in the order they settled, and within a Turn its read comes first, then its writes in site order. Halt locks and Source Bundle parts belong to the same record, after the read in the order they ran, each recorded where the decision that admits or refuses it is made; `.scratch/tick-portals/` ticket 04 adds them.
+
+**An Input Span is minted only from the Input Portal a Turn resolved, and an Output Span only from a write a Portal admitted.** Their constructors are private to Tick execution and each exposes only a read-only Span, so no Span from anywhere else can stand for a read or a write, and neither converts into the other.
 
 **The record is committed through the one commit path.** The optimistic attempt carries the record in its planned Tick, and the locked attempt plans it under the guard; both hand plan and record to the same Source commit, which stores the record with the revision that commit leaves. A refused attempt is dropped whole and publishes neither. Every committed Tick replaces the record, so a Tick that accessed no Portal leaves an empty record rather than the last one.
 
 **A Source revision answers the record committed with it.** A revision read while the Source is still at the revision a Tick's commit left carries that record; a revision an edit has made since carries none, so a record is never painted against Cells it was not committed with. A new or loaded Source has none until its first Tick, and the record is not persisted.
 
-**The Render Frame paints resolved reads as Input Portal.** Derivation sets the Input Portal role on each Cell a resolved read covers, in place over the Cells it has built, so a record costs no allocation per frame. A read whose site did not resolve stays in the record and paints nothing.
+**The Render Frame paints resolved reads as Input Portal and admitted writes as Output Portal.** Derivation sets the Input Portal role on each Cell a resolved read covers and the Output Portal role on each Cell an admitted write covers, declared or selected, in place over the Cells it has built, so a record costs no allocation per frame. The static Output Portal highlight paints beside them, so a Function whose Turn wrote nothing still shows its own. A read whose site did not resolve and a refused write stay in the record and paint nothing.
 
 ## Consequences
 
-- The console lights each `&v` read of the tracker as it steps, with the Input Portal role ADR 0009's static Output Portal highlight sits beside.
-- `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan` and `PortalError` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
+- The console lights each `&v` read of the tracker as it steps, with the Input Portal role ADR 0009's static Output Portal highlight sits beside, and lights where each selected write (Write, Push, `=$`) landed.
+- `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan`, `OutputSpan`, `WriteRefusal` and `PortalError` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
 - Every Tick allocates its record, including a Tick that reads nothing, which allocates the empty record's handle and no entries.
 
 ## Considered options

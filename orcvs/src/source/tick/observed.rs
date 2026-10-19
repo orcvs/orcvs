@@ -5,10 +5,13 @@ use std::collections::BTreeMap;
 
 use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::portals::{PortalEvent, PortalOrigin};
+use super::portals::{PortalEvent, PortalOrigin, TickPortals, WriteRefusal};
 use super::{PortalError, plan, shared_schedule};
 use crate::grid::Grid;
-use crate::source::{Cells, Source, TickPlan};
+use crate::opts::{CursorBloomRadius, SectorSeamSpacing};
+use crate::region::Region;
+use crate::render_frame::{PortalRole, RenderFrame, RenderFrameConfig};
+use crate::source::{Cells, Source, SourceCommander, Span, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
 pub(super) const MISSED_BANG: &str = "Bang reached a root that has taken its Turn";
@@ -154,21 +157,102 @@ pub(super) fn reads(grid: Grid, rows: &[&str]) -> Vec<ObservedRead> {
     portals
         .uses()
         .iter()
-        .map(|access| {
-            let PortalEvent::Read { origin, site } = access.event();
+        .filter_map(|access| {
+            let PortalEvent::Read { origin, site } = access.event() else {
+                return None;
+            };
             let anchor = access.anchor();
-            (
+            Some((
                 (anchor.x(), anchor.y()),
                 access.function(),
                 *origin,
-                site.map(|span| {
-                    span.span()
-                        .positions()
-                        .map(|position| (position.x(), position.y()))
-                        .collect()
-                }),
-            )
+                site.map(|span| cells_of(span.span())),
+            ))
         })
+        .collect()
+}
+
+/// The Cells of `span`, by column and row.
+fn cells_of(span: Span) -> Vec<(usize, usize)> {
+    span.positions()
+        .map(|position| (position.x(), position.y()))
+        .collect()
+}
+
+/// The record the last Tick `source` committed left, while `source` is still
+/// at the revision that commit left.
+pub(super) fn committed_portals(source: &Source) -> TickPortals {
+    TickPortals::clone(
+        &source
+            .current_tick_portals()
+            .expect("a Tick committed a record at this revision"),
+    )
+}
+
+/// One Portal write a Tick recorded: its owner's anchor and Function, its
+/// origin, and the Cells it was admitted to or why it was refused.
+pub(super) type ObservedWrite = (
+    (usize, usize),
+    Function,
+    PortalOrigin,
+    Result<Vec<(usize, usize)>, WriteRefusal>,
+);
+
+/// Every write `record` holds, in order.
+pub(super) fn writes(record: &TickPortals) -> Vec<ObservedWrite> {
+    record
+        .uses()
+        .iter()
+        .filter_map(|access| {
+            let PortalEvent::Write { origin, outcome } = access.event() else {
+                return None;
+            };
+            let anchor = access.anchor();
+            Some((
+                (anchor.x(), anchor.y()),
+                access.function(),
+                *origin,
+                outcome.map(|span| cells_of(span.span())),
+            ))
+        })
+        .collect()
+}
+
+/// Which access each entry of `record` is, with its owner's anchor and
+/// Function, in the order execution made them.
+pub(super) fn accesses(record: &TickPortals) -> Vec<((usize, usize), Function, &'static str)> {
+    record
+        .uses()
+        .iter()
+        .map(|access| {
+            let anchor = access.anchor();
+            let kind = match access.event() {
+                PortalEvent::Read { .. } => "read",
+                PortalEvent::Write { .. } => "write",
+            };
+            ((anchor.x(), anchor.y()), access.function(), kind)
+        })
+        .collect()
+}
+
+/// The Cells a Render Frame derived from `source`'s current revision paints
+/// in `role`, by column and row.
+pub(super) fn painted(source: Source, role: PortalRole) -> Vec<(usize, usize)> {
+    let grid = source.grid();
+    let frame = RenderFrame::derive(
+        SourceCommander::with_source(source).read_revision(),
+        Region::at(grid, grid.origin()),
+        false,
+        RenderFrameConfig {
+            sector_seam_spacing: SectorSeamSpacing::new(2).expect("a seam spacing"),
+            cursor_bloom_radius: CursorBloomRadius::new(1).expect("a bloom radius"),
+        },
+    );
+    frame
+        .cells()
+        .iter()
+        .filter(|cell| cell.portal_roles().contains(role))
+        .map(|cell| (cell.position().x(), cell.position().y()))
         .collect()
 }
 

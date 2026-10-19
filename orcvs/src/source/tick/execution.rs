@@ -14,7 +14,9 @@ use lang::{
 use super::Schedule;
 use super::dependencies::{self, Consequence, Delivery, Locked, Phase, Refusal};
 use super::ordering::{Progress, Turn};
-use super::portals::{InputSpan, Owner, PortalEvent, PortalOrigin, TickPortals};
+use super::portals::{
+    InputSpan, OutputSpan, Owner, PortalEvent, PortalOrigin, TickPortals, WriteRefusal,
+};
 use super::{
     Computation, ComputationId, Coverage, Effect, Encoding, Grid, LanguageMap, Occupancy, Occupant,
     Operand, Portal, PortalError, PortalUnit, Position, SCALAR_WIDTH, SpanWrite, TickPlan,
@@ -492,27 +494,30 @@ impl<'a> Execution<'a> {
         output: Result<Position, PortalError>,
         delivery: Delivery,
     ) {
-        let node = &self.schedule.lookup.nodes()[index];
-        let destination = match output {
-            Ok(destination) => destination,
-            Err(reason) => {
-                self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    portal_message(reason, encoding),
-                )));
-                return;
-            }
+        let origin = match delivery {
+            Delivery::Selected => PortalOrigin::Selected,
+            Delivery::Reserved | Delivery::Joined => PortalOrigin::Declared,
         };
-        let write = match Portal::at(self.grid, destination).admit(encoding) {
+        // A site with no Position in the Grid refuses before admission, and
+        // one with a Position refuses at it.
+        let admitted = match output {
+            Ok(destination) => Portal::at(self.grid, destination)
+                .admit(encoding)
+                .map_err(|error| (error, Some(destination))),
+            Err(error) => Err((error, None)),
+        };
+        let write = match admitted {
             Ok(write) => write,
-            Err(reason) => {
+            Err((error, at)) => {
+                self.record_write(index, origin, Err(WriteRefusal::Portal { error, at }));
                 self.effects.push(Effect::Diagnose(diagnose(
-                    node,
-                    portal_message(reason, encoding),
+                    &self.schedule.lookup.nodes()[index],
+                    portal_message(error, encoding),
                 )));
                 return;
             }
         };
+        let node = &self.schedule.lookup.nodes()[index];
         let lookup = &self.schedule.lookup;
         let reached = dependencies::reached(lookup, &write);
         for root in reached.bang_roots() {
@@ -534,6 +539,7 @@ impl<'a> Execution<'a> {
                     node,
                     format!("Function replacement changes {change}"),
                 )));
+                self.record_write(index, origin, Err(WriteRefusal::Replacement(change)));
                 return;
             }
             Some(Refusal::OrderingDefect) => {
@@ -541,10 +547,14 @@ impl<'a> Execution<'a> {
                     node,
                     "spatial output reached an executed computation",
                 )));
+                self.record_write(index, origin, Err(WriteRefusal::OrderingDefect));
                 return;
             }
             None => {}
         }
+        // Recorded before any Contact replaces a Function, so the owner is the
+        // Function whose Turn made the write.
+        self.record_write(index, origin, Ok(OutputSpan::of(&write)));
         // Each Contact is asked in turn, so one a covering Contact before it
         // suppressed is left as it is.
         let mut reaches_own_expression = false;
@@ -566,6 +576,16 @@ impl<'a> Execution<'a> {
             )));
         }
         self.write(WriteKind::Output, write);
+    }
+
+    /// Records one delivery `index`'s Turn attempted at an Output Portal site.
+    fn record_write(
+        &mut self,
+        index: ComputationId,
+        origin: PortalOrigin,
+        outcome: Result<OutputSpan, WriteRefusal>,
+    ) {
+        self.record(index, PortalEvent::Write { origin, outcome });
     }
 
     ///

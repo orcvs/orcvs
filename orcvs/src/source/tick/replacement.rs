@@ -2,10 +2,14 @@
 //! what a refused or admitted one keeps.
 
 use crate::grid::Grid;
+use crate::render_frame::PortalRole;
 use crate::source::TickPlan;
-use lang::Atom;
+use lang::{Atom, ReplacementChange};
 
+use super::PortalError;
 use super::fixture::{carried_tick, interpreted, messages, stated_tick};
+use super::observed::{committed_portals, painted, writes};
+use super::portals::{PortalOrigin, WriteRefusal};
 
 ///
 /// [`replaced_source`], with the inputs the Interpreter received for each
@@ -376,4 +380,43 @@ fn original_anchor_function_replacement_retains_inputs() {
     assert_eq!(&source.snapshot()[..6], ".x0204");
     assert_eq!(&source.snapshot()[32..34], "08");
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+}
+
+#[test]
+fn a_refused_replacement_keeps_its_reason_in_the_record_and_paints_nothing() {
+    // `.+0000` answers Equality at (0, 2), the anchor of `.+0102`, which
+    // Equality would change by being able to answer Bang. The pair it was
+    // refused at is not `.+0000`'s own static Output Portal, so nothing
+    // else paints it. `.+0102` then has no row below it to write to.
+    let grid = Grid::with_shape(16, 3);
+    let (_, _, source) = stated_tick(
+        grid,
+        &[".+0000", "", ".+0102"],
+        &[(0, 32)],
+        &[(0, Atom::Function(lang::Function::Equality))],
+    );
+    assert_eq!(&source.snapshot()[32..38], ".+0102");
+    assert_eq!(
+        writes(&committed_portals(&source)),
+        [
+            (
+                (0, 0),
+                lang::Function::Add,
+                PortalOrigin::Declared,
+                Err(WriteRefusal::Replacement(ReplacementChange::BangEmission))
+            ),
+            (
+                (0, 2),
+                lang::Function::Add,
+                PortalOrigin::Declared,
+                Err(WriteRefusal::Portal {
+                    error: PortalError::BelowSource,
+                    at: None
+                })
+            ),
+        ]
+    );
+    let output = painted(source, PortalRole::Output);
+    assert!(!output.contains(&(0, 2)), "{output:?}");
+    assert!(!output.contains(&(1, 2)), "{output:?}");
 }

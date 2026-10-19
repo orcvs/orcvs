@@ -26,7 +26,9 @@ pub use model::{
 };
 use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-pub use tick::portals::{InputSpan, PortalEvent, PortalOrigin, PortalUse, TickPortals};
+pub use tick::portals::{
+    InputSpan, OutputSpan, PortalEvent, PortalOrigin, PortalUse, TickPortals, WriteRefusal,
+};
 
 ///
 /// How many times [`SourceCommander::execute`] plans a Tick with no Source lock
@@ -558,7 +560,8 @@ mod tests {
         let read = source.read_revision();
         let record = read.tick_portals().expect("the Tick committed a record");
         assert_eq!(record.tick(), Tick::ZERO);
-        assert_eq!(record.uses().len(), 1, "{record:?}");
+        // The Read's read, and its write south of it.
+        assert_eq!(record.uses().len(), 2, "{record:?}");
 
         // The Read is gone, so the next Tick accesses no Portal.
         source.unset(cell(0));

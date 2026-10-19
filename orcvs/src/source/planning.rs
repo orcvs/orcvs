@@ -430,13 +430,17 @@ mod tests {
         let read: Vec<_> = record
             .uses()
             .iter()
-            .map(|access| {
-                let PortalEvent::Read { site, .. } = access.event();
-                site.expect("the pair is inside the Grid")
-                    .span()
-                    .positions()
-                    .map(|position| (position.x(), position.y()))
-                    .collect::<Vec<_>>()
+            .filter_map(|access| {
+                let PortalEvent::Read { site, .. } = access.event() else {
+                    return None;
+                };
+                Some(
+                    site.expect("the pair is inside the Grid")
+                        .span()
+                        .positions()
+                        .map(|position| (position.x(), position.y()))
+                        .collect::<Vec<_>>(),
+                )
             })
             .collect();
         assert_eq!(read, [[(2, 3), (3, 3)]]);

@@ -8,18 +8,18 @@
 //! Function the Turn was running — and never recovered from the Source the
 //! Tick committed, which the Tick may have rewritten.
 
-use lang::{Function, Tick};
+use lang::{Function, ReplacementChange, Tick};
 
-use super::{Portal, PortalError, Span};
+use super::{Portal, PortalError, Span, SpanWrite};
 use crate::grid::Position;
 
 ///
 /// The ordered, immutable record of every Portal access one Tick made.
 ///
 /// Order is the order execution made the accesses: Turns in the order they
-/// settled, and within a Turn its read first. A Turn that waited for a writer
-/// recorded nothing until it was retaken, and a Turn refused before
-/// interpretation records nothing at all.
+/// settled, and within a Turn its read, then its writes in site order. A Turn
+/// that waited for a writer recorded nothing until it was retaken, and a Turn
+/// refused before interpretation records nothing at all.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPortals {
@@ -104,6 +104,14 @@ pub enum PortalEvent {
         origin: PortalOrigin,
         site: Result<InputSpan, PortalError>,
     },
+    /// One delivery the Turn attempted at one Output Portal site: the Cells
+    /// it was admitted to, or why it was refused whole. A destination that
+    /// resolved for a Turn whose interpretation failed was never delivered
+    /// to, so it has no entry.
+    Write {
+        origin: PortalOrigin,
+        outcome: Result<OutputSpan, WriteRefusal>,
+    },
 }
 
 /// Whether a Portal sits where its Function declares it, or where its
@@ -117,10 +125,30 @@ pub enum PortalOrigin {
 }
 
 ///
+/// Why one delivery at an Output Portal site was refused whole.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WriteRefusal {
+    /// The site gave no destination for the encoding. `at` is the Position
+    /// the write was attempted from, and `None` where no Position in the
+    /// Grid answers the site.
+    Portal {
+        error: PortalError,
+        at: Option<Position>,
+    },
+    /// The write would replace a contacted Function with one that differs
+    /// from it in a fact the schedule was ordered by.
+    Replacement(ReplacementChange),
+    /// The schedule ordered the write first, and it reached a computation
+    /// that had already taken its Turn.
+    OrderingDefect,
+}
+
+///
 /// The Cells a Turn's Input Portal read.
 ///
 /// Built only from the Input Portal a Turn resolved, so no other Span can
-/// stand for one.
+/// stand for one, and it does not convert into an [`OutputSpan`].
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InputSpan(Span);
@@ -133,6 +161,27 @@ impl InputSpan {
     }
 
     /// The Cells read.
+    pub fn span(&self) -> Span {
+        self.0
+    }
+}
+
+///
+/// The Cells an admitted write covers.
+///
+/// Built only from a write a Portal admitted, so no other Span can stand for
+/// one, and it does not convert into an [`InputSpan`].
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OutputSpan(Span);
+
+impl OutputSpan {
+    /// The Cells `write` covers.
+    pub(super) fn of(write: &SpanWrite) -> Self {
+        Self(write.span())
+    }
+
+    /// The Cells written.
     pub fn span(&self) -> Span {
         self.0
     }

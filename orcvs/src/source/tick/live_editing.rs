@@ -8,10 +8,12 @@ use lang::Token;
 
 use super::Tick;
 use super::fixture::{
-    carried_destinations, carried_source, carried_tick, cell, interpreted, messages, snapshot,
-    turns,
+    carried_destinations, carried_source, carried_tick, cell, interpreted, messages, rows_of,
+    seeded_source, snapshot, turns,
 };
-use super::observed::raw;
+use super::observed::{painted, raw, writes};
+use super::portals::{PortalOrigin, WriteRefusal};
+use crate::render_frame::PortalRole;
 
 #[test]
 fn live_deep_sibling_computations_preserve_operand_order() {
@@ -581,6 +583,75 @@ fn a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_
             if target == ".+01??" { 5 } else { 6 }
         );
     }
+}
+
+#[test]
+fn a_late_spatial_write_keeps_its_ordering_reason_in_the_record_and_paints_nothing() {
+    // The broken order of the test above, for one target: the write onto
+    // Cell 64 is refused because the target took its Turn first.
+    let grid = Grid::with_shape(16, 11);
+    let rows = [
+        "", "!>007FC4", ".=0101", "./0100", ".+0101", ".+0203", "", ".+0304", "", "", "",
+    ];
+    let bytes = snapshot(grid, &rows);
+    let map = LanguageMap::derive(grid, &bytes).unwrap();
+    let carried = carried_destinations(grid, &[(32, 0), (48, 160), (64, 96), (80, 64), (112, 160)]);
+    let mut schedule = super::schedule_carrying(grid, &map, &carried);
+    schedule.ordered.order = [32, 16, 48, 64, 80, 112]
+        .into_iter()
+        .map(|anchor| {
+            schedule
+                .lookup
+                .nodes()
+                .iter()
+                .find(|node| grid.index(node.anchor) == cell(grid, anchor))
+                .unwrap()
+                .id
+        })
+        .collect();
+    let (plan, portals, _) = super::execution::execute(
+        grid,
+        Cells::of(bytes.as_bytes()),
+        &map,
+        Tick::ZERO,
+        &schedule,
+    );
+    let refused: Vec<_> = writes(&portals)
+        .into_iter()
+        .filter(|(.., outcome)| outcome.is_err())
+        .collect();
+    assert_eq!(
+        refused,
+        [(
+            (0, 5),
+            lang::Function::Add,
+            PortalOrigin::Declared,
+            Err(WriteRefusal::OrderingDefect)
+        )]
+    );
+
+    // What paints Output is the static highlight of the committed Cells and
+    // the writes the Tick admitted, and nothing of the refused one.
+    let mut source = seeded_source(grid, &rows);
+    source.commit_tick(&plan, portals.clone());
+    let mut expected = painted(
+        seeded_source(
+            grid,
+            &rows_of(grid, &source)
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        ),
+        PortalRole::Output,
+    );
+    for (.., outcome) in writes(&portals) {
+        if let Ok(cells) = outcome {
+            expected.extend(cells);
+        }
+    }
+    expected.sort_by_key(|&(x, y)| (y, x));
+    expected.dedup();
+    assert_eq!(painted(source, PortalRole::Output), expected);
 }
 
 #[test]

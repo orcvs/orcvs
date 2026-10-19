@@ -3109,10 +3109,94 @@ fn painted_as_input_portal(harness: &Harness<'_, Console>, column: usize, row: u
         .themes
         .presented(Appearance::Dark)
         .input_portal_background;
+    painted_on(harness, fill, column, row)
+}
+
+///
+/// Whether the last frame painted the Cell at `column`, `row` on the
+/// presented Theme's `output_portal.background`.
+///
+fn painted_as_output_portal(harness: &Harness<'_, Console>, column: usize, row: usize) -> bool {
+    let fill = harness
+        .state()
+        .themes
+        .presented(Appearance::Dark)
+        .output_portal_background;
+    painted_on(harness, fill, column, row)
+}
+
+/// Whether the last frame filled the Cell at `column`, `row` with `fill`.
+fn painted_on(
+    harness: &Harness<'_, Console>,
+    fill: egui::Color32,
+    column: usize,
+    row: usize,
+) -> bool {
     let point = presented_source(harness).cell_rect(column, row).center();
     painted_source_shapes(harness).iter().any(|shape| {
         matches!(shape, egui::Shape::Rect(rect) if rect.fill == fill && rect.rect.contains(point))
     })
+}
+
+///
+/// A console whose Source holds `rows` from Grid column 8, row 4, after the
+/// Tick at zero has committed, so its last frame paints that Tick's record.
+///
+fn ticked_console(rows: &[&str]) -> Harness<'static, Console> {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    for (y, row) in rows.iter().enumerate() {
+        for (x, character) in row.chars().enumerate() {
+            if character == ' ' {
+                continue;
+            }
+            let position = grid.position(8 + x, 4 + y).expect("inside the Grid");
+            source
+                .set(grid.index(position), &character.to_string())
+                .expect("a Cell the Source accepts");
+        }
+    }
+    source.execute(Tick::ZERO);
+    harness.run_steps(1);
+    harness
+}
+
+#[tokio::test]
+async fn a_cell_a_tick_both_read_and_wrote_paints_as_output_portal() {
+    // `@$` writes `C4` at (10, 5), and the Read at (16, 4) then reads that
+    // pair: Output Portal wins the Cells both roles cover.
+    let harness = ticked_console(&["@$0A05C4&$0A05"]);
+    for column in [10, 11] {
+        assert!(
+            painted_as_output_portal(&harness, column, 5),
+            "({column}, 5) is not Output Portal"
+        );
+        assert!(
+            !painted_as_input_portal(&harness, column, 5),
+            "({column}, 5) composites Input Portal under Output Portal"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_empty_cell_a_tick_read_shows_the_input_portal_background() {
+    // The Read at (8, 4) reads the empty pair at (10, 6): it holds no glyph,
+    // and still shows where the Tick read.
+    let harness = ticked_console(&["&$0A06"]);
+    let source = harness.state().orcvs.source().clone();
+    let grid = source.grid();
+    for column in [10, 11] {
+        let position = grid.position(column, 6).expect("inside the Grid");
+        assert_eq!(source.get(grid.index(position)), None);
+        assert!(
+            painted_as_input_portal(&harness, column, 6),
+            "({column}, 6) is not Input Portal"
+        );
+    }
 }
 
 ///
