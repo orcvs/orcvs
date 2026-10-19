@@ -245,7 +245,7 @@ pub(super) fn stated_tick(
         .map(|(anchor, atom)| (cell(grid, *anchor), *atom))
         .collect();
     let bytes = source.snapshot();
-    let (plan, portals, states) = super::execution::stated::plan_with_answers(
+    let (executed, states) = super::execution::stated::plan_with_answers(
         grid,
         bytes.as_bytes(),
         &source.shared_language_map(),
@@ -253,7 +253,7 @@ pub(super) fn stated_tick(
         &carried_destinations(grid, outputs),
         &answers,
     );
-    source.commit_tick(&plan, portals);
+    let plan = source.commit_tick(executed);
     (plan, states, source)
 }
 

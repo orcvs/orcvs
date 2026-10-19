@@ -13,7 +13,7 @@ use std::sync::Arc;
 use super::buffer::SourceBuffer;
 use super::language_map::LanguageMap;
 use super::tick;
-use super::tick::portals::TickPortals;
+use super::tick::ExecutedTick;
 use super::{OPTIMISTIC_TICK_ATTEMPTS, RevisionId, Source, SourceCommander, Tick, TickPlan};
 use crate::grid::Grid;
 
@@ -48,27 +48,24 @@ impl PlanningSnapshot {
     /// Interprets this revision at `tick`. Touches no Source.
     pub(super) fn plan(&self, tick: Tick) -> PlannedTick {
         // Each computation's Turn is discarded, as `Source::execute` discards it.
-        let (plan, portals, _) =
-            tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
+        let (executed, _) = tick::plan(self.grid, self.cells.cells(), &self.language_map, tick);
         PlannedTick {
             revision: self.revision,
-            plan,
-            portals,
+            executed,
         }
     }
 }
 
 ///
-/// A Tick Plan and its Tick Portals that have not been committed, and the
-/// revision they were planned against.
+/// A Tick executed and not yet committed, and the revision it was planned
+/// against.
 ///
-/// Both are reachable only through [`Self::commit`], so nothing can publish
-/// a plan or a record the Source has not accepted.
+/// Its plan and record are reachable only through [`Self::commit`], so
+/// nothing can publish a plan or a record the Source has not accepted.
 ///
 pub(super) struct PlannedTick {
     revision: RevisionId,
-    plan: TickPlan,
-    portals: TickPortals,
+    executed: ExecutedTick,
 }
 
 impl PlannedTick {
@@ -86,8 +83,7 @@ impl PlannedTick {
         if source.revision() != self.revision {
             return Err(StalePlan);
         }
-        source.commit_tick(&self.plan, self.portals);
-        Ok(self.plan)
+        Ok(source.commit_tick(self.executed))
     }
 }
 
@@ -289,8 +285,8 @@ mod tests {
         type_at(&source, 20, "!>007FC4");
 
         let planned = source.planning_snapshot().plan(Tick::ZERO);
-        assert_eq!(planned.plan.play_commands, vec![raw_c4()]);
-        assert!(!planned.plan.writes.is_empty());
+        assert_eq!(planned.executed.plan().play_commands, vec![raw_c4()]);
+        assert!(!planned.executed.plan().writes.is_empty());
         // The Raw Play is deleted while the plan that sounds it is made.
         source.unset(cell(grid, 20));
         let edited = source.snapshot();

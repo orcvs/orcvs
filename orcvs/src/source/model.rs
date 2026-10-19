@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 use super::buffer::SourceBuffer;
 use super::language_map::{LanguageMap, Span};
 use super::tick;
+use super::tick::ExecutedTick;
 use super::tick::execution::ComputationState;
 use super::tick::portals::TickPortals;
 use super::{CellContent, Freshness, SourceError};
@@ -372,9 +373,8 @@ impl Source {
     pub fn execute(&mut self, tick: Tick) -> TickPlan {
         // What each computation's Turn did is discarded here: a Playback
         // Engine applies a Tick Plan and asks nothing about how it was reached.
-        let (plan, portals, _) = self.plan_tick(tick);
-        self.commit_tick(&plan, portals);
-        plan
+        let (executed, _) = self.plan_tick(tick);
+        self.commit_tick(executed)
     }
 
     ///
@@ -389,24 +389,24 @@ impl Source {
         tick: Tick,
         destinations: &std::collections::BTreeMap<CellIndex, Vec<crate::grid::Position>>,
     ) -> (TickPlan, Vec<ComputationState>) {
-        let (plan, portals, states) = super::tick::plan_carrying(
+        let (executed, states) = super::tick::plan_carrying(
             self.grid,
             self.inner.cells(),
             &self.language_map,
             tick,
             destinations,
         );
-        self.commit_tick(&plan, portals);
-        (plan, states)
+        (self.commit_tick(executed), states)
     }
 
-    fn plan_tick(&self, tick: Tick) -> (TickPlan, TickPortals, Vec<ComputationState>) {
+    fn plan_tick(&self, tick: Tick) -> (ExecutedTick, Vec<ComputationState>) {
         tick::plan(self.grid, self.inner.cells(), &self.language_map, tick)
     }
 
     ///
-    /// Commits `plan` through [`Source::write_cells`] and keeps `portals` as
-    /// the record of the Tick, with the revision the commit leaves.
+    /// Commits `executed`'s plan through [`Source::write_cells`] and keeps its
+    /// Tick Portals as the record of the Tick, with the revision the commit
+    /// leaves, and answers the plan to publish.
     ///
     /// Visible across the Source module so a Tick planned without going
     /// through [`Source::execute`] — from a planning snapshot, or by a test in
@@ -414,12 +414,14 @@ impl Source {
     /// Every commit replaces the record, so a Tick that accessed no Portal
     /// leaves an empty one rather than the record of the Tick before it.
     ///
-    pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan, portals: TickPortals) {
+    pub(in crate::source) fn commit_tick(&mut self, executed: ExecutedTick) -> TickPlan {
+        let (plan, portals) = executed.into_parts();
         self.write_cells(&plan.writes);
         self.tick_portals = Some(CommittedPortals {
             record: Arc::new(portals),
             revision: self.revision,
         });
+        plan
     }
 
     ///
@@ -540,9 +542,8 @@ mod test {
             encoding::Encoding,
             portal::Portal,
             tick::{
-                Effect,
+                Effect, ExecutedTick,
                 observed::{raw, raw_c4},
-                portals::TickPortals,
                 resolve,
             },
         },
@@ -652,7 +653,7 @@ mod test {
         let write = Portal::below(grid, root)
             .and_then(|portal| portal.admit(&cells))
             .expect("the printable range fits one row");
-        source.commit_tick(&resolve(vec![Effect::Write(write)]), no_portals());
+        source.commit_tick(stated(resolve(vec![Effect::Write(write)])));
         let snapshot = source.snapshot();
         let row = grid.columns();
         assert_eq!(&snapshot[row..row + encoding.len()], encoding);
@@ -672,11 +673,11 @@ mod test {
     }
 
     ///
-    /// The record a Tick that accessed no Portal commits, for a plan these
-    /// tests state rather than plan.
+    /// A plan these tests state rather than execute, as the Tick zero they
+    /// state it for: no Turn made it, so it records no Portal access.
     ///
-    fn no_portals() -> TickPortals {
-        TickPortals::new(Tick::ZERO)
+    fn stated(plan: TickPlan) -> ExecutedTick {
+        ExecutedTick::stated(Tick::ZERO, plan)
     }
 
     ///
@@ -2852,8 +2853,11 @@ mod test {
         src.write(at(10), "0A0B0C");
         let root = grid.position(0, 0).expect("inside the Grid");
 
-        let result = plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0D)));
-        src.commit_tick(&result, no_portals());
+        let result = src.commit_tick(stated(plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Number(0x0D)),
+        )));
 
         assert_eq!(result.writes.len(), 2, "a result plans only its own Cells");
         assert_eq!(src.row(1), "0D0B0C    ");
@@ -2882,10 +2886,11 @@ mod test {
         let mut generated = source();
         let grid = generated.grid;
         let root = grid.position(0, 0).expect("inside the Grid");
-        generated.commit_tick(
-            &plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0A))),
-            no_portals(),
-        );
+        generated.commit_tick(stated(plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Number(0x0A)),
+        )));
 
         let mut typed = source();
         let at = typed.cells();
@@ -2909,10 +2914,11 @@ mod test {
         let mut src = source();
         let grid = src.grid;
         let root = grid.position(0, 0).expect("inside the Grid");
-        src.commit_tick(
-            &plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0A))),
-            no_portals(),
-        );
+        src.commit_tick(stated(plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Number(0x0A)),
+        )));
 
         let tick = src.execute();
 
@@ -2934,14 +2940,11 @@ mod test {
         let at = generated.cells();
         generated.write(at(12), "0102");
         let root = grid.position(0, 0).unwrap();
-        generated.commit_tick(
-            &plan_result(
-                grid,
-                root,
-                Interpretation::Cell(Atom::Function(Function::Add)),
-            ),
-            no_portals(),
-        );
+        generated.commit_tick(stated(plan_result(
+            grid,
+            root,
+            Interpretation::Cell(Atom::Function(Function::Add)),
+        )));
         assert_eq!(generated.row(1), ".+0102    ");
         assert_eq!(generated.row(2), "          ");
 
@@ -2967,8 +2970,7 @@ mod test {
         let halt = grid.position(0, 0).unwrap();
         let below = grid.position(0, 1).unwrap();
         let before = src.snapshot();
-        let plan = plan_result(grid, halt, Interpretation::Lock);
-        src.commit_tick(&plan, no_portals());
+        let plan = src.commit_tick(stated(plan_result(grid, halt, Interpretation::Lock)));
         assert_eq!(src.snapshot(), before);
         assert_eq!(plan.locks, vec![below]);
         assert!(plan.writes.is_empty());

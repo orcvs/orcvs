@@ -95,13 +95,14 @@ fn competing_writers_publish_but_a_dependency_cycle_writes_nothing() {
     ]
     .into_iter()
     .collect();
-    let (conflict, _, _) = super::plan_carrying(
+    let (conflict, _) = super::plan_carrying(
         conflict_grid,
         Cells::of(conflict_bytes.as_bytes()),
         &conflict_map,
         Tick::ZERO,
         &conflict_destinations,
     );
+    let conflict = conflict.into_plan();
     assert_eq!(planned(&conflict), vec![(26, '0'), (27, '7')]);
     assert!(conflict.play_commands.is_empty());
     assert!(conflict.diagnostics.is_empty());
@@ -121,13 +122,14 @@ fn competing_writers_publish_but_a_dependency_cycle_writes_nothing() {
     ]
     .into_iter()
     .collect();
-    let (cycle, _, _) = super::plan_carrying(
+    let (cycle, _) = super::plan_carrying(
         cycle_grid,
         Cells::of(cycle_bytes.as_bytes()),
         &cycle_map,
         Tick::ZERO,
         &cycle_destinations,
     );
+    let cycle = cycle.into_plan();
     // One cycle runs through both Expressions, so it is diagnosed once, at
     // the first in Parser order, and neither is reported as waiting.
     assert!(cycle.writes.is_empty());
@@ -145,7 +147,8 @@ fn test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write() {
     let bytes = snapshot(grid, &["", ".+0102"]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
-    let (plan, _, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let plan = plan.into_plan();
 
     assert!(plan.writes.is_empty());
     assert_eq!(

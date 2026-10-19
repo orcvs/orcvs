@@ -74,10 +74,10 @@ pub(super) use super::portal::{Coverage, Occupancy, Occupant, PortalError, Porta
 use super::portal::{Portal, PortalAccess, SCALAR_WIDTH, SpanWrite};
 use super::{CellContent, CellWrite, Cells, Diagnostic, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
+pub(super) use execution::ExecutedTick;
 use inputs::Parsed;
 pub(super) use inputs::{RowInputs, ScheduleInputs, ScheduledExpression};
 use ordering::{Order, Stall};
-use portals::TickPortals;
 
 ///
 /// One revision's computations and the order their Turns are taken in. No
@@ -577,7 +577,7 @@ pub(super) fn plan(
     cells: Cells<'_>,
     map: &LanguageMap,
     tick: Tick,
-) -> (TickPlan, TickPortals, Vec<execution::ComputationState>) {
+) -> (ExecutedTick, Vec<execution::ComputationState>) {
     execution::execute(grid, cells, map, tick, shared_schedule(grid, map))
 }
 
@@ -591,7 +591,7 @@ fn plan_unshared(
     cells: Cells<'_>,
     map: &LanguageMap,
     tick: Tick,
-) -> (TickPlan, TickPortals, Vec<execution::ComputationState>) {
+) -> (ExecutedTick, Vec<execution::ComputationState>) {
     execution::execute(
         grid,
         cells,
@@ -716,7 +716,7 @@ pub(super) fn plan_carrying(
     map: &LanguageMap,
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
-) -> (TickPlan, TickPortals, Vec<execution::ComputationState>) {
+) -> (ExecutedTick, Vec<execution::ComputationState>) {
     execution::execute(
         grid,
         cells,

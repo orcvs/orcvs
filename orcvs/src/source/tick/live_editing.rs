@@ -522,13 +522,14 @@ fn a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_
                     .id
             })
             .collect();
-        let (plan, _, states) = super::execution::execute(
+        let (plan, states) = super::execution::execute(
             grid,
             Cells::of(bytes.as_bytes()),
             &map,
             Tick::ZERO,
             &schedule,
         );
+        let plan = plan.into_plan();
         // The broken order was walked as given, and to its end: the
         // computation anchored at Cell 32 took the first Turn ahead of the
         // one anchored at Cell 16, and the one anchored at Cell 112 took
@@ -609,13 +610,14 @@ fn a_late_spatial_write_keeps_its_ordering_reason_in_the_record_and_paints_nothi
                 .id
         })
         .collect();
-    let (plan, portals, _) = super::execution::execute(
+    let (executed, _) = super::execution::execute(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
         Tick::ZERO,
         &schedule,
     );
+    let portals = executed.portals().clone();
     let refused: Vec<_> = writes(&portals)
         .into_iter()
         .filter(|(.., outcome)| outcome.is_err())
@@ -633,7 +635,7 @@ fn a_late_spatial_write_keeps_its_ordering_reason_in_the_record_and_paints_nothi
     // What paints Output is the static highlight of the committed Cells and
     // the writes the Tick admitted, and nothing of the refused one.
     let mut source = seeded_source(grid, &rows);
-    source.commit_tick(&plan, portals.clone());
+    source.commit_tick(executed);
     let mut expected = painted(
         seeded_source(
             grid,

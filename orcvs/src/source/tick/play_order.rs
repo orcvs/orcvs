@@ -31,13 +31,14 @@ fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
     .into_iter()
     .collect();
 
-    let (plan, _, _) = super::plan_carrying(
+    let (plan, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(plan.diagnostics.is_empty());
@@ -69,13 +70,14 @@ fn two_current_bang_results_still_execute_midi_once() {
     .into_iter()
     .collect();
 
-    let (plan, _, _) = super::plan_carrying(
+    let (plan, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(plan.diagnostics.is_empty());
@@ -103,13 +105,14 @@ fn one_failed_bang_candidate_does_not_suppress_another_fresh_bang() {
     .into_iter()
     .collect();
 
-    let (plan, _, _) = super::plan_carrying(
+    let (plan, _) = super::plan_carrying(
         grid,
         Cells::of(bytes.as_bytes()),
         &map,
         Tick::ZERO,
         &destinations,
     );
+    let plan = plan.into_plan();
 
     assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
     assert!(

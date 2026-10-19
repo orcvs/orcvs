@@ -20,7 +20,7 @@ Orca lights each operator's ports as it runs, so its tracker shows a read head m
 
 **An Input Span is minted only from the Input Portal a Turn resolved, and an Output Span only from a write a Portal admitted.** Their constructors are private to Tick execution and each exposes only a read-only Span, so no Span from anywhere else can stand for a read or a write, and neither converts into the other.
 
-**The record is committed through the one commit path.** The optimistic attempt carries the record in its planned Tick, and the locked attempt plans it under the guard; both hand plan and record to the same Source commit, which stores the record with the revision that commit leaves. A refused attempt is dropped whole and publishes neither. Every committed Tick replaces the record, so a Tick that accessed no Portal leaves an empty record rather than the last one.
+**The record is committed through the one commit path.** The optimistic attempt carries the record in its planned Tick, and the locked attempt plans it under the guard; both hand the same Source commit one executed Tick, which only execution builds and which holds the plan with the record its Turns made, so no record can be committed beside a plan it does not observe. The commit stores the record with the revision it leaves. A refused attempt is dropped whole and publishes neither. Every committed Tick replaces the record, so a Tick that accessed no Portal leaves an empty record rather than the last one.
 
 **A Source revision answers the last record with its freshness.** The Source keeps the last committed record with the revision that commit left, and a revision captures it as it is read, so an older revision keeps the record it was read with. The record is `Current` for the revision the commit left, and `Retained` for a revision an edit has made since. A retained record's Positions still name the Cells the Tick accessed, because an edit never moves a Cell, but the Function that made an entry may no longer stand at its anchor. Stopping Playback changes no revision, so a paused tracker keeps its record. Opening or loading a Source builds a new Source, which has none until its first Tick, and the record is not persisted.
 
@@ -32,7 +32,7 @@ Orca lights each operator's ports as it runs, so its tracker shows a read head m
 
 - The console lights each `&v` read of the tracker as it steps, with the Input Portal role ADR 0009's static Output Portal highlight sits beside, and lights where each selected write (Write, Push, `=$`) landed.
 - `TickPortals`, `PortalUse`, `PortalEvent`, `PortalOrigin`, `InputSpan`, `OutputSpan`, `WriteRefusal`, `LockVerdict`, `BundlePart`, `BundleRefusal`, `PortalError`, `Freshness` and `RevisionTickPortals` join the public surface of the `orcvs` crate, which no one outside this workspace consumes.
-- Every Tick allocates its record, including a Tick that reads nothing, which allocates the empty record's handle and no entries.
+- Every Tick allocates its record once, reserving room for one access per computation in its schedule, and its handle when it commits. A Tick with no computation reserves no entries. The per-Tick cost is inside the `source_execute_tick*` benchmarks, which plan and commit Ticks that read and write.
 
 ## Considered options
 

@@ -29,11 +29,12 @@ pub struct TickPortals {
 }
 
 impl TickPortals {
-    /// The record a Tick at `tick` starts with: no access yet.
-    pub(in crate::source) fn new(tick: Tick) -> Self {
+    /// The record a Tick at `tick` starts with: no access yet, and room for
+    /// `capacity` before it grows.
+    pub(super) fn new(tick: Tick, capacity: usize) -> Self {
         Self {
             tick,
-            uses: Vec::new(),
+            uses: Vec::with_capacity(capacity),
         }
     }
 

@@ -131,7 +131,7 @@ pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Optio
     let source = source_of(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, _, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
     shared_schedule(grid, &map)
         .lookup
         .nodes()
@@ -155,8 +155,9 @@ pub(super) fn reads(grid: Grid, rows: &[&str]) -> Vec<ObservedRead> {
     let source = source_of(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
-    let (_, portals, _) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
-    portals
+    let (executed, _) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
+    executed
+        .portals()
         .uses()
         .iter()
         .filter_map(|access| {

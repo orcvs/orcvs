@@ -101,7 +101,7 @@ pub(super) fn execute(
     map: &LanguageMap,
     tick: Tick,
     schedule: &Schedule,
-) -> (TickPlan, TickPortals, Vec<ComputationState>) {
+) -> (ExecutedTick, Vec<ComputationState>) {
     let mut execution = Execution::new(grid, cells, map, tick, schedule);
     let diagnostics = super::take_turns(schedule, |index, progress| {
         execution.take_turn(index, progress)
@@ -109,11 +109,54 @@ pub(super) fn execute(
     execution
         .effects
         .extend(diagnostics.into_iter().map(Effect::Diagnose));
-    (
-        resolve(execution.effects),
-        execution.portals,
-        execution.turns.into_states(),
-    )
+    execution.finish()
+}
+
+///
+/// One executed Tick: its Tick Plan and the Tick Portals its Turns made while
+/// planning it.
+///
+/// Only execution builds one, from the one Tick it executed, so a record is
+/// never committed beside a plan it does not observe. The Source commits it
+/// whole.
+///
+#[derive(Debug)]
+pub(in crate::source) struct ExecutedTick {
+    plan: TickPlan,
+    portals: TickPortals,
+}
+
+impl ExecutedTick {
+    /// The plan to apply and the record to keep, taken apart to commit them.
+    pub(in crate::source) fn into_parts(self) -> (TickPlan, TickPortals) {
+        (self.plan, self.portals)
+    }
+}
+
+#[cfg(test)]
+impl ExecutedTick {
+    ///
+    /// A plan a test states rather than executes, at the Tick `tick` the test
+    /// states it for. No Turn made it, so its record holds no access.
+    ///
+    pub(in crate::source) fn stated(tick: Tick, plan: TickPlan) -> Self {
+        Self {
+            plan,
+            portals: TickPortals::new(tick, 0),
+        }
+    }
+
+    pub(in crate::source) fn plan(&self) -> &TickPlan {
+        &self.plan
+    }
+
+    pub(in crate::source) fn portals(&self) -> &TickPortals {
+        &self.portals
+    }
+
+    pub(in crate::source) fn into_plan(self) -> TickPlan {
+        self.plan
+    }
 }
 
 struct Execution<'a> {
@@ -158,9 +201,24 @@ impl<'a> Execution<'a> {
             schedule,
             turns: Turns::new(lookup),
             effects: diagnostics.iter().cloned().map(Effect::Diagnose).collect(),
-            portals: TickPortals::new(tick),
+            // A Turn makes about one access, so the Tick's computations are
+            // the record's capacity: a Tick reserves it once rather than
+            // growing it access by access.
+            portals: TickPortals::new(tick, schedule.lookup.nodes().len()),
             activated: Vec::new(),
         }
+    }
+
+    /// The plan and record the Turns taken so far make, with what each
+    /// computation's Turn did.
+    fn finish(self) -> (ExecutedTick, Vec<ComputationState>) {
+        (
+            ExecutedTick {
+                plan: resolve(self.effects),
+                portals: self.portals,
+            },
+            self.turns.into_states(),
+        )
     }
 
     ///
