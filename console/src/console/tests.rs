@@ -11,7 +11,10 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
-use super::diagnostics_panel::{format_cpu_budget_delta, frames_per_second, visible_source_region};
+use super::diagnostics_panel::{
+    TIMING_READOUT_INTERVAL_SECONDS, Timing, TimingReadouts, format_cpu_budget_delta,
+    frames_per_second, visible_source_region,
+};
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
@@ -255,6 +258,46 @@ fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
             "{unpresentable:?} reached the diagnostics"
         );
     }
+}
+
+///
+/// The timing readouts show the first frame at once, hold it for the
+/// interval, then show the mean of the frames the interval saw.
+///
+#[test]
+fn timing_readouts_hold_for_the_interval_then_show_its_mean() {
+    let frame = |frame_time, cpu_usage| Timing {
+        frame_time,
+        cpu_usage,
+    };
+    // Binary fractions, so each mean is exact in `f32`.
+    let mut readouts = TimingReadouts::default();
+    let first = frame(0.015_625, Some(0.003_906_25));
+    assert_eq!(readouts.observe(10.0, first), first);
+    assert_eq!(
+        readouts.observe(10.1, frame(0.007_812_5, Some(0.001_953_125))),
+        first,
+        "a readout changed within the interval"
+    );
+    let second = frame(0.019_531_25, Some(0.001_953_125));
+    assert_eq!(
+        readouts.observe(
+            10.0 + TIMING_READOUT_INTERVAL_SECONDS,
+            frame(0.031_25, None)
+        ),
+        second,
+        "the readout is not the mean of the interval's frames"
+    );
+    assert_eq!(
+        readouts.observe(10.3, frame(0.039_062_5, None)),
+        second,
+        "the readout did not hold after changing"
+    );
+    assert_eq!(
+        readouts.observe(10.5, frame(0.023_437_5, None)),
+        frame(0.031_25, None),
+        "an interval without a CPU measurement shows one"
+    );
 }
 
 #[test]

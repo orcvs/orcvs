@@ -5,6 +5,62 @@ use egui::{Pos2, Rect};
 const TARGET_FPS: f32 = 60.0;
 const FRAME_BUDGET_SECONDS: f32 = 1.0 / TARGET_FPS;
 
+/// How long the timing readouts hold a value: four changes a second, slow
+/// enough to read while frames arrive at 60 FPS.
+pub(super) const TIMING_READOUT_INTERVAL_SECONDS: f64 = 0.25;
+
+/// The frame and CPU time one timing readout shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct Timing {
+    pub(super) frame_time: f32,
+    pub(super) cpu_usage: Option<f32>,
+}
+
+///
+/// The timing readouts, held for `TIMING_READOUT_INTERVAL_SECONDS` at a time.
+/// Each change shows the mean of the frames observed since the last one, so a
+/// held value summarises the interval rather than sampling one frame of it. A
+/// frame without a CPU measurement leaves the CPU mean to the frames that have
+/// one.
+///
+#[derive(Debug, Default)]
+pub(super) struct TimingReadouts {
+    shown_at: Option<f64>,
+    shown: Timing,
+    frames: u32,
+    frame_time_sum: f32,
+    cpu_frames: u32,
+    cpu_usage_sum: f32,
+}
+
+impl TimingReadouts {
+    /// Records the frame observed at `now` seconds and answers what to show.
+    pub(super) fn observe(&mut self, now: f64, frame: Timing) -> Timing {
+        self.frames += 1;
+        self.frame_time_sum += frame.frame_time;
+        if let Some(cpu_usage) = frame.cpu_usage {
+            self.cpu_frames += 1;
+            self.cpu_usage_sum += cpu_usage;
+        }
+        let due = self
+            .shown_at
+            .is_none_or(|shown_at| now - shown_at >= TIMING_READOUT_INTERVAL_SECONDS);
+        if due {
+            self.shown = Timing {
+                frame_time: self.frame_time_sum / self.frames as f32,
+                cpu_usage: (self.cpu_frames > 0)
+                    .then(|| self.cpu_usage_sum / self.cpu_frames as f32),
+            };
+            *self = Self {
+                shown_at: Some(now),
+                shown: self.shown,
+                ..Self::default()
+            };
+        }
+        self.shown
+    }
+}
+
 pub(super) fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
 }
@@ -41,25 +97,34 @@ pub(super) fn summary_height(ui: &egui::Ui) -> f32 {
 /// Fills the space the Panel reserved, after the Source View has laid out this
 /// frame's geometry. Long values truncate within the Panel's clip rectangle,
 /// and the readouts scroll when the Panel reserved less than all of them.
+/// The timing readouts change at the pace `timing` holds them to; the geometry
+/// readouts follow every frame.
 pub(super) fn show_diagnostics(
     ui: &mut egui::Ui,
     frame: &eframe::Frame,
+    timing: &mut TimingReadouts,
     origin: Pos2,
     console: Rect,
     cell_size: f32,
 ) {
-    let frame_time = ui.input(|input| input.stable_dt);
-    let cpu_usage = frame.info().cpu_usage;
+    let (now, frame_time) = ui.input(|input| (input.time, input.stable_dt));
+    let shown = timing.observe(
+        now,
+        Timing {
+            frame_time,
+            cpu_usage: frame.info().cpu_usage,
+        },
+    );
     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        summary(ui, frame_time, cpu_usage, origin, console, cell_size)
-    });
+    egui::ScrollArea::vertical().show(ui, |ui| summary(ui, shown, origin, console, cell_size));
 }
 
 fn summary(
     ui: &mut egui::Ui,
-    frame_time: f32,
-    cpu_usage: Option<f32>,
+    Timing {
+        frame_time,
+        cpu_usage,
+    }: Timing,
     origin: Pos2,
     console: Rect,
     cell_size: f32,

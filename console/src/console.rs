@@ -24,7 +24,7 @@ mod repaint;
 mod shapes;
 mod source_view;
 
-use self::diagnostics_panel::show_diagnostics;
+use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
 use self::panel::BOTTOM_PANEL_HEIGHT;
@@ -120,6 +120,7 @@ pub struct Console {
     font_family: egui::FontFamily,
     source_view: SourceView,
     diagnostics_open: bool,
+    diagnostics_timing: TimingReadouts,
     /// The BPM field's widget id, so a later pass can find the rectangle it
     /// occupied and so focus is the same id the field is shown under.
     #[cfg(test)]
@@ -266,6 +267,7 @@ impl Console {
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view: SourceView::default(),
             diagnostics_open: true,
+            diagnostics_timing: TimingReadouts::default(),
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
@@ -440,6 +442,7 @@ impl eframe::App for Console {
             show_diagnostics(
                 &mut diagnostics,
                 eframe,
+                &mut self.diagnostics_timing,
                 self.source_view.origin,
                 source.console,
                 source.cell_size,
