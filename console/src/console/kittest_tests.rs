@@ -1539,21 +1539,39 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
         .themes
         .presented(Appearance::from(harness.ctx.theme()))
         .clone();
-    let (mut borders, mut cursor_strokes, mut seams) = (0, 0, 0);
+    // A Grid line covers whole pixels, at least one.
+    let line_pixels = (theme.grid_border_width.points() * pixels_per_point)
+        .round()
+        .max(1.0);
+    let (mut lines, mut cursor_strokes, mut seams) = (0, 0, 0);
     for shape in painted_source_shapes(&harness) {
         match shape {
+            egui::Shape::Mesh(mesh) => {
+                for quad in mesh.vertices.as_chunks::<4>().0 {
+                    lines += 1;
+                    let (min, max) = (quad[0].pos, quad[3].pos);
+                    assert!(
+                        whole(min.x) && whole(min.y) && whole(max.x) && whole(max.y),
+                        "a Grid line piece {min:?}..{max:?} is off the pixel grid"
+                    );
+                    let across = (max - min).min_elem() * pixels_per_point;
+                    assert!(
+                        (across - line_pixels).abs() < 1e-3,
+                        "a Grid line piece {min:?}..{max:?} is {across} pixels across at zoom 1.3"
+                    );
+                }
+            }
             egui::Shape::Rect(rect) if rect.stroke.width > 0.0 => {
-                let expected = if rect.rect.center().distance(cursor_cell.center()) < 1e-3 {
-                    cursor_strokes += 1;
-                    theme.cursor_border_width.points()
-                } else {
-                    borders += 1;
-                    theme.grid_border_width.points()
-                };
-                assert_eq!(
-                    rect.stroke.width, expected,
-                    "a stroke around {:?} is not the Theme's width at zoom 1.3",
+                assert!(
+                    rect.rect.center().distance(cursor_cell.center()) < 1e-3,
+                    "an unclaimed Cell at {:?} stroked a border of its own",
                     rect.rect
+                );
+                cursor_strokes += 1;
+                assert_eq!(
+                    rect.stroke.width,
+                    theme.cursor_border_width.points(),
+                    "the Cursor's stroke is not the Theme's width at zoom 1.3"
                 );
             }
             egui::Shape::LineSegment { stroke, .. } => {
@@ -1567,7 +1585,7 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
             _ => {}
         }
     }
-    assert!(borders > 0, "the zoomed console painted no Grid line");
+    assert!(lines > 0, "the zoomed console painted no Grid line");
     assert_eq!(
         cursor_strokes, 1,
         "the zoomed console painted no one Cursor stroke"

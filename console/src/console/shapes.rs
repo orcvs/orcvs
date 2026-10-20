@@ -1,9 +1,11 @@
 //! Drawing the Source Grid: the Shapes a Render Frame's Cells are painted as,
 //! in paint order, and the one click the Grid answers.
 
+use std::ops::Range;
+
 use egui::{
-    Color32, CornerRadius, FontId, Rect, Sense, Shape, Stroke, StrokeKind, emath::GuiRounding as _,
-    epaint::RectShape,
+    Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
+    emath::GuiRounding as _, epaint::RectShape,
 };
 use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 
@@ -45,6 +47,103 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 }
 
 ///
+/// A line placed on whole physical pixels: how many it covers across its
+/// boundary, and the colour it covers them in.
+///
+/// A line thinner than one physical pixel covers one at its colour scaled by
+/// its width, as epaint's own thin-stroke path fades a line rather than
+/// thinning it: a fine Theme still shows a Grid at 1×, and nothing blurs
+/// across two pixels.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PixelLine {
+    pub(super) width: i32,
+    pub(super) colour: Color32,
+}
+
+impl PixelLine {
+    ///
+    /// `stroke` at `pixels_per_point`, or `None` where it covers no pixel.
+    ///
+    pub(super) fn new(stroke: Stroke, pixels_per_point: f32) -> Option<Self> {
+        let physical = stroke.width * pixels_per_point;
+        if physical >= 1.0 {
+            Some(Self {
+                width: physical.round() as i32,
+                colour: stroke.color,
+            })
+        } else if physical > 0.0 {
+            Some(Self {
+                width: 1,
+                colour: stroke.color.gamma_multiply(physical),
+            })
+        } else {
+            None
+        }
+    }
+
+    ///
+    /// The pixels the line covers across the boundary at pixel `boundary`:
+    /// a 1 pixel line lies right of or below it, a 2 pixel line straddles it.
+    /// A narrower line's band lies inside a wider one's on the same boundary.
+    ///
+    fn band(self, boundary: i32) -> Range<i32> {
+        let start = boundary - self.width / 2;
+        start..start + self.width
+    }
+}
+
+///
+/// The Grid lines across `columns` and `rows`, as one Mesh of quads that never
+/// overlap: a junction where each column line crosses each row line, and a
+/// piece of line between each pair of neighbouring junctions.
+///
+/// `columns` and `rows` are the boundaries' positions in physical pixels, left
+/// to right and top to bottom, so each axis is spaced by its own Cell side.
+///
+/// Quads rather than rectangles or segments: epaint draws a filled rectangle
+/// no more than two feathering widths across as a line segment, rounds a one
+/// pixel junction away, and shrinks a segment's ends by a quarter pixel, so
+/// either leaves holes or overlaps at the crossings. A quad on whole pixels has
+/// no edge to anti-alias.
+///
+pub(super) fn grid_lines(
+    columns: &[i32],
+    rows: &[i32],
+    line: PixelLine,
+    pixels_per_point: f32,
+) -> Mesh {
+    let mut mesh = Mesh::default();
+    let mut quad = |x: Range<i32>, y: Range<i32>| {
+        if !x.is_empty() && !y.is_empty() {
+            let point = |x: i32, y: i32| {
+                Pos2::new(x as f32 / pixels_per_point, y as f32 / pixels_per_point)
+            };
+            mesh.add_colored_rect(
+                Rect::from_min_max(point(x.start, y.start), point(x.end, y.end)),
+                line.colour,
+            );
+        }
+    };
+
+    for (row, &y) in rows.iter().enumerate() {
+        let across = line.band(y);
+        for (column, &x) in columns.iter().enumerate() {
+            let down = line.band(x);
+            quad(down.clone(), across.clone());
+            if let Some(&next) = columns.get(column + 1) {
+                quad(down.end..line.band(next).start, across.clone());
+            }
+            if let Some(&next) = rows.get(row + 1) {
+                quad(down.clone(), across.end..line.band(next).start);
+            }
+        }
+    }
+
+    mesh
+}
+
+///
 /// A [`Paint`] as the Shapes that draw it, grouped by the order they are
 /// painted in.
 ///
@@ -57,7 +156,9 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// after the fills, because a run widened across several Cells covers the
 /// borders of every Cell but its last. That is a fact about how a painter
 /// composites rather than about the Source, which is why it is decided here and
-/// not in the value layer — and the ordered groups name it in the type.
+/// not in the value layer — and the ordered groups name it in the type. The
+/// Grid lines lie under the borders, which stroke inside their own
+/// Cells.
 ///
 /// # Why they are built eagerly
 ///
@@ -71,8 +172,10 @@ pub struct SourceShapes {
     pub(super) area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
     pub(super) backgrounds: Vec<Shape>,
-    /// Every Cell's own border but the Cursor's, and the Cursor's too while a
-    /// Region spans more than one Cell.
+    /// The Grid lines, one Mesh, absent where `grid.border.width` is zero.
+    pub(super) lines: Vec<Shape>,
+    /// The own border of every Cell that carries a border fact, but the
+    /// Cursor's, and the Cursor's too while a Region spans more than one Cell.
     pub(super) borders: Vec<Shape>,
     /// One galley per Cell that shows a character other than the space.
     pub(super) glyphs: Vec<Shape>,
@@ -91,13 +194,13 @@ impl SourceShapes {
     /// of, applied to the colours and characters it carries all of.
     ///
     /// Stroke widths are fixed display points at every device scale and egui
-    /// zoom factor, never multiplied by the Cell size: `sector.seam.width`
-    /// from the resolved `theme`, and each
-    /// Cell's own border width already resolved onto it as `cell.
-    /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
-    /// either composited with Diagnostic/Output Portal, by fact priority).
-    /// `pixels_per_point` is the device scale the background runs are
-    /// snapped to; see [`background_run`].
+    /// zoom factor, never multiplied by the Cell size: `grid.border.width` and
+    /// `sector.seam.width` from the resolved `theme`, and each Cell's own
+    /// border width already resolved onto `cell.border`
+    /// (`cell.selection.border.width`, or Diagnostic/Portal by fact
+    /// priority). `pixels_per_point` is the device scale the background runs
+    /// are snapped to (see [`background_run`]) and the Grid lines are placed
+    /// at (see [`grid_lines`]).
     ///
     /// Borders, the Cursor's border, the sector seams and the background runs
     /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
@@ -133,7 +236,7 @@ impl SourceShapes {
     /// Cell inside the loop below, and a width of exactly zero skips building
     /// that Shape outright rather than emitting a zero-width one for the
     /// painter to drop. Each Cell's own border width is the one already
-    /// resolved onto `cell.border_width`.
+    /// resolved onto `cell.border`.
     ///
     pub fn geometry(
         paint: &Paint,
@@ -144,15 +247,11 @@ impl SourceShapes {
         // Sector Seam width has no per-Cell fact to vary by, so it is a plain
         // frame-level read.
         let sector_seam_width = theme.sector_seam_width.points();
-        // A border is the rule on every Cell the Paint covers, so it is sized
-        // up front — to those Cells rather than to the Grid: a densely written
-        // Source that regrew the group would pay the reallocation on every
-        // Render Frame, and a panned console reserves what it draws instead of
-        // what the Source holds. Backgrounds are sparse selection state, so
-        // that group starts empty. Glyphs are reserved in
-        // [`Self::place_glyphs`].
+        // Backgrounds and borders are sparse — selection state and the Cells
+        // that carry a border fact — so those groups start empty. Glyphs are
+        // reserved in [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
-        let mut borders = Vec::with_capacity(paint.count());
+        let mut borders = Vec::new();
         let mut seams = Vec::new();
         let mut cursor = Vec::new();
 
@@ -183,27 +282,53 @@ impl SourceShapes {
             backgrounds.push(background_run(covered, run.colour, pixels_per_point));
         }
 
+        // Every boundary of the drawn range, the far edge of its last column
+        // and row included, in physical pixels. `cell_rect` is a function of
+        // one index, so a boundary past the last drawn Cell is the near edge
+        // the next Cell would have.
+        let drawn = paint.drawn();
+        let line = PixelLine::new(
+            Stroke::new(theme.grid_border_width.points(), theme.grid_border),
+            pixels_per_point,
+        );
+        let mut lines = Vec::new();
+        if let Some(line) = line
+            && !drawn.columns.is_empty()
+            && !drawn.rows.is_empty()
+        {
+            let pixel = |point: f32| (point * pixels_per_point).round() as i32;
+            let columns = (drawn.columns.start..=drawn.columns.end)
+                .map(|column| pixel(viewport.cell_rect(column, drawn.rows.start).min.x))
+                .collect::<Vec<_>>();
+            let rows = (drawn.rows.start..=drawn.rows.end)
+                .map(|row| pixel(viewport.cell_rect(drawn.columns.start, row).min.y))
+                .collect::<Vec<_>>();
+            lines.push(Shape::mesh(grid_lines(
+                &columns,
+                &rows,
+                line,
+                pixels_per_point,
+            )));
+        }
+
         for (position, cell) in paint.cells() {
             let rect = viewport.cell_rect(position.x(), position.y());
             // The Cell's own border, stroke and no fill: a widened run paints
             // over the borders of every Cell inside it, so the fill and the
             // border cannot be one shape.
             //
-            // `cell.border_width` is already the resolved answer —
+            // `cell.border` is already the resolved answer —
             // `crate::style::cell_visuals_with_cursor_colour` and
             // `crate::style::ordinary_border`'s fact-priority pick, threaded
-            // through `CellPaint` — so this step is purely mechanical: a
-            // single-Cell Cursor's own `cell.selection.border.width`, or the
-            // ordinary Grid border's width, itself composited with
-            // Diagnostic/Output Portal by the same priority
-            // (`.scratch/theming/schema.md`'s Source composition steps 4 and
-            // 5). Each width independently hides its own stroke at zero,
-            // since it is this Cell's *only* width, decided once above.
-            if cell.border_width > 0.0 {
+            // through `CellPaint` — so this step is purely mechanical. A width
+            // of zero hides the stroke, since it is this Cell's *only* width.
+            if let Some(stroke) = cell.border
+                && stroke.width > 0.0
+            {
                 let border = Shape::Rect(RectShape::stroke(
                     rect,
                     CornerRadius::ZERO,
-                    Stroke::new(cell.border_width, cell.border),
+                    stroke,
                     StrokeKind::Inside,
                 ));
 
@@ -239,6 +364,7 @@ impl SourceShapes {
         Self {
             area: Vec::new(),
             backgrounds,
+            lines,
             borders,
             glyphs: Vec::new(),
             seams,
@@ -283,6 +409,7 @@ impl SourceShapes {
         self.area
             .into_iter()
             .chain(self.backgrounds)
+            .chain(self.lines)
             .chain(self.borders)
             .chain(self.glyphs)
             .chain(self.seams)
