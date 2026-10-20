@@ -262,41 +262,30 @@ fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
 
 ///
 /// The timing readouts show the first frame at once, hold it for the
-/// interval, then show the mean of the frames the interval saw.
+/// interval, then show the frame that arrives once it has passed.
 ///
 #[test]
-fn timing_readouts_hold_for_the_interval_then_show_its_mean() {
-    let frame = |frame_time, cpu_usage| Timing {
+fn timing_readouts_hold_each_frame_for_the_interval() {
+    let frame = |frame_time| Timing {
         frame_time,
-        cpu_usage,
+        cpu_usage: Some(frame_time / 2.0),
     };
-    // Binary fractions, so each mean is exact in `f32`.
     let mut readouts = TimingReadouts::default();
-    let first = frame(0.015_625, Some(0.003_906_25));
-    assert_eq!(readouts.observe(10.0, first), first);
+    assert_eq!(readouts.observe(10.0, frame(0.016)), frame(0.016));
     assert_eq!(
-        readouts.observe(10.1, frame(0.007_812_5, Some(0.001_953_125))),
-        first,
+        readouts.observe(10.1, frame(0.010)),
+        frame(0.016),
         "a readout changed within the interval"
     );
-    let second = frame(0.019_531_25, Some(0.001_953_125));
     assert_eq!(
-        readouts.observe(
-            10.0 + TIMING_READOUT_INTERVAL_SECONDS,
-            frame(0.031_25, None)
-        ),
-        second,
-        "the readout is not the mean of the interval's frames"
+        readouts.observe(10.0 + TIMING_READOUT_INTERVAL_SECONDS, frame(0.030)),
+        frame(0.030),
+        "a readout held past the interval"
     );
     assert_eq!(
-        readouts.observe(10.3, frame(0.039_062_5, None)),
-        second,
+        readouts.observe(10.3, frame(0.040)),
+        frame(0.030),
         "the readout did not hold after changing"
-    );
-    assert_eq!(
-        readouts.observe(10.5, frame(0.023_437_5, None)),
-        frame(0.031_25, None),
-        "an interval without a CPU measurement shows one"
     );
 }
 

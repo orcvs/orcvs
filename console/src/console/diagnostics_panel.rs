@@ -16,48 +16,23 @@ pub(super) struct Timing {
     pub(super) cpu_usage: Option<f32>,
 }
 
-///
-/// The timing readouts, held for `TIMING_READOUT_INTERVAL_SECONDS` at a time.
-/// Each change shows the mean of the frames observed since the last one, so a
-/// held value summarises the interval rather than sampling one frame of it. A
-/// frame without a CPU measurement leaves the CPU mean to the frames that have
-/// one.
-///
+/// The timing readouts, each held for `TIMING_READOUT_INTERVAL_SECONDS`.
 #[derive(Debug, Default)]
 pub(super) struct TimingReadouts {
-    shown_at: Option<f64>,
-    shown: Timing,
-    frames: u32,
-    frame_time_sum: f32,
-    cpu_frames: u32,
-    cpu_usage_sum: f32,
+    shown: Option<(f64, Timing)>,
 }
 
 impl TimingReadouts {
-    /// Records the frame observed at `now` seconds and answers what to show.
+    /// What to show at `now` seconds: the held readout, or `frame` once the
+    /// held one is due for replacement.
     pub(super) fn observe(&mut self, now: f64, frame: Timing) -> Timing {
-        self.frames += 1;
-        self.frame_time_sum += frame.frame_time;
-        if let Some(cpu_usage) = frame.cpu_usage {
-            self.cpu_frames += 1;
-            self.cpu_usage_sum += cpu_usage;
+        match self.shown {
+            Some((shown_at, held)) if now - shown_at < TIMING_READOUT_INTERVAL_SECONDS => held,
+            _ => {
+                self.shown = Some((now, frame));
+                frame
+            }
         }
-        let due = self
-            .shown_at
-            .is_none_or(|shown_at| now - shown_at >= TIMING_READOUT_INTERVAL_SECONDS);
-        if due {
-            self.shown = Timing {
-                frame_time: self.frame_time_sum / self.frames as f32,
-                cpu_usage: (self.cpu_frames > 0)
-                    .then(|| self.cpu_usage_sum / self.cpu_frames as f32),
-            };
-            *self = Self {
-                shown_at: Some(now),
-                shown: self.shown,
-                ..Self::default()
-            };
-        }
-        self.shown
     }
 }
 
