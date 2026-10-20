@@ -198,6 +198,8 @@ The border widths are Theme properties too, in display points: `grid.border.widt
 its default) and `input.cursor.width` 2. `schema.md`
 lists them with the chrome widths.
 
+A visible role border frames every Cell its role claims, whether the Cell holds content or not, so a Comment's blank Cells and a Pending operand slot take their role's border. An unclaimed Cell draws as Ordinary, and takes the Ordinary border only while it holds content, so an empty Cell keeps the Grid line at `grid.border.width`.
+
 ### The Orcvs Light built-in Theme
 
 `orcvs-light` is the light built-in, prepared by `.scratch/theming/issues/04`

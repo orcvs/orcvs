@@ -46,7 +46,8 @@ pub(crate) struct CellVisuals {
 /// Pending, Valid, or Invalid for an Operand. `portal_roles` is an
 /// independent fact: the Portal roles this Cell plays
 /// (`RenderCell::portal_roles`). `occupied` is whether the Cell holds
-/// content, which decides only whether its role's border can show.
+/// content, which decides only whether an unclaimed Cell's Ordinary border
+/// can show.
 ///
 pub(crate) fn cell_visuals_with_cursor_colour(
     paint: SourcePaint,
@@ -261,9 +262,13 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// Diagnostic or a Portal wins.
 ///
 /// Beneath Diagnostic and the Portals sits the Cell's role border, over the
-/// Grid line, on an `occupied` Cell whose role border is visible. A
-/// transparent role border leaves the Grid line's colour and width, so
-/// `grid.border.width` keeps governing every Cell no role border is drawn on.
+/// Grid line, when that border is visible. A Cell a role claims draws its
+/// role's border whether it holds content or not, so a Comment or a Pending
+/// operand slot is framed as one span. An unclaimed Cell draws the Ordinary
+/// border only while `occupied`: an empty Cell keeps the plain Grid line, so
+/// a visible Ordinary border never frames the whole Grid. A transparent role
+/// border leaves the Grid line's colour and width, so `grid.border.width`
+/// keeps governing every Cell no role border is drawn on.
 ///
 /// Called only for a Cell keeping the ordinary Grid border: the single-Cell
 /// Cursor's own frame is decided in [`cell_visuals_with_cursor_colour`]
@@ -285,7 +290,8 @@ fn ordinary_border(
     // The same overlay `role_and_portal` composites the background with.
     let portal = fill_overlay(paint, portal).map(|role| PortalChannels::of(role, theme));
     let own = RoleChannels::of(paint, theme);
-    let (line, line_width) = if occupied && own.border.a() != 0 {
+    let framed = occupied || paint != SourcePaint::Unclaimed;
+    let (line, line_width) = if framed && own.border.a() != 0 {
         (
             blend_channel(theme.grid_border, own.border),
             own.border_width,
@@ -2386,28 +2392,59 @@ mod tests {
     }
 
     ///
-    /// A role border frames only a Cell holding content: an empty Cell of
-    /// the same role keeps the plain Grid line.
+    /// A role border frames every Cell its role claims, blank or not: an
+    /// empty Function Cell and a Pending operand slot take their role's
+    /// border. An empty unclaimed Cell keeps the plain Grid line even with a
+    /// visible Ordinary border, which frames only an unclaimed Cell holding
+    /// content.
     ///
     #[test]
-    fn an_empty_cell_never_takes_its_roles_border() {
+    fn a_role_border_frames_every_claimed_cell_and_the_ordinary_border_only_content() {
+        let function_border = Color32::from_rgb(30, 200, 30);
+        let number_border = Color32::from_rgb(30, 30, 200);
+        let ordinary_border = Color32::from_rgb(200, 30, 30);
         let theme = Theme {
-            source_function_border: Color32::from_rgb(30, 200, 30),
+            source_function_border: function_border,
+            source_number_border: number_border,
+            source_ordinary_border: ordinary_border,
             ..okabe_ito()
         };
+        let empty = |paint| {
+            cell_visuals_with_cursor_colour(
+                paint,
+                PortalRoles::NONE,
+                false,
+                false,
+                false,
+                None,
+                &theme,
+            )
+        };
 
-        let empty = cell_visuals_with_cursor_colour(
-            SourcePaint::Function,
-            PortalRoles::NONE,
-            false,
-            false,
-            false,
-            None,
-            &theme,
+        let function = empty(SourcePaint::Function);
+        assert_eq!(function.border, theme.grid_border.blend(function_border));
+        assert_eq!(
+            function.border_width,
+            theme.source_function_border_width.points()
         );
 
-        assert_eq!(empty.border, theme.grid_border);
-        assert_eq!(empty.border_width, theme.grid_border_width.points());
+        let pending = empty(operand(Token::Number, OperandState::Pending));
+        assert_eq!(pending.border, theme.grid_border.blend(number_border));
+        assert_eq!(
+            pending.border_width,
+            theme.source_number_border_width.points()
+        );
+
+        let unclaimed = empty(SourcePaint::Unclaimed);
+        assert_eq!(unclaimed.border, theme.grid_border);
+        assert_eq!(unclaimed.border_width, theme.grid_border_width.points());
+
+        let written = painted(SourcePaint::Unclaimed, false, &theme);
+        assert_eq!(written.border, theme.grid_border.blend(ordinary_border));
+        assert_eq!(
+            written.border_width,
+            theme.source_ordinary_border_width.points()
+        );
     }
 
     ///
@@ -2415,7 +2452,9 @@ mod tests {
     /// takes the Bang border rather than the Function one, a Valid or Invalid
     /// operand takes its declared Token's border, and an Invalid operand
     /// shows the Diagnostic border over its Token's. A Pending operand slot
-    /// is blank, so [`an_empty_cell_never_takes_its_roles_border`] covers it.
+    /// is blank, so
+    /// [`a_role_border_frames_every_claimed_cell_and_the_ordinary_border_only_content`]
+    /// covers it.
     ///
     #[test]
     fn each_role_strokes_its_own_border() {

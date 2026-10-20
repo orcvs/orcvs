@@ -195,7 +195,7 @@ impl SourceShapes {
             // through `CellPaint` — so this step is purely mechanical: a
             // single-Cell Cursor's own `cell.selection.border.width`, or the
             // ordinary border's: the Grid line, or the role border over it on
-            // an occupied Cell whose role border is visible, then composited
+            // a claimed or occupied Cell whose role border is visible, then composited
             // with Diagnostic and the painting Portal or Locked by the same
             // priority (`.scratch/theming/schema.md`'s Source composition
             // steps 4 and 5). Each width independently hides its own stroke at zero,

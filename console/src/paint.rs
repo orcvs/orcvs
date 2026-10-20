@@ -1603,11 +1603,12 @@ mod tests {
     }
 
     ///
-    /// A Comment's border frames the Cells it holds text in, and a blank Cell
-    /// the same Comment claims keeps the plain Grid line.
+    /// A Comment's border frames every Cell the Comment claims, the blank
+    /// Cells between its text included, and an empty Cell past the Grid's
+    /// written Source keeps the plain Grid line.
     ///
     #[tokio::test]
-    async fn a_comment_border_frames_its_text_and_not_its_blank_cells() {
+    async fn a_comment_border_frames_its_blank_cells_as_well_as_its_text() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in [(0, '|'), (1, '|'), (2, 'a'), (4, 'b')] {
             orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
@@ -1628,9 +1629,19 @@ mod tests {
             paint.at(position(2)).border,
             theme.grid_border.blend(visible)
         );
-        assert_eq!(paint.at(position(3)).border, theme.grid_border);
+        assert_eq!(
+            paint.at(position(3)).border,
+            theme.grid_border.blend(visible)
+        );
         assert_eq!(
             paint.at(position(3)).border_width,
+            theme.source_comment_border_width.points()
+        );
+        let below = orcvs.grid().position(3, 1).expect("inside the grid");
+        assert_eq!(frame.at(below).source_paint(), SourcePaint::Unclaimed);
+        assert_eq!(paint.at(below).border, theme.grid_border);
+        assert_eq!(
+            paint.at(below).border_width,
             theme.grid_border_width.points()
         );
     }

@@ -136,7 +136,9 @@ property or production test seam is introduced.
 Zero width suppresses that stroke, not fills or other strokes. Diagnostic/Portal
 width defaults to 0.5 while its transparent colour preserves the current absence.
 A role border draws only while its colour is visible, so a transparent role border
-leaves the Grid line at `grid.border.width`.
+leaves the Grid line at `grid.border.width`. A visible role border draws on every
+Cell its role claims; the Ordinary border draws only on an unclaimed Cell holding
+content.
 Inactive widget width zero preserves its current absence. The 2-point text-input
 caret is separate from ordinary 1-point chrome borders. Widths do not scale with
 Grid zoom; physical-pixel snapping follows existing viewport rules. Cursor/Region
@@ -211,10 +213,13 @@ added explicitly to this catalogue, never silently left as a second palette.
    compose over every fact, a bound Function and a Bang included, since a lock
    marks only the Function spelling of the root it withheld. Border
    channels use the same fact priority and compose over the ordinary Grid border.
-   Between the two sits the role border: a Cell holding content draws its role's
+   Between the two sits the role border: a Cell a role claims draws that role's
    border over the Grid line, at that role's border width, when the role border is
-   visible. An empty Cell, or one whose role border is transparent, keeps the Grid
-   line and `grid.border.width`. Every overlay border composes over the role
+   visible, whether the Cell holds content or not, so a Comment's blank Cells and a
+   Pending operand slot are framed with their role. An unclaimed Cell draws as
+   Ordinary, and draws the Ordinary border only while it holds content. An empty
+   unclaimed Cell, or one whose role border is transparent, keeps the Grid line and
+   `grid.border.width`. Every overlay border composes over the role
    border, and a bound Function's role border is its own inside a Portal.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
    suppresses ordinary role fill in favour of its optional Cursor fill, and draws
