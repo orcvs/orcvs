@@ -173,7 +173,8 @@ impl Paint {
     /// Reads a paired Render Frame and drawn range and answers what each Cell
     /// is drawn as, resolved from `theme`.
     ///
-    /// `theme.cursor_background` fills the Cursor's Cell. While a Region
+    /// `theme.cursor_background` fills the Cursor's Cell, and
+    /// `theme.cursor_foreground`, when set, colours its glyph. While a Region
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
@@ -529,7 +530,7 @@ fn test_theme() -> Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, FramePaint, Paint, Theme};
+    use super::{BackgroundRun, CellPaint, FramePaint, Paint, Theme, test_theme};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left, sector_top};
     use crate::style::cell_visuals_with_cursor_colour;
@@ -1667,6 +1668,111 @@ inherits = "grayscale-dark"
         let framed = Color32::from_rgba_unmultiplied(0x80, 0x80, 0x80, 0x80);
         assert_eq!(function.border, theme.grid_border.blend(framed));
         assert_eq!(function.border_width, 1.0);
+    }
+
+    ///
+    /// A Function, an Invalid operand and an Output Portal answer, each with
+    /// a glyph: `.+**01` on row 0, whose `**` is the rejected Number operand,
+    /// and `07` left south of `.+0304` on rows 2 and 3. Answers the Orcvs and
+    /// the three Positions, in that order.
+    ///
+    fn cursor_glyph_sampler() -> (Orcvs, [orcvs::grid::Position; 3]) {
+        let mut orcvs = running_orcvs(8, 4);
+        write_row(&mut orcvs, 0, ".+**01");
+        write_row(&mut orcvs, 2, ".+0304");
+        write_row(&mut orcvs, 3, "07");
+        let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
+        let cells = [at(0, 0), at(2, 0), at(0, 3)];
+        (orcvs, cells)
+    }
+
+    ///
+    /// `cursor.foreground` draws the glyph on the single-Cell Cursor over a
+    /// Function, an Invalid operand and an Output Portal answer alike, a
+    /// transparent one hiding it. Cleared, each glyph keeps its role colour.
+    /// The Cursor's fill and frame, and every other Cell, paint as they do
+    /// with the glyph colour cleared.
+    ///
+    #[tokio::test]
+    async fn cursor_foreground_draws_the_glyph_on_the_single_cell_cursor() {
+        let (mut orcvs, cells) = cursor_glyph_sampler();
+        let base = test_theme();
+        let roles = [
+            base.source_function,
+            base.diagnostic_foreground,
+            base.output_portal_foreground,
+        ];
+        let glyph = Color32::from_rgb(1, 200, 3);
+
+        for (cursor, role) in cells.into_iter().zip(roles) {
+            orcvs.select(cursor);
+            let frame = orcvs.render_frame();
+            assert!(frame.at(cursor).content().is_some(), "{cursor:?} is empty");
+            let painted = |cursor_foreground| {
+                let theme = Theme {
+                    cursor_foreground,
+                    ..test_theme()
+                };
+                Paint::derive_with_theme(FramePaint::whole(&frame), &theme)
+            };
+            let cleared = painted(None);
+            assert!(!cleared.region_spans());
+            assert_eq!(cleared.at(cursor).foreground, role, "{cursor:?} cleared");
+
+            for supplied in [glyph, Color32::TRANSPARENT] {
+                let paint = painted(Some(supplied));
+                let (own, plain) = (paint.at(cursor), cleared.at(cursor));
+                assert_eq!(own.foreground, supplied, "{cursor:?}");
+                assert_eq!(own.background, plain.background, "{cursor:?}'s fill");
+                assert_eq!(own.border, plain.border, "{cursor:?}'s frame");
+                assert_eq!(own.border_width, plain.border_width, "{cursor:?}'s frame");
+                for (position, cell) in paint.cells() {
+                    if position != cursor {
+                        assert_eq!(cell, cleared.at(position), "{position:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    ///
+    /// A custom Theme document that sets `cursor.foreground` decodes,
+    /// resolves over its parent, and paints the glyph under the Cursor in
+    /// it, leaving the Cell beside it its role colour.
+    ///
+    #[tokio::test]
+    async fn a_theme_document_paints_the_cursor_foreground_it_sets() {
+        let document = crate::theme_document::decode(
+            "glyph.toml",
+            br##"
+format = "orcvs-theme"
+version = 1
+name = "Glyph"
+inherits = "grayscale-dark"
+
+[style]
+"cursor.foreground" = "#102030"
+"##,
+        )
+        .expect("a valid Theme document");
+        let theme = crate::theme::resolve(
+            &[crate::theme::grayscale_dark()],
+            &crate::theme::ThemeIdentity::from_stem("glyph").expect("a valid stem"),
+            &document,
+        )
+        .expect("the document resolves over its parent");
+
+        let (mut orcvs, [function, ..]) = cursor_glyph_sampler();
+        orcvs.select(function);
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let beside = orcvs.grid().position(1, 0).expect("inside the grid");
+
+        assert_eq!(
+            paint.at(function).foreground,
+            Color32::from_rgb(0x10, 0x20, 0x30)
+        );
+        assert_eq!(paint.at(beside).foreground, theme.source_function);
     }
 
     ///

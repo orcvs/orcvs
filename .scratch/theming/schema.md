@@ -41,7 +41,8 @@ Every row is a named `style` property. Built-ins define every property explicitl
 custom documents replace only supplied properties. Property names are case-sensitive,
 including dots, which are literal characters rather than nested object access.
 All colour values use straight RGB/RGBA hex. Six digits mean opaque. `none` is a
-string accepted only for the two optional Cursor fills; it is not a null value.
+string accepted only for the optional Cursor colours (`cursor.background`,
+`cursor.foreground`, `region.cursor.background`); it is not a null value.
 
 `source.ordinary` supplies Ordinary and Char foregrounds. Char has no
 independent paint fact and uses the ordinary background; no unused Char-only
@@ -89,6 +90,7 @@ property or production test seam is introduced.
 | `region.border` | `#EAEBE5` |
 | `cursor.area` | `#4CBE9C` |
 | `cursor.background` | `none` |
+| `cursor.foreground` | `none` |
 | `region.cursor.background` | `none` |
 | `region.background` | `#FFFFFF2B` |
 | `panel.border` | `#1C3932` |
@@ -213,7 +215,10 @@ added explicitly to this catalogue, never silently left as a second palette.
    line and `grid.border.width`. Every overlay border composes over the role
    border, and a bound Function's role border is its own inside a Portal.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
-   suppresses ordinary role fill in favour of its optional Cursor fill. In a
+   suppresses ordinary role fill in favour of its optional Cursor fill, and draws
+   its glyph in `cursor.foreground` when that holds a colour, whatever the role,
+   Diagnostic or Portal composition answered; cleared, the glyph keeps that
+   answer. The Cursor's fill, frame and every other Cell are unaffected. In a
    multi-Cell Region, the Cursor uses Region Cursor fill, falling back to ordinary
    Cursor fill when absent. Other Region Cells use Region fill only when no visible
    effective fact fill exists after role, Diagnostic and Portal composition. A
@@ -228,9 +233,10 @@ added explicitly to this catalogue, never silently left as a second palette.
    foreground/background pairs, not raw theme hex pairs. Preserve actual overlap
    cases and validate the normal-zoom dark result against current paint output.
 
-Omitted optional-fill properties inherit. String `none` removes that optional fill
+Omitted optional colours inherit. String `none` removes that optional colour
 and enables the fallback above. Transparent supplied colour suppresses fallback;
-it remains distinct from absence. The uniform base layer still shows beneath it.
+it remains distinct from absence, and a transparent `cursor.foreground` hides the
+glyph. The uniform base layer still shows beneath a transparent fill.
 The single-Cursor `none` case does not restore the ordinary role fill it suppresses.
 
 Compute finite fact combinations and colour composites outside the per-Cell loop.
@@ -265,15 +271,15 @@ hand-written:
   fields in declaration order, which TOML can spell, so the decoder checks the
   parsed `style` value is a table before deserializing.
 - Each value deserializes into a newtype that validates it: the format marker,
-  the version, `name` and `inherits` labels, `appearance`, colours, the two optional Cursor
-  fills and the two width bounds. Strings accept only strings, `version` only
+  the version, `name` and `inherits` labels, `appearance`, colours, the optional Cursor
+  colours and the two width bounds. Strings accept only strings, `version` only
   an integer, and widths only numbers; booleans, datetimes, arrays and tables
   are never a valid value.
 
 A refusal carries `toml`'s line and column and the key path it was reading
 (``in `style.grid.border` ``). An unknown property's error names the key and
 starts listing the valid names, colours first; the 1024-byte message cap cuts
-the list, so it may omit the width and optional-fill names. There is no
+the list, so it may omit the width and optional-colour names. There is no
 did-you-mean suggestion for a near miss (ADR 0053).
 
 Version is the integer `1`. Widths must be finite, then receive their inclusive

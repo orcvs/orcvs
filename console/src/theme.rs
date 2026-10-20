@@ -1,5 +1,5 @@
 //!
-//! The resolved Orcvs Theme: named colour, width and optional-fill
+//! The resolved Orcvs Theme: named colour, width and optional-colour
 //! properties the whole console paints from, and the pure inheritance
 //! resolver that builds a custom Theme's resolved values from a built-in and
 //! a sparse document of overrides.
@@ -127,13 +127,14 @@ impl ChromeWidth {
     }
 }
 
-// === Optional Cursor fills ===
+// === Optional Cursor colours ===
 
 ///
-/// An explicit value for one of the two optional Cursor fills
-/// (`cursor.background`, `region.cursor.background`). A document that omits
-/// the property entirely inherits the parent's resolved value instead of
-/// holding one of these two states — see [`ThemeDocument::cursor_background`].
+/// An explicit value for one of the optional Cursor colours
+/// (`cursor.background`, `cursor.foreground`, `region.cursor.background`). A
+/// document that omits the property entirely inherits the parent's resolved
+/// value instead of holding one of these two states — see
+/// [`ThemeDocument::cursor_background`].
 ///
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
@@ -143,10 +144,10 @@ impl ChromeWidth {
     )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum OptionalFill {
-    /// The document string `"none"`: clears the optional fill and enables its
-    /// existing fallback (the ordinary Cursor fill in a Region, or no fill
-    /// at all for the ordinary Cursor).
+pub(crate) enum OptionalColor {
+    /// The document string `"none"`: clears the optional colour and enables its
+    /// fallback (the ordinary Cursor fill in a Region, no fill at all for the
+    /// ordinary Cursor, and the role's own colour for the Cursor's glyph).
     None,
     /// An explicit colour, including a fully transparent one — distinct
     /// from `None` above, since a supplied transparent colour is still a
@@ -157,8 +158,8 @@ pub(crate) enum OptionalFill {
 // === Property keys ===
 
 ///
-/// The `style` property catalogue, written once: the two optional Cursor
-/// fills, which [`OptionalFill`] carries and no key enum holds, then each
+/// The `style` property catalogue, written once: the optional Cursor
+/// colours, which [`OptionalColor`] carries and no key enum holds, then each
 /// key enum's variants, each with the field the Theme document decoder's
 /// style table holds it in and its literal, case- and dot-sensitive
 /// `schema.md` spelling.
@@ -173,8 +174,9 @@ pub(crate) enum OptionalFill {
 macro_rules! style_catalogue {
     ($then:ident) => {
         $then! {
-            OptionalFill {
+            OptionalColor {
                 CursorBackground(cursor_background) => "cursor.background",
+                CursorForeground(cursor_foreground) => "cursor.foreground",
                 RegionCursorBackground(region_cursor_background) => "region.cursor.background",
             }
             ColorKey {
@@ -265,11 +267,11 @@ pub(crate) use style_catalogue;
 ///
 /// Derives each key's `name`: an exhaustive `match` over the enum, so a new
 /// variant without a spelling in [`style_catalogue`] fails to compile. The
-/// optional fills have no key enum and so no `name`.
+/// optional colours have no key enum and so no `name`.
 ///
 macro_rules! property_names {
     (
-        OptionalFill { $($fills:tt)* }
+        OptionalColor { $($optionals:tt)* }
         $($key:ident { $($variant:ident($field:ident) => $name:literal),* $(,)? })*
     ) => {
         $(
@@ -293,7 +295,7 @@ style_catalogue!(property_names);
 
 ///
 /// Every named colour property `schema.md`'s catalogue defines, less the
-/// two optional Cursor fills, which [`OptionalFill`] carries instead of a
+/// optional Cursor colours, which [`OptionalColor`] carries instead of a
 /// plain `Color32`. Each variant's case- and dot-sensitive schema spelling
 /// is written once, in [`style_catalogue`], which the Theme document
 /// decoder's style table is derived from. Declaration order is the
@@ -503,9 +505,12 @@ pub struct Theme {
     pub(crate) warning: Color32,
 
     /// Omitted in a document: inherit the parent's value. `None` here: the
-    /// optional fill is cleared, enabling its existing fallback. `Some`: an
-    /// explicit colour, including transparent. See [`OptionalFill`].
+    /// optional colour is cleared, enabling its fallback. `Some`: an
+    /// explicit colour, including transparent. See [`OptionalColor`].
     pub(crate) cursor_background: Option<Color32>,
+    /// The glyph colour on the single-Cell Cursor; `None` leaves the glyph
+    /// its role's colour.
+    pub(crate) cursor_foreground: Option<Color32>,
     pub(crate) region_cursor_background: Option<Color32>,
 
     pub(crate) grid_border_width: GridWidth,
@@ -941,6 +946,7 @@ pub fn okabe_ito() -> Theme {
         warning: straight_rgba(0xCC_79_A7_FF),
 
         cursor_background: None,
+        cursor_foreground: None,
         region_cursor_background: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
@@ -1075,6 +1081,7 @@ pub fn orcvs_light() -> Theme {
         warning: straight_rgba(0x90_42_6F_FF),
 
         cursor_background: None,
+        cursor_foreground: None,
         region_cursor_background: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
@@ -1184,6 +1191,7 @@ pub fn grayscale_dark() -> Theme {
         warning: straight_rgba(0xE6_E6_E6_FF),
 
         cursor_background: None,
+        cursor_foreground: None,
         region_cursor_background: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
@@ -1291,6 +1299,7 @@ pub fn grayscale_light() -> Theme {
         warning: straight_rgba(0x14_14_14_FF),
 
         cursor_background: None,
+        cursor_foreground: None,
         region_cursor_background: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
@@ -1347,9 +1356,10 @@ pub(crate) struct ThemeDocument {
     pub(crate) chrome_widths: Vec<(ChromeWidthKey, f32)>,
     /// `None`: `cursor.background` is omitted and inherits the parent's
     /// resolved value. `Some`: the document supplied one of
-    /// [`OptionalFill`]'s two explicit states.
-    pub(crate) cursor_background: Option<OptionalFill>,
-    pub(crate) region_cursor_background: Option<OptionalFill>,
+    /// [`OptionalColor`]'s two explicit states.
+    pub(crate) cursor_background: Option<OptionalColor>,
+    pub(crate) cursor_foreground: Option<OptionalColor>,
+    pub(crate) region_cursor_background: Option<OptionalColor>,
 }
 
 ///
@@ -1446,7 +1456,7 @@ fn width_error(property: &'static str, points: f32, max: f32, error: WidthError)
 ///
 /// The pure inheritance resolver: `schema.md`'s "Source composition and
 /// inheritance" step 1 (copy the parent's resolved properties, replace only
-/// what the document supplies) and its optional-fill rule. Copies the
+/// what the document supplies) and its optional-colour rule. Copies the
 /// built-in named by `document.parent`, replaces every explicit property
 /// `document` supplies, and returns the result under `identity`.
 ///
@@ -1514,16 +1524,17 @@ pub(crate) fn resolve(
     // Omitted (`None`): inherit — `resolved` already carries the parent's
     // value from the `clone()` above, restated here so the inheritance rule
     // is visible rather than merely relied upon.
-    resolved.cursor_background = match document.cursor_background {
-        None => parent.cursor_background,
-        Some(OptionalFill::None) => None,
-        Some(OptionalFill::Color(colour)) => Some(colour),
+    let optional = |supplied: Option<OptionalColor>, inherited: Option<Color32>| match supplied {
+        None => inherited,
+        Some(OptionalColor::None) => None,
+        Some(OptionalColor::Color(colour)) => Some(colour),
     };
-    resolved.region_cursor_background = match document.region_cursor_background {
-        None => parent.region_cursor_background,
-        Some(OptionalFill::None) => None,
-        Some(OptionalFill::Color(colour)) => Some(colour),
-    };
+    resolved.cursor_background = optional(document.cursor_background, parent.cursor_background);
+    resolved.cursor_foreground = optional(document.cursor_foreground, parent.cursor_foreground);
+    resolved.region_cursor_background = optional(
+        document.region_cursor_background,
+        parent.region_cursor_background,
+    );
 
     // The opaque root check runs on the *resolved* value, not merely a
     // supplied override: an inherited `window.background` is already opaque
@@ -1544,7 +1555,7 @@ mod tests {
 
     use super::{
         Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GRAYSCALE_DARK_IDENTITY,
-        GRAYSCALE_LIGHT_IDENTITY, GridWidth, GridWidthKey, OptionalFill, Theme, ThemeDocument,
+        GRAYSCALE_LIGHT_IDENTITY, GridWidth, GridWidthKey, OptionalColor, Theme, ThemeDocument,
         ThemeError, ThemeIdentity, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
         resolve, straight_rgba,
     };
@@ -1647,6 +1658,7 @@ mod tests {
         assert_eq!(theme.warning, straight_rgba(0xCC_79_A7_FF));
 
         assert_eq!(theme.cursor_background, None);
+        assert_eq!(theme.cursor_foreground, None);
         assert_eq!(theme.region_cursor_background, None);
 
         assert_eq!(theme.grid_border_width.points(), 0.5);
@@ -1826,8 +1838,9 @@ mod tests {
         assert_eq!(theme.error, straight_rgba(0x90_42_6F_FF));
         assert_eq!(theme.warning, straight_rgba(0x90_42_6F_FF));
 
-        // Shared with Okabe–Ito: both optional Cursor fills are cleared.
+        // Shared with Okabe–Ito: every optional Cursor colour is cleared.
         assert_eq!(theme.cursor_background, None);
+        assert_eq!(theme.cursor_foreground, None);
         assert_eq!(theme.region_cursor_background, None);
 
         // Every width is shared with Okabe–Ito and recorded anyway, at the
@@ -1907,17 +1920,17 @@ mod tests {
     }
 
     /// Every colour a Theme holds, by its `schema.md` name: each [`ColorKey`]
-    /// and each optional fill that holds one.
+    /// and each optional colour that holds one.
     macro_rules! colour_fields {
         (
-            OptionalFill { $($fill:ident($fill_field:ident) => $fill_name:literal),* $(,)? }
+            OptionalColor { $($optional:ident($optional_field:ident) => $optional_name:literal),* $(,)? }
             ColorKey { $($colour:ident($colour_field:ident) => $colour_name:literal),* $(,)? }
             $($width:ident { $($rest:tt)* })*
         ) => {
             fn colour_fields(theme: &Theme) -> Vec<(&'static str, Color32)> {
                 let mut fields = vec![$(($colour_name, theme.$colour_field)),*];
                 fields.extend(
-                    [$(($fill_name, theme.$fill_field)),*]
+                    [$(($optional_name, theme.$optional_field)),*]
                         .into_iter()
                         .filter_map(|(name, fill)| Some((name, fill?))),
                 );
@@ -1957,7 +1970,7 @@ mod tests {
 
     ///
     /// The colour a `theme.md` table cell records: `#RRGGBB`, `#RRGGBBAA`,
-    /// or `none` for a cleared optional fill.
+    /// or `none` for a cleared optional colour.
     ///
     fn recorded_colour(cell: &str) -> Option<Color32> {
         if cell.trim() == "none" {
@@ -1976,7 +1989,7 @@ mod tests {
     /// `console/src/theme.md`'s grayscale table, read from the page itself so
     /// the record and the code cannot drift: every property it names holds
     /// the recorded value in both Themes, and it names every colour and
-    /// optional fill exactly once. The widths are Okabe–Ito's, as the page
+    /// optional colour exactly once. The widths are Okabe–Ito's, as the page
     /// says.
     ///
     #[test]
@@ -2000,6 +2013,11 @@ mod tests {
                 "cursor.background",
                 dark.cursor_background,
                 light.cursor_background,
+            ),
+            (
+                "cursor.foreground",
+                dark.cursor_foreground,
+                light.cursor_foreground,
             ),
             (
                 "region.cursor.background",
@@ -2607,29 +2625,36 @@ mod tests {
     }
 
     #[test]
-    fn omitted_optional_fills_inherit_the_parent() {
-        let built_ins = [okabe_ito()];
-        let document = child("okabe-ito");
+    fn omitted_optional_colours_inherit_the_parent() {
+        let mut coloured = okabe_ito();
+        coloured.cursor_foreground = Some(Color32::from_rgb(7, 8, 9));
+        for parent in [okabe_ito(), coloured] {
+            let built_ins = [parent];
+            let document = child("okabe-ito");
 
-        let resolved =
-            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
-        assert_eq!(resolved.cursor_background, built_ins[0].cursor_background);
-        assert_eq!(
-            resolved.region_cursor_background,
-            built_ins[0].region_cursor_background
-        );
+            assert_eq!(resolved.cursor_background, built_ins[0].cursor_background);
+            assert_eq!(resolved.cursor_foreground, built_ins[0].cursor_foreground);
+            assert_eq!(
+                resolved.region_cursor_background,
+                built_ins[0].region_cursor_background
+            );
+        }
     }
 
     #[test]
-    fn explicit_none_clears_the_optional_fill_even_over_a_parent_colour() {
+    fn explicit_none_clears_the_optional_colour_even_over_a_parent_colour() {
         let mut with_fill = okabe_ito();
         with_fill.cursor_background = Some(Color32::from_rgb(1, 2, 3));
+        with_fill.cursor_foreground = Some(Color32::from_rgb(7, 8, 9));
         with_fill.region_cursor_background = Some(Color32::from_rgb(4, 5, 6));
         let built_ins = [with_fill];
         let document = ThemeDocument {
-            cursor_background: Some(OptionalFill::None),
-            region_cursor_background: Some(OptionalFill::None),
+            cursor_background: Some(OptionalColor::None),
+            cursor_foreground: Some(OptionalColor::None),
+            region_cursor_background: Some(OptionalColor::None),
             ..child("okabe-ito")
         };
 
@@ -2637,6 +2662,7 @@ mod tests {
             resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, None);
+        assert_eq!(resolved.cursor_foreground, None);
         assert_eq!(resolved.region_cursor_background, None);
     }
 
@@ -2649,8 +2675,9 @@ mod tests {
     fn explicit_transparent_colour_is_a_supplied_value_not_a_clear() {
         let built_ins = [okabe_ito()];
         let document = ThemeDocument {
-            cursor_background: Some(OptionalFill::Color(Color32::TRANSPARENT)),
-            region_cursor_background: Some(OptionalFill::Color(Color32::TRANSPARENT)),
+            cursor_background: Some(OptionalColor::Color(Color32::TRANSPARENT)),
+            cursor_foreground: Some(OptionalColor::Color(Color32::TRANSPARENT)),
+            region_cursor_background: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             ..child("okabe-ito")
         };
 
@@ -2658,6 +2685,7 @@ mod tests {
             resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, Some(Color32::TRANSPARENT));
+        assert_eq!(resolved.cursor_foreground, Some(Color32::TRANSPARENT));
         assert_eq!(
             resolved.region_cursor_background,
             Some(Color32::TRANSPARENT)
@@ -2701,11 +2729,12 @@ mod tests {
     }
 
     #[test]
-    fn explicit_optional_fill_colour_is_stored_including_opaque() {
+    fn explicit_optional_colour_is_stored_including_opaque() {
         let built_ins = [okabe_ito()];
         let colour = Color32::from_rgb(10, 20, 30);
         let document = ThemeDocument {
-            cursor_background: Some(OptionalFill::Color(colour)),
+            cursor_background: Some(OptionalColor::Color(colour)),
+            cursor_foreground: Some(OptionalColor::Color(colour)),
             ..child("okabe-ito")
         };
 
@@ -2713,6 +2742,7 @@ mod tests {
             resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
         assert_eq!(resolved.cursor_background, Some(colour));
+        assert_eq!(resolved.cursor_foreground, Some(colour));
     }
 
     #[test]

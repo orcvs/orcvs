@@ -1140,6 +1140,49 @@ mod tests {
         );
     }
 
+    ///
+    /// The Cursor state measures the glyph `cursor.foreground` draws, not
+    /// the role's: a glyph colour equal to the Cursor fill is reported below
+    /// the floor for every Source role, and one that contrasts with it is
+    /// not. The plain state keeps the role's own glyph either way.
+    ///
+    #[test]
+    fn the_cursor_state_measures_the_cursor_foreground_against_the_cursor_fill() {
+        let fill = Color32::from_rgb(20, 20, 20);
+        let report = |glyph| {
+            validate(&Theme {
+                cursor_background: Some(fill),
+                cursor_foreground: Some(glyph),
+                ..okabe_ito()
+            })
+        };
+        let (failing, passing) = (report(fill), report(Color32::WHITE));
+
+        for role in Role::SOURCE_ROLES {
+            for portals in [PortalRoles::NONE, OUTPUT, INPUT] {
+                let cursor = State::SourceGrid {
+                    cursor: CursorPlacement::Cursor,
+                    portals,
+                };
+                let failed = find(&failing, role, cursor);
+                assert_eq!(failed.foreground, fill, "{role} / {cursor}");
+                assert!(!failed.passes(), "{role} / {cursor}: {:.2}:1", failed.ratio);
+                let passed = find(&passing, role, cursor);
+                assert_eq!(passed.foreground, Color32::WHITE, "{role} / {cursor}");
+                assert!(passed.passes(), "{role} / {cursor}: {:.2}:1", passed.ratio);
+            }
+            let plain = State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                portals: PortalRoles::NONE,
+            };
+            assert_ne!(
+                find(&failing, role, plain).foreground,
+                fill,
+                "{role} / {plain}"
+            );
+        }
+    }
+
     // === Fixtures: alpha compositing ===
 
     ///

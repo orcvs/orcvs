@@ -850,8 +850,8 @@ mod tests {
     // `region.background`, `cursor.background` and `region.cursor.background`.
     // Their defaults, optional-fill states and inheritance are `theme::tests`'
     // subject — `okabe_ito_defines_every_key_at_the_schema_values`,
-    // `omitted_optional_fills_inherit_the_parent`,
-    // `explicit_none_clears_the_optional_fill_even_over_a_parent_colour` and
+    // `omitted_optional_colours_inherit_the_parent`,
+    // `explicit_none_clears_the_optional_colour_even_over_a_parent_colour` and
     // `explicit_transparent_colour_is_a_supplied_value_not_a_clear`.
 
     #[test]

@@ -40,7 +40,8 @@ pub(crate) struct CellVisuals {
 /// Composes the Source Paint decision with Cursor precedence, applied here
 /// rather than inside it: the single-Cell Cursor's own border
 /// (`selection.border`/`.rest`) draws regardless of what stands on the Cell,
-/// and every other Cell's border is [`ordinary_border`]'s. `paint` is the per-Cell language fact
+/// and every other Cell's border is [`ordinary_border`]'s; its glyph draws in
+/// `cursor.foreground` when that holds a colour. `paint` is the per-Cell language fact
 /// `RenderCell::source_paint` answers from the shared Claim, including
 /// Pending, Valid, or Invalid for an Operand. `portal_roles` is an
 /// independent fact: the Portal roles this Cell plays
@@ -66,6 +67,13 @@ pub(crate) fn cell_visuals_with_cursor_colour(
         compose_cell_fill(theme.cell_background, cursor_fill)
     } else {
         role_background
+    };
+    // `cursor.foreground` replaces the glyph colour on the Cursor's Cell, a
+    // transparent one hiding the glyph; cleared, the glyph keeps the colour
+    // the role/Diagnostic/Portal channels answered.
+    let foreground = match theme.cursor_foreground {
+        Some(glyph) if selected => glyph,
+        _ => foreground,
     };
     // The single-Cell Cursor's own border is `selection.border`/`.rest` at
     // `cell.selection.border.width`, unaffected by Diagnostic/Portal —
@@ -127,8 +135,8 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 /// An unselected Cell's visuals depend only on its Source Paint fact, the
 /// Portal that paints it, [`painting_portal`]'s answer, and whether it is
-/// occupied (`selected`, `cursor_visible` and the Cursor fill are all inert
-/// when `selected` is false), so the 10 facts × 4 Portal answers × 2
+/// occupied (`selected`, `cursor_visible`, the Cursor fill and
+/// `cursor.foreground` are all inert when `selected` is false), so the 10 facts × 4 Portal answers × 2
 /// occupancies are every answer the walk can need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
@@ -1815,7 +1823,7 @@ mod tests {
     /// The three optional-fill states an unselected `cursor.background`
     /// exercises once resolved onto a Cell: omission/inheritance already
     /// collapses to one of the other two by `theme::resolve`
-    /// (`theme::tests::omitted_optional_fills_inherit_the_parent`), so what
+    /// (`theme::tests::omitted_optional_colours_inherit_the_parent`), so what
     /// this proves is the remaining pair at the paint layer — `None`
     /// (cleared, "supplies no Cursor fill") answers no background, and
     /// `Some`, including a fully transparent colour, is a supplied value that
@@ -2539,6 +2547,36 @@ mod tests {
         );
 
         assert_eq!(cursor.background, Some(cursor_colour));
+    }
+
+    ///
+    /// `cursor.foreground` draws the glyph on the single-Cell Cursor over
+    /// every fact and every Portal role set, Locked included, which Source
+    /// cannot always place under the Cursor. Off the Cursor, and with it
+    /// cleared, the glyph is the role's.
+    ///
+    #[test]
+    fn cursor_foreground_draws_the_selected_glyph_over_every_fact_and_portal() {
+        let glyph = Color32::from_rgb(1, 200, 3);
+        let theme = Theme {
+            cursor_foreground: Some(glyph),
+            ..okabe_ito()
+        };
+        let visuals = |paint, portals, selected, theme: &Theme| {
+            cell_visuals_with_cursor_colour(paint, portals, true, selected, true, None, theme)
+        };
+        for paint in SOURCE_PAINT_FACTS {
+            for portals in PORTAL_ROLE_SETS {
+                let role = visuals(paint, portals, false, &okabe_ito()).foreground;
+                assert_eq!(
+                    visuals(paint, portals, true, &theme).foreground,
+                    glyph,
+                    "{paint:?} under {portals:?}"
+                );
+                assert_eq!(visuals(paint, portals, false, &theme).foreground, role);
+                assert_eq!(visuals(paint, portals, true, &okabe_ito()).foreground, role);
+            }
+        }
     }
 
     // === Input Portal, and Output Portal over it ===
