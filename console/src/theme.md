@@ -149,7 +149,7 @@ reproduces the values on this page:
 | `locked.foreground` | `#00000000` | decided here: Locked keeps the glyph, see **Locked** below |
 | `locked.background` | `#000000CC` | `grid.background` at 80%, washing out the role tint |
 | `locked.border` | `#EAEBE580` | `source.ordinary` at 50%, framing each locked Cell |
-| `source.function.border` | `#00000000` | no role border; the Grid line shows |
+| `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border` | `#00000000` | no role borders; the Grid line shows |
 | `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
 | `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
 | `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
@@ -188,8 +188,8 @@ The border widths are Theme properties too, in display points: `grid.border.widt
 0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
 `cursor.border.width` and `region.border.width` 1,
 `diagnostic.border.width`, `output_portal.border.width`,
-`input_portal.border.width`, `locked.border.width` and
-`source.function.border.width` 0.5,
+`input_portal.border.width`, `locked.border.width` and each
+`source.<role>.border.width` 0.5,
 `panel.border.width`, `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0 (which is why that border stays absent at
 its default) and `input.cursor.width` 2. `schema.md`
@@ -266,7 +266,7 @@ or decided here.
 | `locked.foreground` | `#00000000` | shared with Okabe–Ito |
 | `locked.background` | `#FAFCFBCC` | `grid.background` at 80%, as in Okabe–Ito |
 | `locked.border` | `#303F3B80` | `source.ordinary` at 50%, as in Okabe–Ito |
-| `source.function.border` | `#00000000` | shared with Okabe–Ito |
+| `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border` | `#00000000` | shared with Okabe–Ito |
 | `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
 | `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
 | `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
@@ -331,7 +331,7 @@ Every border width is Okabe–Ito's, recorded rather than inherited:
 `cell.selection.border.width` 0.5, `cursor.border.width` and
 `region.border.width` 1, `diagnostic.border.width`,
 `output_portal.border.width`, `input_portal.border.width`,
-`locked.border.width` and `source.function.border.width` 0.5, `panel.border.width`,
+`locked.border.width` and each `source.<role>.border.width` 0.5, `panel.border.width`,
 `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0, `input.cursor.width` 2.
 
@@ -563,7 +563,7 @@ colour out.
 | Property | Grayscale Dark | Grayscale Light |
 |---|---|---|
 | `window.background`, `panel.background`, `grid.background`, `input.background` | `#000000` | `#FFFFFF` |
-| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.number.background`, `source.bang.background`, `source.function.border`, `diagnostic.background`, `locked.foreground` | `#00000000` | `#00000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.number.background`, `source.bang.background`, `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border`, `diagnostic.background`, `locked.foreground` | `#00000000` | `#00000000` |
 | `source.ordinary`, `text` | `#C8C8C8` | `#303030` |
 | `source.comment` | `#8A8A8A` | `#616161` |
 | `source.number`, `source.note`, `input_portal.foreground` | `#A8A8A8` | `#505050` |

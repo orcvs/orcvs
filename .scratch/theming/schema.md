@@ -65,7 +65,12 @@ property or production test seam is introduced.
 | `source.note.background` | `#F0E4421A` |
 | `source.function.background` | `#009E731A` |
 | `source.bang.background` | `#00000000` |
+| `source.ordinary.border` | `#00000000` |
+| `source.comment.border` | `#00000000` |
+| `source.number.border` | `#00000000` |
+| `source.note.border` | `#00000000` |
 | `source.function.border` | `#00000000` |
+| `source.bang.border` | `#00000000` |
 | `diagnostic.foreground` | `#D55E00` |
 | `diagnostic.background` | `#00000000` |
 | `diagnostic.border` | `#00000000` |
@@ -112,7 +117,12 @@ property or production test seam is introduced.
 | `output_portal.border.width` | 0.5 | 0–1 |
 | `input_portal.border.width` | 0.5 | 0–1 |
 | `locked.border.width` | 0.5 | 0–1 |
+| `source.ordinary.border.width` | 0.5 | 0–1 |
+| `source.comment.border.width` | 0.5 | 0–1 |
+| `source.number.border.width` | 0.5 | 0–1 |
+| `source.note.border.width` | 0.5 | 0–1 |
 | `source.function.border.width` | 0.5 | 0–1 |
+| `source.bang.border.width` | 0.5 | 0–1 |
 | `panel.border.width` | 1 | 0–2 |
 | `selection.border.width` | 1 | 0–2 |
 | `widget.border.width` | 1 | 0–2 |

@@ -1593,6 +1593,39 @@ mod tests {
     }
 
     ///
+    /// A Comment's border frames the Cells it holds text in, and a blank Cell
+    /// the same Comment claims keeps the plain Grid line.
+    ///
+    #[tokio::test]
+    async fn a_comment_border_frames_its_text_and_not_its_blank_cells() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in [(0, '|'), (1, '|'), (2, 'a'), (4, 'b')] {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let visible = Color32::from_rgb(30, 30, 200);
+        let theme = Theme {
+            source_comment_border: visible,
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let position = |x| orcvs.grid().position(x, 0).expect("inside the grid");
+
+        assert_eq!(frame.at(position(3)).source_paint(), SourcePaint::Comment);
+        assert_eq!(frame.at(position(3)).content(), None);
+        assert_eq!(
+            paint.at(position(2)).border,
+            theme.grid_border.blend(visible)
+        );
+        assert_eq!(paint.at(position(3)).border, theme.grid_border);
+        assert_eq!(
+            paint.at(position(3)).border_width,
+            theme.grid_border_width.points()
+        );
+    }
+
+    ///
     /// A custom Theme document that sets the Function border decodes,
     /// resolves over its parent, and paints that border on a written
     /// Function.

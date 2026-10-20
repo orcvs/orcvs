@@ -273,7 +273,7 @@ fn ordinary_border(
     // The same overlay `role_and_portal` composites the background with.
     let portal = fill_overlay(paint, portal).map(|role| PortalChannels::of(role, theme));
     let (line, line_width) = match role_border(paint, theme) {
-        Some((border, width)) if occupied && border.a() != 0 => {
+        (border, width) if occupied && border.a() != 0 => {
             (blend_channel(theme.grid_border, border), width)
         }
         _ => (theme.grid_border, theme.grid_border_width.points()),
@@ -294,17 +294,34 @@ fn ordinary_border(
 }
 
 ///
-/// The border colour and width of the Source role `paint` draws in, where
-/// the Theme gives that role one.
+/// The border colour and width of the Source role `paint` draws in: the
+/// role [`source_paint_visuals`] takes the glyph and fill from, so a Bang
+/// takes the Bang border and an operand its declared Token's in every state.
 ///
-fn role_border(paint: SourcePaint, theme: &Theme) -> Option<(Color32, f32)> {
-    match paint {
-        SourcePaint::Function => Some((
+fn role_border(paint: SourcePaint, theme: &Theme) -> (Color32, f32) {
+    let (border, width) = match paint {
+        SourcePaint::Unclaimed => (
+            theme.source_ordinary_border,
+            theme.source_ordinary_border_width,
+        ),
+        SourcePaint::Comment => (
+            theme.source_comment_border,
+            theme.source_comment_border_width,
+        ),
+        SourcePaint::Function => (
             theme.source_function_border,
-            theme.source_function_border_width.points(),
-        )),
-        _ => None,
-    }
+            theme.source_function_border_width,
+        ),
+        SourcePaint::Bang => (theme.source_bang_border, theme.source_bang_border_width),
+        SourcePaint::Operand { token, .. } => match token {
+            Token::Number => (theme.source_number_border, theme.source_number_border_width),
+            Token::Note => (theme.source_note_border, theme.source_note_border_width),
+            Token::Comment | Token::Function | Token::Char | Token::Untyped => {
+                unreachable!("SourcePaint::Operand carries only a declared operand Token")
+            }
+        },
+    };
+    (border, width.points())
 }
 
 ///
@@ -2325,6 +2342,74 @@ mod tests {
 
         assert_eq!(empty.border, theme.grid_border);
         assert_eq!(empty.border_width, theme.grid_border_width.points());
+    }
+
+    ///
+    /// Each Source role strokes its own border and no other role's: a Bang
+    /// takes the Bang border rather than the Function one, an operand takes
+    /// its declared Token's border in every state, and an Invalid operand
+    /// shows the Diagnostic border over its Token's.
+    ///
+    #[test]
+    fn each_role_strokes_its_own_border() {
+        let width = |points| crate::theme::GridWidth::from_points(points).expect("within 0..=1");
+        let border = |shade| Color32::from_rgb(shade, 255 - shade, 128);
+        let diagnostic_border = Color32::from_rgba_unmultiplied(200, 30, 30, 96);
+        let theme = Theme {
+            source_ordinary_border: border(10),
+            source_ordinary_border_width: width(0.1),
+            source_comment_border: border(20),
+            source_comment_border_width: width(0.2),
+            source_number_border: border(30),
+            source_number_border_width: width(0.3),
+            source_note_border: border(40),
+            source_note_border_width: width(0.4),
+            source_function_border: border(50),
+            source_function_border_width: width(0.5),
+            source_bang_border: border(60),
+            source_bang_border_width: width(0.6),
+            diagnostic_border,
+            ..okabe_ito()
+        };
+        let role = |shade| {
+            (
+                theme.grid_border.blend(border(shade)),
+                f32::from(shade) / 100.0,
+            )
+        };
+
+        for (fact, (expected, expected_width)) in [
+            (SourcePaint::Unclaimed, role(10)),
+            (SourcePaint::Comment, role(20)),
+            (operand(Token::Number, OperandState::Pending), role(30)),
+            (operand(Token::Number, OperandState::Valid), role(30)),
+            (operand(Token::Note, OperandState::Pending), role(40)),
+            (operand(Token::Note, OperandState::Valid), role(40)),
+            (SourcePaint::Function, role(50)),
+            (SourcePaint::Bang, role(60)),
+            (
+                operand(Token::Number, OperandState::Invalid),
+                (
+                    role(30).0.blend(diagnostic_border),
+                    theme.diagnostic_border_width.points(),
+                ),
+            ),
+            (
+                operand(Token::Note, OperandState::Invalid),
+                (
+                    role(40).0.blend(diagnostic_border),
+                    theme.diagnostic_border_width.points(),
+                ),
+            ),
+        ] {
+            let visuals = painted(fact, false, &theme);
+            assert_eq!(visuals.border, expected, "{fact:?}");
+            assert!(
+                (visuals.border_width - expected_width).abs() < 1e-6,
+                "{fact:?}: {} is not {expected_width}",
+                visuals.border_width
+            );
+        }
     }
 
     ///
