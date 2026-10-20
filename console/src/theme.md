@@ -50,10 +50,11 @@ ruled as every other Cell of the Region, sector seams included.
 
 The Cursor Effect's colours are Theme properties (`cursor.border`,
 `cursor.area`, `cursor.background`, `cursor.foreground`, `region.background`,
-`region.cursor.background`, `region.border`) with no control of their own,
-and no "Reset" remains. Glitch amount and Glitch frequency are not Theme
-values: ADR 0053 keeps them console settings, in the console's `Settings`
-menu rather than any `Theme` menu (`.scratch/theming/issues/09`).
+`region.cursor.background`, `region.cursor.foreground`, `region.border`) with
+no control of their own, and no "Reset" remains. Glitch amount and Glitch
+frequency are not Theme values: ADR 0053 keeps them console settings, in the
+console's `Settings` menu rather than any `Theme` menu
+(`.scratch/theming/issues/09`).
 Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, both are restored independently of the saved Source, falling back
@@ -94,7 +95,7 @@ The window backdrop and Grid background have separate Theme colours. The window 
 
 `cell.background` is a single Theme-wide base fill for all Cells, transparent by default. It composites over the Grid background and beneath Token tints, Diagnostic/Output Portal channels and Cursor/Region fills. It does not count as a fact fill when evaluating Region fallback, so setting it cannot suppress Region highlighting. Existing precedence among those highlighting channels remains unchanged. Individual Cells do not store styling.
 
-Optional Cursor colours distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional colour and uses its fallback: for the Cursor inside a Region, the fill falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill; and the glyph under the Cursor keeps its role colour. An explicit transparent colour remains a supplied value and does not trigger that fallback: a transparent `cursor.foreground` hides the glyph. These optional states apply only to `cursor.background`, `cursor.foreground` and `region.cursor.background`, not to every colour key.
+Optional Cursor colours distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional colour and uses its fallback: for the Cursor inside a Region, the fill falls back to the ordinary Cursor fill and the glyph colour to the ordinary Cursor glyph colour; for the ordinary Cursor, it supplies no Cursor fill; and a glyph with no Cursor glyph colour keeps its role colour. An explicit transparent colour remains a supplied value and does not trigger that fallback: a transparent `cursor.foreground` hides the glyph. These optional states apply only to `cursor.background`, `cursor.foreground`, `region.cursor.background` and `region.cursor.foreground`, not to every colour key.
 
 Role backgrounds are explicit colour properties, such as `source.function.background`, `source.number.background`, `diagnostic.background` and `output_portal.background`. They composite over the uniform `cell.background` under the confirmed fixed precedence. Changing a role foreground does not recalculate its background. There is no `fill_tint` property or shared tint-strength setting in the Orcvs Theme format. Extract and verify the built-in role background colours from current rendering so its appearance is preserved; illustrative colours in the interview are not accepted defaults.
 
@@ -158,6 +159,7 @@ reproduces the values on this page:
 | `cursor.foreground` | none | the glyph under the Cursor keeps its role colour |
 | `region.background` | white at 17% | Cursor effects → Region colour |
 | `region.cursor.background` | none | Cursor effects → Cursor colour in a Region |
+| `region.cursor.foreground` | none | the glyph on the Region's Cursor Cell falls back to `cursor.foreground` |
 | `window.background` | `#0B1112` | fixed: Page (the opaque window backdrop; `03`'s resolver refuses any other alpha) |
 | `panel.background` | `#0B1112` | fixed: Page |
 | `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
@@ -276,6 +278,7 @@ or decided here.
 | `cursor.background` | none | shared with Okabe–Ito |
 | `cursor.foreground` | none | shared with Okabe–Ito |
 | `region.cursor.background` | none | shared with Okabe–Ito |
+| `region.cursor.foreground` | none | shared with Okabe–Ito |
 | `region.background` | `#303F3B2B` | the ink at 17%, mirroring Okabe–Ito's white at 17% |
 | `panel.border` | `#C0CEC9` | `grid.border` composited over the page |
 | `widget.inactive.border` | `#C0CEC9` | the same (width 0 keeps idle widgets' border absent) |
@@ -581,7 +584,7 @@ colour out.
 | `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` | `#141414` |
 | `cursor.area` | `#808080` | `#808080` |
 | `region.background` | `#FFFFFF1F` | `#0000001A` |
-| `cursor.background`, `cursor.foreground`, `region.cursor.background` | none | none |
+| `cursor.background`, `cursor.foreground`, `region.cursor.background`, `region.cursor.foreground` | none | none |
 | `panel.border`, `widget.inactive.border` | `#2A2A2A` | `#D6D6D6` |
 | `code.background` | `#2A2A2A` | `#EBEBEB` |
 | `selection.background` | `#333333` | `#E0E0E0` |

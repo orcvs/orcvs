@@ -3,8 +3,9 @@
 //! foreground and background each reachable painted text state actually
 //! displays, not raw Theme colour pairs read in isolation.
 //!
-//! [`painted`] calls [`crate::style::cell_visuals_with_cursor_colour`] and
-//! [`crate::style::cell_background`] — the same functions
+//! [`painted`] calls [`crate::style::cell_visuals_with_cursor_colour`],
+//! [`crate::style::cell_background`] and [`crate::style::cell_foreground`] —
+//! the same functions
 //! [`crate::paint::Paint::derive_with_theme`] calls per Cell — for every
 //! Source Grid colour operation, so the two cannot independently drift.
 //! [`chrome`] does the same for the console's chrome: it reads every colour out of
@@ -68,7 +69,8 @@ use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::style::{
-    PORTAL_ROLE_SETS, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style,
+    PORTAL_ROLE_SETS, cell_background, cell_foreground, cell_visuals_with_cursor_colour,
+    compose_cell_fill, style,
 };
 use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity};
 
@@ -355,6 +357,7 @@ fn painted(
     );
 
     let region_cursor_fill = theme.region_cursor_fill();
+    let region_cursor_glyph = theme.region_cursor_glyph();
     let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
     let base_fill = compose_cell_fill(theme.cell_background, None);
     let in_region = region_spans && !is_cursor;
@@ -373,7 +376,13 @@ fn painted(
     let effective_background =
         grid_surface.blend(painted_background.unwrap_or(Color32::TRANSPARENT));
 
-    (visuals.foreground, effective_background)
+    let foreground = cell_foreground(
+        visuals.foreground,
+        is_cursor && region_spans,
+        region_cursor_glyph,
+    );
+
+    (foreground, effective_background)
 }
 
 /// How many console-chrome states [`chrome`] measures.
@@ -1180,6 +1189,41 @@ mod tests {
                 fill,
                 "{role} / {plain}"
             );
+        }
+    }
+
+    ///
+    /// The Region's Cursor state measures the glyph the Region's Cursor
+    /// fallback resolves: `cursor.foreground` equal to the Region's Cursor
+    /// fill is reported below the floor while `region.cursor.foreground` is
+    /// cleared, and a contrasting `region.cursor.foreground` passes over it.
+    ///
+    #[test]
+    fn the_region_cursor_state_measures_the_resolved_region_cursor_glyph() {
+        let fill = Color32::from_rgb(20, 20, 20);
+        let report = |region_cursor_foreground| {
+            validate(&Theme {
+                region_cursor_background: Some(fill),
+                cursor_foreground: Some(fill),
+                region_cursor_foreground,
+                ..okabe_ito()
+            })
+        };
+        let (failing, passing) = (report(None), report(Some(Color32::WHITE)));
+
+        for role in Role::SOURCE_ROLES {
+            for portals in [PortalRoles::NONE, OUTPUT, INPUT] {
+                let state = State::SourceGrid {
+                    cursor: CursorPlacement::RegionCursor,
+                    portals,
+                };
+                let failed = find(&failing, role, state);
+                assert_eq!(failed.foreground, fill, "{role} / {state}");
+                assert!(!failed.passes(), "{role} / {state}: {:.2}:1", failed.ratio);
+                let passed = find(&passing, role, state);
+                assert_eq!(passed.foreground, Color32::WHITE, "{role} / {state}");
+                assert!(passed.passes(), "{role} / {state}: {:.2}:1", passed.ratio);
+            }
         }
     }
 

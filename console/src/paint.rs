@@ -53,7 +53,8 @@ use orcvs::{
 use crate::{
     marks::{sector_left, sector_top},
     style::{
-        SourcePaintVisuals, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill,
+        SourcePaintVisuals, cell_background, cell_foreground, cell_visuals_with_cursor_colour,
+        compose_cell_fill,
     },
     theme::Theme,
 };
@@ -178,7 +179,8 @@ impl Paint {
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
-    /// Only the fill carries over: the Cursor's Cell in such a Region takes
+    /// Its glyph takes `theme.region_cursor_glyph()` the same way. Only the
+    /// fill and the glyph colour carry over: the Cursor's Cell in such a Region takes
     /// the grid line and its sector seams, as every other Cell of the Region
     /// does. `theme.cell_background` is the uniform base every one of those
     /// fills composites over, and — being independent of whether a role
@@ -241,6 +243,7 @@ impl Paint {
         // `theme.cell_background`.
         let cursor_fill = theme.cursor_background;
         let region_cursor_fill = theme.region_cursor_fill();
+        let region_cursor_glyph = theme.region_cursor_glyph();
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
@@ -289,7 +292,11 @@ impl Paint {
                     background,
                     border: visuals.border,
                     border_width: visuals.border_width,
-                    foreground: visuals.foreground,
+                    foreground: cell_foreground(
+                        visuals.foreground,
+                        is_cursor && region_spans,
+                        region_cursor_glyph,
+                    ),
                     // A sector seam is suppressed on the `selected` Cell, so
                     // the Cursor's frame is never crossed by one. It is decided
                     // here rather than left to the step that draws it: a rule
@@ -1773,6 +1780,105 @@ inherits = "grayscale-dark"
             Color32::from_rgb(0x10, 0x20, 0x30)
         );
         assert_eq!(paint.at(beside).foreground, theme.source_function);
+    }
+
+    ///
+    /// While a Region spans more than one Cell, the glyph on the Cursor's own
+    /// Cell draws in `region.cursor.foreground` when it holds a colour,
+    /// transparent included; otherwise in `cursor.foreground` when that
+    /// holds one; otherwise in its role colour. The Region runs from an
+    /// Invalid operand back to the Function the Cursor stands on, and its
+    /// other Cells, the Cursor Cell's fill and the lasso's grid line paint as
+    /// they do with both glyph colours cleared.
+    ///
+    #[tokio::test]
+    async fn the_regions_cursor_glyph_falls_back_to_the_cursor_glyph_then_the_role() {
+        let (mut orcvs, [function, invalid, _]) = cursor_glyph_sampler();
+        orcvs.select(invalid);
+        orcvs.extend(function);
+        let frame = orcvs.render_frame();
+        let painted = |region_cursor_foreground, cursor_foreground| {
+            let theme = Theme {
+                region_cursor_background: Some(Color32::from_rgb(4, 5, 6)),
+                region_cursor_foreground,
+                cursor_foreground,
+                ..test_theme()
+            };
+            Paint::derive_with_theme(FramePaint::whole(&frame), &theme)
+        };
+        let cleared = painted(None, None);
+        assert!(cleared.region_spans());
+        assert_eq!(cleared.cursor(), Some(function));
+
+        let own = Color32::from_rgb(1, 200, 3);
+        let cursor = Color32::from_rgb(200, 1, 3);
+        for (region_cursor_foreground, cursor_foreground, expected) in [
+            (Some(own), Some(cursor), own),
+            (Some(own), None, own),
+            (None, Some(cursor), cursor),
+            (None, None, test_theme().source_function),
+            (
+                Some(Color32::TRANSPARENT),
+                Some(cursor),
+                Color32::TRANSPARENT,
+            ),
+        ] {
+            let paint = painted(region_cursor_foreground, cursor_foreground);
+            let case = format!(
+                "region.cursor.foreground {region_cursor_foreground:?}, \
+                 cursor.foreground {cursor_foreground:?}"
+            );
+            let (glyph, plain) = (paint.at(function), cleared.at(function));
+            assert_eq!(glyph.foreground, expected, "{case}");
+            assert_eq!(glyph.background, plain.background, "{case}: the fill");
+            assert_eq!(glyph.border, plain.border, "{case}: the grid line");
+            for (position, cell) in paint.cells() {
+                if position != function {
+                    assert_eq!(cell, cleared.at(position), "{case}: {position:?}");
+                }
+            }
+        }
+    }
+
+    ///
+    /// A custom Theme document that sets `region.cursor.foreground` decodes,
+    /// resolves over its parent, and paints the glyph on the Region's Cursor
+    /// Cell in it.
+    ///
+    #[tokio::test]
+    async fn a_theme_document_paints_the_region_cursor_foreground_it_sets() {
+        let document = crate::theme_document::decode(
+            "glyph.toml",
+            br##"
+format = "orcvs-theme"
+version = 1
+name = "Glyph"
+inherits = "grayscale-dark"
+
+[style]
+"region.cursor.foreground" = "#102030"
+"##,
+        )
+        .expect("a valid Theme document");
+        let theme = crate::theme::resolve(
+            &[crate::theme::grayscale_dark()],
+            &crate::theme::ThemeIdentity::from_stem("glyph").expect("a valid stem"),
+            &document,
+        )
+        .expect("the document resolves over its parent");
+
+        let (mut orcvs, [function, invalid, _]) = cursor_glyph_sampler();
+        orcvs.select(invalid);
+        orcvs.extend(function);
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        assert!(paint.region_spans());
+        assert_eq!(
+            paint.at(function).foreground,
+            Color32::from_rgb(0x10, 0x20, 0x30)
+        );
+        assert_eq!(paint.at(invalid).foreground, theme.diagnostic_foreground);
     }
 
     ///

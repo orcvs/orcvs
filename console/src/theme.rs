@@ -131,10 +131,10 @@ impl ChromeWidth {
 
 ///
 /// An explicit value for one of the optional Cursor colours
-/// (`cursor.background`, `cursor.foreground`, `region.cursor.background`). A
-/// document that omits the property entirely inherits the parent's resolved
-/// value instead of holding one of these two states — see
-/// [`ThemeDocument::cursor_background`].
+/// (`cursor.background`, `cursor.foreground`, `region.cursor.background`,
+/// `region.cursor.foreground`). A document that omits the property entirely
+/// inherits the parent's resolved value instead of holding one of these two
+/// states — see [`ThemeDocument::cursor_background`].
 ///
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
@@ -146,8 +146,9 @@ impl ChromeWidth {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OptionalColor {
     /// The document string `"none"`: clears the optional colour and enables its
-    /// fallback (the ordinary Cursor fill in a Region, no fill at all for the
-    /// ordinary Cursor, and the role's own colour for the Cursor's glyph).
+    /// fallback (the ordinary Cursor fill or glyph colour in a Region, no fill
+    /// at all for the ordinary Cursor, and the role's own colour for the
+    /// Cursor's glyph).
     None,
     /// An explicit colour, including a fully transparent one — distinct
     /// from `None` above, since a supplied transparent colour is still a
@@ -178,6 +179,7 @@ macro_rules! style_catalogue {
                 CursorBackground(cursor_background) => "cursor.background",
                 CursorForeground(cursor_foreground) => "cursor.foreground",
                 RegionCursorBackground(region_cursor_background) => "region.cursor.background",
+                RegionCursorForeground(region_cursor_foreground) => "region.cursor.foreground",
             }
             ColorKey {
                 WindowBackground(window_background) => "window.background",
@@ -512,6 +514,7 @@ pub struct Theme {
     /// its role's colour.
     pub(crate) cursor_foreground: Option<Color32>,
     pub(crate) region_cursor_background: Option<Color32>,
+    pub(crate) region_cursor_foreground: Option<Color32>,
 
     pub(crate) grid_border_width: GridWidth,
     pub(crate) sector_seam_width: GridWidth,
@@ -559,6 +562,18 @@ impl Theme {
     ///
     pub(crate) fn region_cursor_fill(&self) -> Option<Color32> {
         self.region_cursor_background.or(self.cursor_background)
+    }
+
+    ///
+    /// The glyph colour on the Cursor's Cell while a Region spans more than
+    /// one Cell, falling back as [`Self::region_cursor_fill`] does:
+    /// `region.cursor.foreground` when it holds a colour, transparent
+    /// included, and `cursor.foreground` only where it is cleared. `None`
+    /// leaves the glyph its role colour. Painting and the contrast check both
+    /// read it here.
+    ///
+    pub(crate) fn region_cursor_glyph(&self) -> Option<Color32> {
+        self.region_cursor_foreground.or(self.cursor_foreground)
     }
 
     fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
@@ -948,6 +963,7 @@ pub fn okabe_ito() -> Theme {
         cursor_background: None,
         cursor_foreground: None,
         region_cursor_background: None,
+        region_cursor_foreground: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
@@ -1083,6 +1099,7 @@ pub fn orcvs_light() -> Theme {
         cursor_background: None,
         cursor_foreground: None,
         region_cursor_background: None,
+        region_cursor_foreground: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
@@ -1193,6 +1210,7 @@ pub fn grayscale_dark() -> Theme {
         cursor_background: None,
         cursor_foreground: None,
         region_cursor_background: None,
+        region_cursor_foreground: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
@@ -1301,6 +1319,7 @@ pub fn grayscale_light() -> Theme {
         cursor_background: None,
         cursor_foreground: None,
         region_cursor_background: None,
+        region_cursor_foreground: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
@@ -1360,6 +1379,7 @@ pub(crate) struct ThemeDocument {
     pub(crate) cursor_background: Option<OptionalColor>,
     pub(crate) cursor_foreground: Option<OptionalColor>,
     pub(crate) region_cursor_background: Option<OptionalColor>,
+    pub(crate) region_cursor_foreground: Option<OptionalColor>,
 }
 
 ///
@@ -1535,6 +1555,10 @@ pub(crate) fn resolve(
         document.region_cursor_background,
         parent.region_cursor_background,
     );
+    resolved.region_cursor_foreground = optional(
+        document.region_cursor_foreground,
+        parent.region_cursor_foreground,
+    );
 
     // The opaque root check runs on the *resolved* value, not merely a
     // supplied override: an inherited `window.background` is already opaque
@@ -1660,6 +1684,7 @@ mod tests {
         assert_eq!(theme.cursor_background, None);
         assert_eq!(theme.cursor_foreground, None);
         assert_eq!(theme.region_cursor_background, None);
+        assert_eq!(theme.region_cursor_foreground, None);
 
         assert_eq!(theme.grid_border_width.points(), 0.5);
         assert_eq!(theme.sector_seam_width.points(), 0.75);
@@ -1842,6 +1867,7 @@ mod tests {
         assert_eq!(theme.cursor_background, None);
         assert_eq!(theme.cursor_foreground, None);
         assert_eq!(theme.region_cursor_background, None);
+        assert_eq!(theme.region_cursor_foreground, None);
 
         // Every width is shared with Okabe–Ito and recorded anyway, at the
         // same display-point defaults.
@@ -2023,6 +2049,11 @@ mod tests {
                 "region.cursor.background",
                 dark.region_cursor_background,
                 light.region_cursor_background,
+            ),
+            (
+                "region.cursor.foreground",
+                dark.region_cursor_foreground,
+                light.region_cursor_foreground,
             ),
         ];
         let mut named: Vec<&str> = Vec::new();
@@ -2628,6 +2659,7 @@ mod tests {
     fn omitted_optional_colours_inherit_the_parent() {
         let mut coloured = okabe_ito();
         coloured.cursor_foreground = Some(Color32::from_rgb(7, 8, 9));
+        coloured.region_cursor_foreground = Some(Color32::from_rgb(9, 8, 7));
         for parent in [okabe_ito(), coloured] {
             let built_ins = [parent];
             let document = child("okabe-ito");
@@ -2641,6 +2673,10 @@ mod tests {
                 resolved.region_cursor_background,
                 built_ins[0].region_cursor_background
             );
+            assert_eq!(
+                resolved.region_cursor_foreground,
+                built_ins[0].region_cursor_foreground
+            );
         }
     }
 
@@ -2650,11 +2686,13 @@ mod tests {
         with_fill.cursor_background = Some(Color32::from_rgb(1, 2, 3));
         with_fill.cursor_foreground = Some(Color32::from_rgb(7, 8, 9));
         with_fill.region_cursor_background = Some(Color32::from_rgb(4, 5, 6));
+        with_fill.region_cursor_foreground = Some(Color32::from_rgb(9, 8, 7));
         let built_ins = [with_fill];
         let document = ThemeDocument {
             cursor_background: Some(OptionalColor::None),
             cursor_foreground: Some(OptionalColor::None),
             region_cursor_background: Some(OptionalColor::None),
+            region_cursor_foreground: Some(OptionalColor::None),
             ..child("okabe-ito")
         };
 
@@ -2664,6 +2702,7 @@ mod tests {
         assert_eq!(resolved.cursor_background, None);
         assert_eq!(resolved.cursor_foreground, None);
         assert_eq!(resolved.region_cursor_background, None);
+        assert_eq!(resolved.region_cursor_foreground, None);
     }
 
     ///
@@ -2678,6 +2717,7 @@ mod tests {
             cursor_background: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             cursor_foreground: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             region_cursor_background: Some(OptionalColor::Color(Color32::TRANSPARENT)),
+            region_cursor_foreground: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             ..child("okabe-ito")
         };
 
@@ -2688,6 +2728,10 @@ mod tests {
         assert_eq!(resolved.cursor_foreground, Some(Color32::TRANSPARENT));
         assert_eq!(
             resolved.region_cursor_background,
+            Some(Color32::TRANSPARENT)
+        );
+        assert_eq!(
+            resolved.region_cursor_foreground,
             Some(Color32::TRANSPARENT)
         );
         assert_ne!(resolved.cursor_background, None);
@@ -2728,6 +2772,41 @@ mod tests {
         }
     }
 
+    ///
+    /// The glyph on the Cursor inside a spanning Region draws in
+    /// `region.cursor.foreground` whenever it holds a colour, transparent
+    /// included, and in `cursor.foreground` only where the Region's glyph
+    /// colour is cleared. Both cleared leave the glyph its role colour.
+    ///
+    #[test]
+    fn the_region_cursor_glyph_falls_back_to_the_cursor_glyph_only_when_cleared() {
+        let cursor = Color32::from_rgb(1, 2, 3);
+        let region_cursor = Color32::from_rgb(4, 5, 6);
+        for (cursor_foreground, region_cursor_foreground, expected) in [
+            (Some(cursor), Some(region_cursor), Some(region_cursor)),
+            (
+                Some(cursor),
+                Some(Color32::TRANSPARENT),
+                Some(Color32::TRANSPARENT),
+            ),
+            (Some(cursor), None, Some(cursor)),
+            (None, Some(region_cursor), Some(region_cursor)),
+            (None, None, None),
+        ] {
+            let theme = super::Theme {
+                cursor_foreground,
+                region_cursor_foreground,
+                ..okabe_ito()
+            };
+            assert_eq!(
+                theme.region_cursor_glyph(),
+                expected,
+                "cursor.foreground {cursor_foreground:?}, \
+                 region.cursor.foreground {region_cursor_foreground:?}"
+            );
+        }
+    }
+
     #[test]
     fn explicit_optional_colour_is_stored_including_opaque() {
         let built_ins = [okabe_ito()];
@@ -2735,6 +2814,7 @@ mod tests {
         let document = ThemeDocument {
             cursor_background: Some(OptionalColor::Color(colour)),
             cursor_foreground: Some(OptionalColor::Color(colour)),
+            region_cursor_foreground: Some(OptionalColor::Color(colour)),
             ..child("okabe-ito")
         };
 
@@ -2743,6 +2823,7 @@ mod tests {
 
         assert_eq!(resolved.cursor_background, Some(colour));
         assert_eq!(resolved.cursor_foreground, Some(colour));
+        assert_eq!(resolved.region_cursor_foreground, Some(colour));
     }
 
     #[test]

@@ -503,6 +503,7 @@ mod tests {
             cursor_background: Some(OptionalColor::None),
             cursor_foreground: None,
             region_cursor_background: None,
+            region_cursor_foreground: None,
         }
     }
 
@@ -589,6 +590,7 @@ mod tests {
         assert_eq!(document.cursor_background, Some(OptionalColor::None));
         assert_eq!(document.cursor_foreground, Some(OptionalColor::None));
         assert_eq!(document.region_cursor_background, Some(OptionalColor::None));
+        assert_eq!(document.region_cursor_foreground, Some(OptionalColor::None));
         assert_eq!(document.appearance, Some(Appearance::Dark));
 
         let resolved =
@@ -601,9 +603,9 @@ mod tests {
     }
 
     ///
-    /// Each of the example's 77 property names, alone in a document, sets
-    /// exactly one property, whose key spells that name — and the 77 reach
-    /// 77 different properties, so every catalogue entry is reachable by
+    /// Each of the example's 78 property names, alone in a document, sets
+    /// exactly one property, whose key spells that name — and the 78 reach
+    /// 78 different properties, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
@@ -614,8 +616,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             entries.len(),
-            77,
-            "54 colours, 3 optional colours, 20 widths"
+            78,
+            "54 colours, 4 optional colours, 20 widths"
         );
         let mut reached = Vec::new();
         for (name, value) in entries {
@@ -632,6 +634,11 @@ mod tests {
                     document
                         .region_cursor_background
                         .map(|_| "region.cursor.background"),
+                )
+                .chain(
+                    document
+                        .region_cursor_foreground
+                        .map(|_| "region.cursor.foreground"),
                 );
             assert_eq!(set.next(), Some(name), "{name}");
             assert_eq!(set.next(), None, "{name} set a second property");
@@ -693,27 +700,32 @@ mod tests {
         assert_eq!(omitted.cursor_background, None);
         assert_eq!(omitted.cursor_foreground, None);
         assert_eq!(omitted.region_cursor_background, None);
+        assert_eq!(omitted.region_cursor_foreground, None);
 
         let none = quoted("none");
         let cleared = decodes(&style(&[
             ("cursor.background", &none),
             ("cursor.foreground", &none),
             ("region.cursor.background", &none),
+            ("region.cursor.foreground", &none),
         ]));
         assert_eq!(cleared.cursor_background, Some(OptionalColor::None));
         assert_eq!(cleared.cursor_foreground, Some(OptionalColor::None));
         assert_eq!(cleared.region_cursor_background, Some(OptionalColor::None));
+        assert_eq!(cleared.region_cursor_foreground, Some(OptionalColor::None));
 
         let transparent = quoted("#12345600");
         let supplied = decodes(&style(&[
             ("cursor.background", &transparent),
             ("cursor.foreground", &transparent),
             ("region.cursor.background", &transparent),
+            ("region.cursor.foreground", &transparent),
         ]));
         let colour = OptionalColor::Color(straight_rgba(0x12_34_56_00));
         assert_eq!(supplied.cursor_background, Some(colour));
         assert_eq!(supplied.cursor_foreground, Some(colour));
         assert_eq!(supplied.region_cursor_background, Some(colour));
+        assert_eq!(supplied.region_cursor_foreground, Some(colour));
         assert!(supplied.colors.is_empty());
     }
 
@@ -731,8 +743,8 @@ mod tests {
             &style(&[("text", &quoted("none"))]),
             &[
                 "in `style.text`",
-                "\"none\" is not a colour; only `cursor.background`, `cursor.foreground` \
-                 and `region.cursor.background` can be \"none\"",
+                "\"none\" is not a colour; only `cursor.background`, `cursor.foreground`, \
+                 `region.cursor.background` and `region.cursor.foreground` can be \"none\"",
             ],
         );
     }

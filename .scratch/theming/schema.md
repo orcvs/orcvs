@@ -42,7 +42,8 @@ custom documents replace only supplied properties. Property names are case-sensi
 including dots, which are literal characters rather than nested object access.
 All colour values use straight RGB/RGBA hex. Six digits mean opaque. `none` is a
 string accepted only for the optional Cursor colours (`cursor.background`,
-`cursor.foreground`, `region.cursor.background`); it is not a null value.
+`cursor.foreground`, `region.cursor.background`, `region.cursor.foreground`); it
+is not a null value.
 
 `source.ordinary` supplies Ordinary and Char foregrounds. Char has no
 independent paint fact and uses the ordinary background; no unused Char-only
@@ -92,6 +93,7 @@ property or production test seam is introduced.
 | `cursor.background` | `none` |
 | `cursor.foreground` | `none` |
 | `region.cursor.background` | `none` |
+| `region.cursor.foreground` | `none` |
 | `region.background` | `#FFFFFF2B` |
 | `panel.border` | `#1C3932` |
 | `selection.background` | `#0A2A22` |
@@ -220,8 +222,11 @@ added explicitly to this catalogue, never silently left as a second palette.
    Diagnostic or Portal composition answered; cleared, the glyph keeps that
    answer. The Cursor's fill, frame and every other Cell are unaffected. In a
    multi-Cell Region, the Cursor uses Region Cursor fill, falling back to ordinary
-   Cursor fill when absent. Other Region Cells use Region fill only when no visible
-   effective fact fill exists after role, Diagnostic and Portal composition. A
+   Cursor fill when absent, and draws its glyph in `region.cursor.foreground`,
+   falling back to `cursor.foreground` when that is absent and to the composed
+   role colour when both are; the Region's other Cells keep their glyphs. Other
+   Region Cells use Region fill only when no visible effective fact fill exists
+   after role, Diagnostic and Portal composition. A
    transparent role background alone does not hide a visible fact overlay;
    uniform `cell.background` never prevents this fallback. Selected Cell borders
    apply only to a single-Cell Cursor, which also suppresses Sector Seams. They

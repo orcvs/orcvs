@@ -504,6 +504,26 @@ pub(crate) fn cell_background(
 }
 
 ///
+/// One Cell's final glyph colour: `foreground`, the answer of
+/// [`cell_visuals_with_cursor_colour`], except on the Cursor's own Cell inside
+/// a Region larger than one Cell (`is_region_cursor`, as for
+/// [`cell_background`]), where `region_cursor_glyph`
+/// ([`Theme::region_cursor_glyph`]) replaces it when it holds a colour.
+/// [`crate::paint::Paint::derive_with_theme`] and `crate::contrast::painted`
+/// both read the decision here.
+///
+pub(crate) fn cell_foreground(
+    foreground: Color32,
+    is_region_cursor: bool,
+    region_cursor_glyph: Option<Color32>,
+) -> Color32 {
+    match region_cursor_glyph {
+        Some(glyph) if is_region_cursor => glyph,
+        _ => foreground,
+    }
+}
+
+///
 /// Foreground and background together, from a Cell's finished Source Paint
 /// fact and the Portal that paints it,
 /// resolved from `theme` — the flat, once-per-frame lookup every field below
