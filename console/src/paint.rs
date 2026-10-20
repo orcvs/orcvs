@@ -190,15 +190,17 @@ impl Paint {
     ///
     /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
     /// decides what to do with its answer, not what the answer is. It reads
-    /// the finished language fact on the Cell (`RenderCell::source_paint`)
-    /// and the Portal roles the Cell plays (`RenderCell::portal_roles`).
+    /// the finished language fact on the Cell (`RenderCell::source_paint`),
+    /// the Portal roles the Cell plays (`RenderCell::portal_roles`), and
+    /// whether the Cell holds content, which decides whether its role's
+    /// border can show.
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
     /// Cell: a per-Cell resolution would add its cost to every drawn Cell of
     /// every frame. `style::SourcePaintVisuals` holds the answer
-    /// `cell_visuals_with_cursor_colour` gives for each unselected fact
-    /// and painting Portal the walk asks for, so an unselected Cell costs
-    /// one indexed load rather than the role match, Diagnostic/Portal
+    /// `cell_visuals_with_cursor_colour` gives for each unselected fact,
+    /// painting Portal and occupancy the walk asks for, so an unselected Cell
+    /// costs one indexed load rather than the role match, Diagnostic/Portal
     /// blends, `cell.background` composite and border priority match. Only
     /// the single-Cell Cursor calls `cell_visuals_with_cursor_colour`
     /// directly.
@@ -596,9 +598,9 @@ mod tests {
 
     ///
     /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
-    /// claim and its own Portal roles straight from `cell` — the same
-    /// two per-Cell inputs `Paint::derive_with_theme` reads, so a test
-    /// comparing against this needs no `okabe_ito()`-only shim.
+    /// claim, its own Portal roles and its occupancy straight from `cell` —
+    /// the same three per-Cell inputs `Paint::derive_with_theme` reads, so a
+    /// test comparing against this needs no `okabe_ito()`-only shim.
     ///
     fn expected_visuals(
         cell: &orcvs::render_frame::RenderCell,

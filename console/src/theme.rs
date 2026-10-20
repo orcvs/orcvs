@@ -2129,8 +2129,9 @@ mod tests {
 
     ///
     /// Where two Source roles draw their glyph in one grey, the Cell around
-    /// it must still differ, in fill or in border, or the two meanings read
-    /// as one. `theme.md` lists the pairs this accepts.
+    /// it must still differ, in fill or in a border that draws, or the two
+    /// meanings read as one. A border draws only while it is visible and
+    /// wider than zero. `theme.md` lists the pairs this accepts.
     ///
     #[test]
     fn the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border() {
@@ -2141,56 +2142,75 @@ mod tests {
                     theme.source_ordinary,
                     theme.source_ordinary_background,
                     theme.source_ordinary_border,
+                    theme.source_ordinary_border_width,
                 ),
                 (
                     "Comment",
                     theme.source_comment,
                     theme.source_comment_background,
                     theme.source_comment_border,
+                    theme.source_comment_border_width,
                 ),
                 (
                     "Number",
                     theme.source_number,
                     theme.source_number_background,
                     theme.source_number_border,
+                    theme.source_number_border_width,
                 ),
                 (
                     "Note",
                     theme.source_note,
                     theme.source_note_background,
                     theme.source_note_border,
+                    theme.source_note_border_width,
                 ),
                 (
                     "Function",
                     theme.source_function,
                     theme.source_function_background,
                     theme.source_function_border,
+                    theme.source_function_border_width,
                 ),
                 (
                     "Bang",
                     theme.source_bang,
                     theme.source_bang_background,
                     theme.source_bang_border,
+                    theme.source_bang_border_width,
                 ),
                 (
                     "Diagnostic",
                     theme.diagnostic_foreground,
                     theme.diagnostic_background,
                     theme.diagnostic_border,
+                    theme.diagnostic_border_width,
                 ),
                 (
                     "Output Portal",
                     theme.output_portal_foreground,
                     theme.output_portal_background,
                     theme.output_portal_border,
+                    theme.output_portal_border_width,
                 ),
                 (
                     "Input Portal",
                     theme.input_portal_foreground,
                     theme.input_portal_background,
                     theme.input_portal_border,
+                    theme.input_portal_border_width,
                 ),
             ];
+            let drawn = |border: Color32, width: GridWidth| {
+                if border.a() != 0 && width.points() > 0.0 {
+                    border
+                } else {
+                    Color32::TRANSPARENT
+                }
+            };
+            let roles = roles.map(|(name, glyph, fill, border, width)| {
+                (name, glyph, fill, drawn(border, width))
+            });
             for (index, (first, glyph, fill, border)) in roles.iter().enumerate() {
                 for (second, other_glyph, other_fill, other_border) in &roles[index + 1..] {
                     if glyph == other_glyph {

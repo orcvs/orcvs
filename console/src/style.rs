@@ -146,17 +146,20 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 pub(crate) struct SourcePaintVisuals<'a> {
     theme: &'a Theme,
-    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS * 2],
+    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS * OCCUPANCIES],
 }
 
 /// How many answers [`painting_portal`] gives: none, Input, Output or Locked.
 const PORTAL_ANSWERS: usize = 4;
 
+/// How many occupancies a Cell can have: empty or holding content.
+const OCCUPANCIES: usize = 2;
+
 impl<'a> SourcePaintVisuals<'a> {
     pub(crate) fn new(theme: &'a Theme) -> Self {
         Self {
             theme,
-            entries: [None; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS * 2],
+            entries: [None; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS * OCCUPANCIES],
         }
     }
 
@@ -177,7 +180,8 @@ impl<'a> SourcePaintVisuals<'a> {
             Some(PortalRole::Output) => 2,
             Some(PortalRole::Locked) => 3,
         };
-        let index = (fact_index(paint) * PORTAL_ANSWERS + portal) * 2 + usize::from(occupied);
+        let index =
+            (fact_index(paint) * PORTAL_ANSWERS + portal) * OCCUPANCIES + usize::from(occupied);
         match self.entries[index] {
             Some(visuals) => visuals,
             None => {
@@ -272,11 +276,14 @@ fn ordinary_border(
     );
     // The same overlay `role_and_portal` composites the background with.
     let portal = fill_overlay(paint, portal).map(|role| PortalChannels::of(role, theme));
-    let (line, line_width) = match role_border(paint, theme) {
-        (border, width) if occupied && border.a() != 0 => {
-            (blend_channel(theme.grid_border, border), width)
-        }
-        _ => (theme.grid_border, theme.grid_border_width.points()),
+    let own = RoleChannels::of(paint, theme);
+    let (line, line_width) = if occupied && own.border.a() != 0 {
+        (
+            blend_channel(theme.grid_border, own.border),
+            own.border_width,
+        )
+    } else {
+        (theme.grid_border, theme.grid_border_width.points())
     };
 
     match (invalid_operand, portal) {
@@ -291,37 +298,6 @@ fn ordinary_border(
             portal.border_width,
         ),
     }
-}
-
-///
-/// The border colour and width of the Source role `paint` draws in: the
-/// role [`source_paint_visuals`] takes the glyph and fill from, so a Bang
-/// takes the Bang border and an operand its declared Token's in every state.
-///
-fn role_border(paint: SourcePaint, theme: &Theme) -> (Color32, f32) {
-    let (border, width) = match paint {
-        SourcePaint::Unclaimed => (
-            theme.source_ordinary_border,
-            theme.source_ordinary_border_width,
-        ),
-        SourcePaint::Comment => (
-            theme.source_comment_border,
-            theme.source_comment_border_width,
-        ),
-        SourcePaint::Function => (
-            theme.source_function_border,
-            theme.source_function_border_width,
-        ),
-        SourcePaint::Bang => (theme.source_bang_border, theme.source_bang_border_width),
-        SourcePaint::Operand { token, .. } => match token {
-            Token::Number => (theme.source_number_border, theme.source_number_border_width),
-            Token::Note => (theme.source_note_border, theme.source_note_border_width),
-            Token::Comment | Token::Function | Token::Char | Token::Untyped => {
-                unreachable!("SourcePaint::Operand carries only a declared operand Token")
-            }
-        },
-    };
-    (border, width.points())
 }
 
 ///
@@ -662,20 +638,82 @@ fn role_and_portal(
 /// Operand by [`operand_paint`].
 ///
 fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
+    let own = RoleChannels::of(paint, theme);
     match paint {
-        SourcePaint::Unclaimed => (theme.source_ordinary, theme.source_ordinary_background),
-        SourcePaint::Bang => (theme.source_bang, theme.source_bang_background),
-        SourcePaint::Comment => (theme.source_comment, theme.source_comment_background),
-        SourcePaint::Function => (theme.source_function, theme.source_function_background),
-        SourcePaint::Operand { token, state } => {
-            let (colour, background) = match token {
-                Token::Number => (theme.source_number, theme.source_number_background),
-                Token::Note => (theme.source_note, theme.source_note_background),
+        SourcePaint::Operand { state, .. } => {
+            operand_paint(own.foreground, own.background, state, theme)
+        }
+        _ => (own.foreground, own.background),
+    }
+}
+
+///
+/// One Source role's Theme channels: `source.<role>`, its `.background`,
+/// its `.border` and its `.border.width`.
+///
+struct RoleChannels {
+    foreground: Color32,
+    background: Color32,
+    border: Color32,
+    border_width: f32,
+}
+
+impl RoleChannels {
+    ///
+    /// The channels of the role `paint` draws in, the one lookup the glyph,
+    /// fill and border all read: Unclaimed draws as Ordinary, a Bang as
+    /// Bang rather than as a Function, and an operand as its declared Token
+    /// in every state.
+    ///
+    fn of(paint: SourcePaint, theme: &Theme) -> Self {
+        let channels = |foreground, background, border, width: crate::theme::GridWidth| Self {
+            foreground,
+            background,
+            border,
+            border_width: width.points(),
+        };
+        match paint {
+            SourcePaint::Unclaimed => channels(
+                theme.source_ordinary,
+                theme.source_ordinary_background,
+                theme.source_ordinary_border,
+                theme.source_ordinary_border_width,
+            ),
+            SourcePaint::Comment => channels(
+                theme.source_comment,
+                theme.source_comment_background,
+                theme.source_comment_border,
+                theme.source_comment_border_width,
+            ),
+            SourcePaint::Function => channels(
+                theme.source_function,
+                theme.source_function_background,
+                theme.source_function_border,
+                theme.source_function_border_width,
+            ),
+            SourcePaint::Bang => channels(
+                theme.source_bang,
+                theme.source_bang_background,
+                theme.source_bang_border,
+                theme.source_bang_border_width,
+            ),
+            SourcePaint::Operand { token, .. } => match token {
+                Token::Number => channels(
+                    theme.source_number,
+                    theme.source_number_background,
+                    theme.source_number_border,
+                    theme.source_number_border_width,
+                ),
+                Token::Note => channels(
+                    theme.source_note,
+                    theme.source_note_background,
+                    theme.source_note_border,
+                    theme.source_note_border_width,
+                ),
                 Token::Comment | Token::Function | Token::Char | Token::Untyped => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
-            };
-            operand_paint(colour, background, state, theme)
+            },
         }
     }
 }
@@ -2346,9 +2384,10 @@ mod tests {
 
     ///
     /// Each Source role strokes its own border and no other role's: a Bang
-    /// takes the Bang border rather than the Function one, an operand takes
-    /// its declared Token's border in every state, and an Invalid operand
-    /// shows the Diagnostic border over its Token's.
+    /// takes the Bang border rather than the Function one, a Valid or Invalid
+    /// operand takes its declared Token's border, and an Invalid operand
+    /// shows the Diagnostic border over its Token's. A Pending operand slot
+    /// is blank, so [`an_empty_cell_never_takes_its_roles_border`] covers it.
     ///
     #[test]
     fn each_role_strokes_its_own_border() {
@@ -2381,9 +2420,7 @@ mod tests {
         for (fact, (expected, expected_width)) in [
             (SourcePaint::Unclaimed, role(10)),
             (SourcePaint::Comment, role(20)),
-            (operand(Token::Number, OperandState::Pending), role(30)),
             (operand(Token::Number, OperandState::Valid), role(30)),
-            (operand(Token::Note, OperandState::Pending), role(40)),
             (operand(Token::Note, OperandState::Valid), role(40)),
             (SourcePaint::Function, role(50)),
             (SourcePaint::Bang, role(60)),

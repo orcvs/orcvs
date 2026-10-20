@@ -575,8 +575,8 @@ mod tests {
     #[test]
     fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
         let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.colors.len(), 48);
-        assert_eq!(document.grid_widths.len(), 9);
+        assert_eq!(document.colors.len(), 54);
+        assert_eq!(document.grid_widths.len(), 15);
         assert_eq!(document.chrome_widths.len(), 5);
         assert_eq!(document.cursor_background, Some(OptionalFill::None));
         assert_eq!(document.region_cursor_background, Some(OptionalFill::None));
@@ -592,9 +592,9 @@ mod tests {
     }
 
     ///
-    /// Each of the example's 64 property names, alone in a document, sets
-    /// exactly one property, whose key spells that name — and the 64 reach
-    /// 64 different properties, so every catalogue entry is reachable by
+    /// Each of the example's 76 property names, alone in a document, sets
+    /// exactly one property, whose key spells that name — and the 76 reach
+    /// 76 different properties, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
@@ -603,7 +603,7 @@ mod tests {
             .lines()
             .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
             .collect::<Vec<_>>();
-        assert_eq!(entries.len(), 64, "48 colours, 2 optional fills, 14 widths");
+        assert_eq!(entries.len(), 76, "54 colours, 2 optional fills, 20 widths");
         let mut reached = Vec::new();
         for (name, value) in entries {
             let document = decodes(&style(&[(name, value)]));
