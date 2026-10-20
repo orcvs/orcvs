@@ -12,7 +12,7 @@ The Cursor Effect makes the Grid harder to read as well. Around the Cursor it pa
 
 The console draws its Source Cells as rectangles, 12 points wide and 18 tall by default. That is Orca's 2:3 shape at about today's size. The width and height can be set in the console's settings file. The Glyph's size follows the Cell's height at Orca's proportion, three quarters of it, so any Cell size the performer picks keeps its letters in proportion. Clicking, dragging, Pan, the Cursor follow, Sector Seams and Zoom work the same on rectangular Cells as they did on square ones. Each axis is snapped to whole physical pixels on its own.
 
-The Cursor Effect is removed. Its replacement is a plain, still outline: the Theme's `cursor.border` around the Cursor's Cell, and the Theme's `region.border` around a Region larger than one Cell. Both are drawn at the Theme's stated widths. The settings and Theme keys that existed only for the effect go away. Removing the effect is the first, separate slice of work, so the change to the Cell's shape never has to carry the glitch geometry.
+The Cursor Effect is removed. Its replacement is a plain, still outline: the Theme's `cursor.border` around the Cursor's Cell, and the Theme's `region.border` around a Region larger than one Cell. Both are drawn at the Theme's stated widths. The settings and Theme keys that existed only for the effect go away. The effect is turned off by default straight away, and deleted in a later ticket.
 
 ## User Stories
 
@@ -51,7 +51,7 @@ The Cursor Effect is removed. Its replacement is a plain, still outline: the The
 
 ## Implementation Decisions
 
-- **Two slices, in order.** The first slice removes the Cursor Effect and replaces it with the still outline. The second makes Cells rectangular and configurable. Each gets its own ticket and its own pull request.
+- **Order.** The Cursor Effect is turned off by default first: Glitch amount and frequency default to zero, which already draws the still outline and schedules no repaint. Then the Cell becomes rectangular and configurable. Deleting the effect is a later, separate ticket that nothing else waits on, so until then the prefactor carries the effect's geometry over to a width and a height.
 - **The Cell is a width and a height.** The console's single Cell side becomes a 2-D size everywhere it is read: the viewport geometry, the Source View's Pan bounds, margin, Cursor follow and edge scroll, the shapes step, the Diagnostics readout, the Diagnostics source reserve (which reads the height) and the default window size.
 - **The viewport geometry stays the single expression of the Cell fit.** A Cell's rectangle is its column times the width and its row times the height, from the presented Grid's corner. The Cell a point falls in is found by dividing by each axis's own side, with the existing exact-inverse correction applied per axis. The snap floors each axis on its own to whole physical pixels, at least one pixel per axis. A Cell that isn't positive and finite on both axes is no Cell at all.
 - **`presented_grid` takes the Cell size** instead of reading a constant. The console owns the configured size and passes it in, so the Pan bounds and the drawn Grid read the same snapped Cell.
