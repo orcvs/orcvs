@@ -11,7 +11,10 @@ use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
 
-use super::diagnostics_panel::{format_cpu_budget_delta, frames_per_second, visible_source_region};
+use super::diagnostics_panel::{
+    TIMING_READOUT_INTERVAL_SECONDS, Timing, TimingReadouts, format_cpu_budget_delta,
+    frames_per_second, visible_source_region,
+};
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
@@ -255,6 +258,35 @@ fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
             "{unpresentable:?} reached the diagnostics"
         );
     }
+}
+
+///
+/// The timing readouts show the first frame at once, hold it for the
+/// interval, then show the frame that arrives once it has passed.
+///
+#[test]
+fn timing_readouts_hold_each_frame_for_the_interval() {
+    let frame = |frame_time| Timing {
+        frame_time,
+        cpu_usage: Some(frame_time / 2.0),
+    };
+    let mut readouts = TimingReadouts::default();
+    assert_eq!(readouts.observe(10.0, frame(0.016)), frame(0.016));
+    assert_eq!(
+        readouts.observe(10.1, frame(0.010)),
+        frame(0.016),
+        "a readout changed within the interval"
+    );
+    assert_eq!(
+        readouts.observe(10.0 + TIMING_READOUT_INTERVAL_SECONDS, frame(0.030)),
+        frame(0.030),
+        "a readout held past the interval"
+    );
+    assert_eq!(
+        readouts.observe(10.3, frame(0.040)),
+        frame(0.030),
+        "the readout did not hold after changing"
+    );
 }
 
 #[test]
