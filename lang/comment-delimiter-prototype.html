@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comment Delimiter Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: as lang/bang-function-prototype.html: a sticky question index beside one review column; each question pairs Tick-by-Tick Source Grids, one model per delimiter, with its decision form. */
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --ink: #18202c; --muted: #5b6577; --line: #d6dbe4; --cell: #fbfcfd;
+  --accent: #3446c9; --new: #2f6feb; --fire-bg: #ffe29a; --fire-ink: #6b4a00; --bang: #b0186b;
+  --sup: #8a93a3; --portal: #0f8a7e; --diag: #c02a2a; --diag-bg: #fdecec; --rec: #1d7a45; --rec-bg: #e5f4ea;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --surface: #1a2029; --ink: #e6eaf1; --muted: #9aa4b5; --line: #2e3744; --cell: #151a22;
+  --accent: #8b98ff; --new: #6ea3ff; --fire-bg: #5a4612; --fire-ink: #ffe4a1; --bang: #ff7ab8;
+  --sup: #6d7686; --portal: #3cc4b5; --diag: #ff8a8a; --diag-bg: #3a1f22; --rec: #6fd39b; --rec-bg: #18352a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #1a2029; --ink: #e6eaf1; --muted: #9aa4b5; --line: #2e3744; --cell: #151a22;
+  --accent: #8b98ff; --new: #6ea3ff; --fire-bg: #5a4612; --fire-ink: #ffe4a1; --bang: #ff7ab8;
+  --sup: #6d7686; --portal: #3cc4b5; --diag: #ff8a8a; --diag-bg: #3a1f22; --rec: #6fd39b; --rec-bg: #18352a; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; }
+@media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); } nav.index { display: none; } }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2rem; font-weight: 600; }
+h2 { font-size: 1.4rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+.eyebrow { font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+
+nav.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; display: grid; gap: 4px; font-size: 0.9rem; }
+nav.index a { color: var(--muted); text-decoration: none; padding: 5px 8px; border-radius: 6px; display: flex; justify-content: space-between; gap: 8px; }
+nav.index a:hover, nav.index a:focus-visible { color: var(--ink); background: var(--surface); outline: none; }
+nav.index .state { font-family: var(--font-mono); font-size: 0.75rem; }
+nav.index .state.done { color: var(--rec); }
+
+main { display: grid; gap: 40px; min-width: 0; }
+header.top { display: grid; gap: 14px; }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; }
+.rule ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; max-width: 72ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.85rem; color: var(--muted); align-items: center; }
+.legend span.sw { display: inline-flex; align-items: center; gap: 6px; }
+
+section.q { display: grid; gap: 16px; scroll-margin-top: 16px; }
+.qhead { display: grid; gap: 6px; }
+.pill { display: inline-block; font-family: var(--font-display); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--rec-bg); color: var(--rec); }
+.pill.open { background: var(--diag-bg); color: var(--diag); }
+.pill.info { background: var(--surface); color: var(--muted); border: 1px solid var(--line); }
+.context { display: grid; gap: 8px; color: var(--ink); }
+.context .muted { color: var(--muted); }
+
+.demo { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.demo-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+button { font: 500 0.85rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:disabled { opacity: 0.4; cursor: default; }
+.timeline { display: flex; flex-wrap: wrap; gap: 4px; }
+.timeline button { font-family: var(--font-mono); font-size: 0.75rem; padding: 3px 8px; }
+.timeline button[aria-current="step"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.models { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.model { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.model-name { font-family: var(--font-display); font-weight: 600; font-size: 0.95rem; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.model-name .tag { font-family: var(--font-body); font-weight: 500; font-size: 0.75rem; color: var(--muted); }
+.gridbox { overflow-x: auto; }
+.grid .c.delim { color: var(--sup); font-weight: 600; }
+.grid { display: inline-grid; gap: 2px; padding: 6px; background: var(--bg); border-radius: 6px; font-family: var(--font-mono); font-size: 15px; }
+.grid .c { width: 1.55em; height: 1.75em; display: grid; place-items: center; background: var(--cell); border: 1px solid var(--line); border-radius: 3px; position: relative; color: var(--ink); }
+.grid .c.portal { border: 1.5px dashed var(--portal); }
+.grid .c.new { box-shadow: inset 0 0 0 2px var(--new); }
+.grid .c.bang { color: var(--bang); font-weight: 600; }
+.grid .c.fire { background: var(--fire-bg); color: var(--fire-ink); font-weight: 600; }
+.grid .c.sup .g, .grid .c.cleared .g { color: var(--sup); }
+.grid .c.sup .g { text-decoration: line-through; text-decoration-thickness: 2px; }
+.grid .c .g { opacity: 0.85; }
+.grid .c.sup { color: var(--sup); text-decoration: line-through; text-decoration-thickness: 2px; }
+.log { display: grid; gap: 6px; font-size: 0.88rem; }
+.log ul { margin: 0; padding-left: 1.1em; display: grid; gap: 3px; }
+.plays { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; }
+.plays .note { font-family: var(--font-mono); background: var(--fire-bg); color: var(--fire-ink); padding: 1px 8px; border-radius: 4px; font-weight: 600; }
+.plays .none { color: var(--muted); }
+.diag { font-size: 0.82rem; color: var(--diag); background: var(--diag-bg); border-radius: 6px; padding: 5px 9px; }
+.ok { font-size: 0.82rem; color: var(--muted); }
+
+form.decide { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; }
+form.decide fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+form.decide legend { font-family: var(--font-display); font-weight: 600; margin-bottom: 4px; }
+.opt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.opt:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.opt input { margin-top: 4px; accent-color: var(--accent); }
+.opt .lbl { font-weight: 500; }
+.opt .desc { color: var(--muted); font-size: 0.86rem; }
+.opt .recmark { color: var(--rec); font-size: 0.78rem; font-weight: 600; margin-left: 6px; }
+textarea { width: 100%; min-height: 64px; font: 0.9rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+textarea:focus-visible { outline: 2px solid var(--accent); }
+label.notes { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+
+.summary { display: grid; gap: 10px; }
+.summary pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow-x: auto; font: 0.85rem/1.5 var(--font-mono); white-space: pre-wrap; }
+.summary .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.copied { font-size: 0.85rem; color: var(--rec); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="index" id="index" aria-label="Questions"></nav>
+  <main>
+    <header class="top">
+      <div class="eyebrow">Orcvs · .scratch/comment-delimiter/issues/01 · throwaway prototype</div>
+      <h1>Comment delimiter walkthrough</h1>
+      <p><strong>Throwaway syntax prototype.</strong> It answers one question from <code>.scratch/comment-delimiter/spec.md</code>: which delimiter should open and close a Comment, now that the tracker frames each pattern row in one. The rows, the Reads and the diagnostics follow ADR 0035 and ADR 0074; only the delimiter spelling is hypothetical, and each model labels it. Diagnostic texts are the Parser's own (<code>unknown function</code>, <code>expected a function</code>) and the Timed Play's (<code>expected a note</code>).</p>
+      <div class="legend" aria-label="Legend">
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c delim">|</span></span> Comment delimiter</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c portal"> </span></span> the step a Read reads this Tick (Input Portal)</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c fire">C</span></span> a Note played this Tick</span>
+        <span class="sw"><span class="grid" style="padding:2px"><span class="c new">4</span></span> typed in this edit</span>
+      </div>
+    </header>
+    <div id="sections" style="display:grid;gap:48px"></div>
+    <section class="summary" id="summary">
+      <div class="eyebrow">Answers</div>
+      <h2>Copy your answers back</h2>
+      <p>This text updates as you choose. Paste it into the thread to record the answer in <code>.scratch/comment-delimiter/issues/01-prototype-the-comment-delimiter.md</code>.</p>
+      <div class="row"><button type="button" id="copy">Copy answers</button><span class="copied" id="copied" hidden>Copied</span></div>
+      <pre id="out"></pre>
+    </section>
+  </main>
+</div>
+
+<script>
+// A frame is one Source Grid after a Tick or an edit. Marks: [kind, row, col, len, ghost].
+function F(label, rows, o) {
+  o = o || {};
+  return { label: label, rows: rows, marks: o.m || [], log: o.log || [], plays: o.plays || [], diag: o.diag || [] };
+}
+const PORTAL = 'portal', NEW = 'new', FIRE = 'fire', DELIM = 'delim';
+// ---- Pure model: how a row parses and what each voice's Read hands its Play, under one delimiter.
+// No DOM here, so it can be lifted out once the delimiter is chosen.
+const DELIMS = [
+  { id: 'pipe', glyph: '||', name: '||', tag: 'current grammar, ADR 0035' },
+  { id: 'hash2', glyph: '##', name: '##', tag: 'hypothetical, ADR 0023 spelling' },
+  { id: 'semi', glyph: ';;', name: ';;', tag: 'hypothetical' },
+  { id: 'colon', glyph: '::', name: '::', tag: 'hypothetical' },
+  { id: 'dash', glyph: '--', name: '--', tag: 'hypothetical' },
+  { id: 'hash1', glyph: '#', name: '#', tag: 'hypothetical, one Cell, as Orca' },
+];
+// Two voices of the tracker's eight; the shipped row repeats this every seven columns.
+const STEP = [3, 10];            // the first Cell of voice 00's and voice 01's step
+const WIDTH = 16;
+const isNote = p => /^[A-Ga-g][0-9]$/.test(p);
+
+// Parse one row as the Parser walks it (ADR 0035, ADR 0074): a delimiter opens a Comment where an
+// Expression could start, and the next delimiter on the row closes it, else the row's end does.
+// Anything else non-empty is a two-Cell Function spelling; none of these rows spells a real one.
+function parseRow(row, glyph) {
+  const units = [], diag = [];
+  let i = 0;
+  while (i < row.length) {
+    if (row[i] === ' ') { i++; continue; }
+    if (row.startsWith(glyph, i)) {
+      const from = i + glyph.length;
+      const close = row.indexOf(glyph, from);
+      const end = close === -1 ? row.length : close + glyph.length;
+      units.push({ kind: 'comment', start: i, end: end, open: [i, from], close: close === -1 ? null : [close, end] });
+      i = end;
+      continue;
+    }
+    const spelling = row.slice(i, i + 2);
+    diag.push({ col: i, text: spelling.length < 2 || spelling[1] === undefined ? 'expected a function' : 'unknown function "' + spelling.padEnd(2, ' ') + '"' });
+    units.push({ kind: 'function', start: i, end: i + 2 });
+    i += 2;
+  }
+  return { units: units, diag: diag };
+}
+
+// One Tick: each voice's Read selects its step on row (Tick % rows) and nests it in its Timed Play.
+function runTick(rows, glyph, tick) {
+  const r = tick % rows.length;
+  const plays = [], diag = [], marks = [];
+  rows.forEach(function (row, y) {
+    parseRow(row, glyph).diag.forEach(function (d) { diag.push('(' + d.col + ', ' + y + ') ' + d.text); });
+  });
+  STEP.forEach(function (c, v) {
+    const pair = (rows[r].slice(c, c + 2) + '  ').slice(0, 2);
+    marks.push([PORTAL, r, c, 2]);
+    if (pair === '  ') return;                       // an empty step rests (ADR 0075)
+    if (isNote(pair)) { plays.push(pair + ' on channel 0' + v); marks.push([FIRE, r, c, 2]); }
+    else diag.push('Timed Play, voice 0' + v + ': expected a note, found "' + pair + '"');
+  });
+  return { plays: plays, diag: diag, marks: marks };
+}
+
+// ---- Page data: Source rows for each delimiter, built from the same steps.
+function frameRow(glyph, steps, marks) {
+  const r = Array(WIDTH).fill(' ');
+  glyph.split('').forEach(function (ch, i) { r[i] = ch; });
+  glyph.split('').forEach(function (ch, i) { r[WIDTH - glyph.length + i] = ch; });
+  STEP.forEach(function (c, v) {
+    if (marks) { r[c - 1] = marks[0]; r[c + 2] = marks[1]; }
+    const n = (steps[v] || '  ');
+    r[c] = n[0]; r[c + 1] = n[1];
+  });
+  return r.join('');
+}
+function delimMarks(rows, glyph) {
+  const m = [];
+  rows.forEach(function (row, y) {
+    parseRow(row, glyph).units.forEach(function (u) {
+      if (u.kind !== 'comment') return;
+      m.push([DELIM, y, u.open[0], u.open[1] - u.open[0]]);
+      if (u.close) m.push([DELIM, y, u.close[0], u.close[1] - u.close[0]]);
+    });
+  });
+  return m;
+}
+function tickFrame(label, rows, glyph, tick, extra) {
+  const t = runTick(rows, glyph, tick);
+  return F(label, rows, { m: delimMarks(rows, glyph).concat(t.marks, extra || []), plays: t.plays, diag: t.diag });
+}
+function sourceFrame(label, rows, glyph, extra, log) {
+  const diag = [];
+  rows.forEach(function (row, y) { parseRow(row, glyph).diag.forEach(function (d) { diag.push('(' + d.col + ', ' + y + ') ' + d.text); }); });
+  return F(label, rows, { m: delimMarks(rows, glyph).concat(extra || []), diag: diag, log: log || [] });
+}
+
+const PATTERN = [['C4', '  '], ['  ', 'E4'], ['G4', 'C5'], ['  ', '  ']];
+
+function scenarioPlays(d) {
+  const rows = PATTERN.map(function (s) { return frameRow(d.glyph, s); });
+  return [sourceFrame('Source', rows, d.glyph)].concat([0, 1, 2, 3].map(function (t) { return tickFrame('Tick ' + t, rows, d.glyph, t); }));
+}
+function scenarioTyping(d) {
+  const at = function (s) { return [frameRow(d.glyph, [s, '  '])].concat(PATTERN.slice(1).map(function () { return frameRow(d.glyph, ['  ', '  ']); })); };
+  const c = STEP[0];
+  return [
+    sourceFrame('Source', at('  '), d.glyph),
+    sourceFrame('Edit: type C', at('C '), d.glyph, [[NEW, 0, c, 1]]),
+    tickFrame('Tick 0', at('C '), d.glyph, 0, [[NEW, 0, c, 1]]),
+    sourceFrame('Edit: type 4', at('C4'), d.glyph, [[NEW, 0, c + 1, 1]]),
+    tickFrame('Tick 4', at('C4'), d.glyph, 4),
+  ];
+}
+function scenarioDelimTyped(d) {
+  const body = frameRow('', ['C4', 'E4']);
+  const g = d.glyph, frames = [sourceFrame('No delimiter', [body], g)];
+  let row = body.padEnd(WIDTH, ' ').split('');
+  for (let i = 0; i < g.length; i++) {
+    row[i] = g[i];
+    frames.push(sourceFrame('Edit: opening Cell ' + (i + 1) + ' of ' + g.length, [row.join('')], g, [[NEW, 0, i, 1]]));
+  }
+  for (let i = 0; i < g.length; i++) {
+    row[WIDTH - g.length + i] = g[i];
+    frames.push(sourceFrame('Edit: closing Cell ' + (i + 1) + ' of ' + g.length, [row.join('')], g, [[NEW, 0, WIDTH - g.length + i, 1]]));
+  }
+  return frames;
+}
+function scenarioGlyphInText(d) {
+  const ch = d.glyph[0];
+  const rest = frameRow(d.glyph, [ch + ch, 'E4']);
+  const plain = frameRow(d.glyph, ['  ', 'E4']);
+  return [
+    sourceFrame('Source', [plain], d.glyph),
+    sourceFrame('Edit: write ' + ch + ch + ' as a rest', [rest], d.glyph, [[NEW, 0, STEP[0], 2]], ['A tracker writer marks a rest with the glyph twice.']),
+    tickFrame('Tick 0', [rest], d.glyph, 0),
+  ];
+}
+const MARK_SETS = [
+  { id: 'none', name: 'No marks', marks: null },
+  { id: 'bracket', name: '[ ]', marks: '[]' },
+  { id: 'colon', name: ': :', marks: '::' },
+  { id: 'dot', name: '. .', marks: '..' },
+];
+function scenarioMarks(m) {
+  const g = '||';
+  const rows = PATTERN.map(function (s) { return frameRow(g, s, m.marks); });
+  return [sourceFrame('Source', rows, g)].concat([0, 1, 2].map(function (t) { return tickFrame('Tick ' + t, rows, g, t); }));
+}
+const perDelim = function (title, build) {
+  return { title: title, models: DELIMS.map(function (d) { return { name: d.name, tag: d.tag, frames: build(d) }; }) };
+};
+
+const SECTIONS = [
+  {
+    id: 'delimiter', kind: 'question', n: 1, title: 'Which delimiter opens and closes a Comment?',
+    question: 'Each model is the same two tracker voices, framed in one Comment per row. Only the delimiter differs.',
+    context: [
+      'Rows are cut to voices 00 and 01; the shipped row repeats them every seven columns to voice 07. Each Read selects its step on row Tick mod 4 and nests it in its Timed Play.',
+      'Only || is current grammar. The others are hypothetical spellings; the two-Cell ones are unknown functions today, so none collides with a Function. A one-Cell # is a new shape: every Orcvs unit is two Cells today (ADR 0023), and ADR 0035 kept # for pitch.',
+    ],
+    demos: [
+      perDelim('A. The tracker plays', scenarioPlays),
+      perDelim('B. A Note typed into a step', scenarioTyping),
+      perDelim('C. The delimiter typed one Cell at a time', scenarioDelimTyped),
+      perDelim('D. The glyph twice inside Comment text', scenarioGlyphInText),
+    ],
+    options: DELIMS.map(function (d) { return { id: d.id, label: d.name, desc: d.tag, rec: false }; }),
+  },
+  {
+    id: 'marks', kind: 'question', n: 2, title: 'Should a step be marked inside the Comment?',
+    question: 'Marks are Comment text, so they need no language change under any delimiter. Shown here with ||.',
+    context: ['The Read lights its step every Tick, so a step is visible without marks while the tracker plays.'],
+    demos: [{ title: 'Step marks while the tracker plays', models: MARK_SETS.map(function (m) { return { name: m.name, tag: 'Comment text', frames: scenarioMarks(m) }; }) }],
+    options: MARK_SETS.map(function (m) { return { id: m.id, label: m.name, desc: m.marks ? 'One mark each side of every step.' : 'Only the row\'s delimiters.', rec: false }; }),
+  },
+];
+
+const KEY = 'orcvs-comment-delimiter-answers';
+let answers = {};
+try { answers = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { answers = {}; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(answers)); } catch (e) {} }
+
+function el(tag, attrs, children) {
+  const n = document.createElement(tag);
+  for (const k in (attrs || {})) {
+    if (k === 'text') n.textContent = attrs[k];
+    else if (k === 'html') n.innerHTML = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  }
+  (children || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+
+function renderGrid(frame, width) {
+  const rows = frame.rows.length;
+  const cls = {}; const ghost = {};
+  frame.marks.forEach(function (m) {
+    const kind = m[0], r = m[1], c = m[2], len = m[3] || 1, g = m[4];
+    for (let i = 0; i < len; i++) {
+      const k = r + ':' + (c + i);
+      (cls[k] = cls[k] || []).push(kind);
+      if (g) ghost[k] = g[i] || '';
+    }
+  });
+  const grid = el('div', { class: 'grid', role: 'img', 'aria-label': frame.label + ': ' + frame.rows.map(function (r, i) { return 'row ' + i + ' "' + r + '"'; }).join(', ') });
+  grid.style.gridTemplateColumns = 'repeat(' + width + ', auto)';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < width; c++) {
+      const ch = frame.rows[r][c] || ' ';
+      const k = r + ':' + c;
+      const cell = el('span', { class: 'c ' + (cls[k] || []).join(' ') });
+      if (ch !== ' ') cell.textContent = ch;
+      else if (ghost[k] && ghost[k] !== ' ') cell.appendChild(el('span', { class: 'g', text: ghost[k] }));
+      grid.appendChild(cell);
+    }
+  }
+  return el('div', { class: 'gridbox' }, [grid]);
+}
+
+function renderFrameDetail(frame) {
+  const box = el('div', { class: 'log' });
+  const plays = el('div', { class: 'plays' }, [el('span', { class: 'eyebrow', text: 'Plays' })]);
+  if (frame.plays.length) frame.plays.forEach(function (p) { plays.appendChild(el('span', { class: 'note', text: p })); });
+  else plays.appendChild(el('span', { class: 'none', text: 'nothing' }));
+  box.appendChild(plays);
+  if (frame.diag.length) frame.diag.forEach(function (d) { box.appendChild(el('div', { class: 'diag', text: d })); });
+  else box.appendChild(el('div', { class: 'ok', text: 'No diagnostic.' }));
+  if (frame.log.length) box.appendChild(el('ul', {}, frame.log.map(function (l) { return el('li', { text: l }); })));
+  return box;
+}
+
+function renderDemo(demo) {
+  const steps = Math.max.apply(null, demo.models.map(function (m) { return m.frames.length; }));
+  const width = Math.max(10, Math.max.apply(null, demo.models.map(function (m) { return Math.max.apply(null, m.frames.map(function (f) { return Math.max.apply(null, f.rows.map(function (r) { return r.length; })); })); })));
+  let step = 0;
+  const wrap = el('div', { class: 'demo' });
+  const head = el('div', { class: 'demo-head' }, [el('h3', { text: demo.title })]);
+  const controls = el('div', { class: 'controls' });
+  const reset = el('button', { type: 'button', text: 'Reset' });
+  const back = el('button', { type: 'button', text: 'Back' });
+  const next = el('button', { type: 'button', text: 'Next' });
+  controls.append(reset, back, next);
+  head.appendChild(controls);
+  wrap.appendChild(head);
+  const timeline = el('div', { class: 'timeline', role: 'group', 'aria-label': 'Steps' });
+  const labels = demo.models[0].frames.map(function (f) { return f.label; });
+  const stepButtons = labels.map(function (l, i) {
+    const b = el('button', { type: 'button', text: l });
+    b.addEventListener('click', function () { step = i; draw(); });
+    timeline.appendChild(b);
+    return b;
+  });
+  wrap.appendChild(timeline);
+  const models = el('div', { class: 'models' });
+  wrap.appendChild(models);
+  function draw() {
+    models.innerHTML = '';
+    demo.models.forEach(function (m) {
+      const f = m.frames[Math.min(step, m.frames.length - 1)];
+      const name = el('div', { class: 'model-name' }, [el('span', { text: m.name }), m.tag ? el('span', { class: 'tag', text: m.tag }) : null]);
+      models.appendChild(el('div', { class: 'model' }, [name, renderGrid(f, width), renderFrameDetail(f)]));
+    });
+    stepButtons.forEach(function (b, i) { if (i === step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
+    back.disabled = step === 0; next.disabled = step === steps - 1;
+  }
+  reset.addEventListener('click', function () { step = 0; draw(); });
+  back.addEventListener('click', function () { if (step > 0) { step--; draw(); } });
+  next.addEventListener('click', function () { if (step < steps - 1) { step++; draw(); } });
+  draw();
+  return wrap;
+}
+
+function renderDecision(s) {
+  const form = el('form', { class: 'decide' });
+  form.addEventListener('submit', function (e) { e.preventDefault(); });
+  const fs = el('fieldset', {}, [el('legend', { text: 'Your answer' })]);
+  const a = answers[s.id] || {};
+  s.options.forEach(function (o) {
+    const id = s.id + '-' + o.id;
+    const input = el('input', { type: 'radio', name: s.id, id: id, value: o.id });
+    if (a.choice === o.id) input.checked = true;
+    input.addEventListener('change', function () { answers[s.id] = Object.assign({}, answers[s.id], { choice: o.id }); save(); update(); });
+    const text = el('span', {}, [el('span', { class: 'lbl', text: o.label }), o.rec ? el('span', { class: 'recmark', text: 'Recommended' }) : null, el('div', { class: 'desc', text: o.desc })]);
+    fs.appendChild(el('label', { class: 'opt', for: id }, [input, text]));
+  });
+  form.appendChild(fs);
+  const ta = el('textarea', { id: s.id + '-notes', placeholder: 'Notes, conditions, or a different answer' });
+  ta.value = a.notes || '';
+  ta.addEventListener('input', function () { answers[s.id] = Object.assign({}, answers[s.id], { notes: ta.value }); save(); update(); });
+  form.appendChild(el('label', { class: 'notes', for: s.id + '-notes' }, [el('span', { text: 'Notes' }), ta]));
+  return form;
+}
+
+function render() {
+  const host = document.getElementById('sections');
+  const nav = document.getElementById('index');
+  SECTIONS.forEach(function (s) {
+    const sec = el('section', { class: 'q', id: s.id });
+    const pill = s.kind === 'question' ? el('span', { class: 'pill open', text: 'Open question ' + s.n }) : s.kind === 'decided' ? el('span', { class: 'pill', text: 'Decided' }) : el('span', { class: 'pill info', text: 'Background' });
+    const head = el('div', { class: 'qhead' }, [el('div', {}, [pill]), el('h2', { text: s.title })]);
+    if (s.question) head.appendChild(el('p', { text: s.question, style: 'font-weight:500' }));
+    sec.appendChild(head);
+    if (s.context) sec.appendChild(el('div', { class: 'context' }, s.context.map(function (c) { return el('p', { text: c }); })));
+    (s.demos || []).forEach(function (d) { sec.appendChild(renderDemo(d)); });
+    if (s.options) sec.appendChild(renderDecision(s));
+    host.appendChild(sec);
+    const link = el('a', { href: '#' + s.id }, [el('span', { text: s.kind === 'question' ? s.n + '. ' + s.title : s.title })]);
+    if (s.kind === 'question') link.appendChild(el('span', { class: 'state', 'data-state': s.id, text: 'open' }));
+    nav.appendChild(link);
+  });
+}
+
+function update() {
+  const lines = ['## Comment delimiter: answers', ''];
+  SECTIONS.filter(function (s) { return s.kind === 'question'; }).forEach(function (s) {
+    const a = answers[s.id] || {};
+    const o = s.options.find(function (x) { return x.id === a.choice; });
+    lines.push(s.n + '. ' + s.title + ': ' + (o ? o.label + (o.rec ? ' (recommended)' : '') : 'not answered'));
+    if (a.notes && a.notes.trim()) lines.push('   Notes: ' + a.notes.trim().replace(/\n+/g, ' '));
+    const st = document.querySelector('[data-state="' + s.id + '"]');
+    if (st) { st.textContent = o ? 'answered' : 'open'; st.className = 'state' + (o ? ' done' : ''); }
+  });
+  document.getElementById('out').textContent = lines.join('\n');
+}
+
+render();
+update();
+document.getElementById('copy').addEventListener('click', function () {
+  const text = document.getElementById('out').textContent;
+  const done = function () { const c = document.getElementById('copied'); c.hidden = false; setTimeout(function () { c.hidden = true; }, 1800); };
+  const fallback = function () { const r = document.createRange(); r.selectNodeContents(document.getElementById('out')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+});
+</script>
+</body>
+</html>
