@@ -13,6 +13,10 @@ target/
 !.scratch/theming/examples/*.yml
 # Release evidence captures are delivered artefacts, not working files.
 !.scratch/*/evidence/*.png
+# The theme workbench is a working tool kept with the theming notes; its builds are not.
+!.scratch/theming/workbench/**
+.scratch/theming/workbench/specimen-dump/target/
+.scratch/theming/workbench/specimen-dump/rust-toolchain.toml
 .claude/worktrees/
 .worktrees/
 # Codex project config is tracked; local worktrees and other Codex working
