@@ -1,6 +1,6 @@
 # 03: Give the Cell a width and a height
 
-**What to build:** A prefactor with no visible change. The console's Cell becomes a width and a height everywhere it is read: the Cell geometry, the Source View's Pan bounds, margin, Cursor follow and edge scroll, the shapes step, the Cursor Effect, the Diagnostics readout and source reserve, and the default window. The Cell geometry is given the Cell size by its caller rather than reading a constant. The default stays 16 by 16 and the Glyph stays 11.5 points, so every existing behaviour test passes unchanged in what it asserts. See `../spec.md`.
+**What to build:** A prefactor with no visible change. The console's Cell becomes a width and a height everywhere it is read: the Cell geometry, the Source View's Pan bounds, margin, Cursor follow and edge scroll, the shapes step, the Cursor Effect and the Diagnostics source reserve. The Diagnostics readout text and the default window are left for 04. The Cell geometry is given the Cell size by its caller rather than reading a constant. The default stays 16 by 16 and the Glyph stays 11.5 points, so every existing behaviour test passes unchanged in what it asserts. See `../spec.md`.
 
 **Blocked by:** 02 — Turn the Cursor Effect off by default.
 

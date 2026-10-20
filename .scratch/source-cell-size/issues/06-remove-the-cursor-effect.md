@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Turn the Cursor Effect off by default.
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 - [ ] No shipped code samples, animates or schedules repaints for the Cursor.
 - [ ] The Cursor and Region outlines still use `cursor.border` and `region.border` at their widths, and the Paint's own Cursor-Cell border is not shown in their place.
