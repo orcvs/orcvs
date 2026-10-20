@@ -257,17 +257,19 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
+                let occupied = cell.content().is_some();
                 let visuals = if selected {
                     cell_visuals_with_cursor_colour(
                         cell.source_paint(),
                         cell.portal_roles(),
+                        occupied,
                         true,
                         cursor_visible,
                         cursor_fill,
                         theme,
                     )
                 } else {
-                    unselected.unselected(cell.source_paint(), cell.portal_roles())
+                    unselected.unselected(cell.source_paint(), cell.portal_roles(), occupied)
                 };
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
                 let background = cell_background(
@@ -529,7 +531,7 @@ mod tests {
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left, sector_top};
     use crate::style::cell_visuals_with_cursor_colour;
-    use crate::theme::okabe_ito;
+    use crate::theme::{GridWidth, okabe_ito};
     use egui::Color32;
     use orcvs::source::{OperandState, SourcePaint, Token};
     use orcvs::{
@@ -608,6 +610,7 @@ mod tests {
         cell_visuals_with_cursor_colour(
             cell.source_paint(),
             cell.portal_roles(),
+            cell.content().is_some(),
             selected,
             cursor_visible,
             cursor_colour,
@@ -1518,6 +1521,117 @@ mod tests {
             valid.border, theme.grid_border,
             "a Valid operand took the Diagnostic border it has no fact for"
         );
+    }
+
+    ///
+    /// A visible `source.function.border` strokes both Cells of a written
+    /// Function's spelling at `source.function.border.width`, over the Grid
+    /// line, and leaves its operands on the plain Grid line.
+    ///
+    #[tokio::test]
+    async fn a_visible_function_border_strokes_the_function_cells_at_its_own_width() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+0102".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let visible = Color32::from_rgb(30, 200, 30);
+        let theme = Theme {
+            source_function_border: visible,
+            source_function_border_width: GridWidth::from_points(0.25).expect("within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let at = |x| paint.at(orcvs.grid().position(x, 0).expect("inside the grid"));
+
+        for x in [0, 1] {
+            assert_eq!(at(x).border, theme.grid_border.blend(visible), "column {x}");
+            assert_eq!(at(x).border_width, 0.25, "column {x}");
+        }
+        assert_eq!(
+            at(2).border,
+            theme.grid_border,
+            "an operand took the Function border"
+        );
+        assert_eq!(at(2).border_width, theme.grid_border_width.points());
+    }
+
+    ///
+    /// A transparent Function border draws nothing, so the Function's Cells
+    /// keep the Grid line at `grid.border.width`, whatever the Function
+    /// border's own width. A visible one at width zero hides the stroke.
+    ///
+    #[tokio::test]
+    async fn a_transparent_function_border_leaves_the_grid_line_and_its_width() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+0102".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let width = |points| GridWidth::from_points(points).expect("within 0..=1");
+        let transparent = Theme {
+            grid_border_width: width(0.25),
+            source_function_border: Color32::TRANSPARENT,
+            source_function_border_width: width(1.0),
+            ..okabe_ito()
+        };
+        let hidden = Theme {
+            source_function_border: Color32::from_rgb(30, 200, 30),
+            source_function_border_width: width(0.0),
+            ..okabe_ito()
+        };
+        let function = orcvs.grid().position(0, 0).expect("inside the grid");
+
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &transparent);
+        assert_eq!(paint.at(function).border, transparent.grid_border);
+        assert_eq!(paint.at(function).border_width, 0.25);
+
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &hidden);
+        assert_eq!(paint.at(function).border_width, 0.0);
+    }
+
+    ///
+    /// A custom Theme document that sets the Function border decodes,
+    /// resolves over its parent, and paints that border on a written
+    /// Function.
+    ///
+    #[tokio::test]
+    async fn a_theme_document_paints_the_function_border_it_sets() {
+        let document = crate::theme_document::decode(
+            "framed.toml",
+            br##"
+format = "orcvs-theme"
+version = 1
+name = "Framed"
+inherits = "grayscale-dark"
+
+[style]
+"source.function.border" = "#80808080"
+"source.function.border.width" = 1
+"##,
+        )
+        .expect("a valid Theme document");
+        let theme = crate::theme::resolve(
+            &[crate::theme::grayscale_dark()],
+            &crate::theme::ThemeIdentity::from_stem("framed").expect("a valid stem"),
+            &document,
+        )
+        .expect("the document resolves over its parent");
+
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+0102".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let function = paint.at(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+        let framed = Color32::from_rgba_unmultiplied(0x80, 0x80, 0x80, 0x80);
+        assert_eq!(function.border, theme.grid_border.blend(framed));
+        assert_eq!(function.border_width, 1.0);
     }
 
     ///

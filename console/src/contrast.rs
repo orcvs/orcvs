@@ -343,6 +343,7 @@ fn painted(
     let visuals = cell_visuals_with_cursor_colour(
         fact,
         portals,
+        true,
         selected,
         // `cursor_visible` decides only the Cell's border, never its
         // foreground or background (`cell_visuals_with_cursor_colour`'s own

@@ -194,6 +194,7 @@ macro_rules! style_catalogue {
                 SourceNoteBackground(source_note_background) => "source.note.background",
                 SourceFunctionBackground(source_function_background) => "source.function.background",
                 SourceBangBackground(source_bang_background) => "source.bang.background",
+                SourceFunctionBorder(source_function_border) => "source.function.border",
                 DiagnosticForeground(diagnostic_foreground) => "diagnostic.foreground",
                 DiagnosticBackground(diagnostic_background) => "diagnostic.background",
                 DiagnosticBorder(diagnostic_border) => "diagnostic.border",
@@ -237,6 +238,7 @@ macro_rules! style_catalogue {
                 OutputPortalBorder(output_portal_border_width) => "output_portal.border.width",
                 InputPortalBorder(input_portal_border_width) => "input_portal.border.width",
                 LockedBorder(locked_border_width) => "locked.border.width",
+                SourceFunctionBorder(source_function_border_width) => "source.function.border.width",
             }
             ChromeWidthKey {
                 PanelBorder(panel_border_width) => "panel.border.width",
@@ -312,6 +314,7 @@ pub(crate) enum ColorKey {
     SourceNoteBackground,
     SourceFunctionBackground,
     SourceBangBackground,
+    SourceFunctionBorder,
     DiagnosticForeground,
     DiagnosticBackground,
     DiagnosticBorder,
@@ -368,6 +371,7 @@ pub(crate) enum GridWidthKey {
     OutputPortalBorder,
     InputPortalBorder,
     LockedBorder,
+    SourceFunctionBorder,
 }
 
 ///
@@ -435,6 +439,7 @@ pub struct Theme {
     pub(crate) source_note_background: Color32,
     pub(crate) source_function_background: Color32,
     pub(crate) source_bang_background: Color32,
+    pub(crate) source_function_border: Color32,
 
     pub(crate) diagnostic_foreground: Color32,
     pub(crate) diagnostic_background: Color32,
@@ -487,6 +492,7 @@ pub struct Theme {
     pub(crate) output_portal_border_width: GridWidth,
     pub(crate) input_portal_border_width: GridWidth,
     pub(crate) locked_border_width: GridWidth,
+    pub(crate) source_function_border_width: GridWidth,
 
     pub(crate) panel_border_width: ChromeWidth,
     pub(crate) selection_border_width: ChromeWidth,
@@ -538,6 +544,7 @@ impl Theme {
             ColorKey::SourceNoteBackground => &mut self.source_note_background,
             ColorKey::SourceFunctionBackground => &mut self.source_function_background,
             ColorKey::SourceBangBackground => &mut self.source_bang_background,
+            ColorKey::SourceFunctionBorder => &mut self.source_function_border,
             ColorKey::DiagnosticForeground => &mut self.diagnostic_foreground,
             ColorKey::DiagnosticBackground => &mut self.diagnostic_background,
             ColorKey::DiagnosticBorder => &mut self.diagnostic_border,
@@ -584,6 +591,7 @@ impl Theme {
             GridWidthKey::OutputPortalBorder => self.output_portal_border_width = value,
             GridWidthKey::InputPortalBorder => self.input_portal_border_width = value,
             GridWidthKey::LockedBorder => self.locked_border_width = value,
+            GridWidthKey::SourceFunctionBorder => self.source_function_border_width = value,
         }
     }
 
@@ -631,6 +639,7 @@ impl Theme {
             ColorKey::SourceNoteBackground => &self.source_note_background,
             ColorKey::SourceFunctionBackground => &self.source_function_background,
             ColorKey::SourceBangBackground => &self.source_bang_background,
+            ColorKey::SourceFunctionBorder => &self.source_function_border,
             ColorKey::DiagnosticForeground => &self.diagnostic_foreground,
             ColorKey::DiagnosticBackground => &self.diagnostic_background,
             ColorKey::DiagnosticBorder => &self.diagnostic_border,
@@ -677,6 +686,7 @@ impl Theme {
             GridWidthKey::OutputPortalBorder => self.output_portal_border_width,
             GridWidthKey::InputPortalBorder => self.input_portal_border_width,
             GridWidthKey::LockedBorder => self.locked_border_width,
+            GridWidthKey::SourceFunctionBorder => self.source_function_border_width,
         }
     }
 
@@ -837,6 +847,7 @@ pub fn okabe_ito() -> Theme {
         source_note_background: straight_rgba(0xF0_E4_42_1A),
         source_function_background: straight_rgba(0x00_9E_73_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
+        source_function_border: straight_rgba(0x00_00_00_00),
 
         diagnostic_foreground: straight_rgba(0xD5_5E_00_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
@@ -886,6 +897,7 @@ pub fn okabe_ito() -> Theme {
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -959,6 +971,7 @@ pub fn orcvs_light() -> Theme {
         source_note_background: straight_rgba(0x70_69_00_1A),
         source_function_background: straight_rgba(0x00_75_55_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
+        source_function_border: straight_rgba(0x00_00_00_00),
 
         diagnostic_foreground: straight_rgba(0x65_28_00_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
@@ -1008,6 +1021,7 @@ pub fn orcvs_light() -> Theme {
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -1056,6 +1070,7 @@ pub fn grayscale_dark() -> Theme {
         source_note_background: straight_rgba(0xFF_FF_FF_14),
         source_function_background: straight_rgba(0xFF_FF_FF_1F),
         source_bang_background: straight_rgba(0x00_00_00_00),
+        source_function_border: straight_rgba(0x00_00_00_00),
 
         diagnostic_foreground: straight_rgba(0xE6_E6_E6_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
@@ -1105,6 +1120,7 @@ pub fn grayscale_dark() -> Theme {
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -1151,6 +1167,7 @@ pub fn grayscale_light() -> Theme {
         source_note_background: straight_rgba(0x00_00_00_0F),
         source_function_background: straight_rgba(0x00_00_00_1A),
         source_bang_background: straight_rgba(0x00_00_00_00),
+        source_function_border: straight_rgba(0x00_00_00_00),
 
         diagnostic_foreground: straight_rgba(0x14_14_14_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
@@ -1200,6 +1217,7 @@ pub fn grayscale_light() -> Theme {
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -1495,6 +1513,7 @@ mod tests {
             straight_rgba(0x00_9E_73_1A)
         );
         assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.source_function_border, straight_rgba(0x00_00_00_00));
 
         assert_eq!(theme.diagnostic_foreground, straight_rgba(0xD5_5E_00_FF));
         assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
@@ -1544,6 +1563,7 @@ mod tests {
         assert_eq!(theme.output_portal_border_width.points(), 0.5);
         assert_eq!(theme.input_portal_border_width.points(), 0.5);
         assert_eq!(theme.locked_border_width.points(), 0.5);
+        assert_eq!(theme.source_function_border_width.points(), 0.5);
         assert_eq!(theme.panel_border_width.points(), 1.0);
         assert_eq!(theme.selection_border_width.points(), 1.0);
         assert_eq!(theme.widget_border_width.points(), 1.0);
@@ -1663,6 +1683,7 @@ mod tests {
             straight_rgba(0x00_75_55_1A)
         );
         assert_eq!(theme.source_bang_background, straight_rgba(0x00_00_00_00));
+        assert_eq!(theme.source_function_border, straight_rgba(0x00_00_00_00));
 
         assert_eq!(theme.diagnostic_foreground, straight_rgba(0x65_28_00_FF));
         assert_eq!(theme.diagnostic_background, straight_rgba(0x00_00_00_00));
@@ -1715,6 +1736,7 @@ mod tests {
         assert_eq!(theme.output_portal_border_width.points(), 0.5);
         assert_eq!(theme.input_portal_border_width.points(), 0.5);
         assert_eq!(theme.locked_border_width.points(), 0.5);
+        assert_eq!(theme.source_function_border_width.points(), 0.5);
         assert_eq!(theme.panel_border_width.points(), 1.0);
         assert_eq!(theme.selection_border_width.points(), 1.0);
         assert_eq!(theme.widget_border_width.points(), 1.0);
@@ -1945,6 +1967,10 @@ mod tests {
                     base.input_portal_border_width,
                 ),
                 (theme.locked_border_width, base.locked_border_width),
+                (
+                    theme.source_function_border_width,
+                    base.source_function_border_width,
+                ),
             ] {
                 assert_eq!(
                     width, expected,
@@ -2009,7 +2035,7 @@ mod tests {
                     "Function",
                     theme.source_function,
                     theme.source_function_background,
-                    clear,
+                    theme.source_function_border,
                 ),
                 (
                     "Bang",
@@ -2584,6 +2610,7 @@ mod tests {
             ColorKey::SourceNoteBackground,
             ColorKey::SourceFunctionBackground,
             ColorKey::SourceBangBackground,
+            ColorKey::SourceFunctionBorder,
             ColorKey::DiagnosticForeground,
             ColorKey::DiagnosticBackground,
             ColorKey::DiagnosticBorder,
@@ -2619,8 +2646,8 @@ mod tests {
         ];
         assert_eq!(
             keys.len(),
-            48,
-            "the catalogue has 48 non-optional colour keys"
+            49,
+            "the catalogue has 49 non-optional colour keys"
         );
 
         for &key in &keys {
@@ -2670,11 +2697,12 @@ mod tests {
             GridWidthKey::OutputPortalBorder,
             GridWidthKey::InputPortalBorder,
             GridWidthKey::LockedBorder,
+            GridWidthKey::SourceFunctionBorder,
         ];
         assert_eq!(
             grid_keys.len(),
-            9,
-            "the catalogue has 9 Grid-bounded width keys"
+            10,
+            "the catalogue has 10 Grid-bounded width keys"
         );
         for &key in &grid_keys {
             let document = ThemeDocument {
@@ -2751,6 +2779,7 @@ mod tests {
                 "source.function.background",
             ),
             (ColorKey::SourceBangBackground, "source.bang.background"),
+            (ColorKey::SourceFunctionBorder, "source.function.border"),
             (ColorKey::DiagnosticForeground, "diagnostic.foreground"),
             (ColorKey::DiagnosticBackground, "diagnostic.background"),
             (ColorKey::DiagnosticBorder, "diagnostic.border"),
@@ -2784,7 +2813,7 @@ mod tests {
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
         ];
-        assert_eq!(catalogue.len(), 48);
+        assert_eq!(catalogue.len(), 49);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }
@@ -2813,6 +2842,10 @@ mod tests {
             "input_portal.border.width"
         );
         assert_eq!(GridWidthKey::LockedBorder.name(), "locked.border.width");
+        assert_eq!(
+            GridWidthKey::SourceFunctionBorder.name(),
+            "source.function.border.width"
+        );
         assert_eq!(ChromeWidthKey::PanelBorder.name(), "panel.border.width");
         assert_eq!(
             ChromeWidthKey::SelectionBorder.name(),

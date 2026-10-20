@@ -65,6 +65,7 @@ property or production test seam is introduced.
 | `source.note.background` | `#F0E4421A` |
 | `source.function.background` | `#009E731A` |
 | `source.bang.background` | `#00000000` |
+| `source.function.border` | `#00000000` |
 | `diagnostic.foreground` | `#D55E00` |
 | `diagnostic.background` | `#00000000` |
 | `diagnostic.border` | `#00000000` |
@@ -111,6 +112,7 @@ property or production test seam is introduced.
 | `output_portal.border.width` | 0.5 | 0–1 |
 | `input_portal.border.width` | 0.5 | 0–1 |
 | `locked.border.width` | 0.5 | 0–1 |
+| `source.function.border.width` | 0.5 | 0–1 |
 | `panel.border.width` | 1 | 0–2 |
 | `selection.border.width` | 1 | 0–2 |
 | `widget.border.width` | 1 | 0–2 |
@@ -119,6 +121,8 @@ property or production test seam is introduced.
 
 Zero width suppresses that stroke, not fills or other strokes. Diagnostic/Portal
 width defaults to 0.5 while its transparent colour preserves the current absence.
+A role border draws only while its colour is visible, so a transparent role border
+leaves the Grid line at `grid.border.width`.
 Inactive widget width zero preserves its current absence. The 2-point text-input
 caret is separate from ordinary 1-point chrome borders. Widths do not scale with
 Grid zoom; physical-pixel snapping follows existing viewport rules. Cursor/Region
@@ -193,6 +197,11 @@ added explicitly to this catalogue, never silently left as a second palette.
    compose over every fact, a bound Function and a Bang included, since a lock
    marks only the Function spelling of the root it withheld. Border
    channels use the same fact priority and compose over the ordinary Grid border.
+   Between the two sits the role border: a Cell holding content draws its role's
+   border over the Grid line, at that role's border width, when the role border is
+   visible. An empty Cell, or one whose role border is transparent, keeps the Grid
+   line and `grid.border.width`. Every overlay border composes over the role
+   border, and a bound Function's role border is its own inside a Portal.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
    suppresses ordinary role fill in favour of its optional Cursor fill. In a
    multi-Cell Region, the Cursor uses Region Cursor fill, falling back to ordinary

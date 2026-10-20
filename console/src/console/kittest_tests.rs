@@ -3272,6 +3272,7 @@ async fn the_function_a_tick_locked_paints_as_locked() {
         crate::style::cell_visuals_with_cursor_colour(
             fact,
             PortalRoles::NONE.with(PortalRole::Locked),
+            true,
             false,
             false,
             None,
