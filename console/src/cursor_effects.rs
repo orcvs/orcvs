@@ -10,9 +10,11 @@ use crate::grid_viewport::CELL_SIZE;
 /// (ADR 0053: "A Theme decides how things look, never how much they move.").
 ///
 /// The Effect's colours — the Cursor frame, the living-field area, the
-/// Region fill and the two optional Cell fills — are on the resolved
-/// `crate::theme::Theme`: `cursor.border`, `region.border`, `cursor.area`,
-/// `region.background`, `cursor.background` and `region.cursor.background`.
+/// Region fill, the two optional Cell fills and the two optional glyph
+/// colours — are on the resolved `crate::theme::Theme`: `cursor.border`,
+/// `region.border`, `cursor.area`, `region.background`, `cursor.background`,
+/// `region.cursor.background`, `cursor.foreground` and
+/// `region.cursor.foreground`.
 /// `crate::style::style` and `crate::paint` read those directly; this settings
 /// value carries only the motion.
 ///

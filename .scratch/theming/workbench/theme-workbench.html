@@ -360,6 +360,7 @@ function report(v) {
   const out = [];
   for (const cell of STATES) for (const sel of [null, "region", "cursor", "region-cursor"]) {
     const p = compose(v, cell, sel);
+    if (!visible(p.fg)) continue; // a hidden glyph draws no text, so it is not measured
     out.push({ label: describe(cell, sel), ink: p.ink, bg: p.bg, ratio: ratio(p.ink, p.bg), els: p.els });
   }
   for (const p of chromePairs(v)) out.push({ ...p, ratio: ratio(p.ink, p.bg) });

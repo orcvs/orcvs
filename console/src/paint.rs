@@ -179,7 +179,8 @@ impl Paint {
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
-    /// Its glyph takes `theme.region_cursor_glyph()` the same way. Only the
+    /// Its glyph takes `theme.region_cursor_glyph()` the same way
+    /// (`style::cell_foreground` decides both glyphs). Only the
     /// fill and the glyph colour carry over: the Cursor's Cell in such a Region takes
     /// the grid line and its sector seams, as every other Cell of the Region
     /// does. `theme.cell_background` is the uniform base every one of those
@@ -243,7 +244,6 @@ impl Paint {
         // `theme.cell_background`.
         let cursor_fill = theme.cursor_background;
         let region_cursor_fill = theme.region_cursor_fill();
-        let region_cursor_glyph = theme.region_cursor_glyph();
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
@@ -292,11 +292,7 @@ impl Paint {
                     background,
                     border: visuals.border,
                     border_width: visuals.border_width,
-                    foreground: cell_foreground(
-                        visuals.foreground,
-                        is_cursor && region_spans,
-                        region_cursor_glyph,
-                    ),
+                    foreground: cell_foreground(visuals.foreground, is_cursor, region_spans, theme),
                     // A sector seam is suppressed on the `selected` Cell, so
                     // the Cursor's frame is never crossed by one. It is decided
                     // here rather than left to the step that draws it: a rule

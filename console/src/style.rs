@@ -40,8 +40,9 @@ pub(crate) struct CellVisuals {
 /// Composes the Source Paint decision with Cursor precedence, applied here
 /// rather than inside it: the single-Cell Cursor's own border
 /// (`selection.border`/`.rest`) draws regardless of what stands on the Cell,
-/// and every other Cell's border is [`ordinary_border`]'s; its glyph draws in
-/// `cursor.foreground` when that holds a colour. `paint` is the per-Cell language fact
+/// and every other Cell's border is [`ordinary_border`]'s. The glyph colour
+/// answered here is the role's on every Cell, the Cursor's included:
+/// [`cell_foreground`] decides the Cursor's glyph. `paint` is the per-Cell language fact
 /// `RenderCell::source_paint` answers from the shared Claim, including
 /// Pending, Valid, or Invalid for an Operand. `portal_roles` is an
 /// independent fact: the Portal roles this Cell plays
@@ -68,13 +69,6 @@ pub(crate) fn cell_visuals_with_cursor_colour(
         compose_cell_fill(theme.cell_background, cursor_fill)
     } else {
         role_background
-    };
-    // `cursor.foreground` replaces the glyph colour on the Cursor's Cell, a
-    // transparent one hiding the glyph; cleared, the glyph keeps the colour
-    // the role/Diagnostic/Portal channels answered.
-    let foreground = match theme.cursor_foreground {
-        Some(glyph) if selected => glyph,
-        _ => foreground,
     };
     // The single-Cell Cursor's own border is `selection.border`/`.rest` at
     // `cell.selection.border.width`, unaffected by Diagnostic/Portal —
@@ -136,8 +130,8 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 /// An unselected Cell's visuals depend only on its Source Paint fact, the
 /// Portal that paints it, [`painting_portal`]'s answer, and whether it is
-/// occupied (`selected`, `cursor_visible`, the Cursor fill and
-/// `cursor.foreground` are all inert when `selected` is false), so the 10 facts × 4 Portal answers × 2
+/// occupied (`selected`, `cursor_visible` and the Cursor fill are all inert
+/// when `selected` is false), so the 10 facts × 4 Portal answers × 2
 /// occupancies are every answer the walk can need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
@@ -510,23 +504,27 @@ pub(crate) fn cell_background(
 }
 
 ///
-/// One Cell's final glyph colour: `foreground`, the answer of
-/// [`cell_visuals_with_cursor_colour`], except on the Cursor's own Cell inside
-/// a Region larger than one Cell (`is_region_cursor`, as for
-/// [`cell_background`]), where `region_cursor_glyph`
-/// ([`Theme::region_cursor_glyph`]) replaces it when it holds a colour.
-/// [`crate::paint::Paint::derive_with_theme`] and `crate::contrast::painted`
-/// both read the decision here.
+/// One Cell's final glyph colour: `foreground`, the role's answer from
+/// [`cell_visuals_with_cursor_colour`], except on the Cursor's own Cell
+/// (`is_cursor`), where the Cursor's glyph colour replaces it when it holds
+/// one: `cursor.foreground` on the single-Cell Cursor, and
+/// [`Theme::region_cursor_glyph`] while a Region spans more than one Cell
+/// (`region_spans`). A transparent glyph colour hides the glyph; a cleared
+/// one keeps the role's. [`crate::paint::Paint::derive_with_theme`] and
+/// `crate::contrast::painted` both read the decision here.
 ///
 pub(crate) fn cell_foreground(
     foreground: Color32,
-    is_region_cursor: bool,
-    region_cursor_glyph: Option<Color32>,
+    is_cursor: bool,
+    region_spans: bool,
+    theme: &Theme,
 ) -> Color32 {
-    match region_cursor_glyph {
-        Some(glyph) if is_region_cursor => glyph,
-        _ => foreground,
-    }
+    let glyph = match (is_cursor, region_spans) {
+        (false, _) => None,
+        (true, false) => theme.cursor_foreground,
+        (true, true) => theme.region_cursor_glyph(),
+    };
+    glyph.unwrap_or(foreground)
 }
 
 ///
@@ -983,7 +981,8 @@ mod tests {
 
     use super::{
         CellVisuals, PORTAL_ROLE_SETS, SOURCE_PAINT_FACTS, SourcePaintVisuals, cell_background,
-        cell_visuals_with_cursor_colour, compose_cell_fill, fact_index, install, style,
+        cell_foreground, cell_visuals_with_cursor_colour, compose_cell_fill, fact_index, install,
+        style,
     };
     use crate::theme::{Theme, okabe_ito, orcvs_light};
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
@@ -2609,31 +2608,36 @@ mod tests {
     }
 
     ///
-    /// `cursor.foreground` draws the glyph on the single-Cell Cursor over
+    /// The Cursor's Cell draws its glyph in the Cursor's glyph colour over
     /// every fact and every Portal role set, Locked included, which Source
-    /// cannot always place under the Cursor. Off the Cursor, and with it
-    /// cleared, the glyph is the role's.
+    /// cannot always place under the Cursor: `cursor.foreground` on the
+    /// single-Cell Cursor, and the Region's Cursor's fallback while a Region
+    /// spans. Off the Cursor, and with both cleared, the glyph is the role's.
     ///
     #[test]
-    fn cursor_foreground_draws_the_selected_glyph_over_every_fact_and_portal() {
+    fn the_cursor_glyph_replaces_every_fact_and_portal_on_the_cursors_cell() {
         let glyph = Color32::from_rgb(1, 200, 3);
+        let region_glyph = Color32::from_rgb(3, 1, 200);
         let theme = Theme {
             cursor_foreground: Some(glyph),
+            region_cursor_foreground: Some(region_glyph),
             ..okabe_ito()
-        };
-        let visuals = |paint, portals, selected, theme: &Theme| {
-            cell_visuals_with_cursor_colour(paint, portals, true, selected, true, None, theme)
         };
         for paint in SOURCE_PAINT_FACTS {
             for portals in PORTAL_ROLE_SETS {
-                let role = visuals(paint, portals, false, &okabe_ito()).foreground;
-                assert_eq!(
-                    visuals(paint, portals, true, &theme).foreground,
-                    glyph,
-                    "{paint:?} under {portals:?}"
-                );
-                assert_eq!(visuals(paint, portals, false, &theme).foreground, role);
-                assert_eq!(visuals(paint, portals, true, &okabe_ito()).foreground, role);
+                let role =
+                    cell_visuals_with_cursor_colour(paint, portals, true, true, true, None, &theme)
+                        .foreground;
+                let foreground = |is_cursor, region_spans, theme: &Theme| {
+                    cell_foreground(role, is_cursor, region_spans, theme)
+                };
+                let context = format!("{paint:?} under {portals:?}");
+                assert_eq!(foreground(true, false, &theme), glyph, "{context}");
+                assert_eq!(foreground(true, true, &theme), region_glyph, "{context}");
+                assert_eq!(foreground(false, false, &theme), role, "{context}");
+                assert_eq!(foreground(false, true, &theme), role, "{context}");
+                assert_eq!(foreground(true, false, &okabe_ito()), role, "{context}");
+                assert_eq!(foreground(true, true, &okabe_ito()), role, "{context}");
             }
         }
     }

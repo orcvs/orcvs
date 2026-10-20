@@ -322,17 +322,7 @@ impl TryFrom<String> for ColorValue {
 
     fn try_from(value: String) -> Result<Self, String> {
         if value == "none" {
-            let names: Vec<String> = OPTIONAL_COLORS
-                .iter()
-                .map(|name| format!("`{name}`"))
-                .collect();
-            let (last, rest) = names
-                .split_last()
-                .expect("the catalogue has optional colours");
-            return Err(format!(
-                "\"none\" is not a colour; only {} and {last} can be \"none\"",
-                rest.join(", ")
-            ));
+            return Err(NONE_IS_NOT_A_COLOUR.to_owned());
         }
         colour(&value).map(Self)
     }
@@ -419,10 +409,27 @@ impl TryFrom<f64> for ChromePoints {
 // === Style ===
 
 ///
+/// Joins property spellings, each in backticks, as an English list:
+/// `` `a`, `b` and `c` ``.
+///
+macro_rules! spelling_list {
+    ($only:literal) => {
+        concat!("`", $only, "`")
+    };
+    ($penultimate:literal, $last:literal) => {
+        concat!("`", $penultimate, "` and `", $last, "`")
+    };
+    ($first:literal, $($rest:literal),+) => {
+        concat!("`", $first, "`, ", spelling_list!($($rest),+))
+    };
+}
+
+///
 /// Derives the `style` table from [`style_catalogue`]: one optional field per
 /// property, renamed to its literal dotted spelling, the optional Cursor
-/// colours among them, and [`OPTIONAL_COLORS`], their spellings. Its
-/// `into_document` lists the supplied properties in catalogue order.
+/// colours among them, and [`NONE_IS_NOT_A_COLOUR`], the refusal naming
+/// their spellings. Its `into_document` lists the supplied properties in
+/// catalogue order.
 ///
 macro_rules! document_style {
     (
@@ -431,8 +438,13 @@ macro_rules! document_style {
         GridWidthKey { $($grid:ident($grid_field:ident) => $grid_name:literal),* $(,)? }
         ChromeWidthKey { $($chrome:ident($chrome_field:ident) => $chrome_name:literal),* $(,)? }
     ) => {
-        /// The only properties that take `"none"`.
-        const OPTIONAL_COLORS: &[&str] = &[$($optional_name),*];
+        /// The refusal of `"none"` on any property but the optional colours,
+        /// which it names.
+        const NONE_IS_NOT_A_COLOUR: &str = concat!(
+            "\"none\" is not a colour; only ",
+            spelling_list!($($optional_name),*),
+            " can be \"none\""
+        );
 
         /// The decoded `style` table: `None` for every omitted property.
         #[derive(Default, Deserialize)]

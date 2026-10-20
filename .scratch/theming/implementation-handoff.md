@@ -13,8 +13,8 @@ One Theme data model, represented in TOML only (JSON and YAML were dropped on
 and `style`. No Base16 palette, importer or conversion work is required now.
 Named properties cover Source colours, console colours, alpha, fills and bounded
 border widths. Custom files inherit exactly one built-in and its appearance.
-Omission inherits; only the two optional Cursor fills also support explicit clear.
-Transparent is a supplied colour, not an absent optional fill.
+Omission inherits; only the two optional Cursor fills and the two optional Cursor glyph colours also support explicit clear.
+Transparent is a supplied colour, not an absent optional fill or glyph colour.
 
 Native files live in `~/.orcvs/themes/` and are read at startup only. Web uses
 file imports and retains documents with persistence. Filename stems are identities;

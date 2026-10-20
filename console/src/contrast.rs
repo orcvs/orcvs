@@ -19,7 +19,9 @@
 //!
 //! [`validate`] measures text contrast only: an effective foreground against
 //! the effective background it is actually painted on. It does not measure
-//! pairwise Token-colour distinguishability or border/focus visibility.
+//! pairwise Token-colour distinguishability or border/focus visibility. A
+//! Source Grid state whose glyph is fully transparent, such as one a
+//! transparent `cursor.foreground` hides, draws no text and is not measured.
 //!
 //! Its chrome states are `text`, `text.muted`, `text.active`, selected
 //! text, `error`, `warning` and `link`, each on the surfaces egui paints it
@@ -357,7 +359,6 @@ fn painted(
     );
 
     let region_cursor_fill = theme.region_cursor_fill();
-    let region_cursor_glyph = theme.region_cursor_glyph();
     let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
     let base_fill = compose_cell_fill(theme.cell_background, None);
     let in_region = region_spans && !is_cursor;
@@ -376,11 +377,7 @@ fn painted(
     let effective_background =
         grid_surface.blend(painted_background.unwrap_or(Color32::TRANSPARENT));
 
-    let foreground = cell_foreground(
-        visuals.foreground,
-        is_cursor && region_spans,
-        region_cursor_glyph,
-    );
+    let foreground = cell_foreground(visuals.foreground, is_cursor, region_spans, theme);
 
     (foreground, effective_background)
 }
@@ -550,7 +547,8 @@ pub(crate) struct ContrastReport {
 
 /// [`ContrastReport::scope`]'s exact text.
 const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
-background it is actually painted on. Not pairwise Token-colour distinguishability, \
+background it is actually painted on. A Source Grid state whose glyph is fully transparent \
+draws no text and is not measured. Not pairwise Token-colour distinguishability, \
 border/focus visibility, or the Cursor Effect's animated area field. Chrome leaves out \
 disabled widgets (faded by egui, and exempt as inactive components under WCAG 2.1 SC 1.4.3), \
 code.background (no code span is painted), a widget state's strong fill (egui paints no text \
@@ -589,6 +587,12 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
             for portals in reachable_portal_sets(fact) {
                 let state = State::SourceGrid { cursor, portals };
                 let (foreground, background) = painted(fact, cursor, portals, theme);
+                // A fully transparent glyph draws nothing, so there is no
+                // text to measure: a hidden Cursor glyph would otherwise
+                // report 1:1 against its own background.
+                if foreground.a() == 0 {
+                    continue;
+                }
                 results.push(measure(
                     role,
                     state,
@@ -1224,6 +1228,34 @@ mod tests {
                 assert_eq!(passed.foreground, Color32::WHITE, "{role} / {state}");
                 assert!(passed.passes(), "{role} / {state}: {:.2}:1", passed.ratio);
             }
+        }
+    }
+
+    ///
+    /// A transparent Cursor glyph draws no glyph, so the Cursor states it
+    /// hides are not measured rather than reported at 1:1, while every
+    /// other state of the same role still is.
+    ///
+    #[test]
+    fn a_hidden_cursor_glyph_is_not_measured() {
+        let report = validate(&Theme {
+            cursor_foreground: Some(Color32::TRANSPARENT),
+            ..okabe_ito()
+        });
+
+        for role in Role::SOURCE_ROLES {
+            for cursor in [CursorPlacement::Cursor, CursorPlacement::RegionCursor] {
+                assert!(
+                    !report.results.iter().any(|result| result.role == role
+                        && matches!(result.state, State::SourceGrid { cursor: c, .. } if c == cursor)),
+                    "{role} under {cursor:?} is measured"
+                );
+            }
+            let plain = State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                portals: PortalRoles::NONE,
+            };
+            assert!(find(&report, role, plain).foreground.a() != 0);
         }
     }
 
