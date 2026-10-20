@@ -21,7 +21,10 @@ mod input;
 mod menu_bar;
 mod panel;
 mod repaint;
-mod shapes;
+// `pub` and `doc(hidden)` for the reason `crate::theme` is:
+// `console/benches/paint.rs` measures the shapes step.
+#[doc(hidden)]
+pub mod shapes;
 mod source_view;
 
 use self::diagnostics_panel::{TimingReadouts, show_diagnostics};

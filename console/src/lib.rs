@@ -19,7 +19,10 @@ mod contrast;
 pub mod cursor_effects;
 pub mod diagnostics;
 mod function_reference;
-mod grid_viewport;
+// `pub` and `doc(hidden)` for the reason `theme` is: `console/benches/paint.rs`
+// places a Paint at a presented Grid.
+#[doc(hidden)]
+pub mod grid_viewport;
 mod marks;
 mod midi;
 mod paint;

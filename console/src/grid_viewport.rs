@@ -23,7 +23,7 @@ pub(crate) const CELL_SIZE: f32 = 16.0;
 /// The Grid viewport the console presents inside an available area.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct GridViewport {
+pub struct GridViewport {
     /// The side of one square Cell, in points.
     pub(crate) cell_size: f32,
     /// The presented Grid rectangle, anchored at the origin the Source's own
@@ -273,7 +273,7 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// The Grid presented with the Source's own top-left at `origin`, with Cell
 /// geometry snapped to whole physical pixels.
 ///
-/// The Source is drawn at its own [`CELL_SIZE`] in points. egui's zoom is
+/// The Source is drawn at its own `CELL_SIZE` in points. egui's zoom is
 /// folded into `pixels_per_point`, so it reaches the Grid as more physical
 /// pixels per point and never as a scale here. Do not present the Source
 /// through `egui::Scene` or any other layer transform: that scales a whole
@@ -288,7 +288,7 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// than their neighbours and the eye reads the Grid as irregularly spaced.
 /// Snapping the Cell side to a whole physical pixel makes every row identical.
 ///
-/// The snap is [`snapped_cell_side`]'s, and the snapped Grid is anchored at
+/// The snap is `snapped_cell_side`'s, and the snapped Grid is anchored at
 /// `origin` rather than re-centred on the extent the unsnapped side asked for.
 /// The console bounds its Pan and follows its Cursor at that same snapped
 /// side, so the Grid it clamps is the Grid drawn here: a Source smaller than
@@ -297,7 +297,7 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// the snap's shortfall at both ends, which is exactly what the console's
 /// bounds cannot see.
 ///
-pub(crate) fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
+pub fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
     // The device scale is divided by as well as multiplied by — once for the
     // Cell size and again for the corner — so it is refused on the same terms
     // as every other input here rather than checked for finiteness alone. Zero
