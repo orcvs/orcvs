@@ -2519,24 +2519,12 @@ fn painted_themed(frame: &RenderFrame, viewport: GridViewport, clip: Rect, theme
 /// galleys, no font atlas, no `egui::Context`.
 ///
 /// What is asserted through this is what the geometry step itself adds:
-/// edges, background runs and sector seams. Colour
+/// edges and background runs. Colour
 /// *decisions* stay in `paint.rs`; Glyph placement needs
 /// [`source_shapes`].
 ///
 fn source_geometry(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
-    source_geometry_themed(paint, viewport, pixels_per_point, &okabe_ito())
-}
-
-/// [`source_geometry`], but at a `theme` the caller states rather than
-/// the built-in default — for a test that asks about the resolved
-/// Theme's own Grid/Sector Seam widths instead of `okabe_ito`'s.
-fn source_geometry_themed(
-    paint: &Paint,
-    viewport: GridViewport,
-    pixels_per_point: f32,
-    theme: &Theme,
-) -> SourceShapes {
-    SourceShapes::geometry(paint, &viewport, pixels_per_point, theme)
+    SourceShapes::geometry(paint, &viewport, pixels_per_point)
 }
 
 ///
@@ -2550,7 +2538,6 @@ fn source_geometry_themed(
 fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
     let ctx = egui::Context::default();
     let mut shapes = None;
-    let theme = okabe_ito();
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
         let table = GlyphTable::lay_out(
             ui.ctx(),
@@ -2562,7 +2549,6 @@ fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -
             &table,
             pixels_per_point,
             crate::cursor_effects::CursorEffectShapes::default(),
-            &theme,
         ));
     });
     output.drop_without_applying_deltas();
@@ -2571,16 +2557,14 @@ fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -
 }
 
 ///
-/// [`source_shapes`] with a Cursor Effect built by the caller and a
-/// resolved `theme`, for a test that asks what the effect's fragments add
-/// to the Paint's edges.
+/// [`source_shapes`] with a Cursor Effect built by the caller, for a test
+/// that asks what the effect's fragments add to the Paint's edges.
 ///
 fn source_shapes_with_effect(
     paint: &Paint,
     viewport: GridViewport,
     pixels_per_point: f32,
     effect: crate::cursor_effects::CursorEffectShapes,
-    theme: &Theme,
 ) -> SourceShapes {
     let ctx = egui::Context::default();
     let mut shapes = None;
@@ -2597,7 +2581,6 @@ fn source_shapes_with_effect(
             &table,
             pixels_per_point,
             effect.take().expect("run_ui ran one pass"),
-            theme,
         ));
     });
     output.drop_without_applying_deltas();
@@ -2638,12 +2621,12 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
 
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     assert_drawn_once_around(
-        &line_quads(&shapes.edges, 1.0),
+        &line_quads(shapes.edges.as_slice(), 1.0),
         &columns,
         &rows,
         1,
         okabe_ito().grid_border.gamma_multiply(0.5),
-        Some(outline_box(viewport, frame.cursor(), &okabe_ito(), 1.0)),
+        &ruled_apart(viewport, &frame, &paint, &okabe_ito(), 1.0),
     );
     for background in &shapes.backgrounds {
         assert!(
@@ -2699,9 +2682,8 @@ async fn an_eroded_frame_leaves_the_grid_line_beneath_its_gaps() {
                 amount > 0,
                 "amount {amount} at {pixels_per_point}x"
             );
-            let shapes =
-                source_shapes_with_effect(&paint, viewport, pixels_per_point, effect, &theme);
-            let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+            let shapes = source_shapes_with_effect(&paint, viewport, pixels_per_point, effect);
+            let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
 
             assert_eq!(
                 pixels.get(&left_side),
@@ -2738,8 +2720,8 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
     for (pixels_per_point, width) in [(1.0, 1), (1.5, 2), (2.0, 2)] {
         let viewport = presented(screen, 5, 5, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
-        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
-        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
+        let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let band = |boundary: i32| (boundary - width / 2)..(boundary - width / 2 + width);
         let middle = |from: i32, to: i32| (from + to) / 2;
@@ -2805,7 +2787,7 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
 ///
 /// An outline narrower than the Grid lines keeps its own width at its corners:
 /// its sides meet in an L of their own bands, and the wider Grid lines fill
-/// the rest of the junction, at 1×, 1.5× and 2×.
+/// the rest of the junction outside the outlined Cell, at 1×, 1.5× and 2×.
 ///
 #[tokio::test]
 async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_width() {
@@ -2824,8 +2806,8 @@ async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_wi
     for pixels_per_point in [1.0, 1.5, 2.0] {
         let viewport = presented(screen, 5, 5, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
-        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
-        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
+        let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let line = |width: crate::theme::GridWidth, colour| {
             super::shapes::PixelLine::new(
@@ -2856,9 +2838,27 @@ async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_wi
                         };
                         let own = (own_x.contains(&x) && inside(y, &own_y, inward_y))
                             || (own_y.contains(&y) && inside(x, &own_x, inward_x));
+                        // A Grid line stops at the outline, so no Grid pixel
+                        // lies inside the outlined Cell.
+                        let within = |at: i32, corner: i32, inward: i32| {
+                            if inward > 0 {
+                                at >= corner
+                            } else {
+                                at < corner
+                            }
+                        };
+                        let enclosed =
+                            within(x, corner_x, inward_x) && within(y, corner_y, inward_y);
+                        let expected = if own {
+                            Some(&outline.colour)
+                        } else if enclosed {
+                            None
+                        } else {
+                            Some(&grid.colour)
+                        };
                         assert_eq!(
                             pixels.get(&(x, y)),
-                            Some(if own { &outline.colour } else { &grid.colour }),
+                            expected,
                             "{pixels_per_point}× corner {corner_x},{corner_y} at {x},{y}"
                         );
                     }
@@ -2896,8 +2896,8 @@ async fn a_region_hides_the_cursors_cell_border() {
     };
     let viewport = presented(screen, 8, 8, 1.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
-    let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
-    let pixels = edge_pixels(&line_quads(&shapes.edges, 1.0));
+    let shapes = source_geometry(&paint, viewport, 1.0);
+    let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), 1.0));
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     let middle = |from: i32, to: i32| (from + to) / 2;
     let grid = theme.grid_border.gamma_multiply(0.5);
@@ -3001,8 +3001,8 @@ async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_
 
 ///
 /// The shape groups reach the painter end to end, in the order
-/// `SourceShapes::into_shapes` chains them: backgrounds, the Grid lines,
-/// borders, Glyphs, seams, the Cursor.
+/// `SourceShapes::into_shapes` chains them: backgrounds, the edges, Glyphs,
+/// the Cursor Effect's fragments.
 ///
 /// Read off the flat shape list of a whole console pass, which is the one
 /// place paint order is observable and which also covers the three calls
@@ -3016,15 +3016,10 @@ async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_
 /// that the *last* member of one group precedes the *first* member of the
 /// next, and a fill preceding every Grid Shape moves neither bound.
 ///
-/// No Cell here carries a border fact, so the borders group is empty and
-/// the Grid lines are the one Mesh; what this asserts is that the lines
-/// precede every Glyph and that the Cursor is painted after everything
-/// else. That they follow the backgrounds is
+/// The edges are the one Mesh; what this asserts is that they precede
+/// every Glyph and that the Cursor Effect's fragments are painted after
+/// everything else. That the edges follow the backgrounds is
 /// `the_grid_lines_lie_over_the_backgrounds`'.
-///
-/// The Grid is 16 Cells square because the default Sector Seam spacing is
-/// eight: an 8x8 Grid asks for no sector seam at all, and an empty group
-/// would let the claims either side of it hold vacuously.
 ///
 #[tokio::test]
 async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them() {
@@ -3051,7 +3046,7 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
     let fills = at(is_fill);
     let lines = at(|shape| matches!(shape, Shape::Mesh(_)));
     let glyphs = at(|shape| matches!(shape, Shape::Text(_)));
-    let seams = at(|shape| matches!(shape, Shape::LineSegment { .. }));
+    let fragments = at(|shape| matches!(shape, Shape::LineSegment { .. }));
 
     assert!(!fills.is_empty(), "the pass painted no fill");
     assert_eq!(
@@ -3061,7 +3056,7 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
         lines.len()
     );
     assert!(!glyphs.is_empty(), "the pass painted no Glyph");
-    assert!(!seams.is_empty(), "the pass painted no sector seam");
+    assert!(!fragments.is_empty(), "the pass painted no Cursor fragment");
 
     assert!(
         lines[0] < glyphs[0],
@@ -3070,7 +3065,7 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
         glyphs[0]
     );
     assert!(
-        *glyphs.last().expect("a Glyph") < *seams.last().expect("a frame fragment"),
+        *glyphs.last().expect("a Glyph") < *fragments.last().expect("a fragment"),
         "the fragmented Cursor frame was not painted last"
     );
 }
@@ -3218,14 +3213,15 @@ fn assert_drawn_once(
     width: i32,
     colour: Color32,
 ) {
-    assert_drawn_once_around(quads, columns, rows, width, colour, None);
+    assert_drawn_once_around(quads, columns, rows, width, colour, &[]);
 }
 
 ///
-/// [`assert_drawn_once`] for every pixel outside `outline`, the pixels a
-/// selection outline and its junctions cover, which
-/// `the_cursor_outline_is_one_box_the_same_on_all_four_sides` asserts
-/// instead. Inside it, no pixel is covered twice either.
+/// [`assert_drawn_once`] for every pixel outside the boxes in `apart`, which
+/// lines other than the Grid's cover — the selection outline, which
+/// `the_cursor_outline_is_one_box_the_same_on_all_four_sides` asserts, and
+/// the Sector Seams, which `a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for`
+/// does. Inside them, no pixel is covered twice either.
 ///
 fn assert_drawn_once_around(
     quads: &[([i32; 4], Color32)],
@@ -3233,11 +3229,11 @@ fn assert_drawn_once_around(
     rows: &[i32],
     width: i32,
     colour: Color32,
-    outline: Option<[i32; 4]>,
+    apart: &[[i32; 4]],
 ) {
     let outlined = |x: i32, y: i32| {
-        outline.is_some_and(|[left, top, right, bottom]| {
-            (left..right).contains(&x) && (top..bottom).contains(&y)
+        apart.iter().any(|[left, top, right, bottom]| {
+            (*left..*right).contains(&x) && (*top..*bottom).contains(&y)
         })
     };
     let band = |boundary: i32| (boundary - width / 2)..(boundary - width / 2 + width);
@@ -3356,17 +3352,88 @@ fn outline_box(
 }
 
 ///
-/// The pixels across and the colour a `grid.border.width` Grid line covers
-/// at `pixels_per_point`: whole pixels from one up, and one pixel faded by
-/// its width below that.
+/// The boxes [`assert_drawn_once_around`] leaves to other tests in a lattice
+/// of `paint`'s Cells: the Cursor's outline, and every column line and row
+/// line a Sector Seam can lie on, across the whole lattice.
+///
+fn ruled_apart(
+    viewport: GridViewport,
+    frame: &RenderFrame,
+    paint: &Paint,
+    theme: &Theme,
+    pixels_per_point: f32,
+) -> Vec<[i32; 4]> {
+    let (columns, rows) = boundaries(viewport, paint, pixels_per_point);
+    let (width, _) = expected_seam(theme, theme.sector_seam, pixels_per_point);
+    let band = |boundary: i32| (boundary - width / 2)..(boundary - width / 2 + width);
+    let (left, right) = (columns[0] - width, columns[columns.len() - 1] + width);
+    let (top, bottom) = (rows[0] - width, rows[rows.len() - 1] + width);
+    let spacing = frame.sector_seam_spacing().cells();
+    let drawn = paint.drawn();
+    let seam_line = |line: usize| line > 0 && line.is_multiple_of(spacing);
+
+    let mut apart = vec![outline_box(
+        viewport,
+        frame.cursor(),
+        theme,
+        pixels_per_point,
+    )];
+    for (column, &boundary) in drawn
+        .columns
+        .clone()
+        .chain([drawn.columns.end])
+        .zip(&columns)
+    {
+        if seam_line(column) {
+            apart.push([band(boundary).start, top, band(boundary).end, bottom]);
+        }
+    }
+    for (row, &boundary) in drawn.rows.clone().chain([drawn.rows.end]).zip(&rows) {
+        if seam_line(row) {
+            apart.push([left, band(boundary).start, right, band(boundary).end]);
+        }
+    }
+    apart
+}
+
+///
+/// The pixels across and the colour a line `width` points wide in `colour`
+/// covers at `pixels_per_point`: whole pixels from one up, and one pixel
+/// faded by its width below that.
+///
+fn pixel_line(width: f32, colour: Color32, pixels_per_point: f32) -> (i32, Color32) {
+    let physical = width * pixels_per_point;
+    if physical < 1.0 {
+        (1, colour.gamma_multiply(physical))
+    } else {
+        (physical.round() as i32, colour)
+    }
+}
+
+///
+/// What a `grid.border.width` Grid line covers at `pixels_per_point`.
 ///
 fn expected_line(theme: &Theme, pixels_per_point: f32) -> (i32, Color32) {
-    let physical = theme.grid_border_width.points() * pixels_per_point;
-    if physical < 1.0 {
-        (1, theme.grid_border.gamma_multiply(physical))
-    } else {
-        (physical.round() as i32, theme.grid_border)
-    }
+    pixel_line(
+        theme.grid_border_width.points(),
+        theme.grid_border,
+        pixels_per_point,
+    )
+}
+
+///
+/// What a Sector Seam in `seam` covers where it lies over the Grid line:
+/// the wider of the two widths, in the seam composited over the line.
+///
+fn expected_seam(theme: &Theme, seam: Color32, pixels_per_point: f32) -> (i32, Color32) {
+    pixel_line(
+        theme
+            .grid_border_width
+            .points()
+            .max(theme.sector_seam_width.points()),
+        theme.grid_border.blend(seam),
+        pixels_per_point,
+    )
 }
 
 ///
@@ -3397,7 +3464,7 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         };
         let viewport = presented(screen, 5, 3, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
-        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         assert_eq!((columns.len(), rows.len()), (6, 4));
         for spacing in columns.windows(2).chain(rows.windows(2)) {
@@ -3427,17 +3494,12 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         }
 
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width_pixels,
             theme.grid_border,
-            Some(outline_box(
-                viewport,
-                frame.cursor(),
-                &theme,
-                pixels_per_point,
-            )),
+            &ruled_apart(viewport, &frame, &paint, &theme, pixels_per_point),
         );
     }
 }
@@ -3451,6 +3513,7 @@ fn unequal_cell_sides_draw_each_grid_line_once() {
     let line = EdgeLine {
         rank: EdgeRank::GridLine,
         stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+        seamed: false,
     };
     let drawn =
         crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(3, 2), 0..3, 0..2);
@@ -3484,19 +3547,75 @@ fn unequal_cell_sides_draw_each_grid_line_once() {
 }
 
 ///
+/// A seam runs on through every crossing with a plain line of its own rank,
+/// even where both are opaque and so equally strong.
+///
+#[test]
+fn a_seam_runs_through_an_opaque_grid_line_it_crosses() {
+    let plain = EdgeLine {
+        rank: EdgeRank::GridLine,
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+        seamed: false,
+    };
+    let seam = EdgeLine {
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(200, 100, 50)),
+        seamed: true,
+        ..plain
+    };
+    let drawn =
+        crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(2, 2), 0..2, 0..2);
+    let edges = Edges {
+        rows: (0..=2)
+            .map(|row| EdgeRun {
+                line: row,
+                span: 0..2,
+                edge: plain,
+            })
+            .collect(),
+        columns: (0..=2)
+            .map(|column| EdgeRun {
+                line: column,
+                span: 0..2,
+                edge: if column == 1 { seam } else { plain },
+            })
+            .collect(),
+    };
+    let columns = [0, 10, 20];
+    let rows = [0, 10, 20];
+
+    let pixels = edge_pixels(&line_quads(
+        &[Shape::mesh(super::shapes::edge_mesh(
+            &edges, &drawn, &columns, &rows, 1.0,
+        ))],
+        1.0,
+    ));
+
+    for y in rows[0]..=rows[2] {
+        assert_eq!(
+            pixels.get(&(columns[1], y)),
+            Some(&seam.stroke.color),
+            "the seam at {y}"
+        );
+    }
+}
+
+///
 /// Where a narrower line outranks a wider one at a crossing, it keeps its own
-/// width there and the wider line fills the rest of the junction: a 1 pixel
-/// border round a Cell turns its corners at 1 pixel through 2 pixel Grid lines.
+/// width there and the wider line fills the rest of the junction outside the
+/// bordered Cell: a 1 pixel border round a Cell turns its corners at 1 pixel
+/// through 2 pixel Grid lines, and no Grid pixel lands inside it.
 ///
 #[test]
 fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
     let grid = EdgeLine {
         rank: EdgeRank::GridLine,
         stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+        seamed: false,
     };
     let border = EdgeLine {
         rank: EdgeRank::Diagnostic,
         stroke: egui::Stroke::new(0.5, Color32::from_rgb(200, 100, 50)),
+        seamed: false,
     };
     // Cell (1, 1) of three by three carries the border on every side.
     let drawn =
@@ -3531,7 +3650,7 @@ fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
     ));
 
     // The border's 1 pixel bands, and the 2 pixel Grid line bands beside
-    // them, which stop where the border's sides run.
+    // them, which stop where the border's sides run and at the bordered Cell.
     let (near, far) = (lines[1], lines[2]);
     let grid_band = [near - 1, near, far - 1, far];
     let along_side = |pixel: i32| (near + 1..far - 1).contains(&pixel);
@@ -3540,8 +3659,10 @@ fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
             let on_border = (near..=far).contains(&x)
                 && (near..=far).contains(&y)
                 && (x == near || x == far || y == near || y == far);
-            let on_grid = (grid_band.contains(&x) && !along_side(y))
-                || (grid_band.contains(&y) && !along_side(x));
+            let enclosed = (near..far).contains(&x) && (near..far).contains(&y);
+            let on_grid = ((grid_band.contains(&x) && !along_side(y))
+                || (grid_band.contains(&y) && !along_side(x)))
+                && !enclosed;
             let expected = if on_border {
                 Some(border.stroke.color)
             } else if on_grid {
@@ -3570,21 +3691,16 @@ async fn a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width() {
     for pixels_per_point in [1.0, 1.5] {
         let viewport = presented(screen, 4, 4, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
-        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
 
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             1,
             theme.grid_border.gamma_multiply(0.5 * pixels_per_point),
-            Some(outline_box(
-                viewport,
-                frame.cursor(),
-                &theme,
-                pixels_per_point,
-            )),
+            &ruled_apart(viewport, &frame, &paint, &theme, pixels_per_point),
         );
     }
 }
@@ -3631,9 +3747,9 @@ async fn neighbouring_diagnostic_cells_share_one_line_composited_once() {
     };
     let viewport = presented(screen, 8, 3, 2.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
-    let shapes = source_geometry_themed(&paint, viewport, 2.0, &theme);
+    let shapes = source_geometry(&paint, viewport, 2.0);
     let (columns, rows) = boundaries(viewport, &paint, 2.0);
-    let pixels = edge_pixels(&line_quads(&shapes.edges, 2.0));
+    let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), 2.0));
 
     let diagnostic = theme.grid_border.blend(theme.diagnostic_border);
     let grid = theme.grid_border;
@@ -3699,10 +3815,10 @@ async fn a_one_pixel_crossing_is_drawn() {
     };
     let viewport = presented(screen, 2, 2, 2.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
-    let shapes = source_geometry_themed(&paint, viewport, 2.0, &theme);
+    let shapes = source_geometry(&paint, viewport, 2.0);
     let (columns, rows) = boundaries(viewport, &paint, 2.0);
 
-    let quads = line_quads(&shapes.edges, 2.0);
+    let quads = line_quads(shapes.edges.as_slice(), 2.0);
     for &x in &columns {
         for &y in &rows {
             assert!(
@@ -4150,19 +4266,16 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
         &rows,
         width,
         colour,
-        Some(outline_box(viewport, frame.cursor(), &theme, DEVICE_SCALE)),
+        &ruled_apart(viewport, &frame, &paint, &theme, DEVICE_SCALE),
     );
 
-    // And so does every sector seam, which takes its own fixed width.
-    let mut seams = 0;
-    for shape in &shapes {
-        if let Shape::LineSegment { stroke, .. } = shape
-            && (stroke.width - theme.sector_seam_width.points()).abs() < 1e-6
-        {
-            seams += 1;
-        }
-    }
-    assert!(seams > 0, "the pass drew no sector seam");
+    // And the sector seams lie on the Grid's edges.
+    assert!(
+        line_quads(&lines, DEVICE_SCALE)
+            .iter()
+            .any(|(_, piece)| *piece != colour && *piece != theme.cursor_border),
+        "the pass drew no sector seam"
+    );
 
     // The default theme leaves the cursor-cell colour unset, so the
     // selected Cell uses the panel's source background and contributes no
@@ -4176,15 +4289,14 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
 }
 
 ///
-/// A sector seam is drawn on the Cell edge the Paint asks for, in the
-/// colour it asks for, one sector line wide.
+/// A sector seam is drawn on the Cell edge the Paint asks for, composited
+/// once over the Grid line it lies on and as wide as the wider of the two,
+/// on whole pixels, at every device scale in [`DEVICE_SCALES`]. The
+/// Cursor's outline carries none.
 ///
-/// Which Cells carry a seam, at what strength, and that the Cursor's own
-/// Cell carries none while it is framed on its own, are the Render
-/// Frame's and the derive's answers and
-/// are asserted in `paint.rs` with no Context at all. The seam's *width*
-/// is the resolved Theme's own fixed display-point value, so it is
-/// geometry and belongs here.
+/// Which Cells carry a seam, and at what strength, are the Render Frame's
+/// and the derive's answers and are asserted in `paint.rs` with no Context
+/// at all.
 ///
 /// The Grid is 16 Cells square because the default Sector Seam spacing is
 /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
@@ -4193,58 +4305,106 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
 ///
 #[tokio::test]
 async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 600.0));
     let mut orcvs = running_orcvs(16, 16);
-    // The Cursor goes on a Cell that would otherwise carry both seams, so
-    // the suppression the derive applies is visible as an absence here too.
-    orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
-
+    // The Cursor goes on a Cell that would otherwise carry both seams.
+    let cursor = orcvs.grid().position(8, 8).expect("inside the grid");
+    orcvs.select(cursor);
     let frame = orcvs.render_frame();
-    let viewport = presented(screen, 16, 16, 1.0);
-    let paint = painted(&frame, viewport, screen);
-    let shapes = source_geometry(&paint, viewport, 1.0);
-    let sector_seam_width = okabe_ito().sector_seam_width.points();
+    let theme = okabe_ito();
 
-    let mut expected = Vec::new();
-    for (position, cell) in paint.cells() {
-        let rect = viewport.cell_rect(position.x(), position.y());
+    for pixels_per_point in DEVICE_SCALES {
+        let viewport = presented(screen, 16, 16, pixels_per_point);
+        let paint = painted(&frame, viewport, screen);
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
+        let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
+        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        let middle = |from: i32, to: i32| (from + to) / 2;
+        let mut seams = 0;
 
-        for (colour, ends) in [
-            (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
-            (cell.sector_top, [rect.left_top(), rect.right_top()]),
-        ] {
-            if let Some(colour) = colour {
-                expected.push((position, colour, ends));
+        for (position, cell) in paint.cells() {
+            let (x, y) = (position.x(), position.y());
+            for (seam, vertical) in [(cell.sector_left, true), (cell.sector_top, false)] {
+                let Some(seam) = seam else { continue };
+                let (width, colour) = if position == cursor {
+                    pixel_line(
+                        theme.cursor_border_width.points(),
+                        theme.cursor_border,
+                        pixels_per_point,
+                    )
+                } else {
+                    seams += 1;
+                    expected_seam(&theme, seam, pixels_per_point)
+                };
+                let boundary = if vertical { columns[x] } else { rows[y] };
+                let along = if vertical {
+                    middle(rows[y], rows[y + 1])
+                } else {
+                    middle(columns[x], columns[x + 1])
+                };
+                let at = |across: i32| {
+                    let pixel = if vertical {
+                        (across, along)
+                    } else {
+                        (along, across)
+                    };
+                    pixels.get(&pixel).copied()
+                };
+                let start = boundary - width / 2;
+                for across in start..start + width {
+                    assert_eq!(
+                        at(across),
+                        Some(colour),
+                        "{pixels_per_point}× the edge {position:?} at {across}"
+                    );
+                }
+                assert_eq!(
+                    at(start - 1),
+                    None,
+                    "{pixels_per_point}× beside {position:?}"
+                );
+                assert_eq!(
+                    at(start + width),
+                    None,
+                    "{pixels_per_point}× beside {position:?}"
+                );
             }
         }
-    }
+        assert!(
+            seams > 0,
+            "the Paint asked for no sector seam, so nothing was asserted"
+        );
 
-    assert!(
-        !expected.is_empty(),
-        "the Paint asked for no sector seam, so nothing was asserted"
-    );
-    assert_eq!(
-        shapes.seams.len(),
-        expected.len(),
-        "drew {} seams against {} the Paint asked for",
-        shapes.seams.len(),
-        expected.len()
-    );
-    for (shape, (position, colour, ends)) in shapes.seams.iter().zip(&expected) {
-        let Shape::LineSegment { points, stroke } = shape else {
-            panic!("the seam at {position:?} was {shape:?}")
+        // The seam on column line 8 runs on through its crossing with a plain
+        // row line, as strong as the stronger of its edges either side.
+        let seam_at = |row| {
+            let position = orcvs.grid().position(8, row).expect("inside the grid");
+            paint
+                .at(position)
+                .sector_left
+                .map(|seam| expected_seam(&theme, seam, pixels_per_point))
         };
-
-        assert!(
-            (points[0] - ends[0]).length() < 1e-3 && (points[1] - ends[1]).length() < 1e-3,
-            "the seam at {position:?} ran {points:?} rather than {ends:?}"
-        );
-        assert_eq!(stroke.color, *colour, "the seam at {position:?}");
-        assert!(
-            (stroke.width - sector_seam_width).abs() < 1e-3,
-            "the seam at {position:?} was {} points wide",
-            stroke.width
-        );
+        let (row, (width, colour)) = (1..8)
+            .find_map(|row| {
+                let (above, below) = (seam_at(row - 1)?, seam_at(row)?);
+                Some((
+                    row,
+                    if above.1.a() > below.1.a() {
+                        above
+                    } else {
+                        below
+                    },
+                ))
+            })
+            .expect("a seam either side of a row line");
+        let start = columns[8] - width / 2;
+        for x in start..start + width {
+            assert_eq!(
+                pixels.get(&(x, rows[row])),
+                Some(&colour),
+                "{pixels_per_point}× the seam's crossing with row line {row} at {x}"
+            );
+        }
     }
 }
 
@@ -4274,15 +4434,11 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
     for pixels_per_point in DEVICE_SCALES {
         let viewport = presented(screen, 16, 16, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
-        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
+        let shapes = source_geometry(&paint, viewport, pixels_per_point);
 
         assert!(
-            shapes.edges.is_empty(),
-            "{pixels_per_point} ppp: a Grid line or the Cursor's outline survived width 0"
-        );
-        assert!(
-            shapes.seams.is_empty(),
-            "{pixels_per_point} ppp: a sector seam stroke survived width 0"
+            shapes.edges.is_none(),
+            "{pixels_per_point} ppp: a Grid line, the Cursor's outline or a seam survived width 0"
         );
     }
 }
@@ -4296,11 +4452,12 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
 #[tokio::test]
 async fn the_grid_and_cursor_border_widths_vary_independently() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
-    let mut orcvs = running_orcvs(20, 20);
+    // Eight Cells square, so no Sector Seam lies on the lattice.
+    let mut orcvs = running_orcvs(8, 8);
     let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
     orcvs.select(cursor);
     let frame = orcvs.render_frame();
-    let viewport = presented(screen, 20, 20, 1.0);
+    let viewport = presented(screen, 8, 8, 1.0);
     let theme = Theme {
         grid_border_width: crate::theme::GridWidth::from_points(0.2).expect("0.2 is within 0..=1"),
         cursor_border_width: crate::theme::GridWidth::from_points(0.9)
@@ -4308,8 +4465,8 @@ async fn the_grid_and_cursor_border_widths_vary_independently() {
         ..okabe_ito()
     };
     let paint = painted_themed(&frame, viewport, screen, &theme);
-    let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
-    let quads = line_quads(&shapes.edges, 1.0);
+    let shapes = source_geometry(&paint, viewport, 1.0);
+    let quads = line_quads(shapes.edges.as_slice(), 1.0);
 
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     let outline = outline_box(viewport, cursor, &theme, 1.0);
@@ -4319,7 +4476,7 @@ async fn the_grid_and_cursor_border_widths_vary_independently() {
         &rows,
         1,
         theme.grid_border.gamma_multiply(0.2),
-        Some(outline),
+        &[outline],
     );
     let [left, top, ..] = outline;
     assert_eq!(
@@ -4340,11 +4497,12 @@ async fn the_grid_and_cursor_border_widths_vary_independently() {
 #[tokio::test]
 async fn zero_width_suppresses_only_its_own_border_stroke() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
-    let mut orcvs = running_orcvs(20, 20);
+    // Eight Cells square, so no Sector Seam lies on the lattice.
+    let mut orcvs = running_orcvs(8, 8);
     let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
     orcvs.select(cursor);
     let frame = orcvs.render_frame();
-    let viewport = presented(screen, 20, 20, 1.0);
+    let viewport = presented(screen, 8, 8, 1.0);
 
     let zero_cursor = Theme {
         cursor_border_width: crate::theme::GridWidth::from_points(0.0)
@@ -4352,11 +4510,11 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
         ..okabe_ito()
     };
     let paint = painted_themed(&frame, viewport, screen, &zero_cursor);
-    let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_cursor);
+    let shapes = source_geometry(&paint, viewport, 1.0);
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     let (width, colour) = expected_line(&zero_cursor, 1.0);
     assert_drawn_once(
-        &line_quads(&shapes.edges, 1.0),
+        &line_quads(shapes.edges.as_slice(), 1.0),
         &columns,
         &rows,
         width,
@@ -4368,8 +4526,8 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
         ..okabe_ito()
     };
     let paint = painted_themed(&frame, viewport, screen, &zero_grid);
-    let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_grid);
-    let quads = line_quads(&shapes.edges, 1.0);
+    let shapes = source_geometry(&paint, viewport, 1.0);
+    let quads = line_quads(shapes.edges.as_slice(), 1.0);
     assert_eq!(
         quads.len(),
         8,
@@ -4412,7 +4570,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
         theme.cursor_area,
         egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
     );
-    let shapes = source_shapes_with_effect(&paint, viewport, 1.0, effect, &theme);
+    let shapes = source_shapes_with_effect(&paint, viewport, 1.0, effect);
 
     assert!(
         shapes.cursor.is_empty(),
@@ -4420,7 +4578,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
         shapes.cursor.len()
     );
     assert!(
-        line_quads(&shapes.edges, 1.0)
+        line_quads(shapes.edges.as_slice(), 1.0)
             .iter()
             .all(|(_, colour)| *colour != theme.cursor_border),
         "zero cursor.border.width left the Cursor's outline standing"
@@ -4428,10 +4586,10 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
 }
 
 ///
-/// The Grid lines and the Sector Seam stay the resolved Theme's own fixed
-/// display-point widths at every device scale in [`DEVICE_SCALES`] — never
-/// multiplied by the snapped Cell side. A Grid line is that width in
-/// physical pixels.
+/// The Grid lines stay the resolved Theme's own fixed display-point width at
+/// every device scale in [`DEVICE_SCALES`] — never multiplied by the snapped
+/// Cell side. A Grid line is that width in physical pixels; the Sector Seams
+/// are `a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for`'s.
 ///
 #[tokio::test]
 async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales() {
@@ -4449,34 +4607,13 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales()
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&theme, pixels_per_point);
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width,
             colour,
-            Some(outline_box(
-                viewport,
-                frame.cursor(),
-                &theme,
-                pixels_per_point,
-            )),
+            &ruled_apart(viewport, &frame, &paint, &theme, pixels_per_point),
         );
-
-        assert!(
-            !shapes.seams.is_empty(),
-            "{pixels_per_point} ppp: the fixture drew no sector seam"
-        );
-        for shape in &shapes.seams {
-            let Shape::LineSegment { stroke, .. } = shape else {
-                panic!("a seam was {shape:?}")
-            };
-            assert!(
-                (stroke.width - theme.sector_seam_width.points()).abs() < 1e-4,
-                "{pixels_per_point} ppp: a seam was {} points wide against the fixed {}",
-                stroke.width,
-                theme.sector_seam_width.points()
-            );
-        }
     }
 }
 
@@ -4981,17 +5118,12 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&okabe_ito(), pixels_per_point);
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width,
             colour,
-            Some(outline_box(
-                viewport,
-                frame.cursor(),
-                &okabe_ito(),
-                pixels_per_point,
-            )),
+            &ruled_apart(viewport, &frame, &paint, &okabe_ito(), pixels_per_point),
         );
     }
 }
@@ -5137,13 +5269,14 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
             pixels_per_point,
         );
         let visible = viewport.visible_positions(screen, orcvs.grid());
-        let painted: Vec<_> = shapes
+        let meshes = shapes
             .iter()
-            .filter_map(|shape| match shape {
-                Shape::LineSegment { points, .. } => Some(*points),
-                _ => None,
-            })
-            .collect();
+            .filter(|shape| matches!(shape, Shape::Mesh(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+        let pixels = edge_pixels(&line_quads(&meshes, pixels_per_point));
+        let theme = okabe_ito();
+        let pixel = |point: f32| (point * pixels_per_point).round() as i32;
 
         assert!(
             visible.columns.start > 0
@@ -5181,11 +5314,21 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
                     continue;
                 }
 
-                assert!(
-                    painted.iter().any(|points| {
-                        (points[0] - ends[0]).length() < 1e-3
-                            && (points[1] - ends[1]).length() < 1e-3
-                    }),
+                // The first pixel across the edge, halfway along it.
+                let (width, colour) = expected_seam(
+                    &theme,
+                    crate::style::sector_line(strength.expect("a seam"), theme.sector_seam),
+                    pixels_per_point,
+                );
+                let middle = |from: f32, to: f32| (pixel(from) + pixel(to)) / 2;
+                let at = if ends[0].x == ends[1].x {
+                    (pixel(ends[0].x) - width / 2, middle(ends[0].y, ends[1].y))
+                } else {
+                    (middle(ends[0].x, ends[1].x), pixel(ends[0].y) - width / 2)
+                };
+                assert_eq!(
+                    pixels.get(&at),
+                    Some(&colour),
                     "the seam at {position:?} is inside the clip at \
                      {pixels_per_point} ppp and was not painted"
                 );

@@ -213,8 +213,10 @@ added explicitly to this catalogue, never silently left as a second palette.
    `cursor.border` at `cursor.border.width`, or a multi-Cell Region's perimeter in
    `region.border` at `region.border.width`, each drawn once over every fact
    beside it. A width of zero withdraws the outline to the edges beneath it. The
-   single-Cell Cursor suppresses Sector Seams. In a multi-Cell Region, its Cursor
-   Cell keeps its own border, ranked over every other fact, and its Sector Seams.
+   outline's edges carry no Sector Seam. In a multi-Cell Region, its Cursor Cell
+   keeps its own border, ranked over every other fact. Every other edge on a
+   Sector boundary carries its seam composited once over the line that won it,
+   at the wider of `sector.seam.width` and that line's width.
    No Source Cell's border reads `selection.border`, `.rest` or
    `cell.selection.border.width`; the last is accepted and unread.
 6. Composite foreground/background/border channels with alpha using the same

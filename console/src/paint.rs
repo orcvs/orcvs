@@ -128,6 +128,8 @@ pub enum EdgeRank {
 pub struct EdgeLine {
     pub rank: EdgeRank,
     pub stroke: Stroke,
+    /// Whether a Sector Seam is composited into `stroke`.
+    pub seamed: bool,
 }
 
 ///
@@ -249,6 +251,9 @@ pub struct Paint {
     /// The line an edge shows where neither Cell beside it carries a fact,
     /// or `None` where `grid.border.width` is zero.
     grid_line: Option<EdgeLine>,
+    /// `sector.seam.width`, in points: a Cell's seams are absent where it is
+    /// zero.
+    sector_seam_width: f32,
     cells: Vec<CellPaint>,
 }
 
@@ -323,6 +328,8 @@ impl Paint {
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
+        let sector_seam_width = theme.sector_seam_width.points();
+        let seams = sector_seam_width > 0.0;
         let mut unselected = SourcePaintVisuals::new(theme);
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
@@ -375,28 +382,18 @@ impl Paint {
                     background,
                     border,
                     foreground: visuals.foreground,
-                    // A sector seam is suppressed on the `selected` Cell, so
-                    // the Cursor's frame is never crossed by one. It is decided
-                    // here rather than left to the step that draws it: a rule
-                    // that survives only as a branch shape is a rule the next
-                    // reader has to rediscover.
-                    //
                     // `sector_line` is pure, so the strength becomes a colour
                     // here, against `sector_seam` read from `theme` once
-                    // above the loop. The stroke widths are geometry and stay
-                    // out of this layer.
-                    sector_left: (!selected)
-                        .then(|| {
-                            sector_left_strength(position, sector_seam_spacing)
-                                .map(|strength| sector_line(strength, sector_seam))
-                        })
-                        .flatten(),
-                    sector_top: (!selected)
-                        .then(|| {
-                            sector_top_strength(position, sector_seam_spacing)
-                                .map(|strength| sector_line(strength, sector_seam))
-                        })
-                        .flatten(),
+                    // above the loop. Whether an edge shows it is
+                    // `Self::edges`' answer.
+                    sector_left: seams
+                        .then(|| sector_left_strength(position, sector_seam_spacing))
+                        .flatten()
+                        .map(|strength| sector_line(strength, sector_seam)),
+                    sector_top: seams
+                        .then(|| sector_top_strength(position, sector_seam_spacing))
+                        .flatten()
+                        .map(|strength| sector_line(strength, sector_seam)),
                     // A Cell's own content when it has one; the space
                     // otherwise, which `place_glyphs` (`console::shapes`) draws no
                     // Glyph for. An empty claimed operand Cell answers the same
@@ -411,6 +408,7 @@ impl Paint {
         let grid_line = (theme.grid_border_width.points() > 0.0).then(|| EdgeLine {
             rank: EdgeRank::GridLine,
             stroke: Stroke::new(theme.grid_border_width.points(), theme.grid_border),
+            seamed: false,
         });
 
         // The Region is the Cursor's own Cell when it spans no more.
@@ -423,6 +421,7 @@ impl Paint {
             line: EdgeLine {
                 rank: EdgeRank::Selection,
                 stroke: Stroke::new(outline_width.points(), outline_colour),
+                seamed: false,
             },
             columns: region.columns(),
             rows: region.rows(),
@@ -433,6 +432,7 @@ impl Paint {
             drawn: drawn.clone(),
             outline,
             grid_line,
+            sector_seam_width,
             cells,
         }
     }
@@ -622,7 +622,9 @@ impl Paint {
     /// Cell's fact alone. Of two facts of one rank, the Cell below or right of
     /// the edge draws it. The selection outline outranks every fact, and
     /// where its border's width is zero its edges fall to the facts beside
-    /// them.
+    /// them. A Sector Seam, carried on the left or top edge of the Cell it
+    /// starts, is composited over the line that won every edge but the
+    /// outline's.
     ///
     pub fn edges(&self) -> Edges {
         self.edges_with(self.outline.as_ref())
@@ -646,45 +648,75 @@ impl Paint {
     fn edges_with(&self, outline: Option<&Outline>) -> Edges {
         let (columns, rows) = (self.drawn.columns.len(), self.drawn.rows.len());
         let (first_column, first_row) = (self.drawn.columns.start, self.drawn.rows.start);
-        let fact = |column: Option<usize>, row: Option<usize>| {
+        let cell = |column: Option<usize>, row: Option<usize>| {
             let (column, row) = (column?, row?);
-            (column < columns && row < rows)
-                .then(|| self.cells[row * columns + column].border)
-                .flatten()
+            (column < columns && row < rows).then(|| &self.cells[row * columns + column])
         };
-        // The outline owns its edges outright, so a fact beside it never
-        // competes there. Elsewhere `max_by_key` answers the last of equal
-        // maxima, so of two facts of one rank `other`, the Cell below or
-        // right, draws the edge.
-        let winner = |outline: Option<&Outline>, one: Option<EdgeLine>, other: Option<EdgeLine>| {
-            outline.map(|outline| outline.line).or_else(|| {
-                [one, other, self.grid_line]
-                    .into_iter()
-                    .flatten()
-                    .max_by_key(|line| line.rank)
+        // The outline owns its edges outright, so neither a fact beside it
+        // nor a seam lies there. Elsewhere a seam lies over the line that won
+        // the edge, at the wider of the two widths, and stands alone where no
+        // line does. `max_by_key` answers the last of equal maxima, so of two
+        // facts of one rank `other`, the Cell below or right, draws the edge.
+        let winner = |outline: Option<&Outline>,
+                      one: Option<&CellPaint>,
+                      other: Option<&CellPaint>,
+                      seam: Option<Color32>| {
+            if let Some(outline) = outline {
+                return Some(outline.line);
+            }
+            let line = [
+                one.and_then(|cell| cell.border),
+                other.and_then(|cell| cell.border),
+                self.grid_line,
+            ]
+            .into_iter()
+            .flatten()
+            .max_by_key(|line| line.rank);
+            let Some(seam) = seam else {
+                return line;
+            };
+            Some(match line {
+                Some(line) => EdgeLine {
+                    rank: line.rank,
+                    stroke: Stroke::new(
+                        line.stroke.width.max(self.sector_seam_width),
+                        line.stroke.color.blend(seam),
+                    ),
+                    seamed: true,
+                },
+                None => EdgeLine {
+                    rank: EdgeRank::GridLine,
+                    stroke: Stroke::new(self.sector_seam_width, seam),
+                    seamed: true,
+                },
             })
         };
+
         let mut edges = Edges::default();
         if columns == 0 || rows == 0 {
             return edges;
         }
         for row in 0..=rows {
             let line = (0..columns).map(|column| {
+                let below = cell(Some(column), Some(row));
                 winner(
                     outline
                         .filter(|outline| outline.across(first_row + row, first_column + column)),
-                    fact(Some(column), row.checked_sub(1)),
-                    fact(Some(column), Some(row)),
+                    cell(Some(column), row.checked_sub(1)),
+                    below,
+                    below.and_then(|cell| cell.sector_top),
                 )
             });
             coalesce(&mut edges.rows, first_row + row, first_column, line);
         }
         for column in 0..=columns {
             let line = (0..rows).map(|row| {
+                let right = cell(Some(column), Some(row));
                 winner(
                     outline.filter(|outline| outline.down(first_column + column, first_row + row)),
-                    fact(column.checked_sub(1), Some(row)),
-                    fact(Some(column), Some(row)),
+                    cell(column.checked_sub(1), Some(row)),
+                    right,
+                    right.and_then(|cell| cell.sector_left),
                 )
             });
             coalesce(&mut edges.columns, first_column + column, first_row, line);
@@ -992,6 +1024,7 @@ mod tests {
                 line: EdgeLine {
                     rank: EdgeRank::Selection,
                     stroke: Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+                    seamed: false,
                 },
                 columns: 1..2,
                 rows: 2..3,
@@ -1012,6 +1045,7 @@ mod tests {
                 line: EdgeLine {
                     rank: EdgeRank::Selection,
                     stroke: Stroke::new(theme.region_border_width.points(), theme.region_border),
+                    seamed: false,
                 },
                 columns: 0..2,
                 rows: 0..3,
@@ -1303,19 +1337,17 @@ mod tests {
     }
 
     ///
-    /// Sector seams stand where Paint derives them, and nowhere on the Cursor's
-    /// own Cell while it is framed on its own.
+    /// Sector seams stand on every Cell Paint derives them for, the Cursor's
+    /// included, in `sector_line`'s answer for the strength Paint computed.
+    /// The Cursor's outline owns its Cell's edges, so neither of its seams
+    /// shows there.
     ///
-    /// The suppression is the derive's, so no later step learns the rule. The
-    /// Cursor is put on a Cell that wants a seam — the corner of a sector,
-    /// where the seam is at full strength — because a Cursor parked where no
-    /// seam was wanted would prove nothing.
-    ///
-    /// Everywhere else the colour is `sector_line`'s answer for the strength
-    /// Paint computed.
+    /// The Cursor is put on a Cell that wants a seam — the corner of a
+    /// sector, where the seam is at full strength — because a Cursor parked
+    /// where no seam was wanted would prove nothing.
     ///
     #[tokio::test]
-    async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
+    async fn seams_stand_where_paint_asks_and_the_outline_owns_its_edges() {
         let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default Sector Seam spacing of eight.
         let corner = orcvs.grid().position(8, 8).expect("inside the grid");
@@ -1342,11 +1374,7 @@ mod tests {
                     left.is_some() && top.is_some(),
                     "the Cursor must sit where seams are wanted for their absence to mean anything"
                 );
-                assert_eq!(painted.sector_left, None);
-                assert_eq!(painted.sector_top, None);
-                continue;
             }
-
             assert_eq!(
                 painted.sector_left,
                 left.map(|strength| sector_line(strength, base)),
@@ -1361,7 +1389,32 @@ mod tests {
             seams += usize::from(painted.sector_top.is_some());
         }
 
-        assert!(seams > 0, "no Cell but the Cursor's was asked for a seam");
+        assert!(seams > 0, "no Cell was asked for a seam");
+
+        let outline = EdgeLine {
+            rank: EdgeRank::Selection,
+            stroke: Stroke::new(
+                okabe_ito().cursor_border_width.points(),
+                okabe_ito().cursor_border,
+            ),
+            seamed: false,
+        };
+        let edges = paint.edges();
+        let on = |runs: &[EdgeRun], line: usize, at: usize| {
+            runs.iter()
+                .find(|run| run.line == line && run.span.contains(&at))
+                .map(|run| run.edge)
+        };
+        assert_eq!(
+            on(&edges.columns, 8, 8),
+            Some(outline),
+            "the Cursor's left edge"
+        );
+        assert_eq!(
+            on(&edges.rows, 8, 8),
+            Some(outline),
+            "the Cursor's top edge"
+        );
     }
 
     ///
@@ -2581,6 +2634,7 @@ mod tests {
             drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
             outline: None,
             grid_line: Some(GRID_LINE),
+            sector_seam_width: 0.0,
             cells: rows
                 .iter()
                 .flat_map(|row| row.iter())
@@ -2604,10 +2658,6 @@ mod tests {
         }
     }
 
-    ///
-    /// A Paint whose Cells carry the border facts in `rows`, with
-    /// `GRID_LINE` between them.
-    ///
     /// Whether `paint`'s selection outline is a Region larger than one Cell.
     fn outline_spans(paint: &Paint) -> bool {
         paint
@@ -2616,6 +2666,10 @@ mod tests {
             .is_some_and(|outline| outline.columns.len() * outline.rows.len() > 1)
     }
 
+    ///
+    /// A Paint whose Cells carry the border facts in `rows`, with
+    /// `GRID_LINE` between them.
+    ///
     fn edge_paint(rows: &[&[Option<EdgeLine>]]) -> Paint {
         let backgrounds = rows
             .iter()
@@ -2634,7 +2688,10 @@ mod tests {
             width: 1.0,
             color: Color32::from_rgb(250, 250, 250),
         },
+        seamed: false,
     };
+
+    const SEAM: Color32 = Color32::from_rgba_premultiplied(20, 40, 30, 110);
 
     const GRID_LINE: EdgeLine = EdgeLine {
         rank: EdgeRank::GridLine,
@@ -2642,12 +2699,14 @@ mod tests {
             width: 0.5,
             color: Color32::from_rgb(1, 2, 3),
         },
+        seamed: false,
     };
 
     fn fact(rank: EdgeRank, colour: u8) -> Option<EdgeLine> {
         Some(EdgeLine {
             rank,
             stroke: Stroke::new(0.75, Color32::from_rgb(colour, colour, colour)),
+            seamed: false,
         })
     }
 
@@ -2803,6 +2862,75 @@ mod tests {
                 edge(2, 0..3, outline),
                 edge(2, 3..4, grid),
             ]
+        );
+    }
+
+    ///
+    /// A Sector Seam lies over the line that won its edge, composited once
+    /// over it, at the wider of the two widths and the line's rank. It
+    /// stands alone where no line does.
+    ///
+    #[test]
+    fn a_seam_lies_over_the_line_that_won_its_edge() {
+        let portal = fact(EdgeRank::OutputPortal, 200);
+        let mut paint = edge_paint(&[&[None, portal, None]]);
+        paint.sector_seam_width = 0.75;
+        for cell in &mut paint.cells {
+            cell.sector_left = Some(SEAM);
+        }
+        let seamed = |line: EdgeLine, width: f32| EdgeLine {
+            rank: line.rank,
+            stroke: Stroke::new(width, line.stroke.color.blend(SEAM)),
+            seamed: true,
+        };
+        let portal_line = portal.expect("a fact");
+
+        assert_eq!(
+            paint.edges().columns,
+            vec![
+                edge(0, 0..1, Some(seamed(GRID_LINE, 0.75))),
+                edge(1, 0..1, Some(seamed(portal_line, 0.75))),
+                edge(2, 0..1, Some(seamed(portal_line, 0.75))),
+                edge(3, 0..1, Some(GRID_LINE)),
+            ],
+            "the far edge has no Cell of its own to carry a seam"
+        );
+
+        paint.grid_line = None;
+        assert_eq!(
+            paint.edges().columns[0],
+            edge(
+                0,
+                0..1,
+                Some(EdgeLine {
+                    rank: EdgeRank::GridLine,
+                    stroke: Stroke::new(0.75, SEAM),
+                    seamed: true,
+                })
+            )
+        );
+    }
+
+    ///
+    /// The selection outline's edges carry no seam, and a seam stands on the
+    /// Cursor's Cell's edges once a zero width withdraws the outline.
+    ///
+    #[test]
+    fn the_selection_outline_carries_no_seam() {
+        let mut paint = edge_paint(&[&[None, None]]);
+        paint.sector_seam_width = 0.75;
+        paint.cells[1].sector_left = Some(SEAM);
+        paint.outline = Some(Outline {
+            line: OUTLINE,
+            columns: 1..2,
+            rows: 0..1,
+        });
+        assert_eq!(paint.edges().columns[1], edge(1, 0..1, Some(OUTLINE)));
+
+        paint.outline = None;
+        assert_eq!(
+            paint.edges().columns[1].edge.stroke.color,
+            GRID_LINE.stroke.color.blend(SEAM)
         );
     }
 

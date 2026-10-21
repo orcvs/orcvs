@@ -297,8 +297,9 @@ fn background_runs(c: &mut Criterion) {
 /// Measures `SourceShapes::geometry` on an already-derived Paint, at a Grid
 /// presented from the origin.
 ///
-/// The number is the walk that places each drawn Cell's background run,
-/// border and seams into their paint-order groups. Every case runs at 1×; the
+/// The number is the walk that places each drawn Cell's background runs and
+/// builds every Cell edge, borders, seams and the selection outline among
+/// them, into one Mesh. Every case runs at 1×; the
 /// fitted ranges run at 1.5× too, because a fractional device scale snaps
 /// Cell sides and edges through different rounding than a whole one.
 ///
@@ -313,7 +314,6 @@ fn shapes(c: &mut Criterion) {
                     black_box(paint),
                     black_box(&viewport),
                     black_box(pixels_per_point),
-                    black_box(&theme),
                 ))
             })
         });

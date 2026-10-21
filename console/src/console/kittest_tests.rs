@@ -1543,6 +1543,12 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
     let pixels = |points: f32| (points * pixels_per_point).round().max(1.0);
     let line_pixels = pixels(theme.grid_border_width.points());
     let outline_pixels = pixels(theme.cursor_border_width.points());
+    let seam_pixels = pixels(
+        theme
+            .grid_border_width
+            .points()
+            .max(theme.sector_seam_width.points()),
+    );
     let (mut lines, mut outline_pieces, mut seams) = (0, 0, 0);
     for shape in painted_source_shapes(&harness) {
         match shape {
@@ -1553,12 +1559,20 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
                         whole(min.x) && whole(min.y) && whole(max.x) && whole(max.y),
                         "a line piece {min:?}..{max:?} is off the pixel grid"
                     );
+                    // Grid lines fade below a pixel, so a piece of neither the
+                    // Cursor's colour nor a faded Grid line's is a seam's.
+                    let grid_line = theme.grid_border.gamma_multiply(
+                        (theme.grid_border_width.points() * pixels_per_point).min(1.0),
+                    );
                     let width = if quad[0].color == theme.cursor_border {
                         outline_pieces += 1;
                         outline_pixels
-                    } else {
+                    } else if quad[0].color == grid_line {
                         lines += 1;
                         line_pixels
+                    } else {
+                        seams += 1;
+                        seam_pixels
                     };
                     let across = (max - min).min_elem() * pixels_per_point;
                     assert!(
@@ -1572,14 +1586,6 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
                 "a Cell at {:?} stroked a border of its own",
                 rect.rect
             ),
-            egui::Shape::LineSegment { stroke, .. } => {
-                seams += 1;
-                assert_eq!(
-                    stroke.width,
-                    theme.sector_seam_width.points(),
-                    "a Sector Seam is not the Theme's width at zoom 1.3"
-                );
-            }
             _ => {}
         }
     }
