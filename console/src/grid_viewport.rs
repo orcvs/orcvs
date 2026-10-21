@@ -22,8 +22,9 @@ pub(crate) const CELL_SIZE: Vec2 = Vec2::new(12.0, 18.0);
 /// A Glyph's size as a share of its Cell's height.
 const GLYPH_PER_HEIGHT: f32 = 0.75;
 
-/// The advance of one monospace Glyph per point of its size.
-const GLYPH_ADVANCE: f32 = 0.6;
+/// The advance of one Glyph per point of its size in the bundled Monaspace
+/// Neon: 1240 of its 2000 units per em.
+const GLYPH_ADVANCE: f32 = 0.62;
 
 ///
 /// The Grid viewport the console presents inside an available area.
@@ -391,7 +392,7 @@ mod tests {
 
     ///
     /// A Glyph is three quarters of its Cell's height, unless the Cell is too
-    /// narrow for a monospace Glyph of that size, whose advance is 0.6 of its
+    /// narrow for a monospace Glyph of that size, whose advance is 0.62 of its
     /// size: then the width sets it.
     ///
     #[test]
@@ -406,8 +407,55 @@ mod tests {
 
         assert_eq!(glyph(12.0, 18.0), 13.5);
         assert_eq!(glyph(16.0, 16.0), 12.0);
-        assert_close(glyph(8.0, 18.0), 8.0 / 0.6, "a narrow Cell's Glyph");
+        assert_close(glyph(8.0, 18.0), 8.0 / 0.62, "a narrow Cell's Glyph");
         assert_eq!(glyph(64.0, 8.0), 6.0);
+    }
+
+    ///
+    /// The bundled font's Glyph, laid out at the size the narrowest Cell
+    /// gives it, fits inside that Cell's width.
+    ///
+    #[test]
+    fn a_narrow_cells_glyph_fits_its_width_in_the_bundled_font() {
+        let ctx = egui::Context::default();
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "MonaspaceNeon".to_owned(),
+            egui::FontData::from_static(include_bytes!("../assets/MonaspaceNeon-Regular.otf"))
+                .into(),
+        );
+        fonts.families.insert(
+            egui::FontFamily::Monospace,
+            vec!["MonaspaceNeon".to_owned()],
+        );
+        ctx.set_fonts(fonts);
+        // Fonts load on the first pass; its atlas upload has no renderer.
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+
+        let cell = Vec2::new(8.0, 18.0);
+        let size = GridViewport {
+            cell_size: cell,
+            rect: Rect::ZERO,
+        }
+        .glyph_size();
+        let width = ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    "M".to_owned(),
+                    egui::FontId::monospace(size),
+                    egui::Color32::WHITE,
+                )
+                .size()
+                .x
+        });
+
+        assert!(
+            width <= cell.x + 1e-3,
+            "a {size} pt Glyph is {width} pt wide in an {} pt Cell",
+            cell.x
+        );
     }
 
     fn square() -> Grid {

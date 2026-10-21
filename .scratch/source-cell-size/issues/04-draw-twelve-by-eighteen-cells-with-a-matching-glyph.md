@@ -7,7 +7,7 @@
 **Status:** resolved
 
 - [x] The default Cell is 12 by 18 points, and is exactly that at 1×, 1.5× and 2×.
-- [x] The Glyph's size is derived in one place from the snapped Cell (the smaller of 0.75 × height and width ÷ 0.6), and the console lays out the Source's Glyphs at it.
+- [x] The Glyph's size is derived in one place from the snapped Cell (the smaller of 0.75 × height and width ÷ 0.62), and the console lays out the Source's Glyphs at it.
 - [x] The default window is the same size in points as before, and a test pins it without referring to a Cell count.
 - [x] The Diagnostics readout reads `12.0×18.0 pt/cell` at the default, and the kittests that assert the old `16.0 pt/cell` text are updated.
 - [x] `paint_derive` and `paint_shapes` each gain a case at the 12 by 18 Cell over the default window, which shows about 16% more Cells than today, each with a floor. The Glyph size is computed once per Zoom level, not per frame, so the text layout cache keeps hitting.
