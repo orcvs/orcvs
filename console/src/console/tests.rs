@@ -3421,6 +3421,7 @@ fn unequal_cell_sides_draw_each_grid_line_once() {
     let line = EdgeLine {
         rank: EdgeRank::GridLine,
         stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+        seamed: false,
     };
     let drawn =
         crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(3, 2), 0..3, 0..2);
@@ -3451,6 +3452,59 @@ fn unequal_cell_sides_draw_each_grid_line_once() {
     );
 
     assert_drawn_once(&quads, &columns, &rows, 2, line.stroke.color);
+}
+
+///
+/// A seam runs on through every crossing with a plain line of its own rank,
+/// even where both are opaque and so equally strong.
+///
+#[test]
+fn a_seam_runs_through_an_opaque_grid_line_it_crosses() {
+    let plain = EdgeLine {
+        rank: EdgeRank::GridLine,
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+        seamed: false,
+    };
+    let seam = EdgeLine {
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(200, 100, 50)),
+        seamed: true,
+        ..plain
+    };
+    let drawn =
+        crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(2, 2), 0..2, 0..2);
+    let edges = Edges {
+        rows: (0..=2)
+            .map(|row| EdgeRun {
+                line: row,
+                span: 0..2,
+                edge: plain,
+            })
+            .collect(),
+        columns: (0..=2)
+            .map(|column| EdgeRun {
+                line: column,
+                span: 0..2,
+                edge: if column == 1 { seam } else { plain },
+            })
+            .collect(),
+    };
+    let columns = [0, 10, 20];
+    let rows = [0, 10, 20];
+
+    let pixels = edge_pixels(&line_quads(
+        &[Shape::mesh(super::shapes::edge_mesh(
+            &edges, &drawn, &columns, &rows, 1.0,
+        ))],
+        1.0,
+    ));
+
+    for y in rows[0]..=rows[2] {
+        assert_eq!(
+            pixels.get(&(columns[1], y)),
+            Some(&seam.stroke.color),
+            "the seam at {y}"
+        );
+    }
 }
 
 ///

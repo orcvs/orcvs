@@ -128,6 +128,8 @@ pub enum EdgeRank {
 pub struct EdgeLine {
     pub rank: EdgeRank,
     pub stroke: Stroke,
+    /// Whether a Sector Seam is composited into `stroke`.
+    pub seamed: bool,
 }
 
 ///
@@ -406,6 +408,7 @@ impl Paint {
         let grid_line = (theme.grid_border_width.points() > 0.0).then(|| EdgeLine {
             rank: EdgeRank::GridLine,
             stroke: Stroke::new(theme.grid_border_width.points(), theme.grid_border),
+            seamed: false,
         });
 
         // The Region is the Cursor's own Cell when it spans no more.
@@ -418,6 +421,7 @@ impl Paint {
             line: EdgeLine {
                 rank: EdgeRank::Selection,
                 stroke: Stroke::new(outline_width.points(), outline_colour),
+                seamed: false,
             },
             columns: region.columns(),
             rows: region.rows(),
@@ -678,10 +682,12 @@ impl Paint {
                         line.stroke.width.max(self.sector_seam_width),
                         line.stroke.color.blend(seam),
                     ),
+                    seamed: true,
                 },
                 None => EdgeLine {
                     rank: EdgeRank::GridLine,
                     stroke: Stroke::new(self.sector_seam_width, seam),
+                    seamed: true,
                 },
             })
         };
@@ -1018,6 +1024,7 @@ mod tests {
                 line: EdgeLine {
                     rank: EdgeRank::Selection,
                     stroke: Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+                    seamed: false,
                 },
                 columns: 1..2,
                 rows: 2..3,
@@ -1038,6 +1045,7 @@ mod tests {
                 line: EdgeLine {
                     rank: EdgeRank::Selection,
                     stroke: Stroke::new(theme.region_border_width.points(), theme.region_border),
+                    seamed: false,
                 },
                 columns: 0..2,
                 rows: 0..3,
@@ -1339,7 +1347,7 @@ mod tests {
     /// where no seam was wanted would prove nothing.
     ///
     #[tokio::test]
-    async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
+    async fn seams_stand_where_paint_asks_and_the_outline_owns_its_edges() {
         let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default Sector Seam spacing of eight.
         let corner = orcvs.grid().position(8, 8).expect("inside the grid");
@@ -1389,6 +1397,7 @@ mod tests {
                 okabe_ito().cursor_border_width.points(),
                 okabe_ito().cursor_border,
             ),
+            seamed: false,
         };
         let edges = paint.edges();
         let on = |runs: &[EdgeRun], line: usize, at: usize| {
@@ -2679,6 +2688,7 @@ mod tests {
             width: 1.0,
             color: Color32::from_rgb(250, 250, 250),
         },
+        seamed: false,
     };
 
     const SEAM: Color32 = Color32::from_rgba_premultiplied(20, 40, 30, 110);
@@ -2689,12 +2699,14 @@ mod tests {
             width: 0.5,
             color: Color32::from_rgb(1, 2, 3),
         },
+        seamed: false,
     };
 
     fn fact(rank: EdgeRank, colour: u8) -> Option<EdgeLine> {
         Some(EdgeLine {
             rank,
             stroke: Stroke::new(0.75, Color32::from_rgb(colour, colour, colour)),
+            seamed: false,
         })
     }
 
@@ -2869,6 +2881,7 @@ mod tests {
         let seamed = |line: EdgeLine, width: f32| EdgeLine {
             rank: line.rank,
             stroke: Stroke::new(width, line.stroke.color.blend(SEAM)),
+            seamed: true,
         };
         let portal_line = portal.expect("a fact");
 
@@ -2892,6 +2905,7 @@ mod tests {
                 Some(EdgeLine {
                     rank: EdgeRank::GridLine,
                     stroke: Stroke::new(0.75, SEAM),
+                    seamed: true,
                 })
             )
         );

@@ -251,6 +251,7 @@ fn ordinary_border(
                 theme.diagnostic_border_width.points(),
                 blend_channel(grid_line, theme.diagnostic_border),
             ),
+            seamed: false,
         })
         .filter(|line| drawn(*line));
     // The same overlay `role_and_portal` composites the background with.
@@ -265,6 +266,7 @@ fn ordinary_border(
                     PortalRole::Locked => EdgeRank::Locked,
                 },
                 stroke: Stroke::new(channels.border_width, blend_channel(below, channels.border)),
+                seamed: false,
             }
         })
         .filter(|line| drawn(*line));
@@ -2320,6 +2322,7 @@ mod tests {
                     no_portal.diagnostic_border_width.points(),
                     no_portal.grid_border.blend(diagnostic)
                 ),
+                seamed: false,
             })
         );
         assert_eq!(
@@ -2348,6 +2351,7 @@ mod tests {
             Some(EdgeLine {
                 rank: EdgeRank::Diagnostic,
                 stroke: Stroke::new(theme.diagnostic_border_width.points(), diagnostic),
+                seamed: false,
             })
         );
     }

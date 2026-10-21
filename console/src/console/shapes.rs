@@ -13,7 +13,7 @@ use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
 use crate::grid_viewport::{GridViewport, VisiblePositions};
-use crate::paint::{EdgeRank, EdgeRun, Edges, FramePaint, Paint};
+use crate::paint::{EdgeLine, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::Theme;
 
 ///
@@ -106,7 +106,7 @@ fn band(boundary: i32, width: i32) -> Range<i32> {
 /// An edge's piece lies across its boundary at its own width. A junction is as
 /// wide as the widest column line meeting it and as tall as the widest row
 /// line, in the colour of the highest-ranked line meeting it, and of lines
-/// of one rank the most opaque, so every piece
+/// of one rank a seamed one and then the most opaque, so every piece
 /// runs between junctions and a narrower line's band lies inside the
 /// junction's.
 ///
@@ -125,7 +125,7 @@ pub(super) fn edge_mesh(
 ) -> Mesh {
     let (width, height) = (drawn.columns.len(), drawn.rows.len());
     let place = |run: &EdgeRun| {
-        PixelLine::new(run.edge.stroke, pixels_per_point).map(|line| (run.edge.rank, line))
+        PixelLine::new(run.edge.stroke, pixels_per_point).map(|line| (run.edge, line))
     };
     // Every edge, row line by row line and column line by column line.
     let mut across = vec![None; (height + 1) * width];
@@ -162,7 +162,7 @@ pub(super) fn edge_mesh(
             across_at(column.checked_sub(1), row),
             across_at(Some(column), row),
         ];
-        let widest = |lines: &[Option<(EdgeRank, PixelLine)>]| {
+        let widest = |lines: &[Option<(EdgeLine, PixelLine)>]| {
             lines
                 .iter()
                 .flatten()
@@ -170,13 +170,13 @@ pub(super) fn edge_mesh(
                 .max()
                 .unwrap_or(0)
         };
-        // Of lines of one rank, the most opaque, so a seam runs on through a
-        // plain Grid line it crosses.
+        // Of lines of one rank, a seamed one, so a seam runs on through a
+        // plain Grid line it crosses, and then the most opaque.
         let colour = downs
             .iter()
             .chain(&acrosses)
             .flatten()
-            .max_by_key(|(rank, line)| (*rank, line.colour.a()))
+            .max_by_key(|(edge, line)| (edge.rank, edge.seamed, line.colour.a()))
             .map(|(_, line)| line.colour);
         (
             band(columns[column], widest(&downs)),
