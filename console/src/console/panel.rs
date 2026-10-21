@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use egui::{Color32, FontId, Key};
+use egui::{Color32, FontId, Key, Vec2};
 use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
 
@@ -12,7 +12,7 @@ use super::Console;
 use super::diagnostics_panel::summary_height;
 use super::source_view::SOURCE_MARGIN_CELLS;
 use crate::console_midi;
-use crate::grid_viewport::{CELL_SIZE, snapped_cell_side};
+use crate::grid_viewport::snapped_cell;
 use crate::midi::destination_presentation;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
@@ -20,11 +20,11 @@ use crate::midi::destination_presentation;
 pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
 
 ///
-/// The height Diagnostics leave the Source: one Row of Cells, at the snapped
-/// side the Source draws them, between its margins above and below.
+/// The height Diagnostics leave the Source: one Row of `cell`s, at the
+/// snapped height the Source draws them, between its margins above and below.
 ///
-fn source_reserve(ui: &egui::Ui) -> f32 {
-    (2.0 * SOURCE_MARGIN_CELLS + 1.0) * snapped_cell_side(CELL_SIZE, ui.ctx().pixels_per_point())
+fn source_reserve(ui: &egui::Ui, cell: Vec2) -> f32 {
+    (2.0 * SOURCE_MARGIN_CELLS + 1.0) * snapped_cell(cell, ui.ctx().pixels_per_point()).y
 }
 
 /// Extra left inset on top of `Frame::side_top_panel`'s inner margin.
@@ -267,8 +267,10 @@ impl Console {
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
-        let diagnostics_room =
-            root.available_height() - BOTTOM_PANEL_HEIGHT - separation - source_reserve(root);
+        let diagnostics_room = root.available_height()
+            - BOTTOM_PANEL_HEIGHT
+            - separation
+            - source_reserve(root, self.source_view.cell);
         let diagnostics_height = self
             .diagnostics_open
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));

@@ -88,7 +88,7 @@ use orcvs::playback::PlaybackState;
 use super::source_view::SOURCE_MARGIN_CELLS;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
 use crate::theme::{Appearance, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
@@ -168,10 +168,12 @@ fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
     let console = harness.state();
     let grid = console.orcvs.render_frame().grid();
 
+    let pixels_per_point = harness.ctx.pixels_per_point();
     presented_grid(
         console.source_view.origin,
         grid,
-        harness.ctx.pixels_per_point(),
+        snapped_cell(console.source_view.cell, pixels_per_point),
+        pixels_per_point,
     )
 }
 
@@ -360,7 +362,7 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
     );
 
     let source = source_rect(&harness);
-    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE;
+    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE.y;
     assert!(
         source.height() >= usable,
         "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
@@ -1345,10 +1347,10 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
 
     // The follow shows Column 40's far edge, which sits the Source View's
     // margin of two Cells further along than the Column itself. A Cell is
-    // `CELL_SIZE` points at every zoom.
+    // `CELL_SIZE.x` points wide at every zoom.
     let console_width = harness.ctx.content_rect().width();
     let pan = harness.state().source_view.pan;
-    let expected = console_width - (41.0 + SOURCE_MARGIN_CELLS) * CELL_SIZE;
+    let expected = console_width - (41.0 + SOURCE_MARGIN_CELLS) * CELL_SIZE.x;
     assert!(
         (pan.x - expected).abs() < 1e-3 && pan.y == 0.0,
         "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}, not {expected}"
@@ -1478,10 +1480,11 @@ fn painted_source_shapes(harness: &Harness<'_, Console>) -> Vec<egui::Shape> {
 }
 
 ///
-/// A zoomed console paints square Cells a whole number of physical pixels on
-/// a side and at a whole-pixel corner, and its Grid lines, Sector Seams and
-/// Cursor outline keep the Theme's display-point widths: egui's zoom scales
-/// points to pixels and never the points a Theme states.
+/// A zoomed console paints the default `CELL_SIZE`, each axis snapped on its
+/// own to a whole number of physical pixels, at a whole-pixel corner, and its
+/// Grid lines, Sector Seams and Cursor outline keep the Theme's display-point
+/// widths: egui's zoom scales points to pixels and never the points a Theme
+/// states.
 ///
 /// 1.3 is a zoom at which the Source's 16 point Cell is 20.8 pixels, so the
 /// snap has something to do.
@@ -1517,14 +1520,14 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
         (pixels - pixels.round()).abs() < 1e-3
     };
     let viewport = presented_source(&harness);
-    let cursor_cell = viewport.cell_rect(0, 0);
-    assert!(
-        (cursor_cell.width() - cursor_cell.height()).abs() < 1e-3,
-        "a zoomed Cell is not square: {cursor_cell:?}"
+    assert_eq!(
+        viewport.cell_size,
+        snapped_cell(CELL_SIZE, pixels_per_point),
+        "the zoomed console did not draw the default Cell, each axis snapped on its own"
     );
     assert!(
-        whole(viewport.cell_size),
-        "a zoomed Cell is {} pixels on a side",
+        whole(viewport.cell_size.x) && whole(viewport.cell_size.y),
+        "a zoomed Cell is {:?} pixels",
         viewport.cell_size * pixels_per_point
     );
     assert!(

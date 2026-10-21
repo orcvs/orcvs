@@ -187,8 +187,8 @@ pub struct CursorEffectShapes {
     pub(crate) fragments: Vec<Shape>,
 }
 
-pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
-    cursor.expand((AREA_RADIUS_CELLS + 1.0) * cell_size)
+pub(crate) fn effect_bounds(cursor: Rect, cell: Vec2) -> Rect {
+    cursor.expand2((AREA_RADIUS_CELLS + 1.0) * cell)
 }
 
 /// Builds the approved green damaged field and off-white eroded frame.
@@ -208,7 +208,7 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// `cursor.border`/`cursor.border.width` for the Cursor's own frame or
 /// `region.border`/`region.border.width` for the lasso around a Region larger
 /// than one Cell. The width is a fixed display-point nominal width, never
-/// scaled by `cell_size`. Zero hides every frame stroke outright —
+/// scaled by `cell`. Zero hides every frame stroke outright —
 /// see this module's private `frame_shapes` — without touching the living-area fill `area_colour` and
 /// `amount` still control. `motion` is this frame's sample and the settings
 /// it was advanced under.
@@ -217,15 +217,15 @@ pub fn cursor_effect_shapes(
     cursor: Rect,
     outline: Rect,
     clip: Rect,
-    cell_size: f32,
+    cell: Vec2,
     motion: CursorEffectMotion,
     area_colour: Color32,
     frame: Stroke,
 ) -> CursorEffectShapes {
     let CursorEffectMotion { sample, settings } = motion;
     let mut shapes = CursorEffectShapes::default();
-    if !effect_bounds(cursor, cell_size)
-        .union(outline.expand(cell_size))
+    if !effect_bounds(cursor, cell)
+        .union(outline.expand2(cell))
         .intersects(clip)
     {
         return shapes;
@@ -238,12 +238,12 @@ pub fn cursor_effect_shapes(
             &mut shapes.area,
             cursor,
             clip,
-            cell_size,
+            cell,
             sample,
             area_colour,
             amount,
         );
-        shapes.fragments = frame_shapes(outline, cell_size, clip, sample, frame, amount);
+        shapes.fragments = frame_shapes(outline, cell, clip, sample, frame, amount);
     }
     shapes
 }
@@ -274,12 +274,12 @@ fn area_shapes(
     out: &mut Vec<Shape>,
     cursor: Rect,
     clip: Rect,
-    cell_size: f32,
+    cell: Vec2,
     sample: CursorEffectSample,
     colour: Color32,
     amount: f32,
 ) {
-    let reach = AREA_RADIUS_CELLS * cell_size;
+    let reach = AREA_RADIUS_CELLS * cell;
     let centre = cursor.center();
 
     // Long-tailed horizontal tears. Several nearby candidates share the slow
@@ -291,16 +291,17 @@ fn area_shapes(
         if density < 0.34 || unit(hash(sample.grain ^ candidate)) > density * amount {
             continue;
         }
-        let x = centre.x + signed(hash(sample.field ^ candidate.rotate_left(9))) * reach;
-        let y = centre.y + signed(hash(sample.field ^ candidate.rotate_left(29))) * reach;
-        let envelope = 1.0 - ((x - centre.x).abs().max((y - centre.y).abs()) / reach);
+        let x = centre.x + signed(hash(sample.field ^ candidate.rotate_left(9))) * reach.x;
+        let y = centre.y + signed(hash(sample.field ^ candidate.rotate_left(29))) * reach.y;
+        let envelope = 1.0 - ((x - centre.x).abs() / reach.x).max((y - centre.y).abs() / reach.y);
         if envelope <= 0.0 {
             continue;
         }
         let length_noise = unit(hash(sample.grain ^ candidate.rotate_left(41)));
-        let width = cell_size * (0.025 + length_noise.powi(3) * 0.9);
-        let height = (0.35 + unit(hash(sample.grain ^ !candidate)) * 0.8)
-            * (cell_size / CELL_SIZE).max(0.25);
+        let width = cell.x * (0.025 + length_noise.powi(3) * 0.9);
+        // A tear's thickness runs down the Cell, so it scales by the height.
+        let height =
+            (0.35 + unit(hash(sample.grain ^ !candidate)) * 0.8) * (cell.y / CELL_SIZE.y).max(0.25);
         let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(width, height));
         if !rect.intersects(clip) {
             continue;
@@ -317,13 +318,13 @@ fn area_shapes(
     for strand in 0..14_u64 {
         let anchor = hash(sample.field ^ strand.wrapping_mul(0xd6e8_feb8));
         let start = Pos2::new(
-            centre.x + signed(anchor) * reach * 0.85,
-            centre.y + signed(hash(anchor)) * reach * 0.85,
+            centre.x + signed(anchor) * reach.x * 0.85,
+            centre.y + signed(hash(anchor)) * reach.y * 0.85,
         );
         let end = start
             + Vec2::new(
-                signed(hash(anchor.rotate_left(17))) * cell_size * 1.4,
-                signed(hash(anchor.rotate_left(43))) * cell_size * 0.5,
+                signed(hash(anchor.rotate_left(17))) * cell.x * 1.4,
+                signed(hash(anchor.rotate_left(43))) * cell.y * 0.5,
             );
         let bound = Rect::from_two_pos(start, end).expand(1.0);
         if bound.intersects(clip) {
@@ -331,7 +332,7 @@ fn area_shapes(
             if painted.a() != 0 {
                 out.push(Shape::line_segment(
                     [start, end],
-                    Stroke::new((cell_size / 50.0).max(0.35), painted),
+                    Stroke::new((cell.y / 50.0).max(0.35), painted),
                 ));
             }
         }
@@ -343,9 +344,10 @@ fn area_shapes(
 /// `amount`. `stroke.width` is the nominal
 /// display-point width `cursor_effect_shapes` resolved from the Theme
 /// (`cursor.border.width`/`region.border.width`), fixed in points and never
-/// scaled by `cell_size`/`CELL_SIZE` — `cell_size` still drives every
-/// fragment's *position* and *length* along the edge, which is Grid geometry
-/// rather than stroke weight and stays proportional to the Cell side.
+/// scaled by `cell`/`CELL_SIZE` — `cell` still drives every fragment's
+/// *position* and *length* along the edge, which is Grid geometry rather than
+/// stroke weight: the width along a horizontal edge and the height along a
+/// vertical one.
 ///
 /// `stroke.width <= 0.0` hides every stroke this function would otherwise
 /// build, without touching the living-area fill `area_shapes` paints
@@ -354,7 +356,7 @@ fn area_shapes(
 ///
 fn frame_shapes(
     outline: Rect,
-    cell_size: f32,
+    cell: Vec2,
     clip: Rect,
     sample: CursorEffectSample,
     stroke: Stroke,
@@ -368,12 +370,12 @@ fn frame_shapes(
     if width <= 0.0 {
         return out;
     }
-    let side = cell_size;
-    let scale = side / CELL_SIZE;
+    // A signal tear's thickness runs down the Cell, so it scales by the height.
+    let scale = cell.y / CELL_SIZE.y;
     // How many Cell-lengths each pair of edges spans. A Cell's frame is one of
     // each, and its keys are the ones the unit index zero leaves unchanged.
-    let across = ((outline.width() / side).round() as u64).max(1);
-    let down = ((outline.height() / side).round() as u64).max(1);
+    let across = ((outline.width() / cell.x).round() as u64).max(1);
+    let down = ((outline.height() / cell.y).round() as u64).max(1);
     for edge in 0..4_u64 {
         let units = if edge % 2 == 0 { across } else { down };
         for unit_index in 0..units {
@@ -393,7 +395,10 @@ fn frame_shapes(
                 let start = unit(hash(key.rotate_left(11))) * 0.88;
                 let length = 0.05 + unit(hash(key.rotate_left(31))).powi(2) * (0.2 + amount * 0.18);
                 let end = (start + length).min(0.98);
-                let outward = signed(hash(key.rotate_left(47))) * side * 0.045 * amount;
+                // Out from a horizontal edge by the height, from a vertical
+                // one by the width.
+                let across_edge = if edge % 2 == 0 { cell.y } else { cell.x };
+                let outward = signed(hash(key.rotate_left(47))) * across_edge * 0.045 * amount;
                 let (a, b) = edge_segment(
                     outline,
                     edge,
@@ -420,20 +425,20 @@ fn frame_shapes(
     // edge fragments so the frame never settles into one diagonal motif. Each
     // Cell-length of height carries its own.
     for row in 0..down {
-        let top = outline.top() + row as f32 * side;
+        let top = outline.top() + row as f32 * cell.y;
         for tear in 0..7_u64 {
             let key =
                 hash(sample.frame ^ tear.wrapping_mul(0xa076_1d65) ^ row.wrapping_mul(0x1656_67b1));
-            let y = top + unit(key) * side;
+            let y = top + unit(key) * cell.y;
             let from_right = key & 1 == 0;
-            let length = side * (0.1 + unit(hash(key)) * 0.45) * amount;
+            let length = cell.x * (0.1 + unit(hash(key)) * 0.45) * amount;
             let x = if from_right {
                 outline.right()
             } else {
                 outline.left() - length
             };
             let rect = Rect::from_min_size(
-                Pos2::new(x, y + signed(hash(!key)) * side * 0.08),
+                Pos2::new(x, y + signed(hash(!key)) * cell.y * 0.08),
                 Vec2::new(length, (0.4 + unit(hash(key.rotate_left(7)))) * scale),
             );
             if rect.intersects(clip) {
@@ -644,7 +649,7 @@ mod tests {
             "frequency zero must freeze the sample, or this test proves nothing"
         );
 
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), CELL_SIZE);
         let effects = cursor_effect_shapes(
             cursor,
             cursor,
@@ -671,7 +676,7 @@ mod tests {
 
     #[test]
     fn frame_fragments_cover_all_four_edges_and_evolve() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), CELL_SIZE);
         let clip = cursor.expand(200.0);
         let settings = animated();
         let first = cursor_effect_shapes(
@@ -741,8 +746,15 @@ mod tests {
     ///
     #[test]
     fn a_lasso_frames_every_cell_length_of_a_region_at_the_cursors_weight() {
-        let cell = Vec2::splat(CELL_SIZE);
-        let outline = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::new(5.0, 3.0) * CELL_SIZE);
+        // A square Cell and a Cell taller than wide: a Cell-length is the
+        // width along a horizontal edge and the height along a vertical one.
+        for cell in [CELL_SIZE, Vec2::new(12.0, 18.0)] {
+            lasso_frames_every_cell_length(cell);
+        }
+    }
+
+    fn lasso_frames_every_cell_length(cell: Vec2) {
+        let outline = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::new(5.0, 3.0) * cell);
         let cursor = Rect::from_min_size(outline.max - cell, cell);
         let clip = outline.expand(200.0);
         let settings = animated();
@@ -761,7 +773,7 @@ mod tests {
                 cursor,
                 outline,
                 clip,
-                CELL_SIZE,
+                cell,
                 CursorEffectMotion {
                     sample: sample(frame, 2, 3),
                     settings,
@@ -773,7 +785,7 @@ mod tests {
                 cursor,
                 cursor,
                 clip,
-                CELL_SIZE,
+                cell,
                 CursorEffectMotion {
                     sample: sample(frame, 2, 3),
                     settings,
@@ -790,21 +802,21 @@ mod tests {
                     .any(|shape| shape.visual_bounding_rect().intersects(probe))
             };
             for column in 0..5 {
-                let left = outline.left() + column as f32 * CELL_SIZE;
+                let left = outline.left() + column as f32 * cell.x;
                 for y in [outline.top(), outline.bottom()] {
                     let probe = Rect::from_min_max(
                         Pos2::new(left, y - 2.0),
-                        Pos2::new(left + CELL_SIZE, y + 2.0),
+                        Pos2::new(left + cell.x, y + 2.0),
                     );
                     assert!(touches(probe), "column {column} of an edge at {y} was bare");
                 }
             }
             for row in 0..3 {
-                let top = outline.top() + row as f32 * CELL_SIZE;
+                let top = outline.top() + row as f32 * cell.y;
                 for x in [outline.left(), outline.right()] {
                     let probe = Rect::from_min_max(
                         Pos2::new(x - 2.0, top),
-                        Pos2::new(x + 2.0, top + CELL_SIZE),
+                        Pos2::new(x + 2.0, top + cell.y),
                     );
                     assert!(touches(probe), "row {row} of an edge at {x} was bare");
                 }
@@ -824,7 +836,7 @@ mod tests {
     ///
     #[test]
     fn a_one_cell_outline_is_the_cursors_own_frame() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), CELL_SIZE);
         let settings = animated();
         let effects = cursor_effect_shapes(
             cursor,
@@ -854,7 +866,7 @@ mod tests {
 
     #[test]
     fn area_is_bounded_crosses_cell_boundaries_and_can_reach_in_from_outside_clip() {
-        let cursor = Rect::from_min_size(Pos2::new(-35.0, 100.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(-35.0, 100.0), CELL_SIZE);
         let clip = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::splat(300.0));
         let effects = cursor_effect_shapes(
             cursor,
@@ -879,13 +891,13 @@ mod tests {
         );
         assert!(effects.area.iter().any(|shape| {
             let rect = shape.visual_bounding_rect();
-            (rect.left() / CELL_SIZE).floor() != (rect.right() / CELL_SIZE).floor()
+            (rect.left() / CELL_SIZE.x).floor() != (rect.right() / CELL_SIZE.x).floor()
         }));
     }
 
     #[test]
     fn advertised_bounds_contain_the_outer_area_tails() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), CELL_SIZE);
         let bounds = effect_bounds(cursor, CELL_SIZE);
         for field in 0..32 {
             let effects = cursor_effect_shapes(
@@ -909,7 +921,7 @@ mod tests {
 
     #[test]
     fn a_fully_clipped_effect_builds_no_shapes() {
-        let cursor = Rect::from_min_size(Pos2::ZERO, Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::ZERO, CELL_SIZE);
         let clip = Rect::from_min_size(Pos2::new(1_000.0, 1_000.0), Vec2::splat(100.0));
         let effects = cursor_effect_shapes(
             cursor,
@@ -943,12 +955,10 @@ mod tests {
     /// folds its zoom factor into the device scale, so these are the Cell
     /// sides a zoom reaches.
     ///
-    fn snapped_cell_sizes() -> Vec<f32> {
-        let sizes: Vec<f32> = [0.3_f32, 0.7, 1.0, 1.1]
+    fn snapped_cell_sizes() -> Vec<Vec2> {
+        let sizes: Vec<Vec2> = [0.3_f32, 0.7, 1.0, 1.1]
             .into_iter()
-            .map(|pixels_per_point| {
-                crate::grid_viewport::snapped_cell_side(CELL_SIZE, pixels_per_point)
-            })
+            .map(|pixels_per_point| crate::grid_viewport::snapped_cell(CELL_SIZE, pixels_per_point))
             .collect();
         assert!(
             sizes.windows(2).all(|pair| pair[0] != pair[1]),
@@ -969,7 +979,7 @@ mod tests {
         *static_settings.amount_mut() = 0;
 
         for cell_size in snapped_cell_sizes() {
-            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
+            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), cell_size);
             let clip = cursor.expand(500.0);
 
             for settings in [static_settings, animated()] {
@@ -990,7 +1000,7 @@ mod tests {
                 );
                 assert!(
                     built(&effects).is_empty(),
-                    "a Cursor frame stroke survived width 0 at cell_size {cell_size}"
+                    "a Cursor frame stroke survived width 0 at cell_size {cell_size:?}"
                 );
             }
 
@@ -1013,7 +1023,7 @@ mod tests {
             );
             assert!(
                 !effects.area.is_empty(),
-                "width 0 wrongly suppressed the living-area fill at cell_size {cell_size}"
+                "width 0 wrongly suppressed the living-area fill at cell_size {cell_size:?}"
             );
         }
     }
@@ -1029,7 +1039,7 @@ mod tests {
         *settings.amount_mut() = 0;
 
         for cell_size in snapped_cell_sizes() {
-            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
+            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), cell_size);
             let clip = cursor.expand(500.0);
             let effects = cursor_effect_shapes(
                 cursor,
@@ -1045,7 +1055,7 @@ mod tests {
             );
             assert!(
                 effects.fragments.is_empty() && effects.area.is_empty(),
-                "amount zero painted Shapes of its own at cell_size {cell_size}"
+                "amount zero painted Shapes of its own at cell_size {cell_size:?}"
             );
         }
     }
@@ -1066,7 +1076,7 @@ mod tests {
             // One Cell's own outline at this side, so the loop's fragment
             // count (`across`/`down`) stays the same at every cell_size and
             // only the stroke width can differ.
-            let outline = Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size));
+            let outline = Rect::from_min_size(Pos2::ZERO, cell_size);
             let out = frame_shapes(outline, cell_size, clip, sample(11, 13, 17), FRAME, 0.6);
             let widths: Vec<f32> = out
                 .iter()
@@ -1077,12 +1087,12 @@ mod tests {
                 .collect();
             assert!(
                 !widths.is_empty(),
-                "cell_size {cell_size} produced no fragment strokes to compare"
+                "cell_size {cell_size:?} produced no fragment strokes to compare"
             );
             for width in &widths {
                 assert!(
                     (0.45 * FRAME_WIDTH - 1e-4..=1.25 * FRAME_WIDTH + 1e-4).contains(width),
-                    "a fragment at cell_size {cell_size} was {width} points wide, outside \
+                    "a fragment at cell_size {cell_size:?} was {width} points wide, outside \
                      0.45x-1.25x the nominal width {FRAME_WIDTH}"
                 );
             }
@@ -1107,7 +1117,7 @@ mod tests {
     ///
     #[test]
     fn zero_alpha_area_colour_paints_no_tears_or_strands() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), CELL_SIZE);
         let clip = cursor.expand(200.0);
         let mut out = Vec::new();
 
@@ -1141,7 +1151,7 @@ mod tests {
     ///
     #[test]
     fn partial_alpha_area_colour_is_respected_and_keeps_the_colours_hue() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), CELL_SIZE);
         let clip = cursor.expand(200.0);
         let colour = Color32::from_rgba_unmultiplied(76, 190, 156, 200);
         let mut out = Vec::new();

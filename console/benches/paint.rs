@@ -307,7 +307,7 @@ fn shapes(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_shapes");
     let theme = bench_theme();
     let mut measure = |id: BenchmarkId, paint: &Paint, grid: Grid, pixels_per_point: f32| {
-        let viewport = presented_grid(Pos2::ZERO, grid, pixels_per_point);
+        let viewport = presented_grid(Pos2::ZERO, grid, Vec2::splat(16.0), pixels_per_point);
         group.bench_function(id, |b| {
             b.iter(|| {
                 black_box(SourceShapes::geometry(
@@ -383,7 +383,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(cursor),
                 black_box(cursor),
                 black_box(clip),
-                black_box(16.0),
+                black_box(Vec2::splat(16.0)),
                 black_box(CursorEffectMotion { sample, settings }),
                 black_box(AREA_COLOUR),
                 black_box(FRAME),
@@ -400,7 +400,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(cursor),
                 black_box(outline),
                 black_box(clip),
-                black_box(16.0),
+                black_box(Vec2::splat(16.0)),
                 black_box(CursorEffectMotion { sample, settings }),
                 black_box(AREA_COLOUR),
                 black_box(FRAME),

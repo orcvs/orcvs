@@ -12,7 +12,7 @@ use orcvs::{
 use super::Console;
 use super::shapes::{effect_outline, show_source};
 use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
 use crate::theme::{Appearance, Theme};
 
 ///
@@ -24,16 +24,16 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 
 ///
 /// The margin, in Cells, between the Grid and the console at rest and the
-/// distance a Pan can reach past each Grid edge. It is counted in
-/// Cells and measured in the snapped Cell side, so it is always a whole number
-/// of physical pixels.
+/// distance a Pan can reach past each Grid edge. It is counted in Cells and
+/// measured in the snapped Cell's width across and its height down, so it is
+/// always a whole number of physical pixels.
 ///
 pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 
 ///
 /// The Source View: a Pan, presented as the origin the Cells are drawn from.
 ///
-/// The Source is drawn at its own Cell size in points. egui's whole-UI zoom
+/// The Source is drawn at its `cell` in points. egui's whole-UI zoom
 /// is what enlarges it with the rest of the console, through
 /// `pixels_per_point`, so the Source View holds no scale of its own. Pan is
 /// anchored at the console's top-left and is bounded by the Grid: an axis the
@@ -43,7 +43,7 @@ pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 /// A Cursor move that would leave the Cursor's Cell outside the console Pans
 /// the least distance that brings the whole Cell back into view, still bounded
 /// by the Grid; a Pan on its own does not chase the Cursor. A zoom or resize
-/// that changes the console's size in points, or the snapped Cell side, does
+/// that changes the console's size in points, or the snapped Cell, does
 /// the same only for a Cursor the view showed in full before it, so a Pan the
 /// viewer chose away from the Cursor survives it. `previous_cursor` and
 /// `previous_console` are what tell those changes apart from a frame that
@@ -54,6 +54,9 @@ pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 ///
 pub(super) struct SourceView {
     pub(super) pan: Vec2,
+    /// The Cell the Source is drawn at, width by height in points, before
+    /// [`show_source_scene`] snaps it to whole physical pixels.
+    pub(super) cell: Vec2,
     /// The Cursor [`show_source_scene`] last saw, so a change from one frame
     /// to the next reads as a Cursor move worth following rather than every
     /// frame answering yes. `None` before the first frame a fresh `SourceView`
@@ -63,12 +66,12 @@ pub(super) struct SourceView {
     /// The anchor of the primary drag selecting a Region, while one is in
     /// progress. The Cursor follow is paced to the pointer while it is.
     region_drag: Option<Position>,
-    /// The console's size in points and the snapped Cell side on the last
+    /// The console's size in points and the snapped Cell on the last
     /// frame [`show_source_scene`] presented, so a change of either reads as
     /// a zoom or resize worth following, and so whether the Cursor showed
     /// under them can be asked. `None` before the first frame, as
     /// `previous_cursor` is.
-    previous_console: Option<(Vec2, f32)>,
+    previous_console: Option<(Vec2, Vec2)>,
     /// Where the Source's own top-left was presented on the last frame.
     pub(super) origin: Pos2,
 }
@@ -77,6 +80,7 @@ impl Default for SourceView {
     fn default() -> Self {
         Self {
             pan: Vec2::ZERO,
+            cell: CELL_SIZE,
             previous_cursor: None,
             region_drag: None,
             previous_console: None,
@@ -110,26 +114,26 @@ fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
 ///
 /// The rectangle a Cursor follow brings into view, in the unpanned points of
 /// the padded Source — the Grid with a margin of [`SOURCE_MARGIN_CELLS`] on
-/// every side — at the snapped Cell `side` [`show_source_scene`] also bounds
+/// every side — at the snapped `cell` [`show_source_scene`] also bounds
 /// [`clamp_pan`] by.
 ///
 /// The Cursor's own Cell, reaching across the margin on each side where the
 /// Cursor is on the Grid's first or last Column or Row, so a follow to an edge
 /// shows the Grid's edge as an edge rather than flush against the console's.
 ///
-fn followed_cell(cursor: Position, grid: Grid, side: f32) -> Rect {
-    let margin = SOURCE_MARGIN_CELLS * side;
-    let cell = cursor_cell(cursor, side);
-    let reach = |at: usize, count: usize| {
+fn followed_cell(cursor: Position, grid: Grid, cell: Vec2) -> Rect {
+    let margin = SOURCE_MARGIN_CELLS * cell;
+    let shown = cursor_cell(cursor, cell);
+    let reach = |at: usize, count: usize, margin: f32| {
         let near = if at == 0 { margin } else { 0.0 };
         let far = if at + 1 == count { margin } else { 0.0 };
         (near, far)
     };
-    let (left, right) = reach(cursor.x(), grid.columns());
-    let (top, bottom) = reach(cursor.y(), grid.rows());
+    let (left, right) = reach(cursor.x(), grid.columns(), margin.x);
+    let (top, bottom) = reach(cursor.y(), grid.rows(), margin.y);
     Rect::from_min_max(
-        cell.min - Vec2::new(left, top),
-        cell.max + Vec2::new(right, bottom),
+        shown.min - Vec2::new(left, top),
+        shown.max + Vec2::new(right, bottom),
     )
 }
 
@@ -137,11 +141,12 @@ fn followed_cell(cursor: Position, grid: Grid, side: f32) -> Rect {
 /// The Cursor's own Cell, without the margin [`followed_cell`] reaches
 /// across, in the same unpanned points of the padded Source.
 ///
-fn cursor_cell(cursor: Position, side: f32) -> Rect {
-    let margin = SOURCE_MARGIN_CELLS * side;
+fn cursor_cell(cursor: Position, cell: Vec2) -> Rect {
     Rect::from_min_size(
-        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side + Vec2::splat(margin),
-        Vec2::splat(side),
+        ((Vec2::new(cursor.x() as f32, cursor.y() as f32) + Vec2::splat(SOURCE_MARGIN_CELLS))
+            * cell)
+            .to_pos2(),
+        cell,
     )
 }
 
@@ -196,10 +201,11 @@ fn overshoot(console: Rect, pointer: Pos2) -> Vec2 {
 ///
 /// The part of a follow Pan of `wanted` that a Region drag takes this frame:
 /// more the further the pointer is `past` the console's edge, never more than one
-/// Cell of `side`, and none on an axis the pointer has not left.
+/// `cell` width across or height down, and none on an axis the pointer has not
+/// left.
 ///
-fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
-    let most = (past / EDGE_SCROLL_REACH).min(Vec2::splat(side));
+fn edge_scroll(wanted: Vec2, past: Vec2, cell: Vec2) -> Vec2 {
+    let most = (past / EDGE_SCROLL_REACH).min(cell);
     Vec2::new(
         wanted.x.clamp(-most.x, most.x),
         wanted.y.clamp(-most.y, most.y),
@@ -319,30 +325,30 @@ pub(super) fn show_source_scene(
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
 
-    // The Cell side `presented_grid` will draw at, snapped to whole physical
-    // pixels, so the follow and the bounds below are measured against the
-    // Grid as drawn rather than the unsnapped extent the Source asks for.
-    let side = snapped_cell_side(CELL_SIZE, ui.ctx().pixels_per_point());
+    // The Cell snapped to whole physical pixels once, for the follow, the
+    // bounds and `presented_grid` below alike, so the Pan is measured against
+    // the Grid as drawn rather than the unsnapped extent the Source asks for.
+    let cell = snapped_cell(view.cell, ui.ctx().pixels_per_point());
 
     // The console's size in points rather than egui's zoom factor: on the web
     // the browser's page zoom leaves that factor at 1.0, and eframe may report
     // the new device pixel ratio a frame before the canvas's new size in
     // points. egui's zoom, the browser's and a resize all change the size in
-    // points, and a new scale can move the snapped Cell side on its own.
+    // points, and a new scale can move the snapped Cell on its own.
     //
     // Only a Cursor whose Cell showed in full under the previous size and
-    // side, at the Pan the last frame settled, is followed: one the viewer
+    // Cell, at the Pan the last frame settled, is followed: one the viewer
     // Panned out of view stays out. A web zoom that reaches egui over two
     // frames is followed on the second, because the first leaves the Cursor
     // showing.
     let console_size = console.size();
     let cursor = frame.cursor();
-    let resize_to_follow = view.previous_console.is_some_and(|(size, previous_side)| {
+    let resize_to_follow = view.previous_console.is_some_and(|(size, previous_cell)| {
         let was_shown = Rect::from_min_size(Pos2::ZERO, size)
-            .contains_rect(cursor_cell(cursor, previous_side).translate(view.pan));
-        (size, previous_side) != (console_size, side) && was_shown
+            .contains_rect(cursor_cell(cursor, previous_cell).translate(view.pan));
+        (size, previous_cell) != (console_size, cell) && was_shown
     });
-    view.previous_console = Some((console_size, side));
+    view.previous_console = Some((console_size, cell));
 
     // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
     // held, so a trackpad with no middle button still has a way to Pan by
@@ -382,8 +388,8 @@ pub(super) fn show_source_scene(
     // `view.pan` places the padded Source — the Grid with a margin on every
     // side — so a Pan of zero rests the Grid one margin in from the console's
     // top-left, and the clamp lets a Pan reach one margin past each far edge.
-    let margin = Vec2::splat(SOURCE_MARGIN_CELLS * side);
-    let cursor_at = followed_cell(cursor, source_grid, side);
+    let margin = SOURCE_MARGIN_CELLS * cell;
+    let cursor_at = followed_cell(cursor, source_grid, cell);
 
     // A Region drag follows the Cursor at the pointer's pace rather than in
     // one jump, so the Source View scrolls after a pointer held past the edge
@@ -400,13 +406,13 @@ pub(super) fn show_source_scene(
     } else if dragging_region && let Some(pointer) = pointer {
         let past = overshoot(console, pointer);
         let wanted = follow_cursor(view.pan, console.size(), cursor_at) - view.pan;
-        view.pan += edge_scroll(wanted, past, side);
+        view.pan += edge_scroll(wanted, past, cell);
         if past != Vec2::ZERO {
             ui.ctx().request_repaint();
         }
     }
 
-    let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * side;
+    let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * cell;
     let padded_size = source_size + 2.0 * margin;
     view.pan = clamp_pan(view.pan, console.size(), padded_size);
 
@@ -429,7 +435,7 @@ pub(super) fn show_source_scene(
         Pos2::ZERO
     };
 
-    let grid = presented_grid(view.origin, source_grid, ui.ctx().pixels_per_point());
+    let grid = presented_grid(view.origin, source_grid, cell, ui.ctx().pixels_per_point());
     let clicked = show_source(ui, frame, font_family, grid, console, cursor_effect, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -500,8 +506,8 @@ pub(super) fn source_panel_frame(background: Color32) -> egui::Frame {
 pub(super) struct ShownSource {
     /// The console area the Source was presented in.
     pub(super) console: Rect,
-    /// The Cell side the Source was drawn at.
-    pub(super) cell_size: f32,
+    /// The Cell the Source was drawn at, width by height.
+    pub(super) cell_size: Vec2,
     /// Whether any of the Cursor Effect reaches the console area, so that its
     /// next change needs a Render Frame.
     pub(super) shows_cursor_effect: bool,
@@ -550,7 +556,7 @@ impl Console {
                     console,
                     cell_size: viewport.cell_size,
                     shows_cursor_effect: effect_bounds(cursor_rect, viewport.cell_size)
-                        .union(outline.expand(viewport.cell_size))
+                        .union(outline.expand2(viewport.cell_size))
                         .intersects(console),
                 }
             })
