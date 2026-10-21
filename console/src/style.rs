@@ -199,7 +199,8 @@ fn fact_index(paint: SourcePaint) -> usize {
 
 ///
 /// A Cell's own border: the Diagnostic and Portal border channels, each
-/// composited over the Grid line's colour by the same fact priority
+/// composited over the Grid line's colour, where a Grid line is drawn, by the
+/// same fact priority
 /// [`role_and_portal`] applies to foreground and background —
 /// `.scratch/theming/schema.md`'s composition step 4, "Border channels use
 /// the same fact priority and compose over the ordinary Grid border": the
@@ -236,12 +237,19 @@ fn ordinary_border(
         }
     );
     let drawn = |line: EdgeLine| line.stroke.width > 0.0;
+    // What a border composites over: the Grid line, unless a zero
+    // `grid.border.width` draws none, when the border shows its own colour.
+    let grid_line = if theme.grid_border_width.points() > 0.0 {
+        theme.grid_border
+    } else {
+        Color32::TRANSPARENT
+    };
     let diagnostic = invalid_operand
         .then(|| EdgeLine {
             rank: EdgeRank::Diagnostic,
             stroke: Stroke::new(
                 theme.diagnostic_border_width.points(),
-                blend_channel(theme.grid_border, theme.diagnostic_border),
+                blend_channel(grid_line, theme.diagnostic_border),
             ),
         })
         .filter(|line| drawn(*line));
@@ -249,7 +257,7 @@ fn ordinary_border(
     let portal = fill_overlay(paint, portal)
         .map(|role| {
             let channels = PortalChannels::of(role, theme);
-            let below = diagnostic.map_or(theme.grid_border, |line| line.stroke.color);
+            let below = diagnostic.map_or(grid_line, |line| line.stroke.color);
             EdgeLine {
                 rank: match role {
                     PortalRole::Output => EdgeRank::OutputPortal,
@@ -2317,6 +2325,30 @@ mod tests {
         assert_eq!(
             painted(SourcePaint::Unclaimed, true, &no_portal).border,
             None
+        );
+    }
+
+    ///
+    /// With no Grid line drawn, a border composites over nothing: a
+    /// translucent Diagnostic border shows its own colour rather than one
+    /// blended over a `grid.border` colour that is never on screen.
+    ///
+    #[test]
+    fn a_border_over_no_grid_line_shows_its_own_colour() {
+        let diagnostic = Color32::from_rgba_unmultiplied(200, 30, 30, 96);
+        let theme = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            grid_border: Color32::from_rgb(0, 200, 0),
+            diagnostic_border: diagnostic,
+            ..okabe_ito()
+        };
+        assert_eq!(
+            painted(operand(Token::Number, OperandState::Invalid), false, &theme).border,
+            Some(EdgeLine {
+                rank: EdgeRank::Diagnostic,
+                stroke: Stroke::new(theme.diagnostic_border_width.points(), diagnostic),
+            })
         );
     }
 

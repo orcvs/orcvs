@@ -3166,8 +3166,10 @@ fn assert_drawn_once_around(
 
 ///
 /// The boundaries of the Cells `paint` covers in physical pixels, the far
-/// edges of its last column and row included, read from where
-/// `GridViewport` puts its Cells.
+/// edges of its last column and row included: the Grid's snapped corner, then
+/// one whole-pixel Cell side per Cell. Counted from the Grid's corner rather
+/// than read from `GridViewport::cell_rect`, so a lattice that rounds a
+/// boundary differently, or misses the far one, disagrees with it.
 ///
 fn boundaries(
     viewport: GridViewport,
@@ -3175,14 +3177,18 @@ fn boundaries(
     pixels_per_point: f32,
 ) -> (Vec<i32>, Vec<i32>) {
     let drawn = paint.drawn();
-    let pixel = |point: f32| (point * pixels_per_point).round() as i32;
+    let side = viewport.cell_size * pixels_per_point;
+    assert_eq!(side, side.round(), "a presented Cell side is whole pixels");
+    let side = side as i32;
+    let corner = viewport.rect.min * pixels_per_point;
+    let counted = |corner: f32, cells: std::ops::Range<usize>| {
+        (cells.start..cells.end + 1)
+            .map(|cell| corner.round() as i32 + cell as i32 * side)
+            .collect()
+    };
     (
-        (drawn.columns.start..=drawn.columns.end)
-            .map(|column| pixel(viewport.cell_rect(column, 0).min.x))
-            .collect(),
-        (drawn.rows.start..=drawn.rows.end)
-            .map(|row| pixel(viewport.cell_rect(0, row).min.y))
-            .collect(),
+        counted(corner.x, drawn.columns.clone()),
+        counted(corner.y, drawn.rows.clone()),
     )
 }
 
@@ -3246,12 +3252,12 @@ async fn an_empty_grid_draws_each_grid_line_once() {
     let orcvs = running_orcvs(5, 3);
     let frame = orcvs.render_frame();
 
-    for (width_points, pixels_per_point, width_pixels) in [
-        (1.0, 1.0, 1),
-        (0.5, 2.0, 1),
-        (1.0, 2.0, 2),
-        (1.0, 1.5, 2),
-        (0.75, 2.0, 2),
+    for (width_points, pixels_per_point, width_pixels, side_pixels) in [
+        (1.0, 1.0, 1, 16),
+        (0.5, 2.0, 1, 32),
+        (1.0, 2.0, 2, 32),
+        (1.0, 1.5, 2, 24),
+        (0.75, 2.0, 2, 32),
     ] {
         let theme = Theme {
             grid_border_width: crate::theme::GridWidth::from_points(width_points)
@@ -3262,6 +3268,32 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         let paint = painted_themed(&frame, viewport, screen, &theme);
         let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        assert_eq!((columns.len(), rows.len()), (6, 4));
+        for spacing in columns.windows(2).chain(rows.windows(2)) {
+            assert_eq!(
+                spacing[1] - spacing[0],
+                side_pixels,
+                "at {pixels_per_point}x"
+            );
+        }
+        // The lines lie on the boundaries the background runs are snapped
+        // to: every run's edges are lattice boundaries.
+        for run in &shapes.backgrounds {
+            let Shape::Rect(run) = run else {
+                panic!("a background run is a rectangle, not {run:?}")
+            };
+            let edge = |point: f32| (point * pixels_per_point).round() as i32;
+            assert!(
+                columns.contains(&edge(run.rect.min.x)) && columns.contains(&edge(run.rect.max.x)),
+                "a run's sides {:?} lie off the column lines {columns:?} at {pixels_per_point}x",
+                run.rect
+            );
+            assert!(
+                rows.contains(&edge(run.rect.min.y)) && rows.contains(&edge(run.rect.max.y)),
+                "a run's top and bottom {:?} lie off the row lines {rows:?} at {pixels_per_point}x",
+                run.rect
+            );
+        }
 
         assert_drawn_once_around(
             &line_quads(&shapes.edges, pixels_per_point),

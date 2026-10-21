@@ -191,7 +191,8 @@ added explicitly to this catalogue, never silently left as a second palette.
    channels paint a Cell that plays no Portal role and is marked by a lock, and
    compose over every fact, a bound Function and a Bang included, since a lock
    marks only the Function spelling of the root it withheld. Border
-   channels use the same fact priority and compose over the ordinary Grid border.
+   channels use the same fact priority and compose over the ordinary Grid border,
+   or over nothing where a `grid.border.width` of zero draws no Grid line.
    Two Cells share the edge between them, which is drawn once: it shows the
    highest-ranked border either Cell carries on that side, ranked Grid line,
    Diagnostic, Locked, Input Portal, Output Portal, and composited once in the

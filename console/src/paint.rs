@@ -644,7 +644,9 @@ impl Paint {
                 .flatten()
         };
         // The outline owns its edges outright, so a fact beside it never
-        // competes there.
+        // competes there. Elsewhere `max_by_key` answers the last of equal
+        // maxima, so of two facts of one rank `other`, the Cell below or
+        // right, draws the edge.
         let winner = |outline: Option<&Outline>, one: Option<EdgeLine>, other: Option<EdgeLine>| {
             outline.map(|outline| outline.line).or_else(|| {
                 [one, other, self.grid_line]
@@ -685,12 +687,6 @@ impl Paint {
 }
 
 ///
-/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
-/// unset `cursor.background` given a visible colour, so a test that asks
-/// about Cursor precedence sees one without building a Theme of its own. Not
-/// a shipped seam — see [`Paint::derive`]'s own doc.
-///
-///
 /// Appends the runs of equal lines along one boundary, `line`, whose edges
 /// start at `first` and answer `edges` in order; an edge with no line ends a
 /// run and opens none.
@@ -719,6 +715,12 @@ fn coalesce(
     runs.extend(open);
 }
 
+///
+/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
+/// unset `cursor.background` given a visible colour, so a test that asks
+/// about Cursor precedence sees one without building a Theme of its own. Not
+/// a shipped seam — see [`Paint::derive`]'s own doc.
+///
 #[cfg(test)]
 fn test_theme() -> Theme {
     let base = crate::theme::okabe_ito();
@@ -894,7 +896,8 @@ mod tests {
     /// A Region larger than one Cell fills every Cell it covers but the
     /// Cursor's with the Theme's Region colour, and gives no Cell of it, the
     /// Cursor's included, a border of its own, so the Grid line shows: the
-    /// lasso around the Region is the Cursor's border then. A Region of one Cell fills none.
+    /// lasso around the Region is the Cursor's border then. A Region of one
+    /// Cell fills none.
     ///
     /// The Cursor's Cell takes its own fill. Unset, it is the Cursor's cell
     /// colour, as with no Region; set, it is independent of both.
@@ -2787,6 +2790,30 @@ mod tests {
                 edge(2, 3..4, grid),
             ]
         );
+    }
+
+    ///
+    /// Two facts of one rank can differ in colour, as a Portal composited
+    /// over a Diagnostic does: the Cell below or right of the edge draws it.
+    ///
+    #[test]
+    fn of_two_equal_ranks_the_cell_below_or_right_draws_the_edge() {
+        let (first, second) = (
+            fact(EdgeRank::OutputPortal, 40),
+            fact(EdgeRank::OutputPortal, 80),
+        );
+        for (one, other) in [(first, second), (second, first)] {
+            assert_eq!(
+                edge_paint(&[&[one, other]]).edges().columns[1],
+                edge(1, 0..1, other),
+                "left {one:?}, right {other:?}"
+            );
+            assert_eq!(
+                edge_paint(&[&[one], &[other]]).edges().rows[1],
+                edge(1, 0..1, other),
+                "above {one:?}, below {other:?}"
+            );
+        }
     }
 
     ///
