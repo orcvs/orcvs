@@ -10,4 +10,5 @@
 - [ ] A console started with a configured Cell presents its Grid, Pan bounds and Glyphs at that size.
 - [ ] A configured Cell at the smallest bound under the lowest Zoom keeps its Grid and Glyphs in agreement: the Glyph is derived from the snapped Cell, which a test checks.
 - [ ] A narrow configured width shrinks the Glyph rather than letting it overlap its neighbours.
+- [ ] A paint benchmark runs at the smallest bound (8 by 8 shows about 4× the Cells of today's 16 by 16) and has a floor, so a per-Cell cost regression at small Cells is caught.
 - [ ] The settings file's documentation shows the `[cell]` section.
