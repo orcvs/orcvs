@@ -350,10 +350,10 @@ pub(super) fn edge_mesh(
             .collect::<Vec<_>>()
     };
 
-    // One quad per junction and per edge: reserved up front, since the Mesh
-    // is rebuilt every frame. A junction where lines of two ranks meet takes
-    // more.
-    let quads = columns.len() * rows.len()
+    // Reserved up front, since the Mesh is rebuilt every frame and outgrowing
+    // the reserve doubles and copies it: a quad per edge, and two per junction,
+    // since one where lines of two ranks meet takes more than one.
+    let quads = 2 * columns.len() * rows.len()
         + across.iter().flatten().count()
         + down.iter().flatten().count();
     let mut mesh = Mesh::default();
