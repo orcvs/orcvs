@@ -1058,7 +1058,6 @@ mod tests {
             "grid_background",
             "text.",
             "style",
-            // The Cursor Effect's colour, gone with it.
             "cursor.area",
         ] {
             refuses(

@@ -314,9 +314,6 @@ _Avoid_: Caret, pointer, insertion point
 A rectangle of Positions within the Grid, spanned from an anchor Cell to a live end, with the Cursor on one of its Cells. The Cursor stays one Cell, at the live end except after command `A` spans the whole Grid around it; the Region is what holds the extent.
 _Avoid_: Selection, range, block, marquee
 
-**Cursor Effect**:
-Removed (ADR 0079). The animated presentation that once surrounded the Cursor; the Cursor and a Region now show a still outline.
-
 **Sector**:
 One block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. Tab and Shift Tab step the Cursor along its row a Sector at a time. A Sector is console presentation and navigation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.
 _Avoid_: Block, tile, chunk, page

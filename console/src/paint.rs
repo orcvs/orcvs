@@ -3132,7 +3132,7 @@ mod tests {
             graded += usize::from(cell.background.is_some());
         }
 
-        assert_eq!(graded, 0, "Cursor effects belong to console geometry");
+        assert_eq!(graded, 0, "a drawn Cell painted a fill");
     }
 
     ///

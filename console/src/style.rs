@@ -31,8 +31,8 @@ pub(crate) struct CellVisuals {
 /// live `theme.grid_background` — the `source_panel_frame` behind the Grid
 /// has already painted that colour across the console, so a Cell with
 /// nothing more to show answers `None` instead of repainting it. The
-/// Cursor's own Cell is one such arm when its own fill is unset: painting a
-/// fill there would hide the Cursor Effect's presentation. `Some` answers a
+/// Cursor's own Cell is one such arm when its own fill is unset, so the live
+/// `grid_background` shows through it as it does any other Cell. `Some` answers a
 /// composited colour: the Cursor's own fill on the selected Cell, which wins
 /// outright, or otherwise the resolved Theme's role/Diagnostic/Portal
 /// channel for the Cell's fact, each composited over `theme.cell_background`

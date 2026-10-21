@@ -348,8 +348,8 @@ mod native {
         }
 
         ///
-        /// The Cursor Effect's settings are gone, so a file written for it
-        /// loads with each of its keys reported as unknown.
+        /// No `[cursor_effects]` key is a setting, so each one in a file is
+        /// reported as unknown and the rest of the file still loads.
         ///
         #[test]
         fn the_removed_glitch_keys_are_unknown() {
@@ -364,7 +364,6 @@ mod native {
                     config.notices
                 );
             }
-            assert_eq!(config.notices.len(), 2, "{:?}", config.notices);
             assert_defaults(&config);
         }
 

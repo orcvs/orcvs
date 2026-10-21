@@ -1,6 +1,6 @@
 //! Repaint ownership: the wake-up that paints the Panel when the Playback
-//! Engine publishes, and the timed Render Frame that keeps the Run Clock and
-//! the Cursor Effect moving between publishes.
+//! Engine publishes, and the timed Render Frame that keeps the Run Clock
+//! moving between publishes.
 
 use std::time::Duration;
 

@@ -1092,8 +1092,8 @@ fn composited_colour(harness: &Harness<'_, Console>, point: Pos2) -> egui::Color
 /// it is opaque. `panel.background` differs from both, so a chrome panel
 /// painted under the Grid would show here.
 ///
-/// Measured at a point inside a Cell far enough from the Cursor that no
-/// Cursor Effect reaches it, off the Cell's borders and every diagonal.
+/// Measured at a point inside a Cell away from the Cursor, off the Cell's
+/// borders and every diagonal.
 ///
 #[tokio::test]
 async fn a_custom_themes_transparent_or_translucent_grid_composites_over_the_window_backdrop() {

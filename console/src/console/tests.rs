@@ -1519,8 +1519,7 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
 }
 
 ///
-/// Rest must not grow a one-second wake, and with default settings the
-/// Cursor Effect is off (ADR 0079), so a stopped console with the Cursor on
+/// Rest must not grow a one-second wake: a stopped console with the Cursor on
 /// screen asks for no timed wake at all. The first passes request an
 /// immediate Render Frame (focus, destination auto-select); settle before
 /// asserting.
@@ -3861,7 +3860,7 @@ async fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
 /// the resolved Theme's `grid_background`, and what stands in its place
 /// is the `CentralPanel` frame. The two values are stated in different
 /// places, so nothing but this holds them together: give the panel any
-/// other fill and every ordinary Cell — outside the Cursor effect, most of
+/// other fill and every ordinary Cell — most of
 /// an empty Grid — renders on a ground the Theme never chose for it.
 ///
 /// The whole console is checked rather than the constant alone, because it

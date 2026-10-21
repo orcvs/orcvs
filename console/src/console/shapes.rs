@@ -400,9 +400,9 @@ pub(super) fn edge_mesh(
 /// background precedes every Glyph, so a later Cell's fill can never paint over
 /// an earlier Cell's Glyph. The edges, the selection outline among them, sit
 /// between the two, after the fills, because a run widened across several
-/// Cells would cover every edge inside it. That is a fact about how a painter composites rather
-/// than about the Source, which is why it is decided here and not in the value
-/// layer — and the ordered groups name it in the type.
+/// Cells would cover every edge inside it. That is a fact about how a painter
+/// composites rather than about the Source, which is why it is decided here and
+/// not in the value layer — and the ordered groups name it in the type.
 ///
 /// # Why they are built eagerly
 ///
