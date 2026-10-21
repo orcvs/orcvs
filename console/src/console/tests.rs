@@ -3410,6 +3410,77 @@ fn unequal_cell_sides_draw_each_grid_line_once() {
 }
 
 ///
+/// Where a narrower line outranks a wider one at a crossing, it keeps its own
+/// width there and the wider line fills the rest of the junction: a 1 pixel
+/// border round a Cell turns its corners at 1 pixel through 2 pixel Grid lines.
+///
+#[test]
+fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
+    let grid = EdgeLine {
+        rank: EdgeRank::GridLine,
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+    };
+    let border = EdgeLine {
+        rank: EdgeRank::Diagnostic,
+        stroke: egui::Stroke::new(0.5, Color32::from_rgb(200, 100, 50)),
+    };
+    // Cell (1, 1) of three by three carries the border on every side.
+    let drawn =
+        crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(3, 3), 0..3, 0..3);
+    let line = |boundary: usize, cell: usize| {
+        if (boundary == 1 || boundary == 2) && cell == 1 {
+            border
+        } else {
+            grid
+        }
+    };
+    let runs = |boundary: usize| {
+        (0..3)
+            .map(|cell| EdgeRun {
+                line: boundary,
+                span: cell..cell + 1,
+                edge: line(boundary, cell),
+            })
+            .collect::<Vec<_>>()
+    };
+    let edges = Edges {
+        rows: (0..=3).flat_map(runs).collect(),
+        columns: (0..=3).flat_map(runs).collect(),
+    };
+    let lines = [10, 30, 50, 70];
+
+    let pixels = edge_pixels(&line_quads(
+        &[Shape::mesh(super::shapes::edge_mesh(
+            &edges, &drawn, &lines, &lines, 2.0,
+        ))],
+        2.0,
+    ));
+
+    // The border's 1 pixel bands, and the 2 pixel Grid line bands beside
+    // them, which stop where the border's sides run.
+    let (near, far) = (lines[1], lines[2]);
+    let grid_band = [near - 1, near, far - 1, far];
+    let along_side = |pixel: i32| (near + 1..far - 1).contains(&pixel);
+    for x in near - 1..=far {
+        for y in near - 1..=far {
+            let on_border = (near..=far).contains(&x)
+                && (near..=far).contains(&y)
+                && (x == near || x == far || y == near || y == far);
+            let on_grid = (grid_band.contains(&x) && !along_side(y))
+                || (grid_band.contains(&y) && !along_side(x));
+            let expected = if on_border {
+                Some(border.stroke.color)
+            } else if on_grid {
+                Some(grid.stroke.color)
+            } else {
+                None
+            };
+            assert_eq!(pixels.get(&(x, y)).copied(), expected, "pixel {x},{y}");
+        }
+    }
+}
+
+///
 /// A line under one physical pixel covers one pixel, faded by its width, as
 /// epaint's own thin strokes fade rather than thin. At 1× Okabe–Ito's
 /// half-point Grid line is one pixel at half its colour.
