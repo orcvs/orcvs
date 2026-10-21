@@ -261,17 +261,19 @@ impl Paint {
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
-    /// The outline is `theme.cursor_border` at `theme.cursor_border_width`
-    /// around the Cursor's Cell, or `theme.region_border` at
-    /// `theme.region_border_width` around a spanning Region, whose Cursor's
-    /// Cell keeps its own border and sector seams. `theme.cell_background` is the uniform base every one of those
-    /// fills composites over, and — being independent of whether a role
+    /// `theme.cell_background` is the uniform base every one of those fills
+    /// composites over, and — being independent of whether a role
     /// contributed one — is also what a Cell with no fill of its own falls
     /// back to, so `.scratch/theming/schema.md`'s "does not count as a fact
     /// fill when evaluating Region fallback" holds even when a custom
     /// Theme's Cell base is not transparent. `theme` is the resolved Theme
     /// the console currently shows the Source with, so every Token colour
     /// here is a Theme channel rather than a constant.
+    ///
+    /// The outline is `theme.cursor_border` at `theme.cursor_border_width`
+    /// around the Cursor's Cell, or `theme.region_border` at
+    /// `theme.region_border_width` around a spanning Region, whose Cursor's
+    /// Cell keeps its own border and sector seams.
     ///
     /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
     /// decides what to do with its answer, not what the answer is. It reads

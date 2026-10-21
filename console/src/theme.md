@@ -24,12 +24,14 @@ nonopaque. Nothing the console draws is a compiled constant.
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
 - Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), a Theme value (`region.background`, ADR 0053)
-- Selection stroke while caret is hidden: `#52C3A3` (`rgb(82, 195, 163)`)
-- Selection stroke: `#65E6BE` (`rgb(101, 230, 190)`)
+- Selection stroke at rest, on a hovered or open widget: `#52C3A3` (`rgb(82, 195, 163)`)
+- Selection stroke, on selected text and an active widget: `#65E6BE` (`rgb(101, 230, 190)`)
 
 The Cursor is an off-white outline on its Cell's four edges, drawn once over
-every line beside it and the same on all four sides (ADR 0078), with an eroded
-frame over it whose four edges change independently.
+every line beside it and the same on all four sides (ADR 0078). While the
+Cursor Effect erodes it, the eroded frame, whose four edges change
+independently, stands in for the outline, and the edges beneath show through
+its gaps.
 Bright fragments, gaps, short horizontal tears, and fine connections evolve at
 irregular intervals while the selected Cell and its Glyph remain exact. A
 faint green field beneath the Grid extends roughly seven Cells around it. The
@@ -169,8 +171,8 @@ reproduces the values on this page:
 | `code.background` | `#404040` | fixed: egui's own default code-span background |
 | `input.cursor` | `#C0DEFF` | fixed: egui's own default text cursor and active IME underline |
 | `selection.background` | `#0A2A22` | fixed: Selection fill |
-| `selection.border` | `#65E6BE` | fixed: Selection stroke |
-| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke while caret is hidden |
+| `selection.border` | `#65E6BE` | fixed: Selection stroke (selected text, active widget border) |
+| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke at rest (hovered and open widget border) |
 | `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
 
 `text.muted`, `link`, `code.background` and `input.cursor` are independent
