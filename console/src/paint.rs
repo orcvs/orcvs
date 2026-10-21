@@ -606,6 +606,8 @@ impl Paint {
                 .flatten()
                 .filter(|line| line.rank != EdgeRank::Selection)
         };
+        // `max_by_key` answers the last of equal maxima, so of two facts of
+        // one rank `other`, the Cell below or right, draws the edge.
         let winner = |one: Option<EdgeLine>, other: Option<EdgeLine>| {
             [one, other, self.grid_line]
                 .into_iter()
@@ -2565,6 +2567,30 @@ mod tests {
                 );
             }
             below = above;
+        }
+    }
+
+    ///
+    /// Two facts of one rank can differ in colour, as a Portal composited
+    /// over a Diagnostic does: the Cell below or right of the edge draws it.
+    ///
+    #[test]
+    fn of_two_equal_ranks_the_cell_below_or_right_draws_the_edge() {
+        let (first, second) = (
+            fact(EdgeRank::OutputPortal, 40),
+            fact(EdgeRank::OutputPortal, 80),
+        );
+        for (one, other) in [(first, second), (second, first)] {
+            assert_eq!(
+                edge_paint(&[&[one, other]]).edges().columns[1],
+                edge(1, 0..1, other),
+                "left {one:?}, right {other:?}"
+            );
+            assert_eq!(
+                edge_paint(&[&[one], &[other]]).edges().rows[1],
+                edge(1, 0..1, other),
+                "above {one:?}, below {other:?}"
+            );
         }
     }
 
