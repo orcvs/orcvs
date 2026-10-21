@@ -307,7 +307,7 @@ The terminal `!$` Function that sends a command to the Orcvs host application. I
 _Avoid_: Host Command, shell command, process execution
 
 **Cursor**:
-The one Cell the console is editing: a Position drawn with an outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
+The one Cell the console is editing: a Position drawn with a still outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
 **Region**:
@@ -315,8 +315,7 @@ A rectangle of Positions within the Grid, spanned from an anchor Cell to a live 
 _Avoid_: Selection, range, block, marquee
 
 **Cursor Effect**:
-The console presentation surrounding the Cursor, off by default and to be removed (ADR 0079): an eroded frame standing in for its Cell's outline, with the edges beneath showing through its gaps, and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
-_Avoid_: Cell highlight, radial glow, focus matrix
+Removed (ADR 0079). The animated presentation that once surrounded the Cursor; the Cursor and a Region now show a still outline.
 
 **Sector**:
 One block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. Tab and Shift Tab step the Cursor along its row a Sector at a time. A Sector is console presentation and navigation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.

@@ -205,11 +205,6 @@ async fn the_retired_settings_keys_are_neither_read_nor_written() {
         "{:?}",
         console.themes.notice_list()
     );
-    assert_eq!(
-        console.cursor_effects,
-        crate::cursor_effects::CursorEffectSettings::default()
-    );
-
     let mut written = InMemoryStorage::default();
     console.save(&mut written);
     for key in ["dark_theme", "light_theme", "cursor_effects"] {

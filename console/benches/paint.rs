@@ -23,9 +23,6 @@
 
 use console::{
     FramePaint, Paint, VisiblePositions,
-    cursor_effects::{
-        CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, cursor_effect_shapes,
-    },
     source_shapes::{DEFAULT_SOURCE_AREA, SourceShapes, presented_grid, visible_positions},
     theme::{Theme, okabe_ito},
 };
@@ -415,67 +412,5 @@ fn shapes(c: &mut Criterion) {
     group.finish();
 }
 
-/// The Cursor frame/living-area colours the console would hand this walk —
-/// `theme.cursor_area`/`theme.cursor_border` in production. Restated as
-/// literals because `Theme`'s fields are `pub(crate)`, a benchmark is a
-/// separate crate, and this geometry-only
-/// walk reads a colour's bytes without branching on them, so any opaque
-/// colour measures the same cost as the Theme's own.
-const AREA_COLOUR: egui::Color32 = egui::Color32::from_rgb(76, 190, 156);
-/// The Cursor/Region outline: `theme.cursor_border`/`theme.region_border` at
-/// its nominal display-point width (`theme.cursor_border_width`/
-/// `theme.region_border_width` in production, both 1 point in Okabe–Ito) —
-/// restated as a literal for the same reason `AREA_COLOUR` is: `Theme`'s
-/// fields are `pub(crate)` and this bench is a separate crate.
-const FRAME: egui::Stroke = egui::Stroke {
-    width: 1.0,
-    color: egui::Color32::from_rgb(234, 235, 229),
-};
-
-fn cursor_effects(c: &mut Criterion) {
-    let settings = CursorEffectSettings::default();
-    let mut animation = CursorEffectAnimation::default();
-    let sample = animation.advance(std::time::Duration::ZERO, settings);
-    let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(16.0));
-    let clip = cursor.expand(175.0);
-
-    c.bench_function("cursor effects/frame and living area", |b| {
-        b.iter(|| {
-            black_box(cursor_effect_shapes(
-                black_box(cursor),
-                black_box(cursor),
-                black_box(clip),
-                black_box(Vec2::splat(16.0)),
-                black_box(CursorEffectMotion { sample, settings }),
-                black_box(AREA_COLOUR),
-                black_box(FRAME),
-            ))
-        });
-    });
-
-    // A Region lasso twenty Cells by twelve: the frame is built per
-    // Cell-length of edge, so its cost follows the Region's perimeter.
-    let outline = Rect::from_min_max(cursor.min - Vec2::new(19.0, 11.0) * 16.0, cursor.max);
-    c.bench_function("cursor effects/region lasso 20x12", |b| {
-        b.iter(|| {
-            black_box(cursor_effect_shapes(
-                black_box(cursor),
-                black_box(outline),
-                black_box(clip),
-                black_box(Vec2::splat(16.0)),
-                black_box(CursorEffectMotion { sample, settings }),
-                black_box(AREA_COLOUR),
-                black_box(FRAME),
-            ))
-        });
-    });
-}
-
-criterion_group!(
-    benches,
-    derive_paint,
-    background_runs,
-    shapes,
-    cursor_effects
-);
+criterion_group!(benches, derive_paint, background_runs, shapes);
 criterion_main!(benches);

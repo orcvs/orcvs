@@ -15,8 +15,6 @@ pub mod console_midi;
     )
 )]
 mod contrast;
-#[doc(hidden)]
-pub mod cursor_effects;
 pub mod diagnostics;
 mod function_reference;
 mod grid_viewport;
@@ -32,9 +30,8 @@ mod report;
 mod source_file;
 pub mod style;
 // The resolved Theme model and pure inheritance resolver.
-// `pub` and `doc(hidden)` for the same reason `cursor_effects` is:
-// `console/benches/paint.rs` is a separate crate and needs `Theme`/
-// `okabe_ito` to build a Paint's Theme argument.
+// `pub` and `doc(hidden)` because `console/benches/paint.rs` is a separate
+// crate and needs `Theme`/`okabe_ito` to build a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
 // Decodes a TOML Theme document's bytes into the unresolved

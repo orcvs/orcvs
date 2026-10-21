@@ -45,20 +45,6 @@
 //! Pairwise colour-vision separation of the Source glyph channels is a
 //! test-only check on the built-in Themes, in the `colour_vision` child
 //! module. It is not applied to a loaded Theme document.
-//!
-//! It does not account for the Cursor Effect's animated `area` field
-//! (`theme.cursor_area`), which `console::shapes`'s `SourceShapes::into_shapes`
-//! draws beneath every Cell's own background. Where a Cell's own background
-//! is fully transparent, the real console can show a translucent tint of
-//! `cursor_area` at that Cell, up to `cursor_area`'s own configured alpha —
-//! but which Cells, and how much, is decided by Glitch amount and Glitch
-//! frequency (viewer settings, not Theme properties — ADR 0053: "A Theme
-//! decides how things look, never how much it moves") and by continuous,
-//! real-time animation. No single sample derived from the Theme alone would
-//! represent that faithfully, so this validator measures the plain Grid
-//! surface instead. `contrast::tests::painted_background_is_unaffected_by_
-//! the_cursor_area_effect` pins this as a checked boundary rather than an
-//! unnoticed gap.
 
 use std::fmt;
 
@@ -530,7 +516,7 @@ pub(crate) struct ContrastReport {
 /// [`ContrastReport::scope`]'s exact text.
 const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
 background it is actually painted on. Not pairwise Token-colour distinguishability, \
-border/focus visibility, or the Cursor Effect's animated area field. Chrome leaves out \
+or border/focus visibility. Chrome leaves out \
 disabled widgets (faded by egui, and exempt as inactive components under WCAG 2.1 SC 1.4.3), \
 code.background (no code span is painted), a widget state's strong fill (egui paints no text \
 on it), a popup or window floating over another surface, the Source Grid or a panel \
@@ -1464,40 +1450,6 @@ mod tests {
             "the Cursor's own fill must replace even an opaque role background"
         );
         assert_eq!(cursor.background, Color32::from_rgb(1, 2, 3));
-    }
-
-    // === The Cursor Effect's animated area field is out of scope ===
-
-    ///
-    /// This module's documented assumption, checked: `theme.cursor_area`
-    /// does not change a measured background, at a state whose own painted
-    /// background is fully transparent (Comment's `plain` state) — the one
-    /// case where the real console's animated area field could show
-    /// through. If this assertion ever fails, `painted` has started
-    /// accounting for `cursor_area` and this module's `# Scope` section
-    /// needs updating to match, not the other way around.
-    ///
-    #[test]
-    fn painted_background_is_unaffected_by_the_cursor_area_effect() {
-        let base = okabe_ito();
-        let distinct_area = Theme {
-            cursor_area: Color32::from_rgb(250, 10, 10),
-            ..base.clone()
-        };
-
-        let report_base = validate(&base);
-        let report_distinct = validate(&distinct_area);
-
-        let state = State::SourceGrid {
-            cursor: CursorPlacement::Plain,
-            portals: PortalRoles::NONE,
-        };
-        let comment_base = find(&report_base, Role::Comment, state);
-        let comment_distinct = find(&report_distinct, Role::Comment, state);
-        assert_eq!(
-            comment_base.background, comment_distinct.background,
-            "cursor_area must not change a measured background"
-        );
     }
 
     // === Acceptance is keyed on the measured colour pair, not only the label ===

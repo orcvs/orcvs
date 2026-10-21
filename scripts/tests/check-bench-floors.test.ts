@@ -45,7 +45,7 @@ test('parseBencherOutput reads a benchmark_group/parameter id unchanged', () => 
 });
 
 test('parseBencherOutput reads an id containing spaces as the whole name', () => {
-  // `console/benches/paint.rs` declares `cursor effects/frame and living area`.
+  // A criterion id may contain spaces.
   const results = parseBencherOutput(
     'test cursor effects/frame and living area ... bench:      12,345 ns/iter (+/- 678)\n',
   );

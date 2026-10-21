@@ -627,25 +627,7 @@ impl Paint {
     /// outline's.
     ///
     pub fn edges(&self) -> Edges {
-        self.edges_with(self.outline.as_ref())
-    }
-
-    ///
-    /// [`Self::edges`] as they lie beneath the selection outline: each of its
-    /// edges shows the facts beside it instead.
-    ///
-    pub(crate) fn edges_beneath_outline(&self) -> Edges {
-        self.edges_with(None)
-    }
-
-    ///
-    /// The selection outline's line, `None` where its border's width is zero.
-    ///
-    pub(crate) fn outline_line(&self) -> Option<EdgeLine> {
-        self.outline.as_ref().map(|outline| outline.line)
-    }
-
-    fn edges_with(&self, outline: Option<&Outline>) -> Edges {
+        let outline = self.outline.as_ref();
         let (columns, rows) = (self.drawn.columns.len(), self.drawn.rows.len());
         let (first_column, first_row) = (self.drawn.columns.start, self.drawn.rows.start);
         let cell = |column: Option<usize>, row: Option<usize>| {

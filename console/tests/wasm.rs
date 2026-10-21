@@ -1,7 +1,6 @@
 #![cfg(target_arch = "wasm32")]
 
 use console::console_midi::ConsoleMidiBackend;
-use console::cursor_effects::{CursorEffectAnimation, CursorEffectSettings};
 use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::{MidiChannel, Note, Velocity};
@@ -123,12 +122,9 @@ fn web_linear_memory_settles_after_warm_up() {
 }
 
 #[wasm_bindgen_test]
-fn web_app_and_cursor_effects_construct_without_panicking() {
+fn web_app_constructs_without_panicking() {
     let app = Orcvs::with_shape(2, 1).expect("browser playback needs no Tokio runtime");
     assert_eq!(app.render_frame().grid().rows(), 1);
-
-    let mut animation = CursorEffectAnimation::default();
-    animation.advance(Duration::from_secs(1), CursorEffectSettings::default());
 }
 
 ///

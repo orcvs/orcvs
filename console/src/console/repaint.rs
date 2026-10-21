@@ -88,21 +88,15 @@ pub(super) fn moving_run_clock(
 }
 
 ///
-/// Requests the next timed Render Frame: the sooner of the next whole second
-/// of a moving Run Clock and the Cursor Effect's next change, if either needs
-/// one. The Playback Engine's publishes wake the Panel on their own through
-/// [`panel_wake`], so nothing here polls for a Tick.
+/// Requests the next timed Render Frame at the next whole second of a moving
+/// Run Clock, if one is moving. The Playback Engine's publishes wake the Panel
+/// on their own through [`panel_wake`], so nothing here polls for a Tick.
 ///
-pub(super) fn request_timed_repaint(
-    ctx: &egui::Context,
-    run_clock: Option<Duration>,
-    cursor_effect: Option<Duration>,
-) {
-    if let Some(delay) = until_next(
-        run_clock,
-        cursor_effect,
-        Duration::from_secs_f32(ctx.input(|input| input.predicted_dt).max(0.0)),
-    ) {
-        ctx.request_repaint_after(delay);
+pub(super) fn request_timed_repaint(ctx: &egui::Context, run_clock: Option<Duration>) {
+    if let Some(run_clock) = run_clock {
+        ctx.request_repaint_after(until_next(
+            run_clock,
+            Duration::from_secs_f32(ctx.input(|input| input.predicted_dt).max(0.0)),
+        ));
     }
 }

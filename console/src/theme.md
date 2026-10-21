@@ -9,7 +9,7 @@ Theme and the console's default, and Orcvs Light, the light one. A value belongs
 to Okabe–Ito unless it sits under **The Orcvs Light built-in Theme** or names
 Orcvs Light; the values above the Themes section are Okabe–Ito's. Each one maps
 to a named property, recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
-Source Grid, its borders and the Cursor Effect's colours paint from the
+Source Grid, its borders and the Cursor's and Region's colours paint from the
 resolved Theme (`console/src/theme.rs`). Since `03`, the rest of the chrome —
 `egui::Visuals`, including inherited toolkit colours such as weak text,
 hyperlinks, code spans and the input caret, plus every chrome border and its
@@ -21,53 +21,26 @@ nonopaque. Nothing the console draws is a compiled constant.
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
 - 8 × 8 sector seam: `rgba(55, 101, 86, 0.43)`
 - Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
-- Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
 - Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), a Theme value (`region.background`, ADR 0053)
 - Selection stroke at rest, on a hovered or open widget: `#52C3A3` (`rgb(82, 195, 163)`)
 - Selection stroke, on selected text and an active widget: `#65E6BE` (`rgb(101, 230, 190)`)
 
 The Cursor is an off-white outline on its Cell's four edges, drawn once over
-every line beside it and the same on all four sides (ADR 0078). While the
-Cursor Effect erodes it, the eroded frame, whose four edges change
-independently, stands in for the outline, and the edges beneath show through
-its gaps.
-Bright fragments, gaps, short horizontal tears, and fine connections evolve at
-irregular intervals while the selected Cell and its Glyph remain exact. A
-faint green field beneath the Grid extends roughly seven Cells around it. The
-field uses continuous positions, related concentrations, large empty patches,
-and horizontal interruption rather than colouring whole Cells. Its broad form
-changes more slowly than its grain. The effect advances from console
-presentation time, independently of Playback and Source revisions, and remains
-stable between its scheduled visual changes.
+every line beside it and the same on all four sides (ADR 0078). It is still:
+nothing about the Cursor moves or schedules a repaint of its own.
 
 A Region larger than one Cell is outlined the same way around the whole
-Region, its perimeter's edges in `region.border`: the lasso. Each Cell-length
-of its edges carries the Cursor frame's fragments at the Cursor frame's weight,
-and the Cursor's own Cell keeps only its own fact's border while the lasso
-stands. Every other Cell of the Region
+Region, its perimeter's edges in `region.border`: the lasso. The Cursor's own
+Cell keeps only its own fact's border while the lasso stands. Every other Cell of the Region
 takes the Region fill; the Cursor's Cell takes the Cursor colour in a Region,
 which is unset by default and then leaves that Cell the Cursor cell colour, or
 the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
 ruled as every other Cell of the Region, sector seams included.
 
-The Cursor Effect's colours are Theme properties (`cursor.border`,
-`cursor.area`, `cursor.background`, `region.background`,
-`region.cursor.background`, `region.border`) with no control of their own,
-and no "Reset" remains. Glitch amount and Glitch frequency are not Theme
-values: ADR 0053 keeps them console settings, in the console's `Settings`
-menu rather than any `Theme` menu (`.scratch/theming/issues/09`).
-Amount zero retains the clear outline alone, without decorative noise. Frequency zero
-freezes both layers and stops their scheduled repaints. With persistence
-enabled, both are restored independently of the saved Source, falling back
-to their defaults — 0 and 0 — on an absent or malformed stored value.
-
-ADR 0053 and `theming/09` retain those distinct appearances and also stop
-cursor-effect repaints at amount zero, correcting the current frequency-only
-scheduling rule. Frequency zero may retain decorative fragmentation; it does
-not clear the effect. Reduced motion gives a clear, stationary frame without
-changing the stored preferences. Playback, Run Clock and input-driven repaints
-remain independent.
+The Cursor's and Region's colours are Theme properties (`cursor.border`,
+`cursor.background`, `region.background`, `region.cursor.background`,
+`region.border`) with no control of their own, and no "Reset" remains.
 
 ## Themes
 
@@ -78,16 +51,16 @@ Theme values. A Theme uses one versioned Orcvs format: `format: orcvs-theme`, `v
 `name`, `inherits` and a `style` map of named properties. Built-ins define complete
 values; custom files inherit omitted values. Base16 import is deferred.
 Planned Theme controls are colours, opacity, Grid and Cell
-colours, borders and border widths. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same thickness in points at every egui zoom factor; they do not scale with Cell size. Existing square Cells, Cell size and spacing remain unchanged.
+colours, borders and border widths. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same thickness in points at every egui zoom factor; they do not scale with Cell size. A Theme sets no Cell size or spacing.
 Exact key spellings and defaults are in
 [the Theme specification](../../.scratch/theming/schema.md). The table below
 records their relation to the current console. Preserve Grid structure,
-existing fonts and layout, input behaviour and separate motion settings.
+existing fonts and layout, and input behaviour.
 Font choice, font sizes, spacing, corner radii, shadows and gradients are not
 planned. Leave room for future extensions without speculative machinery.
-Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke; a Source Cell border of width zero withdraws from the edges it would draw, and the next fact's line, or the Grid line, shows there. Each Cell edge is drawn once, in the highest-ranked border either Cell carries on that side (ADR 0078). Preserve the existing defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Widths are fixed display points: a stroke never scales with the Cell size.
+Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke; a Source Cell border of width zero withdraws from the edges it would draw, and the next fact's line, or the Grid line, shows there. Each Cell edge is drawn once, in the highest-ranked border either Cell carries on that side (ADR 0078). Preserve the existing defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, Cursor/Region outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Widths are fixed display points: a stroke never scales with the Cell size.
 
-Cursor/Region effect width is nominal: retain the existing animated fragment variation of 0.45–1.25 times that width, without scaling by Cell size. The 1-point maximum constrains nominal width, so an animated fragment can reach 1.25 points. Width zero hides every affected stroke; it does not implicitly disable separately coloured fills or change motion preferences.
+A Cursor/Region outline of width zero withdraws from its edges; it does not disable the separately coloured fills.
 
 Transparency reveals the underlying console surface; the application window remains opaque. Desktop/window transparency is outside this effort. Painting and contrast validation must use the same composited backgrounds.
 
@@ -117,7 +90,6 @@ import is deferred past v1. A missing or malformed selected native Theme file sh
 falls back to the default built-in Theme of the same appearance. The saved
 selection is retained, so fixing the file restores it on the next launch.
 Unknown appearance keys and out-of-range widths reject the entire Theme document. The error identifies the offending setting and explains the valid key or range; values are neither silently ignored nor clamped. Contrast warnings alone do not reject a document.
-Glitch amount and Glitch frequency are settings, not Theme values.
 
 Themes choose colours and channels within fixed painting precedence. They cannot
 reorder facts. The Function and Bang exceptions inside Output Portals, portal
@@ -154,11 +126,10 @@ reproduces the values on this page:
 | `locked.border` | `#EAEBE580` | `source.ordinary` at 50%, framing each locked Cell |
 | `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
 | `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
-| `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
-| `cursor.area` | `#4CBE9C` | Cursor effects → Area colour |
-| `cursor.background` | none | Cursor effects → Cursor cell colour |
-| `region.background` | white at 17% | Cursor effects → Region colour |
-| `region.cursor.background` | none | Cursor effects → Cursor colour in a Region |
+| `cursor.border` | `#EAEBE5` | fixed: Cursor outline |
+| `cursor.background` | none | fixed: Cursor cell fill |
+| `region.background` | white at 17% | fixed: Region fill |
+| `region.cursor.background` | none | fixed: Cursor cell fill in a Region |
 | `window.background` | `#0B1112` | fixed: Page (the opaque window backdrop; `03`'s resolver refuses any other alpha) |
 | `panel.background` | `#0B1112` | fixed: Page |
 | `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
@@ -212,7 +183,7 @@ Its **chrome** colours start from the hand-tuned `LIGHT_PALETTE` whose values
 about Comment, Diagnostic or Output Portal, and its `marker`,
 `highlight` and four `bloom_*` pairs name tokens this console retired (the
 Marker and Highlight Glyphs went with `retired-glyph-vocabulary`; the four
-bloom rings became the Cursor Effect's single `cursor.area` field).
+bloom rings went with the Cursor Effect).
 
 Its **Source glyph hues do not**. The proposal's glyph colours were prepared
 here first and then dropped, by the user's 2026-09-23 decision, after a review
@@ -273,7 +244,6 @@ or decided here.
 | `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
 | `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
 | `region.border` | `#303F3B` | the same, as in Okabe–Ito |
-| `cursor.area` | `#148260` | proposal `bloom_core_line`'s colour, at full alpha |
 | `cursor.background` | none | shared with Okabe–Ito |
 | `region.cursor.background` | none | shared with Okabe–Ito |
 | `region.background` | `#303F3B2B` | the ink at 17%, mirroring Okabe–Ito's white at 17% |
@@ -343,9 +313,7 @@ about the dark Theme and does not transfer:
 - **`restyle-egui-console/02`'s near-black Cell rule becomes a near-white one.**
   The light Theme is a pale page over a near-white Source; Cell backgrounds stay
   near-white, and the only background changes are the meaningful states, each
-  a low-opacity wash over near-white. The Cursor Effect's `cursor.area`
-  `#148260` is the one saturated field: it is the animated Cursor highlight,
-  not a Cell background. Nothing decorative is added on top: no gradients, no
+  a low-opacity wash over near-white. Nothing decorative is added on top: no gradients, no
   rounded tiles, no shadows, no animation. The Region fill, the role tints and the Output Portal tint are all
   low-opacity washes for the same reason. `style::tests::the_four_prohibitions_
   hold_for_every_theme` holds the four prohibitions over both built-ins.
@@ -414,8 +382,8 @@ Representative measurements, `plain` placement unless stated:
 | `link` vs `panel.background` | `#0B62B8` | `#EFF4F2` | 5.47:1 |
 
 The scope is the validator's own: text contrast against the actually-composited
-background, never pairwise Token-colour distinguishability, border or focus
-visibility, or the Cursor Effect's animated `cursor.area` field. Pairwise
+background, never pairwise Token-colour distinguishability or border or focus
+visibility. Pairwise
 distinguishability of the Source glyph channels under a simulated dichromacy
 is a separate, test-only measurement over the built-ins, below.
 
@@ -569,10 +537,6 @@ names them, read once at startup; the web runs on the built-ins.
 dark = "okabe-ito"
 light = "orcvs-light"
 
-[cursor_effects]
-glitch_amount = 0       # 0–100; 0 leaves the outline still
-glitch_frequency = 0    # 0–100
-
 [cell]
 width = 12              # points, 8–64
 height = 18             # points, 8–64
@@ -595,9 +559,9 @@ frame presents it.
 
 The mode is egui's own `ThemePreference`, which eframe stores with egui memory;
 nothing in the console forces it at startup, so a fresh start follows the OS.
-The Theme selections and Cursor effects are never stored: the `dark_theme`,
-`light_theme` and `cursor_effects` storage keys earlier builds wrote are no
-longer read or written.
+The Theme selections are never stored: the `dark_theme`, `light_theme` and
+`cursor_effects` storage keys earlier builds wrote are no longer read or
+written.
 
 A selection names a built-in or a custom Theme `07` loads. At startup the
 native console reads `~/.orcvs/themes/`; the web console has the built-ins
@@ -727,8 +691,7 @@ accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"); the returned
 `ContrastReport` also carries the floor and a scope description directly, not
 only in rustdoc. `validate` measures text contrast only: never Token-colour
-distinguishability, border/focus visibility, or the Cursor Effect's animated
-`area` field.
+distinguishability or border/focus visibility.
 
 Colour vision is a second, test-only measurement over the built-in Themes,
 `contrast::colour_vision::distinguish` (`.scratch/theming/issues/04`), added

@@ -26,15 +26,7 @@ Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Them
 
 **Theme settings are validated strictly.** Unknown appearance keys and out-of-range widths reject the entire Theme document. The error identifies the offending setting and explains the valid key or range; values are neither silently ignored nor clamped. An unknown property's error names the unknown key and its line, and starts listing the valid property names, colours first; the 1024-byte message cap cuts that list, so it may omit the width and optional-fill names. It no longer suggests the property a near miss in case or separator meant ("did you mean"). That hint needed a hand-written key parser in front of the derived `style` table; the key and its position locate the mistake, and `schema.md`'s catalogue has the complete spellings. A failed web reimport preserves the previous valid document. Contrast warnings alone do not reject a document.
 
-**A Theme decides how things look, never how much they move.** (Amended by [ADR 0079](0079-source-cells-are-configurable-rectangles.md): Glitch amount and frequency default to zero, and the Cursor Effect is to be removed with these settings.) Glitch amount and Glitch frequency are settings, beside the operating system's reduced-motion preference, as cursor blink is in VS Code and Zed. A viewer who needs the Cursor Effect still should not have to make a custom Theme for every Theme they use. The Cursor Effect's colours and role background colours belong to the Theme.
-
-Amount zero gives a clear, stationary Cursor frame and no cursor-effect repaint
-deadline, even with positive frequency. Frequency zero freezes the current
-effect, potentially retaining decorative fragmentation, and likewise schedules
-no cursor-effect repaints. Reduced motion produces a clear, stationary frame
-without replacing the stored motion preferences. Playback, Run Clock and input
-repaints remain independent. Stopping effect repaints at amount zero is an
-intentional correction to the existing frequency-only scheduling rule.
+**A Theme decides how things look, never how much they move.** (Amended by [ADR 0079](0079-source-cells-are-configurable-rectangles.md): the Cursor Effect, its Glitch amount and frequency settings and the reduced-motion preference it alone read are removed, so nothing a Theme styles moves.) The Cursor's and Region's colours and the role background colours belong to the Theme.
 
 **The planned controls are colours, opacity, Grid and Cell colours, borders and border widths.** Theme changes preserve Grid structure and input behaviour; painting and hit-testing must remain consistent. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same visible thickness as Grid zoom changes; they do not scale with Cell size. Existing square Cells, zoom and spacing remain unchanged (amended by [ADR 0079](0079-source-cells-are-configurable-rectangles.md): Cells are configurable rectangles, 12 by 18 points by default). Exact key spellings and defaults are specified in `schema.md`; width bounds and existing stroke defaults are recorded below. Motion settings remain separate. Use the complete schema catalogue for implementation.
 
@@ -184,9 +176,7 @@ items do not become one.
   buttons at the right of the top bar. The mode is egui's `ThemePreference`,
   which egui's memory stores and eframe restores.
 - **No menu offers a Theme setting.** `no_menu_offers_a_setting` asserts that
-  no menu offers a Theme, a Dark or Light Theme slot, or the Glitch settings.
-  Glitch amount and Glitch frequency are the same file's `[cursor_effects]`
-  `glitch_amount` and `glitch_frequency`.
+  no menu offers a Theme, or a Dark or Light Theme slot.
 - **Theme documents are loaded at startup.** On native, the console reads
   `~/.orcvs/themes/` at each launch, as "Native Theme files are authoritative
   and read at startup" above states. There is no in-app load action.
@@ -226,7 +216,7 @@ the whole console follows the selection. `04` owns distinct dark/light
 registration and switching acceptance. The proposal is not approved merely
 because this delivery sequence is agreed.
 
-`SourcePaintSettings`, `CursorEffectSettings`' colours, `ConsolePalette`, and the `source_paint` storage key are all replaced rather than migrated, for the reason ADR 0051 gave: a resolved value has no room for "unset". The `cursor_effects` key keeps only Glitch amount and Glitch frequency, or moves them into the settings document.
+`SourcePaintSettings`, `CursorEffectSettings`' colours, `ConsolePalette`, and the `source_paint` storage key are all replaced rather than migrated, for the reason ADR 0051 gave: a resolved value has no room for "unset".
 
 *Its Theme pickers and menu items are superseded on 2026-10-10 by the second amendment above; kept as the decision's record.* `Theme → Source colours` and `Theme → Cursor effects` become a Theme picker for each of the two slots, a mode, and loading of externally authored Theme documents. "Reset to theme defaults" has nothing left to reset.
 

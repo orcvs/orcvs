@@ -10,8 +10,6 @@
 //! titles the window; `input` latches the keyboard owner; and a View menu appearance
 //! change applies last, once every widget of the frame has been styled.
 
-use std::time::Duration;
-
 mod diagnostics_panel;
 mod files;
 mod glyphs;
@@ -32,50 +30,12 @@ use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_pla
 use self::source_view::SourceView;
 use crate::config::Config;
 use crate::console_midi::ConsoleMidiBackend;
-use crate::cursor_effects::{CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings};
 use crate::midi::MidiDeviceSelection;
 use crate::persistence::starting_source;
 use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
 use orcvs::{app::Orcvs, playback::PlaybackStartError, source::Source};
-
-#[cfg(target_arch = "wasm32")]
-fn prefers_reduced_motion() -> bool {
-    web_sys::window()
-        .and_then(|window| {
-            window
-                .match_media("(prefers-reduced-motion: reduce)")
-                .ok()
-                .flatten()
-        })
-        .is_some_and(|query| query.matches())
-}
-
-#[cfg(target_os = "macos")]
-fn prefers_reduced_motion() -> bool {
-    std::process::Command::new("defaults")
-        .args(["read", "com.apple.universalaccess", "reduceMotion"])
-        .output()
-        .is_ok_and(|output| output.status.success() && output.stdout.starts_with(b"1"))
-}
-
-#[cfg(target_os = "linux")]
-fn prefers_reduced_motion() -> bool {
-    std::process::Command::new("gsettings")
-        .args(["get", "org.gnome.desktop.interface", "enable-animations"])
-        .output()
-        .is_ok_and(|output| output.status.success() && output.stdout.starts_with(b"false"))
-}
-
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    not(target_os = "macos"),
-    not(target_os = "linux")
-))]
-fn prefers_reduced_motion() -> bool {
-    false
-}
 
 ///
 /// The Source area of the default window in points at egui's zoom factor of
@@ -142,14 +102,6 @@ pub struct Console {
     /// frame, when a View menu change may already have switched the style.
     #[cfg(any(target_arch = "wasm32", test))]
     painted_backdrop: egui::Color32,
-    /// The operating system's reduced-motion preference, read once at
-    /// startup (`prefers_reduced_motion`) and combined with `cursor_effects`
-    /// each frame through `CursorEffectSettings::respecting_reduced_motion`.
-    reduced_motion: bool,
-    /// Glitch amount and Glitch frequency: the Cursor Effect's motion
-    /// settings. The Effect's colours are on the resolved Theme instead.
-    cursor_effects: CursorEffectSettings,
-    cursor_effect_animation: CursorEffectAnimation,
     /// The question asked before discarding the Source, while it is showing.
     /// It holds the keys, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
@@ -272,9 +224,6 @@ impl Console {
                 .presented(Appearance::from(cc.egui_ctx.theme()))
                 .window_background,
             themes,
-            reduced_motion: prefers_reduced_motion(),
-            cursor_effects: config.cursor_effects,
-            cursor_effect_animation: CursorEffectAnimation::default(),
             discard_confirmation: None,
             #[cfg(not(target_arch = "wasm32"))]
             source_file,
@@ -403,14 +352,6 @@ impl eframe::App for Console {
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
         let sampled_run_clock = observation.run_clock();
-        let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
-        let settings = self
-            .cursor_effects
-            .respecting_reduced_motion(self.reduced_motion);
-        let cursor_effect = CursorEffectMotion {
-            sample: self.cursor_effect_animation.advance(effect_now, settings),
-            settings,
-        };
         #[cfg(any(target_arch = "wasm32", test))]
         {
             self.painted_backdrop = self.themes.presented(appearance).window_background;
@@ -419,20 +360,9 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
-        let source = self.show_source_panel(root, &frame, appearance, cursor_effect);
+        let source = self.show_source_panel(root, &frame, appearance);
 
-        let cursor_delay = source
-            .shows_cursor_effect
-            .then(|| {
-                self.cursor_effect_animation
-                    .repaint_after(effect_now, cursor_effect.settings)
-            })
-            .flatten();
-        request_timed_repaint(
-            &ctx,
-            moving_run_clock(&observation, sampled_run_clock),
-            cursor_delay,
-        );
+        request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
 
         if let Some(mut diagnostics) = diagnostics {
             show_diagnostics(

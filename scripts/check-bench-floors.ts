@@ -48,10 +48,8 @@ export interface FloorCheck {
  * passes — prints one line per benchmark:
  * `test <name> ... bench: <N> ns/iter (+/- <M>)`, and the numbers carry `,`
  * thousands separators (criterion's `format::integer`, `criterion-0.8.2/src/
- * format.rs`). `<name>` runs lazily up to the first ` ... bench:`, so an id
- * containing spaces is read whole: `console/benches/paint.rs` declares
- * `cursor effects/frame and living area` and `cursor effects/region lasso
- * 20x12`.
+ * format.rs`). `<name>` runs lazily up to the first ` ... bench:`, so a
+ * criterion id containing spaces is read whole.
  */
 const BENCHER_LINE =
   /^test\s+(\S(?:.*?\S)?)\s+\.\.\.\s+bench:\s+([\d,]+)\s+(\S+)\/iter\s+\(\+\/-\s+([\d,]+)\)\s*$/u;

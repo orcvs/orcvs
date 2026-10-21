@@ -7,10 +7,6 @@
 //! dark = "okabe-ito"      # a dark Theme's identity
 //! light = "orcvs-light"   # a light Theme's identity
 //!
-//! [cursor_effects]
-//! glitch_amount = 0       # 0–100; 0 leaves the outline still
-//! glitch_frequency = 0    # 0–100
-//!
 //! [cell]
 //! width = 12              # points, 8–64
 //! height = 18             # points, 8–64
@@ -30,7 +26,6 @@
 
 use egui::Vec2;
 
-use crate::cursor_effects::CursorEffectSettings;
 use crate::grid_viewport::CELL_SIZE;
 use crate::theme_selection::ThemeSelection;
 
@@ -42,8 +37,6 @@ use crate::theme_selection::ThemeSelection;
 pub(crate) struct Config {
     /// The dark and light Theme identities, unchecked against the registry.
     pub(crate) theme_selection: ThemeSelection,
-    /// Glitch amount and Glitch frequency, before reduced motion.
-    pub(crate) cursor_effects: CursorEffectSettings,
     /// The Source Cell's width and height in points, before snapping.
     pub(crate) cell: Vec2,
     /// One message per problem, in the order found, for the Theme notice
@@ -55,7 +48,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             theme_selection: ThemeSelection::default(),
-            cursor_effects: CursorEffectSettings::default(),
             cell: CELL_SIZE,
             notices: Vec::new(),
         }
@@ -165,13 +157,11 @@ mod native {
         let mut notice = |message: String| config.notices.push(format!("{origin}: {message}"));
         let mut dark = None;
         let mut light = None;
-        let mut amount = None;
-        let mut frequency = None;
         let mut width = None;
         let mut height = None;
         for (section, value) in &table {
             let Some(keys) = value.as_table() else {
-                if matches!(section.as_str(), "theme" | "cursor_effects" | "cell") {
+                if matches!(section.as_str(), "theme" | "cell") {
                     notice(format!(
                         "`{section}` must be a table; its keys use their defaults"
                     ));
@@ -185,12 +175,6 @@ mod native {
                 match (section.as_str(), key.as_str()) {
                     ("theme", "dark") => dark = identity(&name, value, &mut notice),
                     ("theme", "light") => light = identity(&name, value, &mut notice),
-                    ("cursor_effects", "glitch_amount") => {
-                        amount = percentage(&name, value, &mut notice);
-                    }
-                    ("cursor_effects", "glitch_frequency") => {
-                        frequency = percentage(&name, value, &mut notice);
-                    }
                     ("cell", "width") => width = points(&name, value, &mut notice),
                     ("cell", "height") => height = points(&name, value, &mut notice),
                     _ => notice(format!("unknown key `{name}` is ignored")),
@@ -201,12 +185,6 @@ mod native {
             dark.unwrap_or(ThemeIdentity::default_for(Appearance::Dark)),
             light.unwrap_or(ThemeIdentity::default_for(Appearance::Light)),
         );
-        if let Some(amount) = amount {
-            *config.cursor_effects.amount_mut() = amount;
-        }
-        if let Some(frequency) = frequency {
-            *config.cursor_effects.frequency_mut() = frequency;
-        }
         if let Some(width) = width {
             config.cell.x = width;
         }
@@ -236,20 +214,6 @@ mod native {
         }
     }
 
-    /// A whole number from 0 to 100 inclusive.
-    fn percentage(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<u8> {
-        let percentage = value
-            .as_integer()
-            .and_then(|number| u8::try_from(number).ok())
-            .filter(|number| *number <= 100);
-        if percentage.is_none() {
-            notice(format!(
-                "`{name}` must be a whole number from 0 to 100; the default is used"
-            ));
-        }
-        percentage
-    }
-
     /// A Cell's width or height: a number of points within [`CELL_POINTS`].
     fn points(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<f32> {
         let points = value
@@ -271,7 +235,6 @@ mod native {
         use egui::Vec2;
 
         use super::{CONFIG_FILE, Config};
-        use crate::cursor_effects::CursorEffectSettings;
         use crate::grid_viewport::CELL_SIZE;
         use crate::theme::{Appearance, ThemeIdentity};
         use crate::theme_registry::tests_support::{TempDir, id};
@@ -284,16 +247,8 @@ mod native {
             Config::read(&dir.write(CONFIG_FILE, text))
         }
 
-        fn settings(amount: u8, frequency: u8) -> CursorEffectSettings {
-            let mut settings = CursorEffectSettings::default();
-            *settings.amount_mut() = amount;
-            *settings.frequency_mut() = frequency;
-            settings
-        }
-
         fn assert_defaults(config: &Config) {
             assert_eq!(config.theme_selection, ThemeSelection::default());
-            assert_eq!(config.cursor_effects, CursorEffectSettings::default());
             assert_eq!(config.cell, CELL_SIZE);
         }
 
@@ -319,23 +274,19 @@ mod native {
         #[test]
         fn every_key_is_read() {
             let config = read(
-                "[theme]\ndark = \"my-dark\"\nlight = \"my-light\"\n\n[cursor_effects]\n\
-                 glitch_amount = 0\nglitch_frequency = 100\n\n[cell]\nwidth = 10\nheight = 15.5\n",
+                "[theme]\ndark = \"my-dark\"\nlight = \"my-light\"\n\n[cell]\nwidth = 10\nheight = 15.5\n",
             );
             assert!(config.notices.is_empty(), "{:?}", config.notices);
             assert_eq!(
                 config.theme_selection,
                 ThemeSelection::new(id("my-dark"), id("my-light"))
             );
-            assert_eq!(config.cursor_effects, settings(0, 100));
             assert_eq!(config.cell, Vec2::new(10.0, 15.5));
         }
 
         #[test]
         fn an_absent_key_is_its_default() {
-            let config = read(
-                "[theme]\nlight = \"my-light\"\n[cursor_effects]\nglitch_amount = 7\n[cell]\nheight = 24\n",
-            );
+            let config = read("[theme]\nlight = \"my-light\"\n[cell]\nheight = 24\n");
             assert!(config.notices.is_empty(), "{:?}", config.notices);
             assert_eq!(
                 *config.theme_selection.identity(Appearance::Dark),
@@ -344,10 +295,6 @@ mod native {
             assert_eq!(
                 *config.theme_selection.identity(Appearance::Light),
                 id("my-light")
-            );
-            assert_eq!(
-                config.cursor_effects,
-                settings(7, CursorEffectSettings::default().frequency())
             );
             assert_eq!(config.cell, Vec2::new(CELL_SIZE.x, 24.0));
         }
@@ -383,7 +330,7 @@ mod native {
         fn an_unknown_key_is_a_notice_and_leaves_the_known_keys_applied() {
             let config = read(
                 "colour = 1\n[theme]\ndark = \"my-dark\"\naccent = \"x\"\n\
-                 [cursor_effects]\nglitch_amount = 9\n[extra]\nkey = 1\n",
+                 [cell]\nwidth = 9\n[extra]\nkey = 1\n",
             );
             for key in ["`colour`", "`theme.accent`", "`extra.key`"] {
                 assert!(
@@ -397,21 +344,34 @@ mod native {
                 *config.theme_selection.identity(Appearance::Dark),
                 id("my-dark")
             );
-            assert_eq!(config.cursor_effects.amount(), 9);
+            assert_eq!(config.cell.x, 9.0);
+        }
+
+        ///
+        /// The Cursor Effect's settings are gone, so a file written for it
+        /// loads with each of its keys reported as unknown.
+        ///
+        #[test]
+        fn the_removed_glitch_keys_are_unknown() {
+            let config = read("[cursor_effects]\nglitch_amount = 0\nglitch_frequency = 100\n");
+            for key in [
+                "`cursor_effects.glitch_amount`",
+                "`cursor_effects.glitch_frequency`",
+            ] {
+                assert!(
+                    mentions(&config, &format!("unknown key {key}")),
+                    "{key} was not reported: {:?}",
+                    config.notices
+                );
+            }
+            assert_eq!(config.notices.len(), 2, "{:?}", config.notices);
+            assert_defaults(&config);
         }
 
         #[test]
         fn an_out_of_range_or_mistyped_value_falls_back_alone() {
-            let config = read(
-                "[theme]\ndark = 3\nlight = \"\"\n\
-                 [cursor_effects]\nglitch_amount = 101\nglitch_frequency = -1\n",
-            );
-            for key in [
-                "`theme.dark`",
-                "`theme.light`",
-                "`cursor_effects.glitch_amount`",
-                "`cursor_effects.glitch_frequency`",
-            ] {
+            let config = read("[theme]\ndark = 3\nlight = \"\"\n");
+            for key in ["`theme.dark`", "`theme.light`"] {
                 assert!(
                     mentions(&config, key),
                     "{key} was not reported: {:?}",
@@ -419,13 +379,6 @@ mod native {
                 );
             }
             assert_defaults(&config);
-
-            let config = read("[cursor_effects]\nglitch_amount = \"x\"\nglitch_frequency = 12\n");
-            assert!(mentions(&config, "`cursor_effects.glitch_amount`"));
-            assert_eq!(
-                config.cursor_effects,
-                settings(CursorEffectSettings::default().amount(), 12)
-            );
 
             let config = read("[cell]\nwidth = 7.5\nheight = 64\n");
             assert!(mentions(&config, "`cell.width`"), "{:?}", config.notices);
