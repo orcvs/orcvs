@@ -241,8 +241,9 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// `None` for a Cell carrying neither fact: its edges show the Grid line,
 /// which no Cell owns.
 ///
-/// Called for every Cell but the single-Cell Cursor, whose own frame is decided in [`cell_visuals_with_cursor_colour`]
-/// before this function is ever reached.
+/// Called for every Cell but the single-Cell Cursor, whose own frame is
+/// decided in [`cell_visuals_with_cursor_colour`] before this function is
+/// ever reached.
 ///
 fn ordinary_border(
     paint: SourcePaint,

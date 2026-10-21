@@ -709,7 +709,8 @@ mod tests {
     /// A Region larger than one Cell fills every Cell it covers but the
     /// Cursor's with the Theme's Region colour, and gives no Cell of it, the
     /// Cursor's included, a border of its own, so the Grid line shows: the
-    /// lasso around the Region is the Cursor's border then. A Region of one Cell fills none.
+    /// lasso around the Region is the Cursor's border then. A Region of one
+    /// Cell fills none.
     ///
     /// The Cursor's Cell takes its own fill. Unset, it is the Cursor's cell
     /// colour, as with no Region; set, it is independent of both.
