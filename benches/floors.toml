@@ -115,3 +115,14 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # (about 3.2 ms) for the same benchmark, so a regression of the per-Cell cost
 # scaled across a full Grid still fails here.
 source = "CI-measured figures recorded in .scratch/paint-cell-cost/issues/04-prove-paint-recovered-without-making-source-revisions-slower.md (accepted f394d81, workflow run 35548734385, baseline run 35503614546); 1400000 ns chosen with headroom above the worse of the two attempt figures, not independently re-measured for this file."
+
+[[floor]]
+name = "paint_shapes/fitted/128x128"
+max_ns = 5000000
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# `SourceShapes::geometry` over a fully drawn 128 by 128 Grid at 1x: the per-Cell
+# edge and background placement the cell-edges tickets rework. 128x128 rather
+# than 256x256 because the larger case varied by most of its own figure between
+# local samples. A starting figure, not a CI-measured floor; revisit once the
+# series has points on `gh-pages`.
+source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 416 us with per-Cell borders, 704 us once the Grid lines are one Mesh (cell-edges 02), 2.34 ms once every border is a ranked edge (cell-edges 03), about 2.9 ms once a narrow line keeps its width through a junction (ADR 0078's junction rule). Kept at 5 ms, about 1.7 times the last, until CI measures it."

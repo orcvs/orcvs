@@ -1,8 +1,10 @@
 //! Drawing the Source Grid: the Shapes a Render Frame's Cells are painted as,
 //! in paint order, and the one click the Grid answers.
 
+use std::ops::Range;
+
 use egui::{
-    Color32, CornerRadius, FontId, Rect, Sense, Shape, Stroke, StrokeKind, emath::GuiRounding as _,
+    Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, emath::GuiRounding as _,
     epaint::RectShape,
 };
 use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
@@ -10,8 +12,8 @@ use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
-use crate::grid_viewport::GridViewport;
-use crate::paint::{FramePaint, Paint};
+use crate::grid_viewport::{GridViewport, VisiblePositions};
+use crate::paint::{EdgeLine, EdgeRank, Edges, FramePaint, Paint};
 use crate::theme::Theme;
 
 ///
@@ -45,6 +47,351 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 }
 
 ///
+/// A line placed on whole physical pixels: how many it covers across its
+/// boundary, and the colour it covers them in.
+///
+/// A line thinner than one physical pixel covers one at its colour scaled by
+/// its width, as epaint's own thin-stroke path fades a line rather than
+/// thinning it: a fine Theme still shows a Grid at 1×, and nothing blurs
+/// across two pixels.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PixelLine {
+    pub(super) width: i32,
+    pub(super) colour: Color32,
+}
+
+impl PixelLine {
+    ///
+    /// `stroke` at `pixels_per_point`, or `None` where it covers no pixel.
+    ///
+    pub(super) fn new(stroke: Stroke, pixels_per_point: f32) -> Option<Self> {
+        let physical = stroke.width * pixels_per_point;
+        if physical >= 1.0 {
+            Some(Self {
+                width: physical.round() as i32,
+                colour: stroke.color,
+            })
+        } else if physical > 0.0 {
+            Some(Self {
+                width: 1,
+                colour: stroke.color.gamma_multiply(physical),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+///
+/// The pixels a line `width` pixels wide covers across the boundary at pixel
+/// `boundary`: a 1 pixel line lies right of or below it, a 2 pixel line
+/// straddles it. A narrower line's band lies inside a wider one's on the same
+/// boundary, and a width of zero covers nothing.
+///
+fn band(boundary: i32, width: i32) -> Range<i32> {
+    let start = boundary - width / 2;
+    start..start + width
+}
+
+///
+/// An edge's line on whole physical pixels, with the rank and seam that decide
+/// which line a junction it meets shows.
+///
+#[derive(Clone, Copy)]
+struct Line {
+    rank: EdgeRank,
+    seamed: bool,
+    width: i32,
+    colour: Color32,
+}
+
+impl Line {
+    fn new(edge: EdgeLine, pixels_per_point: f32) -> Option<Self> {
+        let PixelLine { width, colour } = PixelLine::new(edge.stroke, pixels_per_point)?;
+        Some(Self {
+            rank: edge.rank,
+            seamed: edge.seamed,
+            width,
+            colour,
+        })
+    }
+
+    ///
+    /// Which of two lines meeting a junction gives it its colour: the higher
+    /// rank, and of one rank a seamed line, so a seam runs on through a plain
+    /// Grid line it crosses, and then the more opaque.
+    ///
+    fn strength(&self) -> (EdgeRank, bool, u8) {
+        (self.rank, self.seamed, self.colour.a())
+    }
+}
+
+/// The widest of `lines`, or zero where there are none.
+fn widest(lines: impl IntoIterator<Item = Line>) -> i32 {
+    lines.into_iter().map(|line| line.width).max().unwrap_or(0)
+}
+
+///
+/// The quad covering physical pixels `x` by `y` in `colour`, two triangles
+/// over four vertices, or nothing where it covers no pixel.
+///
+fn quad(mesh: &mut Mesh, x: Range<i32>, y: Range<i32>, colour: Color32, pixels_per_point: f32) {
+    if !x.is_empty() && !y.is_empty() {
+        let point =
+            |x: i32, y: i32| Pos2::new(x as f32 / pixels_per_point, y as f32 / pixels_per_point);
+        mesh.add_colored_rect(
+            Rect::from_min_max(point(x.start, y.start), point(x.end, y.end)),
+            colour,
+        );
+    }
+}
+
+///
+/// `whole` and both ends of each of `arms`, at most four, in order.
+///
+fn cuts<'a>(whole: &Range<i32>, arms: impl Iterator<Item = &'a Range<i32>>) -> [i32; 10] {
+    let mut cuts = [whole.start; 10];
+    cuts[1] = whole.end;
+    for (arm, cut) in arms.zip(cuts[2..].chunks_mut(2)) {
+        cut.copy_from_slice(&[arm.start, arm.end]);
+    }
+    cuts.sort_unstable();
+    cuts
+}
+
+/// The pieces between consecutive `cuts`.
+fn pieces(cuts: &[i32; 10]) -> impl Iterator<Item = Range<i32>> + '_ {
+    cuts.windows(2)
+        .filter(|cut| cut[0] < cut[1])
+        .map(|cut| cut[0]..cut[1])
+}
+
+/// The pixels along a band of a junction's rows that its lines cover, and that
+/// its top lines do.
+type Covered = (Option<Range<i32>>, Option<Range<i32>>);
+
+///
+/// Where a column line crosses a row line: the lines meeting it — above,
+/// below, left and right — and the pixels it covers, as wide as the widest
+/// line across the column line and as tall as the widest across the row line.
+///
+struct Junction {
+    lines: [Option<Line>; 4],
+    x: Range<i32>,
+    y: Range<i32>,
+}
+
+impl Junction {
+    fn new(lines: [Option<Line>; 4], column: i32, row: i32) -> Self {
+        let [above, below, left, right] = lines;
+        Self {
+            lines,
+            x: band(column, widest(above.into_iter().chain(below))),
+            y: band(row, widest(left.into_iter().chain(right))),
+        }
+    }
+
+    ///
+    /// Draws the junction on column line `column` and row line `row`: one quad
+    /// where every line meeting it is of one rank, and otherwise a quad for
+    /// each piece of it some line reaches, in the colour of the highest line
+    /// reaching it.
+    ///
+    fn draw(&self, mesh: &mut Mesh, column: i32, row: i32, pixels_per_point: f32) {
+        let (x, y) = (&self.x, &self.y);
+        let lines = self.lines.iter().flatten();
+        let Some(top) = lines.clone().max_by_key(|line| line.strength()) else {
+            return;
+        };
+        let Some(beneath) = lines
+            .filter(|line| line.rank != top.rank)
+            .max_by_key(|line| line.strength())
+        else {
+            return quad(mesh, x.clone(), y.clone(), top.colour, pixels_per_point);
+        };
+        // Where the top lines cross: their widest bands on each axis, and the
+        // whole junction along an axis none of them is on.
+        let [above, below, left, right] = self.lines;
+        let on_top = |line: Option<Line>| line.filter(|line| line.rank == top.rank);
+        let own = |whole: &Range<i32>, boundary: i32, one: Option<Line>, other: Option<Line>| {
+            match widest(on_top(one).into_iter().chain(on_top(other))) {
+                0 => whole.clone(),
+                width => band(boundary, width),
+            }
+        };
+        let own_x = own(x, column, above, below);
+        let own_y = own(y, row, left, right);
+        // Each line reaches from its own side of the junction to the far side
+        // of the top lines' crossing, so a lower line never fills a corner the
+        // top lines turn away from.
+        let arms = [
+            above.map(|line| (line, band(column, line.width), y.start..own_y.end)),
+            below.map(|line| (line, band(column, line.width), own_y.start..y.end)),
+            left.map(|line| (line, x.start..own_x.end, band(row, line.width))),
+            right.map(|line| (line, own_x.start..x.end, band(row, line.width))),
+        ];
+        let arms = arms.iter().flatten();
+        // What a band of rows covers. Every arm covers the pixel right of the
+        // column line, so each is one run.
+        let runs = |rows: &Range<i32>| -> Covered {
+            let run = |top_only: bool| {
+                arms.clone()
+                    .filter(|(_, _, y)| y.start <= rows.start && rows.end <= y.end)
+                    .filter(|(line, _, _)| !top_only || line.rank == top.rank)
+                    .map(|(_, x, _)| x.clone())
+                    .reduce(|run, x| run.start.min(x.start)..run.end.max(x.end))
+            };
+            (run(false), run(true))
+        };
+        let mut draw = |rows: Range<i32>, (all, own): Covered| {
+            let Some(all) = all else { return };
+            let mut fill = |x, colour| quad(mesh, x, rows.clone(), colour, pixels_per_point);
+            match own {
+                Some(own) => {
+                    fill(all.start..own.start, beneath.colour);
+                    fill(own.clone(), top.colour);
+                    fill(own.end..all.end, beneath.colour);
+                }
+                None => fill(all, beneath.colour),
+            }
+        };
+        // A band of rows for each change in the arms they cross, and
+        // consecutive bands that cover the same runs as one.
+        let mut open: Option<(Range<i32>, Covered)> = None;
+        for rows in pieces(&cuts(y, arms.clone().map(|(_, _, y)| y))) {
+            let covered = runs(&rows);
+            match &mut open {
+                Some((band, shown)) if *shown == covered => band.end = rows.end,
+                _ => {
+                    if let Some((band, shown)) = open.replace((rows, covered)) {
+                        draw(band, shown);
+                    }
+                }
+            }
+        }
+        if let Some((band, shown)) = open {
+            draw(band, shown);
+        }
+    }
+}
+
+///
+/// The edges of `drawn`, as one Mesh of quads that never overlap: a junction
+/// where each column line crosses each row line, and a piece for each edge
+/// between two junctions.
+///
+/// `columns` and `rows` are the boundaries of `drawn` in physical pixels, left
+/// to right and top to bottom, the far edges of its last column and row
+/// included, so each axis is spaced by its own Cell side.
+///
+/// An edge's piece lies across its boundary at its own width, and runs
+/// between the junctions at its ends. A narrower line's band lies inside the
+/// junction's. The highest-ranked lines meeting a junction keep their own
+/// widths there, and the highest-ranked of the others fills only the pixels
+/// its own lines reach, so a narrow border turns its corner at its own width
+/// through wider Grid lines and no Grid pixel lands inside the border. Of
+/// lines of one rank, a seamed one gives the colour, and then the most opaque.
+///
+/// Quads rather than rectangles or segments: epaint draws a filled rectangle
+/// no more than two feathering widths across as a line segment, rounds a one
+/// pixel junction away, and shrinks a segment's ends by a quarter pixel, so
+/// either leaves holes or overlaps at the crossings. A quad on whole pixels has
+/// no edge to anti-alias.
+///
+pub(super) fn edge_mesh(
+    edges: &Edges,
+    drawn: &VisiblePositions,
+    columns: &[i32],
+    rows: &[i32],
+    pixels_per_point: f32,
+) -> Mesh {
+    let (width, height) = (drawn.columns.len(), drawn.rows.len());
+    // Every edge, row line by row line and column line by column line.
+    let mut across = vec![None; (height + 1) * width];
+    for run in &edges.rows {
+        let row = run.line - drawn.rows.start;
+        for column in run.span.clone() {
+            across[row * width + column - drawn.columns.start] =
+                Line::new(run.edge, pixels_per_point);
+        }
+    }
+    let mut down = vec![None; (width + 1) * height];
+    for run in &edges.columns {
+        let column = run.line - drawn.columns.start;
+        for row in run.span.clone() {
+            down[column * height + row - drawn.rows.start] = Line::new(run.edge, pixels_per_point);
+        }
+    }
+    let across_at = |column: Option<usize>, row: usize| {
+        column
+            .filter(|column| *column < width)
+            .and_then(|column| across[row * width + column])
+    };
+    let down_at = |column: usize, row: Option<usize>| {
+        row.filter(|row| *row < height)
+            .and_then(|row| down[column * height + row])
+    };
+
+    // The junctions along row line `row`, each built once: a crossing's own
+    // pieces and the ends of the edges that meet it are both read from them.
+    let junctions = |row: usize| {
+        columns
+            .iter()
+            .enumerate()
+            .map(|(column, &column_line)| {
+                let lines = [
+                    down_at(column, row.checked_sub(1)),
+                    down_at(column, Some(row)),
+                    across_at(column.checked_sub(1), row),
+                    across_at(Some(column), row),
+                ];
+                Junction::new(lines, column_line, rows[row])
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // One quad per junction and per edge: reserved up front, since the Mesh
+    // is rebuilt every frame. A junction where lines of two ranks meet takes
+    // more.
+    let quads = columns.len() * rows.len()
+        + across.iter().flatten().count()
+        + down.iter().flatten().count();
+    let mut mesh = Mesh::default();
+    mesh.reserve_triangles(2 * quads);
+    mesh.reserve_vertices(4 * quads);
+    let mut this = junctions(0);
+    for (row, &row_line) in rows.iter().enumerate() {
+        let next = if row + 1 < rows.len() {
+            junctions(row + 1)
+        } else {
+            Vec::new()
+        };
+        for (column, (junction, &column_line)) in this.iter().zip(columns).enumerate() {
+            junction.draw(&mut mesh, column_line, row_line, pixels_per_point);
+            let [_, below, _, right] = junction.lines;
+            if let Some(line) = right {
+                let (x, y) = (
+                    junction.x.end..this[column + 1].x.start,
+                    band(row_line, line.width),
+                );
+                quad(&mut mesh, x, y, line.colour, pixels_per_point);
+            }
+            if let Some(line) = below {
+                let (x, y) = (
+                    band(column_line, line.width),
+                    junction.y.end..next[column].y.start,
+                );
+                quad(&mut mesh, x, y, line.colour, pixels_per_point);
+            }
+        }
+        this = next;
+    }
+
+    mesh
+}
+
+///
 /// A [`Paint`] as the Shapes that draw it, grouped by the order they are
 /// painted in.
 ///
@@ -52,12 +399,12 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 ///
 /// The order that matters is across kinds and not across Cells: every
 /// background precedes every Glyph, so a later Cell's fill can never paint over
-/// an earlier Cell's Glyph, and the Cursor follows both, so no neighbouring
-/// Cell's fill or seam can paint over it. The borders sit between the two,
-/// after the fills, because a run widened across several Cells covers the
-/// borders of every Cell but its last. That is a fact about how a painter
-/// composites rather than about the Source, which is why it is decided here and
-/// not in the value layer — and the ordered groups name it in the type.
+/// an earlier Cell's Glyph, and the Cursor Effect's fragments follow both.
+/// The edges, the selection outline among them, sit between the two,
+/// after the fills, because a run widened across several Cells would cover
+/// every edge inside it. That is a fact about how a painter composites rather
+/// than about the Source, which is why it is decided here and not in the value
+/// layer — and the ordered groups name it in the type.
 ///
 /// # Why they are built eagerly
 ///
@@ -66,22 +413,18 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// built lazily is a Shape built while holding it. The fields are complete
 /// before [`SourceShapes::into_shapes`] hands the first one out.
 ///
-pub(super) struct SourceShapes {
+pub struct SourceShapes {
     /// The living field beneath every exact Grid shape.
     pub(super) area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
     pub(super) backgrounds: Vec<Shape>,
-    /// Every Cell's own border but the Cursor's, and the Cursor's too while a
-    /// Region spans more than one Cell.
-    pub(super) borders: Vec<Shape>,
+    /// Every Cell edge — the Grid lines, every border fact and the selection
+    /// outline — as one Mesh, absent where no edge has a line.
+    pub(super) edges: Option<Shape>,
     /// One galley per Cell that shows a character other than the space.
     pub(super) glyphs: Vec<Shape>,
-    /// The sector seams, left edge then top edge, Cell by Cell.
-    pub(super) seams: Vec<Shape>,
-    /// The Cursor's own stroke, painted last: the Cursor Effect's frame — its
-    /// Cell's, or the lasso around a Region larger than one Cell, and empty
-    /// when a zero width hid it — or the selected Cell's border when no
-    /// effect frame was built.
+    /// The Cursor Effect's animated fragments, painted last, around its Cell
+    /// or the lasso around a Region larger than one Cell.
     pub(super) cursor: Vec<Shape>,
 }
 
@@ -91,16 +434,12 @@ impl SourceShapes {
     /// of, applied to the colours and characters it carries all of.
     ///
     /// Stroke widths are fixed display points at every device scale and egui
-    /// zoom factor, never multiplied by the Cell size: `sector.seam.width`
-    /// from the resolved `theme`, and each
-    /// Cell's own border width already resolved onto it as `cell.
-    /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
-    /// either composited with Diagnostic/Output Portal, by fact priority).
-    /// `pixels_per_point` is the device scale the background runs are
-    /// snapped to; see [`background_run`].
+    /// zoom factor, never multiplied by the Cell size: each edge's width is
+    /// already resolved onto [`Paint::edges`]. `pixels_per_point` is the
+    /// device scale the background runs are snapped to (see
+    /// [`background_run`]) and the edges are placed at (see [`edge_mesh`]).
     ///
-    /// Borders, the Cursor's border, the sector seams and the background runs
-    /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
+    /// Edges and the background runs need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
     /// so this composes the two steps rather than folding the atlas into the
     /// geometry pass.
     ///
@@ -110,51 +449,42 @@ impl SourceShapes {
         table: &GlyphTable,
         pixels_per_point: f32,
         cursor_effect: crate::cursor_effects::CursorEffectShapes,
-        theme: &Theme,
     ) -> Self {
-        let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
+        // While the Cursor Effect erodes the frame, its fragments are the
+        // outline: the edges beneath it show through their gaps, which a
+        // solid outline drawn under them would fill.
+        let edges = if cursor_effect.fragments.is_empty() {
+            paint.edges()
+        } else {
+            paint.edges_beneath_outline()
+        };
+        let mut shapes = Self::place(paint, &edges, viewport, pixels_per_point);
         shapes.area = cursor_effect.area;
-        if let Some(frame) = cursor_effect.frame {
-            shapes.cursor = frame;
-        }
+        shapes.cursor = cursor_effect.fragments;
         shapes.place_glyphs(paint, viewport, table);
         shapes
     }
 
     ///
-    /// Backgrounds, borders, the Cursor's border and the sector seams — every
-    /// Shape whose construction is arithmetic on a `Rect` and a `Color32`.
+    /// Backgrounds and edges — every Shape whose construction is arithmetic
+    /// on a `Rect` and a `Color32`.
     ///
     /// Takes no [`GlyphTable`] and no `egui::Context`. The `glyphs` field is
     /// empty until [`Self::place_glyphs`] fills it; both steps finish before
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
-    /// `theme.sector_seam_width` is read once, here, rather than once per
-    /// Cell inside the loop below, and a width of exactly zero skips building
-    /// that Shape outright rather than emitting a zero-width one for the
-    /// painter to drop. Each Cell's own border width is the one already
-    /// resolved onto `cell.border_width`.
+    #[cfg(any(test, feature = "test-source-shapes"))]
+    pub fn geometry(paint: &Paint, viewport: &GridViewport, pixels_per_point: f32) -> Self {
+        Self::place(paint, &paint.edges(), viewport, pixels_per_point)
+    }
+
     ///
-    pub(super) fn geometry(
-        paint: &Paint,
-        viewport: &GridViewport,
-        pixels_per_point: f32,
-        theme: &Theme,
-    ) -> Self {
-        // Sector Seam width has no per-Cell fact to vary by, so it is a plain
-        // frame-level read.
-        let sector_seam_width = theme.sector_seam_width.points();
-        // A border is the rule on every Cell the Paint covers, so it is sized
-        // up front — to those Cells rather than to the Grid: a densely written
-        // Source that regrew the group would pay the reallocation on every
-        // Render Frame, and a panned console reserves what it draws instead of
-        // what the Source holds. Backgrounds are sparse selection state, so
-        // that group starts empty. Glyphs are reserved in
-        // [`Self::place_glyphs`].
+    /// [`Self::geometry`] with `edges` as the Paint's edges.
+    ///
+    fn place(paint: &Paint, edges: &Edges, viewport: &GridViewport, pixels_per_point: f32) -> Self {
+        // Backgrounds are sparse selection state, so that group starts empty.
+        // Glyphs are reserved in [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
-        let mut borders = Vec::with_capacity(paint.count());
-        let mut seams = Vec::new();
-        let mut cursor = Vec::new();
 
         for run in paint.background_runs() {
             // Built from the Cells' own rectangles — `GridViewport::cell_rect`
@@ -183,66 +513,28 @@ impl SourceShapes {
             backgrounds.push(background_run(covered, run.colour, pixels_per_point));
         }
 
-        for (position, cell) in paint.cells() {
-            let rect = viewport.cell_rect(position.x(), position.y());
-            // The Cell's own border, stroke and no fill: a widened run paints
-            // over the borders of every Cell inside it, so the fill and the
-            // border cannot be one shape.
-            //
-            // `cell.border_width` is already the resolved answer —
-            // `crate::style::cell_visuals_with_cursor_colour` and
-            // `crate::style::ordinary_border`'s fact-priority pick, threaded
-            // through `CellPaint` — so this step is purely mechanical: a
-            // single-Cell Cursor's own `cell.selection.border.width`, or the
-            // ordinary Grid border's width, itself composited with
-            // Diagnostic/Output Portal by the same priority
-            // (`.scratch/theming/schema.md`'s Source composition steps 4 and
-            // 5). Each width independently hides its own stroke at zero,
-            // since it is this Cell's *only* width, decided once above.
-            if cell.border_width > 0.0 {
-                let border = Shape::Rect(RectShape::stroke(
-                    rect,
-                    CornerRadius::ZERO,
-                    Stroke::new(cell.border_width, cell.border),
-                    StrokeKind::Inside,
-                ));
-
-                // The selected Cell's border is the Cursor, and the Cursor is
-                // painted last. A Cursor the viewport does not reach is no
-                // Cell of this Paint, so the comparison never matches and the
-                // group stays empty.
-                if paint.cursor() == Some(position) && !paint.region_spans() {
-                    cursor.push(border);
-                } else {
-                    borders.push(border);
-                }
-            }
-
-            // A seam is absent on the Cursor's Cell, while it is framed on its
-            // own, because the derive suppressed it there, so this step never
-            // learns that rule.
-            if sector_seam_width > 0.0 {
-                for (colour, ends) in [
-                    (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
-                    (cell.sector_top, [rect.left_top(), rect.right_top()]),
-                ] {
-                    if let Some(colour) = colour {
-                        seams.push(Shape::line_segment(
-                            ends,
-                            Stroke::new(sector_seam_width, colour),
-                        ));
-                    }
-                }
-            }
-        }
+        // Every boundary of the drawn range, the far edge of its last column
+        // and row included, in physical pixels. `cell_rect` is a function of
+        // one index, so a boundary past the last drawn Cell is the near edge
+        // the next Cell would have.
+        let drawn = paint.drawn();
+        let edge_shapes = (!edges.rows.is_empty() || !edges.columns.is_empty()).then(|| {
+            let pixel = |point: f32| (point * pixels_per_point).round() as i32;
+            let columns = (drawn.columns.start..=drawn.columns.end)
+                .map(|column| pixel(viewport.cell_rect(column, drawn.rows.start).min.x))
+                .collect::<Vec<_>>();
+            let rows = (drawn.rows.start..=drawn.rows.end)
+                .map(|row| pixel(viewport.cell_rect(drawn.columns.start, row).min.y))
+                .collect::<Vec<_>>();
+            Shape::mesh(edge_mesh(edges, drawn, &columns, &rows, pixels_per_point))
+        });
 
         Self {
             area: Vec::new(),
             backgrounds,
-            borders,
+            edges: edge_shapes,
             glyphs: Vec::new(),
-            seams,
-            cursor,
+            cursor: Vec::new(),
         }
     }
 
@@ -283,9 +575,8 @@ impl SourceShapes {
         self.area
             .into_iter()
             .chain(self.backgrounds)
-            .chain(self.borders)
+            .chain(self.edges)
             .chain(self.glyphs)
-            .chain(self.seams)
             .chain(self.cursor)
     }
 }
@@ -377,10 +668,10 @@ pub(super) fn show_source(
     // costs a tenth of the Cell iteration and a tenth of the Shapes, whatever
     // the Grid's size.
     //
-    // The ranges reach one Cell past what is visible. A Cell draws its own left
-    // and top seams, so the seam at a Cell's right or bottom edge belongs to
-    // the Cell one past it, and a border feathers a physical pixel outside the
-    // rectangle it strokes. Both land on the clip's boundary, which is what the
+    // The ranges reach one Cell past what is visible. An edge shows the line
+    // of the higher-ranked fact either Cell beside it carries, so the edge at
+    // the last visible Cell's right or bottom side needs the Cell one past it.
+    // That Cell's own pieces land on the clip's boundary, which is what the
     // clip rectangle above discards. See `GridViewport::visible_positions` for
     // why that makes the margin a boundary case rather than a seam that would
     // otherwise go missing.
@@ -394,21 +685,15 @@ pub(super) fn show_source(
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive_with_theme(FramePaint::new(frame, visible), theme);
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
-    // The Cursor's own frame outlines its own Cell; the lasso around a
-    // Region larger than one Cell takes the Region's own outline colour
-    // instead — `.scratch/theming/schema.md`'s "the effect outline uses
-    // `cursor.border` or `region.border`". `paint` already answered which
-    // this Render Frame is, so this reads that rather than re-deriving it.
-    // The same choice picks the animated frame's nominal width, as one
-    // `Stroke` so colour and width cannot come from different answers:
-    // `cursor.border.width` for the Cursor's own frame, `region.border.width`
-    // for the lasso — a fixed display-point value `cursor_effect_shapes` never
-    // scales with the Cell size.
-    let frame_stroke = if paint.region_spans() {
-        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
-    } else {
-        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
-    };
+    // The Cursor Effect's frame is the selection outline's line — the
+    // Cursor's own `cursor.border`, or `region.border` for the lasso around a
+    // Region larger than one Cell, as `.scratch/theming/schema.md`'s "the
+    // effect outline uses `cursor.border` or `region.border`" says — so it is
+    // read from the Paint that answered it. A withdrawn outline frames
+    // nothing.
+    let frame_stroke = paint
+        .outline_line()
+        .map_or(egui::Stroke::NONE, |line| line.stroke);
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
         effect_outline(frame, &viewport),
@@ -418,14 +703,7 @@ pub(super) fn show_source(
         theme.cursor_area,
         frame_stroke,
     );
-    let shapes = SourceShapes::new(
-        &paint,
-        &viewport,
-        &table,
-        pixels_per_point,
-        cursor_effect,
-        theme,
-    );
+    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point, cursor_effect);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a

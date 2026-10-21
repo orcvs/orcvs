@@ -2,10 +2,12 @@
 //!
 //! `Paint::derive_with_theme` decides each drawn Cell from a Render Frame, a
 //! Position range, and the resolved Theme to paint it from. `Paint::background_runs`
-//! folds those backgrounds. Neither takes an `egui::Context`.
-//! `SourceShapes::new` is the other half of the path and is absent here: it
-//! needs a `GlyphTable`, which needs a Context, and that harness would be most
-//! of the number. The gate that reads these lines alerts at 150%
+//! folds those backgrounds. `SourceShapes::geometry` places a Paint at a
+//! presented Grid as its backgrounds, borders, seams and Cursor. None of them
+//! takes an `egui::Context`. Glyph placement is absent: it needs a
+//! `GlyphTable`, which needs a Context, and that harness would be most of the
+//! number. Tessellation is absent too; it is egui's, after the console hands
+//! the Shapes over. The gate that reads these lines alerts at 150%
 //! and fails at 300% across hosted runners, so a benchmark added here is a
 //! regression alarm, not a measurement anyone reads off.
 //!
@@ -22,6 +24,7 @@ use console::{
     cursor_effects::{
         CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, cursor_effect_shapes,
     },
+    source_shapes::{SourceShapes, presented_grid},
     theme::{Theme, okabe_ito},
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -290,6 +293,66 @@ fn background_runs(c: &mut Criterion) {
     group.finish();
 }
 
+///
+/// Measures `SourceShapes::geometry` on an already-derived Paint, at a Grid
+/// presented from the origin.
+///
+/// The number is the walk that places each drawn Cell's background runs and
+/// builds every Cell edge, borders, seams and the selection outline among
+/// them, into one Mesh. Every case runs at 1×; the
+/// fitted ranges run at 1.5× too, because a fractional device scale snaps
+/// Cell sides and edges through different rounding than a whole one.
+///
+fn shapes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("paint_shapes");
+    let theme = bench_theme();
+    let mut measure = |id: BenchmarkId, paint: &Paint, grid: Grid, pixels_per_point: f32| {
+        let viewport = presented_grid(Pos2::ZERO, grid, pixels_per_point);
+        group.bench_function(id, |b| {
+            b.iter(|| {
+                black_box(SourceShapes::geometry(
+                    black_box(paint),
+                    black_box(&viewport),
+                    black_box(pixels_per_point),
+                ))
+            })
+        });
+    };
+
+    let (_, _, smallest) = &frames()[0];
+    measure(
+        BenchmarkId::from_parameter("single"),
+        &paint(smallest, single(smallest), &theme),
+        smallest.grid(),
+        1.0,
+    );
+    measure(
+        BenchmarkId::from_parameter("empty"),
+        &paint(smallest, empty(smallest), &theme),
+        smallest.grid(),
+        1.0,
+    );
+
+    for &(cols, rows, ref frame) in frames() {
+        let fitted_paint = paint(frame, fitted(frame), &theme);
+        measure(size("fitted", cols, rows), &fitted_paint, frame.grid(), 1.0);
+        measure(
+            size("culled", cols, rows),
+            &paint(frame, culled(frame), &theme),
+            frame.grid(),
+            1.0,
+        );
+        measure(
+            size("fitted@1.5x", cols, rows),
+            &fitted_paint,
+            frame.grid(),
+            1.5,
+        );
+    }
+
+    group.finish();
+}
+
 /// The Cursor frame/living-area colours the console would hand this walk —
 /// `theme.cursor_area`/`theme.cursor_border` in production. Restated as
 /// literals because `Theme`'s fields are `pub(crate)`, a benchmark is a
@@ -346,5 +409,11 @@ fn cursor_effects(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, derive_paint, background_runs, cursor_effects);
+criterion_group!(
+    benches,
+    derive_paint,
+    background_runs,
+    shapes,
+    cursor_effects
+);
 criterion_main!(benches);

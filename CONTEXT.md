@@ -315,7 +315,7 @@ A rectangle of Positions within the Grid, spanned from an anchor Cell to a live 
 _Avoid_: Selection, range, block, marquee
 
 **Cursor Effect**:
-The console presentation surrounding the Cursor: an eroded frame on its Cell and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
+The console presentation surrounding the Cursor: an eroded frame standing in for its Cell's outline, with the edges beneath showing through its gaps, and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
 _Avoid_: Cell highlight, radial glow, focus matrix
 
 **Sector**:
@@ -323,7 +323,7 @@ One square block of Cells the console draws the Source Grid divided into, bounde
 _Avoid_: Block, tile, chunk, page
 
 **Sector Seam**:
-The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.
+The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is composited over the line each Cell edge it lies on shows, except the selection outline's, and carries no content, occupies no Cell, and belongs to no Expression.
 _Avoid_: Marker, guide, gridline, ruler dot
 
 **Render Frame**:
@@ -331,7 +331,7 @@ One repaint of the console, in which every Position the Grid yields is drawn onc
 _Avoid_: Frame, Tick, refresh
 
 **Paint**:
-The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
+The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown, and the line each Cell edge shows. Two Cells share the edge between them, so a Paint answers one line for it: the highest-ranked fact either Cell carries on that side, or the Grid line where neither carries one. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
 _Avoid_: Shapes, draw list, painter
 
 **Theme**:

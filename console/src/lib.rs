@@ -61,4 +61,17 @@ mod web_midi;
 pub mod web_startup;
 
 #[doc(inline)]
-pub use paint::{BackgroundRun, FramePaint, Paint, VisiblePositions};
+pub use paint::{
+    BackgroundRun, EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint, VisiblePositions,
+};
+
+/// Test-only, under `test-source-shapes`: the shapes step and the presented
+/// Grid it places a Paint at, for `console/benches/paint.rs`. Only this
+/// crate's own dev-dependency enables the feature, so no shipped build
+/// carries this module and the console's public surface is unchanged.
+#[cfg(feature = "test-source-shapes")]
+#[doc(hidden)]
+pub mod source_shapes {
+    pub use crate::console::shapes::SourceShapes;
+    pub use crate::grid_viewport::presented_grid;
+}

@@ -116,7 +116,7 @@ property or production test seam is introduced.
 | `widget.inactive.border.width` | 0 | 0–2 |
 | `input.cursor.width` | 2 | 0–2 |
 
-Zero width suppresses that stroke, not fills or other strokes. Diagnostic/Portal
+Zero width suppresses that stroke, not fills or other strokes; a Source Cell border of zero width withdraws from its edges, so the next fact's line shows there. Diagnostic/Portal
 width defaults to 0.5 while its transparent colour preserves the current absence.
 Inactive widget width zero preserves its current absence. The 2-point text-input
 caret is separate from ordinary 1-point chrome borders. Widths do not scale with
@@ -191,18 +191,34 @@ added explicitly to this catalogue, never silently left as a second palette.
    channels paint a Cell that plays no Portal role and is marked by a lock, and
    compose over every fact, a bound Function and a Bang included, since a lock
    marks only the Function spelling of the root it withheld. Border
-   channels use the same fact priority and compose over the ordinary Grid border.
+   channels use the same fact priority and compose over the ordinary Grid border,
+   or over nothing where a `grid.border.width` of zero draws no Grid line.
+   Two Cells share the edge between them, which is drawn once: it shows the
+   highest-ranked border either Cell carries on that side, ranked Grid line,
+   Diagnostic, Locked, Input Portal, Output Portal, and composited once in the
+   colour that Cell's own composition gives it. Of two borders of one rank, the
+   Cell below or to the right draws. A crossing takes the colour of the
+   highest-ranked line meeting it. A border of width zero withdraws from its
+   edges, and the fact below it shows; a transparent border of nonzero width
+   still holds its edge, so a transparent Portal border shows the colour it
+   composes over.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
    suppresses ordinary role fill in favour of its optional Cursor fill. In a
    multi-Cell Region, the Cursor uses Region Cursor fill, falling back to ordinary
    Cursor fill when absent. Other Region Cells use Region fill only when no visible
    effective fact fill exists after role, Diagnostic and Portal composition. A
    transparent role background alone does not hide a visible fact overlay;
-   uniform `cell.background` never prevents this fallback. Selected Cell borders
-   apply only to a single-Cell Cursor, which also suppresses Sector Seams. They
-   use `selection.border`/`.rest` and `cell.selection.border.width`. In a multi-Cell
-   Region, its Cursor Cell keeps the ordinary Grid border and Sector Seams; the effect
-   outline uses `cursor.border` or `region.border` and its separate width.
+   uniform `cell.background` never prevents this fallback. The selection outline
+   is the highest-ranked edge: the single-Cell Cursor's four edges in
+   `cursor.border` at `cursor.border.width`, or a multi-Cell Region's perimeter in
+   `region.border` at `region.border.width`, each drawn once over every fact
+   beside it. A width of zero withdraws the outline to the edges beneath it. The
+   outline's edges carry no Sector Seam. In a multi-Cell Region, its Cursor Cell
+   keeps its own border, ranked over every other fact. Every other edge on a
+   Sector boundary carries its seam composited once over the line that won it,
+   at the wider of `sector.seam.width` and that line's width.
+   No Source Cell's border reads `selection.border`, `.rest` or
+   `cell.selection.border.width`; the last is accepted and unread.
 6. Composite foreground/background/border channels with alpha using the same
    pinned colour operations as painting. Contrast reports use these exact resolved
    foreground/background pairs, not raw theme hex pairs. Preserve actual overlap

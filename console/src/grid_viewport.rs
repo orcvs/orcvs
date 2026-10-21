@@ -23,7 +23,7 @@ pub(crate) const CELL_SIZE: f32 = 16.0;
 /// The Grid viewport the console presents inside an available area.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct GridViewport {
+pub struct GridViewport {
     /// The side of one square Cell, in points.
     pub(crate) cell_size: f32,
     /// The presented Grid rectangle, anchored at the origin the Source's own
@@ -192,9 +192,9 @@ impl GridViewport {
     /// # Why the range is one Cell wider than the clip
     ///
     /// The margin is deliberate over-draw handed to the clip rectangle, whose
-    /// job it already is to discard it. A Cell draws the sector seams on its
-    /// *own* left and top edges, so the seam at a Cell's right or bottom edge
-    /// is drawn by the Cell one past it; and a feathered border spills roughly
+    /// job it already is to discard it. A Cell carries the sector seams on
+    /// its *own* left and top edges, so the seam at a Cell's right or bottom
+    /// edge is carried by the Cell one past it; and a feathered border spills roughly
     /// a physical pixel outside the rectangle it strokes.
     ///
     /// Both of those land on the clip's boundary rather than inside it. The
@@ -297,7 +297,7 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// the snap's shortfall at both ends, which is exactly what the console's
 /// bounds cannot see.
 ///
-pub(crate) fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
+pub fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
     // The device scale is divided by as well as multiplied by — once for the
     // Cell size and again for the corner — so it is refused on the same terms
     // as every other input here rather than checked for finiteness alone. Zero
@@ -575,8 +575,8 @@ mod tests {
     /// every direction the Grid has one.
     ///
     /// The margin is the acceptance criterion rather than a tolerance, and a
-    /// range value is the only place it can be held. A Cell draws its own left
-    /// and top seams, so the seam at a Cell's right or bottom edge belongs to
+    /// range value is the only place it can be held. A Cell carries its own
+    /// left and top seams, so the seam at a Cell's right or bottom edge belongs to
     /// the Cell one past it — but that seam is on screen only where the clip's
     /// edge falls exactly on the boundary, and the clip discards the rest of
     /// what the margin adds. See `GridViewport::visible_positions`: the margin

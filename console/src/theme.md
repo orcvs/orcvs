@@ -24,10 +24,14 @@ nonopaque. Nothing the console draws is a compiled constant.
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
 - Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), a Theme value (`region.background`, ADR 0053)
-- Selection stroke while caret is hidden: `#52C3A3` (`rgb(82, 195, 163)`)
-- Selection and Cursor stroke: `#65E6BE` (`rgb(101, 230, 190)`)
+- Selection stroke at rest, on a hovered or open widget: `#52C3A3` (`rgb(82, 195, 163)`)
+- Selection stroke, on selected text and an active widget: `#65E6BE` (`rgb(101, 230, 190)`)
 
-The Cursor is an eroded off-white frame whose four edges change independently.
+The Cursor is an off-white outline on its Cell's four edges, drawn once over
+every line beside it and the same on all four sides (ADR 0078). While the
+Cursor Effect erodes it, the eroded frame, whose four edges change
+independently, stands in for the outline, and the edges beneath show through
+its gaps.
 Bright fragments, gaps, short horizontal tears, and fine connections evolve at
 irregular intervals while the selected Cell and its Glyph remain exact. A
 faint green field beneath the Grid extends roughly seven Cells around it. The
@@ -37,10 +41,11 @@ changes more slowly than its grain. The effect advances from console
 presentation time, independently of Playback and Source revisions, and remains
 stable between its scheduled visual changes.
 
-A Region larger than one Cell is outlined by the same eroded frame, drawn
-around the whole Region: the lasso. Each Cell-length of its edges carries the
-Cursor frame's fragments at the Cursor frame's weight, and the Cursor's own
-Cell border is hidden while the lasso stands. Every other Cell of the Region
+A Region larger than one Cell is outlined the same way around the whole
+Region, its perimeter's edges in `region.border`: the lasso. Each Cell-length
+of its edges carries the Cursor frame's fragments at the Cursor frame's weight,
+and the Cursor's own Cell keeps only its own fact's border while the lasso
+stands. Every other Cell of the Region
 takes the Region fill; the Cursor's Cell takes the Cursor colour in a Region,
 which is unset by default and then leaves that Cell the Cursor cell colour, or
 the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
@@ -52,7 +57,7 @@ The Cursor Effect's colours are Theme properties (`cursor.border`,
 and no "Reset" remains. Glitch amount and Glitch frequency are not Theme
 values: ADR 0053 keeps them console settings, in the console's `Settings`
 menu rather than any `Theme` menu (`.scratch/theming/issues/09`).
-Amount zero retains one clear frame without decorative noise. Frequency zero
+Amount zero retains the clear outline alone, without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, both are restored independently of the saved Source, falling back
 to their defaults — 60 and 55 — on an absent or malformed stored value.
@@ -80,7 +85,7 @@ records their relation to the current console. Preserve Grid structure,
 existing fonts and layout, input behaviour and separate motion settings.
 Font choice, font sizes, spacing, corner radii, shadows and gradients are not
 planned. Leave room for future extensions without speculative machinery.
-Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke. Preserve the existing defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Widths are fixed display points: a stroke never scales with the Cell size.
+Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke; a Source Cell border of width zero withdraws from the edges it would draw, and the next fact's line, or the Grid line, shows there. Each Cell edge is drawn once, in the highest-ranked border either Cell carries on that side (ADR 0078). Preserve the existing defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Widths are fixed display points: a stroke never scales with the Cell size.
 
 Cursor/Region effect width is nominal: retain the existing animated fragment variation of 0.45–1.25 times that width, without scaling by Cell size. The 1-point maximum constrains nominal width, so an animated fragment can reach 1.25 points. Width zero hides every affected stroke; it does not implicitly disable separately coloured fills or change motion preferences.
 
@@ -159,15 +164,15 @@ reproduces the values on this page:
 | `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
 | `widget.inactive.border` | `#1C3932` | fixed: chrome stroke (width 0 keeps idle widgets' border absent) |
 | `text` | `#EAEBE5` | fixed: widget text |
-| `text.active` | `#65E6BE` | fixed: Selection and Cursor stroke (hovered/active widget text) |
+| `text.active` | `#65E6BE` | fixed: Selection stroke (hovered/active widget text) |
 | `text.muted` | `#E9EBE499` | fixed: egui's own weak-text attenuation (0.6 of `text`) |
 | `input.background` | `#000000` | fixed: borrowed from Source background |
 | `link` | `#5AAAFF` | fixed: egui's own default hyperlink colour |
 | `code.background` | `#404040` | fixed: egui's own default code-span background |
 | `input.cursor` | `#C0DEFF` | fixed: egui's own default text cursor and active IME underline |
 | `selection.background` | `#0A2A22` | fixed: Selection fill |
-| `selection.border` | `#65E6BE` | fixed: Selection and Cursor stroke |
-| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke while caret is hidden |
+| `selection.border` | `#65E6BE` | fixed: Selection stroke (selected text, active widget border) |
+| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke at rest (hovered and open widget border) |
 | `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
 
 `text.muted`, `link`, `code.background` and `input.cursor` are independent
@@ -189,7 +194,9 @@ The border widths are Theme properties too, in display points: `grid.border.widt
 `panel.border.width`, `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0 (which is why that border stays absent at
 its default) and `input.cursor.width` 2. `schema.md`
-lists them with the chrome widths.
+lists them with the chrome widths. `cell.selection.border.width` is accepted
+and read by nothing: the Cursor's outline is its Cell's edges, at
+`cursor.border.width`.
 
 ### The Orcvs Light built-in Theme
 
