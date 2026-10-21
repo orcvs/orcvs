@@ -2658,10 +2658,6 @@ mod tests {
         }
     }
 
-    ///
-    /// A Paint whose Cells carry the border facts in `rows`, with
-    /// `GRID_LINE` between them.
-    ///
     /// Whether `paint`'s selection outline is a Region larger than one Cell.
     fn outline_spans(paint: &Paint) -> bool {
         paint
@@ -2670,6 +2666,10 @@ mod tests {
             .is_some_and(|outline| outline.columns.len() * outline.rows.len() > 1)
     }
 
+    ///
+    /// A Paint whose Cells carry the border facts in `rows`, with
+    /// `GRID_LINE` between them.
+    ///
     fn edge_paint(rows: &[&[Option<EdgeLine>]]) -> Paint {
         let backgrounds = rows
             .iter()

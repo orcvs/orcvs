@@ -125,4 +125,4 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # than 256x256 because the larger case varied by most of its own figure between
 # local samples. A starting figure, not a CI-measured floor; revisit once the
 # series has points on `gh-pages`.
-source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 416 us with per-Cell borders, 704 us once the Grid lines are one Mesh (cell-edges 02), 2.34 ms once every border is a ranked edge (cell-edges 03). About twice the last, not yet CI-measured."
+source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 416 us with per-Cell borders, 704 us once the Grid lines are one Mesh (cell-edges 02), 2.34 ms once every border is a ranked edge (cell-edges 03), about 2.9 ms once a narrow line keeps its width through a junction (ADR 0078's junction rule). Kept at 5 ms, about 1.7 times the last, until CI measures it."

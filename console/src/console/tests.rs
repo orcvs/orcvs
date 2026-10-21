@@ -2621,7 +2621,7 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
 
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     assert_drawn_once_around(
-        &line_quads(&shapes.edges, 1.0),
+        &line_quads(shapes.edges.as_slice(), 1.0),
         &columns,
         &rows,
         1,
@@ -2683,7 +2683,7 @@ async fn an_eroded_frame_leaves_the_grid_line_beneath_its_gaps() {
                 "amount {amount} at {pixels_per_point}x"
             );
             let shapes = source_shapes_with_effect(&paint, viewport, pixels_per_point, effect);
-            let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+            let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
 
             assert_eq!(
                 pixels.get(&left_side),
@@ -2721,7 +2721,7 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
         let viewport = presented(screen, 5, 5, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
-        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let band = |boundary: i32| (boundary - width / 2)..(boundary - width / 2 + width);
         let middle = |from: i32, to: i32| (from + to) / 2;
@@ -2787,7 +2787,7 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
 ///
 /// An outline narrower than the Grid lines keeps its own width at its corners:
 /// its sides meet in an L of their own bands, and the wider Grid lines fill
-/// the rest of the junction, at 1×, 1.5× and 2×.
+/// the rest of the junction outside the outlined Cell, at 1×, 1.5× and 2×.
 ///
 #[tokio::test]
 async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_width() {
@@ -2807,7 +2807,7 @@ async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_wi
         let viewport = presented(screen, 5, 5, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
-        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let line = |width: crate::theme::GridWidth, colour| {
             super::shapes::PixelLine::new(
@@ -2838,9 +2838,27 @@ async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_wi
                         };
                         let own = (own_x.contains(&x) && inside(y, &own_y, inward_y))
                             || (own_y.contains(&y) && inside(x, &own_x, inward_x));
+                        // A Grid line stops at the outline, so no Grid pixel
+                        // lies inside the outlined Cell.
+                        let within = |at: i32, corner: i32, inward: i32| {
+                            if inward > 0 {
+                                at >= corner
+                            } else {
+                                at < corner
+                            }
+                        };
+                        let enclosed =
+                            within(x, corner_x, inward_x) && within(y, corner_y, inward_y);
+                        let expected = if own {
+                            Some(&outline.colour)
+                        } else if enclosed {
+                            None
+                        } else {
+                            Some(&grid.colour)
+                        };
                         assert_eq!(
                             pixels.get(&(x, y)),
-                            Some(if own { &outline.colour } else { &grid.colour }),
+                            expected,
                             "{pixels_per_point}× corner {corner_x},{corner_y} at {x},{y}"
                         );
                     }
@@ -2879,7 +2897,7 @@ async fn a_region_hides_the_cursors_cell_border() {
     let viewport = presented(screen, 8, 8, 1.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
     let shapes = source_geometry(&paint, viewport, 1.0);
-    let pixels = edge_pixels(&line_quads(&shapes.edges, 1.0));
+    let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), 1.0));
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     let middle = |from: i32, to: i32| (from + to) / 2;
     let grid = theme.grid_border.gamma_multiply(0.5);
@@ -3476,7 +3494,7 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         }
 
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width_pixels,
@@ -3583,8 +3601,9 @@ fn a_seam_runs_through_an_opaque_grid_line_it_crosses() {
 
 ///
 /// Where a narrower line outranks a wider one at a crossing, it keeps its own
-/// width there and the wider line fills the rest of the junction: a 1 pixel
-/// border round a Cell turns its corners at 1 pixel through 2 pixel Grid lines.
+/// width there and the wider line fills the rest of the junction outside the
+/// bordered Cell: a 1 pixel border round a Cell turns its corners at 1 pixel
+/// through 2 pixel Grid lines, and no Grid pixel lands inside it.
 ///
 #[test]
 fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
@@ -3631,7 +3650,7 @@ fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
     ));
 
     // The border's 1 pixel bands, and the 2 pixel Grid line bands beside
-    // them, which stop where the border's sides run.
+    // them, which stop where the border's sides run and at the bordered Cell.
     let (near, far) = (lines[1], lines[2]);
     let grid_band = [near - 1, near, far - 1, far];
     let along_side = |pixel: i32| (near + 1..far - 1).contains(&pixel);
@@ -3640,8 +3659,10 @@ fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
             let on_border = (near..=far).contains(&x)
                 && (near..=far).contains(&y)
                 && (x == near || x == far || y == near || y == far);
-            let on_grid = (grid_band.contains(&x) && !along_side(y))
-                || (grid_band.contains(&y) && !along_side(x));
+            let enclosed = (near..far).contains(&x) && (near..far).contains(&y);
+            let on_grid = ((grid_band.contains(&x) && !along_side(y))
+                || (grid_band.contains(&y) && !along_side(x)))
+                && !enclosed;
             let expected = if on_border {
                 Some(border.stroke.color)
             } else if on_grid {
@@ -3674,7 +3695,7 @@ async fn a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width() {
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
 
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             1,
@@ -3728,7 +3749,7 @@ async fn neighbouring_diagnostic_cells_share_one_line_composited_once() {
     let paint = painted_themed(&frame, viewport, screen, &theme);
     let shapes = source_geometry(&paint, viewport, 2.0);
     let (columns, rows) = boundaries(viewport, &paint, 2.0);
-    let pixels = edge_pixels(&line_quads(&shapes.edges, 2.0));
+    let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), 2.0));
 
     let diagnostic = theme.grid_border.blend(theme.diagnostic_border);
     let grid = theme.grid_border;
@@ -3797,7 +3818,7 @@ async fn a_one_pixel_crossing_is_drawn() {
     let shapes = source_geometry(&paint, viewport, 2.0);
     let (columns, rows) = boundaries(viewport, &paint, 2.0);
 
-    let quads = line_quads(&shapes.edges, 2.0);
+    let quads = line_quads(shapes.edges.as_slice(), 2.0);
     for &x in &columns {
         for &y in &rows {
             assert!(
@@ -4296,7 +4317,7 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
         let viewport = presented(screen, 16, 16, pixels_per_point);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
-        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let middle = |from: i32, to: i32| (from + to) / 2;
         let mut seams = 0;
@@ -4416,7 +4437,7 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
 
         assert!(
-            shapes.edges.is_empty(),
+            shapes.edges.is_none(),
             "{pixels_per_point} ppp: a Grid line, the Cursor's outline or a seam survived width 0"
         );
     }
@@ -4445,7 +4466,7 @@ async fn the_grid_and_cursor_border_widths_vary_independently() {
     };
     let paint = painted_themed(&frame, viewport, screen, &theme);
     let shapes = source_geometry(&paint, viewport, 1.0);
-    let quads = line_quads(&shapes.edges, 1.0);
+    let quads = line_quads(shapes.edges.as_slice(), 1.0);
 
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     let outline = outline_box(viewport, cursor, &theme, 1.0);
@@ -4493,7 +4514,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     let (width, colour) = expected_line(&zero_cursor, 1.0);
     assert_drawn_once(
-        &line_quads(&shapes.edges, 1.0),
+        &line_quads(shapes.edges.as_slice(), 1.0),
         &columns,
         &rows,
         width,
@@ -4506,7 +4527,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     };
     let paint = painted_themed(&frame, viewport, screen, &zero_grid);
     let shapes = source_geometry(&paint, viewport, 1.0);
-    let quads = line_quads(&shapes.edges, 1.0);
+    let quads = line_quads(shapes.edges.as_slice(), 1.0);
     assert_eq!(
         quads.len(),
         8,
@@ -4557,7 +4578,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
         shapes.cursor.len()
     );
     assert!(
-        line_quads(&shapes.edges, 1.0)
+        line_quads(shapes.edges.as_slice(), 1.0)
             .iter()
             .all(|(_, colour)| *colour != theme.cursor_border),
         "zero cursor.border.width left the Cursor's outline standing"
@@ -4586,7 +4607,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales()
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&theme, pixels_per_point);
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width,
@@ -5097,7 +5118,7 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&okabe_ito(), pixels_per_point);
         assert_drawn_once_around(
-            &line_quads(&shapes.edges, pixels_per_point),
+            &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width,

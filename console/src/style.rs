@@ -12,10 +12,10 @@ use crate::theme::{Appearance, Theme};
 
 ///
 /// `border` is the Cell's own border fact, its width in display points: the
-/// fact-priority pick [`ordinary_border`] answers, or the single-Cell
-/// Cursor's own `cell.selection.border.width`. `None` when the Cell carries no
-/// border fact, so its edges show the Grid line or a neighbour's fact. Never
-/// `Eq`, since a `Stroke` carries an `f32`.
+/// fact-priority pick [`ordinary_border`] answers. `None` when the Cell
+/// carries no border fact, so its edges show the Grid line or a neighbour's
+/// fact. The selection outline is not a Cell's fact; the Paint draws it on the
+/// edges it encloses. Never `Eq`, since a `Stroke` carries an `f32`.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CellVisuals {

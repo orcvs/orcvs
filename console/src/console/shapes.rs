@@ -13,7 +13,7 @@ use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
 use crate::grid_viewport::{GridViewport, VisiblePositions};
-use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
+use crate::paint::{EdgeLine, EdgeRank, Edges, FramePaint, Paint};
 use crate::theme::Theme;
 
 ///
@@ -94,123 +94,184 @@ fn band(boundary: i32, width: i32) -> Range<i32> {
     start..start + width
 }
 
-/// A line meeting a junction, with the edge it draws.
-type Meeting = Option<(EdgeLine, PixelLine)>;
-
 ///
-/// Which of two lines meeting a junction gives it its colour: the higher rank,
-/// and of one rank a seamed line, so a seam runs on through a plain Grid line
-/// it crosses, and then the more opaque.
+/// An edge's line on whole physical pixels, with the rank and seam that decide
+/// which line a junction it meets shows.
 ///
-fn strongest((edge, line): &&(EdgeLine, PixelLine)) -> (EdgeRank, bool, u8) {
-    (edge.rank, edge.seamed, line.colour.a())
+#[derive(Clone, Copy)]
+struct Line {
+    rank: EdgeRank,
+    seamed: bool,
+    width: i32,
+    colour: Color32,
 }
 
-///
-/// A junction where lines of more than one rank meet: the pixels it covers,
-/// the part of them each of the highest-ranked lines covers from its own side,
-/// their colour, and the colour of the highest-ranked of the rest.
-///
-struct Junction {
-    x: Range<i32>,
-    y: Range<i32>,
-    arms: [Option<(Range<i32>, Range<i32>)>; 4],
-    top: Color32,
-    beneath: Color32,
-}
-
-impl Junction {
-    ///
-    /// The junction on column line `column` and row line `row` where `downs`
-    /// (above, below) and `acrosses` (left, right) meet, or `None` where they
-    /// are all of one rank and it is one piece.
-    ///
-    fn mixed(downs: &[Meeting; 2], acrosses: &[Meeting; 2], column: i32, row: i32) -> Option<Self> {
-        let lines = || downs.iter().chain(acrosses).flatten();
-        let top = lines().map(|(edge, _)| edge.rank).max()?;
-        let on_top = |line: &&(EdgeLine, PixelLine)| line.0.rank == top;
-        let widest = |lines: &[Meeting], top_only: bool| {
-            lines
-                .iter()
-                .flatten()
-                .filter(|line| !top_only || on_top(line))
-                .map(|(_, line)| line.width)
-                .max()
-                .unwrap_or(0)
-        };
-        let beneath = lines()
-            .filter(|line| !on_top(line))
-            .max_by_key(strongest)?
-            .1
-            .colour;
-        let x = band(column, widest(downs, false));
-        let y = band(row, widest(acrosses, false));
-        // Where the top lines cross, their widest bands on each axis; along an
-        // axis none of them crosses, the whole junction.
-        let own = |whole: &Range<i32>, boundary: i32, width: i32| {
-            if width == 0 {
-                whole.clone()
-            } else {
-                band(boundary, width)
-            }
-        };
-        let own_x = own(&x, column, widest(downs, true));
-        let own_y = own(&y, row, widest(acrosses, true));
-        // Each top line reaches from its own side of the junction through the
-        // top lines' crossing.
-        let arm = |line: &Meeting, boundary: i32| {
-            line.as_ref()
-                .filter(on_top)
-                .map(|(_, line)| band(boundary, line.width))
-        };
-        let [above, below] = downs;
-        let [left, right] = acrosses;
+impl Line {
+    fn new(edge: EdgeLine, pixels_per_point: f32) -> Option<Self> {
+        let PixelLine { width, colour } = PixelLine::new(edge.stroke, pixels_per_point)?;
         Some(Self {
-            arms: [
-                arm(above, column).map(|band| (band, y.start..own_y.end)),
-                arm(below, column).map(|band| (band, own_y.start..y.end)),
-                arm(left, row).map(|band| (x.start..own_x.end, band)),
-                arm(right, row).map(|band| (own_x.start..x.end, band)),
-            ],
-            top: lines().filter(on_top).max_by_key(strongest)?.1.colour,
-            x,
-            y,
-            beneath,
+            rank: edge.rank,
+            seamed: edge.seamed,
+            width,
+            colour,
         })
     }
 
     ///
-    /// The junction as quads that never overlap, passed to `quad`: a band of
-    /// rows for each change in the arms they cross, each split into the top
-    /// lines' pixels and the rest.
+    /// Which of two lines meeting a junction gives it its colour: the higher
+    /// rank, and of one rank a seamed line, so a seam runs on through a plain
+    /// Grid line it crosses, and then the more opaque.
     ///
-    fn quads(&self, quad: &mut impl FnMut(Range<i32>, Range<i32>, Color32)) {
-        let (x, y) = (&self.x, &self.y);
-        let mut cuts = [y.start; 10];
-        cuts[1] = y.end;
-        for (arm, cut) in self.arms.iter().flatten().zip(cuts[2..].chunks_mut(2)) {
-            cut.copy_from_slice(&[arm.1.start, arm.1.end]);
+    fn strength(&self) -> (EdgeRank, bool, u8) {
+        (self.rank, self.seamed, self.colour.a())
+    }
+}
+
+/// The widest of `lines`, or zero where there are none.
+fn widest(lines: impl IntoIterator<Item = Line>) -> i32 {
+    lines.into_iter().map(|line| line.width).max().unwrap_or(0)
+}
+
+///
+/// The quad covering physical pixels `x` by `y` in `colour`, two triangles
+/// over four vertices, or nothing where it covers no pixel.
+///
+fn quad(mesh: &mut Mesh, x: Range<i32>, y: Range<i32>, colour: Color32, pixels_per_point: f32) {
+    if !x.is_empty() && !y.is_empty() {
+        let point =
+            |x: i32, y: i32| Pos2::new(x as f32 / pixels_per_point, y as f32 / pixels_per_point);
+        mesh.add_colored_rect(
+            Rect::from_min_max(point(x.start, y.start), point(x.end, y.end)),
+            colour,
+        );
+    }
+}
+
+///
+/// `whole` and both ends of each of `arms`, at most four, in order.
+///
+fn cuts<'a>(whole: &Range<i32>, arms: impl Iterator<Item = &'a Range<i32>>) -> [i32; 10] {
+    let mut cuts = [whole.start; 10];
+    cuts[1] = whole.end;
+    for (arm, cut) in arms.zip(cuts[2..].chunks_mut(2)) {
+        cut.copy_from_slice(&[arm.start, arm.end]);
+    }
+    cuts.sort_unstable();
+    cuts
+}
+
+/// The pieces between consecutive `cuts`.
+fn pieces(cuts: &[i32; 10]) -> impl Iterator<Item = Range<i32>> + '_ {
+    cuts.windows(2)
+        .filter(|cut| cut[0] < cut[1])
+        .map(|cut| cut[0]..cut[1])
+}
+
+/// The pixels along a band of a junction's rows that its lines cover, and that
+/// its top lines do.
+type Covered = (Option<Range<i32>>, Option<Range<i32>>);
+
+///
+/// Where a column line crosses a row line: the lines meeting it — above,
+/// below, left and right — and the pixels it covers, as wide as the widest
+/// line across the column line and as tall as the widest across the row line.
+///
+struct Junction {
+    lines: [Option<Line>; 4],
+    x: Range<i32>,
+    y: Range<i32>,
+}
+
+impl Junction {
+    fn new(lines: [Option<Line>; 4], column: i32, row: i32) -> Self {
+        let [above, below, left, right] = lines;
+        Self {
+            lines,
+            x: band(column, widest(above.into_iter().chain(below))),
+            y: band(row, widest(left.into_iter().chain(right))),
         }
-        cuts.sort_unstable();
-        for rows in cuts.windows(2).filter(|cut| cut[0] < cut[1]) {
-            let rows = rows[0]..rows[1];
-            // The arms crossing these rows overlap or meet, so they cover one
-            // run of pixels.
-            let covered = self
-                .arms
-                .iter()
-                .flatten()
-                .filter(|(_, arm)| arm.start <= rows.start && rows.end <= arm.end)
-                .map(|(arm, _)| arm.clone())
-                .reduce(|run, arm| run.start.min(arm.start)..run.end.max(arm.end));
-            match covered {
-                Some(run) => {
-                    quad(x.start..run.start, rows.clone(), self.beneath);
-                    quad(run.clone(), rows.clone(), self.top);
-                    quad(run.end..x.end, rows, self.beneath);
-                }
-                None => quad(x.clone(), rows, self.beneath),
+    }
+
+    ///
+    /// Draws the junction on column line `column` and row line `row`: one quad
+    /// where every line meeting it is of one rank, and otherwise a quad for
+    /// each piece of it some line reaches, in the colour of the highest line
+    /// reaching it.
+    ///
+    fn draw(&self, mesh: &mut Mesh, column: i32, row: i32, pixels_per_point: f32) {
+        let (x, y) = (&self.x, &self.y);
+        let lines = self.lines.iter().flatten();
+        let Some(top) = lines.clone().max_by_key(|line| line.strength()) else {
+            return;
+        };
+        let Some(beneath) = lines
+            .filter(|line| line.rank != top.rank)
+            .max_by_key(|line| line.strength())
+        else {
+            return quad(mesh, x.clone(), y.clone(), top.colour, pixels_per_point);
+        };
+        // Where the top lines cross: their widest bands on each axis, and the
+        // whole junction along an axis none of them is on.
+        let [above, below, left, right] = self.lines;
+        let on_top = |line: Option<Line>| line.filter(|line| line.rank == top.rank);
+        let own = |whole: &Range<i32>, boundary: i32, one: Option<Line>, other: Option<Line>| {
+            match widest(on_top(one).into_iter().chain(on_top(other))) {
+                0 => whole.clone(),
+                width => band(boundary, width),
             }
+        };
+        let own_x = own(x, column, above, below);
+        let own_y = own(y, row, left, right);
+        // Each line reaches from its own side of the junction to the far side
+        // of the top lines' crossing, so a lower line never fills a corner the
+        // top lines turn away from.
+        let arms = [
+            above.map(|line| (line, band(column, line.width), y.start..own_y.end)),
+            below.map(|line| (line, band(column, line.width), own_y.start..y.end)),
+            left.map(|line| (line, x.start..own_x.end, band(row, line.width))),
+            right.map(|line| (line, own_x.start..x.end, band(row, line.width))),
+        ];
+        let arms = arms.iter().flatten();
+        // What a band of rows covers. Every arm covers the pixel right of the
+        // column line, so each is one run.
+        let runs = |rows: &Range<i32>| -> Covered {
+            let run = |top_only: bool| {
+                arms.clone()
+                    .filter(|(_, _, y)| y.start <= rows.start && rows.end <= y.end)
+                    .filter(|(line, _, _)| !top_only || line.rank == top.rank)
+                    .map(|(_, x, _)| x.clone())
+                    .reduce(|run, x| run.start.min(x.start)..run.end.max(x.end))
+            };
+            (run(false), run(true))
+        };
+        let mut draw = |rows: Range<i32>, (all, own): Covered| {
+            let Some(all) = all else { return };
+            let mut fill = |x, colour| quad(mesh, x, rows.clone(), colour, pixels_per_point);
+            match own {
+                Some(own) => {
+                    fill(all.start..own.start, beneath.colour);
+                    fill(own.clone(), top.colour);
+                    fill(own.end..all.end, beneath.colour);
+                }
+                None => fill(all, beneath.colour),
+            }
+        };
+        // A band of rows for each change in the arms they cross, and
+        // consecutive bands that cover the same runs as one.
+        let mut open: Option<(Range<i32>, Covered)> = None;
+        for rows in pieces(&cuts(y, arms.clone().map(|(_, _, y)| y))) {
+            let covered = runs(&rows);
+            match &mut open {
+                Some((band, shown)) if *shown == covered => band.end = rows.end,
+                _ => {
+                    if let Some((band, shown)) = open.replace((rows, covered)) {
+                        draw(band, shown);
+                    }
+                }
+            }
+        }
+        if let Some((band, shown)) = open {
+            draw(band, shown);
         }
     }
 }
@@ -224,14 +285,13 @@ impl Junction {
 /// to right and top to bottom, the far edges of its last column and row
 /// included, so each axis is spaced by its own Cell side.
 ///
-/// An edge's piece lies across its boundary at its own width. A junction is as
-/// wide as the widest column line meeting it and as tall as the widest row
-/// line, so every piece runs between junctions and a narrower line's band lies
-/// inside the junction's. The highest-ranked lines meeting it keep their own
-/// widths there, and the highest-ranked of the others fills the rest, so a
-/// narrow border turns its corner at its own width through wider Grid lines.
-/// Of lines of one rank, a seamed one gives the colour, and then the most
-/// opaque.
+/// An edge's piece lies across its boundary at its own width, and runs
+/// between the junctions at its ends. A narrower line's band lies inside the
+/// junction's. The highest-ranked lines meeting a junction keep their own
+/// widths there, and the highest-ranked of the others fills only the pixels
+/// its own lines reach, so a narrow border turns its corner at its own width
+/// through wider Grid lines and no Grid pixel lands inside the border. Of
+/// lines of one rank, a seamed one gives the colour, and then the most opaque.
 ///
 /// Quads rather than rectangles or segments: epaint draws a filled rectangle
 /// no more than two feathering widths across as a line segment, rounds a one
@@ -247,22 +307,20 @@ pub(super) fn edge_mesh(
     pixels_per_point: f32,
 ) -> Mesh {
     let (width, height) = (drawn.columns.len(), drawn.rows.len());
-    let place = |run: &EdgeRun| {
-        PixelLine::new(run.edge.stroke, pixels_per_point).map(|line| (run.edge, line))
-    };
     // Every edge, row line by row line and column line by column line.
     let mut across = vec![None; (height + 1) * width];
     for run in &edges.rows {
         let row = run.line - drawn.rows.start;
         for column in run.span.clone() {
-            across[row * width + column - drawn.columns.start] = place(run);
+            across[row * width + column - drawn.columns.start] =
+                Line::new(run.edge, pixels_per_point);
         }
     }
     let mut down = vec![None; (width + 1) * height];
     for run in &edges.columns {
         let column = run.line - drawn.columns.start;
         for row in run.span.clone() {
-            down[column * height + row - drawn.rows.start] = place(run);
+            down[column * height + row - drawn.rows.start] = Line::new(run.edge, pixels_per_point);
         }
     }
     let across_at = |column: Option<usize>, row: usize| {
@@ -274,91 +332,60 @@ pub(super) fn edge_mesh(
         row.filter(|row| *row < height)
             .and_then(|row| down[column * height + row])
     };
-    // The lines meeting at a crossing: above and below it, left and right.
-    let meeting = |column: usize, row: usize| {
-        (
-            [
-                down_at(column, row.checked_sub(1)),
-                down_at(column, Some(row)),
-            ],
-            [
-                across_at(column.checked_sub(1), row),
-                across_at(Some(column), row),
-            ],
-        )
-    };
-    // The junction at a crossing: its band across the column line and its
-    // band across the row line, the colour of the strongest line meeting it,
-    // and whether a line of lower rank meets it too.
-    let junction = |column: usize, row: usize| {
-        let (downs, acrosses) = meeting(column, row);
-        let widest = |lines: &[Meeting]| {
-            lines
-                .iter()
-                .flatten()
-                .map(|(_, line)| line.width)
-                .max()
-                .unwrap_or(0)
-        };
-        let lines = || downs.iter().chain(&acrosses).flatten();
-        let top = lines().max_by_key(strongest);
-        (
-            band(columns[column], widest(&downs)),
-            band(rows[row], widest(&acrosses)),
-            top.map(|(_, line)| line.colour),
-            top.is_some_and(|(top, _)| lines().any(|(edge, _)| edge.rank != top.rank)),
-        )
+
+    // The junctions along row line `row`, each built once: a crossing's own
+    // pieces and the ends of the edges that meet it are both read from them.
+    let junctions = |row: usize| {
+        columns
+            .iter()
+            .enumerate()
+            .map(|(column, &column_line)| {
+                let lines = [
+                    down_at(column, row.checked_sub(1)),
+                    down_at(column, Some(row)),
+                    across_at(column.checked_sub(1), row),
+                    across_at(Some(column), row),
+                ];
+                Junction::new(lines, column_line, rows[row])
+            })
+            .collect::<Vec<_>>()
     };
 
-    // Each junction once, row by row: a crossing's own piece and the ends of
-    // the edges that meet it are both read from here.
-    let junctions = (0..rows.len())
-        .flat_map(|row| (0..columns.len()).map(move |column| junction(column, row)))
-        .collect::<Vec<_>>();
-    let junction_at = |column: usize, row: usize| &junctions[row * columns.len() + column];
-
-    // One quad per junction and per edge, each two triangles over four
-    // vertices: reserved up front, since the Mesh is rebuilt every frame. A
-    // junction a lower line fills around the top one takes more.
-    let quads = junctions.len() + across.iter().flatten().count() + down.iter().flatten().count();
+    // One quad per junction and per edge: reserved up front, since the Mesh
+    // is rebuilt every frame. A junction where lines of two ranks meet takes
+    // more.
+    let quads = columns.len() * rows.len()
+        + across.iter().flatten().count()
+        + down.iter().flatten().count();
     let mut mesh = Mesh::default();
     mesh.reserve_triangles(2 * quads);
     mesh.reserve_vertices(4 * quads);
-    let mut quad = |x: Range<i32>, y: Range<i32>, colour: Color32| {
-        if !x.is_empty() && !y.is_empty() {
-            let point = |x: i32, y: i32| {
-                Pos2::new(x as f32 / pixels_per_point, y as f32 / pixels_per_point)
-            };
-            mesh.add_colored_rect(
-                Rect::from_min_max(point(x.start, y.start), point(x.end, y.end)),
-                colour,
-            );
-        }
-    };
+    let mut this = junctions(0);
     for (row, &row_line) in rows.iter().enumerate() {
-        for (column, &column_line) in columns.iter().enumerate() {
-            let (x, y, colour, mixed) = junction_at(column, row);
-            if *mixed {
-                let (downs, acrosses) = meeting(column, row);
-                if let Some(junction) = Junction::mixed(&downs, &acrosses, column_line, row_line) {
-                    junction.quads(&mut quad);
-                }
-            } else if let Some(colour) = *colour {
-                quad(x.clone(), y.clone(), colour);
-            }
-            if let Some((_, line)) = across_at(Some(column), row) {
-                let (next, _, _, _) = junction_at(column + 1, row);
-                quad(x.end..next.start, band(row_line, line.width), line.colour);
-            }
-            if let Some((_, line)) = down_at(column, Some(row)) {
-                let (_, next, _, _) = junction_at(column, row + 1);
-                quad(
-                    band(column_line, line.width),
-                    y.end..next.start,
-                    line.colour,
+        let next = if row + 1 < rows.len() {
+            junctions(row + 1)
+        } else {
+            Vec::new()
+        };
+        for (column, (junction, &column_line)) in this.iter().zip(columns).enumerate() {
+            junction.draw(&mut mesh, column_line, row_line, pixels_per_point);
+            let [_, below, _, right] = junction.lines;
+            if let Some(line) = right {
+                let (x, y) = (
+                    junction.x.end..this[column + 1].x.start,
+                    band(row_line, line.width),
                 );
+                quad(&mut mesh, x, y, line.colour, pixels_per_point);
+            }
+            if let Some(line) = below {
+                let (x, y) = (
+                    band(column_line, line.width),
+                    junction.y.end..next[column].y.start,
+                );
+                quad(&mut mesh, x, y, line.colour, pixels_per_point);
             }
         }
+        this = next;
     }
 
     mesh
@@ -393,7 +420,7 @@ pub struct SourceShapes {
     pub(super) backgrounds: Vec<Shape>,
     /// Every Cell edge — the Grid lines, every border fact and the selection
     /// outline — as one Mesh, absent where no edge has a line.
-    pub(super) edges: Vec<Shape>,
+    pub(super) edges: Option<Shape>,
     /// One galley per Cell that shows a character other than the space.
     pub(super) glyphs: Vec<Shape>,
     /// The Cursor Effect's animated fragments, painted last, around its Cell
@@ -446,6 +473,7 @@ impl SourceShapes {
     /// empty until [`Self::place_glyphs`] fills it; both steps finish before
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
+    #[cfg(any(test, feature = "test-source-shapes"))]
     pub fn geometry(paint: &Paint, viewport: &GridViewport, pixels_per_point: f32) -> Self {
         Self::place(paint, &paint.edges(), viewport, pixels_per_point)
     }
@@ -490,8 +518,7 @@ impl SourceShapes {
         // one index, so a boundary past the last drawn Cell is the near edge
         // the next Cell would have.
         let drawn = paint.drawn();
-        let mut edge_shapes = Vec::new();
-        if !edges.rows.is_empty() || !edges.columns.is_empty() {
+        let edge_shapes = (!edges.rows.is_empty() || !edges.columns.is_empty()).then(|| {
             let pixel = |point: f32| (point * pixels_per_point).round() as i32;
             let columns = (drawn.columns.start..=drawn.columns.end)
                 .map(|column| pixel(viewport.cell_rect(column, drawn.rows.start).min.x))
@@ -499,14 +526,8 @@ impl SourceShapes {
             let rows = (drawn.rows.start..=drawn.rows.end)
                 .map(|row| pixel(viewport.cell_rect(drawn.columns.start, row).min.y))
                 .collect::<Vec<_>>();
-            edge_shapes.push(Shape::mesh(edge_mesh(
-                edges,
-                drawn,
-                &columns,
-                &rows,
-                pixels_per_point,
-            )));
-        }
+            Shape::mesh(edge_mesh(edges, drawn, &columns, &rows, pixels_per_point))
+        });
 
         Self {
             area: Vec::new(),
@@ -647,10 +668,10 @@ pub(super) fn show_source(
     // costs a tenth of the Cell iteration and a tenth of the Shapes, whatever
     // the Grid's size.
     //
-    // The ranges reach one Cell past what is visible. A Cell carries its own
-    // left and top seams, so the seam at a Cell's right or bottom edge belongs
-    // to the Cell one past it, and a border feathers a physical pixel outside the
-    // rectangle it strokes. Both land on the clip's boundary, which is what the
+    // The ranges reach one Cell past what is visible. An edge shows the line
+    // of the higher-ranked fact either Cell beside it carries, so the edge at
+    // the last visible Cell's right or bottom side needs the Cell one past it.
+    // That Cell's own pieces land on the clip's boundary, which is what the
     // clip rectangle above discards. See `GridViewport::visible_positions` for
     // why that makes the margin a boundary case rather than a seam that would
     // otherwise go missing.
