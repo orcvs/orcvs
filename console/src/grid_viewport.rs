@@ -14,18 +14,18 @@ use egui::{Pos2, Rect, Vec2, emath::GuiRounding as _};
 use orcvs::grid::{Grid, GridIdentity};
 
 ///
-/// The side of one Source Cell in points, before the snap to whole physical
-/// pixels.
+/// The width and height of one Source Cell in points, before the snap to
+/// whole physical pixels.
 ///
-pub(crate) const CELL_SIZE: f32 = 16.0;
+pub(crate) const CELL_SIZE: Vec2 = Vec2::splat(16.0);
 
 ///
 /// The Grid viewport the console presents inside an available area.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GridViewport {
-    /// The side of one square Cell, in points.
-    pub(crate) cell_size: f32,
+    /// The width and height of one Cell, in points.
+    pub(crate) cell_size: Vec2,
     /// The presented Grid rectangle, anchored at the origin the Source's own
     /// top-left is presented at.
     pub(crate) rect: Rect,
@@ -102,7 +102,7 @@ impl GridViewport {
     pub(crate) fn cell_rect(&self, column: usize, row: usize) -> Rect {
         Rect::from_min_size(
             self.rect.min + Vec2::new(column as f32, row as f32) * self.cell_size,
-            Vec2::splat(self.cell_size),
+            self.cell_size,
         )
     }
 
@@ -113,22 +113,22 @@ impl GridViewport {
     /// This is the whole of what a click has to answer, and it is arithmetic
     /// rather than a search: no Cell is hit-tested. The Grid bounds the answer,
     /// because a point on the Grid's far edge divides to one past the last Cell.
-    /// It is the inverse of [`Self::cell_rect`] — see [`Self::cell_index`] for
+    /// It is the inverse of [`Self::cell_rect`] — see [`cell_index`] for
     /// what that costs in `f32` — so a click cannot resolve to a Cell other than
     /// the one drawn under it.
     ///
     pub(crate) fn cell_at(&self, point: Pos2, grid: Grid) -> Option<(usize, usize)> {
         // Every Grid is 256 by 256, so an empty Grid is
         // unrepresentable. Only a degenerate Cell size is refused here.
-        if !(self.cell_size.is_finite() && self.cell_size > 0.0) {
+        if !self.has_cells() {
             return None;
         }
         if !self.rect.contains(point) {
             return None;
         }
         Some((
-            self.cell_index(point.x, self.rect.min.x, grid.columns()),
-            self.cell_index(point.y, self.rect.min.y, grid.rows()),
+            cell_index(point.x, self.rect.min.x, self.cell_size.x, grid.columns()),
+            cell_index(point.y, self.rect.min.y, self.cell_size.y, grid.rows()),
         ))
     }
 
@@ -142,41 +142,23 @@ impl GridViewport {
     /// [`Self::cell_at`] refuses.
     ///
     pub(crate) fn nearest_cell(&self, point: Pos2, grid: Grid) -> Option<(usize, usize)> {
-        if !(self.cell_size.is_finite() && self.cell_size > 0.0) || point.any_nan() {
+        if !self.has_cells() || point.any_nan() {
             return None;
         }
         let point = point.clamp(self.rect.min, self.rect.max);
         Some((
-            self.cell_index(point.x, self.rect.min.x, grid.columns()),
-            self.cell_index(point.y, self.rect.min.y, grid.rows()),
+            cell_index(point.x, self.rect.min.x, self.cell_size.x, grid.columns()),
+            cell_index(point.y, self.rect.min.y, self.cell_size.y, grid.rows()),
         ))
     }
 
     ///
-    /// Which of `extent` Cells along one axis `coordinate` falls in, counting
-    /// from `start`.
+    /// Whether the Cell is positive and finite on both axes: anything else is
+    /// no Cell at all.
     ///
-    /// The division is the answer wherever the arithmetic is exact, and the
-    /// clamp is for the far edge, which divides to one past the last Cell. The
-    /// correction is for everywhere else: `start + n * cell_size` is the corner
-    /// [`Self::cell_rect`] mints, and neither that multiply-add nor the division
-    /// undoing it is exact in `f32`, so a corner can land a fraction either side
-    /// of the boundary the division assumes. Correcting against `cell_rect`'s
-    /// own arithmetic rather than trusting the division is what makes this the
-    /// inverse it claims to be: the error is at most one Cell, so one step
-    /// either way settles it.
-    ///
-    fn cell_index(&self, coordinate: f32, start: f32, extent: usize) -> usize {
-        let index = ((coordinate - start) / self.cell_size) as usize;
-        let index = index.min(extent - 1);
-
-        if index > 0 && coordinate < start + index as f32 * self.cell_size {
-            index - 1
-        } else if index + 1 < extent && coordinate >= start + (index + 1) as f32 * self.cell_size {
-            index + 1
-        } else {
-            index
-        }
+    fn has_cells(&self) -> bool {
+        let positive = |side: f32| side.is_finite() && side > 0.0;
+        positive(self.cell_size.x) && positive(self.cell_size.y)
     }
 
     ///
@@ -242,6 +224,33 @@ impl GridViewport {
 }
 
 ///
+/// Which of `extent` Cells `side` points long along one axis `coordinate`
+/// falls in, counting from `start`.
+///
+/// The division is the answer wherever the arithmetic is exact, and the
+/// clamp is for the far edge, which divides to one past the last Cell. The
+/// correction is for everywhere else: `start + n * side` is the corner
+/// [`GridViewport::cell_rect`] mints, and neither that multiply-add nor the division
+/// undoing it is exact in `f32`, so a corner can land a fraction either side
+/// of the boundary the division assumes. Correcting against `cell_rect`'s
+/// own arithmetic rather than trusting the division is what makes this the
+/// inverse it claims to be: the error is at most one Cell, so one step
+/// either way settles it.
+///
+fn cell_index(coordinate: f32, start: f32, side: f32, extent: usize) -> usize {
+    let index = ((coordinate - start) / side) as usize;
+    let index = index.min(extent - 1);
+
+    if index > 0 && coordinate < start + index as f32 * side {
+        index - 1
+    } else if index + 1 < extent && coordinate >= start + (index + 1) as f32 * side {
+        index + 1
+    } else {
+        index
+    }
+}
+
+///
 /// `side` points snapped down to a whole number of physical pixels at
 /// `pixels_per_point`, the Cell side [`presented_grid`] draws at.
 ///
@@ -263,6 +272,16 @@ pub(crate) fn snapped_cell_side(side: f32, pixels_per_point: f32) -> f32 {
 }
 
 ///
+/// `cell` with each axis snapped on its own by [`snapped_cell_side`].
+///
+pub(crate) fn snapped_cell(cell: Vec2, pixels_per_point: f32) -> Vec2 {
+    Vec2::new(
+        snapped_cell_side(cell.x, pixels_per_point),
+        snapped_cell_side(cell.y, pixels_per_point),
+    )
+}
+
+///
 /// `pixels_per_point` where it is a scale at all: positive and finite.
 ///
 fn device_scale(pixels_per_point: f32) -> Option<f32> {
@@ -270,10 +289,10 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 }
 
 ///
-/// The Grid presented with the Source's own top-left at `origin`, with Cell
-/// geometry snapped to whole physical pixels.
+/// The Grid presented with the Source's own top-left at `origin`, with `cell`
+/// snapped to whole physical pixels on each axis.
 ///
-/// The Source is drawn at its own [`CELL_SIZE`] in points. egui's zoom is
+/// The Source is drawn at `cell` in points, width by height. egui's zoom is
 /// folded into `pixels_per_point`, so it reaches the Grid as more physical
 /// pixels per point and never as a scale here. Do not present the Source
 /// through `egui::Scene` or any other layer transform: that scales a whole
@@ -282,13 +301,14 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 ///
 /// # Why the Cell size is snapped
 ///
-/// At a fractional device scale the Source's 16 points is a fractional number
-/// of physical pixels, and a fractional Cell side puts each row's edges at a
-/// different sub-pixel offset. Rows then resolve a pixel taller or shorter
+/// At a fractional device scale a Cell side is a fractional number of
+/// physical pixels, and a fractional side puts each row's or column's edges at
+/// a different sub-pixel offset. Rows then resolve a pixel taller or shorter
 /// than their neighbours and the eye reads the Grid as irregularly spaced.
-/// Snapping the Cell side to a whole physical pixel makes every row identical.
+/// Snapping each side to a whole physical pixel makes every row identical, and
+/// every column.
 ///
-/// The snap is [`snapped_cell_side`]'s, and the snapped Grid is anchored at
+/// The snap is [`snapped_cell`]'s, and the snapped Grid is anchored at
 /// `origin` rather than re-centred on the extent the unsnapped side asked for.
 /// The console bounds its Pan and follows its Cursor at that same snapped
 /// side, so the Grid it clamps is the Grid drawn here: a Source smaller than
@@ -297,7 +317,7 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// the snap's shortfall at both ends, which is exactly what the console's
 /// bounds cannot see.
 ///
-pub fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
+pub fn presented_grid(origin: Pos2, grid: Grid, cell: Vec2, pixels_per_point: f32) -> GridViewport {
     // The device scale is divided by as well as multiplied by — once for the
     // Cell size and again for the corner — so it is refused on the same terms
     // as every other input here rather than checked for finiteness alone. Zero
@@ -305,7 +325,7 @@ pub fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridVi
     // that `cell_rect` paints inverted and `cell_at` refuses every click on.
     // Refused, the Grid keeps its unsnapped corner and no Cell at all.
     let device_scale = device_scale(pixels_per_point);
-    let cell_size = snapped_cell_side(CELL_SIZE, pixels_per_point);
+    let cell_size = snapped_cell(cell, pixels_per_point);
     let size = Vec2::new(grid.columns() as f32, grid.rows() as f32) * cell_size;
 
     GridViewport {
@@ -328,18 +348,18 @@ mod tests {
     const GRID: usize = 32;
 
     ///
-    /// The Source's own Cell is 16 points, so a Cell is a whole number of
-    /// physical pixels at 1×, 1.25×, 1.5× and 2× with nothing to snap.
+    /// The Source's own Cell is 16 points square, so a Cell is a whole number
+    /// of physical pixels at 1×, 1.25×, 1.5× and 2× with nothing to snap.
     ///
     #[test]
     fn the_source_cell_is_sixteen_points() {
-        assert_eq!(CELL_SIZE, 16.0);
+        assert_eq!(CELL_SIZE, Vec2::splat(16.0));
     }
 
     #[test]
     fn a_cell_is_the_sources_own_at_one_one_and_a_quarter_one_and_a_half_and_two() {
         for pixels_per_point in [1.0_f32, 1.25, 1.5, 2.0] {
-            let presented = presented_grid(Pos2::ZERO, sized(8, 8), pixels_per_point);
+            let presented = presented_grid(Pos2::ZERO, sized(8, 8), CELL_SIZE, pixels_per_point);
 
             assert_eq!(
                 presented.cell_size, CELL_SIZE,
@@ -366,9 +386,10 @@ mod tests {
     }
 
     ///
-    /// A square-Cell `GridViewport` centred in `available`, for the tests below
-    /// that need an arbitrary non-degenerate viewport to drive `cell_rect`,
-    /// `cell_at` and `visible_positions` through.
+    /// A `GridViewport` of Cells in the Source's own Cell shape, as large as
+    /// fits `available` and centred in it, for the tests below that need an
+    /// arbitrary non-degenerate viewport to drive `cell_rect`, `cell_at` and
+    /// `visible_positions` through.
     ///
     /// Test-only: no shipped code fits a viewport to an area — the Source View
     /// pans instead of fitting, and `presented_grid` is the one place
@@ -376,19 +397,14 @@ mod tests {
     /// at. This is a fit beside the tests that need a viewport of any Cell
     /// size.
     ///
-    fn square_cell_viewport(available: Rect, grid: Grid) -> GridViewport {
-        let columns = grid.columns() as f32;
-        let rows = grid.rows() as f32;
-        let cell_size = (available.width() / columns)
-            .min(available.height() / rows)
-            .max(0.0);
+    fn fitted_viewport(available: Rect, grid: Grid) -> GridViewport {
+        let cells = Vec2::new(grid.columns() as f32, grid.rows() as f32);
+        let scale = (available.size() / (cells * CELL_SIZE)).min_elem().max(0.0);
+        let cell_size = CELL_SIZE * scale;
 
         GridViewport {
             cell_size,
-            rect: Rect::from_center_size(
-                available.center(),
-                Vec2::new(columns * cell_size, rows * cell_size),
-            ),
+            rect: Rect::from_center_size(available.center(), cells * cell_size),
         }
     }
 
@@ -415,7 +431,7 @@ mod tests {
     #[test]
     fn a_cell_corner_answers_its_own_cell_whatever_the_cell_measures() {
         let viewport = GridViewport {
-            cell_size: 34.436707,
+            cell_size: Vec2::splat(34.436707),
             rect: Rect::from_min_size(Pos2::new(432.0, 432.0), Vec2::splat(34.436707 * 32.0)),
         };
 
@@ -434,14 +450,15 @@ mod tests {
         // The one pair above is the case that was found; the sweep is what says
         // the inverse holds rather than that this pair was patched. Cell
         // centres are swept alongside corners, because a correction that
-        // reached past the boundary would move them too.
+        // reached past the boundary would move them too. Width and height step
+        // apart, so an axis read with the other's side answers another Cell.
         for step in 0..200 {
-            let cell_size = 0.75 + step as f32 * 0.31719;
+            let cell_size = Vec2::new(0.75 + step as f32 * 0.31719, 1.3 + step as f32 * 0.1737);
             let viewport = GridViewport {
                 cell_size,
                 rect: Rect::from_min_size(
                     Pos2::new(311.0 + step as f32 * 7.13, 47.0 + step as f32 * 3.7),
-                    Vec2::splat(cell_size * GRID as f32),
+                    cell_size * GRID as f32,
                 ),
             };
 
@@ -452,12 +469,12 @@ mod tests {
                     assert_eq!(
                         viewport.cell_at(rect.min, square()),
                         Some((column, row)),
-                        "the corner of Cell ({column}, {row}) at a Cell size of {cell_size}"
+                        "the corner of Cell ({column}, {row}) at a Cell size of {cell_size:?}"
                     );
                     assert_eq!(
                         viewport.cell_at(rect.center(), square()),
                         Some((column, row)),
-                        "the centre of Cell ({column}, {row}) at a Cell size of {cell_size}"
+                        "the centre of Cell ({column}, {row}) at a Cell size of {cell_size:?}"
                     );
                 }
             }
@@ -471,7 +488,7 @@ mod tests {
     ///
     #[test]
     fn a_point_in_a_cell_answers_the_cell_that_was_painted_there() {
-        let viewport = square_cell_viewport(area(1200.0, 700.0), sized(10, 4));
+        let viewport = fitted_viewport(area(1200.0, 700.0), sized(10, 4));
 
         for row in 0..4 {
             for column in 0..10 {
@@ -485,8 +502,8 @@ mod tests {
                     viewport.cell_at(rect.min, sized(10, 4)),
                     Some((column, row))
                 );
-                assert_close(rect.width(), viewport.cell_size, "Cell width");
-                assert_close(rect.height(), viewport.cell_size, "Cell height");
+                assert_close(rect.width(), viewport.cell_size.x, "Cell width");
+                assert_close(rect.height(), viewport.cell_size.y, "Cell height");
             }
         }
     }
@@ -497,7 +514,7 @@ mod tests {
     ///
     #[test]
     fn the_nearest_cell_to_a_point_past_the_grid_is_the_edge_cell_it_is_past() {
-        let viewport = square_cell_viewport(area(1200.0, 700.0), square());
+        let viewport = fitted_viewport(area(1200.0, 700.0), square());
         let rect = viewport.rect;
         let inside = viewport.cell_rect(3, 5).center();
 
@@ -528,7 +545,7 @@ mod tests {
     #[test]
     fn the_grid_edge_resolves_to_the_last_cell_and_outside_it_to_none() {
         let available = area(1200.0, 700.0);
-        let viewport = square_cell_viewport(available, square());
+        let viewport = fitted_viewport(available, square());
 
         assert_eq!(
             viewport.cell_at(viewport.rect.max, square()),
@@ -546,7 +563,7 @@ mod tests {
         // puts it at `center_top` instead, so the "outside the Grid" claim is
         // only proven if both orientations are asked.
         let tall = area(700.0, 1200.0);
-        let viewport = square_cell_viewport(tall, square());
+        let viewport = fitted_viewport(tall, square());
 
         assert_eq!(
             viewport.cell_at(tall.center_top(), square()),
@@ -586,8 +603,9 @@ mod tests {
     #[test]
     fn the_visible_range_is_the_shown_positions_and_one_cell_more_each_way() {
         let grid = square();
-        let viewport = square_cell_viewport(area(800.0, 800.0), grid);
-        assert_close(viewport.cell_size, 25.0, "Cell size");
+        let viewport = fitted_viewport(area(800.0, 800.0), grid);
+        assert_close(viewport.cell_size.x, 25.0, "Cell width");
+        assert_close(viewport.cell_size.y, 25.0, "Cell height");
         // Deliberately not on Cell boundaries: a clip that ends exactly on one
         // would not distinguish the margin from the rounding.
         let clip = Rect::from_min_max(
@@ -634,7 +652,7 @@ mod tests {
     fn a_console_showing_the_whole_grid_ranges_over_the_whole_grid() {
         let available = area(800.0, 800.0);
         let grid = square();
-        let viewport = square_cell_viewport(available, grid);
+        let viewport = fitted_viewport(available, grid);
 
         let visible = viewport.visible_positions(available, grid);
 
@@ -650,7 +668,7 @@ mod tests {
     #[test]
     fn a_console_showing_no_part_of_the_grid_ranges_over_nothing() {
         let available = area(800.0, 800.0);
-        let viewport = square_cell_viewport(available, square());
+        let viewport = fitted_viewport(available, square());
 
         for clip in [
             Rect::from_min_size(Pos2::new(2000.0, 2000.0), Vec2::splat(100.0)),
@@ -664,7 +682,7 @@ mod tests {
         }
 
         let no_area = GridViewport {
-            cell_size: 0.0,
+            cell_size: Vec2::ZERO,
             rect: Rect::ZERO,
         };
         assert_eq!(no_area.visible_positions(available, square()).count(), 0);
@@ -726,7 +744,7 @@ mod tests {
     ///
     #[test]
     fn a_clip_that_only_touches_the_grid_ranges_over_nothing() {
-        let viewport = square_cell_viewport(area(800.0, 800.0), square());
+        let viewport = fitted_viewport(area(800.0, 800.0), square());
         let rect = viewport.rect;
 
         // Just past each edge in turn, sharing exactly that edge with the Grid.
@@ -757,7 +775,7 @@ mod tests {
     #[test]
     fn a_viewport_with_no_area_answers_no_cell() {
         let viewport = GridViewport {
-            cell_size: 0.0,
+            cell_size: Vec2::ZERO,
             rect: Rect::ZERO,
         };
 
@@ -765,35 +783,82 @@ mod tests {
     }
 
     ///
-    /// Every Cell is the same whole number of physical pixels across at every
-    /// device scale, egui's zoom factors folded in. A fractional Cell side
-    /// would pixel-snap differently row by row and read as irregular spacing.
+    /// A Cell that is no Cell on either axis alone answers no click and no
+    /// nearest Cell, whatever the other axis measures.
+    ///
+    #[test]
+    fn a_cell_degenerate_on_one_axis_answers_no_cell() {
+        for side in [0.0, -4.0, f32::NAN, f32::INFINITY] {
+            for cell_size in [Vec2::new(side, 16.0), Vec2::new(16.0, side)] {
+                let viewport = GridViewport {
+                    cell_size,
+                    rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(512.0)),
+                };
+
+                assert_eq!(
+                    viewport.cell_at(Pos2::new(40.0, 40.0), square()),
+                    None,
+                    "{cell_size:?}"
+                );
+                assert_eq!(
+                    viewport.nearest_cell(Pos2::new(40.0, 40.0), square()),
+                    None,
+                    "{cell_size:?}"
+                );
+            }
+        }
+    }
+
+    ///
+    /// Every Cell is the same whole number of physical pixels across and down
+    /// at every device scale, egui's zoom factors folded in, each axis snapped
+    /// on its own. A fractional Cell side would pixel-snap differently row by
+    /// row and read as irregular spacing.
     ///
     #[test]
     fn every_cell_is_a_whole_number_of_physical_pixels() {
-        for native in [1.0_f32, 1.5, 2.0] {
-            // egui's own zoom range, 0.2 to 5.0, in its own steps of a tenth.
-            for tenths in 2_u8..=50 {
-                let pixels_per_point = native * f32::from(tenths) / 10.0;
-                let presented = presented_grid(Pos2::new(11.3, 7.9), sized(8, 8), pixels_per_point);
-                let in_pixels = presented.cell_size * pixels_per_point;
+        for cell in [CELL_SIZE, Vec2::new(12.0, 18.0), Vec2::new(10.0, 15.0)] {
+            for native in [1.0_f32, 1.5, 2.0] {
+                // egui's own zoom range, 0.2 to 5.0, in its own steps of a tenth.
+                for tenths in 2_u8..=50 {
+                    let pixels_per_point = native * f32::from(tenths) / 10.0;
+                    let presented =
+                        presented_grid(Pos2::new(11.3, 7.9), sized(8, 8), cell, pixels_per_point);
 
-                assert!(
-                    (in_pixels - in_pixels.round()).abs() < 1e-3,
-                    "a Cell was {in_pixels} pixels across at {pixels_per_point} ppp"
-                );
-                assert!(
-                    presented.cell_size <= CELL_SIZE,
-                    "the snap grew a Cell to {} at {pixels_per_point} ppp",
-                    presented.cell_size
-                );
-                // The whole Grid is a whole number of Cells, so the last Cell's
-                // far edge is where the Grid's is.
-                assert_close(
-                    presented.cell_rect(7, 7).max.x,
-                    presented.rect.max.x,
-                    "the Grid's far edge",
-                );
+                    for (side, asked) in [
+                        (presented.cell_size.x, cell.x),
+                        (presented.cell_size.y, cell.y),
+                    ] {
+                        let in_pixels = side * pixels_per_point;
+                        assert!(
+                            (in_pixels - in_pixels.round()).abs() < 1e-3,
+                            "a {cell:?} Cell side was {in_pixels} pixels at {pixels_per_point} ppp"
+                        );
+                        // Within `f32`'s own error of dividing back out.
+                        assert!(
+                            side <= asked + 1e-4,
+                            "the snap grew a {cell:?} Cell side to {side} at {pixels_per_point} ppp"
+                        );
+                        // The floor costs less than a pixel, so each axis is
+                        // snapped from its own side rather than the other's.
+                        assert!(
+                            asked * pixels_per_point - in_pixels < 1.0,
+                            "a {cell:?} Cell side lost a pixel or more at {pixels_per_point} ppp"
+                        );
+                    }
+                    // The whole Grid is a whole number of Cells, so the last
+                    // Cell's far corner is where the Grid's is.
+                    assert_close(
+                        presented.cell_rect(7, 7).max.x,
+                        presented.rect.max.x,
+                        "the Grid's far edge",
+                    );
+                    assert_close(
+                        presented.cell_rect(7, 7).max.y,
+                        presented.rect.max.y,
+                        "the Grid's bottom edge",
+                    );
+                }
             }
         }
     }
@@ -807,12 +872,13 @@ mod tests {
     fn a_translation_moves_the_presented_grid_by_itself_at_any_device_scale() {
         let moved = Vec2::new(40.0, 24.0);
         for pixels_per_point in [1.0_f32, 1.5, 2.0] {
-            let before = presented_grid(Pos2::ZERO, sized(8, 8), pixels_per_point);
-            let after = presented_grid(Pos2::ZERO + moved, sized(8, 8), pixels_per_point);
+            let before = presented_grid(Pos2::ZERO, sized(8, 8), CELL_SIZE, pixels_per_point);
+            let after =
+                presented_grid(Pos2::ZERO + moved, sized(8, 8), CELL_SIZE, pixels_per_point);
 
             assert_close(after.rect.min.x - before.rect.min.x, moved.x, "panned x");
             assert_close(after.rect.min.y - before.rect.min.y, moved.y, "panned y");
-            assert_close(after.cell_size, before.cell_size, "a pan changed the Cell");
+            assert_eq!(after.cell_size, before.cell_size, "a pan changed the Cell");
         }
     }
 
@@ -829,10 +895,11 @@ mod tests {
     #[test]
     fn a_device_scale_that_is_not_a_scale_presents_no_grid() {
         for pixels_per_point in [0.0_f32, -2.0, f32::NAN, f32::INFINITY] {
-            let presented = presented_grid(Pos2::ZERO, sized(8, 8), pixels_per_point);
+            let presented = presented_grid(Pos2::ZERO, sized(8, 8), CELL_SIZE, pixels_per_point);
 
             assert_eq!(
-                presented.cell_size, 0.0,
+                presented.cell_size,
+                Vec2::ZERO,
                 "a device scale of {pixels_per_point} presented a Cell"
             );
             assert!(

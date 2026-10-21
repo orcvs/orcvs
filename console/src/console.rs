@@ -98,8 +98,8 @@ const DEFAULT_VIEW_ROWS: usize = 40;
 /// one shows less of it.
 ///
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
-    DEFAULT_VIEW_COLUMNS as f32 * CELL_SIZE,
-    DEFAULT_VIEW_ROWS as f32 * CELL_SIZE + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
+    DEFAULT_VIEW_COLUMNS as f32 * CELL_SIZE.x,
+    DEFAULT_VIEW_ROWS as f32 * CELL_SIZE.y + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
 ];
 
 ///
@@ -445,7 +445,7 @@ impl eframe::App for Console {
                 &mut self.diagnostics_timing,
                 self.source_view.origin,
                 source.console,
-                source.cell_size,
+                source.cell_size.x,
             );
         }
 

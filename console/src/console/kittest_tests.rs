@@ -171,6 +171,7 @@ fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
     presented_grid(
         console.source_view.origin,
         grid,
+        console.source_view.cell,
         harness.ctx.pixels_per_point(),
     )
 }
@@ -360,7 +361,7 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
     );
 
     let source = source_rect(&harness);
-    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE;
+    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE.y;
     assert!(
         source.height() >= usable,
         "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
@@ -1345,10 +1346,10 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
 
     // The follow shows Column 40's far edge, which sits the Source View's
     // margin of two Cells further along than the Column itself. A Cell is
-    // `CELL_SIZE` points at every zoom.
+    // `CELL_SIZE.x` points wide at every zoom.
     let console_width = harness.ctx.content_rect().width();
     let pan = harness.state().source_view.pan;
-    let expected = console_width - (41.0 + SOURCE_MARGIN_CELLS) * CELL_SIZE;
+    let expected = console_width - (41.0 + SOURCE_MARGIN_CELLS) * CELL_SIZE.x;
     assert!(
         (pan.x - expected).abs() < 1e-3 && pan.y == 0.0,
         "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}, not {expected}"
@@ -1517,14 +1518,9 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
         (pixels - pixels.round()).abs() < 1e-3
     };
     let viewport = presented_source(&harness);
-    let cursor_cell = viewport.cell_rect(0, 0);
     assert!(
-        (cursor_cell.width() - cursor_cell.height()).abs() < 1e-3,
-        "a zoomed Cell is not square: {cursor_cell:?}"
-    );
-    assert!(
-        whole(viewport.cell_size),
-        "a zoomed Cell is {} pixels on a side",
+        whole(viewport.cell_size.x) && whole(viewport.cell_size.y),
+        "a zoomed Cell is {:?} pixels",
         viewport.cell_size * pixels_per_point
     );
     assert!(
