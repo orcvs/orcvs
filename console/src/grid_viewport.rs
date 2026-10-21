@@ -15,9 +15,15 @@ use orcvs::grid::{Grid, GridIdentity};
 
 ///
 /// The width and height of one Source Cell in points, before the snap to
-/// whole physical pixels.
+/// whole physical pixels: Orca's 2:3, whole at 1×, 1.5× and 2× (ADR 0079).
 ///
-pub(crate) const CELL_SIZE: Vec2 = Vec2::splat(16.0);
+pub(crate) const CELL_SIZE: Vec2 = Vec2::new(12.0, 18.0);
+
+/// A Glyph's size as a share of its Cell's height.
+const GLYPH_PER_HEIGHT: f32 = 0.75;
+
+/// The advance of one monospace Glyph per point of its size.
+const GLYPH_ADVANCE: f32 = 0.6;
 
 ///
 /// The Grid viewport the console presents inside an available area.
@@ -150,6 +156,19 @@ impl GridViewport {
             cell_index(point.x, self.rect.min.x, self.cell_size.x, grid.columns()),
             cell_index(point.y, self.rect.min.y, self.cell_size.y, grid.rows()),
         ))
+    }
+
+    ///
+    /// The size in points the Source's Glyphs are laid out at in this Cell:
+    /// three quarters of its height, or what its width fits where that is
+    /// less, so a narrow Cell shrinks its Glyph rather than overlapping its
+    /// neighbours.
+    ///
+    /// Read from the snapped Cell, so the Grid and its Glyphs agree at every
+    /// zoom, and one size per zoom factor keeps epaint's galley cache hitting.
+    ///
+    pub(crate) fn glyph_size(&self) -> f32 {
+        (GLYPH_PER_HEIGHT * self.cell_size.y).min(self.cell_size.x / GLYPH_ADVANCE)
     }
 
     ///
@@ -349,17 +368,18 @@ mod tests {
     const GRID: usize = 32;
 
     ///
-    /// The Source's own Cell is 16 points square, so a Cell is a whole number
-    /// of physical pixels at 1×, 1.25×, 1.5× and 2× with nothing to snap.
+    /// The Source's own Cell is Orca's 2:3, 12 points wide and 18 tall, so a
+    /// Cell is a whole number of physical pixels at 1×, 1.5× and 2× with
+    /// nothing to snap.
     ///
     #[test]
-    fn the_source_cell_is_sixteen_points() {
-        assert_eq!(CELL_SIZE, Vec2::splat(16.0));
+    fn the_source_cell_is_twelve_by_eighteen_points() {
+        assert_eq!(CELL_SIZE, Vec2::new(12.0, 18.0));
     }
 
     #[test]
-    fn a_cell_is_the_sources_own_at_one_one_and_a_quarter_one_and_a_half_and_two() {
-        for pixels_per_point in [1.0_f32, 1.25, 1.5, 2.0] {
+    fn a_cell_is_the_sources_own_at_one_one_and_a_half_and_two() {
+        for pixels_per_point in [1.0_f32, 1.5, 2.0] {
             let snapped = snapped_cell(CELL_SIZE, pixels_per_point);
 
             assert_eq!(
@@ -367,6 +387,27 @@ mod tests {
                 "{pixels_per_point} ppp snapped the Source's own Cell to {snapped}"
             );
         }
+    }
+
+    ///
+    /// A Glyph is three quarters of its Cell's height, unless the Cell is too
+    /// narrow for a monospace Glyph of that size, whose advance is 0.6 of its
+    /// size: then the width sets it.
+    ///
+    #[test]
+    fn a_glyph_is_three_quarters_of_its_cells_height_or_what_its_width_fits() {
+        let glyph = |width: f32, height: f32| {
+            GridViewport {
+                cell_size: Vec2::new(width, height),
+                rect: Rect::ZERO,
+            }
+            .glyph_size()
+        };
+
+        assert_eq!(glyph(12.0, 18.0), 13.5);
+        assert_eq!(glyph(16.0, 16.0), 12.0);
+        assert_close(glyph(8.0, 18.0), 8.0 / 0.6, "a narrow Cell's Glyph");
+        assert_eq!(glyph(64.0, 8.0), 6.0);
     }
 
     fn square() -> Grid {
@@ -604,7 +645,7 @@ mod tests {
     fn the_visible_range_is_the_shown_positions_and_one_cell_more_each_way() {
         let grid = square();
         let viewport = fitted_viewport(area(800.0, 800.0), grid);
-        assert_close(viewport.cell_size.x, 25.0, "Cell width");
+        assert_close(viewport.cell_size.x, 50.0 / 3.0, "Cell width");
         assert_close(viewport.cell_size.y, 25.0, "Cell height");
         // Deliberately not on Cell boundaries: a clip that ends exactly on one
         // would not distinguish the margin from the rounding.
@@ -615,9 +656,10 @@ mod tests {
 
         let visible = viewport.visible_positions(clip, grid);
 
-        // Columns 4 through 11 are shown, so the range runs 3 through 12.
-        assert_eq!(visible, VisiblePositions::for_grid(grid, 3..13, 3..13));
-        assert_eq!(visible.count(), 10 * 10);
+        // Columns 6 through 17 and rows 4 through 11 are shown, so the range
+        // runs 5 through 18 across and 3 through 12 down.
+        assert_eq!(visible, VisiblePositions::for_grid(grid, 5..19, 3..13));
+        assert_eq!(visible.count(), 14 * 10);
 
         for row in 0..GRID {
             for column in 0..GRID {

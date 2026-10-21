@@ -12,8 +12,6 @@
 
 use std::time::Duration;
 
-use egui::FontId;
-
 mod diagnostics_panel;
 mod files;
 mod glyphs;
@@ -35,13 +33,12 @@ use self::source_view::SourceView;
 use crate::config::Config;
 use crate::console_midi::ConsoleMidiBackend;
 use crate::cursor_effects::{CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings};
-use crate::grid_viewport::CELL_SIZE;
 use crate::midi::MidiDeviceSelection;
 use crate::persistence::starting_source;
 use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
-use orcvs::{app::Orcvs, opts::DEFAULT_FONT_SIZE, playback::PlaybackStartError, source::Source};
+use orcvs::{app::Orcvs, playback::PlaybackStartError, source::Source};
 
 #[cfg(target_arch = "wasm32")]
 fn prefers_reduced_motion() -> bool {
@@ -81,25 +78,24 @@ fn prefers_reduced_motion() -> bool {
 }
 
 ///
-/// The Source View dimensions in Cells used to size the default window with
-/// the compact Panel at egui's zoom factor of 1.0, margin included.
+/// The Source area of the default window in points at egui's zoom factor of
+/// 1.0, margin included. Fixed in points rather than counted in Cells, so the
+/// window keeps its size whatever Cell it shows: about 85 columns and 35 rows
+/// of the default 12 by 18 point Cell (ADR 0079).
 ///
-const DEFAULT_VIEW_COLUMNS: usize = 64;
-const DEFAULT_VIEW_ROWS: usize = 40;
+const DEFAULT_SOURCE_AREA: [f32; 2] = [1024.0, 640.0];
 
 ///
-/// The window size for `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS` Cells at
-/// egui's zoom factor of 1.0, plus the top bar and compact bottom Panel.
-/// Diagnostics expand the Panel within this size and reduce the visible rows;
-/// they are enabled by default. Both dimensions are private, so neither is
-/// linked here.
+/// The default window: a 1024 by 640 point Source area plus the top bar and compact
+/// bottom Panel. Diagnostics expand the Panel within this size and reduce the
+/// visible rows; they are enabled by default.
 ///
 /// A larger window shows more of the Grid rather than larger Cells; a smaller
 /// one shows less of it.
 ///
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
-    DEFAULT_VIEW_COLUMNS as f32 * CELL_SIZE.x,
-    DEFAULT_VIEW_ROWS as f32 * CELL_SIZE.y + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
+    DEFAULT_SOURCE_AREA[0],
+    DEFAULT_SOURCE_AREA[1] + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
 ];
 
 ///
@@ -264,7 +260,7 @@ impl Console {
         Ok(Self {
             orcvs,
             midi,
-            font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
+            font_family: egui::FontFamily::Monospace,
             source_view: SourceView::default(),
             diagnostics_open: true,
             diagnostics_timing: TimingReadouts::default(),
@@ -445,7 +441,7 @@ impl eframe::App for Console {
                 &mut self.diagnostics_timing,
                 self.source_view.origin,
                 source.console,
-                source.cell_size.x,
+                source.cell_size,
             );
         }
 

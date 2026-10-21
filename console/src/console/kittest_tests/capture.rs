@@ -86,7 +86,7 @@ const SETTINGS: &str = "[theme]\ndark = \"okabe-ito\"\nlight = \"orcvs-light\"\n
 const EGUI_MEMORY_KEY: &str = "egui";
 
 ///
-/// Physical pixels per logical point. Two, so an 11.5-point glyph keeps a
+/// Physical pixels per logical point. Two, so a 13.5-point Glyph keeps a
 /// body the reviewer can read rather than antialiased edge alone. It is the
 /// display's density, not egui's zoom, which stays 1.0.
 ///

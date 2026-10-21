@@ -14,7 +14,9 @@
 //! Two ranges per Grid: fitted (the whole Grid) and culled (a fixed 16×16
 //! window). Fitted should grow with the Source. Culled should stay flat from
 //! 32×32 up, which the counting tests already assert by shape. At 16×16 the
-//! two ranges are the same point.
+//! two ranges are the same point. The window cases draw what the default
+//! window shows of the largest Grid, at a Cell size each: the per-Cell cost a
+//! Cell size moves.
 //!
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
@@ -45,6 +47,14 @@ const FRAME_SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64), (128, 128
 /// Culled window. The smallest `FRAME_SIZE`, so at 16×16 fitted and culled
 /// coincide, and from 32×32 up the walk is a constant Cell count.
 const CULLED: usize = 16;
+
+/// The default window's Source area in points, `console::console`'s
+/// `DEFAULT_SOURCE_AREA`, which a benchmark crate cannot name.
+const WINDOW: Vec2 = Vec2::new(1024.0, 640.0);
+
+/// The Cell sizes the window cases draw at: the square the console drew
+/// before ADR 0079, and its default.
+const WINDOW_CELLS: [Vec2; 2] = [Vec2::splat(16.0), Vec2::new(12.0, 18.0)];
 
 /// Copied from `orcvs/benches/source.rs`. The two benches do not share a crate;
 /// they share a fixture by keeping the same tiling.
@@ -146,6 +156,24 @@ fn culled(frame: &RenderFrame) -> VisiblePositions {
         0..CULLED.min(grid.columns()),
         0..CULLED.min(grid.rows()),
     )
+}
+
+///
+/// What a console of [`WINDOW`] at `cell` draws of `frame` from its top-left:
+/// every Cell the window shows, and one more each way, as
+/// `GridViewport::visible_positions` answers.
+///
+fn window(frame: &RenderFrame, cell: Vec2) -> VisiblePositions {
+    let shown = (WINDOW / cell).ceil();
+    VisiblePositions::for_grid(
+        frame.grid(),
+        0..shown.x as usize + 1,
+        0..shown.y as usize + 1,
+    )
+}
+
+fn window_id(cell: Vec2) -> BenchmarkId {
+    BenchmarkId::from_parameter(format!("window/{}x{}", cell.x, cell.y))
 }
 
 ///
@@ -263,6 +291,20 @@ fn derive_paint(c: &mut Criterion) {
         });
     }
 
+    let (_, _, largest) = frames().last().expect("a benchmark frame");
+    for cell in WINDOW_CELLS {
+        let range = window(largest, cell);
+        group.bench_function(window_id(cell), |b| {
+            b.iter(|| {
+                black_box(paint(
+                    black_box(largest),
+                    black_box(range.clone()),
+                    black_box(&theme),
+                ))
+            })
+        });
+    }
+
     group.finish();
 }
 
@@ -304,49 +346,74 @@ fn background_runs(c: &mut Criterion) {
 /// Cell sides and edges through different rounding than a whole one.
 ///
 fn shapes(c: &mut Criterion) {
+    // The fitted, culled, single and empty cases keep the square Cell their
+    // series began at.
+    const SQUARE: Vec2 = Vec2::splat(16.0);
     let mut group = c.benchmark_group("paint_shapes");
     let theme = bench_theme();
-    let mut measure = |id: BenchmarkId, paint: &Paint, grid: Grid, pixels_per_point: f32| {
-        let viewport = presented_grid(Pos2::ZERO, grid, Vec2::splat(16.0), pixels_per_point);
-        group.bench_function(id, |b| {
-            b.iter(|| {
-                black_box(SourceShapes::geometry(
-                    black_box(paint),
-                    black_box(&viewport),
-                    black_box(pixels_per_point),
-                ))
-            })
-        });
-    };
+    let mut measure =
+        |id: BenchmarkId, paint: &Paint, grid: Grid, cell: Vec2, pixels_per_point: f32| {
+            let viewport = presented_grid(Pos2::ZERO, grid, cell, pixels_per_point);
+            group.bench_function(id, |b| {
+                b.iter(|| {
+                    black_box(SourceShapes::geometry(
+                        black_box(paint),
+                        black_box(&viewport),
+                        black_box(pixels_per_point),
+                    ))
+                })
+            });
+        };
 
     let (_, _, smallest) = &frames()[0];
     measure(
         BenchmarkId::from_parameter("single"),
         &paint(smallest, single(smallest), &theme),
         smallest.grid(),
+        SQUARE,
         1.0,
     );
     measure(
         BenchmarkId::from_parameter("empty"),
         &paint(smallest, empty(smallest), &theme),
         smallest.grid(),
+        SQUARE,
         1.0,
     );
 
     for &(cols, rows, ref frame) in frames() {
         let fitted_paint = paint(frame, fitted(frame), &theme);
-        measure(size("fitted", cols, rows), &fitted_paint, frame.grid(), 1.0);
+        measure(
+            size("fitted", cols, rows),
+            &fitted_paint,
+            frame.grid(),
+            SQUARE,
+            1.0,
+        );
         measure(
             size("culled", cols, rows),
             &paint(frame, culled(frame), &theme),
             frame.grid(),
+            SQUARE,
             1.0,
         );
         measure(
             size("fitted@1.5x", cols, rows),
             &fitted_paint,
             frame.grid(),
+            SQUARE,
             1.5,
+        );
+    }
+
+    let (_, _, largest) = frames().last().expect("a benchmark frame");
+    for cell in WINDOW_CELLS {
+        measure(
+            window_id(cell),
+            &paint(largest, window(largest, cell), &theme),
+            largest.grid(),
+            cell,
+            1.0,
         );
     }
 

@@ -309,7 +309,7 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
     }
     assert!(
         harness
-            .query_by_label("16.0 pt/cell · 1.00 px/pt")
+            .query_by_label("12.0×18.0 pt/cell · 1.00 px/pt")
             .is_some()
     );
     assert!(harness.query_by_label("Cell size").is_none());
@@ -406,7 +406,7 @@ async fn docked_diagnostics_labels_are_not_truncated() {
         if size == Vec2::from(DEFAULT_VIEW_SIZE) {
             let label_left = harness.get_by_label("Display").rect().left();
             let value_left = harness
-                .get_by_label("16.0 pt/cell · 1.00 px/pt")
+                .get_by_label("12.0×18.0 pt/cell · 1.00 px/pt")
                 .rect()
                 .left();
             assert!(
@@ -489,7 +489,7 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     assert_region(&harness);
     assert!(
         harness
-            .query_by_label("16.0 pt/cell · 1.25 px/pt")
+            .query_by_label("12.0×17.6 pt/cell · 1.25 px/pt")
             .is_some()
     );
 }
@@ -1486,8 +1486,8 @@ fn painted_source_shapes(harness: &Harness<'_, Console>) -> Vec<egui::Shape> {
 /// widths: egui's zoom scales points to pixels and never the points a Theme
 /// states.
 ///
-/// 1.3 is a zoom at which the Source's 16 point Cell is 20.8 pixels, so the
-/// snap has something to do.
+/// 1.3 is a zoom at which the Source's 12 by 18 point Cell is 15.6 by 23.4
+/// pixels, so the snap has something to do on both axes.
 ///
 #[tokio::test]
 async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
