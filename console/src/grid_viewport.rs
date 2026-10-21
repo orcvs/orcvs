@@ -258,11 +258,14 @@ fn cell_index(coordinate: f32, start: f32, side: f32, extent: usize) -> usize {
 /// the extent the unsnapped side asked for, and at least one physical pixel
 /// wherever there is any Cell at all, so a Grid that is merely very small is
 /// still drawn rather than floored away. A `side` or a device scale that is not
-/// positive and finite answers no Cell: see [`presented_grid`] for why a
-/// device scale is refused on those terms.
+/// positive and finite answers no Cell. Finiteness alone does not make a
+/// device scale a scale: zero would answer an infinite Cell, and a negative
+/// one a Cell that `cell_rect` paints inverted and `cell_at` refuses every
+/// click on.
 ///
-/// The console reads its Pan bounds and its Cursor follow through this same
-/// function, so what it clamps is the Grid [`presented_grid`] draws.
+/// The console snaps its Cell once through [`snapped_cell`] and measures its
+/// Pan bounds, its Cursor follow and [`presented_grid`] by that one value, so
+/// what it clamps is the Grid drawn.
 ///
 pub(crate) fn snapped_cell_side(side: f32, pixels_per_point: f32) -> f32 {
     match device_scale(pixels_per_point) {
@@ -289,10 +292,11 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 }
 
 ///
-/// The Grid presented with the Source's own top-left at `origin`, with `cell`
-/// snapped to whole physical pixels on each axis.
+/// The Grid presented with the Source's own top-left at `origin`, each Cell
+/// `cell` points width by height.
 ///
-/// The Source is drawn at `cell` in points, width by height. egui's zoom is
+/// `cell` is [`snapped_cell`]'s answer at `pixels_per_point`: whole physical
+/// pixels on each axis, or zero where there is no Cell. egui's zoom is
 /// folded into `pixels_per_point`, so it reaches the Grid as more physical
 /// pixels per point and never as a scale here. Do not present the Source
 /// through `egui::Scene` or any other layer transform: that scales a whole
@@ -308,28 +312,25 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// Snapping each side to a whole physical pixel makes every row identical, and
 /// every column.
 ///
-/// The snap is [`snapped_cell`]'s, and the snapped Grid is anchored at
-/// `origin` rather than re-centred on the extent the unsnapped side asked for.
-/// The console bounds its Pan and follows its Cursor at that same snapped
-/// side, so the Grid it clamps is the Grid drawn here: a Source smaller than
-/// the console starts at the console's top-left, and a Pan to the far edge
-/// leaves no gap past the last Cell. Re-centring would move the Grid in by half
-/// the snap's shortfall at both ends, which is exactly what the console's
-/// bounds cannot see.
+/// The caller snaps the Cell, and the snapped Grid is anchored at `origin`
+/// rather than re-centred on the extent the unsnapped side asked for. The
+/// console bounds its Pan and follows its Cursor at the same snapped Cell it
+/// passes here, so the Grid it clamps is the Grid drawn here: a Source
+/// smaller than the console starts at the console's top-left, and a Pan to the
+/// far edge leaves no gap past the last Cell. Re-centring would move the Grid
+/// in by half the snap's shortfall at both ends, which is exactly what the
+/// console's bounds cannot see.
 ///
 pub fn presented_grid(origin: Pos2, grid: Grid, cell: Vec2, pixels_per_point: f32) -> GridViewport {
-    // The device scale is divided by as well as multiplied by — once for the
-    // Cell size and again for the corner — so it is refused on the same terms
-    // as every other input here rather than checked for finiteness alone. Zero
-    // answers an infinite Cell and a NaN corner; a negative one answers a Cell
-    // that `cell_rect` paints inverted and `cell_at` refuses every click on.
-    // Refused, the Grid keeps its unsnapped corner and no Cell at all.
+    // The corner is rounded at the device scale on the same terms
+    // `snapped_cell` accepts one, rather than for finiteness alone: zero
+    // answers a NaN corner. Refused, the Grid keeps its unsnapped corner, and
+    // the zero Cell `snapped_cell` answers presents no Cell at all.
     let device_scale = device_scale(pixels_per_point);
-    let cell_size = snapped_cell(cell, pixels_per_point);
-    let size = Vec2::new(grid.columns() as f32, grid.rows() as f32) * cell_size;
+    let size = Vec2::new(grid.columns() as f32, grid.rows() as f32) * cell;
 
     GridViewport {
-        cell_size,
+        cell_size: cell,
         rect: Rect::from_min_size(
             device_scale.map_or(origin, |scale| origin.round_to_pixels(scale)),
             size,
@@ -343,7 +344,7 @@ mod tests {
 
     use orcvs::grid::Grid;
 
-    use super::{CELL_SIZE, GridViewport, VisiblePositions, presented_grid};
+    use super::{CELL_SIZE, GridViewport, VisiblePositions, presented_grid, snapped_cell};
 
     const GRID: usize = 32;
 
@@ -359,12 +360,11 @@ mod tests {
     #[test]
     fn a_cell_is_the_sources_own_at_one_one_and_a_quarter_one_and_a_half_and_two() {
         for pixels_per_point in [1.0_f32, 1.25, 1.5, 2.0] {
-            let presented = presented_grid(Pos2::ZERO, sized(8, 8), CELL_SIZE, pixels_per_point);
+            let snapped = snapped_cell(CELL_SIZE, pixels_per_point);
 
             assert_eq!(
-                presented.cell_size, CELL_SIZE,
-                "{pixels_per_point} ppp snapped the Source's own Cell to {}",
-                presented.cell_size
+                snapped, CELL_SIZE,
+                "{pixels_per_point} ppp snapped the Source's own Cell to {snapped}"
             );
         }
     }
@@ -822,8 +822,12 @@ mod tests {
                 // egui's own zoom range, 0.2 to 5.0, in its own steps of a tenth.
                 for tenths in 2_u8..=50 {
                     let pixels_per_point = native * f32::from(tenths) / 10.0;
-                    let presented =
-                        presented_grid(Pos2::new(11.3, 7.9), sized(8, 8), cell, pixels_per_point);
+                    let presented = presented_grid(
+                        Pos2::new(11.3, 7.9),
+                        sized(8, 8),
+                        snapped_cell(cell, pixels_per_point),
+                        pixels_per_point,
+                    );
 
                     for (side, asked) in [
                         (presented.cell_size.x, cell.x),
@@ -895,7 +899,12 @@ mod tests {
     #[test]
     fn a_device_scale_that_is_not_a_scale_presents_no_grid() {
         for pixels_per_point in [0.0_f32, -2.0, f32::NAN, f32::INFINITY] {
-            let presented = presented_grid(Pos2::ZERO, sized(8, 8), CELL_SIZE, pixels_per_point);
+            let presented = presented_grid(
+                Pos2::ZERO,
+                sized(8, 8),
+                snapped_cell(CELL_SIZE, pixels_per_point),
+                pixels_per_point,
+            );
 
             assert_eq!(
                 presented.cell_size,

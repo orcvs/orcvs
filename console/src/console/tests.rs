@@ -5,7 +5,7 @@ use egui::{
 use orcvs::app::{Arrow, InputEvent, InputKey, Orcvs};
 use orcvs::render_frame::RenderFrame;
 
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
@@ -994,7 +994,7 @@ fn console_viewport(ctx: &egui::Context, console: &Console) -> GridViewport {
     presented_grid(
         console.source_view.origin,
         grid,
-        console.source_view.cell,
+        snapped_cell(console.source_view.cell, ctx.pixels_per_point()),
         ctx.pixels_per_point(),
     )
 }
@@ -2498,11 +2498,11 @@ async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
 /// `grid_viewport.rs`.
 ///
 fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
-    let cell = crate::grid_viewport::snapped_cell(CELL_SIZE, pixels_per_point);
+    let cell = snapped_cell(CELL_SIZE, pixels_per_point);
     presented_grid(
         screen.min + SOURCE_MARGIN_CELLS * cell,
         Grid::with_shape(columns, rows),
-        CELL_SIZE,
+        cell,
         pixels_per_point,
     )
 }

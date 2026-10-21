@@ -325,9 +325,9 @@ pub(super) fn show_source_scene(
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
 
-    // The Cell `presented_grid` will draw, snapped to whole physical pixels,
-    // so the follow and the bounds below are measured against the Grid as
-    // drawn rather than the unsnapped extent the Source asks for.
+    // The Cell snapped to whole physical pixels once, for the follow, the
+    // bounds and `presented_grid` below alike, so the Pan is measured against
+    // the Grid as drawn rather than the unsnapped extent the Source asks for.
     let cell = snapped_cell(view.cell, ui.ctx().pixels_per_point());
 
     // The console's size in points rather than egui's zoom factor: on the web
@@ -435,12 +435,7 @@ pub(super) fn show_source_scene(
         Pos2::ZERO
     };
 
-    let grid = presented_grid(
-        view.origin,
-        source_grid,
-        view.cell,
-        ui.ctx().pixels_per_point(),
-    );
+    let grid = presented_grid(view.origin, source_grid, cell, ui.ctx().pixels_per_point());
     let clicked = show_source(ui, frame, font_family, grid, console, cursor_effect, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the

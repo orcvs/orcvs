@@ -299,6 +299,7 @@ fn area_shapes(
         }
         let length_noise = unit(hash(sample.grain ^ candidate.rotate_left(41)));
         let width = cell.x * (0.025 + length_noise.powi(3) * 0.9);
+        // A tear's thickness runs down the Cell, so it scales by the height.
         let height =
             (0.35 + unit(hash(sample.grain ^ !candidate)) * 0.8) * (cell.y / CELL_SIZE.y).max(0.25);
         let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(width, height));
@@ -369,6 +370,7 @@ fn frame_shapes(
     if width <= 0.0 {
         return out;
     }
+    // A signal tear's thickness runs down the Cell, so it scales by the height.
     let scale = cell.y / CELL_SIZE.y;
     // How many Cell-lengths each pair of edges spans. A Cell's frame is one of
     // each, and its keys are the ones the unit index zero leaves unchanged.
