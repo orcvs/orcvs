@@ -10,5 +10,5 @@
 - [ ] The Glyph's size is derived in one place from the snapped Cell (the smaller of 0.75 × height and width ÷ 0.6), and the console lays out the Source's Glyphs at it.
 - [ ] The default window is the same size in points as before, and a test pins it without referring to a Cell count.
 - [ ] The Diagnostics readout reads `12.0×18.0 pt/cell` at the default, and the kittests that assert the old `16.0 pt/cell` text are updated.
-- [ ] The paint benchmarks run at the 12 by 18 Cell over the default window, which shows about 16% more Cells than today. The Glyph size is computed once per Zoom level, not per frame, so the text layout cache keeps hitting.
+- [ ] A non-square paint benchmark case, with a floor, runs at the 12 by 18 Cell over the default window, which shows about 16% more Cells than today. The Glyph size is computed once per Zoom level, not per frame, so the text layout cache keeps hitting.
 - [ ] The real console has been checked against a screenshot from before the change, with clicks near Sector Seams and the Grid edge.
