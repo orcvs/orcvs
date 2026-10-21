@@ -4,8 +4,8 @@
 use std::ops::Range;
 
 use egui::{
-    Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
-    emath::GuiRounding as _, epaint::RectShape,
+    Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, emath::GuiRounding as _,
+    epaint::RectShape,
 };
 use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 
@@ -13,7 +13,7 @@ use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
 use crate::grid_viewport::{GridViewport, VisiblePositions};
-use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
+use crate::paint::{EdgeRank, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::Theme;
 
 ///
@@ -361,8 +361,8 @@ pub(super) fn edge_mesh(
 ///
 /// The order that matters is across kinds and not across Cells: every
 /// background precedes every Glyph, so a later Cell's fill can never paint over
-/// an earlier Cell's Glyph, and the Cursor follows both, so no neighbouring
-/// Cell's fill or seam can paint over it. The edges sit between the two,
+/// an earlier Cell's Glyph, and the Cursor Effect's fragments follow both.
+/// The edges, the selection outline among them, sit between the two,
 /// after the fills, because a run widened across several Cells would cover
 /// every edge inside it. That is a fact about how a painter composites rather
 /// than about the Source, which is why it is decided here and not in the value
@@ -380,17 +380,15 @@ pub struct SourceShapes {
     pub(super) area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
     pub(super) backgrounds: Vec<Shape>,
-    /// Every Cell edge — the Grid lines and every border fact but the
-    /// single-Cell Cursor's — as one Mesh, absent where no edge has a line.
+    /// Every Cell edge — the Grid lines, every border fact and the selection
+    /// outline — as one Mesh, absent where no edge has a line.
     pub(super) edges: Vec<Shape>,
     /// One galley per Cell that shows a character other than the space.
     pub(super) glyphs: Vec<Shape>,
     /// The sector seams, left edge then top edge, Cell by Cell.
     pub(super) seams: Vec<Shape>,
-    /// The Cursor's own stroke, painted last: the Cursor Effect's frame — its
-    /// Cell's, or the lasso around a Region larger than one Cell, and empty
-    /// when a zero width hid it — or the selected Cell's border when no
-    /// effect frame was built.
+    /// The Cursor Effect's animated fragments, painted last, around its Cell
+    /// or the lasso around a Region larger than one Cell.
     pub(super) cursor: Vec<Shape>,
 }
 
@@ -406,7 +404,7 @@ impl SourceShapes {
     /// device scale the background runs are snapped to (see
     /// [`background_run`]) and the edges are placed at (see [`edge_mesh`]).
     ///
-    /// Edges, the Cursor's border, the sector seams and the background runs
+    /// Edges, the sector seams and the background runs
     /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
     /// so this composes the two steps rather than folding the atlas into the
     /// geometry pass.
@@ -419,17 +417,23 @@ impl SourceShapes {
         cursor_effect: crate::cursor_effects::CursorEffectShapes,
         theme: &Theme,
     ) -> Self {
-        let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
+        // While the Cursor Effect erodes the frame, its fragments are the
+        // outline: the edges beneath it show through their gaps, which a
+        // solid outline drawn under them would fill.
+        let edges = if cursor_effect.fragments.is_empty() {
+            paint.edges()
+        } else {
+            paint.edges_beneath_outline()
+        };
+        let mut shapes = Self::place(paint, &edges, viewport, pixels_per_point, theme);
         shapes.area = cursor_effect.area;
-        if let Some(frame) = cursor_effect.frame {
-            shapes.cursor = frame;
-        }
+        shapes.cursor = cursor_effect.fragments;
         shapes.place_glyphs(paint, viewport, table);
         shapes
     }
 
     ///
-    /// Backgrounds, edges, the Cursor's border and the sector seams — every
+    /// Backgrounds, edges and the sector seams — every
     /// Shape whose construction is arithmetic on a `Rect` and a `Color32`.
     ///
     /// Takes no [`GlyphTable`] and no `egui::Context`. The `glyphs` field is
@@ -447,6 +451,19 @@ impl SourceShapes {
         pixels_per_point: f32,
         theme: &Theme,
     ) -> Self {
+        Self::place(paint, &paint.edges(), viewport, pixels_per_point, theme)
+    }
+
+    ///
+    /// [`Self::geometry`] with `edges` as the Paint's edges.
+    ///
+    fn place(
+        paint: &Paint,
+        edges: &Edges,
+        viewport: &GridViewport,
+        pixels_per_point: f32,
+        theme: &Theme,
+    ) -> Self {
         // Sector Seam width has no per-Cell fact to vary by, so it is a plain
         // frame-level read.
         let sector_seam_width = theme.sector_seam_width.points();
@@ -454,7 +471,6 @@ impl SourceShapes {
         // Glyphs are reserved in [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
         let mut seams = Vec::new();
-        let mut cursor = Vec::new();
 
         for run in paint.background_runs() {
             // Built from the Cells' own rectangles — `GridViewport::cell_rect`
@@ -488,7 +504,6 @@ impl SourceShapes {
         // one index, so a boundary past the last drawn Cell is the near edge
         // the next Cell would have.
         let drawn = paint.drawn();
-        let edges = paint.edges();
         let mut edge_shapes = Vec::new();
         if !edges.rows.is_empty() || !edges.columns.is_empty() {
             let pixel = |point: f32| (point * pixels_per_point).round() as i32;
@@ -499,7 +514,7 @@ impl SourceShapes {
                 .map(|row| pixel(viewport.cell_rect(drawn.columns.start, row).min.y))
                 .collect::<Vec<_>>();
             edge_shapes.push(Shape::mesh(edge_mesh(
-                &edges,
+                edges,
                 drawn,
                 &columns,
                 &rows,
@@ -509,23 +524,6 @@ impl SourceShapes {
 
         for (position, cell) in paint.cells() {
             let rect = viewport.cell_rect(position.x(), position.y());
-            // The single-Cell Cursor strokes its own border inside its Cell,
-            // painted last. Every other border is an edge above. A Cursor the
-            // viewport does not reach is no Cell of this Paint, so the
-            // comparison never matches and the group stays empty.
-            if paint.cursor() == Some(position)
-                && !paint.region_spans()
-                && let Some(EdgeLine { stroke, .. }) = cell.border
-                && stroke.width > 0.0
-            {
-                cursor.push(Shape::Rect(RectShape::stroke(
-                    rect,
-                    CornerRadius::ZERO,
-                    stroke,
-                    StrokeKind::Inside,
-                )));
-            }
-
             // A seam is absent on the Cursor's Cell, while it is framed on its
             // own, because the derive suppressed it there, so this step never
             // learns that rule.
@@ -550,7 +548,7 @@ impl SourceShapes {
             edges: edge_shapes,
             glyphs: Vec::new(),
             seams,
-            cursor,
+            cursor: Vec::new(),
         }
     }
 
@@ -702,21 +700,15 @@ pub(super) fn show_source(
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive_with_theme(FramePaint::new(frame, visible), theme);
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
-    // The Cursor's own frame outlines its own Cell; the lasso around a
-    // Region larger than one Cell takes the Region's own outline colour
-    // instead — `.scratch/theming/schema.md`'s "the effect outline uses
-    // `cursor.border` or `region.border`". `paint` already answered which
-    // this Render Frame is, so this reads that rather than re-deriving it.
-    // The same choice picks the animated frame's nominal width, as one
-    // `Stroke` so colour and width cannot come from different answers:
-    // `cursor.border.width` for the Cursor's own frame, `region.border.width`
-    // for the lasso — a fixed display-point value `cursor_effect_shapes` never
-    // scales with the Cell size.
-    let frame_stroke = if paint.region_spans() {
-        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
-    } else {
-        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
-    };
+    // The Cursor Effect's frame is the selection outline's line — the
+    // Cursor's own `cursor.border`, or `region.border` for the lasso around a
+    // Region larger than one Cell, as `.scratch/theming/schema.md`'s "the
+    // effect outline uses `cursor.border` or `region.border`" says — so it is
+    // read from the Paint that answered it. A withdrawn outline frames
+    // nothing.
+    let frame_stroke = paint
+        .outline_line()
+        .map_or(egui::Stroke::NONE, |line| line.stroke);
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
         effect_outline(frame, &viewport),

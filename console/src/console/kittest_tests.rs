@@ -1479,7 +1479,7 @@ fn painted_source_shapes(harness: &Harness<'_, Console>) -> Vec<egui::Shape> {
 ///
 /// A zoomed console paints square Cells a whole number of physical pixels on
 /// a side and at a whole-pixel corner, and its Grid lines, Sector Seams and
-/// Cursor stroke keep the Theme's display-point widths: egui's zoom scales
+/// Cursor outline keep the Theme's display-point widths: egui's zoom scales
 /// points to pixels and never the points a Theme states.
 ///
 /// 1.3 is a zoom at which the Source's 16 point Cell is 20.8 pixels, so the
@@ -1487,7 +1487,7 @@ fn painted_source_shapes(harness: &Harness<'_, Console>) -> Vec<egui::Shape> {
 ///
 #[tokio::test]
 async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
-    // A still Cursor Effect, so the Cursor's stroke is its stationary outline.
+    // A still Cursor Effect, so the Cursor's outline is its edges alone.
     let mut config = crate::config::Config::default();
     *config.cursor_effects.amount_mut() = 0;
     let mut harness = console_harness(
@@ -1539,41 +1539,39 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
         .themes
         .presented(Appearance::from(harness.ctx.theme()))
         .clone();
-    // A Grid line covers whole pixels, at least one.
-    let line_pixels = (theme.grid_border_width.points() * pixels_per_point)
-        .round()
-        .max(1.0);
-    let (mut lines, mut cursor_strokes, mut seams) = (0, 0, 0);
+    // A line covers whole pixels, at least one.
+    let pixels = |points: f32| (points * pixels_per_point).round().max(1.0);
+    let line_pixels = pixels(theme.grid_border_width.points());
+    let outline_pixels = pixels(theme.cursor_border_width.points());
+    let (mut lines, mut outline_pieces, mut seams) = (0, 0, 0);
     for shape in painted_source_shapes(&harness) {
         match shape {
             egui::Shape::Mesh(mesh) => {
                 for quad in mesh.vertices.as_chunks::<4>().0 {
-                    lines += 1;
                     let (min, max) = (quad[0].pos, quad[3].pos);
                     assert!(
                         whole(min.x) && whole(min.y) && whole(max.x) && whole(max.y),
-                        "a Grid line piece {min:?}..{max:?} is off the pixel grid"
+                        "a line piece {min:?}..{max:?} is off the pixel grid"
                     );
+                    let width = if quad[0].color == theme.cursor_border {
+                        outline_pieces += 1;
+                        outline_pixels
+                    } else {
+                        lines += 1;
+                        line_pixels
+                    };
                     let across = (max - min).min_elem() * pixels_per_point;
                     assert!(
-                        (across - line_pixels).abs() < 1e-3,
-                        "a Grid line piece {min:?}..{max:?} is {across} pixels across at zoom 1.3"
+                        (across - width).abs() < 1e-3,
+                        "a line piece {min:?}..{max:?} is {across} pixels across at zoom 1.3"
                     );
                 }
             }
-            egui::Shape::Rect(rect) if rect.stroke.width > 0.0 => {
-                assert!(
-                    rect.rect.center().distance(cursor_cell.center()) < 1e-3,
-                    "an unclaimed Cell at {:?} stroked a border of its own",
-                    rect.rect
-                );
-                cursor_strokes += 1;
-                assert_eq!(
-                    rect.stroke.width,
-                    theme.cursor_border_width.points(),
-                    "the Cursor's stroke is not the Theme's width at zoom 1.3"
-                );
-            }
+            egui::Shape::Rect(rect) => assert_eq!(
+                rect.stroke.width, 0.0,
+                "a Cell at {:?} stroked a border of its own",
+                rect.rect
+            ),
             egui::Shape::LineSegment { stroke, .. } => {
                 seams += 1;
                 assert_eq!(
@@ -1587,8 +1585,8 @@ async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
     }
     assert!(lines > 0, "the zoomed console painted no Grid line");
     assert_eq!(
-        cursor_strokes, 1,
-        "the zoomed console painted no one Cursor stroke"
+        outline_pieces, 8,
+        "the zoomed console's Cursor outline is not four sides and four corners"
     );
     assert!(seams > 0, "the zoomed console painted no Sector Seam");
 }
@@ -3214,7 +3212,6 @@ async fn the_function_a_tick_locked_paints_as_locked() {
         crate::style::cell_visuals_with_cursor_colour(
             fact,
             PortalRoles::NONE.with(PortalRole::Locked),
-            false,
             false,
             None,
             &theme,

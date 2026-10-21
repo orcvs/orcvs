@@ -9,7 +9,7 @@ use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
-use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
+use orcvs::grid::{COL_COUNT, Grid, Position, ROW_COUNT};
 
 use super::diagnostics_panel::{
     TIMING_READOUT_INTERVAL_SECONDS, Timing, TimingReadouts, format_cpu_budget_delta,
@@ -2519,7 +2519,7 @@ fn painted_themed(frame: &RenderFrame, viewport: GridViewport, clip: Rect, theme
 /// galleys, no font atlas, no `egui::Context`.
 ///
 /// What is asserted through this is what the geometry step itself adds:
-/// borders, the Cursor's stroke, background runs and sector seams. Colour
+/// edges, background runs and sector seams. Colour
 /// *decisions* stay in `paint.rs`; Glyph placement needs
 /// [`source_shapes`].
 ///
@@ -2572,8 +2572,8 @@ fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -
 
 ///
 /// [`source_shapes`] with a Cursor Effect built by the caller and a
-/// resolved `theme`, for a test that asks how the effect's frame and the
-/// Paint's own Cursor stroke compose.
+/// resolved `theme`, for a test that asks what the effect's fragments add
+/// to the Paint's edges.
 ///
 fn source_shapes_with_effect(
     paint: &Paint,
@@ -2618,19 +2618,14 @@ fn close(left: Rect, right: Rect) -> bool {
 }
 
 ///
-/// The Cursor Effect reaches what a Cell is painted *with* and never
-/// where it is painted.
+/// The Cursor reaches what a Cell is painted *with* and never where it is
+/// painted.
 ///
 /// The property is structural — `GridViewport::cell_rect` takes a Position
 /// and nothing else — so it is asserted here against the geometry that
-/// actually reached the Shapes.
-///
-/// The Cursor's visibility is owned by `orcvs`; a console test does not
-/// need a wall-clock seam to assert geometry. What is asserted is the
-/// whole of what the presentation could move — the Grid lines lie on the
-/// edges of the rectangles the Cells' Positions give them, the Cursor's
-/// included, and the Cursor's own stroke is drawn on its Cell's rectangle
-/// rather than beside it or around it.
+/// actually reached the Shapes: the Grid lines lie on the edges of the
+/// rectangles the Cells' Positions give them, the Cursor's included, and
+/// every background lies on its Cell.
 ///
 #[tokio::test]
 async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
@@ -2641,27 +2636,15 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
     let paint = painted(&frame, viewport, screen);
     let shapes = source_geometry(&paint, viewport, 1.0);
 
-    assert_eq!(paint.cursor(), Some(frame.cursor()));
-    // The Grid lines lie on every Cell's own edges.
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
-    assert_drawn_once(
+    assert_drawn_once_around(
         &line_quads(&shapes.edges, 1.0),
         &columns,
         &rows,
         1,
         okabe_ito().grid_border.gamma_multiply(0.5),
+        Some(outline_box(viewport, frame.cursor(), &okabe_ito(), 1.0)),
     );
-    // And the Cursor's Cell is stroked once, by the Cursor, on its own
-    // rectangle.
-    assert_eq!(shapes.cursor.len(), 1, "the Cursor is one stroke");
-    assert!(
-        close(rect_of(&shapes.cursor[0]), viewport.cell_rect(0, 0)),
-        "the Cursor was stroked at {:?} rather than {:?}",
-        rect_of(&shapes.cursor[0]),
-        viewport.cell_rect(0, 0)
-    );
-    // Every background lies on the Cell geometry too, rather than beside
-    // it: a run starts and ends on a Cell edge.
     for background in &shapes.backgrounds {
         assert!(
             (rect_of(background).height() - viewport.cell_size).abs() < 1e-3,
@@ -2673,9 +2656,230 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
 }
 
 ///
-/// A Region larger than one Cell hides the Cursor's own Cell border: the
-/// lasso around the Region is the Cursor's presentation then, so the
-/// Cursor's Cell shows the Grid line as every other Cell does.
+/// While the Cursor Effect erodes the frame, its fragments are the outline:
+/// the Cell edges under them show the Grid line rather than a solid outline,
+/// so the erosion's gaps stay open. At amount zero there are no fragments and
+/// the edges draw the still outline.
+///
+#[tokio::test]
+async fn an_eroded_frame_leaves_the_grid_line_beneath_its_gaps() {
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let mut orcvs = running_orcvs(5, 5);
+    orcvs.select(orcvs.grid().position(2, 2).expect("inside the grid"));
+    let frame = orcvs.render_frame();
+    let theme = okabe_ito();
+
+    for pixels_per_point in [1.0, 1.5, 2.0] {
+        let viewport = presented(screen, 5, 5, pixels_per_point);
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        let cursor = viewport.cell_rect(2, 2);
+        let left_side = (columns[2], (rows[2] + rows[3]) / 2);
+
+        for (amount, drawn) in [
+            (0, theme.cursor_border),
+            (64, expected_line(&theme, pixels_per_point).1),
+        ] {
+            let mut settings = crate::cursor_effects::CursorEffectSettings::default();
+            *settings.amount_mut() = amount;
+            let sample = crate::cursor_effects::CursorEffectAnimation::default()
+                .advance(std::time::Duration::ZERO, settings);
+            let effect = crate::cursor_effects::cursor_effect_shapes(
+                cursor,
+                cursor,
+                screen,
+                viewport.cell_size,
+                crate::cursor_effects::CursorEffectMotion { sample, settings },
+                theme.cursor_area,
+                egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+            );
+            let fragments = !effect.fragments.is_empty();
+            assert_eq!(
+                fragments,
+                amount > 0,
+                "amount {amount} at {pixels_per_point}x"
+            );
+            let shapes =
+                source_shapes_with_effect(&paint, viewport, pixels_per_point, effect, &theme);
+            let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+
+            assert_eq!(
+                pixels.get(&left_side),
+                Some(&drawn),
+                "the Cursor's left side at amount {amount}, {pixels_per_point}x"
+            );
+        }
+    }
+}
+
+///
+/// The single-Cell Cursor's outline is one box, centred on its Cell's four
+/// edges in `cursor.border` at `cursor.border.width`, the same width on
+/// every side and at every corner, with no Grid line or neighbour's border
+/// beside it — here over an Output Portal Cell, beside a Function, at 1×,
+/// 1.5× and 2×.
+///
+#[tokio::test]
+async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let mut orcvs = running_orcvs(5, 5);
+    for (x, character) in ".+".chars().enumerate() {
+        orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
+        orcvs.write(&character.to_string());
+    }
+    // `.+`'s Output Portal Cell, below `+`.
+    orcvs.select(orcvs.grid().position(1, 2).expect("inside the grid"));
+    let frame = orcvs.render_frame();
+    let theme = Theme {
+        output_portal_border: Color32::from_rgb(200, 0, 0),
+        ..okabe_ito()
+    };
+
+    for (pixels_per_point, width) in [(1.0, 1), (1.5, 2), (2.0, 2)] {
+        let viewport = presented(screen, 5, 5, pixels_per_point);
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
+        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        let band = |boundary: i32| (boundary - width / 2)..(boundary - width / 2 + width);
+        let middle = |from: i32, to: i32| (from + to) / 2;
+        let (x, y) = (middle(columns[1], columns[2]), middle(rows[2], rows[3]));
+
+        // Across each side at its middle: the outline's band, and nothing
+        // either side of it.
+        for side in [columns[1], columns[2]] {
+            for at in band(side) {
+                assert_eq!(
+                    pixels.get(&(at, y)),
+                    Some(&theme.cursor_border),
+                    "{pixels_per_point}× column {at}"
+                );
+            }
+            assert_eq!(
+                pixels.get(&(band(side).start - 1, y)),
+                None,
+                "{pixels_per_point}× beside {side}"
+            );
+            assert_eq!(
+                pixels.get(&(band(side).end, y)),
+                None,
+                "{pixels_per_point}× beside {side}"
+            );
+        }
+        for side in [rows[2], rows[3]] {
+            for at in band(side) {
+                assert_eq!(
+                    pixels.get(&(x, at)),
+                    Some(&theme.cursor_border),
+                    "{pixels_per_point}× row {at}"
+                );
+            }
+            assert_eq!(
+                pixels.get(&(x, band(side).start - 1)),
+                None,
+                "{pixels_per_point}× beside {side}"
+            );
+            assert_eq!(
+                pixels.get(&(x, band(side).end)),
+                None,
+                "{pixels_per_point}× beside {side}"
+            );
+        }
+        // Every corner is the outline's, whole.
+        for corner_x in [columns[1], columns[2]] {
+            for corner_y in [rows[2], rows[3]] {
+                for at_x in band(corner_x) {
+                    for at_y in band(corner_y) {
+                        assert_eq!(
+                            pixels.get(&(at_x, at_y)),
+                            Some(&theme.cursor_border),
+                            "{pixels_per_point}× corner {corner_x},{corner_y}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+///
+/// An outline narrower than the Grid lines keeps its own width at its corners:
+/// its sides meet in an L of their own bands, and the wider Grid lines fill
+/// the rest of the junction, at 1×, 1.5× and 2×.
+///
+#[tokio::test]
+async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_width() {
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let mut orcvs = running_orcvs(5, 5);
+    orcvs.select(orcvs.grid().position(2, 2).expect("inside the grid"));
+    let frame = orcvs.render_frame();
+    let theme = Theme {
+        grid_border_width: crate::theme::GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        cursor_border_width: crate::theme::GridWidth::from_points(0.5)
+            .expect("0.5 is within 0..=1"),
+        cursor_border: Color32::from_rgb(200, 0, 0),
+        ..okabe_ito()
+    };
+
+    for pixels_per_point in [1.0, 1.5, 2.0] {
+        let viewport = presented(screen, 5, 5, pixels_per_point);
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
+        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        let line = |width: crate::theme::GridWidth, colour| {
+            super::shapes::PixelLine::new(
+                egui::Stroke::new(width.points(), colour),
+                pixels_per_point,
+            )
+            .expect("a visible line")
+        };
+        let outline = line(theme.cursor_border_width, theme.cursor_border);
+        let grid = line(theme.grid_border_width, theme.grid_border);
+        let band =
+            |boundary: i32, width: i32| (boundary - width / 2)..(boundary - width / 2 + width);
+
+        for (corner_x, inward_x) in [(columns[2], 1), (columns[3], -1)] {
+            for (corner_y, inward_y) in [(rows[2], 1), (rows[3], -1)] {
+                for x in band(corner_x, grid.width) {
+                    for y in band(corner_y, grid.width) {
+                        // Each side runs into the corner from inside the
+                        // outline, so its own pixels form an L.
+                        let (own_x, own_y) =
+                            (band(corner_x, outline.width), band(corner_y, outline.width));
+                        let inside = |at: i32, own: &std::ops::Range<i32>, inward: i32| {
+                            if inward > 0 {
+                                at >= own.start
+                            } else {
+                                at < own.end
+                            }
+                        };
+                        let own = (own_x.contains(&x) && inside(y, &own_y, inward_y))
+                            || (own_y.contains(&y) && inside(x, &own_x, inward_x));
+                        assert_eq!(
+                            pixels.get(&(x, y)),
+                            Some(if own { &outline.colour } else { &grid.colour }),
+                            "{pixels_per_point}× corner {corner_x},{corner_y} at {x},{y}"
+                        );
+                    }
+                }
+                // Just inside the corner, along each side, only the outline.
+                let (x, y) = (
+                    band(corner_x, outline.width).start,
+                    band(corner_y, outline.width).start,
+                );
+                let (beside_x, beside_y) = (x + inward_x * grid.width, y + inward_y * grid.width);
+                assert_eq!(pixels.get(&(beside_x, y)), Some(&outline.colour));
+                assert_eq!(pixels.get(&(x, beside_y)), Some(&outline.colour));
+            }
+        }
+    }
+}
+
+///
+/// A Region larger than one Cell is one outline around its perimeter in
+/// `region.border`, and the Cursor's own Cell inside it shows the Grid line
+/// as every other unclaimed Cell does.
 ///
 #[tokio::test]
 async fn a_region_hides_the_cursors_cell_border() {
@@ -2686,14 +2890,30 @@ async fn a_region_hides_the_cursors_cell_border() {
     orcvs.select(anchor);
     orcvs.extend(cursor);
     let frame = orcvs.render_frame();
+    let theme = Theme {
+        region_border: Color32::from_rgb(200, 0, 0),
+        ..okabe_ito()
+    };
     let viewport = presented(screen, 8, 8, 1.0);
-    let shapes = source_geometry(&painted(&frame, viewport, screen), viewport, 1.0);
+    let paint = painted_themed(&frame, viewport, screen, &theme);
+    let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+    let pixels = edge_pixels(&line_quads(&shapes.edges, 1.0));
+    let (columns, rows) = boundaries(viewport, &paint, 1.0);
+    let middle = |from: i32, to: i32| (from + to) / 2;
+    let grid = theme.grid_border.gamma_multiply(0.5);
 
-    assert!(
-        shapes.cursor.is_empty(),
-        "the Cursor's Cell kept its border"
-    );
-    assert_eq!(shapes.edges.len(), 1, "the Grid lines were not drawn");
+    // The perimeter, columns 1 to 4 and rows 1 to 3.
+    let y = middle(rows[2], rows[3]);
+    assert_eq!(pixels.get(&(columns[1], y)), Some(&theme.region_border));
+    assert_eq!(pixels.get(&(columns[5], y)), Some(&theme.region_border));
+    let x = middle(columns[2], columns[3]);
+    assert_eq!(pixels.get(&(x, rows[1])), Some(&theme.region_border));
+    assert_eq!(pixels.get(&(x, rows[4])), Some(&theme.region_border));
+    // The Cursor's Cell at 4,3: its left and top edges lie inside the Region.
+    let (x, y) = (middle(columns[4], columns[5]), middle(rows[3], rows[4]));
+    assert_eq!(pixels.get(&(columns[4], y)), Some(&grid));
+    assert_eq!(pixels.get(&(x, rows[3])), Some(&grid));
+    assert!(shapes.cursor.is_empty(), "a Cell stroked the Cursor");
     assert!(!shapes.backgrounds.is_empty(), "the Region was not filled");
 }
 
@@ -2724,18 +2944,18 @@ async fn the_effect_outline_is_the_region_when_it_spans_and_the_cursor_otherwise
 
 ///
 /// A Cell's background never paints over a Glyph, whichever Cell that Glyph
-/// belongs to, and the Cursor is painted over both.
+/// belongs to, and the Cursor's outline is an edge, between the two.
 ///
 /// The groups are what makes that expressible. Every fill is in
-/// `backgrounds`, every Glyph in `glyphs` and the Cursor alone in `cursor`,
-/// so chaining the groups orders the *kinds* however the Cells interleave:
-/// a later Cell in the row order cannot erase an earlier Cell's Glyph, and
-/// no neighbour's fill or seam can reach the Cursor. That the shape groups
+/// `backgrounds`, every Glyph in `glyphs` and every edge in `edges`, so
+/// chaining the groups orders the *kinds* however the Cells interleave: a
+/// later Cell in the row order cannot erase an earlier Cell's Glyph, and no
+/// neighbour's fill can reach an edge. That the shape groups
 /// then arrive at the painter in that order is asserted by
 /// `the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them`.
 ///
 #[tokio::test]
-async fn every_background_is_painted_before_every_glyph_and_the_cursor_after_both() {
+async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_cursor() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(8, 8);
     // A Glyph in the first Cell of the Grid, so every other Cell's
@@ -2768,16 +2988,10 @@ async fn every_background_is_painted_before_every_glyph_and_the_cursor_after_bot
             "a Glyph was {glyph:?} rather than text"
         );
     }
-    assert_eq!(shapes.cursor.len(), 1, "the Cursor is one stroke");
-    for stroked in &shapes.cursor {
-        let Shape::Rect(rect) = stroked else {
-            panic!("a border was {stroked:?}")
-        };
-        assert!(
-            rect.fill.a() == 0 && rect.stroke.width > 0.0,
-            "a border carried a fill: {rect:?}"
-        );
-    }
+    assert!(
+        shapes.cursor.is_empty(),
+        "a Cell stroked the Cursor rather than its edges"
+    );
     assert_eq!(
         shapes.backgrounds.len(),
         1,
@@ -3004,14 +3218,36 @@ fn assert_drawn_once(
     width: i32,
     colour: Color32,
 ) {
+    assert_drawn_once_around(quads, columns, rows, width, colour, None);
+}
+
+///
+/// [`assert_drawn_once`] for every pixel outside `outline`, the pixels a
+/// selection outline and its junctions cover, which
+/// `the_cursor_outline_is_one_box_the_same_on_all_four_sides` asserts
+/// instead. Inside it, no pixel is covered twice either.
+///
+fn assert_drawn_once_around(
+    quads: &[([i32; 4], Color32)],
+    columns: &[i32],
+    rows: &[i32],
+    width: i32,
+    colour: Color32,
+    outline: Option<[i32; 4]>,
+) {
+    let outlined = |x: i32, y: i32| {
+        outline.is_some_and(|[left, top, right, bottom]| {
+            (left..right).contains(&x) && (top..bottom).contains(&y)
+        })
+    };
     let band = |boundary: i32| (boundary - width / 2)..(boundary - width / 2 + width);
     let across = band(columns[0]).start..band(*columns.last().expect("a boundary")).end;
     let down = band(rows[0]).start..band(*rows.last().expect("a boundary")).end;
 
     let mut covered = std::collections::HashMap::<(i32, i32), u32>::new();
     for &([left, top, right, bottom], quad_colour) in quads {
-        assert_eq!(
-            quad_colour, colour,
+        assert!(
+            quad_colour == colour || outlined(left, top),
             "a piece at {left},{top} took another colour"
         );
         for x in left..right {
@@ -3025,6 +3261,10 @@ fn assert_drawn_once(
             let on_line = columns.iter().any(|&column| band(column).contains(&x))
                 || rows.iter().any(|&row| band(row).contains(&y));
             let times = covered.remove(&(x, y)).unwrap_or(0);
+            if outlined(x, y) {
+                assert!(times <= 1, "pixel {x},{y} was covered {times} times");
+                continue;
+            }
             assert_eq!(
                 times,
                 u32::from(on_line),
@@ -3032,6 +3272,11 @@ fn assert_drawn_once(
             );
         }
     }
+    // The outline may reach past the lattice's outermost Grid lines.
+    covered.retain(|&(x, y), times| {
+        assert!(*times <= 1, "pixel {x},{y} was covered {times} times");
+        !outlined(x, y)
+    });
     assert!(
         covered.is_empty(),
         "pieces covered pixels outside the lattice: {:?}",
@@ -3079,6 +3324,38 @@ fn boundaries(
 }
 
 ///
+/// The pixels the single-Cell Cursor's outline at `cursor` covers, with its
+/// junctions, at `pixels_per_point`: its four lines' bands at the wider of
+/// `cursor.border.width` and `grid.border.width`.
+///
+fn outline_box(
+    viewport: GridViewport,
+    cursor: Position,
+    theme: &Theme,
+    pixels_per_point: f32,
+) -> [i32; 4] {
+    let pixels = |points: f32| {
+        let physical = points * pixels_per_point;
+        if physical < 1.0 {
+            1
+        } else {
+            physical.round() as i32
+        }
+    };
+    let width =
+        pixels(theme.cursor_border_width.points()).max(pixels(theme.grid_border_width.points()));
+    let pixel = |point: f32| (point * pixels_per_point).round() as i32;
+    let cell = viewport.cell_rect(cursor.x(), cursor.y());
+    let [left, top, right, bottom] = [cell.min.x, cell.min.y, cell.max.x, cell.max.y].map(pixel);
+    [
+        left - width / 2,
+        top - width / 2,
+        right - width / 2 + width,
+        bottom - width / 2 + width,
+    ]
+}
+
+///
 /// The pixels across and the colour a `grid.border.width` Grid line covers
 /// at `pixels_per_point`: whole pixels from one up, and one pixel faded by
 /// its width below that.
@@ -3097,8 +3374,8 @@ fn expected_line(theme: &Theme, pixels_per_point: f32) -> (i32, Color32) {
 /// one junction where each pair of lines crosses, at 1×, 2× and a fractional
 /// scale, and at a width that rounds to one pixel and one that rounds to two.
 ///
-/// Every Cell but the Cursor's is unclaimed, so none strokes a border of its
-/// own: the lines are the Grid's.
+/// Every Cell is unclaimed, so none carries a border of its own: the lines
+/// are the Grid's, but for the Cursor's outline.
 ///
 #[tokio::test]
 async fn an_empty_grid_draws_each_grid_line_once() {
@@ -3149,12 +3426,18 @@ async fn an_empty_grid_draws_each_grid_line_once() {
             );
         }
 
-        assert_drawn_once(
+        assert_drawn_once_around(
             &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             width_pixels,
             theme.grid_border,
+            Some(outline_box(
+                viewport,
+                frame.cursor(),
+                &theme,
+                pixels_per_point,
+            )),
         );
     }
 }
@@ -3290,12 +3573,18 @@ async fn a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width() {
         let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
 
-        assert_drawn_once(
+        assert_drawn_once_around(
             &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             1,
             theme.grid_border.gamma_multiply(0.5 * pixels_per_point),
+            Some(outline_box(
+                viewport,
+                frame.cursor(),
+                &theme,
+                pixels_per_point,
+            )),
         );
     }
 }
@@ -3402,9 +3691,15 @@ async fn a_one_pixel_crossing_is_drawn() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let orcvs = running_orcvs(2, 2);
     let frame = orcvs.render_frame();
+    // The Cursor's outline as thin as the Grid line, so its corners are one
+    // pixel crossings too.
+    let theme = Theme {
+        cursor_border_width: okabe_ito().grid_border_width,
+        ..okabe_ito()
+    };
     let viewport = presented(screen, 2, 2, 2.0);
-    let paint = painted(&frame, viewport, screen);
-    let shapes = source_geometry(&paint, viewport, 2.0);
+    let paint = painted_themed(&frame, viewport, screen, &theme);
+    let shapes = source_geometry_themed(&paint, viewport, 2.0, &theme);
     let (columns, rows) = boundaries(viewport, &paint, 2.0);
 
     let quads = line_quads(&shapes.edges, 2.0);
@@ -3849,12 +4144,13 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
     );
     let (columns, rows) = boundaries(viewport, &paint, DEVICE_SCALE);
     let (width, colour) = expected_line(&theme, DEVICE_SCALE);
-    assert_drawn_once(
+    assert_drawn_once_around(
         &line_quads(&lines, DEVICE_SCALE),
         &columns,
         &rows,
         width,
         colour,
+        Some(outline_box(viewport, frame.cursor(), &theme, DEVICE_SCALE)),
     );
 
     // And so does every sector seam, which takes its own fixed width.
@@ -3953,7 +4249,7 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
 }
 
 ///
-/// Width zero hides the Grid lines, the Cursor's own border and the Sector
+/// Width zero hides the Grid lines, the Cursor's outline and the Sector
 /// Seam outright — no zero-width `Shape` left for the painter to drop — at
 /// every device scale in [`DEVICE_SCALES`].
 ///
@@ -3965,14 +4261,11 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
     // line and a seam on plenty of Cells.
     orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
     let frame = orcvs.render_frame();
-    // Both border widths zeroed: `grid_border_width` for every ordinary
-    // Cell and `cell_selection_border_width` for the single-Cell Cursor
-    // selected below, which are independent Theme fields since
-    // `.scratch/theming/schema.md`'s Source composition step 5 gives the
-    // Cursor its own width.
+    // Both line widths zeroed: `grid_border_width` for every edge and
+    // `cursor_border_width` for the outline of the Cursor selected above.
     let theme = Theme {
         grid_border_width: crate::theme::GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
-        cell_selection_border_width: crate::theme::GridWidth::from_points(0.0)
+        cursor_border_width: crate::theme::GridWidth::from_points(0.0)
             .expect("0.0 is within 0..=1"),
         sector_seam_width: crate::theme::GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
         ..okabe_ito()
@@ -3985,11 +4278,7 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
 
         assert!(
             shapes.edges.is_empty(),
-            "{pixels_per_point} ppp: a Grid line survived width 0"
-        );
-        assert!(
-            shapes.cursor.is_empty(),
-            "{pixels_per_point} ppp: the Cursor's own border stroke survived width 0"
+            "{pixels_per_point} ppp: a Grid line or the Cursor's outline survived width 0"
         );
         assert!(
             shapes.seams.is_empty(),
@@ -3999,16 +4288,13 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
 }
 
 ///
-/// `grid.border.width` and `cell.selection.border.width` are two
-/// independent Theme fields, not one constant read twice — Okabe–Ito
-/// happens to default both to 0.5, which is what every other width test
-/// in this module reads through one local. Here they are given different
-/// values: the Grid lines take `grid.border.width`, and only the
-/// single-Cell Cursor's own border takes `cell.selection.border.width`, per
-/// `.scratch/theming/schema.md`'s Source composition step 5.
+/// `grid.border.width` and `cursor.border.width` are two independent Theme
+/// fields, not one constant read twice: the Grid lines take
+/// `grid.border.width`, and only the Cursor's outline takes
+/// `cursor.border.width`, each faded by its own width below one pixel.
 ///
 #[tokio::test]
-async fn the_grid_and_selection_border_widths_vary_independently() {
+async fn the_grid_and_cursor_border_widths_vary_independently() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
     let mut orcvs = running_orcvs(20, 20);
     let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
@@ -4017,47 +4303,37 @@ async fn the_grid_and_selection_border_widths_vary_independently() {
     let viewport = presented(screen, 20, 20, 1.0);
     let theme = Theme {
         grid_border_width: crate::theme::GridWidth::from_points(0.2).expect("0.2 is within 0..=1"),
-        cell_selection_border_width: crate::theme::GridWidth::from_points(0.9)
+        cursor_border_width: crate::theme::GridWidth::from_points(0.9)
             .expect("0.9 is within 0..=1"),
         ..okabe_ito()
     };
-    // Both `paint` and `shapes` resolve against the same `theme`: the
-    // Cursor's border width is baked into `CellPaint` at
-    // `Paint::derive_with_theme`, and the Grid line's is read by
-    // `SourceShapes::geometry`.
     let paint = painted_themed(&frame, viewport, screen, &theme);
     let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+    let quads = line_quads(&shapes.edges, 1.0);
 
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
-    assert_drawn_once(
-        &line_quads(&shapes.edges, 1.0),
+    let outline = outline_box(viewport, cursor, &theme, 1.0);
+    assert_drawn_once_around(
+        &quads,
         &columns,
         &rows,
         1,
         theme.grid_border.gamma_multiply(0.2),
+        Some(outline),
     );
-
+    let [left, top, ..] = outline;
     assert_eq!(
-        shapes.cursor.len(),
-        1,
-        "the single-Cell Cursor was not framed once"
-    );
-    let Shape::Rect(cursor_stroke) = &shapes.cursor[0] else {
-        panic!("the Cursor's border was {:?}", shapes.cursor[0])
-    };
-    assert!(
-        (cursor_stroke.stroke.width - 0.9).abs() < 1e-4,
-        "the Cursor's own border was {} points wide, not cell.selection.border.width",
-        cursor_stroke.stroke.width
+        edge_pixels(&quads).get(&(left, top + 4)),
+        Some(&theme.cursor_border.gamma_multiply(0.9)),
+        "the Cursor's outline is not faded by its own width"
     );
 }
 
 ///
-/// Each border width hides only its own stroke at zero: a zeroed
-/// `cell.selection.border.width` silences the single-Cell Cursor's own
-/// border while the Grid lines keep their nonzero `grid.border.width`, and a
-/// zeroed `grid.border.width` silences the Grid lines while the Cursor keeps
-/// its own nonzero stroke. Neither zero reaches the other, which
+/// Each line width hides only its own line at zero: a zeroed
+/// `cursor.border.width` withdraws the Cursor's outline, and its edges show
+/// the Grid line, and a zeroed `grid.border.width` silences the Grid lines
+/// while the Cursor keeps its outline. Neither zero reaches the other, which
 /// `zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_scale`
 /// does not show on its own since it zeroes both together.
 ///
@@ -4070,20 +4346,21 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 20, 20, 1.0);
 
-    let zero_selection = Theme {
-        cell_selection_border_width: crate::theme::GridWidth::from_points(0.0)
+    let zero_cursor = Theme {
+        cursor_border_width: crate::theme::GridWidth::from_points(0.0)
             .expect("0.0 is within 0..=1"),
         ..okabe_ito()
     };
-    let paint = painted_themed(&frame, viewport, screen, &zero_selection);
-    let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_selection);
-    assert!(
-        shapes.cursor.is_empty(),
-        "zero cell.selection.border.width left the Cursor's own border standing"
-    );
-    assert!(
-        !shapes.edges.is_empty(),
-        "zero cell.selection.border.width also silenced the Grid lines"
+    let paint = painted_themed(&frame, viewport, screen, &zero_cursor);
+    let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_cursor);
+    let (columns, rows) = boundaries(viewport, &paint, 1.0);
+    let (width, colour) = expected_line(&zero_cursor, 1.0);
+    assert_drawn_once(
+        &line_quads(&shapes.edges, 1.0),
+        &columns,
+        &rows,
+        width,
+        colour,
     );
 
     let zero_grid = Theme {
@@ -4092,21 +4369,24 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     };
     let paint = painted_themed(&frame, viewport, screen, &zero_grid);
     let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_grid);
-    assert!(
-        shapes.edges.is_empty(),
-        "zero grid.border.width left a Grid line standing"
+    let quads = line_quads(&shapes.edges, 1.0);
+    assert_eq!(
+        quads.len(),
+        8,
+        "zero grid.border.width left more than the Cursor's four edges and corners"
     );
     assert!(
-        !shapes.cursor.is_empty(),
-        "zero grid.border.width also silenced the Cursor's own border"
+        quads
+            .iter()
+            .all(|(_, colour)| *colour == zero_grid.cursor_border),
+        "zero grid.border.width left a Grid line standing"
     );
 }
 
 ///
-/// A zeroed `cursor.border.width` hides the single-Cell Cursor's frame
-/// outright: the Cursor Effect built its frame and built no stroke, which
-/// `SourceShapes::new` must not read as "no effect frame" and back-fill
-/// with the selected Cell's own `cell.selection.border.width` stroke.
+/// A zeroed `cursor.border.width` hides the single-Cell Cursor's outline
+/// outright: its edges fall to the Grid line, and the Cursor Effect builds
+/// no fragment.
 ///
 #[tokio::test]
 async fn zero_cursor_border_width_hides_the_cursors_frame() {
@@ -4136,18 +4416,22 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
 
     assert!(
         shapes.cursor.is_empty(),
-        "zero cursor.border.width left {} Cursor strokes standing",
+        "zero cursor.border.width left {} Cursor fragments standing",
         shapes.cursor.len()
+    );
+    assert!(
+        line_quads(&shapes.edges, 1.0)
+            .iter()
+            .all(|(_, colour)| *colour != theme.cursor_border),
+        "zero cursor.border.width left the Cursor's outline standing"
     );
 }
 
 ///
-/// The Grid lines, the Cursor's own border and the Sector Seam stay the
-/// resolved Theme's own fixed display-point widths at every device scale in
-/// [`DEVICE_SCALES`] — never multiplied by the snapped Cell side. A Grid
-/// line is that width in physical pixels; the selected Cell's own stroke is
-/// checked against `grid_border_width` too, because Okabe–Ito's
-/// `cell.selection.border.width` is also 0.5.
+/// The Grid lines and the Sector Seam stay the resolved Theme's own fixed
+/// display-point widths at every device scale in [`DEVICE_SCALES`] — never
+/// multiplied by the snapped Cell side. A Grid line is that width in
+/// physical pixels.
 ///
 #[tokio::test]
 async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales() {
@@ -4164,29 +4448,19 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales()
 
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&theme, pixels_per_point);
-        assert_drawn_once(
+        assert_drawn_once_around(
             &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             width,
             colour,
+            Some(outline_box(
+                viewport,
+                frame.cursor(),
+                &theme,
+                pixels_per_point,
+            )),
         );
-        assert_eq!(
-            shapes.cursor.len(),
-            1,
-            "{pixels_per_point} ppp: the Cursor was not framed once"
-        );
-        for shape in &shapes.cursor {
-            let Shape::Rect(stroked) = shape else {
-                panic!("a border was {shape:?}")
-            };
-            assert!(
-                (stroked.stroke.width - theme.grid_border_width.points()).abs() < 1e-4,
-                "{pixels_per_point} ppp: a border was {} points wide against the fixed {}",
-                stroked.stroke.width,
-                theme.grid_border_width.points()
-            );
-        }
 
         assert!(
             !shapes.seams.is_empty(),
@@ -4611,11 +4885,10 @@ fn pinned_at(view: &mut SourceView, pan: Vec2) {
 ///
 /// Two claims at two layers, and both are here because only a console pass
 /// carries the wiring between them. That a zoom in reaches fewer Positions and
-/// emits fewer Shapes is asserted through the pass itself. That every drawn
-/// Position leaves exactly one Cell-sized *stroked* rectangle — its own
-/// border, or the Cursor's stroke on the selected Cell — is asserted
-/// against the `SourceShapes` groups, counted rather than recovered from
-/// the flat list by a fill and a stroke width. Both are compared with
+/// emits fewer Shapes is asserted through the pass itself. That the edges
+/// cover the drawn Positions and no more is asserted against the
+/// `SourceShapes` edges group, rather than recovered from the flat list.
+/// Both are compared with
 /// `GridViewport::visible_positions`' real answer rather than with a
 /// counter the console keeps for a test's benefit.
 ///
@@ -4707,12 +4980,18 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&okabe_ito(), pixels_per_point);
-        assert_drawn_once(
+        assert_drawn_once_around(
             &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             width,
             colour,
+            Some(outline_box(
+                viewport,
+                frame.cursor(),
+                &okabe_ito(),
+                pixels_per_point,
+            )),
         );
     }
 }

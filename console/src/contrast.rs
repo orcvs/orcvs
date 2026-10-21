@@ -340,18 +340,7 @@ fn painted(
     let selected = is_cursor && !region_spans;
     let cursor_fill = theme.cursor_background;
 
-    let visuals = cell_visuals_with_cursor_colour(
-        fact,
-        portals,
-        selected,
-        // `cursor_visible` decides only the Cell's border, never its
-        // foreground or background (`cell_visuals_with_cursor_colour`'s own
-        // body) — `selected` is a faithful value here rather than an unused
-        // placeholder.
-        selected,
-        cursor_fill,
-        theme,
-    );
+    let visuals = cell_visuals_with_cursor_colour(fact, portals, selected, cursor_fill, theme);
 
     let region_cursor_fill = theme.region_cursor_fill();
     let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));

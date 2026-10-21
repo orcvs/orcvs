@@ -39,9 +39,9 @@ pub(crate) struct CellVisuals {
 /// (see [`source_paint_visuals`]).
 ///
 /// Composes the Source Paint decision with Cursor precedence, applied here
-/// rather than inside it: the single-Cell Cursor's own border
-/// (`selection.border`/`.rest`) draws regardless of what stands on the Cell,
-/// and every other Cell's border is [`ordinary_border`]'s. `paint` is the per-Cell language fact
+/// rather than inside it. Every Cell's border is [`ordinary_border`]'s: the
+/// Cursor's outline is not a Cell's border but the edges it owns
+/// ([`crate::paint::Paint::edges`]). `paint` is the per-Cell language fact
 /// `RenderCell::source_paint` answers from the shared Claim, including
 /// Pending, Valid, or Invalid for an Operand. `portal_roles` is an
 /// independent fact: the Portal roles this Cell plays
@@ -51,7 +51,6 @@ pub(crate) fn cell_visuals_with_cursor_colour(
     paint: SourcePaint,
     portal_roles: PortalRoles,
     selected: bool,
-    cursor_visible: bool,
     cursor_fill: Option<Color32>,
     theme: &Theme,
 ) -> CellVisuals {
@@ -66,25 +65,9 @@ pub(crate) fn cell_visuals_with_cursor_colour(
     } else {
         role_background
     };
-    // The single-Cell Cursor's own border is `selection.border`/`.rest` at
-    // `cell.selection.border.width`, unaffected by Diagnostic/Portal —
-    // `.scratch/theming/schema.md`'s Source composition step 5. Every other
-    // Cell, including a multi-Cell Region's Cursor Cell (`selected` is false
-    // there — see [`crate::paint::Paint::derive_with_theme`]), takes
-    // `ordinary_border`'s answer.
-    let selection = |colour| {
-        Some(EdgeLine {
-            rank: EdgeRank::Selection,
-            stroke: Stroke::new(theme.cell_selection_border_width.points(), colour),
-        })
-    };
-    let border = if cursor_visible {
-        selection(theme.selection_border)
-    } else if selected {
-        selection(theme.selection_border_rest)
-    } else {
-        ordinary_border(paint, portal, theme)
-    };
+    // The Cursor's outline is an edge of its own (`crate::paint::Paint::edges`),
+    // so every Cell, the Cursor's included, carries its fact's border.
+    let border = ordinary_border(paint, portal, theme);
     CellVisuals {
         background,
         border,
@@ -124,9 +107,8 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 /// once per Cell.
 ///
 /// An unselected Cell's visuals depend only on its Source Paint fact and the
-/// Portal that paints it, [`painting_portal`]'s answer (`selected`,
-/// `cursor_visible` and the Cursor fill are all inert when `selected` is
-/// false), so the 10 facts × 4 Portal answers are every answer the walk can
+/// Portal that paints it, [`painting_portal`]'s answer (the Cursor fill is
+/// inert when `selected` is false), so the 10 facts × 4 Portal answers are every answer the walk can
 /// need. Each entry is built by calling
 /// [`cell_visuals_with_cursor_colour`] itself, so the table cannot drift from
 /// the per-Cell definition the tests pin; the per-Cell walk is left with one
@@ -178,14 +160,8 @@ impl<'a> SourcePaintVisuals<'a> {
         match self.entries[index] {
             Some(visuals) => visuals,
             None => {
-                let visuals = cell_visuals_with_cursor_colour(
-                    paint,
-                    portal_roles,
-                    false,
-                    false,
-                    None,
-                    self.theme,
-                );
+                let visuals =
+                    cell_visuals_with_cursor_colour(paint, portal_roles, false, None, self.theme);
                 self.entries[index] = Some(visuals);
                 visuals
             }
@@ -245,9 +221,8 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// `None` for a Cell carrying no fact with a width: its edges show the Grid
 /// line, or a neighbour's fact.
 ///
-/// Called for every Cell but the single-Cell Cursor, whose own frame is
-/// decided in [`cell_visuals_with_cursor_colour`] before this function is
-/// ever reached.
+/// Called for every Cell, the Cursor's included: the Cursor's outline is
+/// the edges [`crate::paint::Paint::edges`] gives it, not a Cell's border.
 ///
 fn ordinary_border(
     paint: SourcePaint,
@@ -984,7 +959,6 @@ mod tests {
                             fact,
                             roles,
                             false,
-                            false,
                             theme.cursor_background,
                             &theme,
                         ),
@@ -1023,7 +997,6 @@ mod tests {
         cell_visuals_with_cursor_colour(
             paint,
             portal_roles,
-            false,
             false,
             Some(theme.selection_background),
             theme,
@@ -1715,22 +1688,12 @@ mod tests {
             SourcePaint::Unclaimed,
             PortalRoles::NONE,
             false,
-            false,
             cursor_colour,
             &theme,
         );
         let selected = cell_visuals_with_cursor_colour(
             SourcePaint::Unclaimed,
             PortalRoles::NONE,
-            true,
-            false,
-            cursor_colour,
-            &theme,
-        );
-        let cursor = cell_visuals_with_cursor_colour(
-            SourcePaint::Unclaimed,
-            PortalRoles::NONE,
-            true,
             true,
             cursor_colour,
             &theme,
@@ -1741,26 +1704,17 @@ mod tests {
         // No border of its own: the Grid line shows on its edges.
         assert_eq!(ordinary.border, None);
         assert_eq!(selected.background, Some(theme.selection_background));
-        assert_eq!(
-            selected.border.map(|border| border.stroke.color),
-            Some(theme.selection_border_rest)
-        );
-        assert_eq!(cursor.background, Some(theme.selection_background));
-        assert_eq!(
-            cursor.border.map(|border| border.stroke.color),
-            Some(theme.selection_border)
-        );
-        assert_ne!(cursor, selected);
+        // The selected Cell keeps its fact's border; its outline is the
+        // edges the Paint gives it.
+        assert_eq!(selected.border, None);
     }
 
     ///
     /// A Cell's border reads `theme.grid_border` (under a Diagnostic border,
-    /// transparent in Okabe–Ito), `theme.selection_border` and
-    /// `theme.selection_border_rest` — the resolved Theme, never a fixed
-    /// constant. Retuning each of the three
-    /// changes the matching `CellVisuals::border` on the next call, the way
-    /// `glyph_colours_are_distinct_and_read_from_the_theme` already proves
-    /// for glyph colours.
+    /// transparent in Okabe–Ito) — the resolved Theme, never a fixed
+    /// constant. Retuning it changes `CellVisuals::border` on the next call,
+    /// the way `glyph_colours_are_distinct_and_read_from_the_theme` already
+    /// proves for glyph colours.
     ///
     #[test]
     fn each_border_channel_reads_its_own_theme_colour_not_a_fixed_default() {
@@ -1775,36 +1729,6 @@ mod tests {
         );
         let colour = |visuals: CellVisuals| visuals.border.map(|border| border.stroke.color);
         assert_eq!(colour(invalid), Some(Color32::from_rgb(11, 22, 33)));
-
-        let retuned_rest = Theme {
-            selection_border_rest: Color32::from_rgb(44, 55, 66),
-            ..okabe_ito()
-        };
-        let selected = cell_visuals_with_cursor_colour(
-            SourcePaint::Unclaimed,
-            PortalRoles::NONE,
-            true,
-            false,
-            None,
-            &retuned_rest,
-        );
-        assert_eq!(colour(selected), Some(Color32::from_rgb(44, 55, 66)));
-        assert_ne!(colour(selected), Some(okabe_ito().selection_border_rest));
-
-        let retuned_visible = Theme {
-            selection_border: Color32::from_rgb(77, 88, 99),
-            ..okabe_ito()
-        };
-        let cursor = cell_visuals_with_cursor_colour(
-            SourcePaint::Unclaimed,
-            PortalRoles::NONE,
-            true,
-            true,
-            None,
-            &retuned_visible,
-        );
-        assert_eq!(colour(cursor), Some(Color32::from_rgb(77, 88, 99)));
-        assert_ne!(colour(cursor), Some(okabe_ito().selection_border));
     }
 
     ///
@@ -1826,7 +1750,6 @@ mod tests {
                 SourcePaint::Unclaimed,
                 PortalRoles::NONE,
                 true,
-                true,
                 None,
                 &theme,
             )
@@ -1837,7 +1760,6 @@ mod tests {
             super::cell_visuals_with_cursor_colour(
                 SourcePaint::Unclaimed,
                 PortalRoles::NONE,
-                true,
                 true,
                 Some(colour),
                 &theme,
@@ -1853,7 +1775,6 @@ mod tests {
             super::cell_visuals_with_cursor_colour(
                 SourcePaint::Unclaimed,
                 PortalRoles::NONE,
-                true,
                 true,
                 Some(Color32::TRANSPARENT),
                 &theme,
@@ -2046,7 +1967,6 @@ mod tests {
             SourcePaint::Function,
             PortalRoles::NONE,
             false,
-            false,
             Some(cursor_colour),
             &theme,
         );
@@ -2054,14 +1974,12 @@ mod tests {
             SourcePaint::Function,
             PortalRoles::NONE,
             true,
-            false,
             Some(cursor_colour),
             &theme,
         );
         let cursor = super::cell_visuals_with_cursor_colour(
             SourcePaint::Function,
             PortalRoles::NONE,
-            true,
             true,
             Some(cursor_colour),
             &theme,
@@ -2448,7 +2366,6 @@ mod tests {
             SourcePaint::Unclaimed,
             OUTPUT,
             true,
-            true,
             Some(cursor_colour),
             &theme,
         );
@@ -2736,7 +2653,8 @@ mod tests {
 
     ///
     /// Cursor and Region keep their precedence over Input Portal: the
-    /// single-Cell Cursor's own fill and border win on its Cell, and the
+    /// single-Cell Cursor's own fill wins on its Cell, which keeps the
+    /// Portal's border for its outline to outrank, and the
     /// Cursor's Cell inside a spanning Region takes the Region Cursor fill.
     /// Every other Region Cell keeps the Input Portal background, because a
     /// visible fact fill suppresses the Region fill.
@@ -2753,14 +2671,13 @@ mod tests {
             SourcePaint::Unclaimed,
             INPUT,
             true,
-            true,
             Some(cursor_colour),
             &theme,
         );
         assert_eq!(cursor.background, Some(cursor_colour));
         assert_eq!(
-            cursor.border.map(|border| border.stroke.color),
-            Some(theme.selection_border)
+            cursor.border.map(|border| border.rank),
+            Some(EdgeRank::InputPortal)
         );
 
         let unselected = painted_in(SourcePaint::Unclaimed, INPUT, &theme);
@@ -2804,14 +2721,12 @@ mod tests {
             operand(Token::Number, OperandState::Invalid),
             PortalRoles::NONE,
             false,
-            false,
             Some(cursor_colour),
             &theme,
         );
         let cursor = cell_visuals_with_cursor_colour(
             operand(Token::Number, OperandState::Invalid),
             PortalRoles::NONE,
-            true,
             true,
             Some(cursor_colour),
             &theme,
@@ -2918,7 +2833,7 @@ mod tests {
     /// Output Portal over Unclaimed/a Valid operand/Bang (keeps its own
     /// glyph)/a bound Function (bypassed outright), and the Cursor's own
     /// fill winning over a role's tint, an Invalid operand's Diagnostic
-    /// glyph, and the rest/visible border pair.
+    /// glyph, and the Cursor's Cell keeping its fact's border.
     ///
     /// One captured case: the fact `cell_visuals_with_cursor_colour`
     /// was asked about, and the exact premultiplied byte arrays it answered.
@@ -2929,7 +2844,6 @@ mod tests {
         fact: SourcePaint,
         output_portal: bool,
         selected: bool,
-        cursor_visible: bool,
         background: Option<[u8; 4]>,
         border: [u8; 4],
         foreground: [u8; 4],
@@ -2947,7 +2861,6 @@ mod tests {
                 fact: SourcePaint::Unclaimed,
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: None,
                 border: [8, 16, 14, 72],
                 foreground: [234, 235, 229, 255],
@@ -2957,7 +2870,6 @@ mod tests {
                 fact: SourcePaint::Comment,
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: None,
                 border: [8, 16, 14, 72],
                 foreground: [153, 153, 153, 255],
@@ -2967,7 +2879,6 @@ mod tests {
                 fact: SourcePaint::Bang,
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: None,
                 border: [8, 16, 14, 72],
                 foreground: [204, 121, 167, 255],
@@ -2977,7 +2888,6 @@ mod tests {
                 fact: SourcePaint::Bang,
                 output_portal: true,
                 selected: false,
-                cursor_visible: false,
                 background: Some([23, 16, 0, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [204, 121, 167, 255],
@@ -2987,7 +2897,6 @@ mod tests {
                 fact: SourcePaint::Function,
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: Some([0, 16, 12, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
@@ -2997,7 +2906,6 @@ mod tests {
                 fact: SourcePaint::Function,
                 output_portal: true,
                 selected: false,
-                cursor_visible: false,
                 background: Some([0, 16, 12, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
@@ -3007,7 +2915,6 @@ mod tests {
                 fact: operand(Token::Number, OperandState::Pending),
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [86, 180, 233, 255],
@@ -3017,7 +2924,6 @@ mod tests {
                 fact: operand(Token::Number, OperandState::Valid),
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [86, 180, 233, 255],
@@ -3027,7 +2933,6 @@ mod tests {
                 fact: operand(Token::Number, OperandState::Invalid),
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: Some([9, 18, 24, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [213, 94, 0, 255],
@@ -3037,7 +2942,6 @@ mod tests {
                 fact: operand(Token::Number, OperandState::Valid),
                 output_portal: true,
                 selected: false,
-                cursor_visible: false,
                 background: Some([31, 32, 22, 49]),
                 border: [8, 16, 14, 72],
                 foreground: [230, 159, 0, 255],
@@ -3047,7 +2951,6 @@ mod tests {
                 fact: operand(Token::Note, OperandState::Valid),
                 output_portal: false,
                 selected: false,
-                cursor_visible: false,
                 background: Some([24, 23, 7, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [240, 228, 66, 255],
@@ -3057,7 +2960,6 @@ mod tests {
                 fact: SourcePaint::Unclaimed,
                 output_portal: true,
                 selected: false,
-                cursor_visible: false,
                 background: Some([23, 16, 0, 26]),
                 border: [8, 16, 14, 72],
                 foreground: [230, 159, 0, 255],
@@ -3067,19 +2969,8 @@ mod tests {
                 fact: SourcePaint::Unclaimed,
                 output_portal: false,
                 selected: true,
-                cursor_visible: false,
                 background: Some([9, 8, 7, 255]),
-                border: [82, 195, 163, 255],
-                foreground: [234, 235, 229, 255],
-            },
-            BaselineCase {
-                name: "unclaimed_cursor_visible",
-                fact: SourcePaint::Unclaimed,
-                output_portal: false,
-                selected: true,
-                cursor_visible: true,
-                background: Some([9, 8, 7, 255]),
-                border: [101, 230, 190, 255],
+                border: [8, 16, 14, 72],
                 foreground: [234, 235, 229, 255],
             },
             BaselineCase {
@@ -3087,19 +2978,8 @@ mod tests {
                 fact: SourcePaint::Function,
                 output_portal: false,
                 selected: true,
-                cursor_visible: false,
                 background: Some([9, 8, 7, 255]),
-                border: [82, 195, 163, 255],
-                foreground: [0, 158, 115, 255],
-            },
-            BaselineCase {
-                name: "function_cursor_visible",
-                fact: SourcePaint::Function,
-                output_portal: false,
-                selected: true,
-                cursor_visible: true,
-                background: Some([9, 8, 7, 255]),
-                border: [101, 230, 190, 255],
+                border: [8, 16, 14, 72],
                 foreground: [0, 158, 115, 255],
             },
             BaselineCase {
@@ -3107,9 +2987,8 @@ mod tests {
                 fact: operand(Token::Number, OperandState::Invalid),
                 output_portal: false,
                 selected: true,
-                cursor_visible: true,
                 background: Some([9, 8, 7, 255]),
-                border: [101, 230, 190, 255],
+                border: [8, 16, 14, 72],
                 foreground: [213, 94, 0, 255],
             },
         ];
@@ -3119,7 +2998,6 @@ mod tests {
                 case.fact,
                 output_portal_roles(case.output_portal),
                 case.selected,
-                case.cursor_visible,
                 cursor_colour,
                 &theme,
             );
