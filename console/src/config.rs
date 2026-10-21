@@ -99,8 +99,8 @@ mod native {
     /// The most a settings file may hold. A file this size is not settings.
     const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 
-    /// The points a Cell's width or height may be. The smallest gives a Glyph
-    /// of about 5 points.
+    /// The points a Cell's width or height may be. The smallest Cell gives a
+    /// Glyph of 6 points at a 1× scale.
     const CELL_POINTS: std::ops::RangeInclusive<f64> = 8.0..=64.0;
 
     impl Config {

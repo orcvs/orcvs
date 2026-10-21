@@ -1049,21 +1049,22 @@ async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
 
 ///
 /// A Console started with a `[cell]` setting presents its Grid, its Pan
-/// bound and its Glyphs at that Cell rather than the default one: a click
-/// lands on the Cell drawn at the configured width and height, a Pan to the
-/// far edge stops two configured Cell widths past the Grid, the Glyphs
-/// are laid out at the size that Cell derives, and opening another Source
-/// keeps it.
+/// bound and its Glyphs at that Cell snapped, rather than at the default one:
+/// a click lands on the Cell drawn at the snapped width and height, a Pan to
+/// the far edge stops two snapped Cell widths past the Grid, the Glyphs are
+/// laid out at the size the snapped Cell derives, and opening another Source
+/// keeps it. The configured Cell is fractional, so each check tells the
+/// snapped Cell from the one the file asked for.
 ///
 #[tokio::test]
 async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
-    let cell = Vec2::new(10.0, 15.0);
+    let configured = Vec2::new(10.5, 15.5);
     let ctx = egui::Context::default();
     let mut console = start_console(
         &eframe::CreationContext::_new_kittest(ctx.clone()),
         ThemeRegistry::built_in(),
         crate::config::Config {
-            cell,
+            cell: configured,
             ..crate::config::Config::default()
         },
     );
@@ -1088,13 +1089,19 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
         ctx.run_ui(input, |root| console.ui(root, &mut host))
     };
     let viewport = console_viewport(&ctx, &console);
+    let cell = crate::grid_viewport::snapped_cell(configured, ctx.pixels_per_point());
+    assert_ne!(cell, configured, "the configured Cell snaps to itself");
     assert_eq!(viewport.cell_size, cell);
     let shapes = output.shapes.clone();
     output.drop_without_applying_deltas();
 
     fn glyph_sizes(shape: &Shape, sizes: &mut Vec<f32>) {
         match shape {
-            Shape::Text(text) => sizes.push(text.galley.job.sections[0].format.font_id.size),
+            Shape::Text(text) => {
+                if let Some(section) = text.galley.job.sections.first() {
+                    sizes.push(section.format.font_id.size);
+                }
+            }
             Shape::Vec(shapes) => shapes.iter().for_each(|shape| glyph_sizes(shape, sizes)),
             _ => {}
         }
@@ -1108,9 +1115,15 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
         "no Glyph was laid out at the configured Cell's {} points: {glyphs:?}",
         viewport.glyph_size()
     );
+    let default = presented_grid(
+        Pos2::ZERO,
+        console.orcvs.grid(),
+        crate::grid_viewport::snapped_cell(CELL_SIZE, ctx.pixels_per_point()),
+        ctx.pixels_per_point(),
+    );
     assert_ne!(
         viewport.glyph_size(),
-        13.5,
+        default.glyph_size(),
         "the Glyph is the default Cell's"
     );
 
@@ -1128,7 +1141,7 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
     assert_eq!(
         screen.max.x - viewport.rect.max.x,
         SOURCE_MARGIN_CELLS * cell.x,
-        "the far-edge Pan stopped somewhere other than two configured Cells past the Grid"
+        "the far-edge Pan stopped somewhere other than two snapped Cells past the Grid"
     );
 
     console.load_function_reference();
