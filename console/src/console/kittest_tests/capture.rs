@@ -371,7 +371,7 @@ fn states_drawn(
                     .is_some_and(|position| paint.cells().any(|(drawn, _)| drawn == position))
             })
         });
-    if paint.region_spans() && region_drawn {
+    if region_drawn {
         drawn.insert("Region");
     }
     // The Cursor's Cell among the drawn Cells, where its fill and its Effect

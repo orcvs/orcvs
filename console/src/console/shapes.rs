@@ -294,7 +294,15 @@ impl SourceShapes {
         cursor_effect: crate::cursor_effects::CursorEffectShapes,
         theme: &Theme,
     ) -> Self {
-        let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
+        // While the Cursor Effect erodes the frame, its fragments are the
+        // outline: the edges beneath it show through their gaps, which a
+        // solid outline drawn under them would fill.
+        let edges = if cursor_effect.fragments.is_empty() {
+            paint.edges()
+        } else {
+            paint.edges_beneath_outline()
+        };
+        let mut shapes = Self::place(paint, &edges, viewport, pixels_per_point, theme);
         shapes.area = cursor_effect.area;
         shapes.cursor = cursor_effect.fragments;
         shapes.place_glyphs(paint, viewport, table);
@@ -316,6 +324,19 @@ impl SourceShapes {
     ///
     pub fn geometry(
         paint: &Paint,
+        viewport: &GridViewport,
+        pixels_per_point: f32,
+        theme: &Theme,
+    ) -> Self {
+        Self::place(paint, &paint.edges(), viewport, pixels_per_point, theme)
+    }
+
+    ///
+    /// [`Self::geometry`] with `edges` as the Paint's edges.
+    ///
+    fn place(
+        paint: &Paint,
+        edges: &Edges,
         viewport: &GridViewport,
         pixels_per_point: f32,
         theme: &Theme,
@@ -360,7 +381,6 @@ impl SourceShapes {
         // one index, so a boundary past the last drawn Cell is the near edge
         // the next Cell would have.
         let drawn = paint.drawn();
-        let edges = paint.edges();
         let mut edge_shapes = Vec::new();
         if !edges.rows.is_empty() || !edges.columns.is_empty() {
             let pixel = |point: f32| (point * pixels_per_point).round() as i32;
@@ -371,7 +391,7 @@ impl SourceShapes {
                 .map(|row| pixel(viewport.cell_rect(drawn.columns.start, row).min.y))
                 .collect::<Vec<_>>();
             edge_shapes.push(Shape::mesh(edge_mesh(
-                &edges,
+                edges,
                 drawn,
                 &columns,
                 &rows,
@@ -557,21 +577,15 @@ pub(super) fn show_source(
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive_with_theme(FramePaint::new(frame, visible), theme);
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
-    // The Cursor's own frame outlines its own Cell; the lasso around a
-    // Region larger than one Cell takes the Region's own outline colour
-    // instead — `.scratch/theming/schema.md`'s "the effect outline uses
-    // `cursor.border` or `region.border`". `paint` already answered which
-    // this Render Frame is, so this reads that rather than re-deriving it.
-    // The same choice picks the animated frame's nominal width, as one
-    // `Stroke` so colour and width cannot come from different answers:
-    // `cursor.border.width` for the Cursor's own frame, `region.border.width`
-    // for the lasso — a fixed display-point value `cursor_effect_shapes` never
-    // scales with the Cell size.
-    let frame_stroke = if paint.region_spans() {
-        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
-    } else {
-        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
-    };
+    // The Cursor Effect's frame is the selection outline's line — the
+    // Cursor's own `cursor.border`, or `region.border` for the lasso around a
+    // Region larger than one Cell, as `.scratch/theming/schema.md`'s "the
+    // effect outline uses `cursor.border` or `region.border`" says — so it is
+    // read from the Paint that answered it. A withdrawn outline frames
+    // nothing.
+    let frame_stroke = paint
+        .outline_line()
+        .map_or(egui::Stroke::NONE, |line| line.stroke);
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
         effect_outline(frame, &viewport),

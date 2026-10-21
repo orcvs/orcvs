@@ -244,9 +244,6 @@ pub struct Paint {
     /// The Positions this Paint covers: what the console draws, and one Cell
     /// more in every direction the Grid has one.
     drawn: VisiblePositions,
-    /// Whether the Region spans more than one Cell, when the outline is the
-    /// Region's.
-    region_spans: bool,
     /// The selection outline, or `None` where its border's width is zero.
     outline: Option<Outline>,
     /// The line an edge shows where neither Cell beside it carries a fact,
@@ -432,7 +429,6 @@ impl Paint {
         Self {
             grid,
             drawn: drawn.clone(),
-            region_spans,
             outline,
             grid_line,
             cells,
@@ -551,14 +547,6 @@ impl Paint {
     }
 
     ///
-    /// Whether the Region spans more than one Cell, when the Cursor Effect
-    /// frames the Region rather than the Cursor's Cell.
-    ///
-    pub(crate) fn region_spans(&self) -> bool {
-        self.region_spans
-    }
-
-    ///
     /// The consecutive Cells of each row that share one background, coalesced.
     ///
     /// Derived on demand rather than stored: the per-Cell backgrounds are the
@@ -635,6 +623,25 @@ impl Paint {
     /// them.
     ///
     pub fn edges(&self) -> Edges {
+        self.edges_with(self.outline.as_ref())
+    }
+
+    ///
+    /// [`Self::edges`] as they lie beneath the selection outline: each of its
+    /// edges shows the facts beside it instead.
+    ///
+    pub(crate) fn edges_beneath_outline(&self) -> Edges {
+        self.edges_with(None)
+    }
+
+    ///
+    /// The selection outline's line, `None` where its border's width is zero.
+    ///
+    pub(crate) fn outline_line(&self) -> Option<EdgeLine> {
+        self.outline.as_ref().map(|outline| outline.line)
+    }
+
+    fn edges_with(&self, outline: Option<&Outline>) -> Edges {
         let (columns, rows) = (self.drawn.columns.len(), self.drawn.rows.len());
         let (first_column, first_row) = (self.drawn.columns.start, self.drawn.rows.start);
         let fact = |column: Option<usize>, row: Option<usize>| {
@@ -655,8 +662,6 @@ impl Paint {
                     .max_by_key(|line| line.rank)
             })
         };
-        let outline = self.outline.as_ref();
-
         let mut edges = Edges::default();
         if columns == 0 || rows == 0 {
             return edges;
@@ -927,7 +932,7 @@ mod tests {
             collapsed.cells().all(|(_, cell)| cell.background.is_none()),
             "a Region of one Cell was tinted"
         );
-        assert!(!collapsed.region_spans());
+        assert!(!outline_spans(&collapsed));
 
         orcvs.extend(at(3, 2));
         for (cursor, region_cursor, expected) in [
@@ -936,7 +941,7 @@ mod tests {
             (Some(cursor_fill), Some(own), Some(own)),
         ] {
             let spanned = painted(&orcvs, cursor, region_cursor);
-            assert!(spanned.region_spans());
+            assert!(outline_spans(&spanned));
             for (position, cell) in spanned.cells() {
                 let inside = (1..4).contains(&position.x()) && (1..3).contains(&position.y());
                 let wanted = if position == at(3, 2) {
@@ -1091,7 +1096,7 @@ mod tests {
             let theme =
                 crate::theme::resolve(&[okabe_ito()], &id("custom"), &document).expect("resolves");
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
-            assert!(paint.region_spans());
+            assert!(outline_spans(&paint));
             paint.at(at(3, 2)).background
         };
 
@@ -1138,7 +1143,7 @@ mod tests {
         let theme = okabe_ito();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
-        assert!(paint.region_spans());
+        assert!(outline_spans(&paint));
         assert_eq!(frame.cursor(), at(5, 0));
 
         // Function's own two-Cell spelling: `.+`.
@@ -1208,7 +1213,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
-        assert!(paint.region_spans());
+        assert!(outline_spans(&paint));
         assert_eq!(frame.cursor(), cursor);
 
         for (position, cell) in paint.cells() {
@@ -1271,7 +1276,7 @@ mod tests {
             let frame = orcvs.render_frame();
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
-            assert!(!paint.region_spans(), "a single-Cell Cursor never spans");
+            assert!(!outline_spans(&paint), "a single-Cell Cursor never spans");
             assert_eq!(frame.cursor(), selected);
 
             assert_eq!(
@@ -2572,7 +2577,6 @@ mod tests {
         Paint {
             grid,
             drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
-            region_spans: false,
             outline: None,
             grid_line: Some(GRID_LINE),
             cells: rows
@@ -2602,6 +2606,14 @@ mod tests {
     /// A Paint whose Cells carry the border facts in `rows`, with
     /// `GRID_LINE` between them.
     ///
+    /// Whether `paint`'s selection outline is a Region larger than one Cell.
+    fn outline_spans(paint: &Paint) -> bool {
+        paint
+            .outline
+            .as_ref()
+            .is_some_and(|outline| outline.columns.len() * outline.rows.len() > 1)
+    }
+
     fn edge_paint(rows: &[&[Option<EdgeLine>]]) -> Paint {
         let backgrounds = rows
             .iter()
