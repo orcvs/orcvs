@@ -1487,9 +1487,7 @@ fn painted_source_shapes(harness: &Harness<'_, Console>) -> Vec<egui::Shape> {
 ///
 #[tokio::test]
 async fn a_zoomed_console_paints_whole_pixel_cells_at_the_themes_widths() {
-    // A still Cursor Effect, so the Cursor's outline is its edges alone.
-    let mut config = crate::config::Config::default();
-    *config.cursor_effects.amount_mut() = 0;
+    let config = crate::config::Config::default();
     let mut harness = console_harness(
         Vec2::from(DEFAULT_VIEW_SIZE),
         None,

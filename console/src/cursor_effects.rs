@@ -22,11 +22,13 @@ pub struct CursorEffectSettings {
     frequency: u8,
 }
 
+/// Off: a Glitch amount and frequency of zero leave ADR 0078's still
+/// outline and schedule no repaint (ADR 0079).
 impl Default for CursorEffectSettings {
     fn default() -> Self {
         Self {
-            amount: 60,
-            frequency: 55,
+            amount: 0,
+            frequency: 0,
         }
     }
 }
@@ -526,6 +528,11 @@ mod tests {
         settings
     }
 
+    /// A live Glitch amount and frequency, for the tests of the effect itself.
+    fn animated() -> CursorEffectSettings {
+        settings(60, 55)
+    }
+
     #[test]
     fn default_animation_constructs_on_every_target() {
         let _ = CursorEffectAnimation::default();
@@ -537,11 +544,19 @@ mod tests {
         assert_eq!(animation_seed(), 0x6f72_6376_735f_6375);
     }
 
+    /// The default is off: the still outline alone, and no repaint
+    /// (ADR 0079).
     #[test]
-    fn defaults_are_an_irregular_live_cadence() {
+    fn the_default_is_still_and_schedules_nothing() {
         let settings = CursorEffectSettings::default();
-        assert_eq!(settings.amount(), 60);
-        assert_eq!(settings.frequency(), 55);
+        assert_eq!(settings.amount(), 0);
+        assert_eq!(settings.frequency(), 0);
+        assert_eq!(settings.interval(0), None);
+    }
+
+    #[test]
+    fn a_live_frequency_is_an_irregular_cadence() {
+        let settings = animated();
         assert_ne!(settings.interval(0), settings.interval(255));
     }
 
@@ -558,7 +573,7 @@ mod tests {
     ///
     #[test]
     fn reduced_motion_uses_a_clear_static_cursor() {
-        let settings = CursorEffectSettings::default().respecting_reduced_motion(true);
+        let settings = animated().respecting_reduced_motion(true);
         assert_eq!(settings.amount(), 0);
         assert_eq!(settings.frequency(), 0);
         assert_eq!(
@@ -570,7 +585,7 @@ mod tests {
 
     #[test]
     fn animation_changes_only_at_deadlines_and_does_not_replay_a_backlog() {
-        let settings = CursorEffectSettings::default();
+        let settings = animated();
         let mut animation = CursorEffectAnimation::default();
         let first = animation.advance(Duration::ZERO, settings);
         let before = animation.advance(Duration::from_millis(99), settings);
@@ -658,7 +673,7 @@ mod tests {
     fn frame_fragments_cover_all_four_edges_and_evolve() {
         let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
         let clip = cursor.expand(200.0);
-        let settings = CursorEffectSettings::default();
+        let settings = animated();
         let first = cursor_effect_shapes(
             cursor,
             cursor,
@@ -730,7 +745,7 @@ mod tests {
         let outline = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::new(5.0, 3.0) * CELL_SIZE);
         let cursor = Rect::from_min_size(outline.max - cell, cell);
         let clip = outline.expand(200.0);
-        let settings = CursorEffectSettings::default();
+        let settings = animated();
         let heaviest = |shapes: &[Shape]| {
             shapes
                 .iter()
@@ -810,7 +825,7 @@ mod tests {
     #[test]
     fn a_one_cell_outline_is_the_cursors_own_frame() {
         let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
-        let settings = CursorEffectSettings::default();
+        let settings = animated();
         let effects = cursor_effect_shapes(
             cursor,
             cursor,
@@ -848,7 +863,7 @@ mod tests {
             CELL_SIZE,
             CursorEffectMotion {
                 sample: sample(1, 0x1234, 0x5678),
-                settings: CursorEffectSettings::default(),
+                settings: animated(),
             },
             AREA_COLOUR,
             FRAME,
@@ -880,7 +895,7 @@ mod tests {
                 CELL_SIZE,
                 CursorEffectMotion {
                     sample: sample(1, field, field.rotate_left(7)),
-                    settings: CursorEffectSettings::default(),
+                    settings: animated(),
                 },
                 AREA_COLOUR,
                 FRAME,
@@ -903,7 +918,7 @@ mod tests {
             CELL_SIZE,
             CursorEffectMotion {
                 sample: sample(1, 2, 3),
-                settings: CursorEffectSettings::default(),
+                settings: animated(),
             },
             AREA_COLOUR,
             FRAME,
@@ -950,14 +965,14 @@ mod tests {
     ///
     #[test]
     fn zero_frame_width_hides_every_stroke_at_every_amount_and_device_scale() {
-        let mut static_settings = CursorEffectSettings::default();
+        let mut static_settings = animated();
         *static_settings.amount_mut() = 0;
 
         for cell_size in snapped_cell_sizes() {
             let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
             let clip = cursor.expand(500.0);
 
-            for settings in [static_settings, CursorEffectSettings::default()] {
+            for settings in [static_settings, animated()] {
                 let effects = cursor_effect_shapes(
                     cursor,
                     cursor,
@@ -988,7 +1003,7 @@ mod tests {
                 cell_size,
                 CursorEffectMotion {
                     sample: sample(3, 5, 7),
-                    settings: CursorEffectSettings::default(),
+                    settings: animated(),
                 },
                 AREA_COLOUR,
                 Stroke {
@@ -1010,7 +1025,7 @@ mod tests {
     ///
     #[test]
     fn amount_zero_paints_nothing_of_its_own_at_every_device_scale() {
-        let mut settings = CursorEffectSettings::default();
+        let mut settings = animated();
         *settings.amount_mut() = 0;
 
         for cell_size in snapped_cell_sizes() {

@@ -570,8 +570,8 @@ dark = "okabe-ito"
 light = "orcvs-light"
 
 [cursor_effects]
-glitch_amount = 60      # 0–100
-glitch_frequency = 55   # 0–100
+glitch_amount = 0       # 0–100; 0 leaves the outline still
+glitch_frequency = 0    # 0–100
 ```
 
 Every key is optional and an absent key is its default. A missing file is an
