@@ -1378,8 +1378,7 @@ async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline
 /// Reduced motion's effective settings, not the stored ones, govern a
 /// frame: `Console::cursor_effects` — the value a save persists —
 /// survives running frames unchanged, and a quiet pass with Playback
-/// stopped requests no repaint at all, the one combination in which the
-/// console's own scheduling asks for nothing
+/// stopped requests no repaint at all, though the stored settings animate
 /// (`a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped`
 /// relies on the same fact once a click has settled).
 ///

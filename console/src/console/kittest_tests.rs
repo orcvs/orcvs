@@ -70,8 +70,9 @@
 //!
 //! Frame advancement is bounded and explicit. `Harness::run` loops until no
 //! immediate repaint is requested, and the console requests one whenever the
-//! cursor effect is animating — `CursorEffectSettings::default` has a frequency
-//! of 55, so it always is. `step` runs one frame per queued event and
+//! cursor effect is animating, which a settings file can turn on.
+//! `CursorEffectSettings::default` is still, but a test that animates the
+//! effect never settles under `run`. `step` runs one frame per queued event and
 //! `run_steps` runs a stated number, which is what every test here uses. No
 //! test sleeps, reads the clock, or depends on Playback: the harness advances
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
@@ -2530,9 +2531,9 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// missing repaints on frame-delayed responses" (egui's comment in
 /// `ContextImpl::request_repaint_after`). That second, free repaint is exactly
 /// the frame after a click needs, supplied by the toolkit itself rather than by
-/// anything Console asks for — so this holds even with reduced motion on and
-/// Playback stopped, the one combination in which Console's own repaint
-/// scheduling asks for nothing at all.
+/// anything Console asks for — so this holds even when Console's own repaint
+/// scheduling asks for nothing at all: Playback stopped, and an animating
+/// Cursor Effect held still by reduced motion.
 ///
 /// The console is resized to a width that is not a multiple of `CELL_SIZE`,
 /// so Column 10 (192..208 at egui's zoom factor of 1.0, after the two-Cell margin) is cut off
@@ -2544,6 +2545,9 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
+    // An animating effect, so reduced motion is what holds the console still.
+    *harness.state_mut().cursor_effects.amount_mut() = 60;
+    *harness.state_mut().cursor_effects.frequency_mut() = 55;
     harness.state_mut().reduced_motion = true;
     harness.set_size(Vec2::new(200.0, 500.0));
     harness.run_steps(2);

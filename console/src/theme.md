@@ -60,7 +60,7 @@ menu rather than any `Theme` menu (`.scratch/theming/issues/09`).
 Amount zero retains the clear outline alone, without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, both are restored independently of the saved Source, falling back
-to their defaults — 60 and 55 — on an absent or malformed stored value.
+to their defaults — 0 and 0 — on an absent or malformed stored value.
 
 ADR 0053 and `theming/09` retain those distinct appearances and also stop
 cursor-effect repaints at amount zero, correcting the current frequency-only
