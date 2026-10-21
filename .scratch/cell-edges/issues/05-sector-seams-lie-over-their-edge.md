@@ -4,10 +4,18 @@
 
 **Blocked by:** 03 — Draw every border edge once.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Built test-first at the Paint: an edge on a Sector boundary carries the seam composited over its winning line; a selection-outline edge carries none.
-- [ ] Seam pieces follow the pixel rule and the junction rule; no seam piece overlaps a line piece.
-- [ ] The seam keeps `sector.seam.width`; where it is wider than the line it lies over, the edge takes the seam's width.
-- [ ] The separate seam Shapes are gone, and tests that pinned them are rewritten.
-- [ ] The console gate and the `--no-default-features` arm pass.
+- [x] Built test-first at the Paint: an edge on a Sector boundary carries the seam composited over its winning line; a selection-outline edge carries none.
+- [x] Seam pieces follow the pixel rule and the junction rule; no seam piece overlaps a line piece.
+- [x] The seam keeps `sector.seam.width`; where it is wider than the line it lies over, the edge takes the seam's width.
+- [x] The separate seam Shapes are gone, and tests that pinned them are rewritten.
+- [x] The console gate and the `--no-default-features` arm pass.
+
+## Comments
+
+- A Cell still carries its left and top seam colours (`CellPaint::sector_left`/`sector_top`), now on every Cell, the Cursor's included. `Paint::edges` composites the seam onto the line that won each edge, `line.blend(seam)` at the wider of the two widths in points, keeping the line's rank; where no line won, the seam stands alone at Grid line rank. The outline's edges take none. With a zero outline width the Cursor's Cell's seams show, since its edges are ordinary again.
+- The composite is made in points before the pixel rule, so below one pixel the merged line fades by the wider width once, rather than the seam fading over a faded line.
+- Where two seamed lines of equal rank cross, the junction takes the colour of the last one met, the row line's.
+- `sector.seam.width` is read into the Paint, and `SourceShapes::geometry` and `SourceShapes::new` no longer take a Theme.
+- Shape tests read seams as edge pixels; the lattice tests leave seam lines to `a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for`, which runs at every device scale in `DEVICE_SCALES`.

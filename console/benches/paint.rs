@@ -318,7 +318,6 @@ fn shapes(c: &mut Criterion) {
                 black_box(&single_paint),
                 black_box(&viewport),
                 black_box(1.0),
-                black_box(&theme),
             ))
         })
     });
@@ -328,7 +327,6 @@ fn shapes(c: &mut Criterion) {
                 black_box(&empty_paint),
                 black_box(&viewport),
                 black_box(1.0),
-                black_box(&theme),
             ))
         })
     });
@@ -344,7 +342,6 @@ fn shapes(c: &mut Criterion) {
                     black_box(&fitted_paint),
                     black_box(&viewport),
                     black_box(1.0),
-                    black_box(&theme),
                 ))
             })
         });
@@ -354,7 +351,6 @@ fn shapes(c: &mut Criterion) {
                     black_box(&culled_paint),
                     black_box(&viewport),
                     black_box(1.0),
-                    black_box(&theme),
                 ))
             })
         });

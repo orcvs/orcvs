@@ -251,8 +251,6 @@ pub struct SourceShapes {
     pub(super) edges: Vec<Shape>,
     /// One galley per Cell that shows a character other than the space.
     pub(super) glyphs: Vec<Shape>,
-    /// The sector seams, left edge then top edge, Cell by Cell.
-    pub(super) seams: Vec<Shape>,
     /// The Cursor Effect's animated fragments, painted last, around its Cell
     /// or the lasso around a Region larger than one Cell.
     pub(super) cursor: Vec<Shape>,
@@ -264,14 +262,12 @@ impl SourceShapes {
     /// of, applied to the colours and characters it carries all of.
     ///
     /// Stroke widths are fixed display points at every device scale and egui
-    /// zoom factor, never multiplied by the Cell size: `grid.border.width` and
-    /// `sector.seam.width` from the resolved `theme`, and each edge's width
+    /// zoom factor, never multiplied by the Cell size: each edge's width is
     /// already resolved onto [`Paint::edges`]. `pixels_per_point` is the
     /// device scale the background runs are snapped to (see
     /// [`background_run`]) and the edges are placed at (see [`edge_mesh`]).
     ///
-    /// Edges, the sector seams and the background runs
-    /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
+    /// Edges and the background runs need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
     /// so this composes the two steps rather than folding the atlas into the
     /// geometry pass.
     ///
@@ -281,9 +277,8 @@ impl SourceShapes {
         table: &GlyphTable,
         pixels_per_point: f32,
         cursor_effect: crate::cursor_effects::CursorEffectShapes,
-        theme: &Theme,
     ) -> Self {
-        let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
+        let mut shapes = Self::geometry(paint, viewport, pixels_per_point);
         shapes.area = cursor_effect.area;
         shapes.cursor = cursor_effect.fragments;
         shapes.place_glyphs(paint, viewport, table);
@@ -291,31 +286,17 @@ impl SourceShapes {
     }
 
     ///
-    /// Backgrounds, edges and the sector seams — every
-    /// Shape whose construction is arithmetic on a `Rect` and a `Color32`.
+    /// Backgrounds and edges — every Shape whose construction is arithmetic
+    /// on a `Rect` and a `Color32`.
     ///
     /// Takes no [`GlyphTable`] and no `egui::Context`. The `glyphs` field is
     /// empty until [`Self::place_glyphs`] fills it; both steps finish before
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
-    /// `theme.sector_seam_width` is read once, here, rather than once per
-    /// Cell inside the loop below, and a width of exactly zero skips building
-    /// that Shape outright rather than emitting a zero-width one for the
-    /// painter to drop.
-    ///
-    pub fn geometry(
-        paint: &Paint,
-        viewport: &GridViewport,
-        pixels_per_point: f32,
-        theme: &Theme,
-    ) -> Self {
-        // Sector Seam width has no per-Cell fact to vary by, so it is a plain
-        // frame-level read.
-        let sector_seam_width = theme.sector_seam_width.points();
+    pub fn geometry(paint: &Paint, viewport: &GridViewport, pixels_per_point: f32) -> Self {
         // Backgrounds are sparse selection state, so that group starts empty.
         // Glyphs are reserved in [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
-        let mut seams = Vec::new();
 
         for run in paint.background_runs() {
             // Built from the Cells' own rectangles — `GridViewport::cell_rect`
@@ -368,32 +349,11 @@ impl SourceShapes {
             )));
         }
 
-        for (position, cell) in paint.cells() {
-            let rect = viewport.cell_rect(position.x(), position.y());
-            // A seam is absent on the Cursor's Cell, while it is framed on its
-            // own, because the derive suppressed it there, so this step never
-            // learns that rule.
-            if sector_seam_width > 0.0 {
-                for (colour, ends) in [
-                    (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
-                    (cell.sector_top, [rect.left_top(), rect.right_top()]),
-                ] {
-                    if let Some(colour) = colour {
-                        seams.push(Shape::line_segment(
-                            ends,
-                            Stroke::new(sector_seam_width, colour),
-                        ));
-                    }
-                }
-            }
-        }
-
         Self {
             area: Vec::new(),
             backgrounds,
             edges: edge_shapes,
             glyphs: Vec::new(),
-            seams,
             cursor: Vec::new(),
         }
     }
@@ -437,7 +397,6 @@ impl SourceShapes {
             .chain(self.backgrounds)
             .chain(self.edges)
             .chain(self.glyphs)
-            .chain(self.seams)
             .chain(self.cursor)
     }
 }
@@ -529,9 +488,9 @@ pub(super) fn show_source(
     // costs a tenth of the Cell iteration and a tenth of the Shapes, whatever
     // the Grid's size.
     //
-    // The ranges reach one Cell past what is visible. A Cell draws its own left
-    // and top seams, so the seam at a Cell's right or bottom edge belongs to
-    // the Cell one past it, and a border feathers a physical pixel outside the
+    // The ranges reach one Cell past what is visible. A Cell carries its own
+    // left and top seams, so the seam at a Cell's right or bottom edge belongs
+    // to the Cell one past it, and a border feathers a physical pixel outside the
     // rectangle it strokes. Both land on the clip's boundary, which is what the
     // clip rectangle above discards. See `GridViewport::visible_positions` for
     // why that makes the margin a boundary case rather than a seam that would
@@ -570,14 +529,7 @@ pub(super) fn show_source(
         theme.cursor_area,
         frame_stroke,
     );
-    let shapes = SourceShapes::new(
-        &paint,
-        &viewport,
-        &table,
-        pixels_per_point,
-        cursor_effect,
-        theme,
-    );
+    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point, cursor_effect);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
