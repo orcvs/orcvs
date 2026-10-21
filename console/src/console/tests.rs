@@ -373,6 +373,28 @@ fn console_pass_at(
     view: &mut SourceView,
     pixels_per_point: f32,
 ) -> (GridViewport, Vec<Shape>) {
+    console_pass_moving(
+        ctx,
+        screen,
+        events,
+        orcvs,
+        view,
+        pixels_per_point,
+        crate::cursor_effects::CursorEffectMotion::default(),
+    )
+}
+
+/// The same pass with the Cursor Effect at `motion`, for the tests of a
+/// Cursor Effect a settings file turns back on.
+fn console_pass_moving(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    orcvs: &mut Orcvs,
+    view: &mut SourceView,
+    pixels_per_point: f32,
+    motion: crate::cursor_effects::CursorEffectMotion,
+) -> (GridViewport, Vec<Shape>) {
     let frame = orcvs.render_frame();
     let mut presented = None;
     let mut input = egui::RawInput {
@@ -396,7 +418,7 @@ fn console_pass_at(
                     &frame,
                     &egui::FontFamily::Monospace,
                     view,
-                    crate::cursor_effects::CursorEffectMotion::default(),
+                    motion,
                     &crate::theme::okabe_ito(),
                 ));
             });
@@ -1210,8 +1232,6 @@ async fn an_opened_console_repaints_as_soon_as_its_new_playback_publishes() {
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     console.load_function_reference();
-    // Reduced motion keeps the Cursor Effect's own wakes out of the delay.
-    console.reduced_motion = true;
     let (tick, advanced, delay) =
         play_and_await_the_next_tick(&ctx, screen, &mut console, &mut host).await;
     assert_eq!(
@@ -1289,7 +1309,6 @@ async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
 
-    console.reduced_motion = true;
     let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
     console.orcvs.set_bpm(bpm);
     app_pass(
@@ -1329,7 +1348,6 @@ async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
 
-    *console.cursor_effects.amount_mut() = 0;
     let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
     console.orcvs.set_bpm(bpm);
     app_pass(
@@ -1360,8 +1378,7 @@ async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline
 /// Reduced motion's effective settings, not the stored ones, govern a
 /// frame: `Console::cursor_effects` — the value a save persists —
 /// survives running frames unchanged, and a quiet pass with Playback
-/// stopped requests no repaint at all, the one combination in which the
-/// console's own scheduling asks for nothing
+/// stopped requests no repaint at all, though the stored settings animate
 /// (`a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped`
 /// relies on the same fact once a click has settled).
 ///
@@ -1415,7 +1432,6 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
 
-    console.reduced_motion = true;
     console
         .orcvs
         .set_bpm(orcvs::opts::Bpm::new(1).expect("1 is in range"));
@@ -1464,17 +1480,17 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
 }
 
 ///
-/// Rest must not grow a one-second wake. Cursor Effect is off so its
-/// cadence cannot be mistaken for Run Clock honesty. The first passes
-/// request an immediate Render Frame (focus, destination auto-select);
-/// settle before asserting.
+/// Rest must not grow a one-second wake, and with default settings the
+/// Cursor Effect is off (ADR 0079), so a stopped console with the Cursor on
+/// screen asks for no timed wake at all. The first passes request an
+/// immediate Render Frame (focus, destination auto-select); settle before
+/// asserting.
 ///
 #[tokio::test]
-async fn a_stopped_console_with_cursor_effect_off_requests_no_timed_wake() {
+async fn a_stopped_console_with_default_settings_requests_no_timed_wake() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
 
-    console.reduced_motion = true;
     let mut delay = std::time::Duration::ZERO;
     for _ in 0..8 {
         delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
@@ -3030,8 +3046,17 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
     // A written Cell, so a Glyph is painted at all.
     orcvs.write("1");
     orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+    // A settings file can still turn the Cursor Effect on.
+    let mut settings = crate::cursor_effects::CursorEffectSettings::default();
+    *settings.amount_mut() = 60;
+    let motion = crate::cursor_effects::CursorEffectMotion {
+        sample: crate::cursor_effects::CursorEffectAnimation::default()
+            .advance(std::time::Duration::ZERO, settings),
+        settings,
+    };
 
-    let (_viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    let (_viewport, shapes) =
+        console_pass_moving(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0, motion);
 
     let at = |kind: fn(&Shape) -> bool| -> Vec<usize> {
         shapes
@@ -5096,12 +5121,23 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         some_positions.count(),
         all_positions.count()
     );
+    // The edges are one Mesh at any range, so what culling saves shows in
+    // its vertices rather than in the count of Shapes.
+    let vertices = |shapes: &[Shape]| -> usize {
+        shapes
+            .iter()
+            .map(|shape| match shape {
+                Shape::Mesh(mesh) => mesh.vertices.len(),
+                _ => 0,
+            })
+            .sum()
+    };
     assert!(
-        fewer_shapes.len() * 2 < every_shape.len(),
-        "{} shapes for {} Positions against {} shapes for {}",
-        fewer_shapes.len(),
+        vertices(&fewer_shapes) * 2 < vertices(&every_shape),
+        "{} edge vertices for {} Positions against {} for {}",
+        vertices(&fewer_shapes),
         some_positions.count(),
-        every_shape.len(),
+        vertices(&every_shape),
         all_positions.count()
     );
 
@@ -6252,7 +6288,6 @@ async fn the_panel_repaints_once_playback_publishes_an_installed_destination() {
     fake.close_port("one");
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    console.reduced_motion = true;
     console.midi = crate::midi::MidiDeviceSelection::new(
         console.orcvs.midi_selection_handle(),
         Box::new(backend(&fake)),

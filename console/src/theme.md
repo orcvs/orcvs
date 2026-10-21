@@ -60,7 +60,7 @@ menu rather than any `Theme` menu (`.scratch/theming/issues/09`).
 Amount zero retains the clear outline alone, without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, both are restored independently of the saved Source, falling back
-to their defaults — 60 and 55 — on an absent or malformed stored value.
+to their defaults — 0 and 0 — on an absent or malformed stored value.
 
 ADR 0053 and `theming/09` retain those distinct appearances and also stop
 cursor-effect repaints at amount zero, correcting the current frequency-only
@@ -570,8 +570,8 @@ dark = "okabe-ito"
 light = "orcvs-light"
 
 [cursor_effects]
-glitch_amount = 60      # 0–100
-glitch_frequency = 55   # 0–100
+glitch_amount = 0       # 0–100; 0 leaves the outline still
+glitch_frequency = 0    # 0–100
 ```
 
 Every key is optional and an absent key is its default. A missing file is an

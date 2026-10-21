@@ -8,8 +8,8 @@
 //! light = "orcvs-light"   # a light Theme's identity
 //!
 //! [cursor_effects]
-//! glitch_amount = 60      # 0–100
-//! glitch_frequency = 55   # 0–100
+//! glitch_amount = 0       # 0–100; 0 leaves the outline still
+//! glitch_frequency = 0    # 0–100
 //! ```
 //!
 //! Every key is optional, and an absent key is the built-in default. A

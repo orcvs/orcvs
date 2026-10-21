@@ -328,9 +328,9 @@ exactly did it put it" — absolute geometry belongs where nothing cancels it.
 Rules the module holds and a new test should too:
 
 - Bounded frames. `Harness::run` loops until no immediate repaint is requested,
-  and the console requests one whenever the cursor effect is animating — which,
-  at `CursorEffectSettings::default`, is always. Use `step` (one frame per
-  queued event) and `run_steps(n)`. Never sleep, never read the clock, never
+  and the console requests one whenever the cursor effect is animating, which
+  settings can turn on although `CursorEffectSettings::default` is still. Use
+  `step` (one frame per queued event) and `run_steps(n)`. Never sleep, never read the clock, never
   wait on Playback.
 - Derive every coordinate, and state the claim at the height deriving reaches.
   A written-down position either keeps passing after the mapping breaks or fails
