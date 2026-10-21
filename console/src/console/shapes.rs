@@ -113,7 +113,14 @@ pub(super) fn grid_lines(
     line: PixelLine,
     pixels_per_point: f32,
 ) -> Mesh {
+    // A junction per crossing and a piece per edge between two of them, each
+    // two triangles over four vertices: reserved up front, since the Mesh is
+    // rebuilt every frame and grows with the drawn Cells.
+    let (across, down) = (columns.len(), rows.len());
+    let quads = across * down + across.saturating_sub(1) * down + across * down.saturating_sub(1);
     let mut mesh = Mesh::default();
+    mesh.reserve_triangles(2 * quads);
+    mesh.reserve_vertices(4 * quads);
     let mut quad = |x: Range<i32>, y: Range<i32>| {
         if !x.is_empty() && !y.is_empty() {
             let point = |x: i32, y: i32| {
