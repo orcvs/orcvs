@@ -69,14 +69,14 @@ pub use crate::grid_viewport::VisiblePositions;
 /// Cell needs a fill of its own.
 ///
 ///
-/// `border` is the Cell's own border as `crate::style::CellVisuals::border`
-/// resolved it, `None` where the Grid line shows; never `Eq` since a `Stroke`
+/// `border` is the Cell's own border fact as `crate::style::CellVisuals::border`
+/// resolved it, `None` where the Cell has none; never `Eq` since a `Stroke`
 /// carries an `f32`, unlike this struct's other fields.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CellPaint {
     pub background: Option<Color32>,
-    pub border: Option<Stroke>,
+    pub border: Option<EdgeLine>,
     pub foreground: Color32,
     pub sector_left: Option<Color32>,
     pub sector_top: Option<Color32>,
@@ -96,6 +96,61 @@ pub struct BackgroundRun {
     pub colour: Color32,
     pub row: usize,
     pub columns: Range<usize>,
+}
+
+///
+/// Which fact draws a Cell edge, lowest first. An edge shows the line of the
+/// highest-ranked fact either Cell beside it carries on that side.
+///
+/// The Portal roles rank as [`crate::style`] orders them for paint: Output
+/// over Input over Locked.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EdgeRank {
+    GridLine,
+    Diagnostic,
+    Locked,
+    InputPortal,
+    OutputPortal,
+    /// The single-Cell Cursor's own border, which strokes inside its Cell
+    /// and is never an edge.
+    Selection,
+}
+
+///
+/// The line a fact draws on an edge: its rank, and its colour already
+/// composited over the facts below it on its own Cell, at its width in
+/// points.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeLine {
+    pub rank: EdgeRank,
+    pub stroke: Stroke,
+}
+
+///
+/// Consecutive edges along one row line or column line that show the same
+/// line: the boundary's index, the Cells it runs along, and the line.
+///
+/// A row line `line` is the top edge of row `line`, and runs along columns; a
+/// column line is the left edge of column `line`, and runs along rows. The
+/// last line of each axis is the far edge of the last drawn Cell.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct EdgeRun {
+    pub line: usize,
+    pub span: Range<usize>,
+    pub edge: EdgeLine,
+}
+
+///
+/// Every drawn Cell edge, coalesced into runs along the row lines and the
+/// column lines.
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Edges {
+    pub rows: Vec<EdgeRun>,
+    pub columns: Vec<EdgeRun>,
 }
 
 ///
@@ -165,6 +220,9 @@ pub struct Paint {
     /// Whether the Region spans more than one Cell. The lasso outlines it
     /// then, and the Cursor's Cell is framed by nothing of its own.
     region_spans: bool,
+    /// The line an edge shows where neither Cell beside it carries a fact,
+    /// or `None` where `grid.border.width` is zero.
+    grid_line: Option<EdgeLine>,
     cells: Vec<CellPaint>,
 }
 
@@ -317,11 +375,17 @@ impl Paint {
             }
         }
 
+        let grid_line = (theme.grid_border_width.points() > 0.0).then(|| EdgeLine {
+            rank: EdgeRank::GridLine,
+            stroke: Stroke::new(theme.grid_border_width.points(), theme.grid_border),
+        });
+
         Self {
             grid,
             drawn: drawn.clone(),
             cursor,
             region_spans,
+            grid_line,
             cells,
         }
     }
@@ -521,6 +585,68 @@ impl Paint {
 
         runs
     }
+
+    ///
+    /// Every edge of the drawn Cells, each showing the line of the
+    /// highest-ranked fact either Cell beside it carries, or the Grid line,
+    /// coalesced into runs along each row line and column line.
+    ///
+    /// Derived on demand, as [`Self::background_runs`] is. An edge on the
+    /// drawn range's boundary has one drawn Cell beside it, and takes that
+    /// Cell's fact alone. Of two facts of one rank, the Cell below or right of
+    /// the edge draws it. The single-Cell Cursor's own border is a stroke
+    /// inside its Cell, so its Cell carries no fact here.
+    ///
+    pub fn edges(&self) -> Edges {
+        let (columns, rows) = (self.drawn.columns.len(), self.drawn.rows.len());
+        let fact = |column: Option<usize>, row: Option<usize>| {
+            let (column, row) = (column?, row?);
+            (column < columns && row < rows)
+                .then(|| self.cells[row * columns + column].border)
+                .flatten()
+                .filter(|line| line.rank != EdgeRank::Selection)
+        };
+        let winner = |one: Option<EdgeLine>, other: Option<EdgeLine>| {
+            [one, other, self.grid_line]
+                .into_iter()
+                .flatten()
+                .max_by_key(|line| line.rank)
+        };
+
+        let mut edges = Edges::default();
+        if columns == 0 || rows == 0 {
+            return edges;
+        }
+        for row in 0..=rows {
+            let line = (0..columns).map(|column| {
+                winner(
+                    fact(Some(column), row.checked_sub(1)),
+                    fact(Some(column), Some(row)),
+                )
+            });
+            coalesce(
+                &mut edges.rows,
+                self.drawn.rows.start + row,
+                self.drawn.columns.start,
+                line,
+            );
+        }
+        for column in 0..=columns {
+            let line = (0..rows).map(|row| {
+                winner(
+                    fact(column.checked_sub(1), Some(row)),
+                    fact(Some(column), Some(row)),
+                )
+            });
+            coalesce(
+                &mut edges.columns,
+                self.drawn.columns.start + column,
+                self.drawn.rows.start,
+                line,
+            );
+        }
+        edges
+    }
 }
 
 ///
@@ -529,6 +655,35 @@ impl Paint {
 /// about Cursor precedence sees one without building a Theme of its own. Not
 /// a shipped seam — see [`Paint::derive`]'s own doc.
 ///
+///
+/// Appends the runs of equal lines along one boundary, `line`, whose edges
+/// start at `first` and answer `edges` in order; an edge with no line ends a
+/// run and opens none.
+///
+fn coalesce(
+    runs: &mut Vec<EdgeRun>,
+    line: usize,
+    first: usize,
+    edges: impl Iterator<Item = Option<EdgeLine>>,
+) {
+    let mut open: Option<EdgeRun> = None;
+    for (offset, edge) in edges.enumerate() {
+        let at = first + offset;
+        match (&mut open, edge) {
+            (Some(run), Some(edge)) if run.edge == edge => run.span.end = at + 1,
+            (_, edge) => {
+                runs.extend(open.take());
+                open = edge.map(|edge| EdgeRun {
+                    line,
+                    span: at..at + 1,
+                    edge,
+                });
+            }
+        }
+    }
+    runs.extend(open);
+}
+
 #[cfg(test)]
 fn test_theme() -> Theme {
     let base = crate::theme::okabe_ito();
@@ -540,7 +695,7 @@ fn test_theme() -> Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, FramePaint, Paint, Theme};
+    use super::{BackgroundRun, CellPaint, EdgeLine, EdgeRank, EdgeRun, FramePaint, Paint, Theme};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::style::{cell_visuals_with_cursor_colour, sector_line};
@@ -677,7 +832,7 @@ mod tests {
                 "the foreground at {:?}",
                 cell.position()
             );
-            borders.insert(painted.border.map(|border| border.color.to_array()));
+            borders.insert(painted.border.map(|border| border.stroke.color.to_array()));
             foregrounds.insert(painted.foreground.to_array());
         }
 
@@ -1535,7 +1690,7 @@ mod tests {
         let valid = paint.at(orcvs.grid().position(4, 0).expect("inside the grid"));
 
         assert_eq!(
-            invalid.border,
+            invalid.border.map(|border| border.stroke),
             Some(Stroke::new(
                 theme.diagnostic_border_width.points(),
                 theme.grid_border.blend(visible)
@@ -2285,6 +2440,7 @@ mod tests {
             drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
             cursor: Some(grid.origin()),
             region_spans: false,
+            grid_line: Some(GRID_LINE),
             cells: rows
                 .iter()
                 .flat_map(|row| row.iter())
@@ -2306,6 +2462,125 @@ mod tests {
             row,
             columns,
         }
+    }
+
+    ///
+    /// A Paint whose Cells carry the border facts in `rows`, with
+    /// `GRID_LINE` between them.
+    ///
+    fn edge_paint(rows: &[&[Option<EdgeLine>]]) -> Paint {
+        let backgrounds = rows
+            .iter()
+            .map(|row| vec![None; row.len()])
+            .collect::<Vec<_>>();
+        let mut paint = paint_of(&backgrounds.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        for (cell, fact) in paint.cells.iter_mut().zip(rows.iter().copied().flatten()) {
+            cell.border = *fact;
+        }
+        paint
+    }
+
+    const GRID_LINE: EdgeLine = EdgeLine {
+        rank: EdgeRank::GridLine,
+        stroke: Stroke {
+            width: 0.5,
+            color: Color32::from_rgb(1, 2, 3),
+        },
+    };
+
+    fn fact(rank: EdgeRank, colour: u8) -> Option<EdgeLine> {
+        Some(EdgeLine {
+            rank,
+            stroke: Stroke::new(0.75, Color32::from_rgb(colour, colour, colour)),
+        })
+    }
+
+    fn edge(line: usize, span: Range<usize>, edge: Option<EdgeLine>) -> EdgeRun {
+        EdgeRun {
+            line,
+            span,
+            edge: edge.expect("a line"),
+        }
+    }
+
+    ///
+    /// Two Portal Cells side by side share one line, which runs on into the
+    /// edge each shares with its plain neighbour, and a row line coalesces
+    /// while its winner holds.
+    ///
+    #[test]
+    fn neighbours_with_equal_facts_share_one_edge() {
+        let portal = fact(EdgeRank::OutputPortal, 200);
+        let paint = edge_paint(&[&[portal, portal, None]]);
+        let edges = paint.edges();
+
+        assert_eq!(
+            edges.columns,
+            vec![
+                edge(0, 0..1, portal),
+                edge(1, 0..1, portal),
+                edge(2, 0..1, portal),
+                edge(3, 0..1, Some(GRID_LINE)),
+            ]
+        );
+        assert_eq!(
+            edges.rows,
+            vec![
+                edge(0, 0..2, portal),
+                edge(0, 2..3, Some(GRID_LINE)),
+                edge(1, 0..2, portal),
+                edge(1, 2..3, Some(GRID_LINE)),
+            ]
+        );
+    }
+
+    ///
+    /// Each fact wins against the one ranked below it, whichever side of the
+    /// edge either stands on.
+    ///
+    #[test]
+    fn the_higher_ranked_fact_wins_an_edge_from_either_side() {
+        let ranks = [
+            EdgeRank::Diagnostic,
+            EdgeRank::Locked,
+            EdgeRank::InputPortal,
+            EdgeRank::OutputPortal,
+        ];
+        let mut below = None;
+        for (index, rank) in ranks.into_iter().enumerate() {
+            let above = fact(rank, 10 * index as u8 + 10);
+            for row in [[below, above], [above, below]] {
+                let paint = edge_paint(&[&row]);
+                assert_eq!(
+                    paint.edges().columns[1],
+                    edge(1, 0..1, above),
+                    "{rank:?} against {below:?}"
+                );
+                let paint = edge_paint(&[&row[..1], &row[1..]]);
+                assert_eq!(
+                    paint.edges().rows[1],
+                    edge(1, 0..1, above),
+                    "{rank:?} above or below {below:?}"
+                );
+            }
+            below = above;
+        }
+    }
+
+    ///
+    /// A Theme whose Grid line is zero wide draws no line where no fact
+    /// stands, and leaves a fact's edges standing.
+    ///
+    #[test]
+    fn a_zero_width_grid_line_leaves_only_the_facts() {
+        let portal = fact(EdgeRank::InputPortal, 90);
+        let mut paint = edge_paint(&[&[None, portal, None, None]]);
+        paint.grid_line = None;
+
+        assert_eq!(
+            paint.edges().columns,
+            vec![edge(1, 0..1, portal), edge(2, 0..1, portal)]
+        );
     }
 
     ///
