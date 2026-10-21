@@ -376,7 +376,7 @@ fn states_drawn(
     }
     // The Cursor's Cell among the drawn Cells, where its fill and its Effect
     // are painted.
-    if paint.cursor().is_some() {
+    if paint.cells().any(|(drawn, _)| drawn == frame.cursor()) {
         drawn.insert("Cursor");
     }
 

@@ -207,11 +207,15 @@ added explicitly to this catalogue, never silently left as a second palette.
    Cursor fill when absent. Other Region Cells use Region fill only when no visible
    effective fact fill exists after role, Diagnostic and Portal composition. A
    transparent role background alone does not hide a visible fact overlay;
-   uniform `cell.background` never prevents this fallback. Selected Cell borders
-   apply only to a single-Cell Cursor, which also suppresses Sector Seams. They
-   use `selection.border`/`.rest` and `cell.selection.border.width`. In a multi-Cell
-   Region, its Cursor Cell keeps the ordinary Grid border and Sector Seams; the effect
-   outline uses `cursor.border` or `region.border` and its separate width.
+   uniform `cell.background` never prevents this fallback. The selection outline
+   is the highest-ranked edge: the single-Cell Cursor's four edges in
+   `cursor.border` at `cursor.border.width`, or a multi-Cell Region's perimeter in
+   `region.border` at `region.border.width`, each drawn once over every fact
+   beside it. A width of zero withdraws the outline to the edges beneath it. The
+   single-Cell Cursor suppresses Sector Seams. In a multi-Cell Region, its Cursor
+   Cell keeps its own border, ranked over every other fact, and its Sector Seams.
+   No Source Cell's border reads `selection.border`, `.rest` or
+   `cell.selection.border.width`; the last is accepted and unread.
 6. Composite foreground/background/border channels with alpha using the same
    pinned colour operations as painting. Contrast reports use these exact resolved
    foreground/background pairs, not raw theme hex pairs. Preserve actual overlap

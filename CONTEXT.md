@@ -315,7 +315,7 @@ A rectangle of Positions within the Grid, spanned from an anchor Cell to a live 
 _Avoid_: Selection, range, block, marquee
 
 **Cursor Effect**:
-The console presentation surrounding the Cursor: an eroded frame on its Cell and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
+The console presentation surrounding the Cursor: an eroded frame over its Cell's outline and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
 _Avoid_: Cell highlight, radial glow, focus matrix
 
 **Sector**:

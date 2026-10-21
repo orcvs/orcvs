@@ -112,8 +112,10 @@ pub enum EdgeRank {
     Locked,
     InputPortal,
     OutputPortal,
-    /// The single-Cell Cursor's own border, which strokes inside its Cell
-    /// and is never an edge.
+    /// The Cursor's own Cell inside a Region larger than one Cell, carrying
+    /// the border its fact gives it.
+    RegionCursor,
+    /// The selection outline.
     Selection,
 }
 
@@ -141,6 +143,32 @@ pub struct EdgeRun {
     pub line: usize,
     pub span: Range<usize>,
     pub edge: EdgeLine,
+}
+
+///
+/// The selection outline: the Cursor's Cell, or a Region larger than one
+/// Cell, as the Grid columns and rows it encloses, and the line on every
+/// edge of its perimeter.
+///
+#[derive(Clone, Debug, PartialEq)]
+struct Outline {
+    line: EdgeLine,
+    columns: Range<usize>,
+    rows: Range<usize>,
+}
+
+impl Outline {
+    /// Whether the edge along row line `row` above or below `column` is on
+    /// this outline.
+    fn across(&self, row: usize, column: usize) -> bool {
+        (row == self.rows.start || row == self.rows.end) && self.columns.contains(&column)
+    }
+
+    /// Whether the edge along column line `column` beside `row` is on this
+    /// outline.
+    fn down(&self, column: usize, row: usize) -> bool {
+        (column == self.columns.start || column == self.columns.end) && self.rows.contains(&row)
+    }
 }
 
 ///
@@ -216,10 +244,11 @@ pub struct Paint {
     /// The Positions this Paint covers: what the console draws, and one Cell
     /// more in every direction the Grid has one.
     drawn: VisiblePositions,
-    cursor: Option<Position>,
-    /// Whether the Region spans more than one Cell. The lasso outlines it
-    /// then, and the Cursor's Cell is framed by nothing of its own.
+    /// Whether the Region spans more than one Cell, when the outline is the
+    /// Region's.
     region_spans: bool,
+    /// The selection outline, or `None` where its border's width is zero.
+    outline: Option<Outline>,
     /// The line an edge shows where neither Cell beside it carries a fact,
     /// or `None` where `grid.border.width` is zero.
     grid_line: Option<EdgeLine>,
@@ -235,9 +264,10 @@ impl Paint {
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
-    /// Only the fill carries over: the Cursor's Cell in such a Region takes
-    /// the grid line and its sector seams, as every other Cell of the Region
-    /// does. `theme.cell_background` is the uniform base every one of those
+    /// The outline is `theme.cursor_border` at `theme.cursor_border_width`
+    /// around the Cursor's Cell, or `theme.region_border` at
+    /// `theme.region_border_width` around a spanning Region, whose Cursor's
+    /// Cell keeps its own border and sector seams. `theme.cell_background` is the uniform base every one of those
     /// fills composites over, and — being independent of whether a role
     /// contributed one — is also what a Cell with no fill of its own falls
     /// back to, so `.scratch/theming/schema.md`'s "does not count as a fact
@@ -272,15 +302,10 @@ impl Paint {
     pub fn derive_with_theme(input: FramePaint<'_>, theme: &Theme) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
-        // The Cursor is the Position the Render Frame was derived for. A Paint
-        // covers a viewport, so `None` here means that Position is outside the
-        // drawn range — not that the Frame selected nothing.
+        // The Cursor is the Position the Render Frame was derived for, inside
+        // the drawn range or not.
         let frame_cursor = frame.cursor();
-        let cursor_visible = frame.cursor_visible();
         let sector_seam_spacing = frame.sector_seam_spacing().cells();
-        let cursor = (drawn.columns.contains(&frame_cursor.x())
-            && drawn.rows.contains(&frame_cursor.y()))
-        .then_some(frame_cursor);
         // The Region's extent, read once. A Region of one Cell is the Cursor's
         // own Cell and is tinted nowhere, so it answers empty ranges rather
         // than a per-Cell question the answer to which is always no.
@@ -309,10 +334,10 @@ impl Paint {
                     .position(column, row)
                     .expect("a drawn Position is one the visible range clamped to this Grid");
                 let cell = frame.at(position);
-                // While a Region spans more than one Cell the lasso around it
-                // is the Cursor's border, so the Cursor's Cell keeps an
-                // ordinary one. Its fill is its own: the Region's Cursor
-                // colour, or the Cursor's colour when that is unset.
+                // While a Region spans more than one Cell the outline is the
+                // Region's, and the Cursor's Cell is selected only by its
+                // fill: the Region's Cursor colour, or the Cursor's colour
+                // when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
                 let visuals = if selected {
@@ -320,7 +345,6 @@ impl Paint {
                         cell.source_paint(),
                         cell.portal_roles(),
                         true,
-                        cursor_visible,
                         cursor_fill,
                         theme,
                     )
@@ -338,9 +362,19 @@ impl Paint {
                     theme.cell_background,
                 );
 
+                // The Cursor's own Cell inside a spanning Region keeps its
+                // fact's border, ranked over every other fact.
+                let border = if is_cursor && region_spans {
+                    visuals.border.map(|line| EdgeLine {
+                        rank: EdgeRank::RegionCursor,
+                        ..line
+                    })
+                } else {
+                    visuals.border
+                };
                 cells.push(CellPaint {
                     background,
-                    border: visuals.border,
+                    border,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the `selected` Cell, so
                     // the Cursor's frame is never crossed by one. It is decided
@@ -380,11 +414,26 @@ impl Paint {
             stroke: Stroke::new(theme.grid_border_width.points(), theme.grid_border),
         });
 
+        // The Region is the Cursor's own Cell when it spans no more.
+        let (outline_width, outline_colour) = if region_spans {
+            (theme.region_border_width, theme.region_border)
+        } else {
+            (theme.cursor_border_width, theme.cursor_border)
+        };
+        let outline = (outline_width.points() > 0.0).then(|| Outline {
+            line: EdgeLine {
+                rank: EdgeRank::Selection,
+                stroke: Stroke::new(outline_width.points(), outline_colour),
+            },
+            columns: region.columns(),
+            rows: region.rows(),
+        });
+
         Self {
             grid,
             drawn: drawn.clone(),
-            cursor,
             region_spans,
+            outline,
             grid_line,
             cells,
         }
@@ -502,21 +551,8 @@ impl Paint {
     }
 
     ///
-    /// Where the Cursor is, when this Paint covers it.
-    ///
-    /// One Position for the whole Paint rather than a flag on every Cell:
-    /// [`RenderFrame::cursor`] answers the Position `derive` was given, so
-    /// exactly one exists, and a per-Cell bool would re-open a state the layer
-    /// below has closed. `None` says the Cursor is outside the viewport this
-    /// Paint covers, not that the Render Frame selected nothing.
-    ///
-    pub(crate) fn cursor(&self) -> Option<Position> {
-        self.cursor
-    }
-
-    ///
-    /// Whether the Region spans more than one Cell, when the lasso around it
-    /// replaces the Cursor's own Cell border.
+    /// Whether the Region spans more than one Cell, when the Cursor Effect
+    /// frames the Region rather than the Cursor's Cell.
     ///
     pub(crate) fn region_spans(&self) -> bool {
         self.region_spans
@@ -594,24 +630,30 @@ impl Paint {
     /// Derived on demand, as [`Self::background_runs`] is. An edge on the
     /// drawn range's boundary has one drawn Cell beside it, and takes that
     /// Cell's fact alone. Of two facts of one rank, the Cell below or right of
-    /// the edge draws it. The single-Cell Cursor's own border is a stroke
-    /// inside its Cell, so its Cell carries no fact here.
+    /// the edge draws it. The selection outline outranks every fact, and
+    /// where its border's width is zero its edges fall to the facts beside
+    /// them.
     ///
     pub fn edges(&self) -> Edges {
         let (columns, rows) = (self.drawn.columns.len(), self.drawn.rows.len());
+        let (first_column, first_row) = (self.drawn.columns.start, self.drawn.rows.start);
         let fact = |column: Option<usize>, row: Option<usize>| {
             let (column, row) = (column?, row?);
             (column < columns && row < rows)
                 .then(|| self.cells[row * columns + column].border)
                 .flatten()
-                .filter(|line| line.rank != EdgeRank::Selection)
         };
-        let winner = |one: Option<EdgeLine>, other: Option<EdgeLine>| {
-            [one, other, self.grid_line]
-                .into_iter()
-                .flatten()
-                .max_by_key(|line| line.rank)
+        // The outline owns its edges outright, so a fact beside it never
+        // competes there.
+        let winner = |outline: Option<&Outline>, one: Option<EdgeLine>, other: Option<EdgeLine>| {
+            outline.map(|outline| outline.line).or_else(|| {
+                [one, other, self.grid_line]
+                    .into_iter()
+                    .flatten()
+                    .max_by_key(|line| line.rank)
+            })
         };
+        let outline = self.outline.as_ref();
 
         let mut edges = Edges::default();
         if columns == 0 || rows == 0 {
@@ -620,30 +662,23 @@ impl Paint {
         for row in 0..=rows {
             let line = (0..columns).map(|column| {
                 winner(
+                    outline
+                        .filter(|outline| outline.across(first_row + row, first_column + column)),
                     fact(Some(column), row.checked_sub(1)),
                     fact(Some(column), Some(row)),
                 )
             });
-            coalesce(
-                &mut edges.rows,
-                self.drawn.rows.start + row,
-                self.drawn.columns.start,
-                line,
-            );
+            coalesce(&mut edges.rows, first_row + row, first_column, line);
         }
         for column in 0..=columns {
             let line = (0..rows).map(|row| {
                 winner(
+                    outline.filter(|outline| outline.down(first_column + column, first_row + row)),
                     fact(column.checked_sub(1), Some(row)),
                     fact(Some(column), Some(row)),
                 )
             });
-            coalesce(
-                &mut edges.columns,
-                self.drawn.columns.start + column,
-                self.drawn.rows.start,
-                line,
-            );
+            coalesce(&mut edges.columns, first_column + column, first_row, line);
         }
         edges
     }
@@ -695,7 +730,9 @@ fn test_theme() -> Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, EdgeLine, EdgeRank, EdgeRun, FramePaint, Paint, Theme};
+    use super::{
+        BackgroundRun, CellPaint, EdgeLine, EdgeRank, EdgeRun, FramePaint, Outline, Paint, Theme,
+    };
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::style::{cell_visuals_with_cursor_colour, sector_line};
@@ -771,7 +808,6 @@ mod tests {
     fn expected_visuals(
         cell: &orcvs::render_frame::RenderCell,
         selected: bool,
-        cursor_visible: bool,
         cursor_colour: Option<Color32>,
         theme: &Theme,
     ) -> crate::style::CellVisuals {
@@ -779,7 +815,6 @@ mod tests {
             cell.source_paint(),
             cell.portal_roles(),
             selected,
-            cursor_visible,
             cursor_colour,
             theme,
         )
@@ -811,13 +846,8 @@ mod tests {
         for cell in frame.cells() {
             let position = cell.position();
             let selected = position == cursor;
-            let visuals = expected_visuals(
-                cell,
-                selected,
-                selected && frame.cursor_visible(),
-                Some(theme.selection_background),
-                &theme,
-            );
+            let visuals =
+                expected_visuals(cell, selected, Some(theme.selection_background), &theme);
             let painted = paint.at(position);
 
             assert_eq!(
@@ -846,18 +876,18 @@ mod tests {
     }
 
     ///
-    /// The Cursor is one Position the Paint answers, not a flag to be found by
-    /// searching the Cells.
+    /// The Cursor's outline encloses the selected Position, as one extent the
+    /// Paint answers rather than a flag to be found by searching the Cells.
     ///
     #[tokio::test]
-    async fn the_cursor_is_the_selected_position() {
+    async fn the_cursor_outline_encloses_the_selected_position() {
         let mut orcvs = running_orcvs(9, 5);
         let selected = orcvs.grid().position(6, 3).expect("inside the grid");
         orcvs.select(selected);
 
-        let paint = whole(&orcvs.render_frame());
+        let outline = whole(&orcvs.render_frame()).outline.expect("an outline");
 
-        assert_eq!(paint.cursor(), Some(selected));
+        assert_eq!((outline.columns, outline.rows), (6..7, 3..4));
     }
 
     ///
@@ -919,6 +949,107 @@ mod tests {
             painted(&orcvs, None, None).background_runs(),
             vec![run(fill, 1, 1..4), run(fill, 2, 1..3)]
         );
+    }
+
+    ///
+    /// The selection outline is the Cursor's Cell in `cursor.border` at
+    /// `cursor.border.width`, or a spanning Region in `region.border` at
+    /// `region.border.width`. The Cursor's own Cell inside that Region keeps
+    /// its own border, ranked just below the outline. Neither Cell's border
+    /// is `selection.border`.
+    ///
+    #[tokio::test]
+    async fn the_selection_outline_is_the_cursor_or_the_spanning_region() {
+        let mut orcvs = running_orcvs(6, 4);
+        write_row(&mut orcvs, 1, ".+");
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let theme = okabe_ito();
+        let painted = |orcvs: &Orcvs| {
+            Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
+        };
+        let portal = painted(&orcvs).at(at(1, 2)).border;
+        assert!(
+            portal.is_some(),
+            "`.+` reserves its Output Portal below `+`"
+        );
+
+        orcvs.select(at(1, 2));
+        let single = painted(&orcvs);
+        assert_eq!(
+            single.outline,
+            Some(Outline {
+                line: EdgeLine {
+                    rank: EdgeRank::Selection,
+                    stroke: Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+                },
+                columns: 1..2,
+                rows: 2..3,
+            })
+        );
+        assert_eq!(
+            single.at(at(1, 2)).border,
+            portal,
+            "the Cursor's Cell keeps its fact"
+        );
+
+        orcvs.select(at(0, 0));
+        orcvs.extend(at(1, 2));
+        let spanning = painted(&orcvs);
+        assert_eq!(
+            spanning.outline,
+            Some(Outline {
+                line: EdgeLine {
+                    rank: EdgeRank::Selection,
+                    stroke: Stroke::new(theme.region_border_width.points(), theme.region_border),
+                },
+                columns: 0..2,
+                rows: 0..3,
+            })
+        );
+        assert_eq!(
+            spanning.at(at(1, 2)).border,
+            portal.map(|line| EdgeLine {
+                rank: EdgeRank::RegionCursor,
+                ..line
+            })
+        );
+    }
+
+    ///
+    /// A Cursor or Region border of width zero withdraws the outline, and
+    /// its edges fall to the facts and Grid line beneath it.
+    ///
+    #[tokio::test]
+    async fn a_zero_width_outline_withdraws_to_the_edges_beneath_it() {
+        let mut orcvs = running_orcvs(4, 3);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let zero = crate::theme::GridWidth::from_points(0.0).expect("zero is a width");
+        let theme = Theme {
+            cursor_border_width: zero,
+            region_border_width: zero,
+            ..okabe_ito()
+        };
+        let painted = |orcvs: &Orcvs| {
+            Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
+        };
+
+        orcvs.select(at(1, 1));
+        let single = painted(&orcvs);
+        assert_eq!(single.outline, None);
+        assert!(
+            single
+                .edges()
+                .columns
+                .iter()
+                .chain(&single.edges().rows)
+                .all(|run| run.edge.rank == EdgeRank::GridLine),
+            "a blank Grid with no outline shows only Grid lines"
+        );
+
+        orcvs.extend(at(2, 2));
+        assert_eq!(painted(&orcvs).outline, None);
     }
 
     ///
@@ -1005,7 +1136,7 @@ mod tests {
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
         assert!(paint.region_spans());
-        assert_eq!(paint.cursor(), Some(at(5, 0)));
+        assert_eq!(frame.cursor(), at(5, 0));
 
         // Function's own two-Cell spelling: `.+`.
         for x in 0..2 {
@@ -1075,7 +1206,7 @@ mod tests {
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
         assert!(paint.region_spans());
-        assert_eq!(paint.cursor(), Some(cursor));
+        assert_eq!(frame.cursor(), cursor);
 
         for (position, cell) in paint.cells() {
             let inside = (1..4).contains(&position.x()) && (1..3).contains(&position.y());
@@ -1138,7 +1269,7 @@ mod tests {
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
             assert!(!paint.region_spans(), "a single-Cell Cursor never spans");
-            assert_eq!(paint.cursor(), Some(selected));
+            assert_eq!(frame.cursor(), selected);
 
             assert_eq!(
                 paint.at(ordinary).background,
@@ -1339,7 +1470,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(cell, false, false, None, &theme).background,
+                expected_visuals(cell, false, None, &theme).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -1360,7 +1491,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(cell, false, false, None, &theme).background,
+                expected_visuals(cell, false, None, &theme).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -1413,7 +1544,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            expected_visuals(cell, false, false, None, &theme).background,
+            expected_visuals(cell, false, None, &theme).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -1516,7 +1647,7 @@ mod tests {
             );
             assert_eq!(
                 painted.background,
-                expected_visuals(frame.at(position), false, false, None, &theme).background,
+                expected_visuals(frame.at(position), false, None, &theme).background,
                 "column {x} did not keep the Number tint"
             );
             assert!(painted.background.is_some(), "column {x} lost its tint");
@@ -1639,7 +1770,7 @@ mod tests {
         let selected = paint.at(cursor);
         let unselected = paint.at(orcvs.grid().position(3, 0).expect("inside the grid"));
 
-        assert_eq!(paint.cursor(), Some(cursor));
+        assert_eq!(frame.cursor(), cursor);
         assert_eq!(selected.character, '*');
         assert_eq!(
             selected.foreground, theme.diagnostic_foreground,
@@ -2032,7 +2163,7 @@ mod tests {
         let selected = paint.at(cursor);
         let unselected = paint.at(orcvs.grid().position(1, 0).expect("inside the grid"));
 
-        assert_eq!(paint.cursor(), Some(cursor));
+        assert_eq!(frame.cursor(), cursor);
         assert_ne!(theme.selection_background, function_tint);
         assert_eq!(
             selected.background,
@@ -2438,8 +2569,8 @@ mod tests {
         Paint {
             grid,
             drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
-            cursor: Some(grid.origin()),
             region_spans: false,
+            outline: None,
             grid_line: Some(GRID_LINE),
             cells: rows
                 .iter()
@@ -2479,6 +2610,14 @@ mod tests {
         }
         paint
     }
+
+    const OUTLINE: EdgeLine = EdgeLine {
+        rank: EdgeRank::Selection,
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32::from_rgb(250, 250, 250),
+        },
+    };
 
     const GRID_LINE: EdgeLine = EdgeLine {
         rank: EdgeRank::GridLine,
@@ -2568,6 +2707,89 @@ mod tests {
     }
 
     ///
+    /// The single-Cell Cursor's outline owns all four of its Cell's edges,
+    /// over the Output Portal on either side of it, and its neighbours'
+    /// shared edges stay theirs.
+    ///
+    #[test]
+    fn the_cursor_outline_owns_its_cells_four_edges() {
+        let portal = fact(EdgeRank::OutputPortal, 200);
+        let mut paint = edge_paint(&[&[portal, portal, portal]]);
+        paint.outline = Some(Outline {
+            line: OUTLINE,
+            columns: 1..2,
+            rows: 0..1,
+        });
+        let outline = Some(OUTLINE);
+        let edges = paint.edges();
+
+        assert_eq!(
+            edges.columns,
+            vec![
+                edge(0, 0..1, portal),
+                edge(1, 0..1, outline),
+                edge(2, 0..1, outline),
+                edge(3, 0..1, portal),
+            ]
+        );
+        assert_eq!(
+            edges.rows,
+            vec![
+                edge(0, 0..1, portal),
+                edge(0, 1..2, outline),
+                edge(0, 2..3, portal),
+                edge(1, 0..1, portal),
+                edge(1, 1..2, outline),
+                edge(1, 2..3, portal),
+            ]
+        );
+    }
+
+    ///
+    /// A spanning Region's outline owns its perimeter and nothing inside it.
+    /// Inside, the Cursor's own Cell outranks the Output Portal beside it.
+    ///
+    #[test]
+    fn a_spanning_regions_outline_owns_its_perimeter_and_its_cursor_cell_ranks_next() {
+        let portal = fact(EdgeRank::OutputPortal, 200);
+        let cursor = fact(EdgeRank::RegionCursor, 100);
+        let mut paint = edge_paint(&[&[None, None, None, None], &[None, cursor, portal, None]]);
+        paint.outline = Some(Outline {
+            line: OUTLINE,
+            columns: 0..3,
+            rows: 0..2,
+        });
+        let (outline, grid) = (Some(OUTLINE), Some(GRID_LINE));
+        let edges = paint.edges();
+
+        assert_eq!(
+            edges.columns,
+            vec![
+                edge(0, 0..2, outline),
+                edge(1, 0..1, grid),
+                edge(1, 1..2, cursor),
+                edge(2, 0..1, grid),
+                edge(2, 1..2, cursor),
+                edge(3, 0..2, outline),
+                edge(4, 0..2, grid),
+            ]
+        );
+        assert_eq!(
+            edges.rows,
+            vec![
+                edge(0, 0..3, outline),
+                edge(0, 3..4, grid),
+                edge(1, 0..1, grid),
+                edge(1, 1..2, cursor),
+                edge(1, 2..3, portal),
+                edge(1, 3..4, grid),
+                edge(2, 0..3, outline),
+                edge(2, 3..4, grid),
+            ]
+        );
+    }
+
+    ///
     /// A Theme whose Grid line is zero wide draws no line where no fact
     /// stands, and leaves a fact's edges standing.
     ///
@@ -2619,8 +2841,8 @@ mod tests {
         // so `written` plays no part in either tint.
         let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
         let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
-        let function_tint = expected_visuals(function_cell, false, false, None, &theme).background;
-        let number_tint = expected_visuals(number_cell, false, false, None, &theme).background;
+        let function_tint = expected_visuals(function_cell, false, None, &theme).background;
+        let number_tint = expected_visuals(number_cell, false, None, &theme).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 
@@ -2803,13 +3025,14 @@ mod tests {
     }
 
     ///
-    /// A Paint answers the Cursor's Position where it covers it, and `None`
-    /// where it does not.
+    /// A Paint answers the Cursor's outline edges where it covers them, and
+    /// none where it does not.
     ///
-    /// `None` is a statement about the viewport rather than about the Render
-    /// Frame: the same Frame answers a Cursor to a Paint whose range reaches
-    /// it. A derivation that searched its own Cells and insisted on finding
-    /// one would panic on every panned console whose Cursor is off screen.
+    /// Their absence is a statement about the viewport rather than about the
+    /// Render Frame: the same Frame answers them to a Paint whose range
+    /// reaches the Cursor. A derivation that searched its own Cells and
+    /// insisted on finding the Cursor would panic on every panned console
+    /// whose Cursor is off screen.
     ///
     #[tokio::test]
     async fn the_cursor_is_answered_only_where_the_paint_covers_it() {
@@ -2822,12 +3045,21 @@ mod tests {
         let reaching = VisiblePositions::for_grid(grid, 3..8, 2..7);
         let past = VisiblePositions::for_grid(grid, 10..16, 12..18);
 
-        assert_eq!(whole(&frame).cursor(), Some(selected));
+        let outlined = |paint: Paint| {
+            let edges = paint.edges();
+            edges
+                .rows
+                .iter()
+                .chain(&edges.columns)
+                .filter(|run| run.edge.rank == EdgeRank::Selection)
+                .count()
+        };
+        assert_eq!(outlined(whole(&frame)), 4);
         assert_eq!(
-            Paint::derive(FramePaint::new(&frame, reaching)).cursor(),
-            Some(selected)
+            outlined(Paint::derive(FramePaint::new(&frame, reaching))),
+            4
         );
-        assert_eq!(Paint::derive(FramePaint::new(&frame, past)).cursor(), None);
+        assert_eq!(outlined(Paint::derive(FramePaint::new(&frame, past))), 0);
     }
 
     ///
@@ -2847,7 +3079,7 @@ mod tests {
 
         assert_eq!(paint.count(), 0);
         assert_eq!(paint.cells().count(), 0);
-        assert_eq!(paint.cursor(), None);
+        assert_eq!(paint.edges(), Default::default());
         assert_eq!(paint.background_runs(), Vec::new());
     }
 

@@ -150,7 +150,7 @@ impl CursorEffectAnimation {
 
     ///
     /// `None` when the effect has no scheduled change to wake for: either
-    /// value zero is enough. Amount zero paints a stationary frame regardless
+    /// value zero is enough. Amount zero paints no fragment regardless
     /// of frequency, so a positive frequency alone must not keep scheduling a
     /// wake for a frame that never changes.
     ///
@@ -180,12 +180,8 @@ pub struct CursorEffectMotion {
 #[derive(Debug, Default)]
 pub struct CursorEffectShapes {
     pub(crate) area: Vec<Shape>,
-    /// The Cursor's own stroke: `None` when no frame was built — the effect
-    /// never reached the clip — and `Some` once it was, empty included. A
-    /// frame hidden by a zero width is still the Cursor's whole stroke, so
-    /// the caller must not read it as "no frame" and paint another in its
-    /// place.
-    pub(crate) frame: Option<Vec<Shape>>,
+    /// The eroded frame's fragments, over the outline the Cell edges draw.
+    pub(crate) fragments: Vec<Shape>,
 }
 
 pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
@@ -232,6 +228,7 @@ pub fn cursor_effect_shapes(
         return shapes;
     }
 
+    // Amount zero is the still outline alone, which the Cell edges draw.
     let amount = f32::from(settings.amount()) / 100.0;
     if amount > 0.0 {
         area_shapes(
@@ -243,10 +240,8 @@ pub fn cursor_effect_shapes(
             area_colour,
             amount,
         );
+        shapes.fragments = frame_shapes(outline, cell_size, clip, sample, frame, amount);
     }
-    shapes.frame = Some(frame_shapes(
-        outline, cell_size, clip, sample, frame, amount,
-    ));
     shapes
 }
 
@@ -341,8 +336,8 @@ fn area_shapes(
 }
 
 ///
-/// The eroded Cursor/Region frame: a stationary outline when `amount` is
-/// zero, or the animated fragments otherwise. `stroke.width` is the nominal
+/// The eroded Cursor/Region frame's animated fragments, at a positive
+/// `amount`. `stroke.width` is the nominal
 /// display-point width `cursor_effect_shapes` resolved from the Theme
 /// (`cursor.border.width`/`region.border.width`), fixed in points and never
 /// scaled by `cell_size`/`CELL_SIZE` — `cell_size` still drives every
@@ -372,15 +367,6 @@ fn frame_shapes(
     }
     let side = cell_size;
     let scale = side / CELL_SIZE;
-    if amount == 0.0 {
-        out.push(Shape::Rect(RectShape::stroke(
-            outline,
-            0.0,
-            stroke,
-            egui::StrokeKind::Inside,
-        )));
-        return out;
-    }
     // How many Cell-lengths each pair of edges spans. A Cell's frame is one of
     // each, and its keys are the ones the unit index zero leaves unchanged.
     let across = ((outline.width() / side).round() as u64).max(1);
@@ -507,7 +493,7 @@ mod tests {
     /// `theme::tests::okabe_ito_defines_every_key_at_the_schema_values`.
     const AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
     const FRAME_COLOUR: Color32 = Color32::from_rgb(234, 235, 229);
-    /// The stationary Cursor/Region outline's nominal display-point default
+    /// The Cursor/Region outline's nominal display-point default
     /// (`.scratch/theming/schema.md`'s `cursor.border.width`/
     /// `region.border.width`: 1 point), reused as every geometry test's
     /// nominal width unless a test states otherwise.
@@ -517,12 +503,9 @@ mod tests {
         color: FRAME_COLOUR,
     };
 
-    /// The frame an effect that reached the clip built.
+    /// The frame fragments an effect built.
     fn built(effects: &CursorEffectShapes) -> &[Shape] {
-        effects
-            .frame
-            .as_deref()
-            .expect("the effect reached the clip and built its frame")
+        &effects.fragments
     }
 
     fn sample(frame: u64, grain: u64, field: u64) -> CursorEffectSample {
@@ -569,7 +552,7 @@ mod tests {
 
     ///
     /// Reduced motion's effective settings read amount and frequency zero,
-    /// which is a clear, stationary frame with no scheduled cursor-effect
+    /// which is the still outline alone, with no scheduled cursor-effect
     /// repaint.
     ///
     #[test]
@@ -616,9 +599,8 @@ mod tests {
     }
 
     ///
-    /// Amount zero paints a stationary frame (`frame_shapes`'s `amount == 0.0`
-    /// branch never reads the frequency), so `repaint_after` schedules no wake
-    /// for it.
+    /// Amount zero paints no fragment (`cursor_effect_shapes` never reads
+    /// the frequency then), so `repaint_after` schedules no wake for it.
     ///
     #[test]
     fn zero_amount_with_positive_frequency_requests_no_repaint() {
@@ -661,8 +643,8 @@ mod tests {
         );
         assert!(
             built(&effects).len() > 1,
-            "frequency zero collapsed the frame to the stationary single \
-             stroke even though amount was nonzero"
+            "frequency zero collapsed the frame to the still outline even \
+             though amount was nonzero"
         );
         assert!(
             !effects.area.is_empty(),
@@ -926,7 +908,7 @@ mod tests {
             FRAME,
         );
         assert!(effects.area.is_empty());
-        assert!(effects.frame.is_none());
+        assert!(effects.fragments.is_empty());
     }
 
     /// The alpha byte a `Shape::Rect` fill or `Shape::LineSegment` stroke was
@@ -960,9 +942,7 @@ mod tests {
     }
 
     ///
-    /// Width zero hides every Cursor/Region frame stroke this function
-    /// builds — the stationary outline `frame_shapes` draws at `amount ==
-    /// 0.0` and every animated fragment it draws otherwise — without
+    /// Width zero hides every animated fragment `frame_shapes` builds, without
     /// disabling the living-area fill `amount` and `area_colour` still
     /// control, at the Cell sides several device scales snap the Source's own
     /// Cell to.
@@ -1023,12 +1003,12 @@ mod tests {
     }
 
     ///
-    /// The stationary outline (`amount == 0.0`) is stroked at exactly the
-    /// nominal width at every snapped Cell side — no `scale.max(0.5)` floor
-    /// and no proportional shrink as `cell_size` falls.
+    /// Amount zero strokes no frame of its own, since the Cell edges draw the
+    /// still outline, and paints no living-area fill, at every snapped Cell
+    /// side.
     ///
     #[test]
-    fn stationary_frame_stroke_is_the_nominal_width_at_every_device_scale() {
+    fn amount_zero_paints_nothing_of_its_own_at_every_device_scale() {
         let mut settings = CursorEffectSettings::default();
         *settings.amount_mut() = 0;
 
@@ -1047,23 +1027,9 @@ mod tests {
                 AREA_COLOUR,
                 FRAME,
             );
-            assert_eq!(
-                built(&effects).len(),
-                1,
-                "the stationary outline is one stroke"
-            );
-            let Shape::Rect(stroked) = &built(&effects)[0] else {
-                panic!("the stationary outline was {:?}", built(&effects)[0])
-            };
-            assert_eq!(
-                stroked.stroke.width, FRAME_WIDTH,
-                "the stationary outline scaled with cell_size {cell_size}"
-            );
-            // Amount zero is without decorative noise: it also skips the
-            // living-area fill outright.
             assert!(
-                effects.area.is_empty(),
-                "amount zero painted decorative area noise at cell_size {cell_size}"
+                effects.fragments.is_empty() && effects.area.is_empty(),
+                "amount zero painted Shapes of its own at cell_size {cell_size}"
             );
         }
     }
