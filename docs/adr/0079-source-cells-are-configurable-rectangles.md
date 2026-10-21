@@ -1,6 +1,6 @@
 # Source Cells are configurable rectangles
 
-Status: proposed. Amends the square-Cell sentences of [ADR 0038](0038-the-console-owns-the-source-grid-transform.md), [ADR 0053](0053-one-theme-styles-the-whole-console.md) and [ADR 0058](0058-zoom-is-eguis-whole-ui-zoom.md), and the Cursor Effect's motion settings in ADR 0053. Builds on [ADR 0078](0078-each-cell-edge-is-drawn-once.md), which already draws every Cell edge from each axis's own side and makes the selection outline the highest-ranked edge. Settled in `.scratch/source-cell-size/`.
+Status: proposed. Amends the square-Cell sentences of [ADR 0038](0038-the-console-owns-the-source-grid-transform.md), [ADR 0053](0053-one-theme-styles-the-whole-console.md) and [ADR 0058](0058-zoom-is-eguis-whole-ui-zoom.md), the default window's Cell count in [ADR 0047](0047-the-source-view-has-a-margin.md), and the Cursor Effect's motion settings in ADR 0053. Builds on [ADR 0078](0078-each-cell-edge-is-drawn-once.md), which already draws every Cell edge from each axis's own side and makes the selection outline the highest-ranked edge. Settled in `.scratch/source-cell-size/`.
 
 Every Source Cell is a 16 point square holding an 11.5 point monospace Glyph, so a row reads as spaced-out letters rather than a line of text. Orca draws 2:3 tiles, taller than wide, and its rows read like a terminal. The square is a constant in the console and a sentence in three ADRs, so no size can even be tried. The Cursor Effect's animated glitch around the Cursor distracts from reading the Grid.
 

@@ -6,6 +6,8 @@
 
 **Status:** needs-triage
 
+Held in triage by the order Toby set on 2026-10-20: the removal comes after the configurable Cell, as its own change nothing else waits on, and is picked up when Toby asks for it.
+
 - [ ] No shipped code samples, animates or schedules repaints for the Cursor.
 - [ ] The Cursor and Region outlines are still ADR 0078's selection outline, in `cursor.border` and `region.border` at their widths.
 - [ ] ADR 0053, the egui skill's reduced-motion and animating-cursor notes, and the theming schema and spec no longer describe the effect.

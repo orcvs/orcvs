@@ -307,7 +307,7 @@ The terminal `!$` Function that sends a command to the Orcvs host application. I
 _Avoid_: Host Command, shell command, process execution
 
 **Cursor**:
-The one Cell the console is editing: a Position drawn with the active Cursor Effect. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
+The one Cell the console is editing: a Position drawn with an outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
 **Region**:
@@ -335,7 +335,7 @@ The per-Cell decision of how the Positions a console draws of one Render Frame a
 _Avoid_: Shapes, draw list, painter
 
 **Theme**:
-The shared appearance of the Source Grid and the console around it: colours, opacity, Grid and Cell colours, borders and border widths. A Theme changes appearance while preserving Grid structure and input behaviour. Typography and layout changes are outside the current Theme scope. One Theme styles the whole console at a time: the Source Grid and the console around it are never themed separately. The console's settings choose a Theme by name and hold none of its values: one Theme for dark appearance and one for light, and whether the console follows the operating system's appearance or holds one of the two. Every Theme is either dark or light, and only a dark Theme can be chosen for dark appearance. A custom Theme is authored and changed in a file outside Orcvs, and stands beside the built-in Themes as an equal; the console selects Themes and does not edit them. A Theme a viewer makes starts from exactly one built-in Theme and states only how it differs; it never starts from another Theme a viewer made. It shares its parent's dark or light appearance. A Theme decides how presentation looks, never how much it moves: the Cursor Effect's colours are the Theme's, and how much it glitches is the viewer's setting.
+The shared appearance of the Source Grid and the console around it: colours, opacity, Grid and Cell colours, borders and border widths. A Theme changes appearance while preserving Grid structure and input behaviour. Typography and layout changes are outside the current Theme scope. One Theme styles the whole console at a time: the Source Grid and the console around it are never themed separately. The console's settings choose a Theme by name and hold none of its values: one Theme for dark appearance and one for light, and whether the console follows the operating system's appearance or holds one of the two. Every Theme is either dark or light, and only a dark Theme can be chosen for dark appearance. A custom Theme is authored and changed in a file outside Orcvs, and stands beside the built-in Themes as an equal; the console selects Themes and does not edit them. A Theme a viewer makes starts from exactly one built-in Theme and states only how it differs; it never starts from another Theme a viewer made. It shares its parent's dark or light appearance. A Theme decides how presentation looks, never how much it moves.
 _Avoid_: Palette, Visuals, chrome palette, colour settings, override
 
 **Source View**:

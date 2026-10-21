@@ -2,7 +2,7 @@
 
 **What to build:** A performer sets `width` and `height` under `[cell]` in `~/.orcvs/config.toml`, in points, and the console draws its Cells and Glyphs at that size. Each key is optional and bounded to 8 to 64 points. An out-of-range or mistyped value is reported in the usual settings notice and falls back to its own default, leaving the other key standing. A size that doesn't land on whole pixels snaps quietly. The web reads no file and uses the default. See `../spec.md`.
 
-**Blocked by:** 04 — Draw 12 by 18 Cells with a matching Glyph.
+**Blocked by:** 04 — Draw the default Cells with a matching Glyph.
 
 **Status:** ready-for-agent
 
