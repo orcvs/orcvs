@@ -1,6 +1,6 @@
 # Each Cell edge is drawn once
 
-Status: proposed. Narrows [ADR 0040](0040-the-console-paints-from-a-value.md): a `Paint` still carries no geometry, and now answers its borders per Cell edge as well as per Cell. Its refusal of a single Mesh for backgrounds stands; this record takes a Mesh for edges only, for reasons that do not apply to fills. It also settles who draws the Cursor's border for `.scratch/source-cell-size/` (PR #259), whose spec and ticket 02 stroke a Cursor outline inside the Cursor's Cell. That spec will also take the next ADR number; whichever of the two lands second renumbers, as `docs/adr/README.md` says. Settled in `.scratch/cell-edges/`.
+Status: proposed. Narrows [ADR 0040](0040-the-console-paints-from-a-value.md): a `Paint` still carries no geometry, and now answers its borders per Cell edge as well as per Cell. Its refusal of a single Mesh for backgrounds stands; this record takes a Mesh for edges only, for reasons that do not apply to fills. It also settles who draws the Cursor's border for `.scratch/source-cell-size/`, whose decision is [ADR 0079](0079-source-cells-are-configurable-rectangles.md). Settled in `.scratch/cell-edges/`.
 
 Every Cell of the Source Grid strokes its own border inside its own rectangle, and the Cells tile with no gap, so every edge two Cells share carries two strokes side by side. A plain Grid line shows at twice the Theme's width: 0.5 points is 2 physical pixels on a 2× display, not 1. A bordered Cell's border sits beside its neighbour's Grid line, and two bordered neighbours put two borders side by side, so two Portal Cells at 1 point show a 4 pixel bar between them. A translucent role border drawn by both neighbours composites twice.
 
@@ -49,7 +49,7 @@ rest              = the highest-ranked of the other lines, over the other arms
 ## Consequences
 
 - A Grid line shows at the Theme's width rather than twice it, so every Theme's Grid reads lighter. Theme defaults are revisited against the new look.
-- The Cursor and a spanning Region show one outline of the Theme's colour and width, centred on its edges and the same on all four sides; no Grid line or neighbour's border shows beside it. `.scratch/source-cell-size/`'s spec and ticket 02 stroke that outline inside the Cell; they are reworded so the outline is the highest-ranked edge.
+- The Cursor and a spanning Region show one outline of the Theme's colour and width, centred on its edges and the same on all four sides; no Grid line or neighbour's border shows beside it.
 - `ordinary_border` stops returning the Grid line for a Cell, and a Cell's `border_width` of zero no longer hides anything.
 - The theme workbench copies the console's drawing and moves to the same edges.
 - The shapes step gains a benchmark before the change, because `paint_derive` measures the derivation only.
@@ -62,4 +62,4 @@ rest              = the highest-ranked of the other lines, over the other arms
 
 **Lines as `line_segment`s, one per edge or per run.** epaint's segment snapping shrinks each end by a quarter pixel before rounding, so segments either leave a notch at a corner or, extended to cover it, overlap by a pixel and composite twice.
 
-**The selection outline as a separate stroke inside the Cell, as `.scratch/source-cell-size/` specifies.** Against lines that fall right of and below their boundaries, an Inside outline covers the Grid line on its left and top and leaves it showing outside its right and bottom.
+**The selection outline as a separate stroke inside the Cell.** Against lines that fall right of and below their boundaries, an Inside outline covers the Grid line on its left and top and leaves it showing outside its right and bottom.

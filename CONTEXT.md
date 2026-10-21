@@ -307,7 +307,7 @@ The terminal `!$` Function that sends a command to the Orcvs host application. I
 _Avoid_: Host Command, shell command, process execution
 
 **Cursor**:
-The one Cell the console is editing: a Position drawn with the active Cursor Effect. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
+The one Cell the console is editing: a Position drawn with an outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
 **Region**:
@@ -315,11 +315,11 @@ A rectangle of Positions within the Grid, spanned from an anchor Cell to a live 
 _Avoid_: Selection, range, block, marquee
 
 **Cursor Effect**:
-The console presentation surrounding the Cursor: an eroded frame standing in for its Cell's outline, with the edges beneath showing through its gaps, and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
+The console presentation surrounding the Cursor, off by default and to be removed (ADR 0079): an eroded frame standing in for its Cell's outline, with the edges beneath showing through its gaps, and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
 _Avoid_: Cell highlight, radial glow, focus matrix
 
 **Sector**:
-One square block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. Tab and Shift Tab step the Cursor along its row a Sector at a time. A Sector is console presentation and navigation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.
+One block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. Tab and Shift Tab step the Cursor along its row a Sector at a time. A Sector is console presentation and navigation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.
 _Avoid_: Block, tile, chunk, page
 
 **Sector Seam**:
@@ -335,7 +335,7 @@ The per-Cell decision of how the Positions a console draws of one Render Frame a
 _Avoid_: Shapes, draw list, painter
 
 **Theme**:
-The shared appearance of the Source Grid and the console around it: colours, opacity, Grid and Cell colours, borders and border widths. A Theme changes appearance while preserving Grid structure and input behaviour. Typography and layout changes are outside the current Theme scope. One Theme styles the whole console at a time: the Source Grid and the console around it are never themed separately. The console's settings choose a Theme by name and hold none of its values: one Theme for dark appearance and one for light, and whether the console follows the operating system's appearance or holds one of the two. Every Theme is either dark or light, and only a dark Theme can be chosen for dark appearance. A custom Theme is authored and changed in a file outside Orcvs, and stands beside the built-in Themes as an equal; the console selects Themes and does not edit them. A Theme a viewer makes starts from exactly one built-in Theme and states only how it differs; it never starts from another Theme a viewer made. It shares its parent's dark or light appearance. A Theme decides how presentation looks, never how much it moves: the Cursor Effect's colours are the Theme's, and how much it glitches is the viewer's setting.
+The shared appearance of the Source Grid and the console around it: colours, opacity, Grid and Cell colours, borders and border widths. A Theme changes appearance while preserving Grid structure and input behaviour. Typography and layout changes are outside the current Theme scope. One Theme styles the whole console at a time: the Source Grid and the console around it are never themed separately. The console's settings choose a Theme by name and hold none of its values: one Theme for dark appearance and one for light, and whether the console follows the operating system's appearance or holds one of the two. Every Theme is either dark or light, and only a dark Theme can be chosen for dark appearance. A custom Theme is authored and changed in a file outside Orcvs, and stands beside the built-in Themes as an equal; the console selects Themes and does not edit them. A Theme a viewer makes starts from exactly one built-in Theme and states only how it differs; it never starts from another Theme a viewer made. It shares its parent's dark or light appearance. A Theme decides how presentation looks, never how much it moves.
 _Avoid_: Palette, Visuals, chrome palette, colour settings, override
 
 **Source View**:
