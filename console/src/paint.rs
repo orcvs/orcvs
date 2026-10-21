@@ -43,7 +43,7 @@
 
 use std::ops::Range;
 
-use egui::Color32;
+use egui::{Color32, Stroke};
 
 use orcvs::{
     grid::{Grid, Position},
@@ -69,15 +69,14 @@ pub use crate::grid_viewport::VisiblePositions;
 /// Cell needs a fill of its own.
 ///
 ///
-/// `border_width` is display points, in whatever unit `crate::style::
-/// CellVisuals::border_width` already resolved it to; never `Eq` since it
+/// `border` is the Cell's own border as `crate::style::CellVisuals::border`
+/// resolved it, `None` where the Grid line shows; never `Eq` since a `Stroke`
 /// carries an `f32`, unlike this struct's other fields.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CellPaint {
     pub background: Option<Color32>,
-    pub border: Color32,
-    pub border_width: f32,
+    pub border: Option<Stroke>,
     pub foreground: Color32,
     pub sector_left: Option<Color32>,
     pub sector_top: Option<Color32>,
@@ -284,7 +283,6 @@ impl Paint {
                 cells.push(CellPaint {
                     background,
                     border: visuals.border,
-                    border_width: visuals.border_width,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the `selected` Cell, so
                     // the Cursor's frame is never crossed by one. It is decided
@@ -398,6 +396,13 @@ impl Paint {
     ///
     pub(crate) fn cells(&self) -> impl Iterator<Item = (Position, &CellPaint)> {
         self.positions().zip(&self.cells)
+    }
+
+    ///
+    /// The Positions this Paint covers.
+    ///
+    pub(crate) fn drawn(&self) -> &VisiblePositions {
+        &self.drawn
     }
 
     ///
@@ -540,7 +545,7 @@ mod tests {
     use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::style::{cell_visuals_with_cursor_colour, sector_line};
     use crate::theme::okabe_ito;
-    use egui::Color32;
+    use egui::{Color32, Stroke};
     use orcvs::source::{OperandState, SourcePaint, Token};
     use orcvs::{
         app::Orcvs,
@@ -672,7 +677,7 @@ mod tests {
                 "the foreground at {:?}",
                 cell.position()
             );
-            borders.insert(painted.border.to_array());
+            borders.insert(painted.border.map(|border| border.color.to_array()));
             foregrounds.insert(painted.foreground.to_array());
         }
 
@@ -702,9 +707,10 @@ mod tests {
 
     ///
     /// A Region larger than one Cell fills every Cell it covers but the
-    /// Cursor's with the Theme's Region colour, and gives every Cell of it,
-    /// the Cursor's included, the grid line: the lasso around the Region is
-    /// the Cursor's border then. A Region of one Cell fills none.
+    /// Cursor's with the Theme's Region colour, and gives no Cell of it, the
+    /// Cursor's included, a border of its own, so the Grid line shows: the
+    /// lasso around the Region is the Cursor's border then. A Region of one
+    /// Cell fills none.
     ///
     /// The Cursor's Cell takes its own fill. Unset, it is the Cursor's cell
     /// colour, as with no Region; set, it is independent of both.
@@ -752,11 +758,7 @@ mod tests {
                     inside.then_some(fill)
                 };
                 assert_eq!(cell.background, wanted, "the background at {position:?}");
-                assert_eq!(
-                    cell.border,
-                    okabe_ito().grid_border,
-                    "the border at {position:?}"
-                );
+                assert_eq!(cell.border, None, "the border at {position:?}");
             }
         }
         assert_eq!(
@@ -1533,10 +1535,15 @@ mod tests {
         let invalid = paint.at(orcvs.grid().position(2, 0).expect("inside the grid"));
         let valid = paint.at(orcvs.grid().position(4, 0).expect("inside the grid"));
 
-        assert_eq!(invalid.border, theme.grid_border.blend(visible));
-        assert_eq!(invalid.border_width, theme.diagnostic_border_width.points());
         assert_eq!(
-            valid.border, theme.grid_border,
+            invalid.border,
+            Some(Stroke::new(
+                theme.diagnostic_border_width.points(),
+                theme.grid_border.blend(visible)
+            ))
+        );
+        assert_eq!(
+            valid.border, None,
             "a Valid operand took the Diagnostic border it has no fact for"
         );
     }
@@ -2284,8 +2291,7 @@ mod tests {
                 .flat_map(|row| row.iter())
                 .map(|&background| CellPaint {
                     background,
-                    border: okabe_ito().grid_border,
-                    border_width: okabe_ito().grid_border_width.points(),
+                    border: None,
                     foreground: okabe_ito().source_ordinary,
                     sector_left: None,
                     sector_top: None,
