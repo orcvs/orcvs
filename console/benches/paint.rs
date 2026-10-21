@@ -334,7 +334,9 @@ fn background_runs(c: &mut Criterion) {
 /// builds every Cell edge, borders, seams and the selection outline among
 /// them, into one Mesh. Every case runs at 1×; the
 /// fitted ranges run at 1.5× too, because a fractional device scale snaps
-/// Cell sides and edges through different rounding than a whole one.
+/// Cell sides and edges through different rounding than a whole one, and at
+/// 2×, where lines of one width at 1× round to different widths and their
+/// junctions draw in several pieces.
 ///
 fn shapes(c: &mut Criterion) {
     // The fitted, culled, single and empty cases draw a fixed 16 point square
@@ -395,6 +397,12 @@ fn shapes(c: &mut Criterion) {
             frame.grid(),
             SQUARE,
             1.5,
+        );
+        measure(
+            size("fitted@2x", cols, rows),
+            &fitted_paint,
+            frame.grid(),
+            2.0,
         );
     }
 
