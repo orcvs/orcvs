@@ -42,6 +42,13 @@ bench = false
 # tier runs beside the default one. See docs/tooling.md.
 default = ["persistence"]
 persistence = ["eframe/persistence", "orcvs/persistence"]
+# Test-only. `console/benches/paint.rs` measures the step that turns a Paint
+# into Source Shapes, and a benchmark is a separate crate that cannot reach the
+# crate-private shapes step or presented Grid. The feature exposes them through
+# `console::source_shapes`. Like `orcvs`'s `test-grid-shapes`, only this
+# crate's own dev-dependency below enables it, so no shipped build carries the
+# module. It adds no dependency.
+test-source-shapes = []
 # Development-only inspection, off in every shipped build and in every tier's
 # default arm. It forwards to `eframe/inspection`, which is upstream's own
 # integration: the feature pulls `egui_inspection` in and
@@ -255,6 +262,11 @@ web-sys = { version = "0.3", features = ["Storage"] }
 # because `Paint::derive` lives in this crate and `source-paint/09` measures it.
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 lang = { path = "../lang", version = "0.1.0" }
+# This crate itself, with `test-source-shapes`: the only way a Cargo package
+# turns a feature on for its own benchmarks without every invocation naming
+# it. `default-features = false` leaves `persistence` to the build's own
+# feature selection. A dev-dependency never reaches a normal build.
+console = { path = ".", default-features = false, features = ["test-source-shapes"] }
 # `test-grid-shapes` lets the console's tests build a Grid smaller than the one
 # 256 by 256 shape, and `test-output-adapter` gives the WASM tests and the paint
 # bench an output to drive Playback over (`orcvs/Cargo.toml` states why each
