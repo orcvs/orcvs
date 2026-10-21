@@ -133,7 +133,7 @@ max_ns = 120000
 runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # `Paint::derive_with_theme` over what the default window shows of a 256 by 256
 # Grid at the default 12 by 18 point Cell (ADR 0079): 87 by 37 Cells, against
-# 65 by 41 at the 16 point square `paint_derive/window/16x16` prices. A starting
+# 66 by 42 at the 16 point square `paint_derive/window/16x16` prices. A starting
 # figure, not a CI-measured floor; revisit once the series has points on
 # `gh-pages`.
 source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 55 us at 12x18, 42 us at 16x16. About twice the first, not yet CI-measured."

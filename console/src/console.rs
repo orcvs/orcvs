@@ -83,7 +83,7 @@ fn prefers_reduced_motion() -> bool {
 /// window keeps its size whatever Cell it shows: about 85 columns and 35 rows
 /// of the default 12 by 18 point Cell (ADR 0079).
 ///
-const DEFAULT_SOURCE_AREA: [f32; 2] = [1024.0, 640.0];
+pub(crate) const DEFAULT_SOURCE_AREA: [f32; 2] = [1024.0, 640.0];
 
 ///
 /// The default window: a 1024 by 640 point Source area plus the top bar and compact

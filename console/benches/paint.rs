@@ -26,7 +26,7 @@ use console::{
     cursor_effects::{
         CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, cursor_effect_shapes,
     },
-    source_shapes::{SourceShapes, presented_grid},
+    source_shapes::{DEFAULT_SOURCE_AREA, SourceShapes, presented_grid, visible_positions},
     theme::{Theme, okabe_ito},
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -48,12 +48,8 @@ const FRAME_SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64), (128, 128
 /// coincide, and from 32×32 up the walk is a constant Cell count.
 const CULLED: usize = 16;
 
-/// The default window's Source area in points, `console::console`'s
-/// `DEFAULT_SOURCE_AREA`, which a benchmark crate cannot name.
-const WINDOW: Vec2 = Vec2::new(1024.0, 640.0);
-
-/// The Cell sizes the window cases draw at: the square the console drew
-/// before ADR 0079, and its default.
+/// The Cell sizes the window cases draw at: a 16 point square, a reference
+/// the others are read against that no floor gates, and the default.
 const WINDOW_CELLS: [Vec2; 2] = [Vec2::splat(16.0), Vec2::new(12.0, 18.0)];
 
 /// Copied from `orcvs/benches/source.rs`. The two benches do not share a crate;
@@ -159,17 +155,13 @@ fn culled(frame: &RenderFrame) -> VisiblePositions {
 }
 
 ///
-/// What a console of [`WINDOW`] at `cell` draws of `frame` from its top-left:
-/// every Cell the window shows, and one more each way, as
-/// `GridViewport::visible_positions` answers.
+/// What the default window's Source area draws of `frame` at `cell`, with the
+/// Grid's corner on the area's.
 ///
 fn window(frame: &RenderFrame, cell: Vec2) -> VisiblePositions {
-    let shown = (WINDOW / cell).ceil();
-    VisiblePositions::for_grid(
-        frame.grid(),
-        0..shown.x as usize + 1,
-        0..shown.y as usize + 1,
-    )
+    let viewport = presented_grid(Pos2::ZERO, frame.grid(), cell, 1.0);
+    let area = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_SOURCE_AREA));
+    visible_positions(&viewport, area, frame.grid())
 }
 
 fn window_id(cell: Vec2) -> BenchmarkId {
@@ -346,8 +338,9 @@ fn background_runs(c: &mut Criterion) {
 /// Cell sides and edges through different rounding than a whole one.
 ///
 fn shapes(c: &mut Criterion) {
-    // The fitted, culled, single and empty cases keep the square Cell their
-    // series began at.
+    // The fitted, culled, single and empty cases draw a fixed 16 point square
+    // Cell. Do not change it: each series is read against its own earlier
+    // points, so another Cell would read as a regression.
     const SQUARE: Vec2 = Vec2::splat(16.0);
     let mut group = c.benchmark_group("paint_shapes");
     let theme = bench_theme();

@@ -65,13 +65,28 @@ pub use paint::{
     BackgroundRun, EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint, VisiblePositions,
 };
 
-/// Test-only, under `test-source-shapes`: the shapes step and the presented
-/// Grid it places a Paint at, for `console/benches/paint.rs`. Only this
-/// crate's own dev-dependency enables the feature, so no shipped build
-/// carries this module and the console's public surface is unchanged.
+/// Test-only, under `test-source-shapes`: the shapes step, the presented
+/// Grid it places a Paint at, the Positions that Grid draws and the default
+/// window's Source area, for `console/benches/paint.rs`. Only this crate's own
+/// dev-dependency enables the feature, so no shipped build carries this
+/// module and the console's public surface is unchanged.
 #[cfg(feature = "test-source-shapes")]
 #[doc(hidden)]
 pub mod source_shapes {
     pub use crate::console::shapes::SourceShapes;
+    use crate::grid_viewport::GridViewport;
     pub use crate::grid_viewport::presented_grid;
+
+    /// The default window's Source area in points.
+    pub const DEFAULT_SOURCE_AREA: [f32; 2] = crate::console::DEFAULT_SOURCE_AREA;
+
+    /// The Positions `viewport` draws of `grid` inside `clip`, as the console
+    /// paints them.
+    pub fn visible_positions(
+        viewport: &GridViewport,
+        clip: egui::Rect,
+        grid: orcvs::grid::Grid,
+    ) -> crate::VisiblePositions {
+        viewport.visible_positions(clip, grid)
+    }
 }

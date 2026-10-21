@@ -5740,10 +5740,18 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     // At 1.25 the same window is 160 points across.
     ctx.set_zoom_factor(1.25);
     let zoomed_in = Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0));
-    let viewport = console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
+    console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
 
     assert_eq!(ctx.zoom_factor(), 1.25, "the pass did not run zoomed in");
-    assert_flush_at(viewport.cell_rect(13, 8), zoomed_in, "the zoom");
+    // The Cell snaps to 12 by 17.6 points, so the Cursor's Cell ends 16 and
+    // 11 of those along, and the least Pan puts that end on the console's.
+    let cell = snapped_cell(CELL_SIZE, 1.25);
+    assert_eq!(
+        view.pan,
+        Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * cell,
+        "the zoom did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
+    );
 
     // A frame at the zoom it already had is not a zoom, so a Pan away from
     // the Cursor stays where it was put.
@@ -5787,7 +5795,7 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.25);
     assert_eq!(view.pan, Vec2::ZERO, "the new scale alone Panned");
     let zoomed_in = Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0));
-    let (viewport, _) = console_pass_at(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view, 1.25);
+    console_pass_at(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view, 1.25);
 
     assert_eq!(
         ctx.zoom_factor(),
@@ -5799,7 +5807,13 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
         1.25,
         "the pass ran at another scale"
     );
-    assert_flush_at(viewport.cell_rect(13, 8), zoomed_in, "the browser zoom");
+    let cell = snapped_cell(CELL_SIZE, 1.25);
+    assert_eq!(
+        view.pan,
+        Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * cell,
+        "the browser zoom did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
+    );
 }
 
 ///
@@ -5830,11 +5844,13 @@ async fn a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_sh
         viewport.cell_size.x < CELL_SIZE.x && viewport.cell_size.y < CELL_SIZE.y,
         "the Cell side did not change"
     );
-    let shown = viewport.cell_rect(9, 9);
-    // Within `f32`'s error of the snapped Cell's arithmetic.
-    assert!(
-        screen.expand(1e-3).contains_rect(shown),
-        "the new Cell side left the Cursor at {shown:?}, outside {screen:?}"
+    // The Cursor's Cell starts 11 of the new Cells along, and the least Pan
+    // puts that start on the console's top-left.
+    assert_eq!(
+        view.pan,
+        -11.0 * viewport.cell_size,
+        "the new Cell side did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
     );
 }
 
@@ -5908,19 +5924,6 @@ async fn a_resize_after_a_pan_away_from_the_cursor_keeps_the_pan() {
             view.pan
         );
     }
-}
-
-///
-/// Asserts that `shown`, a Cell's rectangle, sits inside `console` against its
-/// bottom-right corner: where the least Pan that shows a Cell past that
-/// corner puts it.
-///
-fn assert_flush_at(shown: Rect, console: Rect, what: &str) {
-    let off = console.max - shown.max;
-    assert!(
-        console.expand(1e-3).contains_rect(shown) && off.x.abs() < 1e-3 && off.y.abs() < 1e-3,
-        "{what} left the Cursor at {shown:?}, not flush in {console:?}"
-    );
 }
 
 ///
