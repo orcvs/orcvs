@@ -48,6 +48,7 @@
 //!
 
 use std::collections::BTreeSet;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use eframe::egui_wgpu::{self, RenderState};
@@ -362,21 +363,22 @@ fn states_drawn(
         }
     }
 
+    let range = paint.drawn();
+    let within = |columns: Range<usize>, rows: Range<usize>| {
+        range.columns.start <= columns.start
+            && columns.end <= range.columns.end
+            && range.rows.start <= rows.start
+            && rows.end <= range.rows.end
+    };
     // The Region counts when every Cell of it is drawn, not merely one.
     let region = frame.region();
-    let region_drawn = !region.is_one_cell()
-        && region.columns().all(|column| {
-            region.rows().all(|row| {
-                grid.position(column, row)
-                    .is_some_and(|position| paint.cells().any(|(drawn, _)| drawn == position))
-            })
-        });
-    if region_drawn {
+    if !region.is_one_cell() && within(region.columns(), region.rows()) {
         drawn.insert("Region");
     }
     // The Cursor's Cell among the drawn Cells, where its fill and its Effect
     // are painted.
-    if paint.cells().any(|(drawn, _)| drawn == frame.cursor()) {
+    let cursor = frame.cursor();
+    if within(cursor.x()..cursor.x() + 1, cursor.y()..cursor.y() + 1) {
         drawn.insert("Cursor");
     }
 
