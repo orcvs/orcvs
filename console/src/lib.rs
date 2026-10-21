@@ -19,10 +19,7 @@ mod contrast;
 pub mod cursor_effects;
 pub mod diagnostics;
 mod function_reference;
-// `pub` and `doc(hidden)` for the reason `theme` is: `console/benches/paint.rs`
-// places a Paint at a presented Grid.
-#[doc(hidden)]
-pub mod grid_viewport;
+mod grid_viewport;
 mod marks;
 mod midi;
 mod paint;
@@ -67,3 +64,14 @@ pub mod web_startup;
 pub use paint::{
     BackgroundRun, EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint, VisiblePositions,
 };
+
+/// Test-only, under `test-source-shapes`: the shapes step and the presented
+/// Grid it places a Paint at, for `console/benches/paint.rs`. Only this
+/// crate's own dev-dependency enables the feature, so no shipped build
+/// carries this module and the console's public surface is unchanged.
+#[cfg(feature = "test-source-shapes")]
+#[doc(hidden)]
+pub mod source_shapes {
+    pub use crate::console::shapes::SourceShapes;
+    pub use crate::grid_viewport::presented_grid;
+}

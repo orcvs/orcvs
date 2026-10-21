@@ -239,7 +239,7 @@ pub(super) fn edge_mesh(
 /// Shape construction is never lazy. `Painter::extend` runs the iterator it is
 /// given inside `ctx.graphics_mut`, a full `Context` write lock, so a Shape
 /// built lazily is a Shape built while holding it. The fields are complete
-/// before `SourceShapes::into_shapes` hands the first one out.
+/// before [`SourceShapes::into_shapes`] hands the first one out.
 ///
 pub struct SourceShapes {
     /// The living field beneath every exact Grid shape.

@@ -6,7 +6,7 @@ The step takes the Cell as a width and a height snapped per axis, never one squa
 
 **Blocked by:** 01 — Measure the shapes step.
 
-**Status:** resolved
+**Status:** claimed
 
 - [x] Built test-first at the shapes step: on an empty Grid every edge is one piece, pieces never overlap, every crossing has a junction piece, and every piece is whole-pixel, at 1×, 2× and a fractional scale, with equal and unequal Cell width and height.
 - [x] A line under one physical pixel covers one pixel at its alpha scaled by its width.
@@ -26,3 +26,5 @@ The step takes the Cell as a width and a height snapped per axis, never one squa
 - `.scratch/source-cell-size/` ticket 03 has not landed, so the boundaries come from today's square `cell_size`. `grid_lines` takes each axis's boundaries separately, and `unequal_cell_sides_draw_each_grid_line_once` drives it with 12 by 18 pixel Cells.
 - **Tests.** New ones: `an_empty_grid_draws_each_grid_line_once`, which counts every covered pixel at 1×, 1.5× and 2× and at one and two pixel widths, plus `unequal_cell_sides_…`, `a_grid_line_under_one_pixel_…`, `a_one_pixel_crossing_is_drawn` and `the_grid_lines_lie_over_the_backgrounds`. Nine tests that pinned per-Cell border rectangles now assert the lattice instead. Two mutations were each caught: dropping the junction quad, and placing bands without straddling the boundary.
 - **Visual check.** The release capture was rendered locally on lavapipe at 1×, 1.5× and 2× (the capture's `PIXELS_PER_POINT` was varied locally and not committed), before and after this change. A pixel row through empty Cells measured every plain Grid line at 2 px wide before and 1 px after at all three scales, with the same colour and the same 16, 24 and 32 px spacing. The magnified crops are in the project files as `cell-edges/02-grid-lines-before-after.png`. Where a Sector Seam crosses the row it still shows beside the line as a separate segment; ticket 05 fixes that.
+
+**2026-10-21 — benchmark.** CI's benchmark workflow runs only on pull requests into `main`, and this one is stacked on ticket 01's branch, so the unchecked item waits for the stack to be retargeted; the ticket stays open until CI's figure exists. A local run with the bench task's settings, to revise the starting floor: `paint_shapes/fitted/128x128` moved from 416 µs to 704 µs and `fitted/16x16` from 6.4 µs to 11.1 µs, the lattice Mesh's quads replacing a skipped stroke per plain Cell; `culled/*` moved from about 6.5 µs to 11 µs. The floor on `paint_shapes/fitted/128x128` is raised to 1.4 ms, about twice the new figure. The Mesh's vertices and indices are reserved up front from the crossing and edge counts.
