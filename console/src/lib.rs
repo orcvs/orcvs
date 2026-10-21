@@ -61,7 +61,9 @@ mod web_midi;
 pub mod web_startup;
 
 #[doc(inline)]
-pub use paint::{BackgroundRun, FramePaint, Paint, VisiblePositions};
+pub use paint::{
+    BackgroundRun, EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint, VisiblePositions,
+};
 
 /// Test-only, under `test-source-shapes`: the shapes step and the presented
 /// Grid it places a Paint at, for `console/benches/paint.rs`. Only this

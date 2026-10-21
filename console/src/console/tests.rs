@@ -6,7 +6,7 @@ use orcvs::app::{Arrow, InputEvent, InputKey, Orcvs};
 use orcvs::render_frame::RenderFrame;
 
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
-use crate::paint::{FramePaint, Paint};
+use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, ROW_COUNT};
@@ -2645,7 +2645,7 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
     // The Grid lines lie on every Cell's own edges.
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     assert_drawn_once(
-        &line_quads(&shapes.lines, 1.0),
+        &line_quads(&shapes.edges, 1.0),
         &columns,
         &rows,
         1,
@@ -2693,11 +2693,7 @@ async fn a_region_hides_the_cursors_cell_border() {
         shapes.cursor.is_empty(),
         "the Cursor's Cell kept its border"
     );
-    assert!(
-        shapes.borders.is_empty(),
-        "a Cell of the Region stroked a border of its own"
-    );
-    assert_eq!(shapes.lines.len(), 1, "the Grid lines were not drawn");
+    assert_eq!(shapes.edges.len(), 1, "the Grid lines were not drawn");
     assert!(!shapes.backgrounds.is_empty(), "the Region was not filled");
 }
 
@@ -2773,7 +2769,7 @@ async fn every_background_is_painted_before_every_glyph_and_the_cursor_after_bot
         );
     }
     assert_eq!(shapes.cursor.len(), 1, "the Cursor is one stroke");
-    for stroked in shapes.borders.iter().chain(&shapes.cursor) {
+    for stroked in &shapes.cursor {
         let Shape::Rect(rect) = stroked else {
             panic!("a border was {stroked:?}")
         };
@@ -3154,16 +3150,11 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         }
 
         assert_drawn_once(
-            &line_quads(&shapes.lines, pixels_per_point),
+            &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             width_pixels,
             theme.grid_border,
-        );
-        assert!(
-            shapes.borders.is_empty(),
-            "{} unclaimed Cells stroked a border of their own at {pixels_per_point}x",
-            shapes.borders.len()
         );
     }
 }
@@ -3174,21 +3165,110 @@ async fn an_empty_grid_draws_each_grid_line_once() {
 ///
 #[test]
 fn unequal_cell_sides_draw_each_grid_line_once() {
-    let line = super::shapes::PixelLine {
-        width: 2,
-        colour: Color32::from_rgb(10, 20, 30),
+    let line = EdgeLine {
+        rank: EdgeRank::GridLine,
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+    };
+    let drawn =
+        crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(3, 2), 0..3, 0..2);
+    let edges = Edges {
+        rows: (0..=2)
+            .map(|row| EdgeRun {
+                line: row,
+                span: 0..3,
+                edge: line,
+            })
+            .collect(),
+        columns: (0..=3)
+            .map(|column| EdgeRun {
+                line: column,
+                span: 0..2,
+                edge: line,
+            })
+            .collect(),
     };
     let columns = [10, 22, 34, 46];
     let rows = [5, 23, 41];
 
     let quads = line_quads(
-        &[Shape::mesh(super::shapes::grid_lines(
-            &columns, &rows, line, 2.0,
+        &[Shape::mesh(super::shapes::edge_mesh(
+            &edges, &drawn, &columns, &rows, 2.0,
         ))],
         2.0,
     );
 
-    assert_drawn_once(&quads, &columns, &rows, 2, line.colour);
+    assert_drawn_once(&quads, &columns, &rows, 2, line.stroke.color);
+}
+
+///
+/// Where a narrower line outranks a wider one at a crossing, it keeps its own
+/// width there and the wider line fills the rest of the junction: a 1 pixel
+/// border round a Cell turns its corners at 1 pixel through 2 pixel Grid lines.
+///
+#[test]
+fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
+    let grid = EdgeLine {
+        rank: EdgeRank::GridLine,
+        stroke: egui::Stroke::new(1.0, Color32::from_rgb(10, 20, 30)),
+    };
+    let border = EdgeLine {
+        rank: EdgeRank::Diagnostic,
+        stroke: egui::Stroke::new(0.5, Color32::from_rgb(200, 100, 50)),
+    };
+    // Cell (1, 1) of three by three carries the border on every side.
+    let drawn =
+        crate::grid_viewport::VisiblePositions::for_grid(Grid::with_shape(3, 3), 0..3, 0..3);
+    let line = |boundary: usize, cell: usize| {
+        if (boundary == 1 || boundary == 2) && cell == 1 {
+            border
+        } else {
+            grid
+        }
+    };
+    let runs = |boundary: usize| {
+        (0..3)
+            .map(|cell| EdgeRun {
+                line: boundary,
+                span: cell..cell + 1,
+                edge: line(boundary, cell),
+            })
+            .collect::<Vec<_>>()
+    };
+    let edges = Edges {
+        rows: (0..=3).flat_map(runs).collect(),
+        columns: (0..=3).flat_map(runs).collect(),
+    };
+    let lines = [10, 30, 50, 70];
+
+    let pixels = edge_pixels(&line_quads(
+        &[Shape::mesh(super::shapes::edge_mesh(
+            &edges, &drawn, &lines, &lines, 2.0,
+        ))],
+        2.0,
+    ));
+
+    // The border's 1 pixel bands, and the 2 pixel Grid line bands beside
+    // them, which stop where the border's sides run.
+    let (near, far) = (lines[1], lines[2]);
+    let grid_band = [near - 1, near, far - 1, far];
+    let along_side = |pixel: i32| (near + 1..far - 1).contains(&pixel);
+    for x in near - 1..=far {
+        for y in near - 1..=far {
+            let on_border = (near..=far).contains(&x)
+                && (near..=far).contains(&y)
+                && (x == near || x == far || y == near || y == far);
+            let on_grid = (grid_band.contains(&x) && !along_side(y))
+                || (grid_band.contains(&y) && !along_side(x));
+            let expected = if on_border {
+                Some(border.stroke.color)
+            } else if on_grid {
+                Some(grid.stroke.color)
+            } else {
+                None
+            };
+            assert_eq!(pixels.get(&(x, y)).copied(), expected, "pixel {x},{y}");
+        }
+    }
 }
 
 ///
@@ -3211,12 +3291,105 @@ async fn a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width() {
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
 
         assert_drawn_once(
-            &line_quads(&shapes.lines, pixels_per_point),
+            &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             1,
             theme.grid_border.gamma_multiply(0.5 * pixels_per_point),
         );
+    }
+}
+
+///
+/// The colour each physical pixel the edges cover is painted in, after
+/// checking that no two pieces cover the same pixel.
+///
+fn edge_pixels(quads: &[([i32; 4], Color32)]) -> std::collections::HashMap<(i32, i32), Color32> {
+    let mut pixels = std::collections::HashMap::new();
+    for &([left, top, right, bottom], colour) in quads {
+        for x in left..right {
+            for y in top..bottom {
+                assert!(
+                    pixels.insert((x, y), colour).is_none(),
+                    "two pieces cover pixel {x},{y}"
+                );
+            }
+        }
+    }
+    pixels
+}
+
+///
+/// Two neighbouring Diagnostic Cells share one line, as strong as their
+/// outline: a translucent border is composited once on every edge it wins and
+/// at every crossing, and the wider border takes the junctions it meets.
+///
+#[tokio::test]
+async fn neighbouring_diagnostic_cells_share_one_line_composited_once() {
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let mut orcvs = running_orcvs(8, 3);
+    // `**` at columns 2 and 3 is the rejected Number operand of `.+`.
+    for (x, character) in ".+**01".chars().enumerate() {
+        orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
+        orcvs.write(&character.to_string());
+    }
+    orcvs.select(orcvs.grid().position(7, 0).expect("inside the grid"));
+    let frame = orcvs.render_frame();
+    let theme = Theme {
+        diagnostic_border: Color32::from_rgba_unmultiplied(255, 255, 255, 96),
+        diagnostic_border_width: crate::theme::GridWidth::from_points(1.0).expect("within 0..=1"),
+        ..okabe_ito()
+    };
+    let viewport = presented(screen, 8, 3, 2.0);
+    let paint = painted_themed(&frame, viewport, screen, &theme);
+    let shapes = source_geometry_themed(&paint, viewport, 2.0, &theme);
+    let (columns, rows) = boundaries(viewport, &paint, 2.0);
+    let pixels = edge_pixels(&line_quads(&shapes.edges, 2.0));
+
+    let diagnostic = theme.grid_border.blend(theme.diagnostic_border);
+    let grid = theme.grid_border;
+    let middle = |from: i32, to: i32| (from + to) / 2;
+    // The two Cells' left, shared and right edges, two pixels across their
+    // column lines, halfway down row 1.
+    let y = middle(rows[1], rows[2]);
+    for column in [2, 3, 4] {
+        for x in [columns[column] - 1, columns[column]] {
+            assert_eq!(
+                pixels.get(&(x, y)),
+                Some(&diagnostic),
+                "column line {column} at {x}"
+            );
+        }
+        assert_eq!(
+            pixels.get(&(columns[column] + 1, y)),
+            None,
+            "column line {column} is two pixels"
+        );
+    }
+    // Their top edges, and the Grid line beside them.
+    for column in [2, 3] {
+        let x = middle(columns[column], columns[column + 1]);
+        assert_eq!(pixels.get(&(x, rows[1] - 1)), Some(&diagnostic));
+        assert_eq!(pixels.get(&(x, rows[1])), Some(&diagnostic));
+    }
+    let x = middle(columns[5], columns[6]);
+    assert_eq!(pixels.get(&(x, rows[1])), Some(&grid));
+    assert_eq!(
+        pixels.get(&(x, rows[1] - 1)),
+        None,
+        "a Grid line is one pixel"
+    );
+    // Every crossing the Diagnostic lines meet is theirs, two by two, but
+    // the one below their left edge, which `.+`'s Output Portal Cell below
+    // it also meets and outranks.
+    for (column, row) in [(2, 1), (3, 1), (4, 1), (3, 2), (4, 2)] {
+        for (dx, dy) in [(-1, -1), (-1, 0), (0, -1), (0, 0)] {
+            assert_eq!(
+                pixels.get(&(columns[column] + dx, rows[row] + dy)),
+                Some(&diagnostic),
+                "the crossing of column line {column} and row line {row}"
+            );
+        }
     }
 }
 
@@ -3234,7 +3407,7 @@ async fn a_one_pixel_crossing_is_drawn() {
     let shapes = source_geometry(&paint, viewport, 2.0);
     let (columns, rows) = boundaries(viewport, &paint, 2.0);
 
-    let quads = line_quads(&shapes.lines, 2.0);
+    let quads = line_quads(&shapes.edges, 2.0);
     for &x in &columns {
         for &y in &rows {
             assert!(
@@ -3811,12 +3984,8 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
         let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
 
         assert!(
-            shapes.lines.is_empty(),
+            shapes.edges.is_empty(),
             "{pixels_per_point} ppp: a Grid line survived width 0"
-        );
-        assert!(
-            shapes.borders.is_empty(),
-            "{pixels_per_point} ppp: a Cell border stroke survived width 0"
         );
         assert!(
             shapes.cursor.is_empty(),
@@ -3861,7 +4030,7 @@ async fn the_grid_and_selection_border_widths_vary_independently() {
 
     let (columns, rows) = boundaries(viewport, &paint, 1.0);
     assert_drawn_once(
-        &line_quads(&shapes.lines, 1.0),
+        &line_quads(&shapes.edges, 1.0),
         &columns,
         &rows,
         1,
@@ -3913,7 +4082,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
         "zero cell.selection.border.width left the Cursor's own border standing"
     );
     assert!(
-        !shapes.lines.is_empty(),
+        !shapes.edges.is_empty(),
         "zero cell.selection.border.width also silenced the Grid lines"
     );
 
@@ -3924,7 +4093,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     let paint = painted_themed(&frame, viewport, screen, &zero_grid);
     let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_grid);
     assert!(
-        shapes.lines.is_empty(),
+        shapes.edges.is_empty(),
         "zero grid.border.width left a Grid line standing"
     );
     assert!(
@@ -3996,7 +4165,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales()
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&theme, pixels_per_point);
         assert_drawn_once(
-            &line_quads(&shapes.lines, pixels_per_point),
+            &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             width,
@@ -4007,7 +4176,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales()
             1,
             "{pixels_per_point} ppp: the Cursor was not framed once"
         );
-        for shape in shapes.borders.iter().chain(&shapes.cursor) {
+        for shape in &shapes.cursor {
             let Shape::Rect(stroked) = shape else {
                 panic!("a border was {shape:?}")
             };
@@ -4539,7 +4708,7 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         let (width, colour) = expected_line(&okabe_ito(), pixels_per_point);
         assert_drawn_once(
-            &line_quads(&shapes.lines, pixels_per_point),
+            &line_quads(&shapes.edges, pixels_per_point),
             &columns,
             &rows,
             width,

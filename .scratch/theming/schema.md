@@ -116,7 +116,7 @@ property or production test seam is introduced.
 | `widget.inactive.border.width` | 0 | 0–2 |
 | `input.cursor.width` | 2 | 0–2 |
 
-Zero width suppresses that stroke, not fills or other strokes. Diagnostic/Portal
+Zero width suppresses that stroke, not fills or other strokes; a Source Cell border of zero width withdraws from its edges, so the next fact's line shows there. Diagnostic/Portal
 width defaults to 0.5 while its transparent colour preserves the current absence.
 Inactive widget width zero preserves its current absence. The 2-point text-input
 caret is separate from ordinary 1-point chrome borders. Widths do not scale with
@@ -191,7 +191,17 @@ added explicitly to this catalogue, never silently left as a second palette.
    channels paint a Cell that plays no Portal role and is marked by a lock, and
    compose over every fact, a bound Function and a Bang included, since a lock
    marks only the Function spelling of the root it withheld. Border
-   channels use the same fact priority and compose over the ordinary Grid border.
+   channels use the same fact priority and compose over the ordinary Grid border,
+   or over nothing where a `grid.border.width` of zero draws no Grid line.
+   Two Cells share the edge between them, which is drawn once: it shows the
+   highest-ranked border either Cell carries on that side, ranked Grid line,
+   Diagnostic, Locked, Input Portal, Output Portal, and composited once in the
+   colour that Cell's own composition gives it. Of two borders of one rank, the
+   Cell below or to the right draws. A crossing takes the colour of the
+   highest-ranked line meeting it. A border of width zero withdraws from its
+   edges, and the fact below it shows; a transparent border of nonzero width
+   still holds its edge, so a transparent Portal border shows the colour it
+   composes over.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
    suppresses ordinary role fill in favour of its optional Cursor fill. In a
    multi-Cell Region, the Cursor uses Region Cursor fill, falling back to ordinary
