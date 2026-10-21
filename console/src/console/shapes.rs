@@ -106,7 +106,8 @@ fn band(boundary: i32, width: i32) -> Range<i32> {
 ///
 /// An edge's piece lies across its boundary at its own width. A junction is as
 /// wide as the widest column line meeting it and as tall as the widest row
-/// line, in the colour of the highest-ranked line meeting it, so every piece
+/// line, in the colour of the highest-ranked line meeting it, and of lines
+/// of one rank the most opaque, so every piece
 /// runs between junctions and a narrower line's band lies inside the
 /// junction's.
 ///
@@ -170,11 +171,13 @@ pub(super) fn edge_mesh(
                 .max()
                 .unwrap_or(0)
         };
+        // Of lines of one rank, the most opaque, so a seam runs on through a
+        // plain Grid line it crosses.
         let colour = downs
             .iter()
             .chain(&acrosses)
             .flatten()
-            .max_by_key(|(rank, _)| *rank)
+            .max_by_key(|(rank, line)| (*rank, line.colour.a()))
             .map(|(_, line)| line.colour);
         (
             band(columns[column], widest(&downs)),

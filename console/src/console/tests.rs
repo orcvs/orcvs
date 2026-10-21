@@ -4064,6 +4064,37 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
             seams > 0,
             "the Paint asked for no sector seam, so nothing was asserted"
         );
+
+        // The seam on column line 8 runs on through its crossing with a plain
+        // row line, as strong as the stronger of its edges either side.
+        let seam_at = |row| {
+            let position = orcvs.grid().position(8, row).expect("inside the grid");
+            paint
+                .at(position)
+                .sector_left
+                .map(|seam| expected_seam(&theme, seam, pixels_per_point))
+        };
+        let (row, (width, colour)) = (1..8)
+            .find_map(|row| {
+                let (above, below) = (seam_at(row - 1)?, seam_at(row)?);
+                Some((
+                    row,
+                    if above.1.a() > below.1.a() {
+                        above
+                    } else {
+                        below
+                    },
+                ))
+            })
+            .expect("a seam either side of a row line");
+        let start = columns[8] - width / 2;
+        for x in start..start + width {
+            assert_eq!(
+                pixels.get(&(x, rows[row])),
+                Some(&colour),
+                "{pixels_per_point}× the seam's crossing with row line {row} at {x}"
+            );
+        }
     }
 }
 
