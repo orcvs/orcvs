@@ -118,11 +118,11 @@ source = "CI-measured figures recorded in .scratch/paint-cell-cost/issues/04-pro
 
 [[floor]]
 name = "paint_shapes/fitted/128x128"
-max_ns = 900000
+max_ns = 1400000
 runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # `SourceShapes::geometry` over a fully drawn 128 by 128 Grid at 1x: the per-Cell
 # edge and background placement the cell-edges tickets rework. 128x128 rather
 # than 256x256 because the larger case varied by most of its own figure between
 # local samples. A starting figure, not a CI-measured floor; revisit once the
 # series has points on `gh-pages`.
-source = "Local criterion run (bench task settings) at 416 us on a 4-core 2.8 GHz Xeon cloud container; about twice that for the hosted runner, not yet CI-measured."
+source = "Local criterion run (bench task settings) at 704 us once the Grid lines are one Mesh (cell-edges 02), 416 us before, on a 4-core 2.8 GHz Xeon cloud container; about twice that for the hosted runner, not yet CI-measured."
