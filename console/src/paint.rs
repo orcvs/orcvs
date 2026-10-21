@@ -244,9 +244,6 @@ pub struct Paint {
     /// The Positions this Paint covers: what the console draws, and one Cell
     /// more in every direction the Grid has one.
     drawn: VisiblePositions,
-    /// Whether the Region spans more than one Cell, when the outline is the
-    /// Region's.
-    region_spans: bool,
     /// The selection outline, or `None` where its border's width is zero.
     outline: Option<Outline>,
     /// The line an edge shows where neither Cell beside it carries a fact,
@@ -267,17 +264,19 @@ impl Paint {
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
-    /// The outline is `theme.cursor_border` at `theme.cursor_border_width`
-    /// around the Cursor's Cell, or `theme.region_border` at
-    /// `theme.region_border_width` around a spanning Region, whose Cursor's
-    /// Cell keeps its own border and sector seams. `theme.cell_background` is the uniform base every one of those
-    /// fills composites over, and — being independent of whether a role
+    /// `theme.cell_background` is the uniform base every one of those fills
+    /// composites over, and — being independent of whether a role
     /// contributed one — is also what a Cell with no fill of its own falls
     /// back to, so `.scratch/theming/schema.md`'s "does not count as a fact
     /// fill when evaluating Region fallback" holds even when a custom
     /// Theme's Cell base is not transparent. `theme` is the resolved Theme
     /// the console currently shows the Source with, so every Token colour
     /// here is a Theme channel rather than a constant.
+    ///
+    /// The outline is `theme.cursor_border` at `theme.cursor_border_width`
+    /// around the Cursor's Cell, or `theme.region_border` at
+    /// `theme.region_border_width` around a spanning Region, whose Cursor's
+    /// Cell keeps its own border and sector seams.
     ///
     /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
     /// decides what to do with its answer, not what the answer is. It reads
@@ -427,7 +426,6 @@ impl Paint {
         Self {
             grid,
             drawn: drawn.clone(),
-            region_spans,
             outline,
             grid_line,
             sector_seam_width,
@@ -547,14 +545,6 @@ impl Paint {
     }
 
     ///
-    /// Whether the Region spans more than one Cell, when the Cursor Effect
-    /// frames the Region rather than the Cursor's Cell.
-    ///
-    pub(crate) fn region_spans(&self) -> bool {
-        self.region_spans
-    }
-
-    ///
     /// The consecutive Cells of each row that share one background, coalesced.
     ///
     /// Derived on demand rather than stored: the per-Cell backgrounds are the
@@ -633,17 +623,36 @@ impl Paint {
     /// outline's.
     ///
     pub fn edges(&self) -> Edges {
+        self.edges_with(self.outline.as_ref())
+    }
+
+    ///
+    /// [`Self::edges`] as they lie beneath the selection outline: each of its
+    /// edges shows the facts beside it instead.
+    ///
+    pub(crate) fn edges_beneath_outline(&self) -> Edges {
+        self.edges_with(None)
+    }
+
+    ///
+    /// The selection outline's line, `None` where its border's width is zero.
+    ///
+    pub(crate) fn outline_line(&self) -> Option<EdgeLine> {
+        self.outline.as_ref().map(|outline| outline.line)
+    }
+
+    fn edges_with(&self, outline: Option<&Outline>) -> Edges {
         let (columns, rows) = (self.drawn.columns.len(), self.drawn.rows.len());
         let (first_column, first_row) = (self.drawn.columns.start, self.drawn.rows.start);
         let cell = |column: Option<usize>, row: Option<usize>| {
             let (column, row) = (column?, row?);
             (column < columns && row < rows).then(|| &self.cells[row * columns + column])
         };
-        let outline = self.outline.as_ref();
         // The outline owns its edges outright, so neither a fact beside it
         // nor a seam lies there. Elsewhere a seam lies over the line that won
         // the edge, at the wider of the two widths, and stands alone where no
-        // line does.
+        // line does. `max_by_key` answers the last of equal maxima, so of two
+        // facts of one rank `other`, the Cell below or right, draws the edge.
         let winner = |outline: Option<&Outline>,
                       one: Option<&CellPaint>,
                       other: Option<&CellPaint>,
@@ -711,12 +720,6 @@ impl Paint {
 }
 
 ///
-/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
-/// unset `cursor.background` given a visible colour, so a test that asks
-/// about Cursor precedence sees one without building a Theme of its own. Not
-/// a shipped seam — see [`Paint::derive`]'s own doc.
-///
-///
 /// Appends the runs of equal lines along one boundary, `line`, whose edges
 /// start at `first` and answer `edges` in order; an edge with no line ends a
 /// run and opens none.
@@ -745,6 +748,12 @@ fn coalesce(
     runs.extend(open);
 }
 
+///
+/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
+/// unset `cursor.background` given a visible colour, so a test that asks
+/// about Cursor precedence sees one without building a Theme of its own. Not
+/// a shipped seam — see [`Paint::derive`]'s own doc.
+///
 #[cfg(test)]
 fn test_theme() -> Theme {
     let base = crate::theme::okabe_ito();
@@ -920,7 +929,8 @@ mod tests {
     /// A Region larger than one Cell fills every Cell it covers but the
     /// Cursor's with the Theme's Region colour, and gives no Cell of it, the
     /// Cursor's included, a border of its own, so the Grid line shows: the
-    /// lasso around the Region is the Cursor's border then. A Region of one Cell fills none.
+    /// lasso around the Region is the Cursor's border then. A Region of one
+    /// Cell fills none.
     ///
     /// The Cursor's Cell takes its own fill. Unset, it is the Cursor's cell
     /// colour, as with no Region; set, it is independent of both.
@@ -950,7 +960,7 @@ mod tests {
             collapsed.cells().all(|(_, cell)| cell.background.is_none()),
             "a Region of one Cell was tinted"
         );
-        assert!(!collapsed.region_spans());
+        assert!(!outline_spans(&collapsed));
 
         orcvs.extend(at(3, 2));
         for (cursor, region_cursor, expected) in [
@@ -959,7 +969,7 @@ mod tests {
             (Some(cursor_fill), Some(own), Some(own)),
         ] {
             let spanned = painted(&orcvs, cursor, region_cursor);
-            assert!(spanned.region_spans());
+            assert!(outline_spans(&spanned));
             for (position, cell) in spanned.cells() {
                 let inside = (1..4).contains(&position.x()) && (1..3).contains(&position.y());
                 let wanted = if position == at(3, 2) {
@@ -1114,7 +1124,7 @@ mod tests {
             let theme =
                 crate::theme::resolve(&[okabe_ito()], &id("custom"), &document).expect("resolves");
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
-            assert!(paint.region_spans());
+            assert!(outline_spans(&paint));
             paint.at(at(3, 2)).background
         };
 
@@ -1161,7 +1171,7 @@ mod tests {
         let theme = okabe_ito();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
-        assert!(paint.region_spans());
+        assert!(outline_spans(&paint));
         assert_eq!(frame.cursor(), at(5, 0));
 
         // Function's own two-Cell spelling: `.+`.
@@ -1231,7 +1241,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
-        assert!(paint.region_spans());
+        assert!(outline_spans(&paint));
         assert_eq!(frame.cursor(), cursor);
 
         for (position, cell) in paint.cells() {
@@ -1294,7 +1304,7 @@ mod tests {
             let frame = orcvs.render_frame();
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
-            assert!(!paint.region_spans(), "a single-Cell Cursor never spans");
+            assert!(!outline_spans(&paint), "a single-Cell Cursor never spans");
             assert_eq!(frame.cursor(), selected);
 
             assert_eq!(
@@ -2613,7 +2623,6 @@ mod tests {
         Paint {
             grid,
             drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
-            region_spans: false,
             outline: None,
             grid_line: Some(GRID_LINE),
             sector_seam_width: 0.0,
@@ -2644,6 +2653,14 @@ mod tests {
     /// A Paint whose Cells carry the border facts in `rows`, with
     /// `GRID_LINE` between them.
     ///
+    /// Whether `paint`'s selection outline is a Region larger than one Cell.
+    fn outline_spans(paint: &Paint) -> bool {
+        paint
+            .outline
+            .as_ref()
+            .is_some_and(|outline| outline.columns.len() * outline.rows.len() > 1)
+    }
+
     fn edge_paint(rows: &[&[Option<EdgeLine>]]) -> Paint {
         let backgrounds = rows
             .iter()
@@ -2901,6 +2918,30 @@ mod tests {
             paint.edges().columns[1].edge.stroke.color,
             GRID_LINE.stroke.color.blend(SEAM)
         );
+    }
+
+    ///
+    /// Two facts of one rank can differ in colour, as a Portal composited
+    /// over a Diagnostic does: the Cell below or right of the edge draws it.
+    ///
+    #[test]
+    fn of_two_equal_ranks_the_cell_below_or_right_draws_the_edge() {
+        let (first, second) = (
+            fact(EdgeRank::OutputPortal, 40),
+            fact(EdgeRank::OutputPortal, 80),
+        );
+        for (one, other) in [(first, second), (second, first)] {
+            assert_eq!(
+                edge_paint(&[&[one, other]]).edges().columns[1],
+                edge(1, 0..1, other),
+                "left {one:?}, right {other:?}"
+            );
+            assert_eq!(
+                edge_paint(&[&[one], &[other]]).edges().rows[1],
+                edge(1, 0..1, other),
+                "above {one:?}, below {other:?}"
+            );
+        }
     }
 
     ///

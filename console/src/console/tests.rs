@@ -2639,6 +2639,62 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
 }
 
 ///
+/// While the Cursor Effect erodes the frame, its fragments are the outline:
+/// the Cell edges under them show the Grid line rather than a solid outline,
+/// so the erosion's gaps stay open. At amount zero there are no fragments and
+/// the edges draw the still outline.
+///
+#[tokio::test]
+async fn an_eroded_frame_leaves_the_grid_line_beneath_its_gaps() {
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let mut orcvs = running_orcvs(5, 5);
+    orcvs.select(orcvs.grid().position(2, 2).expect("inside the grid"));
+    let frame = orcvs.render_frame();
+    let theme = okabe_ito();
+
+    for pixels_per_point in [1.0, 1.5, 2.0] {
+        let viewport = presented(screen, 5, 5, pixels_per_point);
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        let cursor = viewport.cell_rect(2, 2);
+        let left_side = (columns[2], (rows[2] + rows[3]) / 2);
+
+        for (amount, drawn) in [
+            (0, theme.cursor_border),
+            (64, expected_line(&theme, pixels_per_point).1),
+        ] {
+            let mut settings = crate::cursor_effects::CursorEffectSettings::default();
+            *settings.amount_mut() = amount;
+            let sample = crate::cursor_effects::CursorEffectAnimation::default()
+                .advance(std::time::Duration::ZERO, settings);
+            let effect = crate::cursor_effects::cursor_effect_shapes(
+                cursor,
+                cursor,
+                screen,
+                viewport.cell_size,
+                crate::cursor_effects::CursorEffectMotion { sample, settings },
+                theme.cursor_area,
+                egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+            );
+            let fragments = !effect.fragments.is_empty();
+            assert_eq!(
+                fragments,
+                amount > 0,
+                "amount {amount} at {pixels_per_point}x"
+            );
+            let shapes = source_shapes_with_effect(&paint, viewport, pixels_per_point, effect);
+            let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+
+            assert_eq!(
+                pixels.get(&left_side),
+                Some(&drawn),
+                "the Cursor's left side at amount {amount}, {pixels_per_point}x"
+            );
+        }
+    }
+}
+
+///
 /// The single-Cell Cursor's outline is one box, centred on its Cell's four
 /// edges in `cursor.border` at `cursor.border.width`, the same width on
 /// every side and at every corner, with no Grid line or neighbour's border
@@ -3145,8 +3201,10 @@ fn assert_drawn_once_around(
 
 ///
 /// The boundaries of the Cells `paint` covers in physical pixels, the far
-/// edges of its last column and row included, read from where
-/// `GridViewport` puts its Cells.
+/// edges of its last column and row included: the Grid's snapped corner, then
+/// one whole-pixel Cell side per Cell. Counted from the Grid's corner rather
+/// than read from `GridViewport::cell_rect`, so a lattice that rounds a
+/// boundary differently, or misses the far one, disagrees with it.
 ///
 fn boundaries(
     viewport: GridViewport,
@@ -3154,14 +3212,18 @@ fn boundaries(
     pixels_per_point: f32,
 ) -> (Vec<i32>, Vec<i32>) {
     let drawn = paint.drawn();
-    let pixel = |point: f32| (point * pixels_per_point).round() as i32;
+    let side = viewport.cell_size * pixels_per_point;
+    assert_eq!(side, side.round(), "a presented Cell side is whole pixels");
+    let side = side as i32;
+    let corner = viewport.rect.min * pixels_per_point;
+    let counted = |corner: f32, cells: std::ops::Range<usize>| {
+        (cells.start..cells.end + 1)
+            .map(|cell| corner.round() as i32 + cell as i32 * side)
+            .collect()
+    };
     (
-        (drawn.columns.start..=drawn.columns.end)
-            .map(|column| pixel(viewport.cell_rect(column, 0).min.x))
-            .collect(),
-        (drawn.rows.start..=drawn.rows.end)
-            .map(|row| pixel(viewport.cell_rect(0, row).min.y))
-            .collect(),
+        counted(corner.x, drawn.columns.clone()),
+        counted(corner.y, drawn.rows.clone()),
     )
 }
 
@@ -3296,12 +3358,12 @@ async fn an_empty_grid_draws_each_grid_line_once() {
     let orcvs = running_orcvs(5, 3);
     let frame = orcvs.render_frame();
 
-    for (width_points, pixels_per_point, width_pixels) in [
-        (1.0, 1.0, 1),
-        (0.5, 2.0, 1),
-        (1.0, 2.0, 2),
-        (1.0, 1.5, 2),
-        (0.75, 2.0, 2),
+    for (width_points, pixels_per_point, width_pixels, side_pixels) in [
+        (1.0, 1.0, 1, 16),
+        (0.5, 2.0, 1, 32),
+        (1.0, 2.0, 2, 32),
+        (1.0, 1.5, 2, 24),
+        (0.75, 2.0, 2, 32),
     ] {
         let theme = Theme {
             grid_border_width: crate::theme::GridWidth::from_points(width_points)
@@ -3312,6 +3374,32 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         let paint = painted_themed(&frame, viewport, screen, &theme);
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        assert_eq!((columns.len(), rows.len()), (6, 4));
+        for spacing in columns.windows(2).chain(rows.windows(2)) {
+            assert_eq!(
+                spacing[1] - spacing[0],
+                side_pixels,
+                "at {pixels_per_point}x"
+            );
+        }
+        // The lines lie on the boundaries the background runs are snapped
+        // to: every run's edges are lattice boundaries.
+        for run in &shapes.backgrounds {
+            let Shape::Rect(run) = run else {
+                panic!("a background run is a rectangle, not {run:?}")
+            };
+            let edge = |point: f32| (point * pixels_per_point).round() as i32;
+            assert!(
+                columns.contains(&edge(run.rect.min.x)) && columns.contains(&edge(run.rect.max.x)),
+                "a run's sides {:?} lie off the column lines {columns:?} at {pixels_per_point}x",
+                run.rect
+            );
+            assert!(
+                rows.contains(&edge(run.rect.min.y)) && rows.contains(&edge(run.rect.max.y)),
+                "a run's top and bottom {:?} lie off the row lines {rows:?} at {pixels_per_point}x",
+                run.rect
+            );
+        }
 
         assert_drawn_once_around(
             &line_quads(&shapes.edges, pixels_per_point),

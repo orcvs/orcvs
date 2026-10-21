@@ -21,11 +21,10 @@
 
 use console::{
     FramePaint, Paint, VisiblePositions,
-    console::shapes::SourceShapes,
     cursor_effects::{
         CursorEffectAnimation, CursorEffectMotion, CursorEffectSettings, cursor_effect_shapes,
     },
-    grid_viewport::presented_grid,
+    source_shapes::{SourceShapes, presented_grid},
     theme::{Theme, okabe_ito},
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -296,64 +295,58 @@ fn background_runs(c: &mut Criterion) {
 
 ///
 /// Measures `SourceShapes::geometry` on an already-derived Paint, at a Grid
-/// presented from the origin at 1×.
+/// presented from the origin.
 ///
-/// The number is a Shape for each drawn Cell's border and each seam it
-/// carries, and one for each background run, built into their paint-order
-/// groups. The device scale
-/// moves where an edge lands, not how many Shapes are built.
+/// The number is the walk that places each drawn Cell's background run,
+/// border and seams into their paint-order groups. Every case runs at 1×; the
+/// fitted ranges run at 1.5× too, because a fractional device scale snaps
+/// Cell sides and edges through different rounding than a whole one.
 ///
 fn shapes(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_shapes");
     let theme = bench_theme();
+    let mut measure = |id: BenchmarkId, paint: &Paint, grid: Grid, pixels_per_point: f32| {
+        let viewport = presented_grid(Pos2::ZERO, grid, pixels_per_point);
+        group.bench_function(id, |b| {
+            b.iter(|| {
+                black_box(SourceShapes::geometry(
+                    black_box(paint),
+                    black_box(&viewport),
+                    black_box(pixels_per_point),
+                ))
+            })
+        });
+    };
 
     let (_, _, smallest) = &frames()[0];
-    let viewport = presented_grid(Pos2::ZERO, smallest.grid(), 1.0);
-    let single_paint = paint(smallest, single(smallest), &theme);
-    let empty_paint = paint(smallest, empty(smallest), &theme);
-
-    group.bench_function(BenchmarkId::from_parameter("single"), |b| {
-        b.iter(|| {
-            black_box(SourceShapes::geometry(
-                black_box(&single_paint),
-                black_box(&viewport),
-                black_box(1.0),
-            ))
-        })
-    });
-    group.bench_function(BenchmarkId::from_parameter("empty"), |b| {
-        b.iter(|| {
-            black_box(SourceShapes::geometry(
-                black_box(&empty_paint),
-                black_box(&viewport),
-                black_box(1.0),
-            ))
-        })
-    });
+    measure(
+        BenchmarkId::from_parameter("single"),
+        &paint(smallest, single(smallest), &theme),
+        smallest.grid(),
+        1.0,
+    );
+    measure(
+        BenchmarkId::from_parameter("empty"),
+        &paint(smallest, empty(smallest), &theme),
+        smallest.grid(),
+        1.0,
+    );
 
     for &(cols, rows, ref frame) in frames() {
-        let viewport = presented_grid(Pos2::ZERO, frame.grid(), 1.0);
         let fitted_paint = paint(frame, fitted(frame), &theme);
-        let culled_paint = paint(frame, culled(frame), &theme);
-
-        group.bench_function(size("fitted", cols, rows), |b| {
-            b.iter(|| {
-                black_box(SourceShapes::geometry(
-                    black_box(&fitted_paint),
-                    black_box(&viewport),
-                    black_box(1.0),
-                ))
-            })
-        });
-        group.bench_function(size("culled", cols, rows), |b| {
-            b.iter(|| {
-                black_box(SourceShapes::geometry(
-                    black_box(&culled_paint),
-                    black_box(&viewport),
-                    black_box(1.0),
-                ))
-            })
-        });
+        measure(size("fitted", cols, rows), &fitted_paint, frame.grid(), 1.0);
+        measure(
+            size("culled", cols, rows),
+            &paint(frame, culled(frame), &theme),
+            frame.grid(),
+            1.0,
+        );
+        measure(
+            size("fitted@1.5x", cols, rows),
+            &fitted_paint,
+            frame.grid(),
+            1.5,
+        );
     }
 
     group.finish();

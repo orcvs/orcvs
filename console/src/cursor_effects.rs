@@ -180,7 +180,8 @@ pub struct CursorEffectMotion {
 #[derive(Debug, Default)]
 pub struct CursorEffectShapes {
     pub(crate) area: Vec<Shape>,
-    /// The eroded frame's fragments, over the outline the Cell edges draw.
+    /// The eroded frame's fragments, which stand in for the outline: the
+    /// Cell edges beneath it show through their gaps.
     pub(crate) fragments: Vec<Shape>,
 }
 
