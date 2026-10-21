@@ -29,13 +29,15 @@ Equal facts on both sides draw one line. Unequal facts of the same rank draw the
 
 **The `Paint` decides; the shapes step places.** Which fact wins an edge, its colour and its width in points are a value, testable without a `Context`, derived beside `Paint::background_runs` and coalesced the same way into runs along each row line and column line. Where a line sits in physical pixels is the shapes step's, as where a Cell sits is `GridViewport`'s.
 
-**Lines are placed on whole physical pixels, and junctions are their own pieces.** A line `w` physical pixels wide on the boundary pixel `b` covers `b - ⌊w/2⌋` to `b - ⌊w/2⌋ + w`: a 1 pixel line falls in the pixel right of or below its boundary, a 2 pixel line straddles it. A line thinner than one pixel covers one pixel at its alpha scaled by its width, as epaint's own thin-line path fades rather than thins. Where lines meet, the junction is one piece, as wide as the widest vertical line there and as tall as the widest horizontal one, in the colour of the highest-ranked line meeting it; every line runs between junctions. No two pieces overlap. From the prototype:
+**Lines are placed on whole physical pixels, and junctions are their own pieces.** A line `w` physical pixels wide on the boundary pixel `b` covers `b - ⌊w/2⌋` to `b - ⌊w/2⌋ + w`: a 1 pixel line falls in the pixel right of or below its boundary, a 2 pixel line straddles it. A line thinner than one pixel covers one pixel at its alpha scaled by its width, as epaint's own thin-line path fades rather than thins. Where lines meet, the junction is as wide as the widest vertical line there and as tall as the widest horizontal one, and every line runs between junctions. Inside it the highest-ranked lines meeting there keep their own widths: each reaches from its own side through the crossing of their widest bands, or through the whole junction along an axis none of them crosses, in the colour of the highest-ranked of them, and the highest-ranked of the other lines fills the rest. A 1 pixel outline turns its corner at 1 pixel through 2 pixel Grid lines rather than in a 2 by 2 block of its colour. No two pieces overlap. From the prototype:
 
 ```text
 band(boundary, w) = boundary - w/2 .. boundary - w/2 + w   (integer physical pixels)
 width_px(w_pt)    = w_pt * ppp < 1 ? (1, alpha * w_pt * ppp) : (round(w_pt * ppp), alpha)
-junction          = width: max(vertical width_px), height: max(horizontal width_px),
-                    colour: highest-ranked line meeting it
+junction          = width: max(vertical width_px), height: max(horizontal width_px)
+top lines         = the lines of the highest rank meeting it, in their own bands,
+                    each from its side to the far edge of the top lines' crossing
+rest              = the highest-ranked of the other lines
 ```
 
 **The pieces are one `Shape::Mesh`, built straight from quads.** epaint turns a filled rectangle no more than two feathering widths across into a line segment and rounds that segment's ends inward by a quarter pixel, so a 1 by 1 pixel junction is rounded to nothing — the prototype showed a hole at every crossing — and a line segment drawn per edge leaves its own notches at corners. ADR 0040 refused a Mesh for backgrounds because it moves snapping into this crate and gives up per-rectangle anti-aliasing. Neither cost applies here: every piece is an axis-aligned, whole-pixel quad, which has no edge to anti-alias, and the snapping is this decision's content.
