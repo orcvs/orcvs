@@ -12,8 +12,7 @@ use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
 use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
 use crate::cursor_effects::{CursorEffectMotion, cursor_effect_shapes};
-use crate::grid_viewport::GridViewport;
-use crate::grid_viewport::VisiblePositions;
+use crate::grid_viewport::{GridViewport, VisiblePositions};
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::Theme;
 
@@ -183,7 +182,19 @@ pub(super) fn edge_mesh(
         )
     };
 
+    // Each junction once, row by row: a crossing's own piece and the ends of
+    // the edges that meet it are both read from here.
+    let junctions = (0..rows.len())
+        .flat_map(|row| (0..columns.len()).map(move |column| junction(column, row)))
+        .collect::<Vec<_>>();
+    let junction_at = |column: usize, row: usize| &junctions[row * columns.len() + column];
+
+    // One quad per junction and per edge, each two triangles over four
+    // vertices: reserved up front, since the Mesh is rebuilt every frame.
+    let quads = junctions.len() + across.iter().flatten().count() + down.iter().flatten().count();
     let mut mesh = Mesh::default();
+    mesh.reserve_triangles(2 * quads);
+    mesh.reserve_vertices(4 * quads);
     let mut quad = |x: Range<i32>, y: Range<i32>, colour: Color32| {
         if !x.is_empty() && !y.is_empty() {
             let point = |x: i32, y: i32| {
@@ -197,16 +208,16 @@ pub(super) fn edge_mesh(
     };
     for (row, &row_line) in rows.iter().enumerate() {
         for (column, &column_line) in columns.iter().enumerate() {
-            let (x, y, colour) = junction(column, row);
-            if let Some(colour) = colour {
+            let (x, y, colour) = junction_at(column, row);
+            if let Some(colour) = *colour {
                 quad(x.clone(), y.clone(), colour);
             }
             if let Some((_, line)) = across_at(Some(column), row) {
-                let (next, _, _) = junction(column + 1, row);
+                let (next, _, _) = junction_at(column + 1, row);
                 quad(x.end..next.start, band(row_line, line.width), line.colour);
             }
             if let Some((_, line)) = down_at(column, Some(row)) {
-                let (_, next, _) = junction(column, row + 1);
+                let (_, next, _) = junction_at(column, row + 1);
                 quad(
                     band(column_line, line.width),
                     y.end..next.start,

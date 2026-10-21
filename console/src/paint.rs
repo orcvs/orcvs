@@ -650,12 +650,6 @@ impl Paint {
 }
 
 ///
-/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
-/// unset `cursor.background` given a visible colour, so a test that asks
-/// about Cursor precedence sees one without building a Theme of its own. Not
-/// a shipped seam — see [`Paint::derive`]'s own doc.
-///
-///
 /// Appends the runs of equal lines along one boundary, `line`, whose edges
 /// start at `first` and answer `edges` in order; an edge with no line ends a
 /// run and opens none.
@@ -684,6 +678,12 @@ fn coalesce(
     runs.extend(open);
 }
 
+///
+/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
+/// unset `cursor.background` given a visible colour, so a test that asks
+/// about Cursor precedence sees one without building a Theme of its own. Not
+/// a shipped seam — see [`Paint::derive`]'s own doc.
+///
 #[cfg(test)]
 fn test_theme() -> Theme {
     let base = crate::theme::okabe_ito();
