@@ -2803,6 +2803,80 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
 }
 
 ///
+/// An outline narrower than the Grid lines keeps its own width at its corners:
+/// its sides meet in an L of their own bands, and the wider Grid lines fill
+/// the rest of the junction, at 1×, 1.5× and 2×.
+///
+#[tokio::test]
+async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_width() {
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let mut orcvs = running_orcvs(5, 5);
+    orcvs.select(orcvs.grid().position(2, 2).expect("inside the grid"));
+    let frame = orcvs.render_frame();
+    let theme = Theme {
+        grid_border_width: crate::theme::GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        cursor_border_width: crate::theme::GridWidth::from_points(0.5)
+            .expect("0.5 is within 0..=1"),
+        cursor_border: Color32::from_rgb(200, 0, 0),
+        ..okabe_ito()
+    };
+
+    for pixels_per_point in [1.0, 1.5, 2.0] {
+        let viewport = presented(screen, 5, 5, pixels_per_point);
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let shapes = source_geometry_themed(&paint, viewport, pixels_per_point, &theme);
+        let pixels = edge_pixels(&line_quads(&shapes.edges, pixels_per_point));
+        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
+        let line = |width: crate::theme::GridWidth, colour| {
+            super::shapes::PixelLine::new(
+                egui::Stroke::new(width.points(), colour),
+                pixels_per_point,
+            )
+            .expect("a visible line")
+        };
+        let outline = line(theme.cursor_border_width, theme.cursor_border);
+        let grid = line(theme.grid_border_width, theme.grid_border);
+        let band =
+            |boundary: i32, width: i32| (boundary - width / 2)..(boundary - width / 2 + width);
+
+        for (corner_x, inward_x) in [(columns[2], 1), (columns[3], -1)] {
+            for (corner_y, inward_y) in [(rows[2], 1), (rows[3], -1)] {
+                for x in band(corner_x, grid.width) {
+                    for y in band(corner_y, grid.width) {
+                        // Each side runs into the corner from inside the
+                        // outline, so its own pixels form an L.
+                        let (own_x, own_y) =
+                            (band(corner_x, outline.width), band(corner_y, outline.width));
+                        let inside = |at: i32, own: &std::ops::Range<i32>, inward: i32| {
+                            if inward > 0 {
+                                at >= own.start
+                            } else {
+                                at < own.end
+                            }
+                        };
+                        let own = (own_x.contains(&x) && inside(y, &own_y, inward_y))
+                            || (own_y.contains(&y) && inside(x, &own_x, inward_x));
+                        assert_eq!(
+                            pixels.get(&(x, y)),
+                            Some(if own { &outline.colour } else { &grid.colour }),
+                            "{pixels_per_point}× corner {corner_x},{corner_y} at {x},{y}"
+                        );
+                    }
+                }
+                // Just inside the corner, along each side, only the outline.
+                let (x, y) = (
+                    band(corner_x, outline.width).start,
+                    band(corner_y, outline.width).start,
+                );
+                let (beside_x, beside_y) = (x + inward_x * grid.width, y + inward_y * grid.width);
+                assert_eq!(pixels.get(&(beside_x, y)), Some(&outline.colour));
+                assert_eq!(pixels.get(&(x, beside_y)), Some(&outline.colour));
+            }
+        }
+    }
+}
+
+///
 /// A Region larger than one Cell is one outline around its perimeter in
 /// `region.border`, and the Cursor's own Cell inside it shows the Grid line
 /// as every other unclaimed Cell does.
