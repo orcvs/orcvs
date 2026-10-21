@@ -21,7 +21,7 @@ mod input;
 mod menu_bar;
 mod panel;
 mod repaint;
-mod shapes;
+pub(crate) mod shapes;
 mod source_view;
 
 use self::diagnostics_panel::{TimingReadouts, show_diagnostics};

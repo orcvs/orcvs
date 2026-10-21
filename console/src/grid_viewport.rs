@@ -23,7 +23,7 @@ pub(crate) const CELL_SIZE: f32 = 16.0;
 /// The Grid viewport the console presents inside an available area.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct GridViewport {
+pub struct GridViewport {
     /// The side of one square Cell, in points.
     pub(crate) cell_size: f32,
     /// The presented Grid rectangle, anchored at the origin the Source's own
@@ -297,7 +297,7 @@ fn device_scale(pixels_per_point: f32) -> Option<f32> {
 /// the snap's shortfall at both ends, which is exactly what the console's
 /// bounds cannot see.
 ///
-pub(crate) fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
+pub fn presented_grid(origin: Pos2, grid: Grid, pixels_per_point: f32) -> GridViewport {
     // The device scale is divided by as well as multiplied by — once for the
     // Cell size and again for the corner — so it is refused on the same terms
     // as every other input here rather than checked for finiteness alone. Zero

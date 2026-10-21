@@ -66,7 +66,7 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// built lazily is a Shape built while holding it. The fields are complete
 /// before [`SourceShapes::into_shapes`] hands the first one out.
 ///
-pub(super) struct SourceShapes {
+pub struct SourceShapes {
     /// The living field beneath every exact Grid shape.
     pub(super) area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
@@ -135,7 +135,7 @@ impl SourceShapes {
     /// painter to drop. Each Cell's own border width is the one already
     /// resolved onto `cell.border_width`.
     ///
-    pub(super) fn geometry(
+    pub fn geometry(
         paint: &Paint,
         viewport: &GridViewport,
         pixels_per_point: f32,
