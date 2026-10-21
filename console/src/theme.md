@@ -572,12 +572,17 @@ light = "orcvs-light"
 [cursor_effects]
 glitch_amount = 0       # 0–100; 0 leaves the outline still
 glitch_frequency = 0    # 0–100
+
+[cell]
+width = 12              # points, 8–64
+height = 18             # points, 8–64
 ```
 
 Every key is optional and an absent key is its default. A missing file is an
 ordinary start; an unreadable or malformed file, an unknown key, or a value of
 the wrong type or out of range is a notice in the top bar, and only the keys it
-affects fall back.
+affects fall back. A Cell size that does not land on whole physical pixels is
+snapped where it is drawn, and its Glyph follows the snapped Cell.
 
 `style::install` registers `style()` of the selected dark Theme for
 `egui::Theme::Dark` and of the selected light Theme for `egui::Theme::Light`

@@ -146,3 +146,23 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # the edge Mesh for 87 by 37 Cells. A starting figure, not a CI-measured floor;
 # revisit once the series has points on `gh-pages`.
 source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 499 us at 12x18, 422 us at 16x16. About twice the first, not yet CI-measured."
+
+[[floor]]
+name = "paint_derive/window/8x8"
+max_ns = 400000
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# `Paint::derive_with_theme` over what the default window shows of a 256 by 256
+# Grid at the smallest Cell `[cell]` allows, 8 by 8 points: 129 by 81 Cells,
+# about four times `paint_derive/window/16x16`. Guards a per-Cell cost that
+# only shows at small Cells. A starting figure, not a CI-measured floor;
+# revisit once the series has points on `gh-pages`.
+source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 186 us at 8x8, 41 us at 16x16. About twice the first, not yet CI-measured."
+
+[[floor]]
+name = "paint_shapes/window/8x8"
+max_ns = 3500000
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# `SourceShapes::geometry` over the same window at 1x: the background runs and
+# the edge Mesh for 129 by 81 Cells. A starting figure, not a CI-measured floor;
+# revisit once the series has points on `gh-pages`.
+source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 1.67 ms at 8x8, 395 us at 16x16. About twice the first, not yet CI-measured."

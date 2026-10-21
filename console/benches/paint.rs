@@ -49,8 +49,10 @@ const FRAME_SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64), (128, 128
 const CULLED: usize = 16;
 
 /// The Cell sizes the window cases draw at: a 16 point square, a reference
-/// the others are read against that no floor gates, and the default.
-const WINDOW_CELLS: [Vec2; 2] = [Vec2::splat(16.0), Vec2::new(12.0, 18.0)];
+/// the others are read against that no floor gates, the default, and the
+/// smallest a settings file allows, which shows about four times the square's
+/// Cells.
+const WINDOW_CELLS: [Vec2; 3] = [Vec2::splat(16.0), Vec2::new(12.0, 18.0), Vec2::splat(8.0)];
 
 /// Copied from `orcvs/benches/source.rs`. The two benches do not share a crate;
 /// they share a fixture by keeping the same tiling.

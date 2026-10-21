@@ -10,34 +10,56 @@
 //! [cursor_effects]
 //! glitch_amount = 0       # 0–100; 0 leaves the outline still
 //! glitch_frequency = 0    # 0–100
+//!
+//! [cell]
+//! width = 12              # points, 8–64
+//! height = 18             # points, 8–64
 //! ```
 //!
 //! Every key is optional, and an absent key is the built-in default. A
 //! missing file is an ordinary start. An unreadable or malformed file, an
 //! unknown key, a value of the wrong type or out of range is a notice, and
 //! only the keys it affects fall back to their defaults. `SelectedThemes`
-//! reports a Theme identity no available Theme answers to.
+//! reports a Theme identity no available Theme answers to. A Cell size that
+//! does not land on whole physical pixels is snapped where it is drawn, not
+//! reported.
 //!
 //! There is no settings UI and no reload: the file is read once, before the
 //! console is built. The web reads no file and runs on the defaults.
 //!
 
+use egui::Vec2;
+
 use crate::cursor_effects::CursorEffectSettings;
+use crate::grid_viewport::CELL_SIZE;
 use crate::theme_selection::ThemeSelection;
 
 ///
 /// The settings a console starts with, and why any of them is not what the
 /// file said.
 ///
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Config {
     /// The dark and light Theme identities, unchecked against the registry.
     pub(crate) theme_selection: ThemeSelection,
     /// Glitch amount and Glitch frequency, before reduced motion.
     pub(crate) cursor_effects: CursorEffectSettings,
+    /// The Source Cell's width and height in points, before snapping.
+    pub(crate) cell: Vec2,
     /// One message per problem, in the order found, for the Theme notice
     /// channel, which reports them.
     pub(crate) notices: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            theme_selection: ThemeSelection::default(),
+            cursor_effects: CursorEffectSettings::default(),
+            cell: CELL_SIZE,
+            notices: Vec::new(),
+        }
+    }
 }
 
 impl Config {
@@ -76,6 +98,10 @@ mod native {
 
     /// The most a settings file may hold. A file this size is not settings.
     const MAX_CONFIG_BYTES: u64 = 64 * 1024;
+
+    /// The points a Cell's width or height may be. The smallest gives a Glyph
+    /// of about 5 points.
+    const CELL_POINTS: std::ops::RangeInclusive<f64> = 8.0..=64.0;
 
     impl Config {
         ///
@@ -141,9 +167,11 @@ mod native {
         let mut light = None;
         let mut amount = None;
         let mut frequency = None;
+        let mut width = None;
+        let mut height = None;
         for (section, value) in &table {
             let Some(keys) = value.as_table() else {
-                if matches!(section.as_str(), "theme" | "cursor_effects") {
+                if matches!(section.as_str(), "theme" | "cursor_effects" | "cell") {
                     notice(format!(
                         "`{section}` must be a table; its keys use their defaults"
                     ));
@@ -163,6 +191,8 @@ mod native {
                     ("cursor_effects", "glitch_frequency") => {
                         frequency = percentage(&name, value, &mut notice);
                     }
+                    ("cell", "width") => width = points(&name, value, &mut notice),
+                    ("cell", "height") => height = points(&name, value, &mut notice),
                     _ => notice(format!("unknown key `{name}` is ignored")),
                 }
             }
@@ -176,6 +206,12 @@ mod native {
         }
         if let Some(frequency) = frequency {
             *config.cursor_effects.frequency_mut() = frequency;
+        }
+        if let Some(width) = width {
+            config.cell.x = width;
+        }
+        if let Some(height) = height {
+            config.cell.y = height;
         }
         config
     }
@@ -214,10 +250,29 @@ mod native {
         percentage
     }
 
+    /// A Cell's width or height: a number of points within [`CELL_POINTS`].
+    fn points(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<f32> {
+        let points = value
+            .as_float()
+            .or_else(|| value.as_integer().map(|number| number as f64))
+            .filter(|number| CELL_POINTS.contains(number));
+        if points.is_none() {
+            notice(format!(
+                "`{name}` must be a number of points from {} to {}; the default is used",
+                CELL_POINTS.start(),
+                CELL_POINTS.end()
+            ));
+        }
+        points.map(|number| number as f32)
+    }
+
     #[cfg(test)]
     mod tests {
+        use egui::Vec2;
+
         use super::{CONFIG_FILE, Config};
         use crate::cursor_effects::CursorEffectSettings;
+        use crate::grid_viewport::CELL_SIZE;
         use crate::theme::{Appearance, ThemeIdentity};
         use crate::theme_registry::tests_support::{TempDir, id};
         use crate::theme_selection::ThemeSelection;
@@ -239,6 +294,7 @@ mod native {
         fn assert_defaults(config: &Config) {
             assert_eq!(config.theme_selection, ThemeSelection::default());
             assert_eq!(config.cursor_effects, CursorEffectSettings::default());
+            assert_eq!(config.cell, CELL_SIZE);
         }
 
         fn mentions(config: &Config, needle: &str) -> bool {
@@ -264,7 +320,7 @@ mod native {
         fn every_key_is_read() {
             let config = read(
                 "[theme]\ndark = \"my-dark\"\nlight = \"my-light\"\n\n[cursor_effects]\n\
-                 glitch_amount = 0\nglitch_frequency = 100\n",
+                 glitch_amount = 0\nglitch_frequency = 100\n\n[cell]\nwidth = 10\nheight = 15.5\n",
             );
             assert!(config.notices.is_empty(), "{:?}", config.notices);
             assert_eq!(
@@ -272,12 +328,14 @@ mod native {
                 ThemeSelection::new(id("my-dark"), id("my-light"))
             );
             assert_eq!(config.cursor_effects, settings(0, 100));
+            assert_eq!(config.cell, Vec2::new(10.0, 15.5));
         }
 
         #[test]
         fn an_absent_key_is_its_default() {
-            let config =
-                read("[theme]\nlight = \"my-light\"\n[cursor_effects]\nglitch_amount = 7\n");
+            let config = read(
+                "[theme]\nlight = \"my-light\"\n[cursor_effects]\nglitch_amount = 7\n[cell]\nheight = 24\n",
+            );
             assert!(config.notices.is_empty(), "{:?}", config.notices);
             assert_eq!(
                 *config.theme_selection.identity(Appearance::Dark),
@@ -291,6 +349,7 @@ mod native {
                 config.cursor_effects,
                 settings(7, CursorEffectSettings::default().frequency())
             );
+            assert_eq!(config.cell, Vec2::new(CELL_SIZE.x, 24.0));
         }
 
         #[test]
@@ -367,6 +426,20 @@ mod native {
                 config.cursor_effects,
                 settings(CursorEffectSettings::default().amount(), 12)
             );
+
+            let config = read("[cell]\nwidth = 7.5\nheight = 64\n");
+            assert!(mentions(&config, "`cell.width`"), "{:?}", config.notices);
+            assert_eq!(config.notices.len(), 1, "{:?}", config.notices);
+            assert_eq!(config.cell, Vec2::new(CELL_SIZE.x, 64.0));
+
+            let config = read("[cell]\nwidth = 8\nheight = \"tall\"\n");
+            assert!(mentions(&config, "`cell.height`"), "{:?}", config.notices);
+            assert_eq!(config.cell, Vec2::new(8.0, CELL_SIZE.y));
+
+            let config = read("[cell]\nwidth = 65\nheight = nan\n");
+            assert!(mentions(&config, "`cell.width`"), "{:?}", config.notices);
+            assert!(mentions(&config, "`cell.height`"), "{:?}", config.notices);
+            assert_defaults(&config);
 
             let config = read("theme = \"okabe-ito\"\n");
             assert!(

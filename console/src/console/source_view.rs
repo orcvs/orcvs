@@ -12,7 +12,7 @@ use orcvs::{
 use super::Console;
 use super::shapes::{effect_outline, show_source};
 use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
+use crate::grid_viewport::{GridViewport, presented_grid, snapped_cell};
 use crate::theme::{Appearance, Theme};
 
 ///
@@ -76,11 +76,12 @@ pub(super) struct SourceView {
     pub(super) origin: Pos2,
 }
 
-impl Default for SourceView {
-    fn default() -> Self {
+impl SourceView {
+    /// A view of a fresh Source, unpanned, drawn at `cell`.
+    pub(super) fn new(cell: Vec2) -> Self {
         Self {
             pan: Vec2::ZERO,
-            cell: CELL_SIZE,
+            cell,
             previous_cursor: None,
             region_drag: None,
             previous_console: None,
