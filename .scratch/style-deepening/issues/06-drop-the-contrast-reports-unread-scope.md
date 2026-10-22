@@ -6,9 +6,13 @@ This reverses theming/08's choice to carry the scope in the report's data (kept 
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `ContrastReport` has no `scope` field, and `contrast.rs` carries no `dead_code` expectation.
-- [ ] The test still fails if `SCOPE` stops naming text contrast or any excluded chrome case.
-- [ ] The module doc's reference to `ContrastReport::scope` points at `SCOPE` instead.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `mise run check_wasm` pass.
+- [x] `ContrastReport` has no `scope` field, and `contrast.rs` carries no `dead_code` expectation.
+- [x] The test still fails if `SCOPE` stops naming text contrast or any excluded chrome case.
+- [x] The module doc's reference to `ContrastReport::scope` points at `SCOPE` instead.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `mise run check_wasm` pass.
+
+## Comments
+
+- `SCOPE` is deleted as well. A shipped `SCOPE` with no reader would need the `dead_code` expectation this ticket removes, and a test-only copy would restate the module's `# Scope` doc and could drift from it unseen, as review on #276 pointed out. The scope is now stated once, in the `# Scope` section. The criterion asking a test to check `SCOPE` gives way, and a caller that later wants to show the scope adds the const back with that caller.

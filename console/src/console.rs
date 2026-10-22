@@ -138,8 +138,8 @@ impl Console {
     ///
     pub fn start(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
         // Custom Themes load here, during construction and never inside a
-        // frame: native reads `~/.orcvs/themes/`, the web restores its
-        // imported documents. This is the only place the shipped console
+        // frame: native reads `~/.orcvs/themes/`, and the web has the
+        // built-ins alone. This is the only place the shipped console
         // discovers Themes; `new` takes the registry, so a test builds the
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads
@@ -311,7 +311,7 @@ impl eframe::App for Console {
     ///
     /// Every built-in's `window_background` is opaque by construction, and a
     /// custom Theme's is refused at resolution if it is not
-    /// (`theme::resolve`'s `ThemeError::NonOpaqueWindowBackground`), so
+    /// (`theme_document::resolve`'s `ThemeError::NonOpaqueWindowBackground`), so
     /// nothing presented can hold a nonopaque value and
     /// this reads the field directly rather than re-validating it here.
     ///

@@ -203,12 +203,34 @@ fn bench_theme() -> Theme {
 ///
 /// The walk reads every Theme channel but branches on none of their
 /// *values*: the Cursor's fill lands on the one selected Cell, the Region
-/// fill on no Cell at all (nothing here selects a Region spanning more than
-/// one), and the resolved Theme answers one channel per Token fact whatever
-/// its colours are.
+/// fill on the Cells of a Region spanning more than one (only
+/// [`region_frame`] selects one), and the resolved Theme answers one channel
+/// per Token fact whatever its colours are.
 ///
 fn paint(frame: &RenderFrame, drawn: VisiblePositions, theme: &Theme) -> Paint {
     Paint::derive_with_theme(FramePaint::new(frame, drawn), theme)
+}
+
+///
+/// The 32×32 fixture with a Region spanning its middle 24×24 Cells, so a
+/// fitted walk prices the Region, Region-Cursor and plain placements in one
+/// Paint.
+///
+fn region_frame() -> &'static RenderFrame {
+    static FRAME: OnceLock<RenderFrame> = OnceLock::new();
+    FRAME.get_or_init(|| {
+        let mut orcvs = populated_app(32, 32);
+        let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
+        let (from, to) = (at(4, 4), at(27, 27));
+        orcvs.select(from);
+        orcvs.extend(to);
+        let frame = orcvs.render_frame();
+        assert!(
+            !frame.region().is_one_cell(),
+            "the Region spans more than one Cell"
+        );
+        frame
+    })
 }
 
 fn frames() -> &'static [(usize, usize, RenderFrame)] {
@@ -281,6 +303,18 @@ fn derive_paint(c: &mut Criterion) {
             })
         });
     }
+
+    let region = region_frame();
+    let region_range = fitted(region);
+    group.bench_function(BenchmarkId::from_parameter("region/32x32"), |b| {
+        b.iter(|| {
+            black_box(paint(
+                black_box(region),
+                black_box(region_range.clone()),
+                black_box(&theme),
+            ))
+        })
+    });
 
     let (_, _, largest) = frames().last().expect("a benchmark frame");
     for cell in WINDOW_CELLS {

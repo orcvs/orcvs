@@ -12,7 +12,7 @@ Refactors from the 2026-10-22 architecture review, each taking knowledge that ca
 ## Decisions
 
 - 01 to 04 and 06 are independent; 05 waits for 02, since both move the key enums' routing.
-- They land on `main` before `claude/grayscale-themes-7111p9`, which is rebased onto them: its Cursor glyph rule (`cell_foreground`) becomes a change inside `CellColours::colours`, and its role border properties become catalogue lines.
+- They land on `main` before `claude/grayscale-themes-7111p9`, which is rebased onto them: its Cursor glyph rule (`cell_foreground`) becomes a change inside `CellColours::colours`, and its role border properties become catalogue lines. Toby does that rebase himself; no ticket here owns it.
 - The theme workbench (`.scratch/theming/workbench/`) is out of scope.
 - ADR 0040 and ADR 0053 stand: edges stay in Paint, surface measurement stays in contrast, and no new ADR is needed.
 - The simplest code wins: no new trait, no code-generation framework, no runtime registry, and no test-only parameter in shipped code.

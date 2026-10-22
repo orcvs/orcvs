@@ -6,14 +6,9 @@ pub mod console;
 pub mod console_midi;
 // Validates a resolved Theme's composited text contrast, reusing `style`'s
 // own composition functions so painting and validation cannot independently
-// drift.
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
+// drift. Only loading a Theme document reaches it, and only native loads one:
+// the web has the built-ins alone.
+#[cfg(any(not(target_arch = "wasm32"), test))]
 mod contrast;
 pub mod diagnostics;
 mod function_reference;
@@ -29,21 +24,15 @@ mod report;
 #[cfg(not(target_arch = "wasm32"))]
 mod source_file;
 pub mod style;
-// The resolved Theme model and pure inheritance resolver.
+// The resolved Theme, the built-ins and the property catalogue.
 // `pub` and `doc(hidden)` because `console/benches/paint.rs` is a separate
 // crate and needs `Theme`/`okabe_ito` to build a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
-// Decodes a TOML Theme document's bytes into the unresolved
-// document `theme::resolve` takes. Pure:
-// `theme_registry`'s native discovery owns the I/O.
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
+// Decodes a TOML Theme document's bytes and resolves it over a built-in.
+// Pure: `theme_registry`'s native discovery owns the I/O. The web loads no
+// Theme document.
+#[cfg(any(not(target_arch = "wasm32"), test))]
 mod theme_document;
 // The Themes a console can select — built-ins, loaded Theme documents and
 // their load failures — with native discovery.
