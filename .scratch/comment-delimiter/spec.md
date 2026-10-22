@@ -31,6 +31,9 @@ Only the spelling of the delimiter is open.
   lowercase, `c4`). So `#` is unused today.
 - Probed against the Parser on 2026-10-20: `##` and `;;` each analyse as
   `unknown function "##"` and `unknown function ";;"`, so neither is a spelling today.
+- **ADR 0079** (2026-10-21) draws each Cell 12 points wide and 18 tall in Monaspace Neon, no
+  longer a 16 point square, so a doubled glyph's two marks sit closer together than they did when
+  this question was asked. The prototype draws Cells at that shape.
 
 ## Options
 
