@@ -7,7 +7,7 @@ use egui::{
     Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, emath::GuiRounding as _,
     epaint::RectShape,
 };
-use orcvs::{opts::DEFAULT_FONT_SIZE, render_frame::RenderFrame};
+use orcvs::render_frame::RenderFrame;
 
 use super::glyphs::GlyphTable;
 use super::source_view::PointerSelection;
@@ -655,11 +655,11 @@ pub(super) fn show_source(
     let pixels_per_point = ui.pixels_per_point();
     let table = GlyphTable::lay_out(
         ui.ctx(),
-        // The Source's own size in points. egui's `pixels_per_point`, which
-        // folds in its zoom factor, is what makes it more physical pixels, so
-        // a Glyph is rasterised at the size it is drawn at and never
-        // resampled.
-        FontId::new(DEFAULT_FONT_SIZE, font_family.clone()),
+        // The Cell's own Glyph size in points. egui's `pixels_per_point`,
+        // which folds in its zoom factor, is what makes it more physical
+        // pixels, so a Glyph is rasterised at the size it is drawn at and
+        // never resampled.
+        FontId::new(viewport.glyph_size(), font_family.clone()),
     );
 
     // The only source of Positions the two steps below have. Everything they

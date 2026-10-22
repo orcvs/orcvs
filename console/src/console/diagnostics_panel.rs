@@ -80,7 +80,7 @@ pub(super) fn show_diagnostics(
     timing: &mut TimingReadouts,
     origin: Pos2,
     console: Rect,
-    cell_size: f32,
+    cell_size: egui::Vec2,
 ) {
     let (now, frame_time) = ui.input(|input| (input.time, input.stable_dt));
     let shown = timing.observe(
@@ -102,7 +102,7 @@ fn summary(
     }: Timing,
     origin: Pos2,
     console: Rect,
-    cell_size: f32,
+    cell_size: egui::Vec2,
 ) {
     egui::Grid::new("orcvs-diagnostics-summary")
         .num_columns(2)
@@ -142,7 +142,9 @@ fn summary(
 
             ui.add(egui::Label::new("Display").extend());
             ui.monospace(format!(
-                "{cell_size:.1} pt/cell · {:.2} px/pt",
+                "{:.1}×{:.1} pt/cell · {:.2} px/pt",
+                cell_size.x,
+                cell_size.y,
                 ui.ctx().pixels_per_point()
             ));
             ui.end_row();

@@ -24,7 +24,7 @@ use super::source_view::{
     SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, show_source_scene,
     source_panel_frame,
 };
-use super::{Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE};
+use super::{Console, DEFAULT_VIEW_SIZE};
 
 /// The Source View's margin at a device scale of one.
 const MARGIN: Vec2 = Vec2::new(
@@ -33,7 +33,7 @@ const MARGIN: Vec2 = Vec2::new(
 );
 
 /// Device scales the Source's own Cell is presented at: whole ones, and
-/// fractional ones whose snap draws the Cell under 16 points. egui folds its
+/// fractional ones whose snap draws the Cell under its own points. egui folds its
 /// zoom factor into `pixels_per_point`, so these are what a zoom reaches.
 const DEVICE_SCALES: [f32; 5] = [0.3, 1.0, 1.1, 1.5, 2.0];
 
@@ -301,13 +301,13 @@ fn cpu_budget_delta_is_signed_against_the_sixty_fps_budget() {
 }
 
 ///
-/// A Glyph is laid out at the Source's own 11.5 points at every device scale,
-/// including one whose snap draws the Cell under 16 points. egui's
-/// `pixels_per_point`, which folds in its zoom factor, is what makes it more
-/// physical pixels.
+/// A Glyph is laid out at the size its snapped Cell derives at every device
+/// scale: 13.5 points at the Source's own 12 by 18 point Cell, and less where
+/// the snap draws the Cell smaller. egui's `pixels_per_point`, which folds in
+/// its zoom factor, is what makes it more physical pixels.
 ///
 #[tokio::test]
-async fn a_glyph_is_laid_out_at_the_sources_own_size_at_every_device_scale() {
+async fn a_glyph_is_laid_out_at_its_cells_own_size_at_every_device_scale() {
     for pixels_per_point in [1.0_f32, 1.1, 1.5, 2.0] {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
@@ -316,7 +316,7 @@ async fn a_glyph_is_laid_out_at_the_sources_own_size_at_every_device_scale() {
         orcvs.write("+");
         let mut view = SourceView::default();
 
-        let (_, painted) = console_pass_at(
+        let (viewport, painted) = console_pass_at(
             &ctx,
             screen,
             Vec::new(),
@@ -337,9 +337,12 @@ async fn a_glyph_is_laid_out_at_the_sources_own_size_at_every_device_scale() {
             "{pixels_per_point} ppp painted no Glyph, so it asserts nothing"
         );
         assert!(
-            sizes.iter().all(|size| *size == DEFAULT_FONT_SIZE),
+            sizes.iter().all(|size| *size == viewport.glyph_size()),
             "{pixels_per_point} ppp laid Glyphs out at {sizes:?} points"
         );
+        if pixels_per_point == 1.0 {
+            assert_eq!(viewport.glyph_size(), 13.5);
+        }
     }
 }
 
@@ -2051,7 +2054,7 @@ async fn committing_bpm_while_playback_is_requested_sets_it_on_orcvs() {
 #[tokio::test]
 async fn a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cell_in_the_surplus() {
     for screen_size in [
-        Vec2::new(400.0, 200.0),
+        Vec2::new(400.0, 240.0),
         Vec2::new(200.0, 400.0),
         Vec2::new(300.0, 300.0),
     ] {
@@ -2140,6 +2143,18 @@ async fn the_default_window_presents_the_grid_at_its_own_scale() {
     assert!(
         viewport.rect.max.x > screen.max.x && viewport.rect.max.y > screen.max.y,
         "the Grid does not run past the default console, so there is nowhere to Pan"
+    );
+}
+
+///
+/// The default window is 1024 by 640 points of Source and its bars, at any
+/// Cell.
+///
+#[test]
+fn the_default_window_is_a_fixed_size_in_points() {
+    assert_eq!(
+        DEFAULT_VIEW_SIZE,
+        [1024.0, 640.0 + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT]
     );
 }
 
@@ -2566,7 +2581,7 @@ fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
         let table = GlyphTable::lay_out(
             ui.ctx(),
-            egui::FontId::new(DEFAULT_FONT_SIZE, egui::FontFamily::Monospace),
+            egui::FontId::new(viewport.glyph_size(), egui::FontFamily::Monospace),
         );
         shapes = Some(SourceShapes::new(
             paint,
@@ -2598,7 +2613,7 @@ fn source_shapes_with_effect(
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
         let table = GlyphTable::lay_out(
             ui.ctx(),
-            egui::FontId::new(DEFAULT_FONT_SIZE, egui::FontFamily::Monospace),
+            egui::FontId::new(viewport.glyph_size(), egui::FontFamily::Monospace),
         );
         shapes = Some(SourceShapes::new(
             paint,
@@ -3114,10 +3129,7 @@ fn the_glyph_table_covers_the_printable_ascii_a_cell_can_hold() {
     let ctx = egui::Context::default();
     let mut table = None;
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-        table = Some(GlyphTable::lay_out(
-            ui.ctx(),
-            egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE),
-        ));
+        table = Some(GlyphTable::lay_out(ui.ctx(), egui::FontId::monospace(13.5)));
     });
     output.drop_without_applying_deltas();
     let table = table.expect("the pass laid the alphabet out");
@@ -3163,10 +3175,7 @@ fn a_character_outside_the_alphabet_is_laid_out_as_itself() {
     let ctx = egui::Context::default();
     let mut table = None;
     let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-        table = Some(GlyphTable::lay_out(
-            ui.ctx(),
-            egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE),
-        ));
+        table = Some(GlyphTable::lay_out(ui.ctx(), egui::FontId::monospace(13.5)));
     });
     output.drop_without_applying_deltas();
     let table = table.expect("the pass laid the alphabet out");
@@ -3483,12 +3492,13 @@ async fn an_empty_grid_draws_each_grid_line_once() {
     let orcvs = running_orcvs(5, 3);
     let frame = orcvs.render_frame();
 
-    for (width_points, pixels_per_point, width_pixels, side_pixels) in [
-        (1.0, 1.0, 1, 16),
-        (0.5, 2.0, 1, 32),
-        (1.0, 2.0, 2, 32),
-        (1.0, 1.5, 2, 24),
-        (0.75, 2.0, 2, 32),
+    // The 12 by 18 point Cell's width and height in pixels at each scale.
+    for (width_points, pixels_per_point, width_pixels, (width, height)) in [
+        (1.0, 1.0, 1, (12, 18)),
+        (0.5, 2.0, 1, (24, 36)),
+        (1.0, 2.0, 2, (24, 36)),
+        (1.0, 1.5, 2, (18, 27)),
+        (0.75, 2.0, 2, (24, 36)),
     ] {
         let theme = Theme {
             grid_border_width: crate::theme::GridWidth::from_points(width_points)
@@ -3500,12 +3510,10 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
         assert_eq!((columns.len(), rows.len()), (6, 4));
-        for spacing in columns.windows(2).chain(rows.windows(2)) {
-            assert_eq!(
-                spacing[1] - spacing[0],
-                side_pixels,
-                "at {pixels_per_point}x"
-            );
+        for (lines, side) in [(&columns, width), (&rows, height)] {
+            for spacing in lines.windows(2) {
+                assert_eq!(spacing[1] - spacing[0], side, "at {pixels_per_point}x");
+            }
         }
         // The lines lie on the boundaries the background runs are snapped
         // to: every run's edges are lattice boundaries.
@@ -4752,7 +4760,7 @@ async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
     let anchor = view.origin;
 
     let from = screen.min + Vec2::splat(40.0);
-    let moved = Vec2::new(-40.0, -24.0);
+    let moved = Vec2::new(-24.0, -40.0);
     frame_at(alt_primary_press_at(from), &mut orcvs, &mut view);
     frame_at(
         vec![Event::PointerMoved(from + moved)],
@@ -5261,8 +5269,8 @@ async fn a_culled_row_leaves_cursor_effects_out_of_cell_fills() {
 
     // The Grid's near corner at (-700, -500), so the console shows a window
     // in the middle of it rather than a corner. The Pan places the margin,
-    // which is two Cells of 16 points, so it is 32 further.
-    pinned_at(&mut view, Vec2::new(-732.0, -532.0));
+    // so it is the margin further.
+    pinned_at(&mut view, Vec2::new(-700.0, -500.0) - MARGIN);
     let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let visible = viewport.visible_positions(screen, orcvs.grid());
 
@@ -5340,9 +5348,10 @@ async fn a_culled_row_leaves_cursor_effects_out_of_cell_fills() {
 /// own comment describes.
 ///
 /// Which seams land strictly inside the clip is a property of the Pan. The
-/// Sector Seam spacing is 8 and a Cell is 16 points, so the Pan is chosen to
-/// put a seam column immediately inside the first drawn column and another
-/// on the last, and a seam row immediately inside the first drawn row: a
+/// Sector Seam spacing is 8, so the Pan is chosen in Cells to put a seam
+/// column immediately inside the first drawn column and another on the last,
+/// and a seam row immediately inside the first drawn row and another on the
+/// last: a
 /// cull that is short by a Cell on any of those sides drops a seam this
 /// asserts. At an arbitrary Pan the nearest seam can sit six columns from
 /// the edge and a column-side error goes unseen.
@@ -5350,10 +5359,10 @@ async fn a_culled_row_leaves_cursor_effects_out_of_cell_fills() {
 #[tokio::test]
 async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
-    // The Grid's corner at (-630, -630) once the margin is added: column
-    // and row 39 are the first shown, so seam column and row 40 sit just
-    // inside the clip, and seam column 64 is the last shown.
-    let translation = Vec2::splat(-630.0) - MARGIN;
+    // The Grid's corner 39.4 Cells up and left once the margin is added:
+    // column and row 39 are the first shown, so seam column and row 40 sit
+    // just inside the clip, and seam column 72 and row 56 are the last shown.
+    let translation = -39.4 * CELL_SIZE - MARGIN;
 
     let mut asserted = 0;
     for pixels_per_point in [1.0, 1.5] {
@@ -5529,16 +5538,17 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
 
-    pinned_at(&mut view, Vec2::new(-200.0, -200.0));
+    // 32 Cells and a margin of two either side is 36 Cells, so the far edge
+    // of a console is 36 Cells less its size in.
+    let far_edge = |console: f32| Vec2::splat(console) - 36.0 * CELL_SIZE;
+    pinned_at(&mut view, far_edge(200.0));
     console_frame(&ctx, small, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(view.pan, Vec2::new(-200.0, -200.0));
+    assert_eq!(view.pan, far_edge(200.0));
 
-    // 512 points of Grid and a margin either side is 576, so the far edge
-    // of a 400 point console is -176.
     console_frame(&ctx, large, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         view.pan,
-        Vec2::new(-176.0, -176.0),
+        far_edge(400.0),
         "the resize left a gap past the Grid: {:?}",
         view.pan
     );
@@ -5611,14 +5621,14 @@ async fn a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it() {
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
-    // Column and row 30 at the Source's own Cell size sit at 512..528 once the margin is
+    // Column and row 30 end 33 Cells along once the two Cells of margin are
     // counted, entirely past a 200 point console on both axes.
     orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
     assert_eq!(
         view.pan,
-        Vec2::new(-328.0, -328.0),
+        Vec2::splat(200.0) - 33.0 * CELL_SIZE,
         "the Cursor move did not Pan the least distance that shows it: {:?}",
         view.pan
     );
@@ -5639,13 +5649,13 @@ async fn a_cursor_follow_to_an_edge_cell_shows_the_margin_past_it() {
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
-    // 32 Cells of 16 points and a 32 point margin either side is 576
-    // points, so the far margin's edge meets a 200 point console at -376.
+    // 32 Cells and a margin of two either side is 36 Cells, so the far
+    // margin's edge meets a 200 point console 36 Cells less 200 points in.
     orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         view.pan,
-        Vec2::new(-376.0, -376.0),
+        Vec2::splat(200.0) - 36.0 * CELL_SIZE,
         "the follow to the last Column and Row left the far margin off screen: {:?}",
         view.pan
     );
@@ -5677,13 +5687,14 @@ async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let mut view = SourceView::default();
     orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
 
-    // 32 Cells of 16 points is 512, with a 32 point margin either side, so
-    // the far edge of a 200 point console is -376.
-    pinned_at(&mut view, Vec2::new(-376.0, -376.0));
+    // 32 Cells and a margin of two either side is 36 Cells, so the far edge
+    // of a console is 36 Cells less its size in.
+    let far_edge = |console: f32| Vec2::splat(console) - 36.0 * CELL_SIZE;
+    pinned_at(&mut view, far_edge(200.0));
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         view.pan,
-        Vec2::new(-376.0, -376.0),
+        far_edge(200.0),
         "the fixture did not open already pinned to the far edge"
     );
 
@@ -5699,7 +5710,7 @@ async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
     );
     assert_eq!(
         view.pan,
-        Vec2::new(-176.0, -176.0),
+        far_edge(400.0),
         "the zoom left a gap past the Grid: {:?}",
         view.pan
     );
@@ -5715,9 +5726,9 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    // 32 + 9 * 16 = 176..192, inside a 200 point console and past a 160
-    // point one.
-    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+    // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
+    // inside a 200 point console and past a 160 point one.
+    orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
@@ -5732,9 +5743,12 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
 
     assert_eq!(ctx.zoom_factor(), 1.25, "the pass did not run zoomed in");
+    // The Cell snaps to 12 by 17.6 points, so the Cursor's Cell ends 16 and
+    // 11 of those along, and the least Pan puts that end on the console's.
+    let cell = snapped_cell(CELL_SIZE, 1.25);
     assert_eq!(
         view.pan,
-        Vec2::new(-32.0, -32.0),
+        Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * cell,
         "the zoom did not Pan the least distance that shows the Cursor: {:?}",
         view.pan
     );
@@ -5765,9 +5779,9 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    // 32 + 9 * 16 = 176..192, inside a 200 point console and past a 160
-    // point one.
-    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+    // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
+    // inside a 200 point console and past a 160 point one.
+    orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
 
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
     assert_eq!(
@@ -5793,9 +5807,10 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
         1.25,
         "the pass ran at another scale"
     );
+    let cell = snapped_cell(CELL_SIZE, 1.25);
     assert_eq!(
         view.pan,
-        Vec2::new(-32.0, -32.0),
+        Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * cell,
         "the browser zoom did not Pan the least distance that shows the Cursor: {:?}",
         view.pan
     );
@@ -5815,26 +5830,27 @@ async fn a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_sh
     orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
 
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
-    // The Cursor's Cell, 176..192 unpanned, flush against the top-left.
-    pinned_at(&mut view, Vec2::new(-176.0, -176.0));
+    // The Cursor's Cell, 11 Cells along unpanned, margin counted, flush
+    // against the top-left.
+    let flush = -11.0 * CELL_SIZE;
+    pinned_at(&mut view, flush);
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
-    assert_eq!(
-        view.pan,
-        Vec2::new(-176.0, -176.0),
-        "the fixture's Pan did not hold"
-    );
+    assert_eq!(view.pan, flush, "the fixture's Pan did not hold");
 
-    // At 1.1 the Cell snaps to 17 pixels, about 15.45 points, which alone
-    // would move the Cursor's Cell past the top-left edge.
+    // At 1.1 the Cell snaps to 13 by 19 pixels, under 12 by 18 points,
+    // which alone would move the Cursor's Cell past the top-left edge.
     let (viewport, _) = console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.1);
     assert!(
         viewport.cell_size.x < CELL_SIZE.x && viewport.cell_size.y < CELL_SIZE.y,
         "the Cell side did not change"
     );
-    let shown = viewport.cell_rect(9, 9);
-    assert!(
-        screen.contains_rect(shown),
-        "the new Cell side left the Cursor at {shown:?}, outside {screen:?}"
+    // The Cursor's Cell starts 11 of the new Cells along, and the least Pan
+    // puts that start on the console's top-left.
+    assert_eq!(
+        view.pan,
+        -11.0 * viewport.cell_size,
+        "the new Cell side did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
     );
 }
 
@@ -5848,7 +5864,9 @@ async fn a_resize_that_would_leave_the_cursor_outside_the_view_pans_to_show_it()
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+    // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
+    // inside a 200 point console and past a 160 point one.
+    orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
@@ -5861,7 +5879,7 @@ async fn a_resize_that_would_leave_the_cursor_outside_the_view_pans_to_show_it()
     console_frame(&ctx, shrunk, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         view.pan,
-        Vec2::new(-32.0, -32.0),
+        Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * CELL_SIZE,
         "the resize did not Pan the least distance that shows the Cursor: {:?}",
         view.pan
     );
@@ -5883,28 +5901,25 @@ async fn a_resize_after_a_pan_away_from_the_cursor_keeps_the_pan() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    // 32 + 9 * 16 = 176..192, inside the 200 point console before the Pan.
-    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+    // Column 9 and row 5 start 11 and 7 Cells along, margin counted: 132 and
+    // 126 points, inside the 200 point console before the Pan.
+    orcvs.select(orcvs.grid().position(9, 5).expect("inside the grid"));
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    // A Pan that puts the Cursor at -24..-8, off the console's top-left,
-    // inside the Grid's bounds at every size below.
-    pinned_at(&mut view, Vec2::new(-200.0, -200.0));
+    // A Pan that puts the Cursor off the console's top-left, inside the
+    // Grid's bounds at every size below.
+    let away = Vec2::new(-160.0, -160.0);
+    pinned_at(&mut view, away);
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    assert_eq!(
-        view.pan,
-        Vec2::new(-200.0, -200.0),
-        "the fixture's Pan did not hold"
-    );
+    assert_eq!(view.pan, away, "the fixture's Pan did not hold");
 
     // A shrink and a growth: either one, followed, would Pan the Cursor
-    // back to the console's top-left at (-176, -176).
+    // back to the console's top-left.
     for size in [Vec2::new(160.0, 160.0), Vec2::new(240.0, 240.0)] {
         let resized = Rect::from_min_size(Pos2::ZERO, size);
         console_frame(&ctx, resized, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(
-            view.pan,
-            Vec2::new(-200.0, -200.0),
+            view.pan, away,
             "a resize to {size:?} pulled the Pan back to the Cursor: {:?}",
             view.pan
         );
@@ -5930,11 +5945,10 @@ async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor(
     // A wheel Pan all the way to the far edge, with the Cursor still
     // unmoved at (30, 30) and no zoom, repeated until the Pan settles
     // however far `smooth_scroll_delta` hands out a frame. Left to the
-    // follow this would land at
-    // (-328, -328) instead — see
+    // follow this would land 33 Cells less 200 points in instead — see
     // `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`
-    // — so landing on the margin's far edge at (-376, -376) is what
-    // proves a Pan alone is not chasing the Cursor.
+    // — so landing on the margin's far edge, 36 Cells less 200 points in,
+    // is what proves a Pan alone is not chasing the Cursor.
     let over = screen.min + Vec2::splat(50.0);
     wheel_until_settled(
         &ctx,
@@ -5947,7 +5961,7 @@ async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor(
 
     assert_eq!(
         view.pan,
-        Vec2::new(-376.0, -376.0),
+        Vec2::splat(200.0) - 36.0 * CELL_SIZE,
         "a Pan alone was pulled back toward the Cursor: {:?}",
         view.pan
     );
@@ -6116,7 +6130,7 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::default();
-    pinned_at(&mut view, Vec2::new(-48.0, -32.0));
+    pinned_at(&mut view, Vec2::new(-24.0, -48.0));
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let before = view.origin;
@@ -6132,7 +6146,7 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
         view.origin, before,
         "the double click reset a view that no longer has a fit to return to"
     );
-    assert_eq!(view.pan, Vec2::new(-48.0, -32.0));
+    assert_eq!(view.pan, Vec2::new(-24.0, -48.0));
 }
 
 ///
@@ -6165,7 +6179,7 @@ async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_un
     // resolves as a drag rather than a click. Drag left and up: the Pan
     // is top-left-anchored, so a drag the other way is clamped at zero.
     let from = screen.min + Vec2::splat(40.0);
-    let moved = Vec2::new(-40.0, -24.0);
+    let moved = Vec2::new(-24.0, -40.0);
     frame_at(middle_press_at(from), &mut orcvs, &mut view);
     let after = frame_at(
         vec![Event::PointerMoved(from + moved)],
@@ -6237,7 +6251,7 @@ async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
         view.pan
     );
 
-    let mut small = running_orcvs(8, 8);
+    let mut small = running_orcvs(8, 6);
     let mut small_view = SourceView::default();
     console_frame(&ctx, screen, Vec::new(), &mut small, &mut small_view);
     console_frame(
