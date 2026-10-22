@@ -14,7 +14,7 @@ Every Source Cell is a 16 point square holding an 11.5 point monospace Glyph, so
 
 **The default window keeps its size in points.** It is 1024 by 640 points of Source area plus the top bar and the compact Panel, no longer a Cell count, so 12 by 18 Cells show about 85 columns and 35 rows rather than 64 and 40.
 
-**The Cursor Effect is off by default, and is to be removed.** Glitch amount and Glitch frequency default to zero, so the Cursor and a Region show ADR 0078's still outline in `cursor.border` and `region.border` at their widths and nothing animates. A later change removes the effect, its `[cursor_effects]` settings, the `cursor.area` Theme key and the reduced-motion preference it alone reads. A settings file with the old Glitch keys then loads with the settings reader's unknown-key notice, and a custom Theme that still sets `cursor.area` is refused with the existing notice. There is no compatibility shim, because the console is pre-release.
+**The Cursor Effect is removed.** The Cursor and a Region show ADR 0078's still outline in `cursor.border` and `region.border` at their widths, and nothing animates. The effect's `[cursor_effects]` settings, the `cursor.area` Theme key and the reduced-motion preference it alone read go with it. A settings file with the old Glitch keys loads with the settings reader's unknown-key notice, and a custom Theme that still sets `cursor.area` is refused with the existing notice. There is no compatibility shim, because the console is pre-release.
 
 ## Consequences
 

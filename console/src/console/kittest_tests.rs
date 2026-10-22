@@ -69,10 +69,8 @@
 //! # Determinism
 //!
 //! Frame advancement is bounded and explicit. `Harness::run` loops until no
-//! immediate repaint is requested, and the console requests one whenever the
-//! cursor effect is animating, which a settings file can turn on.
-//! `CursorEffectSettings::default` is still, but a test that animates the
-//! effect never settles under `run`. `step` runs one frame per queued event and
+//! immediate repaint is requested, which a running console does after every
+//! frame that carried input. `step` runs one frame per queued event and
 //! `run_steps` runs a stated number, which is what every test here uses. No
 //! test sleeps, reads the clock, or depends on Playback: the harness advances
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
@@ -568,8 +566,8 @@ async fn no_menu_offers_a_setting() {
 }
 
 ///
-/// A console presents the configured dark and light Themes and Cursor
-/// effects, and a problem in the config file reaches the top bar's notices.
+/// A console presents the configured dark and light Themes and Cell, and a
+/// problem in the config file reaches the top bar's notices.
 ///
 #[tokio::test]
 async fn configured_settings_reach_the_console_and_their_problems_its_notices() {
@@ -580,7 +578,7 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
     let config = Config::read(&dir.write(
         CONFIG_FILE,
         "[theme]\ndark = \"my-dark\"\nlight = \"my-light\"\n\
-         [cursor_effects]\nglitch_amount = 12\nglitch_frequency = 34\nspeed = 1\n",
+         [cell]\nwidth = 10\nheight = 15\ndepth = 1\n",
     ));
     let mut harness =
         configured_console_under_os_appearance(egui::Theme::Dark, with_my_themes(), config);
@@ -590,8 +588,7 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
     harness.run_steps(2);
     assert_frame_presents(&harness, &my_light(), &[orcvs_light()], "a light OS");
 
-    let effects = harness.state().cursor_effects;
-    assert_eq!((effects.amount(), effects.frequency()), (12, 34));
+    assert_eq!(harness.state().source_view.cell, Vec2::new(10.0, 15.0));
 
     // My Dark's own contrast notice sits beside the config's.
     harness.get_by_label_contains("Notices (").click();
@@ -599,7 +596,7 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
     harness.run_steps(1);
     assert!(
         harness
-            .query_all_by_label_contains("cursor_effects.speed")
+            .query_all_by_label_contains("cell.depth")
             .next()
             .is_some(),
         "the unknown key's notice was not shown"
@@ -732,17 +729,19 @@ fn configured_console_under_os_appearance(
 ///
 /// A running console over `with_my_themes`, under a dark OS with the mode
 /// following it, with every setting off its default: My Dark, My Light, and
-/// Cursor effects of `amount` and `frequency`.
+/// a 10 by 15 point Cell.
 ///
-fn console_with_settings_moved(amount: u8, frequency: u8) -> Harness<'static, Console> {
-    let mut config = crate::config::Config {
+fn console_with_settings_moved() -> Harness<'static, Console> {
+    let config = crate::config::Config {
         theme_selection: crate::theme_selection::ThemeSelection::new(id("my-dark"), id("my-light")),
+        cell: MOVED_CELL,
         ..crate::config::Config::default()
     };
-    *config.cursor_effects.amount_mut() = amount;
-    *config.cursor_effects.frequency_mut() = frequency;
     configured_console_under_os_appearance(egui::Theme::Dark, with_my_themes(), config)
 }
+
+/// The Cell [`console_with_settings_moved`] configures.
+const MOVED_CELL: Vec2 = Vec2::new(10.0, 15.0);
 
 ///
 /// Clicks the top bar's mode button named `label`, then runs the frame the
@@ -1093,8 +1092,8 @@ fn composited_colour(harness: &Harness<'_, Console>, point: Pos2) -> egui::Color
 /// it is opaque. `panel.background` differs from both, so a chrome panel
 /// painted under the Grid would show here.
 ///
-/// Measured at a point inside a Cell far enough from the Cursor that no
-/// Cursor Effect reaches it, off the Cell's borders and every diagonal.
+/// Measured at a point inside a Cell away from the Cursor, off the Cell's
+/// borders and every diagonal.
 ///
 #[tokio::test]
 async fn a_custom_themes_transparent_or_translucent_grid_composites_over_the_window_backdrop() {
@@ -1979,13 +1978,12 @@ fn shortcut_text(harness: &Harness<'_, Console>, shift: bool, key: Key) -> Strin
 }
 
 ///
-/// An Open leaves the viewer's settings standing: the Theme,
-/// Cursor effects, and whether Diagnostics is showing.
+/// An Open leaves the viewer's settings standing: the Theme, the Cell, and
+/// whether Diagnostics is showing.
 ///
 #[tokio::test]
 async fn an_open_leaves_every_setting_standing() {
-    let mut harness = console_with_settings_moved(7, 9);
-    let cursor_effects = harness.state().cursor_effects;
+    let mut harness = console_with_settings_moved();
     harness.state_mut().diagnostics_open = true;
     harness.run_steps(2);
 
@@ -2015,8 +2013,8 @@ async fn an_open_leaves_every_setting_standing() {
         "an Open changed the Themes presented"
     );
     assert_eq!(
-        console.cursor_effects, cursor_effects,
-        "an Open changed the Cursor effects"
+        console.source_view.cell, MOVED_CELL,
+        "an Open changed the Cell"
     );
     assert!(console.diagnostics_open, "an Open closed Diagnostics");
     assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "after the Open");
@@ -2514,10 +2512,9 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 
 ///
 /// A click's follow, end to end and under the one condition where nothing
-/// *Console-specific* repaints on its own: reduced motion zeroes the Cursor
-/// Effect's frequency and this console never starts Playback, so
-/// `Console::ui` itself asks for no further frame once the click has been
-/// handled.
+/// *Console-specific* repaints on its own: this console never starts
+/// Playback, so `Console::ui` itself asks for no further frame once the click
+/// has been handled.
 ///
 /// A click's Cursor move reaches the Source only once `Console::ui` calls
 /// `orcvs.select` after `show_source_scene` returns (see that function's own
@@ -2535,24 +2532,19 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// missing repaints on frame-delayed responses" (egui's comment in
 /// `ContextImpl::request_repaint_after`). That second, free repaint is exactly
 /// the frame after a click needs, supplied by the toolkit itself rather than by
-/// anything Console asks for — so this holds even when Console's own repaint
-/// scheduling asks for nothing at all: Playback stopped, and an animating
-/// Cursor Effect held still by reduced motion.
+/// anything Console asks for — so this holds with Playback stopped, in which
+/// Console's own repaint scheduling asks for nothing at all.
 ///
-/// The console is resized to a width that is not a multiple of `CELL_SIZE`,
-/// so Column 10 (192..208 at egui's zoom factor of 1.0, after the two-Cell margin) is cut off
-/// at the console's right edge (200) and a click on it needs the follow to
-/// bring it fully into view.
+/// The console is resized to a width that is not a multiple of the Cell's,
+/// so Column 14 (192..204 at egui's zoom factor of 1.0, after the two-Cell
+/// margin) is cut off at the console's right edge (200) and a click on it
+/// needs the follow to bring it fully into view.
 ///
 #[tokio::test]
-async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped() {
+async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    // An animating effect, so reduced motion is what holds the console still.
-    *harness.state_mut().cursor_effects.amount_mut() = 60;
-    *harness.state_mut().cursor_effects.frequency_mut() = 55;
-    harness.state_mut().reduced_motion = true;
     harness.set_size(Vec2::new(200.0, 500.0));
     harness.run_steps(2);
 
@@ -2562,7 +2554,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
         "the resize alone Panned before anything moved the Cursor"
     );
 
-    let target = presented_source(&harness).cell_rect(10, 0).min + Vec2::new(3.0, 3.0);
+    let target = presented_source(&harness).cell_rect(14, 0).min + Vec2::new(3.0, 3.0);
     harness.event(Event::PointerMoved(target));
     harness.event(Event::PointerButton {
         pos: target,
@@ -2580,15 +2572,15 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 
     assert_eq!(
         cursor(harness.state()),
-        (10, 0),
-        "the click did not select Column 10"
+        (14, 0),
+        "the click did not select Column 14"
     );
 
-    let column_10 = presented_source(&harness).cell_rect(10, 0);
+    let column_14 = presented_source(&harness).cell_rect(14, 0);
     assert!(
-        column_10.max.x <= 200.0,
-        "the click's Cursor move did not Pan to bring Column 10 fully into a 200 point \
-         console: {column_10:?}"
+        column_14.max.x <= 200.0,
+        "the click's Cursor move did not Pan to bring Column 14 fully into a 200 point \
+         console: {column_14:?}"
     );
 }
 
@@ -2931,13 +2923,12 @@ async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
 ///
 #[tokio::test]
 async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
-    let mut harness = console_with_settings_moved(7, 9);
+    let mut harness = console_with_settings_moved();
     let default_bpm = harness.state().orcvs.bpm();
     harness
         .state_mut()
         .orcvs
         .set_bpm(orcvs::opts::Bpm::new(200).expect("200 is in range"));
-    let cursor_effects = harness.state().cursor_effects;
 
     harness.event(Event::Text("x".to_owned()));
     harness.key_press(Key::ArrowDown);
@@ -2994,10 +2985,7 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
         "my-dark",
         "New changed the Theme presented"
     );
-    assert_eq!(
-        console.cursor_effects, cursor_effects,
-        "New changed the Cursor effects"
-    );
+    assert_eq!(console.source_view.cell, MOVED_CELL, "New changed the Cell");
     assert_frame_presents(&harness, &my_dark(), &[okabe_ito()], "after New");
     // The replaced engine's task owns the only sender of its observation,
     // so the watch closing is that engine having ended.

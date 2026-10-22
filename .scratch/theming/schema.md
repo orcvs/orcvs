@@ -80,7 +80,6 @@ property or production test seam is introduced.
 | `sector.seam` | `#3765566E` |
 | `cursor.border` | `#EAEBE5` |
 | `region.border` | `#EAEBE5` |
-| `cursor.area` | `#4CBE9C` |
 | `cursor.background` | `none` |
 | `region.cursor.background` | `none` |
 | `region.background` | `#FFFFFF2B` |
@@ -120,9 +119,7 @@ Zero width suppresses that stroke, not fills or other strokes; a Source Cell bor
 width defaults to 0.5 while its transparent colour preserves the current absence.
 Inactive widget width zero preserves its current absence. The 2-point text-input
 caret is separate from ordinary 1-point chrome borders. Widths do not scale with
-Grid zoom; physical-pixel snapping follows existing viewport rules. Cursor/Region
-fragments retain 0.45–1.25 nominal-width modulation. Nominal width is bounded by 1,
-so a fragment can reach 1.25 points; width zero produces no fragments.
+Grid zoom; physical-pixel snapping follows existing viewport rules.
 
 The opaque root is `window.background`; alpha other than 255 on this property is
 an error. Panel, Grid and Cell surfaces can have alpha. The new root value reuses
@@ -231,8 +228,7 @@ The single-Cursor `none` case does not restore the ordinary role fill it suppres
 
 Compute finite fact combinations and colour composites outside the per-Cell loop.
 No per-Cell string lookup, hashing, configuration access or colour interpolation is allowed.
-Cursor area alpha must propagate through tears/strands, including complete hiding
-at zero; do not reinterpret premultiplied bytes as straight RGB.
+Do not reinterpret premultiplied bytes as straight RGB.
 
 ## Decoding and limits
 

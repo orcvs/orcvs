@@ -10,8 +10,7 @@ use orcvs::{
 };
 
 use super::Console;
-use super::shapes::{effect_outline, show_source};
-use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
+use super::shapes::show_source;
 use crate::grid_viewport::{GridViewport, presented_grid, snapped_cell};
 use crate::theme::{Appearance, Theme};
 
@@ -317,7 +316,6 @@ pub(super) fn show_source_scene(
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
     view: &mut SourceView,
-    cursor_effect: CursorEffectMotion,
     theme: &Theme,
 ) -> PresentedSource {
     let source_grid = frame.grid();
@@ -439,7 +437,7 @@ pub(super) fn show_source_scene(
     };
 
     let grid = presented_grid(view.origin, source_grid, cell, ui.ctx().pixels_per_point());
-    let clicked = show_source(ui, frame, font_family, grid, console, cursor_effect, theme);
+    let clicked = show_source(ui, frame, font_family, grid, console, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
     // press landed on, and a press off the Grid selects nothing. The drag is
@@ -503,17 +501,14 @@ pub(super) fn source_panel_frame(background: Color32) -> egui::Frame {
 }
 
 ///
-/// What the Source panel presented in one Render Frame, for the frame's
-/// repaint schedule and the Diagnostics readouts.
+/// What the Source panel presented in one Render Frame, for the Diagnostics
+/// readouts.
 ///
 pub(super) struct ShownSource {
     /// The console area the Source was presented in.
     pub(super) console: Rect,
     /// The Cell the Source was drawn at, width by height.
     pub(super) cell_size: Vec2,
-    /// Whether any of the Cursor Effect reaches the console area, so that its
-    /// next change needs a Render Frame.
-    pub(super) shows_cursor_effect: bool,
 }
 
 impl Console {
@@ -530,21 +525,14 @@ impl Console {
         root: &mut egui::Ui,
         frame: &RenderFrame,
         appearance: Appearance,
-        cursor_effect: CursorEffectMotion,
     ) -> ShownSource {
         let theme = self.themes.presented(appearance);
         egui::CentralPanel::default()
             .frame(source_panel_frame(theme.grid_background))
             .show(root, |ui| {
                 let console = ui.available_rect_before_wrap();
-                let presented = show_source_scene(
-                    ui,
-                    frame,
-                    &self.font_family,
-                    &mut self.source_view,
-                    cursor_effect,
-                    theme,
-                );
+                let presented =
+                    show_source_scene(ui, frame, &self.font_family, &mut self.source_view, theme);
                 // The Source Grid answers which Cells the pointer asked for;
                 // moving the Cursor and the anchor there is the Source's own
                 // business, and this is where the running Orcvs is owned.
@@ -552,15 +540,9 @@ impl Console {
                     selection.apply(&mut self.orcvs);
                 }
 
-                let viewport = presented.viewport;
-                let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
-                let outline = effect_outline(frame, &viewport);
                 ShownSource {
                     console,
-                    cell_size: viewport.cell_size,
-                    shows_cursor_effect: effect_bounds(cursor_rect, viewport.cell_size)
-                        .union(outline.expand2(viewport.cell_size))
-                        .intersects(console),
+                    cell_size: presented.viewport.cell_size,
                 }
             })
             .inner

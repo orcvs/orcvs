@@ -93,8 +93,8 @@ impl GridWidth {
         Ok(Self(points))
     }
 
-    /// Consumed by `console::shapes`'s Grid line/Sector Seam strokes and
-    /// `cursor_effects.rs`'s Cursor/Region frame width.
+    /// Consumed by `console::shapes`'s Grid line, Sector Seam and selection
+    /// outline widths.
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -210,7 +210,6 @@ macro_rules! style_catalogue {
                 SectorSeam(sector_seam) => "sector.seam",
                 CursorBorder(cursor_border) => "cursor.border",
                 RegionBorder(region_border) => "region.border",
-                CursorArea(cursor_area) => "cursor.area",
                 RegionBackground(region_background) => "region.background",
                 PanelBorder(panel_border) => "panel.border",
                 SelectionBackground(selection_background) => "selection.background",
@@ -328,7 +327,6 @@ pub(crate) enum ColorKey {
     SectorSeam,
     CursorBorder,
     RegionBorder,
-    CursorArea,
     RegionBackground,
     PanelBorder,
     SelectionBackground,
@@ -400,10 +398,10 @@ pub(crate) enum ChromeWidthKey {
 /// resolved value is a built-in's, copied and selectively replaced by the
 /// pure `resolve` function.
 ///
-/// Fields are `pub(crate)` rather than encapsulated behind accessors: unlike
-/// [`crate::cursor_effects::CursorEffectSettings`], a resolved `Theme` is
-/// immutable once built — nothing edits one in place or persists it
-/// field-by-field — so there is no invariant an accessor needs to protect.
+/// Fields are `pub(crate)` rather than encapsulated behind accessors: a
+/// resolved `Theme` is immutable once built — nothing edits one in place or
+/// persists it field-by-field — so there is no invariant an accessor needs to
+/// protect.
 /// `Theme::color`, `Theme::grid_width` and `Theme::chrome_width` exist
 /// alongside the fields for callers that index by key.
 ///
@@ -453,7 +451,6 @@ pub struct Theme {
     pub(crate) sector_seam: Color32,
     pub(crate) cursor_border: Color32,
     pub(crate) region_border: Color32,
-    pub(crate) cursor_area: Color32,
     pub(crate) region_background: Color32,
 
     pub(crate) panel_border: Color32,
@@ -554,7 +551,6 @@ impl Theme {
             ColorKey::SectorSeam => &mut self.sector_seam,
             ColorKey::CursorBorder => &mut self.cursor_border,
             ColorKey::RegionBorder => &mut self.region_border,
-            ColorKey::CursorArea => &mut self.cursor_area,
             ColorKey::RegionBackground => &mut self.region_background,
             ColorKey::PanelBorder => &mut self.panel_border,
             ColorKey::SelectionBackground => &mut self.selection_background,
@@ -647,7 +643,6 @@ impl Theme {
             ColorKey::SectorSeam => &self.sector_seam,
             ColorKey::CursorBorder => &self.cursor_border,
             ColorKey::RegionBorder => &self.region_border,
-            ColorKey::CursorArea => &self.cursor_area,
             ColorKey::RegionBackground => &self.region_background,
             ColorKey::PanelBorder => &self.panel_border,
             ColorKey::SelectionBackground => &self.selection_background,
@@ -850,7 +845,6 @@ pub fn okabe_ito() -> Theme {
         sector_seam: straight_rgba(0x37_65_56_6E),
         cursor_border: straight_rgba(0xEA_EB_E5_FF),
         region_border: straight_rgba(0xEA_EB_E5_FF),
-        cursor_area: straight_rgba(0x4C_BE_9C_FF),
         region_background: straight_rgba(0xFF_FF_FF_2B),
 
         panel_border: straight_rgba(0x1C_39_32_FF),
@@ -976,7 +970,6 @@ pub fn orcvs_light() -> Theme {
         sector_seam: straight_rgba(0x26_68_54_70),
         cursor_border: straight_rgba(0x30_3F_3B_FF),
         region_border: straight_rgba(0x30_3F_3B_FF),
-        cursor_area: straight_rgba(0x14_82_60_FF),
         region_background: straight_rgba(0x30_3F_3B_2B),
 
         panel_border: straight_rgba(0xC0_CE_C9_FF),
@@ -1318,7 +1311,6 @@ mod tests {
         assert_eq!(theme.sector_seam, straight_rgba(0x37_65_56_6E));
         assert_eq!(theme.cursor_border, straight_rgba(0xEA_EB_E5_FF));
         assert_eq!(theme.region_border, straight_rgba(0xEA_EB_E5_FF));
-        assert_eq!(theme.cursor_area, straight_rgba(0x4C_BE_9C_FF));
         assert_eq!(theme.region_background, straight_rgba(0xFF_FF_FF_2B));
 
         assert_eq!(theme.panel_border, straight_rgba(0x1C_39_32_FF));
@@ -1486,7 +1478,6 @@ mod tests {
         assert_eq!(theme.sector_seam, straight_rgba(0x26_68_54_70));
         assert_eq!(theme.cursor_border, straight_rgba(0x30_3F_3B_FF));
         assert_eq!(theme.region_border, straight_rgba(0x30_3F_3B_FF));
-        assert_eq!(theme.cursor_area, straight_rgba(0x14_82_60_FF));
         assert_eq!(theme.region_background, straight_rgba(0x30_3F_3B_2B));
 
         assert_eq!(theme.panel_border, straight_rgba(0xC0_CE_C9_FF));
@@ -2104,7 +2095,6 @@ mod tests {
             ColorKey::SectorSeam,
             ColorKey::CursorBorder,
             ColorKey::RegionBorder,
-            ColorKey::CursorArea,
             ColorKey::RegionBackground,
             ColorKey::PanelBorder,
             ColorKey::SelectionBackground,
@@ -2123,8 +2113,8 @@ mod tests {
         ];
         assert_eq!(
             keys.len(),
-            48,
-            "the catalogue has 48 non-optional colour keys"
+            47,
+            "the catalogue has 47 non-optional colour keys"
         );
 
         for &key in &keys {
@@ -2271,7 +2261,6 @@ mod tests {
             (ColorKey::SectorSeam, "sector.seam"),
             (ColorKey::CursorBorder, "cursor.border"),
             (ColorKey::RegionBorder, "region.border"),
-            (ColorKey::CursorArea, "cursor.area"),
             (ColorKey::RegionBackground, "region.background"),
             (ColorKey::PanelBorder, "panel.border"),
             (ColorKey::SelectionBackground, "selection.background"),
@@ -2288,7 +2277,7 @@ mod tests {
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
         ];
-        assert_eq!(catalogue.len(), 48);
+        assert_eq!(catalogue.len(), 47);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }

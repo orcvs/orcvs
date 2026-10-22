@@ -379,28 +379,6 @@ fn console_pass_at(
     view: &mut SourceView,
     pixels_per_point: f32,
 ) -> (GridViewport, Vec<Shape>) {
-    console_pass_moving(
-        ctx,
-        screen,
-        events,
-        orcvs,
-        view,
-        pixels_per_point,
-        crate::cursor_effects::CursorEffectMotion::default(),
-    )
-}
-
-/// The same pass with the Cursor Effect at `motion`, for the tests of a
-/// Cursor Effect a settings file turns back on.
-fn console_pass_moving(
-    ctx: &egui::Context,
-    screen: Rect,
-    events: Vec<Event>,
-    orcvs: &mut Orcvs,
-    view: &mut SourceView,
-    pixels_per_point: f32,
-    motion: crate::cursor_effects::CursorEffectMotion,
-) -> (GridViewport, Vec<Shape>) {
     let frame = orcvs.render_frame();
     let mut presented = None;
     let mut input = egui::RawInput {
@@ -424,7 +402,6 @@ fn console_pass_moving(
                     &frame,
                     &egui::FontFamily::Monospace,
                     view,
-                    motion,
                     &crate::theme::okabe_ito(),
                 ));
             });
@@ -1417,12 +1394,12 @@ async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
 }
 
 ///
-/// At 1 BPM a Tick lasts 15 seconds. Cursor Effect off, so its sub-second
-/// wakes cannot hide a missing Run Clock remainder. A quiet Playing pass
-/// must still request a delay of at most one second.
+/// At 1 BPM a Tick lasts 15 seconds, so a publish cannot hide a missing Run
+/// Clock remainder. A quiet Playing pass must still request a delay of at
+/// most one second.
 ///
 #[tokio::test]
-async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
+async fn a_quiet_playing_console_wakes_within_a_second() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
 
@@ -1448,65 +1425,20 @@ async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
     let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
     assert!(
         delay <= std::time::Duration::from_secs(1),
-        "the console waited {delay:?} on a quiet Playing pass with Cursor Effect off"
+        "the console waited {delay:?} on a quiet Playing pass"
     );
 }
 
 ///
-/// Amount zero leaves the Cursor Effect with no deadline of its own
-/// (`repaint_after` returns `None`), which must not gate the Run Clock's
-/// own term out of `until_next`: a Playing console still wakes within a
-/// second on a quiet pass. A regression that gated the `until_next` call
-/// on `cursor_delay` being `Some`, rather than always combining both
-/// terms, would leave this console waiting past a second.
+/// A quiet pass with Playback stopped requests no repaint at all: nothing
+/// in the console moves on its own while nothing plays
+/// (`a_click_still_pans_to_follow_the_cursor_with_playback_stopped` relies
+/// on the same fact once a click has settled).
 ///
 #[tokio::test]
-async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline() {
+async fn a_stopped_console_requests_no_repaint_on_a_quiet_pass() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-
-    let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
-    console.orcvs.set_bpm(bpm);
-    app_pass(
-        &ctx,
-        screen,
-        vec![key_event(Key::Space, true)],
-        &mut console,
-        &mut host,
-    );
-    let mut playback = console.orcvs.playback_observation_watch();
-    assert!(
-        engine_reaches(&mut playback, |observation| {
-            observation.state == orcvs::playback::PlaybackState::Playing
-        })
-        .await,
-        "Playback never began playing"
-    );
-
-    let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-    assert!(
-        delay <= std::time::Duration::from_secs(1),
-        "the console waited {delay:?} on a quiet Playing pass with Cursor Effect amount zero"
-    );
-}
-
-///
-/// Reduced motion's effective settings, not the stored ones, govern a
-/// frame: `Console::cursor_effects` — the value a save persists —
-/// survives running frames unchanged, and a quiet pass with Playback
-/// stopped requests no repaint at all, though the stored settings animate
-/// (`a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped`
-/// relies on the same fact once a click has settled).
-///
-#[tokio::test]
-async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones() {
-    let (ctx, mut console, mut host) = fresh_console();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-
-    console.reduced_motion = true;
-    *console.cursor_effects.amount_mut() = 42;
-    *console.cursor_effects.frequency_mut() = 37;
 
     // A request made during one pass still repaints the next even with
     // nothing new to answer, "to give some things time to settle"
@@ -1519,19 +1451,9 @@ async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones(
     let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     assert_eq!(
-        console.cursor_effects.amount(),
-        42,
-        "reduced motion overwrote the stored Glitch amount"
-    );
-    assert_eq!(
-        console.cursor_effects.frequency(),
-        37,
-        "reduced motion overwrote the stored Glitch frequency"
-    );
-    assert_eq!(
         delay,
         std::time::Duration::MAX,
-        "reduced motion's effective settings still scheduled a cursor-effect repaint: {delay:?}"
+        "a stopped console scheduled a repaint: {delay:?}"
     );
 }
 
@@ -1597,8 +1519,7 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
 }
 
 ///
-/// Rest must not grow a one-second wake, and with default settings the
-/// Cursor Effect is off (ADR 0079), so a stopped console with the Cursor on
+/// Rest must not grow a one-second wake: a stopped console with the Cursor on
 /// screen asks for no timed wake at all. The first passes request an
 /// immediate Render Frame (focus, destination auto-select); settle before
 /// asserting.
@@ -2694,39 +2615,6 @@ fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -
             &viewport,
             &table,
             pixels_per_point,
-            crate::cursor_effects::CursorEffectShapes::default(),
-        ));
-    });
-    output.drop_without_applying_deltas();
-
-    shapes.expect("the pass drew the Source")
-}
-
-///
-/// [`source_shapes`] with a Cursor Effect built by the caller, for a test
-/// that asks what the effect's fragments add to the Paint's edges.
-///
-fn source_shapes_with_effect(
-    paint: &Paint,
-    viewport: GridViewport,
-    pixels_per_point: f32,
-    effect: crate::cursor_effects::CursorEffectShapes,
-) -> SourceShapes {
-    let ctx = egui::Context::default();
-    let mut shapes = None;
-    // `run_ui` takes an `FnMut`; the one pass it runs takes the effect.
-    let mut effect = Some(effect);
-    let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-        let table = GlyphTable::lay_out(
-            ui.ctx(),
-            egui::FontId::new(viewport.glyph_size(), egui::FontFamily::Monospace),
-        );
-        shapes = Some(SourceShapes::new(
-            paint,
-            &viewport,
-            &table,
-            pixels_per_point,
-            effect.take().expect("run_ui ran one pass"),
         ));
     });
     output.drop_without_applying_deltas();
@@ -2740,10 +2628,6 @@ fn rect_of(shape: &Shape) -> Rect {
         Shape::Rect(rect) => rect.rect,
         other => panic!("{other:?} is not a rectangle"),
     }
-}
-
-fn close(left: Rect, right: Rect) -> bool {
-    (left.min - right.min).length() < 1e-3 && (left.max - right.max).length() < 1e-3
 }
 
 ///
@@ -2781,62 +2665,6 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
             rect_of(background).height(),
             viewport.cell_size
         );
-    }
-}
-
-///
-/// While the Cursor Effect erodes the frame, its fragments are the outline:
-/// the Cell edges under them show the Grid line rather than a solid outline,
-/// so the erosion's gaps stay open. At amount zero there are no fragments and
-/// the edges draw the still outline.
-///
-#[tokio::test]
-async fn an_eroded_frame_leaves_the_grid_line_beneath_its_gaps() {
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
-    let mut orcvs = running_orcvs(5, 5);
-    orcvs.select(orcvs.grid().position(2, 2).expect("inside the grid"));
-    let frame = orcvs.render_frame();
-    let theme = okabe_ito();
-
-    for pixels_per_point in [1.0, 1.5, 2.0] {
-        let viewport = presented(screen, 5, 5, pixels_per_point);
-        let paint = painted_themed(&frame, viewport, screen, &theme);
-        let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
-        let cursor = viewport.cell_rect(2, 2);
-        let left_side = (columns[2], (rows[2] + rows[3]) / 2);
-
-        for (amount, drawn) in [
-            (0, theme.cursor_border),
-            (64, expected_line(&theme, pixels_per_point).1),
-        ] {
-            let mut settings = crate::cursor_effects::CursorEffectSettings::default();
-            *settings.amount_mut() = amount;
-            let sample = crate::cursor_effects::CursorEffectAnimation::default()
-                .advance(std::time::Duration::ZERO, settings);
-            let effect = crate::cursor_effects::cursor_effect_shapes(
-                cursor,
-                cursor,
-                screen,
-                viewport.cell_size,
-                crate::cursor_effects::CursorEffectMotion { sample, settings },
-                theme.cursor_area,
-                egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
-            );
-            let fragments = !effect.fragments.is_empty();
-            assert_eq!(
-                fragments,
-                amount > 0,
-                "amount {amount} at {pixels_per_point}x"
-            );
-            let shapes = source_shapes_with_effect(&paint, viewport, pixels_per_point, effect);
-            let pixels = edge_pixels(&line_quads(shapes.edges.as_slice(), pixels_per_point));
-
-            assert_eq!(
-                pixels.get(&left_side),
-                Some(&drawn),
-                "the Cursor's left side at amount {amount}, {pixels_per_point}x"
-            );
-        }
     }
 }
 
@@ -3059,33 +2887,7 @@ async fn a_region_hides_the_cursors_cell_border() {
     let (x, y) = (middle(columns[4], columns[5]), middle(rows[3], rows[4]));
     assert_eq!(pixels.get(&(columns[4], y)), Some(&grid));
     assert_eq!(pixels.get(&(x, rows[3])), Some(&grid));
-    assert!(shapes.cursor.is_empty(), "a Cell stroked the Cursor");
     assert!(!shapes.backgrounds.is_empty(), "the Region was not filled");
-}
-
-///
-/// The lasso outlines the whole Region rather than the Cursor's Cell.
-///
-#[tokio::test]
-async fn the_effect_outline_is_the_region_when_it_spans_and_the_cursor_otherwise() {
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-    let mut orcvs = running_orcvs(8, 8);
-    let grid = orcvs.grid();
-    let at = |x, y| grid.position(x, y).expect("inside the grid");
-    let viewport = presented(screen, 8, 8, 1.0);
-
-    orcvs.select(at(4, 3));
-    assert!(close(
-        super::shapes::effect_outline(&orcvs.render_frame(), &viewport),
-        viewport.cell_rect(4, 3)
-    ));
-
-    orcvs.select(at(4, 3));
-    orcvs.extend(at(1, 1));
-    assert!(close(
-        super::shapes::effect_outline(&orcvs.render_frame(), &viewport),
-        Rect::from_min_max(viewport.cell_rect(1, 1).min, viewport.cell_rect(4, 3).max)
-    ));
 }
 
 ///
@@ -3134,10 +2936,6 @@ async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_
             "a Glyph was {glyph:?} rather than text"
         );
     }
-    assert!(
-        shapes.cursor.is_empty(),
-        "a Cell stroked the Cursor rather than its edges"
-    );
     assert_eq!(
         shapes.backgrounds.len(),
         1,
@@ -3147,8 +2945,8 @@ async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_
 
 ///
 /// The shape groups reach the painter end to end, in the order
-/// `SourceShapes::into_shapes` chains them: backgrounds, the edges, Glyphs,
-/// the Cursor Effect's fragments.
+/// `SourceShapes::into_shapes` chains them: backgrounds, the edges, then
+/// Glyphs.
 ///
 /// Read off the flat shape list of a whole console pass, which is the one
 /// place paint order is observable and which also covers the three calls
@@ -3163,8 +2961,7 @@ async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_
 /// next, and a fill preceding every Grid Shape moves neither bound.
 ///
 /// The edges are the one Mesh; what this asserts is that they precede
-/// every Glyph and that the Cursor Effect's fragments are painted after
-/// everything else. That the edges follow the backgrounds is
+/// every Glyph. That the edges follow the backgrounds is
 /// `the_grid_lines_lie_over_the_backgrounds`'.
 ///
 #[tokio::test]
@@ -3176,17 +2973,8 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
     // A written Cell, so a Glyph is painted at all.
     orcvs.write("1");
     orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
-    // A settings file can still turn the Cursor Effect on.
-    let mut settings = crate::cursor_effects::CursorEffectSettings::default();
-    *settings.amount_mut() = 60;
-    let motion = crate::cursor_effects::CursorEffectMotion {
-        sample: crate::cursor_effects::CursorEffectAnimation::default()
-            .advance(std::time::Duration::ZERO, settings),
-        settings,
-    };
 
-    let (_viewport, shapes) =
-        console_pass_moving(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0, motion);
+    let (_viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
     let at = |kind: fn(&Shape) -> bool| -> Vec<usize> {
         shapes
@@ -3201,7 +2989,6 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
     let fills = at(is_fill);
     let lines = at(|shape| matches!(shape, Shape::Mesh(_)));
     let glyphs = at(|shape| matches!(shape, Shape::Text(_)));
-    let fragments = at(|shape| matches!(shape, Shape::LineSegment { .. }));
 
     assert!(!fills.is_empty(), "the pass painted no fill");
     assert_eq!(
@@ -3211,17 +2998,12 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
         lines.len()
     );
     assert!(!glyphs.is_empty(), "the pass painted no Glyph");
-    assert!(!fragments.is_empty(), "the pass painted no Cursor fragment");
 
     assert!(
         lines[0] < glyphs[0],
         "the Grid lines at {} painted over the Glyph at {}",
         lines[0],
         glyphs[0]
-    );
-    assert!(
-        *glyphs.last().expect("a Glyph") < *fragments.last().expect("a fragment"),
-        "the fragmented Cursor frame was not painted last"
     );
 }
 
@@ -4078,7 +3860,7 @@ async fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
 /// the resolved Theme's `grid_background`, and what stands in its place
 /// is the `CentralPanel` frame. The two values are stated in different
 /// places, so nothing but this holds them together: give the panel any
-/// other fill and every ordinary Cell — outside the Cursor effect, most of
+/// other fill and every ordinary Cell — most of
 /// an empty Grid — renders on a ground the Theme never chose for it.
 ///
 /// The whole console is checked rather than the constant alone, because it
@@ -4690,8 +4472,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
 
 ///
 /// A zeroed `cursor.border.width` hides the single-Cell Cursor's outline
-/// outright: its edges fall to the Grid line, and the Cursor Effect builds
-/// no fragment.
+/// outright: its edges fall to the Grid line.
 ///
 #[tokio::test]
 async fn zero_cursor_border_width_hides_the_cursors_frame() {
@@ -4707,23 +4488,8 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
         ..okabe_ito()
     };
     let paint = painted_themed(&frame, viewport, screen, &theme);
-    let cursor_rect = viewport.cell_rect(4, 4);
-    let effect = crate::cursor_effects::cursor_effect_shapes(
-        cursor_rect,
-        cursor_rect,
-        screen,
-        viewport.cell_size,
-        crate::cursor_effects::CursorEffectMotion::default(),
-        theme.cursor_area,
-        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
-    );
-    let shapes = source_shapes_with_effect(&paint, viewport, 1.0, effect);
+    let shapes = source_geometry(&paint, viewport, 1.0);
 
-    assert!(
-        shapes.cursor.is_empty(),
-        "zero cursor.border.width left {} Cursor fragments standing",
-        shapes.cursor.len()
-    );
     assert!(
         line_quads(shapes.edges.as_slice(), 1.0)
             .iter()
@@ -5359,18 +5125,16 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
 /// start mid-row still covers exactly the Cells that run replaces.
 ///
 /// The console is small and panned into the middle of the Grid so both
-/// sides of the Source are culled. Cursor effects are geometry beneath the Grid and
-/// therefore must not reintroduce Cell background runs in this view.
+/// sides of the Source are culled.
 ///
 #[tokio::test]
-async fn a_culled_row_leaves_cursor_effects_out_of_cell_fills() {
+async fn a_culled_row_covers_exactly_the_cells_its_runs_replace() {
     let ctx = egui::Context::default();
     // Narrow enough that every drawn row starts and ends inside the Grid.
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
     let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
     let mut view = SourceView::new(CELL_SIZE);
-    // Below the window the console shows, keeping the Cursor near the
-    // visible range while its area remains separate geometry.
+    // Below the window the console shows.
     orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
 
     // The Grid's near corner at (-700, -500), so the console shows a window
@@ -6419,7 +6183,6 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
                         &frame,
                         &egui::FontFamily::Monospace,
                         &mut view,
-                        crate::cursor_effects::CursorEffectMotion::default(),
                         &crate::theme::okabe_ito(),
                     );
                 });

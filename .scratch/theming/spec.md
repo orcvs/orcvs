@@ -24,9 +24,7 @@ border widths. Grid background and Cell fills expose colour and opacity. Cell gr
 Width bounds and stroke defaults follow ADR 0053. Preserve Grid structure, existing typography and layout, input
 behaviour and separate motion settings. Painting and hit-testing must agree.
 
-Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke. Preserve normal-zoom defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, stationary Cursor/Region effect outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Fixed display-point widths intentionally replace the previous zoom-scaled stroke behaviour.
-
-Cursor/Region effect width is nominal: retain the existing animated fragment variation of 0.45–1.25 times that width, without Grid zoom scaling. The 1-point maximum constrains nominal width, so an animated fragment can reach 1.25 points. Width zero hides every affected stroke; it does not implicitly disable separately coloured fills or change motion preferences.
+Grid/Cell border and Sector Seam widths accept finite values from 0 to 1 display point inclusive; chrome border widths accept 0 to 2 points inclusive. Width zero hides the stroke. Preserve normal-zoom defaults: Cell grid lines 0.5 points, Sector Seams 0.75 points, Cursor/Region outlines 1 point, and existing visible chrome borders 1 point (absent borders remain absent). Fixed display-point widths intentionally replace the previous zoom-scaled stroke behaviour.
 
 Transparency reveals the underlying console surface; the application window remains opaque. Desktop/window transparency is outside this effort. Painting and contrast validation must use the same composited backgrounds.
 
@@ -48,12 +46,7 @@ Role backgrounds are explicit colour properties, such as `source.function.backgr
 
 **Custom appearance follows the parent.** A custom Theme inherits its built-in parent's dark/light appearance. An omitted appearance resolves from the parent; an explicit conflicting declaration rejects the document with an error identifying the mismatch. A light custom Theme must start from a light built-in, and a dark custom Theme from a dark built-in.
 
-**A Theme decides how things look, never how much they move.** Glitch amount and frequency are settings. egui's `Visuals` are built from the resolved Theme; they are an output of it, never a second authority.
-
-Amount zero gives a clear, stationary frame; frequency zero freezes the current
-effect and may retain fragmentation. Neither schedules cursor-effect repaints.
-Reduced motion gives a clear, stationary frame without rewriting stored motion
-preferences. Playback, Run Clock and input-driven repaints remain independent.
+**A Theme decides how things look, never how much they move.** Nothing a Theme styles moves (ADR 0079 removed the Cursor Effect). egui's `Visuals` are built from the resolved Theme; they are an output of it, never a second authority.
 
 **Native files are authoritative.** Orcvs scans `~/.orcvs/themes/` and reads custom Theme files at startup, so external changes take effect only on the next launch for this release. There is no file watcher or reload action. This is the only native Theme directory; settings select Themes by filename stem, while a document's name is a display label. Built-in identities are reserved and cannot be replaced by files. Orcvs does not restore file values from cached application storage. Web imports use files, with the filename stem as identity and the document name as a display label. Reimporting the same identity updates its document after successful validation. Imported documents remain in browser storage when persistence is enabled. Settings hold Theme references on both targets. Web import is disabled for v1 and the web has the built-ins alone (`.scratch/menu-structure/issues/04`); the web rules here are the design for when it returns.
 

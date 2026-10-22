@@ -128,8 +128,9 @@ one is arguing with an ADR, which is a ticket rather than an edit.
   the wrong character; read it before caching a galley.
 - **Colour comes from the resolved `Theme` and `style(theme)`**,
   `console/src/style.rs`/`theme.rs`. Not from a literal at the call site.
-- **Reduced motion is honoured** through `prefers_reduced_motion` and
-  `CursorEffectSettings::respecting_reduced_motion`, per platform.
+- **Nothing in the Source animates.** The Cursor and a Region are still
+  outlines, so the console schedules no repaint of its own except the moving
+  Run Clock's.
 - **The Source Grid answers, the owner acts.** `show_source` returns
   `Option<Position>`; `Console::ui` is what calls `orcvs.select`. Keep that
   shape: it is what lets the painting be tested without a running Orcvs.
@@ -328,9 +329,8 @@ exactly did it put it" — absolute geometry belongs where nothing cancels it.
 Rules the module holds and a new test should too:
 
 - Bounded frames. `Harness::run` loops until no immediate repaint is requested,
-  and the console requests one whenever the cursor effect is animating, which
-  settings can turn on although `CursorEffectSettings::default` is still. Use
-  `step` (one frame per queued event) and `run_steps(n)`. Never sleep, never read the clock, never
+  which egui does after every frame that carried input. Use `step` (one frame
+  per queued event) and `run_steps(n)`. Never sleep, never read the clock, never
   wait on Playback.
 - Derive every coordinate, and state the claim at the height deriving reaches.
   A written-down position either keeps passing after the mapping breaks or fails

@@ -575,7 +575,7 @@ mod tests {
     #[test]
     fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
         let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.colors.len(), 48);
+        assert_eq!(document.colors.len(), 47);
         assert_eq!(document.grid_widths.len(), 9);
         assert_eq!(document.chrome_widths.len(), 5);
         assert_eq!(document.cursor_background, Some(OptionalFill::None));
@@ -603,7 +603,7 @@ mod tests {
             .lines()
             .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
             .collect::<Vec<_>>();
-        assert_eq!(entries.len(), 64, "48 colours, 2 optional fills, 14 widths");
+        assert_eq!(entries.len(), 63, "47 colours, 2 optional fills, 14 widths");
         let mut reached = Vec::new();
         for (name, value) in entries {
             let document = decodes(&style(&[(name, value)]));
@@ -1058,6 +1058,7 @@ mod tests {
             "grid_background",
             "text.",
             "style",
+            "cursor.area",
         ] {
             refuses(
                 &style(&[(property, &colour)]),
@@ -1089,7 +1090,7 @@ mod tests {
     }
 
     ///
-    /// The list of 64 names, colours first, is longer than the message cap,
+    /// The list of 63 names, colours first, is longer than the message cap,
     /// which cuts it and marks the cut: a mistyped property is refused with
     /// a message that names it but may not list the width or fill it meant.
     ///

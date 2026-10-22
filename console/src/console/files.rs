@@ -15,7 +15,7 @@ impl Console {
     ///
     /// Replaces the environment with `source`: the running Orcvs (Source,
     /// Grid, Cursor, Region, Playback, opts), MIDI device selection, and the
-    /// Source View. Settings — Theme, Cursor effects, Diagnostics — stand.
+    /// Source View. Settings — Theme, Cell size, Diagnostics — stand.
     ///
     /// On native the opened Source is Untitled and saved; a caller opening a
     /// file names it afterwards. A Source whose Orcvs cannot start is reported

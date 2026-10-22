@@ -45,13 +45,13 @@ test('parseBencherOutput reads a benchmark_group/parameter id unchanged', () => 
 });
 
 test('parseBencherOutput reads an id containing spaces as the whole name', () => {
-  // `console/benches/paint.rs` declares `cursor effects/frame and living area`.
+  // A criterion id may contain spaces.
   const results = parseBencherOutput(
-    'test cursor effects/frame and living area ... bench:      12,345 ns/iter (+/- 678)\n',
+    'test paint shapes/a spaced id ... bench:      12,345 ns/iter (+/- 678)\n',
   );
 
-  assert.deepEqual(results.get('cursor effects/frame and living area'), {
-    name: 'cursor effects/frame and living area',
+  assert.deepEqual(results.get('paint shapes/a spaced id'), {
+    name: 'paint shapes/a spaced id',
     value: 12345,
     unit: 'ns',
     errorValue: 678,

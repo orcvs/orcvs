@@ -4,10 +4,15 @@
 
 **Blocked by:** 02 — Turn the Cursor Effect off by default.
 
-**Status:** needs-triage
+**Status:** resolved
 
-Held in triage by the order Toby set on 2026-10-20: the removal comes after the configurable Cell, as its own change nothing else waits on, and is picked up when Toby asks for it.
+- [x] No shipped code samples, animates or schedules repaints for the Cursor.
+- [x] The Cursor and Region outlines are still ADR 0078's selection outline, in `cursor.border` and `region.border` at their widths.
+- [x] ADR 0053, the egui skill's reduced-motion and animating-cursor notes, and the theming schema and spec no longer describe the effect.
 
-- [ ] No shipped code samples, animates or schedules repaints for the Cursor.
-- [ ] The Cursor and Region outlines are still ADR 0078's selection outline, in `cursor.border` and `region.border` at their widths.
-- [ ] ADR 0053, the egui skill's reduced-motion and animating-cursor notes, and the theming schema and spec no longer describe the effect.
+## Comments
+
+- Toby asked on 2026-10-21 for the remaining work to run in parallel with the stack's performance review, so this was taken on from triage then.
+- Removed: `cursor_effects.rs`, the `[cursor_effects]` settings section, the `cursor.area` Theme key, the reduced-motion probes and the `MediaQueryList` web-sys feature only the probe used, the effect's repaint term (`until_next` now takes the Run Clock alone), `Paint::edges_beneath_outline` and `outline_line`, and the two `cursor effects/*` benchmarks.
+- `the_removed_glitch_keys_are_unknown` checks an old settings file loads with two unknown-key notices; `an_unknown_or_wrong_case_style_property_is_refused` now includes `cursor.area`.
+- `a_click_still_pans_to_follow_the_cursor_with_playback_stopped` clicks Column 14 rather than 10: at the 12 point Cell, Column 10 sat inside the 200 point console, so the test no longer exercised the follow.
