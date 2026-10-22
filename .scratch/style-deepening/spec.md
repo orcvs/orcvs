@@ -6,11 +6,12 @@ Refactors from the 2026-10-22 architecture review, each taking knowledge that ca
 2. **The Theme catalogue's routing** (`issues/02`). `style_catalogue!` in `console/src/theme.rs` already spells every property's variant, field and name, but the key enums and their read and write matches are still written by hand. The catalogue generates them.
 3. **A width validated once** (`issues/03`). The Theme document decoder and `resolve` both check every width's bound; the decoder produces the typed width and `resolve` stops failing on one.
 4. **A drawn line built once** (`issues/04`). ADR 0078's zero-width rule is restated at each place Paint and `style` build a line; one constructor states it.
-5. **The document-only Theme items in one module** (`issues/05`). Twenty identical web `dead_code` attributes become the one `theme_document` already carries.
+5. **The web's missing inputs in one module each** (`issues/05`). Twenty identical web `dead_code` attributes become the one `theme_document` already carries, and `ThemeSelection::new` is compiled only where settings are read.
+6. **A report field nothing shipped reads** (`issues/06`). `ContrastReport::scope` goes, and its test reads the `SCOPE` const.
 
 ## Decisions
 
-- 01 to 04 are independent; 05 waits for 02, since both move the key enums' routing.
+- 01 to 04 and 06 are independent; 05 waits for 02, since both move the key enums' routing.
 - They land on `main` before `claude/grayscale-themes-7111p9`, which is rebased onto them: its Cursor glyph rule (`cell_foreground`) becomes a change inside `CellColours::colours`, and its role border properties become catalogue lines.
 - The theme workbench (`.scratch/theming/workbench/`) is out of scope.
 - ADR 0040 and ADR 0053 stand: edges stay in Paint, surface measurement stays in contrast, and no new ADR is needed.

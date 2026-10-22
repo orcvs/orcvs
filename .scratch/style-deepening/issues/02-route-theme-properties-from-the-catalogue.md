@@ -8,6 +8,7 @@
 
 - [ ] The three key enums and the six matches are generated from the catalogue; none is declared by hand.
 - [ ] The enums keep their variant order (the catalogue's, which a decoded document lists properties in), their derives and their `wasm32` `dead_code` expectations.
+- [ ] The generated readers (`color_ref`, `grid_width`, `chrome_width`) stay test-only, as the hand-written ones are today (`#[cfg(test)] impl Theme`, source-audit/11), and the writers stay shipped.
 - [ ] No new trait, code-generation crate or runtime registry.
 - [ ] The hand-written literal-value acceptance tests stay, so a generated reader and writer cannot both agree on a wrong field.
 - [ ] A Theme document still decodes, inherits and resolves exactly as before: the decoder, resolve and built-in record tests pass unchanged.
