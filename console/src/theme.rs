@@ -138,13 +138,14 @@ pub(crate) enum OptionalFill {
 ///
 /// The `style` property catalogue, written once: the two optional Cursor
 /// fills, which [`OptionalFill`] carries and no key enum holds, then each
-/// key enum's variants, each with the field the Theme document decoder's
-/// style table holds it in and its literal, case- and dot-sensitive
-/// `schema.md` spelling.
+/// key enum's variants, each with its field — the Theme's, and the Theme
+/// document decoder's style table's — and its literal, case- and
+/// dot-sensitive `schema.md` spelling.
 /// `style_catalogue!(then)` hands the whole table to the macro `then`: here
-/// `property_names`, which derives each key's `name`, and in
+/// `property_names`, which derives each key's `name`, and `property_keys`,
+/// which derives the key enums and the Theme's routing by key, and in
 /// `theme_document` the derived style table, so a property's spelling, its
-/// key and its document field cannot disagree. A field repeated in the table
+/// key, its Theme field and its document field cannot disagree. A field repeated in the table
 /// fails to compile, and a spelling repeated is an unreachable arm in the
 /// derived table's key match, which the workspace's `-D warnings` gate
 /// refuses.
@@ -269,113 +270,114 @@ macro_rules! property_names {
 style_catalogue!(property_names);
 
 ///
-/// Every named colour property `schema.md`'s catalogue defines, less the
-/// two optional Cursor fills, which [`OptionalFill`] carries instead of a
-/// plain `Color32`. Each variant's case- and dot-sensitive schema spelling
-/// is written once, in [`style_catalogue`], which the Theme document
-/// decoder's style table is derived from. Declaration order is the
-/// catalogue's, and the order a decoded document lists its properties in.
+/// Derives the three key enums from [`style_catalogue`], in its order, and the
+/// Theme's routing by key: each variant names the Theme field it reads and
+/// writes, so adding a property is one catalogue line. [`resolve`] writes a
+/// document's explicit properties through the setters; only tests read by
+/// key, to check each key reaches its own field, since painting reads the
+/// fields directly.
 ///
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ColorKey {
-    WindowBackground,
-    PanelBackground,
-    GridBackground,
-    CellBackground,
-    SourceOrdinary,
-    SourceComment,
-    SourceNumber,
-    SourceNote,
-    SourceFunction,
-    SourceBang,
-    SourceOrdinaryBackground,
-    SourceCommentBackground,
-    SourceNumberBackground,
-    SourceNoteBackground,
-    SourceFunctionBackground,
-    SourceBangBackground,
-    DiagnosticForeground,
-    DiagnosticBackground,
-    DiagnosticBorder,
-    OutputPortalForeground,
-    OutputPortalBackground,
-    OutputPortalBorder,
-    InputPortalForeground,
-    InputPortalBackground,
-    InputPortalBorder,
-    LockedForeground,
-    LockedBackground,
-    LockedBorder,
-    GridBorder,
-    SectorSeam,
-    CursorBorder,
-    RegionBorder,
-    RegionBackground,
-    PanelBorder,
-    SelectionBackground,
-    SelectionBorder,
-    SelectionBorderRest,
-    WidgetInactiveBorder,
-    Text,
-    TextActive,
-    TextMuted,
-    InputBackground,
-    Link,
-    CodeBackground,
-    InputCursor,
-    Error,
-    Warning,
+macro_rules! property_keys {
+    (
+        OptionalFill { $($fills:tt)* }
+        ColorKey { $($color:ident($color_field:ident) => $color_name:literal),* $(,)? }
+        GridWidthKey { $($grid:ident($grid_field:ident) => $grid_name:literal),* $(,)? }
+        ChromeWidthKey { $($chrome:ident($chrome_field:ident) => $chrome_name:literal),* $(,)? }
+    ) => {
+        ///
+        /// Every named colour property `schema.md`'s catalogue defines, less
+        /// the two optional Cursor fills, which [`OptionalFill`] carries
+        /// instead of a plain `Color32`. Declaration order is the
+        /// catalogue's, and the order a decoded document lists its
+        /// properties in.
+        ///
+        #[cfg_attr(
+            all(target_arch = "wasm32", not(test)),
+            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+        )]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum ColorKey {
+            $($color,)*
+        }
+
+        ///
+        /// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point
+        /// by [`GridWidth`].
+        ///
+        #[cfg_attr(
+            all(target_arch = "wasm32", not(test)),
+            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+        )]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum GridWidthKey {
+            $($grid,)*
+        }
+
+        ///
+        /// The chrome width properties, bounded 0 to 2 points by
+        /// [`ChromeWidth`].
+        ///
+        #[cfg_attr(
+            all(target_arch = "wasm32", not(test)),
+            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+        )]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum ChromeWidthKey {
+            $($chrome,)*
+        }
+
+        #[cfg_attr(
+            all(target_arch = "wasm32", not(test)),
+            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+        )]
+        impl Theme {
+            fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
+                match key {
+                    $(ColorKey::$color => &mut self.$color_field,)*
+                }
+            }
+
+            fn set_grid_width(&mut self, key: GridWidthKey, value: GridWidth) {
+                match key {
+                    $(GridWidthKey::$grid => self.$grid_field = value,)*
+                }
+            }
+
+            fn set_chrome_width(&mut self, key: ChromeWidthKey, value: ChromeWidth) {
+                match key {
+                    $(ChromeWidthKey::$chrome => self.$chrome_field = value,)*
+                }
+            }
+        }
+
+        #[cfg(test)]
+        impl Theme {
+            fn color(&self, key: ColorKey) -> Color32 {
+                *self.color_ref(key)
+            }
+
+            fn color_ref(&self, key: ColorKey) -> &Color32 {
+                match key {
+                    $(ColorKey::$color => &self.$color_field,)*
+                }
+            }
+
+            fn grid_width(&self, key: GridWidthKey) -> GridWidth {
+                match key {
+                    $(GridWidthKey::$grid => self.$grid_field,)*
+                }
+            }
+
+            fn chrome_width(&self, key: ChromeWidthKey) -> ChromeWidth {
+                match key {
+                    $(ChromeWidthKey::$chrome => self.$chrome_field,)*
+                }
+            }
+        }
+    };
 }
 
-///
-/// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point by
-/// [`GridWidth`].
-///
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GridWidthKey {
-    GridBorder,
-    SectorSeam,
-    CellSelectionBorder,
-    CursorBorder,
-    RegionBorder,
-    DiagnosticBorder,
-    OutputPortalBorder,
-    InputPortalBorder,
-    LockedBorder,
-}
-
-///
-/// The chrome width properties, bounded 0 to 2 points by [`ChromeWidth`].
-///
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChromeWidthKey {
-    PanelBorder,
-    SelectionBorder,
-    WidgetBorder,
-    WidgetInactiveBorder,
-    InputCursor,
-}
+style_catalogue!(property_keys);
 
 // === Resolved Theme ===
 
@@ -482,19 +484,6 @@ pub struct Theme {
     pub(crate) input_cursor_width: ChromeWidth,
 }
 
-///
-/// Writes a named property by key: [`resolve`] applies a Theme document's
-/// explicit properties through these. Each match is exhaustive over its key
-/// enum, so a catalogue addition that forgets a field fails to compile
-/// rather than silently resolving to a stale value.
-///
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
 impl Theme {
     ///
     /// The fill of the Cursor's Cell while a Region spans more than one Cell:
@@ -505,174 +494,6 @@ impl Theme {
     ///
     pub(crate) fn region_cursor_fill(&self) -> Option<Color32> {
         self.region_cursor_background.or(self.cursor_background)
-    }
-
-    fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
-        match key {
-            ColorKey::WindowBackground => &mut self.window_background,
-            ColorKey::PanelBackground => &mut self.panel_background,
-            ColorKey::GridBackground => &mut self.grid_background,
-            ColorKey::CellBackground => &mut self.cell_background,
-            ColorKey::SourceOrdinary => &mut self.source_ordinary,
-            ColorKey::SourceComment => &mut self.source_comment,
-            ColorKey::SourceNumber => &mut self.source_number,
-            ColorKey::SourceNote => &mut self.source_note,
-            ColorKey::SourceFunction => &mut self.source_function,
-            ColorKey::SourceBang => &mut self.source_bang,
-            ColorKey::SourceOrdinaryBackground => &mut self.source_ordinary_background,
-            ColorKey::SourceCommentBackground => &mut self.source_comment_background,
-            ColorKey::SourceNumberBackground => &mut self.source_number_background,
-            ColorKey::SourceNoteBackground => &mut self.source_note_background,
-            ColorKey::SourceFunctionBackground => &mut self.source_function_background,
-            ColorKey::SourceBangBackground => &mut self.source_bang_background,
-            ColorKey::DiagnosticForeground => &mut self.diagnostic_foreground,
-            ColorKey::DiagnosticBackground => &mut self.diagnostic_background,
-            ColorKey::DiagnosticBorder => &mut self.diagnostic_border,
-            ColorKey::OutputPortalForeground => &mut self.output_portal_foreground,
-            ColorKey::OutputPortalBackground => &mut self.output_portal_background,
-            ColorKey::OutputPortalBorder => &mut self.output_portal_border,
-            ColorKey::InputPortalForeground => &mut self.input_portal_foreground,
-            ColorKey::InputPortalBackground => &mut self.input_portal_background,
-            ColorKey::InputPortalBorder => &mut self.input_portal_border,
-            ColorKey::LockedForeground => &mut self.locked_foreground,
-            ColorKey::LockedBackground => &mut self.locked_background,
-            ColorKey::LockedBorder => &mut self.locked_border,
-            ColorKey::GridBorder => &mut self.grid_border,
-            ColorKey::SectorSeam => &mut self.sector_seam,
-            ColorKey::CursorBorder => &mut self.cursor_border,
-            ColorKey::RegionBorder => &mut self.region_border,
-            ColorKey::RegionBackground => &mut self.region_background,
-            ColorKey::PanelBorder => &mut self.panel_border,
-            ColorKey::SelectionBackground => &mut self.selection_background,
-            ColorKey::SelectionBorder => &mut self.selection_border,
-            ColorKey::SelectionBorderRest => &mut self.selection_border_rest,
-            ColorKey::WidgetInactiveBorder => &mut self.widget_inactive_border,
-            ColorKey::Text => &mut self.text,
-            ColorKey::TextActive => &mut self.text_active,
-            ColorKey::TextMuted => &mut self.text_muted,
-            ColorKey::InputBackground => &mut self.input_background,
-            ColorKey::Link => &mut self.link,
-            ColorKey::CodeBackground => &mut self.code_background,
-            ColorKey::InputCursor => &mut self.input_cursor,
-            ColorKey::Error => &mut self.error,
-            ColorKey::Warning => &mut self.warning,
-        }
-    }
-
-    fn set_grid_width(&mut self, key: GridWidthKey, value: GridWidth) {
-        match key {
-            GridWidthKey::GridBorder => self.grid_border_width = value,
-            GridWidthKey::SectorSeam => self.sector_seam_width = value,
-            GridWidthKey::CellSelectionBorder => self.cell_selection_border_width = value,
-            GridWidthKey::CursorBorder => self.cursor_border_width = value,
-            GridWidthKey::RegionBorder => self.region_border_width = value,
-            GridWidthKey::DiagnosticBorder => self.diagnostic_border_width = value,
-            GridWidthKey::OutputPortalBorder => self.output_portal_border_width = value,
-            GridWidthKey::InputPortalBorder => self.input_portal_border_width = value,
-            GridWidthKey::LockedBorder => self.locked_border_width = value,
-        }
-    }
-
-    fn set_chrome_width(&mut self, key: ChromeWidthKey, value: ChromeWidth) {
-        match key {
-            ChromeWidthKey::PanelBorder => self.panel_border_width = value,
-            ChromeWidthKey::SelectionBorder => self.selection_border_width = value,
-            ChromeWidthKey::WidgetBorder => self.widget_border_width = value,
-            ChromeWidthKey::WidgetInactiveBorder => self.widget_inactive_border_width = value,
-            ChromeWidthKey::InputCursor => self.input_cursor_width = value,
-        }
-    }
-}
-
-///
-/// Reads a named property by key. Painting reads Theme's fields directly, so
-/// only tests read through a key, to check each key reaches its own field.
-///
-#[cfg(test)]
-impl Theme {
-    ///
-    /// Reads a named colour property by key. Exhaustive over [`ColorKey`],
-    /// so a catalogue addition that forgets a field here fails to compile
-    /// rather than silently resolving to a stale value.
-    ///
-    fn color(&self, key: ColorKey) -> Color32 {
-        *self.color_ref(key)
-    }
-
-    fn color_ref(&self, key: ColorKey) -> &Color32 {
-        match key {
-            ColorKey::WindowBackground => &self.window_background,
-            ColorKey::PanelBackground => &self.panel_background,
-            ColorKey::GridBackground => &self.grid_background,
-            ColorKey::CellBackground => &self.cell_background,
-            ColorKey::SourceOrdinary => &self.source_ordinary,
-            ColorKey::SourceComment => &self.source_comment,
-            ColorKey::SourceNumber => &self.source_number,
-            ColorKey::SourceNote => &self.source_note,
-            ColorKey::SourceFunction => &self.source_function,
-            ColorKey::SourceBang => &self.source_bang,
-            ColorKey::SourceOrdinaryBackground => &self.source_ordinary_background,
-            ColorKey::SourceCommentBackground => &self.source_comment_background,
-            ColorKey::SourceNumberBackground => &self.source_number_background,
-            ColorKey::SourceNoteBackground => &self.source_note_background,
-            ColorKey::SourceFunctionBackground => &self.source_function_background,
-            ColorKey::SourceBangBackground => &self.source_bang_background,
-            ColorKey::DiagnosticForeground => &self.diagnostic_foreground,
-            ColorKey::DiagnosticBackground => &self.diagnostic_background,
-            ColorKey::DiagnosticBorder => &self.diagnostic_border,
-            ColorKey::OutputPortalForeground => &self.output_portal_foreground,
-            ColorKey::OutputPortalBackground => &self.output_portal_background,
-            ColorKey::OutputPortalBorder => &self.output_portal_border,
-            ColorKey::InputPortalForeground => &self.input_portal_foreground,
-            ColorKey::InputPortalBackground => &self.input_portal_background,
-            ColorKey::InputPortalBorder => &self.input_portal_border,
-            ColorKey::LockedForeground => &self.locked_foreground,
-            ColorKey::LockedBackground => &self.locked_background,
-            ColorKey::LockedBorder => &self.locked_border,
-            ColorKey::GridBorder => &self.grid_border,
-            ColorKey::SectorSeam => &self.sector_seam,
-            ColorKey::CursorBorder => &self.cursor_border,
-            ColorKey::RegionBorder => &self.region_border,
-            ColorKey::RegionBackground => &self.region_background,
-            ColorKey::PanelBorder => &self.panel_border,
-            ColorKey::SelectionBackground => &self.selection_background,
-            ColorKey::SelectionBorder => &self.selection_border,
-            ColorKey::SelectionBorderRest => &self.selection_border_rest,
-            ColorKey::WidgetInactiveBorder => &self.widget_inactive_border,
-            ColorKey::Text => &self.text,
-            ColorKey::TextActive => &self.text_active,
-            ColorKey::TextMuted => &self.text_muted,
-            ColorKey::InputBackground => &self.input_background,
-            ColorKey::Link => &self.link,
-            ColorKey::CodeBackground => &self.code_background,
-            ColorKey::InputCursor => &self.input_cursor,
-            ColorKey::Error => &self.error,
-            ColorKey::Warning => &self.warning,
-        }
-    }
-
-    fn grid_width(&self, key: GridWidthKey) -> GridWidth {
-        match key {
-            GridWidthKey::GridBorder => self.grid_border_width,
-            GridWidthKey::SectorSeam => self.sector_seam_width,
-            GridWidthKey::CellSelectionBorder => self.cell_selection_border_width,
-            GridWidthKey::CursorBorder => self.cursor_border_width,
-            GridWidthKey::RegionBorder => self.region_border_width,
-            GridWidthKey::DiagnosticBorder => self.diagnostic_border_width,
-            GridWidthKey::OutputPortalBorder => self.output_portal_border_width,
-            GridWidthKey::InputPortalBorder => self.input_portal_border_width,
-            GridWidthKey::LockedBorder => self.locked_border_width,
-        }
-    }
-
-    fn chrome_width(&self, key: ChromeWidthKey) -> ChromeWidth {
-        match key {
-            ChromeWidthKey::PanelBorder => self.panel_border_width,
-            ChromeWidthKey::SelectionBorder => self.selection_border_width,
-            ChromeWidthKey::WidgetBorder => self.widget_border_width,
-            ChromeWidthKey::WidgetInactiveBorder => self.widget_inactive_border_width,
-            ChromeWidthKey::InputCursor => self.input_cursor_width,
-        }
     }
 }
 
