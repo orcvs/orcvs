@@ -15,4 +15,4 @@ This reverses theming/08's choice to carry the scope in the report's data (kept 
 
 ## Comments
 
-- `SCOPE` is `#[cfg(test)]`, because a shipped `SCOPE` with no shipped reader would need the `dead_code` expectation this ticket removes. A caller that later shows the scope makes it shipped again.
+- `SCOPE` is deleted as well. A shipped `SCOPE` with no reader would need the `dead_code` expectation this ticket removes, and a test-only copy would restate the module's `# Scope` doc and could drift from it unseen, as review on #276 pointed out. The scope is now stated once, in the `# Scope` section. The criterion asking a test to check `SCOPE` gives way, and a caller that later wants to show the scope adds the const back with that caller.

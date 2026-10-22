@@ -449,20 +449,6 @@ pub(crate) struct ContrastReport {
     pub(crate) results: Vec<ContrastResult>,
 }
 
-/// This module's `# Scope` section as one string, so a test fails if it stops
-/// naming text contrast or any excluded chrome case.
-#[cfg(test)]
-const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
-background it is actually painted on. Not pairwise Token-colour distinguishability, \
-or border/focus visibility. Chrome leaves out \
-disabled widgets (faded by egui, and exempt as inactive components under WCAG 2.1 SC 1.4.3), \
-code.background (no code span is painted), a widget state's strong fill (egui paints no text \
-on it), a popup or window floating over another surface, the Source Grid or a panel \
-(measured as one panel over the window backdrop; the two differ only for a translucent \
-panel.background), and text.active on the open widget fill (egui paints an open widget's text \
-in widgets.open.fg_stroke, which the Theme maps from text, so the open fill is measured with \
-text instead).";
-
 ///
 /// Measures every reachable painted text state against `theme` and reports
 /// each one's role, state, effective foreground and background, measured
@@ -625,8 +611,8 @@ mod tests {
     use orcvs::source::SourcePaint;
 
     use super::{
-        AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, SCOPE, State,
-        contrast, painted, validate,
+        AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
+        painted, validate,
     };
     use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
 
@@ -705,25 +691,8 @@ mod tests {
     // === validate's shape ===
 
     #[test]
-    fn validate_reports_the_floor_and_scope_names_every_exclusion() {
-        let report = validate(&okabe_ito());
-        assert_eq!(report.floor, 4.5);
-        assert!(
-            SCOPE.contains("Text contrast only"),
-            "the scope must name text contrast: {SCOPE:?}"
-        );
-        for excluded in [
-            "disabled widgets",
-            "code.background",
-            "strong fill",
-            "floating over another surface",
-            "text.active on the open widget fill",
-        ] {
-            assert!(
-                SCOPE.contains(excluded),
-                "the scope must name the excluded {excluded:?}: {SCOPE:?}"
-            );
-        }
+    fn validate_reports_the_floor_in_the_returned_data() {
+        assert_eq!(validate(&okabe_ito()).floor, 4.5);
     }
 
     #[test]
