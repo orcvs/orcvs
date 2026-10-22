@@ -7,7 +7,7 @@ use orcvs::render_frame::RenderFrame;
 
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
-use crate::theme::{Theme, okabe_ito, orcvs_light};
+use crate::theme::{Theme, grayscale_dark, grayscale_light, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, Position, ROW_COUNT};
 
@@ -1159,8 +1159,8 @@ async fn console_new_keeps_a_theme_preference_already_on_the_context() {
 
     assert_chrome(
         &ctx,
-        &okabe_ito(),
-        &orcvs_light(),
+        &grayscale_dark(),
+        &grayscale_light(),
         "Console::new under a restored Light preference",
     );
 }
@@ -2477,7 +2477,7 @@ async fn the_bottom_panel_separator_is_the_grid_line() {
     assert!(
         strokes.iter().any(|(color, rect)| {
             *color
-                == crate::style::style(&okabe_ito())
+                == crate::style::style(&grayscale_dark())
                     .visuals
                     .window_stroke
                     .color
@@ -2502,7 +2502,7 @@ async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
     );
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let theme = okabe_ito();
+    let theme = grayscale_dark();
     let field = ctx
         .read_response(bpm_field_id(&console))
         .expect("the BPM field was not shown")
@@ -4223,13 +4223,14 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
 /// on whole pixels, at every device scale in [`DEVICE_SCALES`]. The
 /// Cursor's outline carries none.
 ///
-/// Which Cells carry a seam, and at what strength, are the Render Frame's
-/// and the derive's answers and are asserted in `paint.rs` with no Context
-/// at all.
+/// Which Cells carry a seam are the Render Frame's and the derive's
+/// answers and are asserted in `paint.rs` with no Context at all. The
+/// seam's *width* is the resolved Theme's own fixed display-point value, so
+/// it is geometry and belongs here.
 ///
 /// The Grid is 16 Cells square because the default Sector Seam spacing is
 /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
-/// it, so every seam strength in one is `None` and this would assert
+/// it, so no Cell in one carries a seam and this would assert
 /// nothing.
 ///
 #[tokio::test]
@@ -4547,8 +4548,8 @@ async fn clear_color_is_the_resolved_themes_opaque_window_background() {
     let (ctx, console, _host) = fresh_console();
 
     for (slot, theme) in [
-        (egui::Theme::Dark, okabe_ito()),
-        (egui::Theme::Light, orcvs_light()),
+        (egui::Theme::Dark, grayscale_dark()),
+        (egui::Theme::Light, grayscale_light()),
     ] {
         assert_eq!(
             theme.window_background.a(),
@@ -5274,17 +5275,17 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
             let spacing = frame.sector_seam_spacing().cells();
             let selected = position == frame.cursor();
 
-            for (strength, ends) in [
+            for (seam, ends) in [
                 (
-                    crate::marks::sector_left_strength(position, spacing),
+                    crate::marks::sector_left(position, spacing),
                     [rect.left_top(), rect.left_bottom()],
                 ),
                 (
-                    crate::marks::sector_top_strength(position, spacing),
+                    crate::marks::sector_top(position, spacing),
                     [rect.left_top(), rect.right_top()],
                 ),
             ] {
-                if strength.is_none() || selected {
+                if !seam || selected {
                     continue;
                 }
                 let span = Rect::from_two_pos(ends[0], ends[1]);
@@ -5297,11 +5298,7 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
                 }
 
                 // The first pixel across the edge, halfway along it.
-                let (width, colour) = expected_seam(
-                    &theme,
-                    crate::style::sector_line(strength.expect("a seam"), theme.sector_seam),
-                    pixels_per_point,
-                );
+                let (width, colour) = expected_seam(&theme, theme.sector_seam, pixels_per_point);
                 let middle = |from: f32, to: f32| (pixel(from) + pixel(to)) / 2;
                 let at = if ends[0].x == ends[1].x {
                     (pixel(ends[0].x) - width / 2, middle(ends[0].y, ends[1].y))

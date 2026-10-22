@@ -21,3 +21,8 @@ was heard. Automated evidence alone does not complete the example's delivery.
 
 Split from ticket 06's last criterion, which needs a person with a MIDI device, so 06 can stay
 `ready-for-agent` for its automated work.
+
+### 2026-10-17
+
+Unblocked: `06` shipped `examples/cell-tracker.orcvs`. Open it with Help > Examples > Cell Tracker,
+choose a MIDI output, and press Space; the guide's tempo, channel and layout are in `examples/cell-tracker.md`.

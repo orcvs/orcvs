@@ -17,7 +17,9 @@
 //!
 //! [`validate`] measures text contrast only: an effective foreground against
 //! the effective background it is actually painted on. It does not measure
-//! pairwise Token-colour distinguishability or border/focus visibility.
+//! pairwise Token-colour distinguishability or border/focus visibility. A
+//! Source Grid state whose glyph is fully transparent, such as one a
+//! transparent `cursor.foreground` hides, draws no text and is not measured.
 //!
 //! Its chrome states are `text`, `text.muted`, `text.active`, selected
 //! text, `error`, `warning` and `link`, each on the surfaces egui paints it
@@ -311,7 +313,7 @@ fn painted(
     portals: PortalRoles,
     theme: &Theme,
 ) -> (Color32, Color32) {
-    let visuals = CellColours::new(theme).colours(fact, portals, cursor);
+    let visuals = CellColours::new(theme).colours(fact, portals, true, cursor);
 
     let grid_surface = theme.window_background.blend(theme.grid_background);
     let effective_background =
@@ -498,6 +500,12 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
             for portals in reachable_portal_sets(fact) {
                 let state = State::SourceGrid { cursor, portals };
                 let (foreground, background) = painted(fact, cursor, portals, theme);
+                // A fully transparent glyph draws nothing, so there is no
+                // text to measure: a hidden Cursor glyph would otherwise
+                // report 1:1 against its own background.
+                if foreground.a() == 0 {
+                    continue;
+                }
                 results.push(measure(
                     role,
                     state,
@@ -1036,6 +1044,112 @@ mod tests {
         );
     }
 
+    ///
+    /// The Cursor state measures the glyph `cursor.foreground` draws, not
+    /// the role's: a glyph colour equal to the Cursor fill is reported below
+    /// the floor for every Source role, and one that contrasts with it is
+    /// not. The plain state keeps the role's own glyph either way.
+    ///
+    #[test]
+    fn the_cursor_state_measures_the_cursor_foreground_against_the_cursor_fill() {
+        let fill = Color32::from_rgb(20, 20, 20);
+        let report = |glyph| {
+            validate(&Theme {
+                cursor_background: Some(fill),
+                cursor_foreground: Some(glyph),
+                ..okabe_ito()
+            })
+        };
+        let (failing, passing) = (report(fill), report(Color32::WHITE));
+
+        for role in Role::SOURCE_ROLES {
+            for portals in [PortalRoles::NONE, OUTPUT, INPUT] {
+                let cursor = State::SourceGrid {
+                    cursor: CursorPlacement::Cursor,
+                    portals,
+                };
+                let failed = find(&failing, role, cursor);
+                assert_eq!(failed.foreground, fill, "{role} / {cursor}");
+                assert!(!failed.passes(), "{role} / {cursor}: {:.2}:1", failed.ratio);
+                let passed = find(&passing, role, cursor);
+                assert_eq!(passed.foreground, Color32::WHITE, "{role} / {cursor}");
+                assert!(passed.passes(), "{role} / {cursor}: {:.2}:1", passed.ratio);
+            }
+            let plain = State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                portals: PortalRoles::NONE,
+            };
+            assert_ne!(
+                find(&failing, role, plain).foreground,
+                fill,
+                "{role} / {plain}"
+            );
+        }
+    }
+
+    ///
+    /// The Region's Cursor state measures the glyph the Region's Cursor
+    /// fallback resolves: `cursor.foreground` equal to the Region's Cursor
+    /// fill is reported below the floor while `region.cursor.foreground` is
+    /// cleared, and a contrasting `region.cursor.foreground` passes over it.
+    ///
+    #[test]
+    fn the_region_cursor_state_measures_the_resolved_region_cursor_glyph() {
+        let fill = Color32::from_rgb(20, 20, 20);
+        let report = |region_cursor_foreground| {
+            validate(&Theme {
+                region_cursor_background: Some(fill),
+                cursor_foreground: Some(fill),
+                region_cursor_foreground,
+                ..okabe_ito()
+            })
+        };
+        let (failing, passing) = (report(None), report(Some(Color32::WHITE)));
+
+        for role in Role::SOURCE_ROLES {
+            for portals in [PortalRoles::NONE, OUTPUT, INPUT] {
+                let state = State::SourceGrid {
+                    cursor: CursorPlacement::RegionCursor,
+                    portals,
+                };
+                let failed = find(&failing, role, state);
+                assert_eq!(failed.foreground, fill, "{role} / {state}");
+                assert!(!failed.passes(), "{role} / {state}: {:.2}:1", failed.ratio);
+                let passed = find(&passing, role, state);
+                assert_eq!(passed.foreground, Color32::WHITE, "{role} / {state}");
+                assert!(passed.passes(), "{role} / {state}: {:.2}:1", passed.ratio);
+            }
+        }
+    }
+
+    ///
+    /// A transparent Cursor glyph draws no glyph, so the Cursor states it
+    /// hides are not measured rather than reported at 1:1, while every
+    /// other state of the same role still is.
+    ///
+    #[test]
+    fn a_hidden_cursor_glyph_is_not_measured() {
+        let report = validate(&Theme {
+            cursor_foreground: Some(Color32::TRANSPARENT),
+            ..okabe_ito()
+        });
+
+        for role in Role::SOURCE_ROLES {
+            for cursor in [CursorPlacement::Cursor, CursorPlacement::RegionCursor] {
+                assert!(
+                    !report.results.iter().any(|result| result.role == role
+                        && matches!(result.state, State::SourceGrid { cursor: c, .. } if c == cursor)),
+                    "{role} under {cursor:?} is measured"
+                );
+            }
+            let plain = State::SourceGrid {
+                cursor: CursorPlacement::Plain,
+                portals: PortalRoles::NONE,
+            };
+            assert!(find(&report, role, plain).foreground.a() != 0);
+        }
+    }
+
     // === Fixtures: alpha compositing ===
 
     ///
@@ -1479,17 +1593,17 @@ mod tests {
     /// for `okabe-ito` is empty, and this test's own run is what proves that
     /// emptiness is correct rather than merely convenient.
     ///
-    /// `orcvs_light()` clears the floor in every reachable state the same
-    /// way rather than by exception. `shipped` is a hand-kept array rather
-    /// than the Theme registry's built-ins, which are private to
-    /// `crate::theme_registry`: a built-in added there is not gated until it
-    /// is added here too.
+    /// `orcvs_light()`, `grayscale_dark()` and `grayscale_light()` clear the
+    /// floor in every reachable state the same way rather than by exception.
+    /// `shipped` is the Theme registry's own built-ins, so a built-in added
+    /// there is gated here without a second list to keep.
     ///
     #[test]
     fn shipped_theme_gate() {
-        let shipped = [okabe_ito(), orcvs_light()];
+        let registry = crate::theme_registry::ThemeRegistry::built_in();
+        let shipped = crate::theme_registry::tests_support::built_ins(&registry);
 
-        for theme in &shipped {
+        for theme in shipped {
             let report = validate(theme);
             let failures = unaccepted(&report);
             assert!(

@@ -41,14 +41,21 @@ pub(crate) struct CellVisuals {
 /// `paint` is the per-Cell language fact `RenderCell::source_paint` answers
 /// from the shared Claim, including Pending, Valid, or Invalid for an
 /// Operand. `portal_roles` is an independent fact: the Portal roles this Cell
-/// plays (`RenderCell::portal_roles`).
+/// plays (`RenderCell::portal_roles`). `occupied` is whether the Cell holds
+/// content, which decides only whether an unclaimed Cell's Ordinary border
+/// can show.
 ///
-fn cell_visuals(paint: SourcePaint, portal_roles: PortalRoles, theme: &Theme) -> CellVisuals {
+fn cell_visuals(
+    paint: SourcePaint,
+    portal_roles: PortalRoles,
+    occupied: bool,
+    theme: &Theme,
+) -> CellVisuals {
     let portal = painting_portal(portal_roles);
     let (foreground, background) = source_paint_visuals(paint, portal, theme);
     CellVisuals {
         background,
-        border: ordinary_border(paint, portal, theme),
+        border: ordinary_border(paint, portal, occupied, theme),
         foreground,
     }
 }
@@ -100,12 +107,17 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 /// A Cell's whole colour decision for one Theme, built once per Paint: the
 /// Cursor, Region-Cursor, Region and base fills, each already composited over
-/// `theme.cell_background`, and [`cell_visuals`]'s answer for each fact and
-/// painting Portal, so painting and the contrast check read one decision.
+/// `theme.cell_background`, the Cursor's and the Region Cursor's glyph
+/// colours, and [`cell_visuals`]'s answer for each fact and painting Portal,
+/// so painting and the contrast check read one decision.
 ///
-/// An unselected Cell's visuals depend only on its Source Paint fact and the
-/// Portal that paints it, [`painting_portal`]'s answer, so the 10 facts × 4
-/// Portal answers are every answer the walk can need. Each entry is built by
+/// An unselected Cell's visuals depend only on its Source Paint fact, the
+/// Portal that paints it, [`painting_portal`]'s answer, and whether it is
+/// occupied. Occupancy decides only whether an unclaimed Cell's Ordinary
+/// border shows, so it splits the Unclaimed fact alone: the 11 keys
+/// [`visuals_key`] answers × 4 Portal answers are every answer the walk can
+/// need, and the table stays small enough that zeroing it is cheap. Each
+/// entry is built by
 /// calling [`cell_visuals`] itself, so the table cannot drift from the
 /// per-Cell definition the tests pin; the per-Cell walk is left with one
 /// indexed load instead of the role match, the Diagnostic/Portal blends, the
@@ -126,11 +138,17 @@ pub(crate) struct CellColours<'a> {
     region_cursor_fill: Option<Color32>,
     region_fill: Option<Color32>,
     base_fill: Option<Color32>,
-    entries: [Option<CellVisuals>; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS],
+    cursor_glyph: Option<Color32>,
+    region_cursor_glyph: Option<Color32>,
+    entries: [Option<CellVisuals>; VISUALS_KEYS * PORTAL_ANSWERS],
 }
 
 /// How many answers [`painting_portal`] gives: none, Input, Output or Locked.
 const PORTAL_ANSWERS: usize = 4;
+
+/// How many keys [`visuals_key`] answers: every Source Paint fact, plus an
+/// occupied unclaimed Cell.
+const VISUALS_KEYS: usize = SOURCE_PAINT_FACTS.len() + 1;
 
 impl<'a> CellColours<'a> {
     pub(crate) fn new(theme: &'a Theme) -> Self {
@@ -143,13 +161,15 @@ impl<'a> CellColours<'a> {
             ),
             region_fill: compose_cell_fill(theme.cell_background, Some(theme.region_background)),
             base_fill: compose_cell_fill(theme.cell_background, None),
-            entries: [None; SOURCE_PAINT_FACTS.len() * PORTAL_ANSWERS],
+            cursor_glyph: theme.cursor_foreground,
+            region_cursor_glyph: theme.region_cursor_glyph(),
+            entries: [None; VISUALS_KEYS * PORTAL_ANSWERS],
         }
     }
 
     ///
-    /// The colours of a Cell carrying `paint`, playing `portal_roles` and at
-    /// `placement`.
+    /// The colours of a Cell carrying `paint`, playing `portal_roles`,
+    /// holding content when `occupied`, and at `placement`.
     ///
     /// The Cursor's own fill wins outright on its Cell, discarding whatever
     /// the role/Diagnostic/Portal channels answered: `cursor.background` on
@@ -158,45 +178,72 @@ impl<'a> CellColours<'a> {
     /// role answer when it has one, and falls back to `region.background`
     /// inside a spanning Region or to the uniform Cell base outside one, so
     /// the Cell base does not count as a fact fill when evaluating Region
-    /// fallback. The foreground and border are the fact's at every placement.
+    /// fallback.
+    ///
+    /// The Cursor's glyph colour replaces the fact's on the Cursor's own Cell
+    /// when it holds one: `cursor.foreground` on the single-Cell Cursor, and
+    /// [`Theme::region_cursor_glyph`] inside a spanning Region. A transparent
+    /// glyph colour hides the glyph; a cleared one keeps the fact's. The
+    /// border is the fact's at every placement.
     ///
     #[inline]
     pub(crate) fn colours(
         &mut self,
         paint: SourcePaint,
         portal_roles: PortalRoles,
+        occupied: bool,
         placement: CursorPlacement,
     ) -> CellVisuals {
-        let visuals = self.fact_visuals(paint, portal_roles);
-        let background = match placement {
-            CursorPlacement::Plain => visuals.background.or(self.base_fill),
-            CursorPlacement::Region => visuals.background.or(self.region_fill),
-            CursorPlacement::Cursor => self.cursor_fill,
-            CursorPlacement::RegionCursor => self.region_cursor_fill,
+        let visuals = self.fact_visuals(paint, portal_roles, occupied);
+        let (background, glyph) = match placement {
+            CursorPlacement::Plain => (visuals.background.or(self.base_fill), None),
+            CursorPlacement::Region => (visuals.background.or(self.region_fill), None),
+            CursorPlacement::Cursor => (self.cursor_fill, self.cursor_glyph),
+            CursorPlacement::RegionCursor => (self.region_cursor_fill, self.region_cursor_glyph),
         };
         CellVisuals {
             background,
+            foreground: glyph.unwrap_or(visuals.foreground),
             ..visuals
         }
     }
 
     #[inline]
-    fn fact_visuals(&mut self, paint: SourcePaint, portal_roles: PortalRoles) -> CellVisuals {
+    fn fact_visuals(
+        &mut self,
+        paint: SourcePaint,
+        portal_roles: PortalRoles,
+        occupied: bool,
+    ) -> CellVisuals {
         let portal = match painting_portal(portal_roles) {
             None => 0,
             Some(PortalRole::Input) => 1,
             Some(PortalRole::Output) => 2,
             Some(PortalRole::Locked) => 3,
         };
-        let index = fact_index(paint) * PORTAL_ANSWERS + portal;
+        let index = visuals_key(paint, occupied) * PORTAL_ANSWERS + portal;
         match self.entries[index] {
             Some(visuals) => visuals,
             None => {
-                let visuals = cell_visuals(paint, portal_roles, self.theme);
+                let visuals = cell_visuals(paint, portal_roles, occupied, self.theme);
                 self.entries[index] = Some(visuals);
                 visuals
             }
         }
+    }
+}
+
+///
+/// [`CellColours`]'s key for a Cell carrying `paint`: its fact's position, or
+/// the one past every fact for an occupied unclaimed Cell, the only fact
+/// whose visuals occupancy changes.
+///
+#[inline]
+fn visuals_key(paint: SourcePaint, occupied: bool) -> usize {
+    if occupied && paint == SourcePaint::Unclaimed {
+        SOURCE_PAINT_FACTS.len()
+    } else {
+        fact_index(paint)
     }
 }
 
@@ -249,6 +296,15 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// width of zero withdraws its fact: the border falls to the fact below it,
 /// and a Portal withdrawn over a Diagnostic shows the Diagnostic border.
 ///
+/// Beneath Diagnostic and the Portals sits the Cell's role border, over the
+/// Grid line, when that border is visible. A Cell a role claims draws its
+/// role's border whether it holds content or not, so a Comment or a Pending
+/// operand slot is framed as one span. An unclaimed Cell draws the Ordinary
+/// border only while `occupied`: an empty Cell keeps the plain Grid line, so
+/// a visible Ordinary border never frames the whole Grid. A transparent role
+/// border holds no edge, so the Grid line at `grid.border.width` keeps every
+/// edge no role border is drawn on.
+///
 /// `None` for a Cell carrying no fact with a width: its edges show the Grid
 /// line, or a neighbour's fact.
 ///
@@ -258,6 +314,7 @@ fn fact_index(paint: SourcePaint) -> usize {
 fn ordinary_border(
     paint: SourcePaint,
     portal: Option<PortalRole>,
+    occupied: bool,
     theme: &Theme,
 ) -> Option<EdgeLine> {
     let invalid_operand = matches!(
@@ -270,19 +327,31 @@ fn ordinary_border(
     // What a border composites over: the Grid line, unless a zero
     // `grid.border.width` draws none, when the border shows its own colour.
     let grid_line = EdgeLine::grid(theme).map_or(Color32::TRANSPARENT, |line| line.stroke.color);
+    let own = RoleChannels::of(paint, theme);
+    let framed = occupied || paint != SourcePaint::Unclaimed;
+    let role = (framed && own.border.a() != 0)
+        .then(|| {
+            EdgeLine::drawn(
+                EdgeRank::Role,
+                own.border_width,
+                blend_channel(grid_line, own.border),
+            )
+        })
+        .flatten();
+    let below_diagnostic = role.map_or(grid_line, |line| line.stroke.color);
     let diagnostic = invalid_operand
         .then(|| {
             EdgeLine::drawn(
                 EdgeRank::Diagnostic,
                 theme.diagnostic_border_width,
-                blend_channel(grid_line, theme.diagnostic_border),
+                blend_channel(below_diagnostic, theme.diagnostic_border),
             )
         })
         .flatten();
     // The same overlay `role_and_portal` composites the background with.
     let portal = fill_overlay(paint, portal).and_then(|role| {
         let channels = PortalChannels::of(role, theme);
-        let below = diagnostic.map_or(grid_line, |line| line.stroke.color);
+        let below = diagnostic.map_or(below_diagnostic, |line| line.stroke.color);
         EdgeLine::drawn(
             match role {
                 PortalRole::Output => EdgeRank::OutputPortal,
@@ -294,7 +363,7 @@ fn ordinary_border(
         )
     });
 
-    portal.or(diagnostic)
+    portal.or(diagnostic).or(role)
 }
 
 ///
@@ -576,20 +645,82 @@ fn role_and_portal(
 /// Operand by [`operand_paint`].
 ///
 fn role(paint: SourcePaint, theme: &Theme) -> (Color32, Color32) {
+    let own = RoleChannels::of(paint, theme);
     match paint {
-        SourcePaint::Unclaimed => (theme.source_ordinary, theme.source_ordinary_background),
-        SourcePaint::Bang => (theme.source_bang, theme.source_bang_background),
-        SourcePaint::Comment => (theme.source_comment, theme.source_comment_background),
-        SourcePaint::Function => (theme.source_function, theme.source_function_background),
-        SourcePaint::Operand { token, state } => {
-            let (colour, background) = match token {
-                Token::Number => (theme.source_number, theme.source_number_background),
-                Token::Note => (theme.source_note, theme.source_note_background),
+        SourcePaint::Operand { state, .. } => {
+            operand_paint(own.foreground, own.background, state, theme)
+        }
+        _ => (own.foreground, own.background),
+    }
+}
+
+///
+/// One Source role's Theme channels: `source.<role>`, its `.background`,
+/// its `.border` and its `.border.width`.
+///
+struct RoleChannels {
+    foreground: Color32,
+    background: Color32,
+    border: Color32,
+    border_width: GridWidth,
+}
+
+impl RoleChannels {
+    ///
+    /// The channels of the role `paint` draws in, the one lookup the glyph,
+    /// fill and border all read: Unclaimed draws as Ordinary, a Bang as
+    /// Bang rather than as a Function, and an operand as its declared Token
+    /// in every state.
+    ///
+    fn of(paint: SourcePaint, theme: &Theme) -> Self {
+        let channels = |foreground, background, border, border_width| Self {
+            foreground,
+            background,
+            border,
+            border_width,
+        };
+        match paint {
+            SourcePaint::Unclaimed => channels(
+                theme.source_ordinary,
+                theme.source_ordinary_background,
+                theme.source_ordinary_border,
+                theme.source_ordinary_border_width,
+            ),
+            SourcePaint::Comment => channels(
+                theme.source_comment,
+                theme.source_comment_background,
+                theme.source_comment_border,
+                theme.source_comment_border_width,
+            ),
+            SourcePaint::Function => channels(
+                theme.source_function,
+                theme.source_function_background,
+                theme.source_function_border,
+                theme.source_function_border_width,
+            ),
+            SourcePaint::Bang => channels(
+                theme.source_bang,
+                theme.source_bang_background,
+                theme.source_bang_border,
+                theme.source_bang_border_width,
+            ),
+            SourcePaint::Operand { token, .. } => match token {
+                Token::Number => channels(
+                    theme.source_number,
+                    theme.source_number_background,
+                    theme.source_number_border,
+                    theme.source_number_border_width,
+                ),
+                Token::Note => channels(
+                    theme.source_note,
+                    theme.source_note_background,
+                    theme.source_note_border,
+                    theme.source_note_border_width,
+                ),
                 Token::Comment | Token::Function | Token::Char | Token::Untyped => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
-            };
-            operand_paint(colour, background, state, theme)
+            },
         }
     }
 }
@@ -631,30 +762,6 @@ fn operand_paint(
             blend_channel(background, theme.diagnostic_background),
         ),
     }
-}
-
-///
-/// Attenuates `base` — the resolved Theme's `sector.seam` — by
-/// `strength_percent`: a pure reading of the Theme colour a Sector Seam is
-/// drawn with, not a lookup of its own. `base` is a plain `Color32` argument
-/// rather than a `&Theme` so the per-Cell call sites in `paint.rs` read one
-/// field once, before their loop, and pass the same value to every Cell's
-/// seam instead of indexing `theme.sector_seam` again per Cell.
-///
-/// The scale is applied to the premultiplied bytes `Color32` holds, every
-/// channel alike and rounded to the nearest byte, so the hue is kept and the
-/// alpha alone changes. It runs once per seam Cell, so it never leaves
-/// premultiplied space: no division by alpha and no re-multiplication.
-/// Scaling every channel by one factor keeps each colour channel at or below
-/// the alpha, which is what keeps the result a valid premultiplied colour.
-///
-pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
-    let strength = u16::from(strength_percent.min(100));
-    // At most 255 * 100 + 50, inside `u16`; the quotient is at most 255.
-    let [red, green, blue, alpha] = base
-        .to_array()
-        .map(|channel| ((u16::from(channel) * strength + 50) / 100) as u8);
-    Color32::from_rgba_premultiplied(red, green, blue, alpha)
 }
 
 ///
@@ -849,7 +956,7 @@ mod tests {
 
     use super::{
         CellColours, CellVisuals, CursorPlacement, EdgeLine, EdgeRank, SOURCE_PAINT_FACTS,
-        cell_visuals, fact_index, install, sector_line, style,
+        cell_visuals, fact_index, install, style,
     };
     use crate::contrast::PORTAL_ROLE_SETS;
     use crate::theme::{Theme, okabe_ito, orcvs_light};
@@ -918,11 +1025,14 @@ mod tests {
         for theme in [okabe_ito(), translucent] {
             let mut table = CellColours::new(&theme);
             for fact in SOURCE_PAINT_FACTS {
-                for roles in PORTAL_ROLE_SETS {
+                for (roles, occupied) in PORTAL_ROLE_SETS
+                    .into_iter()
+                    .flat_map(|roles| [(roles, false), (roles, true)])
+                {
                     assert_eq!(
-                        table.fact_visuals(fact, roles),
-                        cell_visuals(fact, roles, &theme),
-                        "{fact:?}, {roles:?}"
+                        table.fact_visuals(fact, roles, occupied),
+                        cell_visuals(fact, roles, occupied, &theme),
+                        "{fact:?}, {roles:?}, occupied {occupied}"
                     );
                 }
             }
@@ -953,7 +1063,7 @@ mod tests {
 
     /// [`painted`] for a Cell playing any set of Portal roles.
     fn painted_in(paint: SourcePaint, portal_roles: PortalRoles, theme: &Theme) -> CellVisuals {
-        cell_visuals(paint, portal_roles, theme)
+        cell_visuals(paint, portal_roles, true, theme)
     }
 
     ///
@@ -971,7 +1081,7 @@ mod tests {
             cursor_background: cursor_fill,
             ..theme.clone()
         };
-        CellColours::new(&theme).colours(paint, portal_roles, placement)
+        CellColours::new(&theme).colours(paint, portal_roles, true, placement)
     }
 
     ///
@@ -1015,8 +1125,8 @@ mod tests {
             (CursorPlacement::RegionCursor, [Some(region_cursor); 3]),
         ] {
             for (fact, background) in [ordinary, tinted, see_through].into_iter().zip(expected) {
-                let unselected = cell_visuals(fact, PortalRoles::NONE, &theme);
-                let visuals = colours.colours(fact, PortalRoles::NONE, placement);
+                let unselected = cell_visuals(fact, PortalRoles::NONE, true, &theme);
+                let visuals = colours.colours(fact, PortalRoles::NONE, true, placement);
                 assert_eq!(visuals.background, background, "{placement:?}, {fact:?}");
                 assert_eq!(
                     visuals.foreground, unselected.foreground,
@@ -1045,6 +1155,7 @@ mod tests {
                 .colours(
                     SourcePaint::Unclaimed,
                     PortalRoles::NONE,
+                    true,
                     CursorPlacement::Cursor
                 )
                 .background,
@@ -1687,53 +1798,11 @@ mod tests {
         );
     }
 
-    ///
-    /// The strength scales every premultiplied channel of the base alike,
-    /// rounded to the nearest byte, so the seam stays in the premultiplied
-    /// space `Color32` holds and a channel never exceeds its alpha. A base
-    /// whose channels equal its alpha is the case where rounding each
-    /// channel apart could break that.
-    ///
-    #[test]
-    fn sector_line_scales_the_premultiplied_base_by_its_strength() {
-        let bases = [
-            okabe_ito().sector_seam,
-            Color32::from_rgba_premultiplied(110, 110, 110, 110),
-            Color32::from_rgba_premultiplied(1, 254, 0, 255),
-            Color32::TRANSPARENT,
-        ];
-        for base in bases {
-            for strength in 0..=u8::MAX {
-                let percent = u16::from(strength.min(100));
-                let expected = base
-                    .to_array()
-                    .map(|channel| ((u16::from(channel) * percent + 50) / 100) as u8);
-                let line = sector_line(strength, base);
-                assert_eq!(line.to_array(), expected, "{base:?} at strength {strength}");
-                assert!(line.r().max(line.g()).max(line.b()) <= line.a());
-            }
-        }
-    }
-
-    #[test]
-    fn sector_line_strength_only_attenuates_the_base_colours_alpha() {
-        let base = okabe_ito().sector_seam;
-        assert_eq!(sector_line(100, base), base);
-        let [red, green, blue, alpha] = sector_line(50, base).to_srgba_unmultiplied();
-        assert!(red.abs_diff(55) <= 2);
-        assert!(green.abs_diff(101) <= 2);
-        assert!(blue.abs_diff(86) <= 2);
-        assert_eq!(alpha, 55);
-        // 8% of the base alpha of 110 is 8.8, which rounds to 9.
-        assert_eq!(sector_line(8, base).a(), 9);
-        assert_eq!(sector_line(255, base), base);
-    }
-
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
         let theme = okabe_ito();
         let cursor_colour = Some(theme.selection_background);
-        let ordinary = cell_visuals(SourcePaint::Unclaimed, PortalRoles::NONE, &theme);
+        let ordinary = cell_visuals(SourcePaint::Unclaimed, PortalRoles::NONE, true, &theme);
         let selected = coloured(
             SourcePaint::Unclaimed,
             PortalRoles::NONE,
@@ -1778,7 +1847,7 @@ mod tests {
     /// The three optional-fill states an unselected `cursor.background`
     /// exercises once resolved onto a Cell: omission/inheritance already
     /// collapses to one of the other two by `theme_document::resolve`
-    /// (`theme_document::tests::omitted_optional_fills_inherit_the_parent`), so what
+    /// (`theme_document::tests::omitted_optional_colours_inherit_the_parent`), so what
     /// this proves is the remaining pair at the paint layer — `None`
     /// (cleared, "supplies no Cursor fill") answers no background, and
     /// `Some`, including a fully transparent colour, is a supplied value that
@@ -2006,7 +2075,7 @@ mod tests {
         let theme = okabe_ito();
         let cursor_colour = Color32::from_rgb(9, 8, 7);
         let tinted_function = theme.source_function_background;
-        let unselected = cell_visuals(SourcePaint::Function, PortalRoles::NONE, &theme);
+        let unselected = cell_visuals(SourcePaint::Function, PortalRoles::NONE, true, &theme);
         let selected = coloured(
             SourcePaint::Function,
             PortalRoles::NONE,
@@ -2253,6 +2322,169 @@ mod tests {
     }
 
     ///
+    /// A Function's own border sits beneath the Locked border: a locked
+    /// Function shows `locked.border` over its Function border, at
+    /// `locked.border.width`.
+    ///
+    #[test]
+    fn the_locked_border_composes_over_a_functions_own_border() {
+        let function_border = Color32::from_rgba_unmultiplied(30, 200, 30, 128);
+        let locked_border = Color32::from_rgba_unmultiplied(200, 200, 30, 64);
+        let theme = Theme {
+            source_function_border: function_border,
+            source_function_border_width: crate::theme::GridWidth::from_points(1.0)
+                .expect("within 0..=1"),
+            locked_border,
+            ..okabe_ito()
+        };
+
+        let locked = painted_in(
+            SourcePaint::Function,
+            PortalRoles::NONE.with(PortalRole::Locked),
+            &theme,
+        );
+
+        assert_eq!(
+            locked.border.map(|border| border.stroke),
+            Some(Stroke::new(
+                theme.locked_border_width.points(),
+                theme
+                    .grid_border
+                    .blend(function_border)
+                    .blend(locked_border)
+            ))
+        );
+    }
+
+    ///
+    /// A role border frames every Cell its role claims, blank or not: an
+    /// empty Function Cell and a Pending operand slot take their role's
+    /// border. An empty unclaimed Cell keeps the plain Grid line even with a
+    /// visible Ordinary border, which frames only an unclaimed Cell holding
+    /// content.
+    ///
+    #[test]
+    fn a_role_border_frames_every_claimed_cell_and_the_ordinary_border_only_content() {
+        let function_border = Color32::from_rgb(30, 200, 30);
+        let number_border = Color32::from_rgb(30, 30, 200);
+        let ordinary_border = Color32::from_rgb(200, 30, 30);
+        let theme = Theme {
+            source_function_border: function_border,
+            source_number_border: number_border,
+            source_ordinary_border: ordinary_border,
+            ..okabe_ito()
+        };
+        let empty = |paint| cell_visuals(paint, PortalRoles::NONE, false, &theme);
+
+        let function = empty(SourcePaint::Function)
+            .border
+            .map(|border| border.stroke);
+        assert_eq!(
+            function,
+            Some(Stroke::new(
+                theme.source_function_border_width.points(),
+                theme.grid_border.blend(function_border)
+            ))
+        );
+
+        let pending = empty(operand(Token::Number, OperandState::Pending))
+            .border
+            .map(|border| border.stroke);
+        assert_eq!(
+            pending,
+            Some(Stroke::new(
+                theme.source_number_border_width.points(),
+                theme.grid_border.blend(number_border)
+            ))
+        );
+
+        assert_eq!(empty(SourcePaint::Unclaimed).border, None);
+
+        let written = painted(SourcePaint::Unclaimed, false, &theme)
+            .border
+            .map(|border| border.stroke);
+        assert_eq!(
+            written,
+            Some(Stroke::new(
+                theme.source_ordinary_border_width.points(),
+                theme.grid_border.blend(ordinary_border)
+            ))
+        );
+    }
+
+    ///
+    /// Each Source role strokes its own border and no other role's: a Bang
+    /// takes the Bang border rather than the Function one, a Valid or Invalid
+    /// operand takes its declared Token's border, and an Invalid operand
+    /// shows the Diagnostic border over its Token's. A Pending operand slot
+    /// is blank, so
+    /// [`a_role_border_frames_every_claimed_cell_and_the_ordinary_border_only_content`]
+    /// covers it.
+    ///
+    #[test]
+    fn each_role_strokes_its_own_border() {
+        let width = |points| crate::theme::GridWidth::from_points(points).expect("within 0..=1");
+        let border = |shade| Color32::from_rgb(shade, 255 - shade, 128);
+        let diagnostic_border = Color32::from_rgba_unmultiplied(200, 30, 30, 96);
+        let theme = Theme {
+            source_ordinary_border: border(10),
+            source_ordinary_border_width: width(0.1),
+            source_comment_border: border(20),
+            source_comment_border_width: width(0.2),
+            source_number_border: border(30),
+            source_number_border_width: width(0.3),
+            source_note_border: border(40),
+            source_note_border_width: width(0.4),
+            source_function_border: border(50),
+            source_function_border_width: width(0.5),
+            source_bang_border: border(60),
+            source_bang_border_width: width(0.6),
+            diagnostic_border,
+            ..okabe_ito()
+        };
+        let role = |shade| {
+            (
+                theme.grid_border.blend(border(shade)),
+                f32::from(shade) / 100.0,
+            )
+        };
+
+        for (fact, (expected, expected_width)) in [
+            (SourcePaint::Unclaimed, role(10)),
+            (SourcePaint::Comment, role(20)),
+            (operand(Token::Number, OperandState::Valid), role(30)),
+            (operand(Token::Note, OperandState::Valid), role(40)),
+            (SourcePaint::Function, role(50)),
+            (SourcePaint::Bang, role(60)),
+            (
+                operand(Token::Number, OperandState::Invalid),
+                (
+                    role(30).0.blend(diagnostic_border),
+                    theme.diagnostic_border_width.points(),
+                ),
+            ),
+            (
+                operand(Token::Note, OperandState::Invalid),
+                (
+                    role(40).0.blend(diagnostic_border),
+                    theme.diagnostic_border_width.points(),
+                ),
+            ),
+        ] {
+            let stroke = painted(fact, false, &theme)
+                .border
+                .expect("every role draws its border")
+                .stroke;
+            assert_eq!(stroke.color, expected, "{fact:?}");
+            assert!(
+                (stroke.width - expected_width).abs() < 1e-6,
+                "{fact:?}: {} is not {expected_width}",
+                stroke.width
+            );
+        }
+    }
+
+    ///
     /// Portal precedence over Diagnostic reaches the border channel too: an
     /// Invalid operand inside an Output Portal takes the Output Portal's own border
     /// colour and width outright, the same as it already does for foreground
@@ -2412,6 +2644,52 @@ mod tests {
         );
 
         assert_eq!(cursor.background, Some(cursor_colour));
+    }
+
+    ///
+    /// The Cursor's Cell draws its glyph in the Cursor's glyph colour over
+    /// every fact and every Portal role set, Locked included, which Source
+    /// cannot always place under the Cursor: `cursor.foreground` on the
+    /// single-Cell Cursor, and the Region's Cursor's fallback while a Region
+    /// spans. Off the Cursor, and with both cleared, the glyph is the fact's.
+    ///
+    #[test]
+    fn the_cursor_glyph_replaces_every_fact_and_portal_on_the_cursors_cell() {
+        let glyph = Color32::from_rgb(1, 200, 3);
+        let region_glyph = Color32::from_rgb(3, 1, 200);
+        let theme = Theme {
+            cursor_foreground: Some(glyph),
+            region_cursor_foreground: Some(region_glyph),
+            ..okabe_ito()
+        };
+        let cleared = okabe_ito();
+        let mut colours = CellColours::new(&theme);
+        let mut cleared_colours = CellColours::new(&cleared);
+        for paint in SOURCE_PAINT_FACTS {
+            for portals in PORTAL_ROLE_SETS {
+                let role = cell_visuals(paint, portals, true, &theme).foreground;
+                let context = format!("{paint:?} under {portals:?}");
+                for (placement, expected, expected_cleared) in [
+                    (CursorPlacement::Cursor, glyph, role),
+                    (CursorPlacement::RegionCursor, region_glyph, role),
+                    (CursorPlacement::Plain, role, role),
+                    (CursorPlacement::Region, role, role),
+                ] {
+                    assert_eq!(
+                        colours.colours(paint, portals, true, placement).foreground,
+                        expected,
+                        "{context} at {placement:?}"
+                    );
+                    assert_eq!(
+                        cleared_colours
+                            .colours(paint, portals, true, placement)
+                            .foreground,
+                        expected_cleared,
+                        "{context} at {placement:?}, cleared"
+                    );
+                }
+            }
+        }
     }
 
     // === Input Portal, and Output Portal over it ===
@@ -2764,6 +3042,7 @@ mod tests {
         let unselected = cell_visuals(
             operand(Token::Number, OperandState::Invalid),
             PortalRoles::NONE,
+            true,
             &theme,
         );
         let cursor = coloured(

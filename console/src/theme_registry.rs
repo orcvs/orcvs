@@ -24,7 +24,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::theme::{Appearance, Theme, ThemeIdentity, okabe_ito, orcvs_light};
+use crate::theme::{
+    Appearance, Theme, ThemeIdentity, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
+};
 
 ///
 /// Why a selected identity could not be resolved to a Theme.
@@ -57,7 +59,7 @@ impl std::fmt::Display for Unavailable {
 /// is shown about them.
 ///
 pub(crate) struct ThemeRegistry {
-    built_ins: [Theme; 2],
+    built_ins: [Theme; 4],
     /// Resolved custom Themes by identity (filename stem).
     custom: BTreeMap<ThemeIdentity, Theme>,
     /// Identities a document claimed but that could not be loaded, with the
@@ -75,7 +77,12 @@ impl ThemeRegistry {
     ///
     pub(crate) fn built_in() -> Self {
         Self {
-            built_ins: [okabe_ito(), orcvs_light()],
+            built_ins: [
+                grayscale_dark(),
+                grayscale_light(),
+                okabe_ito(),
+                orcvs_light(),
+            ],
             custom: BTreeMap::new(),
             refused: BTreeMap::new(),
             notices: Vec::new(),
@@ -488,7 +495,8 @@ mod tests {
     use super::tests_support::{dark, id, load};
     use super::{ThemeRegistry, Unavailable};
     use crate::theme::{
-        Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, okabe_ito, orcvs_light,
+        Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, grayscale_dark, grayscale_light,
+        okabe_ito, orcvs_light,
     };
     use crate::theme_selection::{SelectedThemes, ThemeSelection};
 
@@ -538,8 +546,8 @@ mod tests {
             registry.select(Appearance::Light, &ORCVS_LIGHT_IDENTITY),
             Ok(&orcvs_light())
         );
-        assert_eq!(registry.fallback(Appearance::Dark), &okabe_ito());
-        assert_eq!(registry.fallback(Appearance::Light), &orcvs_light());
+        assert_eq!(registry.fallback(Appearance::Dark), &grayscale_dark());
+        assert_eq!(registry.fallback(Appearance::Light), &grayscale_light());
         assert_eq!(
             registry.select(Appearance::Light, &OKABE_ITO_IDENTITY),
             Err(Unavailable::WrongAppearance(Appearance::Dark)),
@@ -645,7 +653,7 @@ mod tests {
             registry,
             ThemeSelection::new(id("paper"), ORCVS_LIGHT_IDENTITY),
         );
-        assert_eq!(*themes.presented(Appearance::Dark), okabe_ito());
+        assert_eq!(*themes.presented(Appearance::Dark), grayscale_dark());
         assert!(
             themes
                 .notices()
@@ -1163,13 +1171,13 @@ mod discovery_tests {
         use super::super::tests_support::{TempDir, dark};
         use super::super::{ThemeRegistry, Unavailable};
         use crate::config::{CONFIG_FILE, Config};
-        use crate::theme::{Appearance, okabe_ito};
+        use crate::theme::{Appearance, grayscale_dark};
         use crate::theme_selection::SelectedThemes;
 
         ///
         /// One launch: the dark selection's resolution and the notices the
         /// launch raised. The Theme presented for dark is the one the
-        /// selection resolved to, or Okabe–Ito when it resolved to none.
+        /// selection resolved to, or Grayscale Dark when it resolved to none.
         ///
         fn launch(
             settings: &TempDir,
@@ -1187,7 +1195,7 @@ mod discovery_tests {
             let presented = themes.presented(Appearance::Dark);
             match &selected {
                 Ok(identity) => assert_eq!(presented.identity.as_str(), identity),
-                Err(_) => assert_eq!(*presented, okabe_ito()),
+                Err(_) => assert_eq!(*presented, grayscale_dark()),
             }
             (selected, themes.notice_list())
         }
@@ -1217,7 +1225,7 @@ mod discovery_tests {
                 notices.iter().any(|notice| notice.contains("\"my-dark\"")
                     && notice.contains("theme.dark")
                     && notice.contains("my-dark.toml")
-                    && notice.contains("Okabe–Ito")),
+                    && notice.contains("Grayscale Dark")),
                 "{notices:?}"
             );
 
@@ -1299,6 +1307,12 @@ mod discovery_tests {
 pub(crate) mod tests_support {
     #[cfg(not(target_arch = "wasm32"))]
     use std::path::{Path, PathBuf};
+
+    /// The built-in Themes a registry holds, for the contrast gate to check
+    /// it covers every one.
+    pub(crate) fn built_ins(registry: &super::ThemeRegistry) -> &[crate::theme::Theme] {
+        &registry.built_ins
+    }
 
     /// A custom Theme's identity, as a file named `stem` supplies it.
     pub(crate) fn id(stem: &str) -> crate::theme::ThemeIdentity {

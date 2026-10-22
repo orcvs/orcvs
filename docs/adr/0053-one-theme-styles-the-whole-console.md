@@ -1,6 +1,6 @@
 # One Theme styles the whole console
 
-Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker. The 2026-10-22 amendment supersedes the Bang exception in the painting precedence: a Bang keeps all its own paint inside a Portal.
+Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker. The 2026-10-20 amendment extends the optional states to the Cursor's two glyph colours. The 2026-10-22 amendment supersedes the Bang exception in the painting precedence: a Bang keeps all its own paint inside a Portal.
 
 **Every part of the console's presentation is themeable, and one Theme styles all of it.** ADR 0051 scoped theming to the Source Grid and left the page, panels, widgets, selection, Cell grid lines and Sector Seams to egui's dark/light `Visuals`: two fixed palettes, compiled in, with nothing a viewer can choose or load. That was never the requirement. The Source Grid and the console around it are never themed separately, so loading an Orcvs Theme restyles the menus as well as the Grid.
 
@@ -42,7 +42,7 @@ Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Them
 
 **Role backgrounds are named colours.** Role backgrounds are explicit colour properties, such as `source.function.background`, `source.number.background`, `diagnostic.background` and `output_portal.background`. They composite over the uniform `cell.background` under the confirmed fixed precedence. Changing a role foreground does not recalculate its background. There is no `fill_tint` property or shared tint-strength setting in the Orcvs Theme format. Extract and verify the built-in role background colours from current rendering so its appearance is preserved; illustrative colours in the interview are not accepted defaults.
 
-**Optional fills distinguish absence from transparency.** Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key.
+*Extended on 2026-10-20 by the amendment below to `cursor.foreground` and `region.cursor.foreground`.* **Optional fills distinguish absence from transparency.** Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key.
 
 **Leave room for future appearance controls without building them.** Font choice is a nice-to-have, not planned work. Font sizes, spacing, corner radii, shadows and gradients are also outside this effort. This supersedes the earlier typography, custom-font-file and broader visual-geometry scope. Keep the existing fonts and layout. Avoid new assumptions that would prevent future extensions, without adding speculative fields, loaders or abstractions. No future font format, source or delivery mechanism is committed by this decision.
 
@@ -185,6 +185,22 @@ The Consequences' sequencing still holds without pickers: the selection
 restored at startup, operating-system appearance changes, the mode control and
 loaded documents each apply one Theme to the Source Grid and the chrome
 together.
+
+## Amendment, 2026-10-20: the Cursor's glyph colours are optional too
+
+"Optional fills distinguish absence from transparency" applies to four
+properties, not two: `cursor.background`, `region.cursor.background`,
+`cursor.foreground` and `region.cursor.foreground`.
+
+- **The glyph colours follow the fills' rule.** Omission inherits the parent
+  value. `none` clears the colour: a cleared `cursor.foreground` leaves the
+  glyph under the single-Cell Cursor its role colour, and a cleared
+  `region.cursor.foreground` falls back to `cursor.foreground`, as the Region's
+  Cursor fill falls back to the Cursor fill. An explicit transparent colour is
+  a supplied value: it hides the glyph and does not trigger the fallback.
+- **A hidden glyph is not measured.** The contrast check reports no Source
+  Grid state whose glyph is fully transparent, since it draws no text.
+- **No other colour key takes `none`.**
 
 ## Amendment, 2026-10-22: a Bang keeps its own paint inside a Portal
 

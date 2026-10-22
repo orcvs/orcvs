@@ -11,6 +11,7 @@ pub mod console_midi;
 #[cfg(any(not(target_arch = "wasm32"), test))]
 mod contrast;
 pub mod diagnostics;
+mod examples;
 mod function_reference;
 mod grid_viewport;
 mod marks;

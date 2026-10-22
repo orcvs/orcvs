@@ -7,10 +7,10 @@
 //! Nothing here is a `Rect`, and nothing here reads a viewport's geometry.
 //! Where a Cell *is* on screen is `GridViewport`'s arithmetic and is asserted
 //! there; a `Rect` in this layer would make every assertion about a colour
-//! acquire a viewport before it could be written. Sector Seam strengths are
-//! decided here from the Frame's spacing answer; `sector_line` turns a strength into a colour as a pure reading of
-//! the palette, while the stroke *widths* the same seams are drawn with scale
-//! with the Cell side and so belong to the step that has one.
+//! acquire a viewport before it could be written. Which Cell edges carry a
+//! Sector Seam is decided here from the Frame's spacing answer, in the
+//! Theme's `sector.seam`, while the stroke *widths* the same seams are drawn
+//! with belong to the step that has the geometry.
 //!
 //! A [`VisiblePositions`] does cross into this layer, and it is that rule kept
 //! rather than an exception to it. It is two `Range<usize>` over the Grid's own
@@ -51,8 +51,8 @@ use orcvs::{
 };
 
 use crate::{
-    marks::{sector_left_strength, sector_top_strength},
-    style::{CellColours, CursorPlacement, sector_line},
+    marks::{sector_left, sector_top},
+    style::{CellColours, CursorPlacement},
     theme::{GridWidth, Theme},
 };
 
@@ -105,6 +105,8 @@ pub struct BackgroundRun {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EdgeRank {
     GridLine,
+    /// A Source role's own border.
+    Role,
     Diagnostic,
     Locked,
     InputPortal,
@@ -287,10 +289,13 @@ impl Paint {
     /// Reads a paired Render Frame and drawn range and answers what each Cell
     /// is drawn as, resolved from `theme`.
     ///
-    /// `theme.cursor_background` fills the Cursor's Cell. While a Region
+    /// `theme.cursor_background` fills the Cursor's Cell, and
+    /// `theme.cursor_foreground`, when set, colours its glyph. While a Region
     /// spans more than one Cell, `theme.region_background` fills the rest of
     /// it, and `theme.region_cursor_background` fills the Cursor's Cell
     /// independently — or, when `None`, the ordinary Cursor fill still does.
+    /// Its glyph takes `theme.region_cursor_glyph()` the same way
+    /// (`style::CellColours::colours` decides both glyphs).
     /// `theme.cell_background` is the uniform base every one of those fills
     /// composites over, and — being independent of whether a role
     /// contributed one — is also what a Cell with no fill of its own falls
@@ -308,8 +313,10 @@ impl Paint {
     /// `style::CellColours` decides each Cell's colours: this decides where
     /// a Cell sits relative to the Cursor and Region, and what to do with the
     /// answer, not what the answer is. It reads the finished language fact
-    /// on the Cell (`RenderCell::source_paint`) and the Portal roles the Cell
-    /// plays (`RenderCell::portal_roles`).
+    /// on the Cell (`RenderCell::source_paint`), the Portal roles the Cell
+    /// plays (`RenderCell::portal_roles`), and whether the Cell holds
+    /// content, which decides whether an unclaimed Cell's Ordinary border can
+    /// show.
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
     /// Cell: a per-Cell resolution would add its cost to every drawn Cell of
@@ -370,7 +377,12 @@ impl Paint {
                 } else {
                     CursorPlacement::Plain
                 };
-                let visuals = colours.colours(cell.source_paint(), cell.portal_roles(), placement);
+                let visuals = colours.colours(
+                    cell.source_paint(),
+                    cell.portal_roles(),
+                    cell.content().is_some(),
+                    placement,
+                );
 
                 // The Cursor's own Cell inside a spanning Region keeps its
                 // fact's border, ranked over every other fact.
@@ -386,18 +398,13 @@ impl Paint {
                     background: visuals.background,
                     border,
                     foreground: visuals.foreground,
-                    // `sector_line` is pure, so the strength becomes a colour
-                    // here, against `sector_seam` read from `theme` once
+                    // The colour is `sector_seam`, read from `theme` once
                     // above the loop. Whether an edge shows it is
                     // `Self::edges`' answer.
-                    sector_left: seams
-                        .then(|| sector_left_strength(position, sector_seam_spacing))
-                        .flatten()
-                        .map(|strength| sector_line(strength, sector_seam)),
-                    sector_top: seams
-                        .then(|| sector_top_strength(position, sector_seam_spacing))
-                        .flatten()
-                        .map(|strength| sector_line(strength, sector_seam)),
+                    sector_left: (seams && sector_left(position, sector_seam_spacing))
+                        .then_some(sector_seam),
+                    sector_top: (seams && sector_top(position, sector_seam_spacing))
+                        .then_some(sector_seam),
                     // A Cell's own content when it has one; the space
                     // otherwise, which `place_glyphs` (`console::shapes`) draws no
                     // Glyph for. An empty claimed operand Cell answers the same
@@ -754,11 +761,12 @@ fn test_theme() -> Theme {
 mod tests {
     use super::{
         BackgroundRun, CellPaint, EdgeLine, EdgeRank, EdgeRun, FramePaint, Outline, Paint, Theme,
+        test_theme,
     };
     use crate::grid_viewport::VisiblePositions;
-    use crate::marks::{sector_left_strength, sector_top_strength};
-    use crate::style::{CellColours, CursorPlacement, sector_line};
-    use crate::theme::okabe_ito;
+    use crate::marks::{sector_left, sector_top};
+    use crate::style::{CellColours, CursorPlacement};
+    use crate::theme::{GridWidth, okabe_ito};
     use egui::{Color32, Stroke};
     use orcvs::source::{OperandState, SourcePaint, Token};
     use orcvs::{
@@ -823,8 +831,8 @@ mod tests {
 
     ///
     /// What `CellColours::colours` answers for `cell` at
-    /// `CursorPlacement::Plain`, reading its claim and its own Portal roles
-    /// straight from `cell` — the same two per-Cell inputs
+    /// `CursorPlacement::Plain`, reading its claim, its own Portal roles and
+    /// its occupancy straight from `cell` — the same three per-Cell inputs
     /// `Paint::derive_with_theme` reads, so a test comparing against this
     /// needs no `okabe_ito()`-only shim.
     ///
@@ -835,6 +843,7 @@ mod tests {
         CellColours::new(theme).colours(
             cell.source_paint(),
             cell.portal_roles(),
+            cell.content().is_some(),
             CursorPlacement::Plain,
         )
     }
@@ -1333,13 +1342,15 @@ mod tests {
 
     ///
     /// Sector seams stand on every Cell Paint derives them for, the Cursor's
-    /// included, in `sector_line`'s answer for the strength Paint computed.
+    /// included, in the Theme's `sector.seam`.
     /// The Cursor's outline owns its Cell's edges, so neither of its seams
     /// shows there.
     ///
     /// The Cursor is put on a Cell that wants a seam — the corner of a
-    /// sector, where the seam is at full strength — because a Cursor parked
-    /// where no seam was wanted would prove nothing.
+    /// sector — because a Cursor parked where no seam was wanted would
+    /// prove nothing.
+    ///
+    /// Everywhere the colour is the Theme's own `sector.seam`.
     ///
     #[tokio::test]
     async fn seams_stand_where_paint_asks_and_the_outline_owns_its_edges() {
@@ -1353,31 +1364,31 @@ mod tests {
         let spacing = frame.sector_seam_spacing().cells();
         let cursor = frame.cursor();
         // `whole` derives against `test_theme`, itself the Okabe–Ito built-in
-        // apart from its Cursor fill, so its `sector_seam` is the base
-        // `sector_line` attenuates below.
+        // apart from its Cursor fill, so its `sector_seam` is every seam's
+        // colour.
         let base = okabe_ito().sector_seam;
         let mut seams = 0;
 
         for cell in frame.cells() {
             let position = cell.position();
             let painted = paint.at(position);
-            let left = sector_left_strength(position, spacing);
-            let top = sector_top_strength(position, spacing);
+            let left = sector_left(position, spacing);
+            let top = sector_top(position, spacing);
 
             if position == cursor {
                 assert!(
-                    left.is_some() && top.is_some(),
+                    left && top,
                     "the Cursor must sit where seams are wanted for their absence to mean anything"
                 );
             }
             assert_eq!(
                 painted.sector_left,
-                left.map(|strength| sector_line(strength, base)),
+                left.then_some(base),
                 "the left seam at {position:?}"
             );
             assert_eq!(
                 painted.sector_top,
-                top.map(|strength| sector_line(strength, base)),
+                top.then_some(base),
                 "the top seam at {position:?}"
             );
             seams += usize::from(painted.sector_left.is_some());
@@ -1430,21 +1441,12 @@ mod tests {
         let spacing = frame.sector_seam_spacing().cells();
         let painted = *whole(&frame).at(at(8, 8));
 
-        let left = sector_left_strength(at(8, 8), spacing);
-        let top = sector_top_strength(at(8, 8), spacing);
+        let left = sector_left(at(8, 8), spacing);
+        let top = sector_top(at(8, 8), spacing);
         let base = okabe_ito().sector_seam;
-        assert!(
-            left.is_some() && top.is_some(),
-            "the Cursor is off a sector corner"
-        );
-        assert_eq!(
-            painted.sector_left,
-            left.map(|strength| sector_line(strength, base))
-        );
-        assert_eq!(
-            painted.sector_top,
-            top.map(|strength| sector_line(strength, base))
-        );
+        assert!(left && top, "the Cursor is off a sector corner");
+        assert_eq!(painted.sector_left, left.then_some(base));
+        assert_eq!(painted.sector_top, top.then_some(base));
     }
 
     ///
@@ -1889,6 +1891,365 @@ mod tests {
             valid.border, None,
             "a Valid operand took the Diagnostic border it has no fact for"
         );
+    }
+
+    ///
+    /// A visible `source.function.border` strokes both Cells of a written
+    /// Function's spelling at `source.function.border.width`, over the Grid
+    /// line, and leaves its operands on the plain Grid line.
+    ///
+    #[tokio::test]
+    async fn a_visible_function_border_strokes_the_function_cells_at_its_own_width() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+0102".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let visible = Color32::from_rgb(30, 200, 30);
+        let theme = Theme {
+            source_function_border: visible,
+            source_function_border_width: GridWidth::from_points(0.25).expect("within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let at = |x| paint.at(orcvs.grid().position(x, 0).expect("inside the grid"));
+
+        for x in [0, 1] {
+            assert_eq!(
+                at(x).border,
+                Some(EdgeLine {
+                    rank: EdgeRank::Role,
+                    stroke: Stroke::new(0.25, theme.grid_border.blend(visible)),
+                    seamed: false,
+                }),
+                "column {x}"
+            );
+        }
+        assert_eq!(at(2).border, None, "an operand took the Function border");
+    }
+
+    ///
+    /// A transparent Function border holds no edge, so the Function's Cells
+    /// keep the Grid line at `grid.border.width`, whatever the Function
+    /// border's own width. A visible one at width zero withdraws as well.
+    ///
+    #[tokio::test]
+    async fn a_transparent_function_border_leaves_the_grid_line_and_its_width() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+0102".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let width = |points| GridWidth::from_points(points).expect("within 0..=1");
+        let transparent = Theme {
+            grid_border_width: width(0.25),
+            source_function_border: Color32::TRANSPARENT,
+            source_function_border_width: width(1.0),
+            ..okabe_ito()
+        };
+        let hidden = Theme {
+            source_function_border: Color32::from_rgb(30, 200, 30),
+            source_function_border_width: width(0.0),
+            ..okabe_ito()
+        };
+        let function = orcvs.grid().position(0, 0).expect("inside the grid");
+
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &transparent);
+        assert_eq!(paint.at(function).border, None);
+
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &hidden);
+        assert_eq!(paint.at(function).border, None);
+    }
+
+    ///
+    /// A Comment's border frames every Cell the Comment claims, the blank
+    /// Cells between its text included, and an empty Cell past the Grid's
+    /// written Source keeps the plain Grid line.
+    ///
+    #[tokio::test]
+    async fn a_comment_border_frames_its_blank_cells_as_well_as_its_text() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in [(0, '|'), (1, '|'), (2, 'a'), (4, 'b')] {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let visible = Color32::from_rgb(30, 30, 200);
+        let theme = Theme {
+            source_comment_border: visible,
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let position = |x| orcvs.grid().position(x, 0).expect("inside the grid");
+
+        assert_eq!(frame.at(position(3)).source_paint(), SourcePaint::Comment);
+        assert_eq!(frame.at(position(3)).content(), None);
+        assert_eq!(
+            paint
+                .at(position(2))
+                .border
+                .map(|border| border.stroke.color),
+            Some(theme.grid_border.blend(visible))
+        );
+        assert_eq!(
+            paint.at(position(3)).border.map(|border| border.stroke),
+            Some(Stroke::new(
+                theme.source_comment_border_width.points(),
+                theme.grid_border.blend(visible)
+            ))
+        );
+        let below = orcvs.grid().position(3, 1).expect("inside the grid");
+        assert_eq!(frame.at(below).source_paint(), SourcePaint::Unclaimed);
+        assert_eq!(paint.at(below).border, None);
+    }
+
+    ///
+    /// A custom Theme document that sets the Function border decodes,
+    /// resolves over its parent, and paints that border on a written
+    /// Function.
+    ///
+    #[tokio::test]
+    async fn a_theme_document_paints_the_function_border_it_sets() {
+        let document = crate::theme_document::decode(
+            "framed.toml",
+            br##"
+format = "orcvs-theme"
+version = 1
+name = "Framed"
+inherits = "grayscale-dark"
+
+[style]
+"source.function.border" = "#80808080"
+"source.function.border.width" = 1
+"##,
+        )
+        .expect("a valid Theme document");
+        let theme = crate::theme_document::resolve(
+            &[crate::theme::grayscale_dark()],
+            &crate::theme::ThemeIdentity::from_stem("framed").expect("a valid stem"),
+            &document,
+        )
+        .expect("the document resolves over its parent");
+
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+0102".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let function = paint.at(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+        let framed = Color32::from_rgba_unmultiplied(0x80, 0x80, 0x80, 0x80);
+        assert_eq!(
+            function.border.map(|border| border.stroke),
+            Some(Stroke::new(1.0, theme.grid_border.blend(framed)))
+        );
+    }
+
+    ///
+    /// A Function, an Invalid operand and an Output Portal answer, each with
+    /// a glyph: `.+**01` on row 0, whose `**` is the rejected Number operand,
+    /// and `07` left south of `.+0304` on rows 2 and 3. Answers the Orcvs and
+    /// the three Positions, in that order.
+    ///
+    fn cursor_glyph_sampler() -> (Orcvs, [orcvs::grid::Position; 3]) {
+        let mut orcvs = running_orcvs(8, 4);
+        write_row(&mut orcvs, 0, ".+**01");
+        write_row(&mut orcvs, 2, ".+0304");
+        write_row(&mut orcvs, 3, "07");
+        let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
+        let cells = [at(0, 0), at(2, 0), at(0, 3)];
+        (orcvs, cells)
+    }
+
+    ///
+    /// `cursor.foreground` draws the glyph on the single-Cell Cursor over a
+    /// Function, an Invalid operand and an Output Portal answer alike, a
+    /// transparent one hiding it. Cleared, each glyph keeps its role colour.
+    /// The Cursor's fill and frame, and every other Cell, paint as they do
+    /// with the glyph colour cleared.
+    ///
+    #[tokio::test]
+    async fn cursor_foreground_draws_the_glyph_on_the_single_cell_cursor() {
+        let (mut orcvs, cells) = cursor_glyph_sampler();
+        let base = test_theme();
+        let roles = [
+            base.source_function,
+            base.diagnostic_foreground,
+            base.output_portal_foreground,
+        ];
+        let glyph = Color32::from_rgb(1, 200, 3);
+
+        for (cursor, role) in cells.into_iter().zip(roles) {
+            orcvs.select(cursor);
+            let frame = orcvs.render_frame();
+            assert!(frame.at(cursor).content().is_some(), "{cursor:?} is empty");
+            let painted = |cursor_foreground| {
+                let theme = Theme {
+                    cursor_foreground,
+                    ..test_theme()
+                };
+                Paint::derive_with_theme(FramePaint::whole(&frame), &theme)
+            };
+            let cleared = painted(None);
+            assert!(!outline_spans(&cleared));
+            assert_eq!(cleared.at(cursor).foreground, role, "{cursor:?} cleared");
+
+            for supplied in [glyph, Color32::TRANSPARENT] {
+                let paint = painted(Some(supplied));
+                let (own, plain) = (paint.at(cursor), cleared.at(cursor));
+                assert_eq!(own.foreground, supplied, "{cursor:?}");
+                assert_eq!(own.background, plain.background, "{cursor:?}'s fill");
+                assert_eq!(own.border, plain.border, "{cursor:?}'s frame");
+                for (position, cell) in paint.cells() {
+                    if position != cursor {
+                        assert_eq!(cell, cleared.at(position), "{position:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    ///
+    /// A custom Theme document that sets `cursor.foreground` decodes,
+    /// resolves over its parent, and paints the glyph under the Cursor in
+    /// it, leaving the Cell beside it its role colour.
+    ///
+    #[tokio::test]
+    async fn a_theme_document_paints_the_cursor_foreground_it_sets() {
+        let document = crate::theme_document::decode(
+            "glyph.toml",
+            br##"
+format = "orcvs-theme"
+version = 1
+name = "Glyph"
+inherits = "grayscale-dark"
+
+[style]
+"cursor.foreground" = "#102030"
+"##,
+        )
+        .expect("a valid Theme document");
+        let theme = crate::theme_document::resolve(
+            &[crate::theme::grayscale_dark()],
+            &crate::theme::ThemeIdentity::from_stem("glyph").expect("a valid stem"),
+            &document,
+        )
+        .expect("the document resolves over its parent");
+
+        let (mut orcvs, [function, ..]) = cursor_glyph_sampler();
+        orcvs.select(function);
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let beside = orcvs.grid().position(1, 0).expect("inside the grid");
+
+        assert_eq!(
+            paint.at(function).foreground,
+            Color32::from_rgb(0x10, 0x20, 0x30)
+        );
+        assert_eq!(paint.at(beside).foreground, theme.source_function);
+    }
+
+    ///
+    /// While a Region spans more than one Cell, the glyph on the Cursor's own
+    /// Cell draws in `region.cursor.foreground` when it holds a colour,
+    /// transparent included; otherwise in `cursor.foreground` when that
+    /// holds one; otherwise in its role colour. The Region runs from an
+    /// Invalid operand back to the Function the Cursor stands on, and its
+    /// other Cells, the Cursor Cell's fill and the lasso's grid line paint as
+    /// they do with both glyph colours cleared.
+    ///
+    #[tokio::test]
+    async fn the_regions_cursor_glyph_falls_back_to_the_cursor_glyph_then_the_role() {
+        let (mut orcvs, [function, invalid, _]) = cursor_glyph_sampler();
+        orcvs.select(invalid);
+        orcvs.extend(function);
+        let frame = orcvs.render_frame();
+        let painted = |region_cursor_foreground, cursor_foreground| {
+            let theme = Theme {
+                region_cursor_background: Some(Color32::from_rgb(4, 5, 6)),
+                region_cursor_foreground,
+                cursor_foreground,
+                ..test_theme()
+            };
+            Paint::derive_with_theme(FramePaint::whole(&frame), &theme)
+        };
+        let cleared = painted(None, None);
+        assert!(outline_spans(&cleared));
+        assert_eq!(frame.cursor(), function);
+
+        let own = Color32::from_rgb(1, 200, 3);
+        let cursor = Color32::from_rgb(200, 1, 3);
+        for (region_cursor_foreground, cursor_foreground, expected) in [
+            (Some(own), Some(cursor), own),
+            (Some(own), None, own),
+            (None, Some(cursor), cursor),
+            (None, None, test_theme().source_function),
+            (
+                Some(Color32::TRANSPARENT),
+                Some(cursor),
+                Color32::TRANSPARENT,
+            ),
+        ] {
+            let paint = painted(region_cursor_foreground, cursor_foreground);
+            let case = format!(
+                "region.cursor.foreground {region_cursor_foreground:?}, \
+                 cursor.foreground {cursor_foreground:?}"
+            );
+            let (glyph, plain) = (paint.at(function), cleared.at(function));
+            assert_eq!(glyph.foreground, expected, "{case}");
+            assert_eq!(glyph.background, plain.background, "{case}: the fill");
+            assert_eq!(glyph.border, plain.border, "{case}: the grid line");
+            for (position, cell) in paint.cells() {
+                if position != function {
+                    assert_eq!(cell, cleared.at(position), "{case}: {position:?}");
+                }
+            }
+        }
+    }
+
+    ///
+    /// A custom Theme document that sets `region.cursor.foreground` decodes,
+    /// resolves over its parent, and paints the glyph on the Region's Cursor
+    /// Cell in it.
+    ///
+    #[tokio::test]
+    async fn a_theme_document_paints_the_region_cursor_foreground_it_sets() {
+        let document = crate::theme_document::decode(
+            "glyph.toml",
+            br##"
+format = "orcvs-theme"
+version = 1
+name = "Glyph"
+inherits = "grayscale-dark"
+
+[style]
+"region.cursor.foreground" = "#102030"
+"##,
+        )
+        .expect("a valid Theme document");
+        let theme = crate::theme_document::resolve(
+            &[crate::theme::grayscale_dark()],
+            &crate::theme::ThemeIdentity::from_stem("glyph").expect("a valid stem"),
+            &document,
+        )
+        .expect("the document resolves over its parent");
+
+        let (mut orcvs, [function, invalid, _]) = cursor_glyph_sampler();
+        orcvs.select(invalid);
+        orcvs.extend(function);
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        assert!(outline_spans(&paint));
+        assert_eq!(
+            paint.at(function).foreground,
+            Color32::from_rgb(0x10, 0x20, 0x30)
+        );
+        assert_eq!(paint.at(invalid).foreground, theme.diagnostic_foreground);
     }
 
     ///
