@@ -19,9 +19,10 @@
 //!   optional Cursor fills — so `toml` attaches its line and column, and the
 //!   key it was reading, to every refusal.
 //!
-//! Width bounds are checked here as read and again by
-//! [`crate::theme::resolve`], which also checks parent/appearance agreement
-//! with the identity the caller took from the file name.
+//! A width's bound is checked here, as read, and nowhere else on the way to a
+//! resolved Theme: the document holds the typed width. [`crate::theme::resolve`]
+//! checks parent/appearance agreement with the identity the caller took from
+//! the file name.
 //!
 
 use std::fmt;
@@ -362,12 +363,13 @@ impl TryFrom<String> for Fill {
 }
 
 ///
-/// A width in points, refused unless finite and within `0..=max`: the
-/// inclusive bound [`crate::theme::resolve`] applies too. Checked as read,
-/// before narrowing to the `f32` `ThemeDocument` stores: narrowing rounds a
+/// A width in points, refused unless finite and within `0..=max`. Checked as
+/// read, before narrowing to the `f32` a typed width holds: narrowing rounds a
 /// value just past a bound onto it, and one beyond `f32`'s range to
-/// infinity, and neither may be clamped. `toml` hands an integer to an
-/// `f64` too, so both spellings are widths, and nothing else is.
+/// infinity, and neither may be clamped. An `f64` within the bound narrows to
+/// an `f32` within it, so the typed width's constructor accepts the answer.
+/// `toml` hands an integer to an `f64` too, so both spellings are widths, and
+/// nothing else is.
 ///
 fn points(points: f64, max: f32) -> Result<f32, String> {
     if !points.is_finite() {
@@ -383,29 +385,33 @@ fn points(points: f64, max: f32) -> Result<f32, String> {
     Ok(points as f32)
 }
 
+const NARROWED: &str = "a width within its bound narrows to an f32 within it";
+
 /// A Grid width: 0 to [`GridWidth::MAX_POINTS`].
 #[derive(Deserialize)]
 #[serde(try_from = "f64")]
-struct GridPoints(f32);
+struct GridPoints(GridWidth);
 
 impl TryFrom<f64> for GridPoints {
     type Error = String;
 
     fn try_from(value: f64) -> Result<Self, String> {
-        points(value, GridWidth::MAX_POINTS).map(Self)
+        let points = points(value, GridWidth::MAX_POINTS)?;
+        Ok(Self(GridWidth::from_points(points).expect(NARROWED)))
     }
 }
 
 /// A chrome width: 0 to [`ChromeWidth::MAX_POINTS`].
 #[derive(Deserialize)]
 #[serde(try_from = "f64")]
-struct ChromePoints(f32);
+struct ChromePoints(ChromeWidth);
 
 impl TryFrom<f64> for ChromePoints {
     type Error = String;
 
     fn try_from(value: f64) -> Result<Self, String> {
-        points(value, ChromeWidth::MAX_POINTS).map(Self)
+        let points = points(value, ChromeWidth::MAX_POINTS)?;
+        Ok(Self(ChromeWidth::from_points(points).expect(NARROWED)))
     }
 }
 
@@ -443,11 +449,11 @@ macro_rules! document_style {
                 $(if let Some(ColorValue(colour)) = self.$color_field {
                     document.colors.push((ColorKey::$color, colour));
                 })*
-                $(if let Some(GridPoints(points)) = self.$grid_field {
-                    document.grid_widths.push((GridWidthKey::$grid, points));
+                $(if let Some(GridPoints(width)) = self.$grid_field {
+                    document.grid_widths.push((GridWidthKey::$grid, width));
                 })*
-                $(if let Some(ChromePoints(points)) = self.$chrome_field {
-                    document.chrome_widths.push((ChromeWidthKey::$chrome, points));
+                $(if let Some(ChromePoints(width)) = self.$chrome_field {
+                    document.chrome_widths.push((ChromeWidthKey::$chrome, width));
                 })*
                 $(document.$fill_field = self.$fill_field.map(|Fill(fill)| fill);)*
                 document
@@ -464,8 +470,8 @@ mod tests {
 
     use super::{DocumentErrorReason, MAX_DOCUMENT_BYTES, MAX_MESSAGE_BYTES, decode};
     use crate::theme::{
-        Appearance, ChromeWidthKey, ColorKey, GridWidthKey, OptionalFill, ThemeDocument,
-        ThemeIdentity, okabe_ito, resolve, straight_rgba,
+        Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
+        ThemeDocument, ThemeIdentity, okabe_ito, resolve, straight_rgba,
     };
 
     /// A custom Theme's identity, as a file named `stem` supplies it.
@@ -491,7 +497,7 @@ mod tests {
                 (ColorKey::GridBorder, straight_rgba(0x35_50_60_80)),
                 (ColorKey::Text, straight_rgba(0xE0_E0_E0_FF)),
             ],
-            grid_widths: vec![(GridWidthKey::GridBorder, 0.5)],
+            grid_widths: vec![(GridWidthKey::GridBorder, grid(0.5))],
             chrome_widths: Vec::new(),
             cursor_background: Some(OptionalFill::None),
             region_cursor_background: None,
@@ -519,6 +525,14 @@ mod tests {
             text.push_str(&format!("\"{key}\" = {value}\n"));
         }
         text
+    }
+
+    fn grid(points: f32) -> GridWidth {
+        GridWidth::from_points(points).expect("a Grid width in range")
+    }
+
+    fn chrome(points: f32) -> ChromeWidth {
+        ChromeWidth::from_points(points).expect("a chrome width in range")
     }
 
     fn style(entries: &[(&str, &str)]) -> String {
@@ -787,15 +801,15 @@ mod tests {
         assert_eq!(
             document.grid_widths,
             vec![
-                (GridWidthKey::GridBorder, 0.0),
-                (GridWidthKey::SectorSeam, 0.75)
+                (GridWidthKey::GridBorder, grid(0.0)),
+                (GridWidthKey::SectorSeam, grid(0.75))
             ]
         );
         assert_eq!(
             document.chrome_widths,
             vec![
-                (ChromeWidthKey::PanelBorder, 2.0),
-                (ChromeWidthKey::InputCursor, 1.5)
+                (ChromeWidthKey::PanelBorder, chrome(2.0)),
+                (ChromeWidthKey::InputCursor, chrome(1.5))
             ]
         );
     }
@@ -812,11 +826,17 @@ mod tests {
 
     #[test]
     fn a_width_must_be_finite() {
-        for value in ["nan", "inf", "-inf", "+inf"] {
-            refuses(
-                &style(&[("grid.border.width", value)]),
-                &["in `style.grid.border.width`", "finite number of points"],
-            );
+        for property in [
+            "grid.border.width",
+            "sector.seam.width",
+            "input.cursor.width",
+        ] {
+            for value in ["nan", "inf", "-inf", "+inf"] {
+                refuses(
+                    &style(&[(property, value)]),
+                    &[&format!("in `style.{property}`"), "finite number of points"],
+                );
+            }
         }
     }
 

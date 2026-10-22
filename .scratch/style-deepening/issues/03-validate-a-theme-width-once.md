@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A width's bound is checked in one place, and `resolve` has no width error path.
-- [ ] `WidthError`, `width_error`, `ThemeError::NonFiniteWidth` and `ThemeError::WidthOutOfRange` are gone, and `theme_document`'s module doc no longer says the bound is checked twice.
-- [ ] A non-finite, negative or over-range width in a Theme document is still refused by the decoder with the key it read, for a Grid width and a chrome width alike; the existing decoder refusal tests pass unchanged or move with their assertions intact.
-- [ ] Every shipped and test Theme document resolves exactly as before.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.
+- [x] A width's bound is checked in one place, and `resolve` has no width error path.
+- [x] `WidthError`, `width_error`, `ThemeError::NonFiniteWidth` and `ThemeError::WidthOutOfRange` are gone, and `theme_document`'s module doc no longer says the bound is checked twice.
+- [x] A non-finite, negative or over-range width in a Theme document is still refused by the decoder with the key it read, for a Grid width and a chrome width alike; the existing decoder refusal tests pass unchanged or move with their assertions intact.
+- [x] Every shipped and test Theme document resolves exactly as before.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.

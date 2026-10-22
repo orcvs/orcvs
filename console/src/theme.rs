@@ -62,17 +62,6 @@ impl From<egui::Theme> for Appearance {
 // === Bounded widths ===
 
 ///
-/// Why a width property failed validation, independently of which key was
-/// being resolved — [`resolve`] attaches the offending property's name and
-/// bound when it turns this into a [`ThemeError`].
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WidthError {
-    NonFinite,
-    OutOfRange,
-}
-
-///
 /// A Grid, Cell or Sector Seam stroke width in display points: 0 to 1
 /// inclusive (`schema.md`'s width catalogue). Zero hides the stroke; the
 /// value is fixed in display points and never scales with the Cell size.
@@ -83,14 +72,9 @@ pub(crate) struct GridWidth(f32);
 impl GridWidth {
     pub(crate) const MAX_POINTS: f32 = 1.0;
 
-    pub(crate) fn from_points(points: f32) -> Result<Self, WidthError> {
-        if !points.is_finite() {
-            return Err(WidthError::NonFinite);
-        }
-        if !(0.0..=Self::MAX_POINTS).contains(&points) {
-            return Err(WidthError::OutOfRange);
-        }
-        Ok(Self(points))
+    /// `None` unless `points` is finite and within `0..=MAX_POINTS`.
+    pub(crate) fn from_points(points: f32) -> Option<Self> {
+        (points.is_finite() && (0.0..=Self::MAX_POINTS).contains(&points)).then_some(Self(points))
     }
 
     /// Consumed by `console::shapes`'s Grid line, Sector Seam and selection
@@ -110,14 +94,9 @@ pub(crate) struct ChromeWidth(f32);
 impl ChromeWidth {
     pub(crate) const MAX_POINTS: f32 = 2.0;
 
-    pub(crate) fn from_points(points: f32) -> Result<Self, WidthError> {
-        if !points.is_finite() {
-            return Err(WidthError::NonFinite);
-        }
-        if !(0.0..=Self::MAX_POINTS).contains(&points) {
-            return Err(WidthError::OutOfRange);
-        }
-        Ok(Self(points))
+    /// `None` unless `points` is finite and within `0..=MAX_POINTS`.
+    pub(crate) fn from_points(points: f32) -> Option<Self> {
+        (points.is_finite() && (0.0..=Self::MAX_POINTS).contains(&points)).then_some(Self(points))
     }
 
     /// Consumed by `style.rs::style`'s chrome borders, input caret and IME
@@ -252,18 +231,29 @@ pub(crate) use style_catalogue;
 ///
 /// Derives each key's `name`: an exhaustive `match` over the enum, so a new
 /// variant without a spelling in [`style_catalogue`] fails to compile. The
-/// optional fills have no key enum and so no `name`.
+/// optional fills have no key enum and so no `name`. Only a colour key's name
+/// reaches a refusal, so the width keys' names are compiled for tests alone.
 ///
 macro_rules! property_names {
     (
         OptionalFill { $($fills:tt)* }
+        ColorKey { $($color:ident($color_field:ident) => $color_name:literal),* $(,)? }
         $($key:ident { $($variant:ident($field:ident) => $name:literal),* $(,)? })*
     ) => {
+        #[cfg_attr(
+            all(target_arch = "wasm32", not(test)),
+            expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
+        )]
+        impl ColorKey {
+            /// The property's literal, case-sensitive `schema.md` name.
+            pub(crate) fn name(self) -> &'static str {
+                match self {
+                    $(Self::$color => $color_name,)*
+                }
+            }
+        }
         $(
-            #[cfg_attr(
-                all(target_arch = "wasm32", not(test)),
-                expect(dead_code, reason = "only native discovery loads a Theme document; the web has the built-ins alone")
-            )]
+            #[cfg(test)]
             impl $key {
                 /// The property's literal, case-sensitive `schema.md` name.
                 pub(crate) fn name(self) -> &'static str {
@@ -1035,8 +1025,8 @@ pub(crate) struct ThemeDocument {
     /// resolves from the parent.
     pub(crate) appearance: Option<Appearance>,
     pub(crate) colors: Vec<(ColorKey, Color32)>,
-    pub(crate) grid_widths: Vec<(GridWidthKey, f32)>,
-    pub(crate) chrome_widths: Vec<(ChromeWidthKey, f32)>,
+    pub(crate) grid_widths: Vec<(GridWidthKey, GridWidth)>,
+    pub(crate) chrome_widths: Vec<(ChromeWidthKey, ChromeWidth)>,
     /// `None`: `cursor.background` is omitted and inherits the parent's
     /// resolved value. `Some`: the document supplied one of
     /// [`OptionalFill`]'s two explicit states.
@@ -1070,14 +1060,6 @@ pub(crate) enum ThemeError {
         parent: Appearance,
         declared: Appearance,
     },
-    /// A width property's value is not finite (NaN or infinite).
-    NonFiniteWidth { property: &'static str, points: f32 },
-    /// A width property's value is finite but outside its inclusive bound.
-    WidthOutOfRange {
-        property: &'static str,
-        points: f32,
-        max: f32,
-    },
     /// `window.background`'s resolved alpha is not 255. `schema.md`: "The
     /// opaque root is `window.background`; alpha other than 255 on this
     /// property is an error."
@@ -1097,41 +1079,12 @@ impl std::fmt::Display for ThemeError {
                 f,
                 "declared appearance {declared:?} does not match parent appearance {parent:?}"
             ),
-            Self::NonFiniteWidth { property, points } => {
-                write!(f, "{property} is not finite: {points}")
-            }
-            Self::WidthOutOfRange {
-                property,
-                points,
-                max,
-            } => write!(
-                f,
-                "{property} is {points}, outside the inclusive range 0..={max}"
-            ),
             Self::NonOpaqueWindowBackground { alpha } => write!(
                 f,
                 "{} has alpha {alpha}, not 255: the application window must stay opaque",
                 ColorKey::WindowBackground.name()
             ),
         }
-    }
-}
-
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
-fn width_error(property: &'static str, points: f32, max: f32, error: WidthError) -> ThemeError {
-    match error {
-        WidthError::NonFinite => ThemeError::NonFiniteWidth { property, points },
-        WidthError::OutOfRange => ThemeError::WidthOutOfRange {
-            property,
-            points,
-            max,
-        },
     }
 }
 
@@ -1191,15 +1144,11 @@ pub(crate) fn resolve(
         *resolved.color_mut(key) = colour;
     }
 
-    for &(key, points) in &document.grid_widths {
-        let width = GridWidth::from_points(points)
-            .map_err(|error| width_error(key.name(), points, GridWidth::MAX_POINTS, error))?;
+    for &(key, width) in &document.grid_widths {
         resolved.set_grid_width(key, width);
     }
 
-    for &(key, points) in &document.chrome_widths {
-        let width = ChromeWidth::from_points(points)
-            .map_err(|error| width_error(key.name(), points, ChromeWidth::MAX_POINTS, error))?;
+    for &(key, width) in &document.chrome_widths {
         resolved.set_chrome_width(key, width);
     }
 
@@ -1674,8 +1623,14 @@ mod tests {
     fn explicit_width_overrides_the_parent() {
         let built_ins = [okabe_ito()];
         let document = ThemeDocument {
-            grid_widths: vec![(GridWidthKey::GridBorder, 0.25)],
-            chrome_widths: vec![(ChromeWidthKey::PanelBorder, 1.5)],
+            grid_widths: vec![(
+                GridWidthKey::GridBorder,
+                GridWidth::from_points(0.25).expect("0.25 is within 0..=1"),
+            )],
+            chrome_widths: vec![(
+                ChromeWidthKey::PanelBorder,
+                ChromeWidth::from_points(1.5).expect("1.5 is within 0..=2"),
+            )],
             ..child("okabe-ito")
         };
 
@@ -1838,7 +1793,7 @@ mod tests {
         for points in [0.0, 0.001, 0.5, 0.999, 1.0] {
             assert_eq!(
                 GridWidth::from_points(points).map(GridWidth::points),
-                Ok(points)
+                Some(points)
             );
         }
     }
@@ -1848,7 +1803,7 @@ mod tests {
         for points in [0.0, 0.5, 1.0, 1.999, 2.0] {
             assert_eq!(
                 ChromeWidth::from_points(points).map(ChromeWidth::points),
-                Ok(points)
+                Some(points)
             );
         }
     }
@@ -1864,7 +1819,7 @@ mod tests {
             f32::NEG_INFINITY,
         ] {
             assert!(
-                GridWidth::from_points(points).is_err(),
+                GridWidth::from_points(points).is_none(),
                 "{points} should have been rejected"
             );
         }
@@ -1881,49 +1836,10 @@ mod tests {
             f32::NEG_INFINITY,
         ] {
             assert!(
-                ChromeWidth::from_points(points).is_err(),
+                ChromeWidth::from_points(points).is_none(),
                 "{points} should have been rejected"
             );
         }
-    }
-
-    #[test]
-    fn resolve_rejects_a_nonfinite_grid_width_with_the_offending_property_named() {
-        let built_ins = [okabe_ito()];
-        let document = ThemeDocument {
-            grid_widths: vec![(GridWidthKey::SectorSeam, f32::NAN)],
-            ..child("okabe-ito")
-        };
-
-        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
-
-        assert!(matches!(
-            error,
-            ThemeError::NonFiniteWidth {
-                property: "sector.seam.width",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn resolve_rejects_an_out_of_range_chrome_width_with_the_offending_property_named() {
-        let built_ins = [okabe_ito()];
-        let document = ThemeDocument {
-            chrome_widths: vec![(ChromeWidthKey::InputCursor, 2.5)],
-            ..child("okabe-ito")
-        };
-
-        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
-
-        assert_eq!(
-            error,
-            ThemeError::WidthOutOfRange {
-                property: "input.cursor.width",
-                points: 2.5,
-                max: ChromeWidth::MAX_POINTS,
-            }
-        );
     }
 
     #[test]
@@ -2172,7 +2088,10 @@ mod tests {
         );
         for &key in &grid_keys {
             let document = ThemeDocument {
-                grid_widths: vec![(key, 0.1)],
+                grid_widths: vec![(
+                    key,
+                    GridWidth::from_points(0.1).expect("0.1 is within 0..=1"),
+                )],
                 ..child("okabe-ito")
             };
             let resolved =
@@ -2198,7 +2117,10 @@ mod tests {
         );
         for &key in &chrome_keys {
             let document = ThemeDocument {
-                chrome_widths: vec![(key, 1.9)],
+                chrome_widths: vec![(
+                    key,
+                    ChromeWidth::from_points(1.9).expect("1.9 is within 0..=2"),
+                )],
                 ..child("okabe-ito")
             };
             let resolved =
