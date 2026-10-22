@@ -1049,6 +1049,31 @@ mod tests {
     }
 
     ///
+    /// A single-Cell Cursor with no fill of its own, over a transparent Cell
+    /// base, paints no fill: a Region fill reaches only a Region spanning more
+    /// than one Cell, and the single-Cell Cursor is not one.
+    ///
+    #[test]
+    fn a_cursor_with_no_fill_paints_none_even_with_a_region_fill() {
+        let theme = Theme {
+            cursor_background: None,
+            cell_background: Color32::TRANSPARENT,
+            region_background: Color32::from_rgb(7, 8, 9),
+            ..okabe_ito()
+        };
+        assert_eq!(
+            CellColours::new(&theme)
+                .colours(
+                    SourcePaint::Unclaimed,
+                    PortalRoles::NONE,
+                    CursorPlacement::Cursor
+                )
+                .background,
+            None
+        );
+    }
+
+    ///
     /// A declared operand slot's finished fact: its Token and its state.
     ///
     /// Which pairs a Source can actually produce is a fact about the Parser

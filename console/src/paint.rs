@@ -1035,6 +1035,27 @@ mod tests {
     }
 
     ///
+    /// A single-Cell Cursor with no fill of its own paints no fill, whatever
+    /// the Region fill: only a Region spanning more than one Cell takes it.
+    ///
+    #[tokio::test]
+    async fn a_single_cell_cursor_with_no_fill_takes_no_region_fill() {
+        let mut orcvs = running_orcvs(4, 3);
+        let at = orcvs.grid().position(1, 1).expect("inside the grid");
+        orcvs.select(at);
+        let theme = Theme {
+            cursor_background: None,
+            cell_background: Color32::TRANSPARENT,
+            region_background: Color32::from_rgb(7, 8, 9),
+            ..okabe_ito()
+        };
+
+        let paint = Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme);
+
+        assert_eq!(paint.at(at).background, None);
+    }
+
+    ///
     /// A Cursor or Region border of width zero withdraws the outline, and
     /// its edges fall to the facts and Grid line beneath it.
     ///

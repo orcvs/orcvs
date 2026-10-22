@@ -163,6 +163,8 @@ impl ConfusionResult {
 ///
 /// [`distinguish`]'s complete answer for one Theme: the floor and scope
 /// carried in the data, then one result per `(dichromacy, channel pair)`.
+/// The whole check is test-only, so its scope is data the test reads rather
+/// than a shipped field nothing reads.
 ///
 struct ConfusionReport {
     floor: f32,

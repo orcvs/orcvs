@@ -216,9 +216,7 @@ pub(crate) use style_catalogue;
 /// Fields are `pub(crate)` rather than encapsulated behind accessors: a
 /// resolved `Theme` is immutable once built — nothing edits one in place or
 /// persists it field-by-field — so there is no invariant an accessor needs to
-/// protect.
-/// `Theme::color`, `Theme::grid_width` and `Theme::chrome_width` exist
-/// alongside the fields for callers that index by key.
+/// protect. Only `theme_document` addresses a field by key.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
