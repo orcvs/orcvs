@@ -1995,6 +1995,8 @@ mod tests {
         // Each key beside the field a reader addresses by name, written here
         // rather than taken from `style_catalogue!`, so a key routed to the
         // wrong field fails even though the macro's reader and writer agree.
+        // Keep it in step with the catalogue's `ColorKey` list, whose count
+        // the array's length restates.
         let fields: [(ColorKey, Field<Color32>); 47] = [
             (ColorKey::WindowBackground, |theme| theme.window_background),
             (ColorKey::PanelBackground, |theme| theme.panel_background),
