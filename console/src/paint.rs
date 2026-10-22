@@ -56,7 +56,7 @@ use crate::{
         SourcePaintVisuals, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill,
         sector_line,
     },
-    theme::Theme,
+    theme::{GridWidth, Theme},
 };
 
 pub use crate::grid_viewport::VisiblePositions;
@@ -130,6 +130,34 @@ pub struct EdgeLine {
     pub stroke: Stroke,
     /// Whether a Sector Seam is composited into `stroke`.
     pub seamed: bool,
+}
+
+impl EdgeLine {
+    ///
+    /// The line `rank` draws at `width` in `colour`, unseamed, or `None` where
+    /// `width` is zero: a zero width draws no line. Only the width
+    /// decides. A transparent line of nonzero width is drawn, and still wins
+    /// its edge over the facts below it.
+    ///
+    pub(crate) fn drawn(rank: EdgeRank, width: GridWidth, colour: Color32) -> Option<Self> {
+        (width.points() > 0.0).then(|| Self {
+            rank,
+            stroke: Stroke::new(width.points(), colour),
+            seamed: false,
+        })
+    }
+
+    ///
+    /// The line an edge shows where neither Cell beside it carries a fact, or
+    /// `None` where `grid.border.width` is zero.
+    ///
+    pub(crate) fn grid(theme: &Theme) -> Option<Self> {
+        Self::drawn(
+            EdgeRank::GridLine,
+            theme.grid_border_width,
+            theme.grid_border,
+        )
+    }
 }
 
 ///
@@ -405,11 +433,7 @@ impl Paint {
             }
         }
 
-        let grid_line = (theme.grid_border_width.points() > 0.0).then(|| EdgeLine {
-            rank: EdgeRank::GridLine,
-            stroke: Stroke::new(theme.grid_border_width.points(), theme.grid_border),
-            seamed: false,
-        });
+        let grid_line = EdgeLine::grid(theme);
 
         // The Region is the Cursor's own Cell when it spans no more.
         let (outline_width, outline_colour) = if region_spans {
@@ -417,15 +441,14 @@ impl Paint {
         } else {
             (theme.cursor_border_width, theme.cursor_border)
         };
-        let outline = (outline_width.points() > 0.0).then(|| Outline {
-            line: EdgeLine {
-                rank: EdgeRank::Selection,
-                stroke: Stroke::new(outline_width.points(), outline_colour),
-                seamed: false,
-            },
-            columns: region.columns(),
-            rows: region.rows(),
-        });
+        let outline =
+            EdgeLine::drawn(EdgeRank::Selection, outline_width, outline_colour).map(|line| {
+                Outline {
+                    line,
+                    columns: region.columns(),
+                    rows: region.rows(),
+                }
+            });
 
         Self {
             grid,
@@ -2953,6 +2976,63 @@ mod tests {
         assert_eq!(
             paint.edges().columns,
             vec![edge(1, 0..1, portal), edge(2, 0..1, portal)]
+        );
+    }
+
+    ///
+    /// A zero width draws no line, whatever the rank or colour: the Grid line,
+    /// the selection outline, a Diagnostic and each Portal border alike.
+    ///
+    #[test]
+    fn a_zero_width_draws_no_line() {
+        let zero = crate::theme::GridWidth::from_points(0.0).expect("0.0 is within 0..=1");
+        for rank in [
+            EdgeRank::GridLine,
+            EdgeRank::Selection,
+            EdgeRank::Diagnostic,
+            EdgeRank::Locked,
+            EdgeRank::InputPortal,
+            EdgeRank::OutputPortal,
+        ] {
+            assert_eq!(
+                EdgeLine::drawn(rank, zero, Color32::from_rgb(200, 30, 30)),
+                None,
+                "{rank:?}"
+            );
+        }
+        let theme = Theme {
+            grid_border_width: zero,
+            ..okabe_ito()
+        };
+        assert_eq!(EdgeLine::grid(&theme), None);
+    }
+
+    ///
+    /// A transparent line of nonzero width is drawn, and claims its edge over
+    /// the Grid line as any other fact does.
+    ///
+    #[test]
+    fn a_transparent_line_of_nonzero_width_still_claims_its_edge() {
+        let width = crate::theme::GridWidth::from_points(0.75).expect("0.75 is within 0..=1");
+        let transparent = EdgeLine::drawn(EdgeRank::InputPortal, width, Color32::TRANSPARENT);
+        assert_eq!(
+            transparent,
+            Some(EdgeLine {
+                rank: EdgeRank::InputPortal,
+                stroke: Stroke::new(0.75, Color32::TRANSPARENT),
+                seamed: false,
+            })
+        );
+
+        let paint = edge_paint(&[&[None, transparent, None]]);
+        assert_eq!(
+            paint.edges().columns,
+            vec![
+                edge(0, 0..1, Some(GRID_LINE)),
+                edge(1, 0..1, transparent),
+                edge(2, 0..1, transparent),
+                edge(3, 0..1, Some(GRID_LINE)),
+            ]
         );
     }
 

@@ -8,7 +8,7 @@ use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::paint::{EdgeLine, EdgeRank};
-use crate::theme::{Appearance, Theme};
+use crate::theme::{Appearance, GridWidth, Theme};
 
 ///
 /// `border` is the Cell's own border fact, its width in display points: the
@@ -236,40 +236,32 @@ fn ordinary_border(
             ..
         }
     );
-    let drawn = |line: EdgeLine| line.stroke.width > 0.0;
     // What a border composites over: the Grid line, unless a zero
     // `grid.border.width` draws none, when the border shows its own colour.
-    let grid_line = if theme.grid_border_width.points() > 0.0 {
-        theme.grid_border
-    } else {
-        Color32::TRANSPARENT
-    };
+    let grid_line = EdgeLine::grid(theme).map_or(Color32::TRANSPARENT, |line| line.stroke.color);
     let diagnostic = invalid_operand
-        .then(|| EdgeLine {
-            rank: EdgeRank::Diagnostic,
-            stroke: Stroke::new(
-                theme.diagnostic_border_width.points(),
+        .then(|| {
+            EdgeLine::drawn(
+                EdgeRank::Diagnostic,
+                theme.diagnostic_border_width,
                 blend_channel(grid_line, theme.diagnostic_border),
-            ),
-            seamed: false,
+            )
         })
-        .filter(|line| drawn(*line));
+        .flatten();
     // The same overlay `role_and_portal` composites the background with.
-    let portal = fill_overlay(paint, portal)
-        .map(|role| {
-            let channels = PortalChannels::of(role, theme);
-            let below = diagnostic.map_or(grid_line, |line| line.stroke.color);
-            EdgeLine {
-                rank: match role {
-                    PortalRole::Output => EdgeRank::OutputPortal,
-                    PortalRole::Input => EdgeRank::InputPortal,
-                    PortalRole::Locked => EdgeRank::Locked,
-                },
-                stroke: Stroke::new(channels.border_width, blend_channel(below, channels.border)),
-                seamed: false,
-            }
-        })
-        .filter(|line| drawn(*line));
+    let portal = fill_overlay(paint, portal).and_then(|role| {
+        let channels = PortalChannels::of(role, theme);
+        let below = diagnostic.map_or(grid_line, |line| line.stroke.color);
+        EdgeLine::drawn(
+            match role {
+                PortalRole::Output => EdgeRank::OutputPortal,
+                PortalRole::Input => EdgeRank::InputPortal,
+                PortalRole::Locked => EdgeRank::Locked,
+            },
+            channels.border_width,
+            blend_channel(below, channels.border),
+        )
+    });
 
     portal.or(diagnostic)
 }
@@ -369,7 +361,7 @@ struct PortalChannels {
     foreground: Color32,
     background: Color32,
     border: Color32,
-    border_width: f32,
+    border_width: GridWidth,
 }
 
 impl PortalChannels {
@@ -379,19 +371,19 @@ impl PortalChannels {
                 foreground: theme.output_portal_foreground,
                 background: theme.output_portal_background,
                 border: theme.output_portal_border,
-                border_width: theme.output_portal_border_width.points(),
+                border_width: theme.output_portal_border_width,
             },
             PortalRole::Input => Self {
                 foreground: theme.input_portal_foreground,
                 background: theme.input_portal_background,
                 border: theme.input_portal_border,
-                border_width: theme.input_portal_border_width.points(),
+                border_width: theme.input_portal_border_width,
             },
             PortalRole::Locked => Self {
                 foreground: theme.locked_foreground,
                 background: theme.locked_background,
                 border: theme.locked_border,
-                border_width: theme.locked_border_width.points(),
+                border_width: theme.locked_border_width,
             },
         }
     }
@@ -2329,6 +2321,28 @@ mod tests {
             painted(SourcePaint::Unclaimed, true, &no_portal).border,
             None
         );
+    }
+
+    ///
+    /// Each Portal role's border withdraws at zero width, so a Cell playing
+    /// only that role carries no border fact.
+    ///
+    #[test]
+    fn every_portal_border_withdraws_at_zero_width() {
+        let zero = crate::theme::GridWidth::from_points(0.0).expect("0.0 is within 0..=1");
+        let theme = Theme {
+            output_portal_border_width: zero,
+            input_portal_border_width: zero,
+            locked_border_width: zero,
+            ..okabe_ito()
+        };
+        for roles in [OUTPUT, INPUT, LOCKED] {
+            assert_eq!(
+                painted_in(SourcePaint::Unclaimed, roles, &theme).border,
+                None,
+                "{roles:?}"
+            );
+        }
     }
 
     ///

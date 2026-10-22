@@ -6,10 +6,10 @@ The constructor filters on width only. A transparent line of nonzero width is st
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `EdgeLine::drawn` is the only code that decides whether a width draws a line; no `> 0.0` width test is left at a call site.
-- [ ] `style` and `Paint` agree on whether the Grid line is drawn from one answer.
-- [ ] Tests show: a zero width draws no line for the Grid line, the outline, a Diagnostic and each Portal border; a transparent line of nonzero width still claims its edge; the existing edge and border tests pass unchanged.
-- [ ] The empty and Region-spanning Paint benchmarks still exist and still measure the same walk.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+- [x] `EdgeLine::drawn` is the only code that decides whether a width draws a line; no `> 0.0` width test is left at a call site.
+- [x] `style` and `Paint` agree on whether the Grid line is drawn from one answer.
+- [x] Tests show: a zero width draws no line for the Grid line, the outline, a Diagnostic and each Portal border; a transparent line of nonzero width still claims its edge; the existing edge and border tests pass unchanged.
+- [x] The empty and Region-spanning Paint benchmarks still exist and still measure the same walk.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
