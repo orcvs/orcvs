@@ -301,6 +301,7 @@ fn ordinary_border(
 /// Every set of Portal roles a Cell can play: none, Input Portal alone,
 /// Output Portal alone, and both, each with and without Locked.
 ///
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub(crate) const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
     const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
     const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);

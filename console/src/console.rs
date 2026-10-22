@@ -138,8 +138,8 @@ impl Console {
     ///
     pub fn start(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
         // Custom Themes load here, during construction and never inside a
-        // frame: native reads `~/.orcvs/themes/`, the web restores its
-        // imported documents. This is the only place the shipped console
+        // frame: native reads `~/.orcvs/themes/`, and the web has the
+        // built-ins alone. This is the only place the shipped console
         // discovers Themes; `new` takes the registry, so a test builds the
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads

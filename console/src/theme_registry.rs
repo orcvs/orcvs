@@ -24,19 +24,15 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(any(not(target_arch = "wasm32"), test))]
 use crate::contrast;
 use crate::theme::{Appearance, Theme, ThemeIdentity, okabe_ito, orcvs_light};
+#[cfg(any(not(target_arch = "wasm32"), test))]
 use crate::theme_document::{ThemeDocument, decode, resolve};
 
 /// The one extension a Theme file carries, matched case-insensitively by
 /// [`stem`] alone: `decode` takes the name only to label its errors.
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
+#[cfg(any(not(target_arch = "wasm32"), test))]
 const EXTENSION: &str = "toml";
 
 ///
@@ -46,13 +42,7 @@ const EXTENSION: &str = "toml";
 /// identity keeps its own case, so `Dark.toml` and `dark.toml` are two
 /// identities, while `dark.toml` and `dark.TOML` are one.
 ///
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
+#[cfg(any(not(target_arch = "wasm32"), test))]
 fn stem(file_name: &str) -> Option<&str> {
     let (stem, extension) = file_name.rsplit_once('.')?;
     extension.eq_ignore_ascii_case(EXTENSION).then_some(stem)
@@ -171,13 +161,7 @@ impl ThemeRegistry {
     /// supplies. Pure: the registry is not touched, so a refusal leaves it
     /// exactly as it was.
     ///
-    #[cfg_attr(
-        all(target_arch = "wasm32", not(test)),
-        expect(
-            dead_code,
-            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-        )
-    )]
+    #[cfg(any(not(target_arch = "wasm32"), test))]
     fn load(&self, file_name: &str, bytes: &[u8]) -> Result<Theme, String> {
         let stem = stem(file_name)
             .ok_or_else(|| format!("{file_name}: not a Theme file; expected .{EXTENSION}"))?;
@@ -191,13 +175,7 @@ impl ThemeRegistry {
     /// Adds a loaded Theme, with a notice when the contrast validator finds
     /// a state below the floor. A contrast failure never refuses the Theme.
     ///
-    #[cfg_attr(
-        all(target_arch = "wasm32", not(test)),
-        expect(
-            dead_code,
-            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-        )
-    )]
+    #[cfg(any(not(target_arch = "wasm32"), test))]
     fn add(&mut self, theme: Theme) {
         if let Some(message) = contrast_notice(&theme) {
             self.notice(message);
@@ -248,13 +226,7 @@ impl ThemeRegistry {
 /// The contrast report on `theme`, as a notice naming every state below the
 /// floor, or `None` when every state clears it.
 ///
-#[cfg_attr(
-    all(target_arch = "wasm32", not(test)),
-    expect(
-        dead_code,
-        reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-    )
-)]
+#[cfg(any(not(target_arch = "wasm32"), test))]
 fn contrast_notice(theme: &Theme) -> Option<String> {
     let report = contrast::validate(theme);
     let failing: Vec<String> = report

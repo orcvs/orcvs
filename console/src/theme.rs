@@ -123,6 +123,7 @@ impl ChromeWidth {
 /// derived table's key match, which the workspace's `-D warnings` gate
 /// refuses.
 ///
+#[cfg(any(not(target_arch = "wasm32"), test))]
 macro_rules! style_catalogue {
     ($then:ident) => {
         $then! {
@@ -200,6 +201,7 @@ macro_rules! style_catalogue {
         }
     };
 }
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub(crate) use style_catalogue;
 
 // === Resolved Theme ===
@@ -357,13 +359,7 @@ impl ThemeIdentity {
     /// A custom Theme's identity: its file name's stem. `None` for an empty
     /// stem, which names nothing.
     ///
-    #[cfg_attr(
-        all(target_arch = "wasm32", not(test)),
-        expect(
-            dead_code,
-            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-        )
-    )]
+    #[cfg(any(not(target_arch = "wasm32"), test))]
     pub(crate) fn from_stem(stem: &str) -> Option<Self> {
         (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
     }
@@ -389,13 +385,7 @@ impl ThemeIdentity {
         }
     }
 
-    #[cfg_attr(
-        all(target_arch = "wasm32", not(test)),
-        expect(
-            dead_code,
-            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
-        )
-    )]
+    #[cfg(any(not(target_arch = "wasm32"), test))]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
