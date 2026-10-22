@@ -402,6 +402,7 @@ fn shapes(c: &mut Criterion) {
             size("fitted@2x", cols, rows),
             &fitted_paint,
             frame.grid(),
+            SQUARE,
             2.0,
         );
     }
