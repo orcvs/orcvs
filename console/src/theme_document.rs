@@ -289,8 +289,8 @@ impl std::fmt::Display for ThemeError {
 /// `document` supplies, and returns the result under `identity`.
 ///
 /// No file I/O: `built_ins` is whatever built-in set the caller already
-/// holds — the crate-private `theme_registry` module reads native and web
-/// documents and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
+/// holds — the crate-private `theme_registry` module reads native documents
+/// and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
 /// by the caller rather than read from `document`, because a custom
 /// document's identity is its filename stem, which this module
 /// never reads a file to learn.
@@ -792,8 +792,12 @@ mod tests {
         MAX_MESSAGE_BYTES, OptionalFill, ThemeDocument, ThemeError, decode, resolve,
     };
     use crate::theme::{
-        Appearance, ChromeWidth, GridWidth, ThemeIdentity, okabe_ito, orcvs_light, straight_rgba,
+        Appearance, ChromeWidth, GridWidth, Theme, ThemeIdentity, okabe_ito, orcvs_light,
+        straight_rgba,
     };
+
+    /// A Theme field, read by name.
+    type Field<T> = fn(&Theme) -> T;
 
     /// A custom Theme's identity, as a file named `stem` supplies it.
     fn identity(stem: &str) -> ThemeIdentity {
@@ -1988,62 +1992,96 @@ mod tests {
     #[test]
     fn every_color_key_can_be_independently_overridden() {
         let built_ins = [okabe_ito()];
-        let keys = [
-            ColorKey::WindowBackground,
-            ColorKey::PanelBackground,
-            ColorKey::GridBackground,
-            ColorKey::CellBackground,
-            ColorKey::SourceOrdinary,
-            ColorKey::SourceComment,
-            ColorKey::SourceNumber,
-            ColorKey::SourceNote,
-            ColorKey::SourceFunction,
-            ColorKey::SourceBang,
-            ColorKey::SourceOrdinaryBackground,
-            ColorKey::SourceCommentBackground,
-            ColorKey::SourceNumberBackground,
-            ColorKey::SourceNoteBackground,
-            ColorKey::SourceFunctionBackground,
-            ColorKey::SourceBangBackground,
-            ColorKey::DiagnosticForeground,
-            ColorKey::DiagnosticBackground,
-            ColorKey::DiagnosticBorder,
-            ColorKey::OutputPortalForeground,
-            ColorKey::OutputPortalBackground,
-            ColorKey::OutputPortalBorder,
-            ColorKey::InputPortalForeground,
-            ColorKey::InputPortalBackground,
-            ColorKey::InputPortalBorder,
-            ColorKey::LockedForeground,
-            ColorKey::LockedBackground,
-            ColorKey::LockedBorder,
-            ColorKey::GridBorder,
-            ColorKey::SectorSeam,
-            ColorKey::CursorBorder,
-            ColorKey::RegionBorder,
-            ColorKey::RegionBackground,
-            ColorKey::PanelBorder,
-            ColorKey::SelectionBackground,
-            ColorKey::SelectionBorder,
-            ColorKey::SelectionBorderRest,
-            ColorKey::WidgetInactiveBorder,
-            ColorKey::Text,
-            ColorKey::TextActive,
-            ColorKey::TextMuted,
-            ColorKey::InputBackground,
-            ColorKey::Link,
-            ColorKey::CodeBackground,
-            ColorKey::InputCursor,
-            ColorKey::Error,
-            ColorKey::Warning,
+        // Each key beside the field a reader addresses by name, written here
+        // rather than taken from `style_catalogue!`, so a key routed to the
+        // wrong field fails even though the macro's reader and writer agree.
+        // Keep it in step with the catalogue's `ColorKey` list, whose count
+        // the array's length restates.
+        let fields: [(ColorKey, Field<Color32>); 47] = [
+            (ColorKey::WindowBackground, |theme| theme.window_background),
+            (ColorKey::PanelBackground, |theme| theme.panel_background),
+            (ColorKey::GridBackground, |theme| theme.grid_background),
+            (ColorKey::CellBackground, |theme| theme.cell_background),
+            (ColorKey::SourceOrdinary, |theme| theme.source_ordinary),
+            (ColorKey::SourceComment, |theme| theme.source_comment),
+            (ColorKey::SourceNumber, |theme| theme.source_number),
+            (ColorKey::SourceNote, |theme| theme.source_note),
+            (ColorKey::SourceFunction, |theme| theme.source_function),
+            (ColorKey::SourceBang, |theme| theme.source_bang),
+            (ColorKey::SourceOrdinaryBackground, |theme| {
+                theme.source_ordinary_background
+            }),
+            (ColorKey::SourceCommentBackground, |theme| {
+                theme.source_comment_background
+            }),
+            (ColorKey::SourceNumberBackground, |theme| {
+                theme.source_number_background
+            }),
+            (ColorKey::SourceNoteBackground, |theme| {
+                theme.source_note_background
+            }),
+            (ColorKey::SourceFunctionBackground, |theme| {
+                theme.source_function_background
+            }),
+            (ColorKey::SourceBangBackground, |theme| {
+                theme.source_bang_background
+            }),
+            (ColorKey::DiagnosticForeground, |theme| {
+                theme.diagnostic_foreground
+            }),
+            (ColorKey::DiagnosticBackground, |theme| {
+                theme.diagnostic_background
+            }),
+            (ColorKey::DiagnosticBorder, |theme| theme.diagnostic_border),
+            (ColorKey::OutputPortalForeground, |theme| {
+                theme.output_portal_foreground
+            }),
+            (ColorKey::OutputPortalBackground, |theme| {
+                theme.output_portal_background
+            }),
+            (ColorKey::OutputPortalBorder, |theme| {
+                theme.output_portal_border
+            }),
+            (ColorKey::InputPortalForeground, |theme| {
+                theme.input_portal_foreground
+            }),
+            (ColorKey::InputPortalBackground, |theme| {
+                theme.input_portal_background
+            }),
+            (ColorKey::InputPortalBorder, |theme| {
+                theme.input_portal_border
+            }),
+            (ColorKey::LockedForeground, |theme| theme.locked_foreground),
+            (ColorKey::LockedBackground, |theme| theme.locked_background),
+            (ColorKey::LockedBorder, |theme| theme.locked_border),
+            (ColorKey::GridBorder, |theme| theme.grid_border),
+            (ColorKey::SectorSeam, |theme| theme.sector_seam),
+            (ColorKey::CursorBorder, |theme| theme.cursor_border),
+            (ColorKey::RegionBorder, |theme| theme.region_border),
+            (ColorKey::RegionBackground, |theme| theme.region_background),
+            (ColorKey::PanelBorder, |theme| theme.panel_border),
+            (ColorKey::SelectionBackground, |theme| {
+                theme.selection_background
+            }),
+            (ColorKey::SelectionBorder, |theme| theme.selection_border),
+            (ColorKey::SelectionBorderRest, |theme| {
+                theme.selection_border_rest
+            }),
+            (ColorKey::WidgetInactiveBorder, |theme| {
+                theme.widget_inactive_border
+            }),
+            (ColorKey::Text, |theme| theme.text),
+            (ColorKey::TextActive, |theme| theme.text_active),
+            (ColorKey::TextMuted, |theme| theme.text_muted),
+            (ColorKey::InputBackground, |theme| theme.input_background),
+            (ColorKey::Link, |theme| theme.link),
+            (ColorKey::CodeBackground, |theme| theme.code_background),
+            (ColorKey::InputCursor, |theme| theme.input_cursor),
+            (ColorKey::Error, |theme| theme.error),
+            (ColorKey::Warning, |theme| theme.warning),
         ];
-        assert_eq!(
-            keys.len(),
-            47,
-            "the catalogue has 47 non-optional colour keys"
-        );
 
-        for &key in &keys {
+        for &(key, field) in &fields {
             let colour = Color32::from_rgb(1, 2, 3);
             let document = ThemeDocument {
                 colors: vec![(key, colour)],
@@ -2054,15 +2092,16 @@ mod tests {
                 resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
 
             assert_eq!(
-                resolved.color(key),
+                field(&resolved),
                 colour,
                 "{key:?} did not take its override"
             );
-            for &other in &keys {
+            assert_eq!(resolved.color(key), colour, "{key:?} reads another field");
+            for &(other, other_field) in &fields {
                 if other != key {
                     assert_eq!(
-                        resolved.color(other),
-                        built_ins[0].color(other),
+                        other_field(&resolved),
+                        other_field(&built_ins[0]),
                         "{key:?}'s override changed {other:?}"
                     );
                 }
@@ -2079,24 +2118,74 @@ mod tests {
     #[test]
     fn every_grid_and_chrome_width_key_can_be_independently_overridden() {
         let built_ins = [okabe_ito()];
-
-        let grid_keys = [
-            GridWidthKey::GridBorder,
-            GridWidthKey::SectorSeam,
-            GridWidthKey::CellSelectionBorder,
-            GridWidthKey::CursorBorder,
-            GridWidthKey::RegionBorder,
-            GridWidthKey::DiagnosticBorder,
-            GridWidthKey::OutputPortalBorder,
-            GridWidthKey::InputPortalBorder,
-            GridWidthKey::LockedBorder,
+        // Each key beside the field a reader addresses by name, as in
+        // `every_color_key_can_be_independently_overridden`.
+        let grid_fields: [(GridWidthKey, Field<f32>); 9] = [
+            (GridWidthKey::GridBorder, |theme| {
+                theme.grid_border_width.points()
+            }),
+            (GridWidthKey::SectorSeam, |theme| {
+                theme.sector_seam_width.points()
+            }),
+            (GridWidthKey::CellSelectionBorder, |theme| {
+                theme.cell_selection_border_width.points()
+            }),
+            (GridWidthKey::CursorBorder, |theme| {
+                theme.cursor_border_width.points()
+            }),
+            (GridWidthKey::RegionBorder, |theme| {
+                theme.region_border_width.points()
+            }),
+            (GridWidthKey::DiagnosticBorder, |theme| {
+                theme.diagnostic_border_width.points()
+            }),
+            (GridWidthKey::OutputPortalBorder, |theme| {
+                theme.output_portal_border_width.points()
+            }),
+            (GridWidthKey::InputPortalBorder, |theme| {
+                theme.input_portal_border_width.points()
+            }),
+            (GridWidthKey::LockedBorder, |theme| {
+                theme.locked_border_width.points()
+            }),
         ];
-        assert_eq!(
-            grid_keys.len(),
-            9,
-            "the catalogue has 9 Grid-bounded width keys"
-        );
-        for &key in &grid_keys {
+        let chrome_fields: [(ChromeWidthKey, Field<f32>); 5] = [
+            (ChromeWidthKey::PanelBorder, |theme| {
+                theme.panel_border_width.points()
+            }),
+            (ChromeWidthKey::SelectionBorder, |theme| {
+                theme.selection_border_width.points()
+            }),
+            (ChromeWidthKey::WidgetBorder, |theme| {
+                theme.widget_border_width.points()
+            }),
+            (ChromeWidthKey::WidgetInactiveBorder, |theme| {
+                theme.widget_inactive_border_width.points()
+            }),
+            (ChromeWidthKey::InputCursor, |theme| {
+                theme.input_cursor_width.points()
+            }),
+        ];
+        let every_field: Vec<Field<f32>> = grid_fields
+            .iter()
+            .map(|&(_, field)| field)
+            .chain(chrome_fields.iter().map(|&(_, field)| field))
+            .collect();
+        // Every width but the one at `overridden` in `every_field` is the
+        // parent's.
+        let unchanged_but = |resolved: &Theme, overridden: usize, key: &dyn std::fmt::Debug| {
+            for (index, field) in every_field.iter().enumerate() {
+                if index != overridden {
+                    assert_eq!(
+                        field(resolved),
+                        field(&built_ins[0]),
+                        "{key:?}'s override changed another width"
+                    );
+                }
+            }
+        };
+
+        for (index, &(key, field)) in grid_fields.iter().enumerate() {
             let document = ThemeDocument {
                 grid_widths: vec![(
                     key,
@@ -2106,26 +2195,16 @@ mod tests {
             };
             let resolved =
                 resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+            assert_eq!(field(&resolved), 0.1, "{key:?} did not take its override");
             assert_eq!(
                 resolved.grid_width(key).points(),
                 0.1,
-                "{key:?} did not take its override"
+                "{key:?} reads another field"
             );
+            unchanged_but(&resolved, index, &key);
         }
 
-        let chrome_keys = [
-            ChromeWidthKey::PanelBorder,
-            ChromeWidthKey::SelectionBorder,
-            ChromeWidthKey::WidgetBorder,
-            ChromeWidthKey::WidgetInactiveBorder,
-            ChromeWidthKey::InputCursor,
-        ];
-        assert_eq!(
-            chrome_keys.len(),
-            5,
-            "the catalogue has 5 chrome-bounded width keys"
-        );
-        for &key in &chrome_keys {
+        for (index, &(key, field)) in chrome_fields.iter().enumerate() {
             let document = ThemeDocument {
                 chrome_widths: vec![(
                     key,
@@ -2135,11 +2214,13 @@ mod tests {
             };
             let resolved =
                 resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+            assert_eq!(field(&resolved), 1.9, "{key:?} did not take its override");
             assert_eq!(
                 resolved.chrome_width(key).points(),
                 1.9,
-                "{key:?} did not take its override"
+                "{key:?} reads another field"
             );
+            unchanged_but(&resolved, grid_fields.len() + index, &key);
         }
     }
 
