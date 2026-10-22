@@ -51,7 +51,7 @@ use egui::{Color32, Style};
 use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
-use crate::style::{CellColours, CursorPlacement, PORTAL_ROLE_SETS, style};
+use crate::style::{CellColours, CursorPlacement, style};
 use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity};
 
 ///
@@ -166,6 +166,26 @@ impl fmt::Display for Role {
 impl CursorPlacement {
     const ALL: [Self; 4] = [Self::Plain, Self::Cursor, Self::Region, Self::RegionCursor];
 }
+
+///
+/// Every set of Portal roles a Cell can play: none, Input Portal alone,
+/// Output Portal alone, and both, each with and without Locked.
+///
+pub(crate) const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
+    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
+    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
+    const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
+    [
+        PortalRoles::NONE,
+        INPUT,
+        OUTPUT,
+        BOTH,
+        PortalRoles::NONE.with(PortalRole::Locked),
+        INPUT.with(PortalRole::Locked),
+        OUTPUT.with(PortalRole::Locked),
+        BOTH.with(PortalRole::Locked),
+    ]
+};
 
 ///
 /// Every set of Portal roles a Cell carrying `fact` can play:

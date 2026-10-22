@@ -4,9 +4,9 @@
 mod config;
 pub mod console;
 pub mod console_midi;
-// Validates a resolved Theme's composited text contrast, reusing `style`'s
-// own composition functions so painting and validation cannot independently
-// drift. Only loading a Theme document reaches it, and only native loads one:
+// Validates a resolved Theme's composited text contrast, asking `style`'s
+// `CellColours` for each painted fill so painting and validation cannot
+// independently drift. Only loading a Theme document reaches it, and only native loads one:
 // the web has the built-ins alone.
 #[cfg(any(not(target_arch = "wasm32"), test))]
 mod contrast;

@@ -356,15 +356,6 @@ impl ThemeIdentity {
     }
 
     ///
-    /// A custom Theme's identity: its file name's stem. `None` for an empty
-    /// stem, which names nothing.
-    ///
-    #[cfg(any(not(target_arch = "wasm32"), test))]
-    pub(crate) fn from_stem(stem: &str) -> Option<Self> {
-        (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
-    }
-
-    ///
     /// The identity a setting names, as written in `~/.orcvs/config.toml`.
     /// Unchecked: `SelectedThemes` reports one no Theme of its appearance
     /// answers to.
@@ -384,8 +375,19 @@ impl ThemeIdentity {
             Appearance::Light => ORCVS_LIGHT_IDENTITY,
         }
     }
+}
 
-    #[cfg(any(not(target_arch = "wasm32"), test))]
+// What only loading a Theme document asks of an identity; the web loads none.
+#[cfg(any(not(target_arch = "wasm32"), test))]
+impl ThemeIdentity {
+    ///
+    /// A custom Theme's identity: its file name's stem. `None` for an empty
+    /// stem, which names nothing.
+    ///
+    pub(crate) fn from_stem(stem: &str) -> Option<Self> {
+        (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
+    }
+
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }

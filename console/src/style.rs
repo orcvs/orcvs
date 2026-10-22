@@ -298,27 +298,6 @@ fn ordinary_border(
 }
 
 ///
-/// Every set of Portal roles a Cell can play: none, Input Portal alone,
-/// Output Portal alone, and both, each with and without Locked.
-///
-#[cfg(any(not(target_arch = "wasm32"), test))]
-pub(crate) const PORTAL_ROLE_SETS: [PortalRoles; 8] = {
-    const INPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Input);
-    const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
-    const BOTH: PortalRoles = OUTPUT.with(PortalRole::Input);
-    [
-        PortalRoles::NONE,
-        INPUT,
-        OUTPUT,
-        BOTH,
-        PortalRoles::NONE.with(PortalRole::Locked),
-        INPUT.with(PortalRole::Locked),
-        OUTPUT.with(PortalRole::Locked),
-        BOTH.with(PortalRole::Locked),
-    ]
-};
-
-///
 /// The role whose channels paint a Cell playing `portal_roles`: Output
 /// Portal over Input Portal over Locked, so a Cell a Function both reads and
 /// writes shows the write, and a locked Cell a Function reads or writes
@@ -871,9 +850,10 @@ pub(crate) fn install(ctx: &egui::Context, dark: &Theme, light: &Theme) {
 mod tests {
 
     use super::{
-        CellColours, CellVisuals, CursorPlacement, EdgeLine, EdgeRank, PORTAL_ROLE_SETS,
-        SOURCE_PAINT_FACTS, cell_visuals, fact_index, install, sector_line, style,
+        CellColours, CellVisuals, CursorPlacement, EdgeLine, EdgeRank, SOURCE_PAINT_FACTS,
+        cell_visuals, fact_index, install, sector_line, style,
     };
+    use crate::contrast::PORTAL_ROLE_SETS;
     use crate::theme::{Theme, okabe_ito, orcvs_light};
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
     use orcvs::render_frame::{PortalRole, PortalRoles};
@@ -3070,23 +3050,18 @@ mod tests {
         ];
 
         for case in cases {
-            let visuals = if case.selected {
-                coloured(
-                    case.fact,
-                    output_portal_roles(case.output_portal),
-                    CursorPlacement::Cursor,
-                    cursor_colour,
-                    &theme,
-                )
+            let placement = if case.selected {
+                CursorPlacement::Cursor
             } else {
-                coloured(
-                    case.fact,
-                    output_portal_roles(case.output_portal),
-                    CursorPlacement::Plain,
-                    cursor_colour,
-                    &theme,
-                )
+                CursorPlacement::Plain
             };
+            let visuals = coloured(
+                case.fact,
+                output_portal_roles(case.output_portal),
+                placement,
+                cursor_colour,
+                &theme,
+            );
             assert_eq!(
                 visuals.background.map(|c| c.to_array()),
                 case.background,

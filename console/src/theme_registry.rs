@@ -24,29 +24,7 @@
 
 use std::collections::BTreeMap;
 
-#[cfg(any(not(target_arch = "wasm32"), test))]
-use crate::contrast;
 use crate::theme::{Appearance, Theme, ThemeIdentity, okabe_ito, orcvs_light};
-#[cfg(any(not(target_arch = "wasm32"), test))]
-use crate::theme_document::{ThemeDocument, decode, resolve};
-
-/// The one extension a Theme file carries, matched case-insensitively by
-/// [`stem`] alone: `decode` takes the name only to label its errors.
-#[cfg(any(not(target_arch = "wasm32"), test))]
-const EXTENSION: &str = "toml";
-
-///
-/// The Theme identity a file name supplies: the name without its `.toml`
-/// extension ([`EXTENSION`]). `None` when the name does not end in it, and
-/// such a name is not a Theme file. Matching is case-insensitive; the
-/// identity keeps its own case, so `Dark.toml` and `dark.toml` are two
-/// identities, while `dark.toml` and `dark.TOML` are one.
-///
-#[cfg(any(not(target_arch = "wasm32"), test))]
-fn stem(file_name: &str) -> Option<&str> {
-    let (stem, extension) = file_name.rsplit_once('.')?;
-    extension.eq_ignore_ascii_case(EXTENSION).then_some(stem)
-}
 
 ///
 /// Why a selected identity could not be resolved to a Theme.
@@ -157,34 +135,6 @@ impl ThemeRegistry {
     }
 
     ///
-    /// Decodes and resolves one document under the identity its file name
-    /// supplies. Pure: the registry is not touched, so a refusal leaves it
-    /// exactly as it was.
-    ///
-    #[cfg(any(not(target_arch = "wasm32"), test))]
-    fn load(&self, file_name: &str, bytes: &[u8]) -> Result<Theme, String> {
-        let stem = stem(file_name)
-            .ok_or_else(|| format!("{file_name}: not a Theme file; expected .{EXTENSION}"))?;
-        let identity = ThemeIdentity::from_stem(stem)
-            .ok_or_else(|| format!("{file_name}: a Theme file's name needs a stem"))?;
-        let document: ThemeDocument = decode(file_name, bytes).map_err(|e| e.to_string())?;
-        resolve(&self.built_ins, &identity, &document).map_err(|e| format!("{file_name}: {e}"))
-    }
-
-    ///
-    /// Adds a loaded Theme, with a notice when the contrast validator finds
-    /// a state below the floor. A contrast failure never refuses the Theme.
-    ///
-    #[cfg(any(not(target_arch = "wasm32"), test))]
-    fn add(&mut self, theme: Theme) {
-        if let Some(message) = contrast_notice(&theme) {
-            self.notice(message);
-        }
-        self.refused.remove(&theme.identity);
-        self.custom.insert(theme.identity.clone(), theme);
-    }
-
-    ///
     /// The Theme `identity` names for the `slot` appearance, or why it cannot
     /// be used.
     ///
@@ -222,30 +172,85 @@ impl ThemeRegistry {
     }
 }
 
-///
-/// The contrast report on `theme`, as a notice naming every state below the
-/// floor, or `None` when every state clears it.
-///
+// === Theme documents ===
+
+// Loading a Theme document, which only native discovery does: the web has
+// the built-ins alone.
 #[cfg(any(not(target_arch = "wasm32"), test))]
-fn contrast_notice(theme: &Theme) -> Option<String> {
-    let report = contrast::validate(theme);
-    let failing: Vec<String> = report
-        .results
-        .iter()
-        .filter(|result| !result.passes() && !result.accepted)
-        .map(|result| format!("{} ({}) {:.2}:1", result.role, result.state, result.ratio))
-        .collect();
-    (!failing.is_empty()).then(|| {
-        format!(
-            "Theme \"{}\" is loaded, but {} of {} text states measure below the {}:1 contrast \
-             floor: {}",
-            theme.identity,
-            failing.len(),
-            report.results.len(),
-            report.floor,
-            failing.join("; ")
-        )
-    })
+mod document {
+    use super::ThemeRegistry;
+    use crate::contrast;
+    use crate::theme::{Theme, ThemeIdentity};
+    use crate::theme_document::{ThemeDocument, decode, resolve};
+
+    /// The one extension a Theme file carries, matched case-insensitively by
+    /// [`stem`] alone: `decode` takes the name only to label its errors.
+    const EXTENSION: &str = "toml";
+
+    ///
+    /// The Theme identity a file name supplies: the name without its `.toml`
+    /// extension ([`EXTENSION`]). `None` when the name does not end in it, and
+    /// such a name is not a Theme file. Matching is case-insensitive; the
+    /// identity keeps its own case, so `Dark.toml` and `dark.toml` are two
+    /// identities, while `dark.toml` and `dark.TOML` are one.
+    ///
+    pub(super) fn stem(file_name: &str) -> Option<&str> {
+        let (stem, extension) = file_name.rsplit_once('.')?;
+        extension.eq_ignore_ascii_case(EXTENSION).then_some(stem)
+    }
+
+    impl ThemeRegistry {
+        ///
+        /// Decodes and resolves one document under the identity its file name
+        /// supplies. Pure: the registry is not touched, so a refusal leaves it
+        /// exactly as it was.
+        ///
+        pub(super) fn load(&self, file_name: &str, bytes: &[u8]) -> Result<Theme, String> {
+            let stem = stem(file_name)
+                .ok_or_else(|| format!("{file_name}: not a Theme file; expected .{EXTENSION}"))?;
+            let identity = ThemeIdentity::from_stem(stem)
+                .ok_or_else(|| format!("{file_name}: a Theme file's name needs a stem"))?;
+            let document: ThemeDocument = decode(file_name, bytes).map_err(|e| e.to_string())?;
+            resolve(&self.built_ins, &identity, &document).map_err(|e| format!("{file_name}: {e}"))
+        }
+
+        ///
+        /// Adds a loaded Theme, with a notice when the contrast validator finds
+        /// a state below the floor. A contrast failure never refuses the Theme.
+        ///
+        pub(super) fn add(&mut self, theme: Theme) {
+            if let Some(message) = contrast_notice(&theme) {
+                self.notice(message);
+            }
+            self.refused.remove(&theme.identity);
+            self.custom.insert(theme.identity.clone(), theme);
+        }
+    }
+
+    ///
+    /// The contrast report on `theme`, as a notice naming every state below the
+    /// floor, or `None` when every state clears it.
+    ///
+    fn contrast_notice(theme: &Theme) -> Option<String> {
+        let report = contrast::validate(theme);
+        let failing: Vec<String> = report
+            .results
+            .iter()
+            .filter(|result| !result.passes() && !result.accepted)
+            .map(|result| format!("{} ({}) {:.2}:1", result.role, result.state, result.ratio))
+            .collect();
+        (!failing.is_empty()).then(|| {
+            format!(
+                "Theme \"{}\" is loaded, but {} of {} text states measure below the {}:1 contrast \
+                 floor: {}",
+                theme.identity,
+                failing.len(),
+                report.results.len(),
+                report.floor,
+                failing.join("; ")
+            )
+        })
+    }
 }
 
 // === Native discovery ===
@@ -256,7 +261,8 @@ mod native {
     use std::io::Read as _;
     use std::path::{Path, PathBuf};
 
-    use super::{ThemeRegistry, stem};
+    use super::ThemeRegistry;
+    use super::document::stem;
     use crate::theme::ThemeIdentity;
     use crate::theme_document::MAX_DOCUMENT_BYTES;
 
@@ -478,8 +484,9 @@ mod native {
 
 #[cfg(test)]
 mod tests {
+    use super::document::stem;
     use super::tests_support::{dark, id, load};
-    use super::{ThemeRegistry, Unavailable, stem};
+    use super::{ThemeRegistry, Unavailable};
     use crate::theme::{
         Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, okabe_ito, orcvs_light,
     };
@@ -850,7 +857,7 @@ mod discovery_tests {
         Candidate {
             path: PathBuf::from("/themes").join(file_name),
             file_name: file_name.to_owned(),
-            identity: id(super::stem(file_name).expect("a Theme file")),
+            identity: id(super::document::stem(file_name).expect("a Theme file")),
             unloadable: None,
         }
     }
