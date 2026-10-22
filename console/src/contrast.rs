@@ -23,7 +23,7 @@
 //! Its chrome states are `text`, `text.muted`, `text.active`, selected
 //! text, `error`, `warning` and `link`, each on the surfaces egui paints it
 //! on (see [`State`]). Five chrome cases are left out, each for a reason
-//! [`ContrastReport::scope`] also carries:
+//! `SCOPE` also carries:
 //!
 //! - A disabled widget: egui fades it to half opacity, and WCAG 2.1 SC 1.4.3
 //!   exempts the text of an inactive user-interface component.
@@ -491,29 +491,17 @@ impl ContrastResult {
 }
 
 ///
-/// [`validate`]'s complete answer for one Theme: the floor and scope every
-/// [`ContrastResult`] is measured against, carried in the data itself rather
-/// than only in this module's rustdoc, plus the results.
+/// [`validate`]'s complete answer for one Theme: the floor every
+/// [`ContrastResult`] is measured against, plus the results.
 ///
 pub(crate) struct ContrastReport {
     pub(crate) floor: f32,
-    /// This module's own `# Scope` section, restated as data a caller can
-    /// show beside the report rather than only read in source.
-    // On wasm the whole report is unreachable, which `lib.rs`'s expectation
-    // on `mod contrast` covers, so this one is native-only.
-    #[cfg_attr(
-        all(not(test), not(target_arch = "wasm32")),
-        expect(
-            dead_code,
-            reason = "the report carries its scope for any caller to show, and the one shipped \
-                      caller, the Theme notice, names the floor and the failing states only"
-        )
-    )]
-    pub(crate) scope: &'static str,
     pub(crate) results: Vec<ContrastResult>,
 }
 
-/// [`ContrastReport::scope`]'s exact text.
+/// This module's `# Scope` section as one string, so a test fails if it stops
+/// naming text contrast or any excluded chrome case.
+#[cfg(test)]
 const SCOPE: &str = "Text contrast only: an effective foreground against the effective \
 background it is actually painted on. Not pairwise Token-colour distinguishability, \
 or border/focus visibility. Chrome leaves out \
@@ -577,7 +565,6 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
 
     ContrastReport {
         floor: CONTRAST_FLOOR,
-        scope: SCOPE,
         results,
     }
 }
@@ -688,8 +675,8 @@ mod tests {
     use orcvs::source::SourcePaint;
 
     use super::{
-        AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
-        painted, validate,
+        AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, SCOPE, State,
+        contrast, painted, validate,
     };
     use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
 
@@ -768,16 +755,13 @@ mod tests {
     // === validate's shape ===
 
     #[test]
-    fn validate_reports_the_floor_and_scope_in_the_returned_data() {
+    fn validate_reports_the_floor_and_scope_names_every_exclusion() {
         let report = validate(&okabe_ito());
         assert_eq!(report.floor, 4.5);
         assert!(
-            report.scope.contains("Text contrast only"),
-            "the report must carry its own scope, not only rustdoc: {:?}",
-            report.scope
+            SCOPE.contains("Text contrast only"),
+            "the scope must name text contrast: {SCOPE:?}"
         );
-        // Every chrome case left out is named in the returned scope, not only
-        // in rustdoc.
         for excluded in [
             "disabled widgets",
             "code.background",
@@ -786,9 +770,8 @@ mod tests {
             "text.active on the open widget fill",
         ] {
             assert!(
-                report.scope.contains(excluded),
-                "the scope must name the excluded {excluded:?}: {:?}",
-                report.scope
+                SCOPE.contains(excluded),
+                "the scope must name the excluded {excluded:?}: {SCOPE:?}"
             );
         }
     }
