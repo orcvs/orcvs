@@ -192,6 +192,22 @@ impl Junction {
     }
 
     ///
+    /// The most quads [`Self::draw`] draws. Its rows are cut only at the ends
+    /// of its left and right lines' bands, and its columns at the ends of its
+    /// above and below lines' bands. Two bands on one boundary nest, so they
+    /// cut it into one piece where they are as wide and three where not, and
+    /// each piece of rows takes at most a quad for each piece of columns.
+    ///
+    fn quads(&self) -> usize {
+        let [above, below, left, right] = self.lines;
+        let pieces = |one: Option<Line>, other: Option<Line>| match (one, other) {
+            (Some(one), Some(other)) if one.width != other.width => 3,
+            _ => 1,
+        };
+        pieces(above, below) * pieces(left, right)
+    }
+
+    ///
     /// Draws the junction on column line `column` and row line `row`: one quad
     /// where every line meeting it is of one rank, and otherwise a quad for
     /// each piece of it some line reaches, in the colour of the highest line
@@ -332,40 +348,40 @@ pub(super) fn edge_mesh(
             .and_then(|row| down[column * height + row])
     };
 
-    // The junctions along row line `row`, each built once: a crossing's own
+    // Every junction, row line by row line, each built once: a crossing's own
     // pieces and the ends of the edges that meet it are both read from them.
-    let junctions = |row: usize| {
-        columns
-            .iter()
-            .enumerate()
-            .map(|(column, &column_line)| {
-                let lines = [
-                    down_at(column, row.checked_sub(1)),
-                    down_at(column, Some(row)),
-                    across_at(column.checked_sub(1), row),
-                    across_at(Some(column), row),
-                ];
-                Junction::new(lines, column_line, rows[row])
-            })
-            .collect::<Vec<_>>()
-    };
+    let junctions = (0..rows.len())
+        .map(|row| {
+            columns
+                .iter()
+                .enumerate()
+                .map(|(column, &column_line)| {
+                    let lines = [
+                        down_at(column, row.checked_sub(1)),
+                        down_at(column, Some(row)),
+                        across_at(column.checked_sub(1), row),
+                        across_at(Some(column), row),
+                    ];
+                    Junction::new(lines, column_line, rows[row])
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
-    // One quad per junction and per edge: reserved up front, since the Mesh
-    // is rebuilt every frame. A junction where lines of two ranks meet takes
-    // more.
-    let quads = columns.len() * rows.len()
+    // Reserved up front, since the Mesh is rebuilt every frame and outgrowing
+    // the reserve doubles and copies it: a quad per edge, and the most each
+    // junction draws.
+    let quads = junctions
+        .iter()
+        .flatten()
+        .map(Junction::quads)
+        .sum::<usize>()
         + across.iter().flatten().count()
         + down.iter().flatten().count();
     let mut mesh = Mesh::default();
     mesh.reserve_triangles(2 * quads);
     mesh.reserve_vertices(4 * quads);
-    let mut this = junctions(0);
-    for (row, &row_line) in rows.iter().enumerate() {
-        let next = if row + 1 < rows.len() {
-            junctions(row + 1)
-        } else {
-            Vec::new()
-        };
+    for (row, (this, &row_line)) in junctions.iter().zip(rows).enumerate() {
         for (column, (junction, &column_line)) in this.iter().zip(columns).enumerate() {
             junction.draw(&mut mesh, column_line, row_line, pixels_per_point);
             let [_, below, _, right] = junction.lines;
@@ -379,12 +395,11 @@ pub(super) fn edge_mesh(
             if let Some(line) = below {
                 let (x, y) = (
                     band(column_line, line.width),
-                    junction.y.end..next[column].y.start,
+                    junction.y.end..junctions[row + 1][column].y.start,
                 );
                 quad(&mut mesh, x, y, line.colour, pixels_per_point);
             }
         }
-        this = next;
     }
 
     mesh
@@ -672,5 +687,51 @@ pub(super) fn show_source(
         })
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    ///
+    /// No junction draws more quads than the edge Mesh reserves for it, over
+    /// every arrangement of lines one to three pixels wide, of two ranks, seamed
+    /// and not, meeting a junction from each side.
+    ///
+    #[test]
+    fn no_junction_draws_more_quads_than_its_reserve() {
+        let mut lines = vec![None];
+        for rank in [EdgeRank::GridLine, EdgeRank::Diagnostic] {
+            for seamed in [false, true] {
+                for width in 1..=3 {
+                    let colour = Color32::from_rgb(10 * width as u8, 0, 0);
+                    lines.push(Some(Line {
+                        rank,
+                        seamed,
+                        width,
+                        colour,
+                    }));
+                }
+            }
+        }
+        for &above in &lines {
+            for &below in &lines {
+                for &left in &lines {
+                    for &right in &lines {
+                        let junction = Junction::new([above, below, left, right], 10, 10);
+                        let mut mesh = Mesh::default();
+                        junction.draw(&mut mesh, 10, 10, 1.0);
+                        assert!(
+                            mesh.vertices.len() <= 4 * junction.quads(),
+                            "{} quads, {} reserved, for widths {:?}",
+                            mesh.vertices.len() / 4,
+                            junction.quads(),
+                            [above, below, left, right].map(|line| line.map(|line| line.width)),
+                        );
+                    }
+                }
+            }
+        }
     }
 }
