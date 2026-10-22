@@ -12,6 +12,7 @@
 - [x] No new trait, code-generation crate or runtime registry.
 - [x] The hand-written literal-value acceptance tests stay, so a generated reader and writer cannot both agree on a wrong field.
 - [x] A Theme document still decodes, inherits and resolves exactly as before: the decoder, resolve and built-in record tests pass unchanged.
+- [x] `cargo clippy --package console --all-targets --target wasm32-unknown-unknown --locked -- -D warnings` passes, so the generated items' web `dead_code` expectations hold.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.
 
 ## Comments
