@@ -28,7 +28,7 @@
 //!
 //! A Paint covers the Positions `GridViewport::visible_positions` answers and
 //! no others, so a console showing a tenth of a Grid pays for a tenth of it:
-//! neither the per-Cell call to `cell_visuals_with_cursor_colour` nor the `Vec` holding its
+//! neither the per-Cell call to `CellColours::colours` nor the `Vec` holding its
 //! answers follows the Source's size. Everything the derivation reads is local
 //! to its own Cell, which makes the cull a saving rather than a change of answer.
 //!
@@ -52,10 +52,7 @@ use orcvs::{
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
-    style::{
-        SourcePaintVisuals, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill,
-        sector_line,
-    },
+    style::{CellColours, CursorPlacement, sector_line},
     theme::{GridWidth, Theme},
 };
 
@@ -64,7 +61,7 @@ pub use crate::grid_viewport::VisiblePositions;
 ///
 /// What one Cell of a Render Frame is drawn as.
 ///
-/// Flat. The background is already decided at `cell_visuals_with_cursor_colour`: `None` means the
+/// Flat. The background is already decided by `CellColours::colours`: `None` means the
 /// panel behind the Grid has painted the Source colour, and `Some` means this
 /// Cell needs a fill of its own.
 ///
@@ -308,20 +305,18 @@ impl Paint {
     /// `theme.region_border_width` around a spanning Region, whose Cursor's
     /// Cell keeps its own border and sector seams.
     ///
-    /// `cell_visuals_with_cursor_colour` decides each Cell's visuals: this
-    /// decides what to do with its answer, not what the answer is. It reads
-    /// the finished language fact on the Cell (`RenderCell::source_paint`)
-    /// and the Portal roles the Cell plays (`RenderCell::portal_roles`).
+    /// `style::CellColours` decides each Cell's colours: this decides where
+    /// a Cell sits relative to the Cursor and Region, and what to do with the
+    /// answer, not what the answer is. It reads the finished language fact
+    /// on the Cell (`RenderCell::source_paint`) and the Portal roles the Cell
+    /// plays (`RenderCell::portal_roles`).
     ///
     /// `theme` is resolved once here, before the loop, rather than once per
     /// Cell: a per-Cell resolution would add its cost to every drawn Cell of
-    /// every frame. `style::SourcePaintVisuals` holds the answer
-    /// `cell_visuals_with_cursor_colour` gives for each unselected fact
-    /// and painting Portal the walk asks for, so an unselected Cell costs
-    /// one indexed load rather than the role match, Diagnostic/Portal
-    /// blends, `cell.background` composite and border priority match. Only
-    /// the single-Cell Cursor calls `cell_visuals_with_cursor_colour`
-    /// directly.
+    /// every frame. `style::CellColours` holds the prepared fills and the
+    /// answer for each fact and painting Portal the walk asks for, so a Cell
+    /// costs one indexed load rather than the role match, Diagnostic/Portal
+    /// blends, `cell.background` composite and border priority match.
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -348,17 +343,10 @@ impl Paint {
         } else {
             (0..0, 0..0)
         };
-        // Resolved once per frame, not per Cell: the Cursor/Region fills and
-        // the uniform Cell base fallback, each already composited over
-        // `theme.cell_background`.
-        let cursor_fill = theme.cursor_background;
-        let region_cursor_fill = theme.region_cursor_fill();
-        let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
-        let base_fill = compose_cell_fill(theme.cell_background, None);
         let sector_seam = theme.sector_seam;
         let sector_seam_width = theme.sector_seam_width.points();
         let seams = sector_seam_width > 0.0;
-        let mut unselected = SourcePaintVisuals::new(theme);
+        let mut colours = CellColours::new(theme);
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
@@ -370,35 +358,23 @@ impl Paint {
                 let cell = frame.at(position);
                 // While a Region spans more than one Cell the outline is the
                 // Region's, and the Cursor's Cell is selected only by its
-                // fill: the Region's Cursor colour, or the Cursor's colour
-                // when that is unset.
-                let is_cursor = position == frame_cursor;
-                let selected = is_cursor && !region_spans;
-                let visuals = if selected {
-                    cell_visuals_with_cursor_colour(
-                        cell.source_paint(),
-                        cell.portal_roles(),
-                        true,
-                        cursor_fill,
-                        theme,
-                    )
+                // fill.
+                let placement = if position == frame_cursor {
+                    if region_spans {
+                        CursorPlacement::RegionCursor
+                    } else {
+                        CursorPlacement::Cursor
+                    }
+                } else if region_columns.contains(&column) && region_rows.contains(&row) {
+                    CursorPlacement::Region
                 } else {
-                    unselected.unselected(cell.source_paint(), cell.portal_roles())
+                    CursorPlacement::Plain
                 };
-                let in_region = region_columns.contains(&column) && region_rows.contains(&row);
-                let background = cell_background(
-                    visuals.background,
-                    is_cursor && region_spans,
-                    in_region,
-                    region_cursor_fill,
-                    region_fill,
-                    base_fill,
-                    theme.cell_background,
-                );
+                let visuals = colours.colours(cell.source_paint(), cell.portal_roles(), placement);
 
                 // The Cursor's own Cell inside a spanning Region keeps its
                 // fact's border, ranked over every other fact.
-                let border = if is_cursor && region_spans {
+                let border = if placement == CursorPlacement::RegionCursor {
                     visuals.border.map(|line| EdgeLine {
                         rank: EdgeRank::RegionCursor,
                         ..line
@@ -407,7 +383,7 @@ impl Paint {
                     visuals.border
                 };
                 cells.push(CellPaint {
-                    background,
+                    background: visuals.background,
                     border,
                     foreground: visuals.foreground,
                     // `sector_line` is pure, so the strength becomes a colour
@@ -781,7 +757,7 @@ mod tests {
     };
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
-    use crate::style::{cell_visuals_with_cursor_colour, sector_line};
+    use crate::style::{CellColours, CursorPlacement, sector_line};
     use crate::theme::okabe_ito;
     use egui::{Color32, Stroke};
     use orcvs::source::{OperandState, SourcePaint, Token};
@@ -813,7 +789,7 @@ mod tests {
     /// back from `theme` rather than recomputed: `.scratch/theming/schema.md`
     /// stores a background per role, so what a test asks is which stored value a
     /// Cell answers, not a mix this layer would have to reimplement to
-    /// check. Every foreground `cell_visuals_with_cursor_colour` can answer
+    /// check. Every foreground `CellColours::colours` can answer
     /// is distinct in the Okabe–Ito built-in.
     fn tinted(theme: &Theme, colour: Color32) -> Color32 {
         for (foreground, background) in [
@@ -846,23 +822,20 @@ mod tests {
     }
 
     ///
-    /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
-    /// claim and its own Portal roles straight from `cell` — the same
-    /// two per-Cell inputs `Paint::derive_with_theme` reads, so a test
-    /// comparing against this needs no `okabe_ito()`-only shim.
+    /// What `CellColours::colours` answers for `cell` at
+    /// `CursorPlacement::Plain`, reading its claim and its own Portal roles
+    /// straight from `cell` — the same two per-Cell inputs
+    /// `Paint::derive_with_theme` reads, so a test comparing against this
+    /// needs no `okabe_ito()`-only shim.
     ///
     fn expected_visuals(
         cell: &orcvs::render_frame::RenderCell,
-        selected: bool,
-        cursor_colour: Option<Color32>,
         theme: &Theme,
     ) -> crate::style::CellVisuals {
-        cell_visuals_with_cursor_colour(
+        CellColours::new(theme).colours(
             cell.source_paint(),
             cell.portal_roles(),
-            selected,
-            cursor_colour,
-            theme,
+            CursorPlacement::Plain,
         )
     }
 
@@ -887,13 +860,9 @@ mod tests {
         let theme = okabe_ito();
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
-        let cursor = frame.cursor();
-
         for cell in frame.cells() {
             let position = cell.position();
-            let selected = position == cursor;
-            let visuals =
-                expected_visuals(cell, selected, Some(theme.selection_background), &theme);
+            let visuals = expected_visuals(cell, &theme);
             let painted = paint.at(position);
 
             assert_eq!(
@@ -1538,7 +1507,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(cell, false, None, &theme).background,
+                expected_visuals(cell, &theme).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -1559,7 +1528,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(cell, false, None, &theme).background,
+                expected_visuals(cell, &theme).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -1612,7 +1581,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            expected_visuals(cell, false, None, &theme).background,
+            expected_visuals(cell, &theme).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -1715,7 +1684,7 @@ mod tests {
             );
             assert_eq!(
                 painted.background,
-                expected_visuals(frame.at(position), false, None, &theme).background,
+                expected_visuals(frame.at(position), &theme).background,
                 "column {x} did not keep the Number tint"
             );
             assert!(painted.background.is_some(), "column {x} lost its tint");
@@ -3038,7 +3007,7 @@ mod tests {
 
     ///
     /// The Fill tint, walked end to end from written
-    /// Source through `Paint::derive` rather than through `cell_visuals_with_cursor_colour`
+    /// Source through `Paint::derive` rather than through `CellColours::colours`
     /// alone: a nested Function's own Cells tint like its parent's, an
     /// Operand Cell tints with its declared Token's colour whether or not
     /// its slot binds, and adjacent tinted Cells of one colour — a Function
@@ -3072,8 +3041,8 @@ mod tests {
         // so `written` plays no part in either tint.
         let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
         let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
-        let function_tint = expected_visuals(function_cell, false, None, &theme).background;
-        let number_tint = expected_visuals(number_cell, false, None, &theme).background;
+        let function_tint = expected_visuals(function_cell, &theme).background;
+        let number_tint = expected_visuals(number_cell, &theme).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 

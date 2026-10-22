@@ -3,10 +3,9 @@
 //! foreground and background each reachable painted text state actually
 //! displays, not raw Theme colour pairs read in isolation.
 //!
-//! [`painted`] calls [`crate::style::cell_visuals_with_cursor_colour`] and
-//! [`crate::style::cell_background`] — the same functions
-//! [`crate::paint::Paint::derive_with_theme`] calls per Cell — for every
-//! Source Grid colour operation, so the two cannot independently drift.
+//! [`painted`] asks [`crate::style::CellColours::colours`] — the decision
+//! [`crate::paint::Paint::derive_with_theme`] asks per Cell — for every
+//! Source Grid colour, so the two cannot independently drift.
 //! [`chrome`] does the same for the console's chrome: it reads every colour out of
 //! [`crate::style::style`], the `Style` [`crate::style::install`] registers,
 //! through the egui accessors the widgets themselves paint from —
@@ -53,9 +52,7 @@ use egui::{Color32, Style};
 use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
-use crate::style::{
-    PORTAL_ROLE_SETS, cell_background, cell_visuals_with_cursor_colour, compose_cell_fill, style,
-};
+use crate::style::{CellColours, CursorPlacement, PORTAL_ROLE_SETS, style};
 use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity};
 
 ///
@@ -165,26 +162,6 @@ impl fmt::Display for Role {
             Self::Link => "link",
         })
     }
-}
-
-///
-/// Where a Source Grid role's Cell sits relative to the Cursor and a Region
-/// spanning more than one Cell — the axis
-/// [`crate::paint::Paint::derive_with_theme`] decides once per Cell,
-/// independently of the Portal roles that Cell plays (see
-/// [`State::SourceGrid`]).
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CursorPlacement {
-    /// Not the Cursor, not inside a Region: the ordinary Cell.
-    Plain,
-    /// The single-Cell Cursor, selected and visible.
-    Cursor,
-    /// A Region Cell other than the Cursor's own, inside a Region spanning
-    /// more than one Cell.
-    Region,
-    /// The Cursor's own Cell inside a Region spanning more than one Cell.
-    RegionCursor,
 }
 
 impl CursorPlacement {
@@ -298,7 +275,7 @@ impl fmt::Display for State {
 /// The effective foreground and *opaque* background a `(fact, cursor,
 /// portals)` triple actually paints, composited exactly as
 /// [`crate::paint::Paint::derive_with_theme`] composes one Cell — the same
-/// functions, standalone rather than read off one Cell of a whole Render
+/// decision, standalone rather than read off one Cell of a whole Render
 /// Frame.
 ///
 /// The background is resolved all the way down to the opaque window
@@ -315,37 +292,11 @@ fn painted(
     portals: PortalRoles,
     theme: &Theme,
 ) -> (Color32, Color32) {
-    let is_cursor = matches!(
-        cursor,
-        CursorPlacement::Cursor | CursorPlacement::RegionCursor
-    );
-    let region_spans = matches!(
-        cursor,
-        CursorPlacement::Region | CursorPlacement::RegionCursor
-    );
-    let selected = is_cursor && !region_spans;
-    let cursor_fill = theme.cursor_background;
-
-    let visuals = cell_visuals_with_cursor_colour(fact, portals, selected, cursor_fill, theme);
-
-    let region_cursor_fill = theme.region_cursor_fill();
-    let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
-    let base_fill = compose_cell_fill(theme.cell_background, None);
-    let in_region = region_spans && !is_cursor;
-
-    let painted_background = cell_background(
-        visuals.background,
-        is_cursor && region_spans,
-        in_region,
-        region_cursor_fill,
-        region_fill,
-        base_fill,
-        theme.cell_background,
-    );
+    let visuals = CellColours::new(theme).colours(fact, portals, cursor);
 
     let grid_surface = theme.window_background.blend(theme.grid_background);
     let effective_background =
-        grid_surface.blend(painted_background.unwrap_or(Color32::TRANSPARENT));
+        grid_surface.blend(visuals.background.unwrap_or(Color32::TRANSPARENT));
 
     (visuals.foreground, effective_background)
 }
@@ -1394,7 +1345,7 @@ mod tests {
 
     ///
     /// The single-Cell Cursor always replaces the role background outright
-    /// — `style::cell_visuals_with_cursor_colour`'s own "The Cursor's own
+    /// — `style::CellColours::colours`'s own "The Cursor's own
     /// fill wins outright on its Cell" — regardless of whether that role
     /// background was opaque. Every one of Okabe–Ito's own role backgrounds
     /// is a translucent 10% tint, so this fixture sets

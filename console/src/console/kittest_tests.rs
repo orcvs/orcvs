@@ -3209,15 +3209,14 @@ async fn the_function_a_tick_locked_paints_as_locked() {
     let theme = harness.state().themes.presented(Appearance::Dark).clone();
     // The fill a Cell carrying `fact` would show were it Locked.
     let locked = |fact| {
-        crate::style::cell_visuals_with_cursor_colour(
-            fact,
-            PortalRoles::NONE.with(PortalRole::Locked),
-            false,
-            None,
-            &theme,
-        )
-        .background
-        .expect("the presented Theme fills a locked Cell")
+        crate::style::CellColours::new(&theme)
+            .colours(
+                fact,
+                PortalRoles::NONE.with(PortalRole::Locked),
+                crate::style::CursorPlacement::Plain,
+            )
+            .background
+            .expect("the presented Theme fills a locked Cell")
     };
     let function = locked(SourcePaint::Function);
     let number = locked(SourcePaint::Operand {

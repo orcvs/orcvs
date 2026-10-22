@@ -680,17 +680,17 @@ exposed as a setting before it had a painter; it has one now.
 
 `console/src/contrast.rs::validate` (`.scratch/theming/issues/08`) measures
 every reachable painted text state's *effective*, actually-composited
-foreground against its actually-composited background — reusing
-`style::cell_visuals_with_cursor_colour` and `style::cell_background`, the
-same functions painting itself calls, so the two cannot independently drift.
+foreground against its actually-composited background — asking
+`style::CellColours::colours`, the same decision painting itself asks, so the
+two cannot independently drift.
 Each result reports its role, its state (a `CursorPlacement` of `plain`,
 `Cursor`, `Region` or `Region, Cursor's Cell`, crossed with the Portal roles
 the Cell plays: none, Input Portal, Output Portal, or both), the effective foreground and
 background, the measured ratio against the 4.5:1 floor, and whether it is an
 accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
-from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"); the returned
-`ContrastReport` also carries the floor and a scope description directly, not
-only in rustdoc. `validate` measures text contrast only: never Token-colour
+from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"), and the returned
+`ContrastReport` carries it too; the scope is stated once, at `contrast::SCOPE`
+and the module's `# Scope` section. `validate` measures text contrast only: never Token-colour
 distinguishability or border/focus visibility.
 
 Colour vision is a second, test-only measurement over the built-in Themes,

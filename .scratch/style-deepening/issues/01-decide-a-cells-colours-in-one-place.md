@@ -6,12 +6,12 @@ Paint keeps geometry and edges: re-ranking the Cursor's border to `EdgeRank::Reg
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `CellColours::colours` is the only caller of the selected and unselected visuals, and neither Paint nor contrast prepares a fill or calls a composition helper itself.
-- [ ] `cell_background` and its seven arguments are gone.
-- [ ] The per-Paint cache is kept: the unselected visuals are looked up once per distinct fact and Portal roles in a Paint, as now.
-- [ ] Style tests cross the whole decision per `CursorPlacement` (`Plain`, `Cursor`, `Region`, `RegionCursor`) over an ordinary, a tinted and a translucent background; the existing expected-colour and Paint integration tests pass unchanged.
-- [ ] The contrast gate's measurements are unchanged for every shipped Theme.
-- [ ] The empty and Region-spanning Paint benchmarks still exist and still measure the same walk.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+- [x] `CellColours::colours` is the only caller of the selected and unselected visuals, and neither Paint nor contrast prepares a fill or calls a composition helper itself.
+- [x] `cell_background` and its seven arguments are gone.
+- [x] The per-Paint cache is kept: the unselected visuals are looked up once per distinct fact and Portal roles in a Paint, as now.
+- [x] Style tests cross the whole decision per `CursorPlacement` (`Plain`, `Cursor`, `Region`, `RegionCursor`) over an ordinary, a tinted and a translucent background; the existing expected-colour and Paint integration tests pass unchanged.
+- [x] The contrast gate's measurements are unchanged for every shipped Theme.
+- [x] The empty and Region-spanning Paint benchmarks still exist and still measure the same walk.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
