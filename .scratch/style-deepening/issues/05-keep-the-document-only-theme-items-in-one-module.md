@@ -14,6 +14,6 @@
 
 ## Comments
 
-- The key enums moved too, along with their `name` and the setters, and so did `ThemeIdentity`'s `from_stem`, `is_reserved` and `as_str`. To make that move possible, `ThemeIdentity`'s field is `pub(crate)`. An identity carries no invariant beyond `from_stem`'s non-empty check, and `configured` already skips that check.
+- The key enums moved too, along with their `name` and the setters, and so did `ThemeIdentity::is_reserved`. `from_stem` and `as_str` need the identity's private field, so they stay in `theme.rs`, each with the web expectation. That is the one exception to "no item in `theme.rs`": in review, keeping the field private was judged worth more than two narrow attributes.
 - The width keys' `name` is read only by tests, so it compiles only under `cfg(test)`.
 - The five `theme_registry.rs` expectations and the two in `lib.rs` stay. Each sits on an item the web compiles and never reaches. So the spec's "twenty become one" comes to thirteen fewer, plus `ThemeSelection::new`.

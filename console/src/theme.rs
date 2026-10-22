@@ -346,11 +346,26 @@ pub(crate) const fn straight_rgba(rgba: u32) -> Color32 {
 /// the fallback keeps it rather than rewriting it.
 ///
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ThemeIdentity(pub(crate) Cow<'static, str>);
+pub(crate) struct ThemeIdentity(Cow<'static, str>);
 
 impl ThemeIdentity {
     const fn reserved(identity: &'static str) -> Self {
         Self(Cow::Borrowed(identity))
+    }
+
+    ///
+    /// A custom Theme's identity: its file name's stem. `None` for an empty
+    /// stem, which names nothing.
+    ///
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
+    pub(crate) fn from_stem(stem: &str) -> Option<Self> {
+        (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
     }
 
     ///
@@ -372,6 +387,17 @@ impl ThemeIdentity {
             Appearance::Dark => OKABE_ITO_IDENTITY,
             Appearance::Light => ORCVS_LIGHT_IDENTITY,
         }
+    }
+
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        expect(
+            dead_code,
+            reason = "only native discovery loads a Theme document; the web has the built-ins alone"
+        )
+    )]
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

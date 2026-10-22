@@ -27,7 +27,6 @@
 //! the file name.
 //!
 
-use std::borrow::Cow;
 use std::fmt;
 
 use egui::Color32;
@@ -201,21 +200,9 @@ pub(crate) enum OptionalFill {
 // === Identity ===
 
 impl ThemeIdentity {
-    ///
-    /// A custom Theme's identity: its file name's stem. `None` for an empty
-    /// stem, which names nothing.
-    ///
-    pub(crate) fn from_stem(stem: &str) -> Option<Self> {
-        (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
-    }
-
     /// Whether this is a built-in's reserved identity.
     pub(crate) fn is_reserved(&self) -> bool {
         *self == OKABE_ITO_IDENTITY || *self == ORCVS_LIGHT_IDENTITY
-    }
-
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
     }
 }
 
