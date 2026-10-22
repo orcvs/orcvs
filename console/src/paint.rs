@@ -1134,8 +1134,8 @@ mod tests {
             }
             let document = crate::theme_document::decode("custom.toml", text.as_bytes())
                 .expect("a valid document");
-            let theme =
-                crate::theme::resolve(&[okabe_ito()], &id("custom"), &document).expect("resolves");
+            let theme = crate::theme_document::resolve(&[okabe_ito()], &id("custom"), &document)
+                .expect("resolves");
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
             assert!(outline_spans(&paint));
             paint.at(at(3, 2)).background

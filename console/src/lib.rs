@@ -29,14 +29,13 @@ mod report;
 #[cfg(not(target_arch = "wasm32"))]
 mod source_file;
 pub mod style;
-// The resolved Theme model and pure inheritance resolver.
+// The resolved Theme, the built-ins and the property catalogue.
 // `pub` and `doc(hidden)` because `console/benches/paint.rs` is a separate
 // crate and needs `Theme`/`okabe_ito` to build a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
-// Decodes a TOML Theme document's bytes into the unresolved
-// document `theme::resolve` takes. Pure:
-// `theme_registry`'s native discovery owns the I/O.
+// Decodes a TOML Theme document's bytes and resolves it over a built-in.
+// Pure: `theme_registry`'s native discovery owns the I/O.
 #[cfg_attr(
     all(target_arch = "wasm32", not(test)),
     expect(

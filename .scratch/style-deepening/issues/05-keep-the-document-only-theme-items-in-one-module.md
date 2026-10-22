@@ -4,10 +4,10 @@
 
 **Blocked by:** 02 — Route Theme properties from the catalogue.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `ThemeSelection::new` carries no `dead_code` expectation.
-- [ ] No item in `theme.rs` carries the web `dead_code` expectation, and the attributes left in `theme_registry.rs` and `lib.rs` are only those its items still need, each with its reason.
-- [ ] `theme.rs` holds the resolved `Theme`, its accessors the console paints from and the built-ins; `theme_document` holds what reads, resolves and refuses a document.
-- [ ] `mise run check_wasm` passes, so the web target still compiles with no unexpected dead code and no unfulfilled expectation.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.
+- [x] `ThemeSelection::new` carries no `dead_code` expectation.
+- [x] No item in `theme.rs` carries the web `dead_code` expectation, and the attributes left in `theme_registry.rs` and `lib.rs` are only those its items still need, each with its reason.
+- [x] `theme.rs` holds the resolved `Theme`, its accessors the console paints from and the built-ins; `theme_document` holds what reads, resolves and refuses a document.
+- [x] `mise run check_wasm` passes, so the web target still compiles with no unexpected dead code and no unfulfilled expectation.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.

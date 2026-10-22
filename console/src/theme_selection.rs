@@ -72,14 +72,7 @@ impl ThemeSelection {
     /// A configured selection, holding whatever identities the settings
     /// file named.
     ///
-    #[cfg_attr(
-        all(target_arch = "wasm32", not(test)),
-        expect(
-            dead_code,
-            reason = "only the settings file constructs a selection other than the default, \
-                      and the web reads none"
-        )
-    )]
+    #[cfg(any(not(target_arch = "wasm32"), test))]
     pub(crate) fn new(dark: ThemeIdentity, light: ThemeIdentity) -> Self {
         Self(ByAppearance { dark, light })
     }

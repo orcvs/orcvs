@@ -1,6 +1,8 @@
 //!
-//! Decodes one Orcvs Theme document's bytes into a [`ThemeDocument`]:
-//! `schema.md`'s "Decoding and limits", with no file I/O and no inheritance.
+//! A custom Theme document, from its bytes to a resolved [`Theme`]:
+//! [`decode`] reads one into a [`ThemeDocument`] (`schema.md`'s "Decoding and
+//! limits"), and [`resolve`] applies it over a built-in. No file I/O. The web
+//! reads no Theme document, so nothing here is reached there.
 //!
 //! A Theme document is TOML and nothing else, decoded by `toml` straight into
 //! a derived Serde structure. TOML is typed, its root is always a table, and
@@ -20,18 +22,20 @@
 //!   key it was reading, to every refusal.
 //!
 //! A width's bound is checked here, as read, and nowhere else on the way to a
-//! resolved Theme: the document holds the typed width. [`crate::theme::resolve`]
-//! checks parent/appearance agreement with the identity the caller took from
+//! resolved Theme: the document holds the typed width. [`resolve`] checks
+//! parent/appearance agreement with the identity the caller took from
 //! the file name.
 //!
 
+use std::borrow::Cow;
 use std::fmt;
 
+use egui::Color32;
 use serde::Deserialize;
 
 use crate::theme::{
-    Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
-    ThemeDocument, style_catalogue,
+    Appearance, ChromeWidth, GridWidth, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme,
+    ThemeIdentity, style_catalogue,
 };
 
 /// `schema.md`'s per-document byte limit, checked before any decoding.
@@ -45,6 +49,338 @@ const MAX_LABEL_BYTES: usize = 256;
 
 const FORMAT_MARKER: &str = "orcvs-theme";
 const VERSION: i64 = 1;
+
+// === Property keys ===
+
+///
+/// Derives each key's `name`: an exhaustive `match` over the enum, so a new
+/// variant without a spelling in [`style_catalogue`] fails to compile. The
+/// optional fills have no key enum and so no `name`. Only a colour key's name
+/// reaches a refusal, so the width keys' names are compiled for tests alone.
+///
+macro_rules! property_names {
+    (
+        OptionalFill { $($fills:tt)* }
+        ColorKey { $($color:ident($color_field:ident) => $color_name:literal),* $(,)? }
+        $($key:ident { $($variant:ident($field:ident) => $name:literal),* $(,)? })*
+    ) => {
+        impl ColorKey {
+            /// The property's literal, case-sensitive `schema.md` name.
+            pub(crate) fn name(self) -> &'static str {
+                match self {
+                    $(Self::$color => $color_name,)*
+                }
+            }
+        }
+        $(
+            #[cfg(test)]
+            impl $key {
+                /// The property's literal, case-sensitive `schema.md` name.
+                pub(crate) fn name(self) -> &'static str {
+                    match self {
+                        $(Self::$variant => $name,)*
+                    }
+                }
+            }
+        )*
+    };
+}
+
+style_catalogue!(property_names);
+
+///
+/// Derives the three key enums from [`style_catalogue`], in its order, and the
+/// Theme's routing by key: each variant names the Theme field it reads and
+/// writes, so adding a property is one catalogue line. [`resolve`] writes a
+/// document's explicit properties through the setters; only tests read by
+/// key, to check each key reaches its own field, since painting reads the
+/// fields directly.
+///
+macro_rules! property_keys {
+    (
+        OptionalFill { $($fills:tt)* }
+        ColorKey { $($color:ident($color_field:ident) => $color_name:literal),* $(,)? }
+        GridWidthKey { $($grid:ident($grid_field:ident) => $grid_name:literal),* $(,)? }
+        ChromeWidthKey { $($chrome:ident($chrome_field:ident) => $chrome_name:literal),* $(,)? }
+    ) => {
+        ///
+        /// Every named colour property `schema.md`'s catalogue defines, less
+        /// the two optional Cursor fills, which [`OptionalFill`] carries
+        /// instead of a plain `Color32`. Declaration order is the
+        /// catalogue's, and the order a decoded document lists its
+        /// properties in.
+        ///
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum ColorKey {
+            $($color,)*
+        }
+
+        ///
+        /// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point
+        /// by [`GridWidth`].
+        ///
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum GridWidthKey {
+            $($grid,)*
+        }
+
+        ///
+        /// The chrome width properties, bounded 0 to 2 points by
+        /// [`ChromeWidth`].
+        ///
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum ChromeWidthKey {
+            $($chrome,)*
+        }
+
+        impl Theme {
+            fn color_mut(&mut self, key: ColorKey) -> &mut Color32 {
+                match key {
+                    $(ColorKey::$color => &mut self.$color_field,)*
+                }
+            }
+
+            fn set_grid_width(&mut self, key: GridWidthKey, value: GridWidth) {
+                match key {
+                    $(GridWidthKey::$grid => self.$grid_field = value,)*
+                }
+            }
+
+            fn set_chrome_width(&mut self, key: ChromeWidthKey, value: ChromeWidth) {
+                match key {
+                    $(ChromeWidthKey::$chrome => self.$chrome_field = value,)*
+                }
+            }
+        }
+
+        #[cfg(test)]
+        impl Theme {
+            fn color(&self, key: ColorKey) -> Color32 {
+                *self.color_ref(key)
+            }
+
+            fn color_ref(&self, key: ColorKey) -> &Color32 {
+                match key {
+                    $(ColorKey::$color => &self.$color_field,)*
+                }
+            }
+
+            fn grid_width(&self, key: GridWidthKey) -> GridWidth {
+                match key {
+                    $(GridWidthKey::$grid => self.$grid_field,)*
+                }
+            }
+
+            fn chrome_width(&self, key: ChromeWidthKey) -> ChromeWidth {
+                match key {
+                    $(ChromeWidthKey::$chrome => self.$chrome_field,)*
+                }
+            }
+        }
+    };
+}
+
+style_catalogue!(property_keys);
+
+// === Optional Cursor fills ===
+
+///
+/// An explicit value for one of the two optional Cursor fills
+/// (`cursor.background`, `region.cursor.background`). A document that omits
+/// the property entirely inherits the parent's resolved value instead of
+/// holding one of these two states — see [`ThemeDocument::cursor_background`].
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OptionalFill {
+    /// The document string `"none"`: clears the optional fill and enables its
+    /// existing fallback (the ordinary Cursor fill in a Region, or no fill
+    /// at all for the ordinary Cursor).
+    None,
+    /// An explicit colour, including a fully transparent one — distinct
+    /// from `None` above, since a supplied transparent colour is still a
+    /// supplied value and does not trigger the fallback.
+    Color(Color32),
+}
+
+// === Identity ===
+
+impl ThemeIdentity {
+    ///
+    /// A custom Theme's identity: its file name's stem. `None` for an empty
+    /// stem, which names nothing.
+    ///
+    pub(crate) fn from_stem(stem: &str) -> Option<Self> {
+        (!stem.is_empty()).then(|| Self(Cow::Owned(stem.to_owned())))
+    }
+
+    /// Whether this is a built-in's reserved identity.
+    pub(crate) fn is_reserved(&self) -> bool {
+        *self == OKABE_ITO_IDENTITY || *self == ORCVS_LIGHT_IDENTITY
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+// === Custom document model ===
+
+///
+/// The parsed-but-unresolved form of a custom Theme document:
+/// `schema.md`'s `inherits`, `name`, `appearance` and `style` fields,
+/// decoded into typed properties. Holds no file path, byte source or raw
+/// text — [`crate::theme_document::decode`] builds one from a TOML
+/// document's bytes; tests in this module construct it directly.
+///
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ThemeDocument {
+    /// The built-in identity named by `inherits`.
+    pub(crate) parent: String,
+    /// The declared display label (`name`).
+    pub(crate) name: String,
+    /// `appearance`, when the document declares one explicitly. `None`
+    /// resolves from the parent.
+    pub(crate) appearance: Option<Appearance>,
+    pub(crate) colors: Vec<(ColorKey, Color32)>,
+    pub(crate) grid_widths: Vec<(GridWidthKey, GridWidth)>,
+    pub(crate) chrome_widths: Vec<(ChromeWidthKey, ChromeWidth)>,
+    /// `None`: `cursor.background` is omitted and inherits the parent's
+    /// resolved value. `Some`: the document supplied one of
+    /// [`OptionalFill`]'s two explicit states.
+    pub(crate) cursor_background: Option<OptionalFill>,
+    pub(crate) region_cursor_background: Option<OptionalFill>,
+}
+
+///
+/// Why [`resolve`] refused a document.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ThemeError {
+    /// `inherits` names an identity absent from the built-in set passed to
+    /// [`resolve`] — including a chain through another custom Theme, which
+    /// is never a member of that set. `schema.md`: "Only built-ins can be
+    /// parents. Parent chains, missing parents ... are errors."
+    UnknownParent { parent: String },
+    /// The identity being resolved into collides with a built-in's
+    /// reserved identity: a file using one is refused.
+    ReservedIdentity { identity: ThemeIdentity },
+    /// `appearance` was declared explicitly and disagrees with the
+    /// parent's.
+    AppearanceMismatch {
+        parent: Appearance,
+        declared: Appearance,
+    },
+    /// `window.background`'s resolved alpha is not 255. `schema.md`: "The
+    /// opaque root is `window.background`; alpha other than 255 on this
+    /// property is an error."
+    NonOpaqueWindowBackground { alpha: u8 },
+}
+
+impl std::fmt::Display for ThemeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownParent { parent } => {
+                write!(f, "unknown parent Theme identity {parent:?}")
+            }
+            Self::ReservedIdentity { identity } => {
+                write!(f, "\"{identity}\" is a reserved built-in Theme identity")
+            }
+            Self::AppearanceMismatch { parent, declared } => write!(
+                f,
+                "declared appearance {declared:?} does not match parent appearance {parent:?}"
+            ),
+            Self::NonOpaqueWindowBackground { alpha } => write!(
+                f,
+                "{} has alpha {alpha}, not 255: the application window must stay opaque",
+                ColorKey::WindowBackground.name()
+            ),
+        }
+    }
+}
+
+///
+/// The pure inheritance resolver: `schema.md`'s "Source composition and
+/// inheritance" step 1 (copy the parent's resolved properties, replace only
+/// what the document supplies) and its optional-fill rule. Copies the
+/// built-in named by `document.parent`, replaces every explicit property
+/// `document` supplies, and returns the result under `identity`.
+///
+/// No file I/O: `built_ins` is whatever built-in set the caller already
+/// holds — the crate-private `theme_registry` module reads native and web
+/// documents and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
+/// by the caller rather than read from `document`, because a custom
+/// document's identity is its filename stem, which this module
+/// never reads a file to learn.
+///
+pub(crate) fn resolve(
+    built_ins: &[Theme],
+    identity: &ThemeIdentity,
+    document: &ThemeDocument,
+) -> Result<Theme, ThemeError> {
+    if identity.is_reserved() {
+        return Err(ThemeError::ReservedIdentity {
+            identity: identity.clone(),
+        });
+    }
+
+    let parent = built_ins
+        .iter()
+        .find(|built_in| built_in.identity.as_str() == document.parent)
+        .ok_or_else(|| ThemeError::UnknownParent {
+            parent: document.parent.clone(),
+        })?;
+
+    if let Some(declared) = document.appearance
+        && declared != parent.appearance
+    {
+        return Err(ThemeError::AppearanceMismatch {
+            parent: parent.appearance,
+            declared,
+        });
+    }
+
+    let mut resolved = parent.clone();
+    resolved.identity = identity.clone();
+    resolved.name = document.name.clone();
+
+    for &(key, colour) in &document.colors {
+        *resolved.color_mut(key) = colour;
+    }
+
+    for &(key, width) in &document.grid_widths {
+        resolved.set_grid_width(key, width);
+    }
+
+    for &(key, width) in &document.chrome_widths {
+        resolved.set_chrome_width(key, width);
+    }
+
+    // Omitted (`None`): inherit — `resolved` already carries the parent's
+    // value from the `clone()` above, restated here so the inheritance rule
+    // is visible rather than merely relied upon.
+    resolved.cursor_background = match document.cursor_background {
+        None => parent.cursor_background,
+        Some(OptionalFill::None) => None,
+        Some(OptionalFill::Color(colour)) => Some(colour),
+    };
+    resolved.region_cursor_background = match document.region_cursor_background {
+        None => parent.region_cursor_background,
+        Some(OptionalFill::None) => None,
+        Some(OptionalFill::Color(colour)) => Some(colour),
+    };
+
+    // The opaque root check runs on the *resolved* value, not merely a
+    // supplied override: an inherited `window.background` is already opaque
+    // (every built-in sets it that way), so this only ever refuses a
+    // document that explicitly overrides it away from 255.
+    if resolved.window_background.a() != 255 {
+        return Err(ThemeError::NonOpaqueWindowBackground {
+            alpha: resolved.window_background.a(),
+        });
+    }
+
+    Ok(resolved)
+}
 
 // === Errors ===
 
@@ -95,8 +431,8 @@ impl fmt::Display for DocumentError {
 ///
 /// Decodes one Theme document. `file_name` only labels the error: whether a
 /// name is a Theme file's is `theme_registry`'s decision, made once, where it
-/// takes the identity the caller passes with the result to
-/// [`crate::theme::resolve`]. Performs no I/O.
+/// takes the identity the caller passes with the result to [`resolve`].
+/// Performs no I/O.
 ///
 /// Refuses, in order: more than [`MAX_DOCUMENT_BYTES`], and non-UTF-8
 /// bytes. One leading U+FEFF is then stripped, and the text is decoded
@@ -468,10 +804,12 @@ style_catalogue!(document_style);
 mod tests {
     use egui::Color32;
 
-    use super::{DocumentErrorReason, MAX_DOCUMENT_BYTES, MAX_MESSAGE_BYTES, decode};
+    use super::{
+        ChromeWidthKey, ColorKey, DocumentErrorReason, GridWidthKey, MAX_DOCUMENT_BYTES,
+        MAX_MESSAGE_BYTES, OptionalFill, ThemeDocument, ThemeError, decode, resolve,
+    };
     use crate::theme::{
-        Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
-        ThemeDocument, ThemeIdentity, okabe_ito, resolve, straight_rgba,
+        Appearance, ChromeWidth, GridWidth, ThemeIdentity, okabe_ito, orcvs_light, straight_rgba,
     };
 
     /// A custom Theme's identity, as a file named `stem` supplies it.
@@ -1285,5 +1623,648 @@ mod tests {
             error.reason,
             DocumentErrorReason::NotUtf8 { valid_up_to: 10 }
         );
+    }
+
+    // --- Resolving ---
+
+    fn child(parent: &str) -> ThemeDocument {
+        ThemeDocument {
+            parent: parent.to_owned(),
+            name: "Custom".to_owned(),
+            ..ThemeDocument::default()
+        }
+    }
+
+    ///
+    /// A custom document inheriting the light built-in resolves to light —
+    /// a light custom Theme starts from a light built-in — exercised against
+    /// a real light parent as well as the synthetic mismatch below.
+    ///
+    #[test]
+    fn a_document_inheriting_the_light_built_in_resolves_light() {
+        let built_ins = [okabe_ito(), orcvs_light()];
+        let mut document = child("orcvs-light");
+        document.appearance = Some(Appearance::Light);
+
+        let resolved = resolve(&built_ins, &identity("mine"), &document)
+            .expect("light parent, light document");
+
+        assert_eq!(resolved.appearance, Appearance::Light);
+        assert_eq!(resolved.panel_background, orcvs_light().panel_background);
+
+        let mut mismatched = child("orcvs-light");
+        mismatched.appearance = Some(Appearance::Dark);
+        assert_eq!(
+            resolve(&built_ins, &identity("mine"), &mismatched),
+            Err(ThemeError::AppearanceMismatch {
+                parent: Appearance::Light,
+                declared: Appearance::Dark,
+            })
+        );
+    }
+
+    ///
+    /// Both built-in identities are reserved, not only Okabe–Ito's.
+    ///
+    #[test]
+    fn the_light_built_in_identity_is_reserved() {
+        let built_ins = [okabe_ito(), orcvs_light()];
+        assert_eq!(
+            resolve(&built_ins, &identity("orcvs-light"), &child("okabe-ito")),
+            Err(ThemeError::ReservedIdentity {
+                identity: identity("orcvs-light"),
+            })
+        );
+    }
+
+    #[test]
+    fn omitted_properties_inherit_from_the_parent() {
+        let built_ins = [okabe_ito()];
+        let document = child("okabe-ito");
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.identity.as_str(), "my-dark");
+        assert_eq!(resolved.name, "Custom");
+        assert_eq!(resolved.appearance, Appearance::Dark);
+        assert_eq!(resolved.grid_background, built_ins[0].grid_background);
+        assert_eq!(resolved.source_function, built_ins[0].source_function);
+        assert_eq!(resolved.grid_border_width, built_ins[0].grid_border_width);
+    }
+
+    #[test]
+    fn explicit_color_overrides_the_parent() {
+        let built_ins = [okabe_ito()];
+        let overridden = Color32::from_rgb(1, 2, 3);
+        let document = ThemeDocument {
+            colors: vec![(ColorKey::GridBackground, overridden)],
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.grid_background, overridden);
+        // Every other property is untouched.
+        assert_eq!(resolved.panel_background, built_ins[0].panel_background);
+    }
+
+    ///
+    /// Changing a role's foreground does not recalculate its background —
+    /// `schema.md`: "Changing a role foreground does not recalculate them."
+    /// Overriding `source.function` alone must leave
+    /// `source.function.background` exactly as the parent resolved it.
+    ///
+    #[test]
+    fn foreground_change_leaves_inherited_background_unchanged() {
+        let built_ins = [okabe_ito()];
+        let retuned = Color32::from_rgb(9, 9, 9);
+        let document = ThemeDocument {
+            colors: vec![(ColorKey::SourceFunction, retuned)],
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.source_function, retuned);
+        assert_eq!(
+            resolved.source_function_background,
+            built_ins[0].source_function_background
+        );
+    }
+
+    #[test]
+    fn explicit_width_overrides_the_parent() {
+        let built_ins = [okabe_ito()];
+        let document = ThemeDocument {
+            grid_widths: vec![(
+                GridWidthKey::GridBorder,
+                GridWidth::from_points(0.25).expect("0.25 is within 0..=1"),
+            )],
+            chrome_widths: vec![(
+                ChromeWidthKey::PanelBorder,
+                ChromeWidth::from_points(1.5).expect("1.5 is within 0..=2"),
+            )],
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.grid_border_width.points(), 0.25);
+        assert_eq!(resolved.panel_border_width.points(), 1.5);
+        // Untouched Grid/chrome widths still inherit.
+        assert_eq!(resolved.sector_seam_width, built_ins[0].sector_seam_width);
+        assert_eq!(
+            resolved.selection_border_width,
+            built_ins[0].selection_border_width
+        );
+    }
+
+    #[test]
+    fn unknown_parent_is_rejected() {
+        let built_ins = [okabe_ito()];
+        let document = child("not-a-built-in");
+
+        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
+
+        assert_eq!(
+            error,
+            ThemeError::UnknownParent {
+                parent: "not-a-built-in".to_owned()
+            }
+        );
+    }
+
+    ///
+    /// A custom Theme can never chain from another custom Theme: `resolve`
+    /// only ever looks a parent up in the `built_ins` slice the caller
+    /// passes, so a name that only exists among already-resolved custom
+    /// Themes is indistinguishable from an unknown one here.
+    /// `schema.md`: "Only built-ins can be parents. Parent chains ... are
+    /// errors."
+    ///
+    #[test]
+    fn a_custom_theme_cannot_chain_from_another_custom_theme() {
+        let built_ins = [okabe_ito()];
+        let grandparent = child("okabe-ito");
+        let custom =
+            resolve(&built_ins, &identity("my-dark"), &grandparent).expect("valid document");
+        // `custom` is deliberately not added to `built_ins`.
+        let chained = child("my-dark");
+
+        let error = resolve(&built_ins, &identity("my-darker"), &chained).unwrap_err();
+
+        assert_eq!(
+            error,
+            ThemeError::UnknownParent {
+                parent: "my-dark".to_owned()
+            }
+        );
+        assert_eq!(custom.identity.as_str(), "my-dark");
+    }
+
+    #[test]
+    fn reserved_identity_is_rejected() {
+        let built_ins = [okabe_ito()];
+        let document = child("okabe-ito");
+
+        let error = resolve(&built_ins, &identity("okabe-ito"), &document).unwrap_err();
+
+        assert_eq!(
+            error,
+            ThemeError::ReservedIdentity {
+                identity: identity("okabe-ito")
+            }
+        );
+    }
+
+    #[test]
+    fn appearance_mismatch_is_rejected() {
+        let built_ins = [okabe_ito()];
+        let document = ThemeDocument {
+            appearance: Some(Appearance::Light),
+            ..child("okabe-ito")
+        };
+
+        let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
+
+        assert_eq!(
+            error,
+            ThemeError::AppearanceMismatch {
+                parent: Appearance::Dark,
+                declared: Appearance::Light,
+            }
+        );
+    }
+
+    #[test]
+    fn matching_declared_appearance_is_accepted() {
+        let built_ins = [okabe_ito()];
+        let document = ThemeDocument {
+            appearance: Some(Appearance::Dark),
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("matching appearance");
+
+        assert_eq!(resolved.appearance, Appearance::Dark);
+    }
+
+    ///
+    /// `.scratch/theming/schema.md`: "The opaque root is `window.background`;
+    /// alpha other than 255 on this property is an error." Nothing composites
+    /// over the OS window itself, so a translucent `window.background` would
+    /// leak the desktop through the console rather than through a Panel or
+    /// Grid surface, which the chrome mapping keeps distinct
+    /// (`window.background` for the opaque backdrop,
+    /// `panel.background`/`grid.background` for the surfaces that may carry
+    /// alpha). Both a partial alpha and a fully transparent one (`0`) are
+    /// refused the same way — the rule names one exact value, not merely
+    /// "some minimum visibility."
+    ///
+    #[test]
+    fn resolve_rejects_a_nonopaque_window_background() {
+        let built_ins = [okabe_ito()];
+
+        for (window_background, alpha) in [
+            (Color32::from_rgba_unmultiplied(10, 20, 30, 200), 200),
+            (Color32::TRANSPARENT, 0),
+        ] {
+            let document = ThemeDocument {
+                colors: vec![(ColorKey::WindowBackground, window_background)],
+                ..child("okabe-ito")
+            };
+
+            let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
+
+            assert_eq!(error, ThemeError::NonOpaqueWindowBackground { alpha });
+        }
+    }
+
+    ///
+    /// An opaque override (alpha 255) is accepted like any other colour —
+    /// the check only ever refuses, never silently forces opacity.
+    ///
+    #[test]
+    fn resolve_accepts_an_opaque_window_background() {
+        let built_ins = [okabe_ito()];
+        let opaque = Color32::from_rgb(10, 20, 30);
+        let document = ThemeDocument {
+            colors: vec![(ColorKey::WindowBackground, opaque)],
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("opaque window.background");
+
+        assert_eq!(resolved.window_background, opaque);
+    }
+
+    #[test]
+    fn omitted_optional_fills_inherit_the_parent() {
+        let built_ins = [okabe_ito()];
+        let document = child("okabe-ito");
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.cursor_background, built_ins[0].cursor_background);
+        assert_eq!(
+            resolved.region_cursor_background,
+            built_ins[0].region_cursor_background
+        );
+    }
+
+    #[test]
+    fn explicit_none_clears_the_optional_fill_even_over_a_parent_colour() {
+        let mut with_fill = okabe_ito();
+        with_fill.cursor_background = Some(Color32::from_rgb(1, 2, 3));
+        with_fill.region_cursor_background = Some(Color32::from_rgb(4, 5, 6));
+        let built_ins = [with_fill];
+        let document = ThemeDocument {
+            cursor_background: Some(OptionalFill::None),
+            region_cursor_background: Some(OptionalFill::None),
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.cursor_background, None);
+        assert_eq!(resolved.region_cursor_background, None);
+    }
+
+    ///
+    /// An explicit transparent colour is a supplied value, not the `none`
+    /// clear state — `schema.md`: "Transparent supplied colour suppresses
+    /// fallback; it remains distinct from absence."
+    ///
+    #[test]
+    fn explicit_transparent_colour_is_a_supplied_value_not_a_clear() {
+        let built_ins = [okabe_ito()];
+        let document = ThemeDocument {
+            cursor_background: Some(OptionalFill::Color(Color32::TRANSPARENT)),
+            region_cursor_background: Some(OptionalFill::Color(Color32::TRANSPARENT)),
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.cursor_background, Some(Color32::TRANSPARENT));
+        assert_eq!(
+            resolved.region_cursor_background,
+            Some(Color32::TRANSPARENT)
+        );
+        assert_ne!(resolved.cursor_background, None);
+    }
+
+    #[test]
+    fn explicit_optional_fill_colour_is_stored_including_opaque() {
+        let built_ins = [okabe_ito()];
+        let colour = Color32::from_rgb(10, 20, 30);
+        let document = ThemeDocument {
+            cursor_background: Some(OptionalFill::Color(colour)),
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.cursor_background, Some(colour));
+    }
+
+    #[test]
+    fn theme_color_reads_the_key_a_document_wrote() {
+        let built_ins = [okabe_ito()];
+        let overridden = Color32::from_rgb(7, 7, 7);
+        let document = ThemeDocument {
+            colors: vec![(ColorKey::Text, overridden)],
+            ..child("okabe-ito")
+        };
+
+        let resolved =
+            resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+        assert_eq!(resolved.color(ColorKey::Text), overridden);
+    }
+
+    ///
+    /// Every [`ColorKey`] variant, applied as a distinct override and read
+    /// back through [`Theme::color`], with every *other* key left at the
+    /// parent's value. This is the exhaustive companion to
+    /// `okabe_ito_defines_every_key_at_the_schema_values`: that test proves
+    /// the built-in sets every key, this one proves every key can be
+    /// independently addressed by `resolve`'s `color_mut` match without a
+    /// key silently writing, or being read from, the wrong field.
+    ///
+    #[test]
+    fn every_color_key_can_be_independently_overridden() {
+        let built_ins = [okabe_ito()];
+        let keys = [
+            ColorKey::WindowBackground,
+            ColorKey::PanelBackground,
+            ColorKey::GridBackground,
+            ColorKey::CellBackground,
+            ColorKey::SourceOrdinary,
+            ColorKey::SourceComment,
+            ColorKey::SourceNumber,
+            ColorKey::SourceNote,
+            ColorKey::SourceFunction,
+            ColorKey::SourceBang,
+            ColorKey::SourceOrdinaryBackground,
+            ColorKey::SourceCommentBackground,
+            ColorKey::SourceNumberBackground,
+            ColorKey::SourceNoteBackground,
+            ColorKey::SourceFunctionBackground,
+            ColorKey::SourceBangBackground,
+            ColorKey::DiagnosticForeground,
+            ColorKey::DiagnosticBackground,
+            ColorKey::DiagnosticBorder,
+            ColorKey::OutputPortalForeground,
+            ColorKey::OutputPortalBackground,
+            ColorKey::OutputPortalBorder,
+            ColorKey::InputPortalForeground,
+            ColorKey::InputPortalBackground,
+            ColorKey::InputPortalBorder,
+            ColorKey::LockedForeground,
+            ColorKey::LockedBackground,
+            ColorKey::LockedBorder,
+            ColorKey::GridBorder,
+            ColorKey::SectorSeam,
+            ColorKey::CursorBorder,
+            ColorKey::RegionBorder,
+            ColorKey::RegionBackground,
+            ColorKey::PanelBorder,
+            ColorKey::SelectionBackground,
+            ColorKey::SelectionBorder,
+            ColorKey::SelectionBorderRest,
+            ColorKey::WidgetInactiveBorder,
+            ColorKey::Text,
+            ColorKey::TextActive,
+            ColorKey::TextMuted,
+            ColorKey::InputBackground,
+            ColorKey::Link,
+            ColorKey::CodeBackground,
+            ColorKey::InputCursor,
+            ColorKey::Error,
+            ColorKey::Warning,
+        ];
+        assert_eq!(
+            keys.len(),
+            47,
+            "the catalogue has 47 non-optional colour keys"
+        );
+
+        for &key in &keys {
+            let colour = Color32::from_rgb(1, 2, 3);
+            let document = ThemeDocument {
+                colors: vec![(key, colour)],
+                ..child("okabe-ito")
+            };
+
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+
+            assert_eq!(
+                resolved.color(key),
+                colour,
+                "{key:?} did not take its override"
+            );
+            for &other in &keys {
+                if other != key {
+                    assert_eq!(
+                        resolved.color(other),
+                        built_ins[0].color(other),
+                        "{key:?}'s override changed {other:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    ///
+    /// The Grid/chrome-bounded width counterpart of
+    /// `every_color_key_can_be_independently_overridden`, and what exercises
+    /// [`Theme::grid_width`] and [`Theme::chrome_width`], the by-key
+    /// readers.
+    ///
+    #[test]
+    fn every_grid_and_chrome_width_key_can_be_independently_overridden() {
+        let built_ins = [okabe_ito()];
+
+        let grid_keys = [
+            GridWidthKey::GridBorder,
+            GridWidthKey::SectorSeam,
+            GridWidthKey::CellSelectionBorder,
+            GridWidthKey::CursorBorder,
+            GridWidthKey::RegionBorder,
+            GridWidthKey::DiagnosticBorder,
+            GridWidthKey::OutputPortalBorder,
+            GridWidthKey::InputPortalBorder,
+            GridWidthKey::LockedBorder,
+        ];
+        assert_eq!(
+            grid_keys.len(),
+            9,
+            "the catalogue has 9 Grid-bounded width keys"
+        );
+        for &key in &grid_keys {
+            let document = ThemeDocument {
+                grid_widths: vec![(
+                    key,
+                    GridWidth::from_points(0.1).expect("0.1 is within 0..=1"),
+                )],
+                ..child("okabe-ito")
+            };
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+            assert_eq!(
+                resolved.grid_width(key).points(),
+                0.1,
+                "{key:?} did not take its override"
+            );
+        }
+
+        let chrome_keys = [
+            ChromeWidthKey::PanelBorder,
+            ChromeWidthKey::SelectionBorder,
+            ChromeWidthKey::WidgetBorder,
+            ChromeWidthKey::WidgetInactiveBorder,
+            ChromeWidthKey::InputCursor,
+        ];
+        assert_eq!(
+            chrome_keys.len(),
+            5,
+            "the catalogue has 5 chrome-bounded width keys"
+        );
+        for &key in &chrome_keys {
+            let document = ThemeDocument {
+                chrome_widths: vec![(
+                    key,
+                    ChromeWidth::from_points(1.9).expect("1.9 is within 0..=2"),
+                )],
+                ..child("okabe-ito")
+            };
+            let resolved =
+                resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
+            assert_eq!(
+                resolved.chrome_width(key).points(),
+                1.9,
+                "{key:?} did not take its override"
+            );
+        }
+    }
+
+    ///
+    /// `schema.md`'s colour table, restated. The decoder's style table is
+    /// derived from the same spellings, so a spelling wrong here is a
+    /// property no document can set — or, swapped with a neighbour, one that
+    /// sets the wrong field.
+    ///
+    #[test]
+    fn color_key_names_match_the_schema_catalogue() {
+        let catalogue = [
+            (ColorKey::WindowBackground, "window.background"),
+            (ColorKey::PanelBackground, "panel.background"),
+            (ColorKey::GridBackground, "grid.background"),
+            (ColorKey::CellBackground, "cell.background"),
+            (ColorKey::SourceOrdinary, "source.ordinary"),
+            (ColorKey::SourceComment, "source.comment"),
+            (ColorKey::SourceNumber, "source.number"),
+            (ColorKey::SourceNote, "source.note"),
+            (ColorKey::SourceFunction, "source.function"),
+            (ColorKey::SourceBang, "source.bang"),
+            (
+                ColorKey::SourceOrdinaryBackground,
+                "source.ordinary.background",
+            ),
+            (
+                ColorKey::SourceCommentBackground,
+                "source.comment.background",
+            ),
+            (ColorKey::SourceNumberBackground, "source.number.background"),
+            (ColorKey::SourceNoteBackground, "source.note.background"),
+            (
+                ColorKey::SourceFunctionBackground,
+                "source.function.background",
+            ),
+            (ColorKey::SourceBangBackground, "source.bang.background"),
+            (ColorKey::DiagnosticForeground, "diagnostic.foreground"),
+            (ColorKey::DiagnosticBackground, "diagnostic.background"),
+            (ColorKey::DiagnosticBorder, "diagnostic.border"),
+            (ColorKey::OutputPortalForeground, "output_portal.foreground"),
+            (ColorKey::OutputPortalBackground, "output_portal.background"),
+            (ColorKey::OutputPortalBorder, "output_portal.border"),
+            (ColorKey::InputPortalForeground, "input_portal.foreground"),
+            (ColorKey::InputPortalBackground, "input_portal.background"),
+            (ColorKey::InputPortalBorder, "input_portal.border"),
+            (ColorKey::LockedForeground, "locked.foreground"),
+            (ColorKey::LockedBackground, "locked.background"),
+            (ColorKey::LockedBorder, "locked.border"),
+            (ColorKey::GridBorder, "grid.border"),
+            (ColorKey::SectorSeam, "sector.seam"),
+            (ColorKey::CursorBorder, "cursor.border"),
+            (ColorKey::RegionBorder, "region.border"),
+            (ColorKey::RegionBackground, "region.background"),
+            (ColorKey::PanelBorder, "panel.border"),
+            (ColorKey::SelectionBackground, "selection.background"),
+            (ColorKey::SelectionBorder, "selection.border"),
+            (ColorKey::SelectionBorderRest, "selection.border.rest"),
+            (ColorKey::WidgetInactiveBorder, "widget.inactive.border"),
+            (ColorKey::Text, "text"),
+            (ColorKey::TextActive, "text.active"),
+            (ColorKey::TextMuted, "text.muted"),
+            (ColorKey::InputBackground, "input.background"),
+            (ColorKey::Link, "link"),
+            (ColorKey::CodeBackground, "code.background"),
+            (ColorKey::InputCursor, "input.cursor"),
+            (ColorKey::Error, "error"),
+            (ColorKey::Warning, "warning"),
+        ];
+        assert_eq!(catalogue.len(), 47);
+        for (key, name) in catalogue {
+            assert_eq!(key.name(), name);
+        }
+    }
+
+    #[test]
+    fn grid_and_chrome_width_key_names_match_the_schema_catalogue() {
+        assert_eq!(GridWidthKey::GridBorder.name(), "grid.border.width");
+        assert_eq!(GridWidthKey::SectorSeam.name(), "sector.seam.width");
+        assert_eq!(
+            GridWidthKey::CellSelectionBorder.name(),
+            "cell.selection.border.width"
+        );
+        assert_eq!(GridWidthKey::CursorBorder.name(), "cursor.border.width");
+        assert_eq!(GridWidthKey::RegionBorder.name(), "region.border.width");
+        assert_eq!(
+            GridWidthKey::DiagnosticBorder.name(),
+            "diagnostic.border.width"
+        );
+        assert_eq!(
+            GridWidthKey::OutputPortalBorder.name(),
+            "output_portal.border.width"
+        );
+        assert_eq!(
+            GridWidthKey::InputPortalBorder.name(),
+            "input_portal.border.width"
+        );
+        assert_eq!(GridWidthKey::LockedBorder.name(), "locked.border.width");
+        assert_eq!(ChromeWidthKey::PanelBorder.name(), "panel.border.width");
+        assert_eq!(
+            ChromeWidthKey::SelectionBorder.name(),
+            "selection.border.width"
+        );
+        assert_eq!(ChromeWidthKey::WidgetBorder.name(), "widget.border.width");
+        assert_eq!(
+            ChromeWidthKey::WidgetInactiveBorder.name(),
+            "widget.inactive.border.width"
+        );
+        assert_eq!(ChromeWidthKey::InputCursor.name(), "input.cursor.width");
     }
 }

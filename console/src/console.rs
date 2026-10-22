@@ -311,7 +311,7 @@ impl eframe::App for Console {
     ///
     /// Every built-in's `window_background` is opaque by construction, and a
     /// custom Theme's is refused at resolution if it is not
-    /// (`theme::resolve`'s `ThemeError::NonOpaqueWindowBackground`), so
+    /// (`theme_document::resolve`'s `ThemeError::NonOpaqueWindowBackground`), so
     /// nothing presented can hold a nonopaque value and
     /// this reads the field directly rather than re-validating it here.
     ///

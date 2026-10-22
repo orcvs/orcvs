@@ -4,7 +4,7 @@
 //! `schema.md`'s "Discovery, persistence and failures".
 //!
 //! Every custom document reaches the registry through one path —
-//! [`crate::theme_document::decode`], then [`crate::theme::resolve`] against
+//! [`crate::theme_document::decode`], then [`crate::theme_document::resolve`] against
 //! the built-ins under the identity its file name's stem supplies. Built-in
 //! identities are reserved by `resolve` itself.
 //!
@@ -25,10 +25,8 @@
 use std::collections::BTreeMap;
 
 use crate::contrast;
-use crate::theme::{
-    Appearance, Theme, ThemeDocument, ThemeIdentity, okabe_ito, orcvs_light, resolve,
-};
-use crate::theme_document::decode;
+use crate::theme::{Appearance, Theme, ThemeIdentity, okabe_ito, orcvs_light};
+use crate::theme_document::{ThemeDocument, decode, resolve};
 
 /// The one extension a Theme file carries, matched case-insensitively by
 /// [`stem`] alone: `decode` takes the name only to label its errors.

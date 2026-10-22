@@ -1728,8 +1728,8 @@ mod tests {
     ///
     /// The three optional-fill states an unselected `cursor.background`
     /// exercises once resolved onto a Cell: omission/inheritance already
-    /// collapses to one of the other two by `theme::resolve`
-    /// (`theme::tests::omitted_optional_fills_inherit_the_parent`), so what
+    /// collapses to one of the other two by `theme_document::resolve`
+    /// (`theme_document::tests::omitted_optional_fills_inherit_the_parent`), so what
     /// this proves is the remaining pair at the paint layer — `None`
     /// (cleared, "supplies no Cursor fill") answers no background, and
     /// `Some`, including a fully transparent colour, is a supplied value that
