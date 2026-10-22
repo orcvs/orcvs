@@ -12,7 +12,7 @@ use orcvs::{
 use super::Console;
 use super::shapes::{effect_outline, show_source};
 use crate::cursor_effects::{CursorEffectMotion, effect_bounds};
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
+use crate::grid_viewport::{GridViewport, presented_grid, snapped_cell};
 use crate::theme::{Appearance, Theme};
 
 ///
@@ -55,7 +55,9 @@ pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 pub(super) struct SourceView {
     pub(super) pan: Vec2,
     /// The Cell the Source is drawn at, width by height in points, before
-    /// [`show_source_scene`] snaps it to whole physical pixels.
+    /// [`show_source_scene`] snaps it to whole physical pixels. It is the Cell
+    /// the console started with and nothing changes it while the console runs,
+    /// so opening another Source carries it into the new view.
     pub(super) cell: Vec2,
     /// The Cursor [`show_source_scene`] last saw, so a change from one frame
     /// to the next reads as a Cursor move worth following rather than every
@@ -76,11 +78,12 @@ pub(super) struct SourceView {
     pub(super) origin: Pos2,
 }
 
-impl Default for SourceView {
-    fn default() -> Self {
+impl SourceView {
+    /// A view of a fresh Source, unpanned, drawn at `cell`.
+    pub(super) fn new(cell: Vec2) -> Self {
         Self {
             pan: Vec2::ZERO,
-            cell: CELL_SIZE,
+            cell,
             previous_cursor: None,
             region_drag: None,
             previous_console: None,

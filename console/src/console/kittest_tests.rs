@@ -2465,7 +2465,8 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     // twice as many points across, and this Grid and its margins are
     // smaller than its console on both axes.
     harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
-    harness.state_mut().source_view = super::source_view::SourceView::default();
+    harness.state_mut().source_view =
+        super::source_view::SourceView::new(crate::grid_viewport::CELL_SIZE);
     harness.step();
     for _ in 0..5 {
         harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);

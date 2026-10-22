@@ -28,7 +28,7 @@ impl Console {
             Ok((orcvs, midi)) => {
                 self.orcvs = orcvs;
                 self.midi = midi;
-                self.source_view = SourceView::default();
+                self.source_view = SourceView::new(self.source_view.cell);
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     self.source_file = crate::source_file::OpenSourceFile::untitled(saved);

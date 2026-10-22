@@ -314,7 +314,7 @@ async fn a_glyph_is_laid_out_at_its_cells_own_size_at_every_device_scale() {
         let mut orcvs = running_orcvs(4, 4);
         orcvs.select(orcvs.grid().position(1, 1).expect("inside the grid"));
         orcvs.write("+");
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
 
         let (viewport, painted) = console_pass_at(
             &ctx,
@@ -661,7 +661,7 @@ async fn a_click_selects_the_cell_under_the_pointer_whatever_the_window_size() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
         let mut orcvs = running_orcvs(4, 4);
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(selected_cell(&orcvs), (0, 0));
@@ -691,7 +691,7 @@ async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_th
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
         let mut orcvs = running_orcvs(32, 32);
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(
@@ -1044,6 +1044,112 @@ async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
         (3, 1),
         "a click at {target:?} on a Grid presented at {:?}",
         viewport.rect
+    );
+}
+
+///
+/// A Console started with a `[cell]` setting presents its Grid, its Pan
+/// bound and its Glyphs at that Cell snapped, rather than at the default one:
+/// a click lands on the Cell drawn at the snapped width and height, a Pan to
+/// the far edge stops two snapped Cell widths past the Grid, the Glyphs are
+/// laid out at the size the snapped Cell derives, and opening another Source
+/// keeps it. The configured Cell is fractional, so each check tells the
+/// snapped Cell from the one the file asked for.
+///
+#[tokio::test]
+async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
+    let configured = Vec2::new(10.5, 15.5);
+    let ctx = egui::Context::default();
+    let mut console = start_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        ThemeRegistry::built_in(),
+        crate::config::Config {
+            cell: configured,
+            ..crate::config::Config::default()
+        },
+    );
+    let mut host = eframe::Frame::_new_kittest();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.orcvs = running_orcvs(200, 100);
+    console.orcvs.select(
+        console
+            .orcvs
+            .grid()
+            .position(1, 1)
+            .expect("inside the grid"),
+    );
+    console.orcvs.write("+");
+
+    let output = {
+        use eframe::App as _;
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root| console.ui(root, &mut host))
+    };
+    let viewport = console_viewport(&ctx, &console);
+    let cell = crate::grid_viewport::snapped_cell(configured, ctx.pixels_per_point());
+    assert_ne!(cell, configured, "the configured Cell snaps to itself");
+    assert_eq!(viewport.cell_size, cell);
+    let shapes = output.shapes.clone();
+    output.drop_without_applying_deltas();
+
+    fn glyph_sizes(shape: &Shape, sizes: &mut Vec<f32>) {
+        match shape {
+            Shape::Text(text) => {
+                if let Some(section) = text.galley.job.sections.first() {
+                    sizes.push(section.format.font_id.size);
+                }
+            }
+            Shape::Vec(shapes) => shapes.iter().for_each(|shape| glyph_sizes(shape, sizes)),
+            _ => {}
+        }
+    }
+    let mut glyphs = Vec::new();
+    for clipped in &shapes {
+        glyph_sizes(&clipped.shape, &mut glyphs);
+    }
+    assert!(
+        glyphs.contains(&viewport.glyph_size()),
+        "no Glyph was laid out at the configured Cell's {} points: {glyphs:?}",
+        viewport.glyph_size()
+    );
+    let default = presented_grid(
+        Pos2::ZERO,
+        console.orcvs.grid(),
+        crate::grid_viewport::snapped_cell(CELL_SIZE, ctx.pixels_per_point()),
+        ctx.pixels_per_point(),
+    );
+    assert_ne!(
+        viewport.glyph_size(),
+        default.glyph_size(),
+        "the Glyph is the default Cell's"
+    );
+
+    let target = viewport.rect.min + Vec2::new(3.5, 1.5) * cell;
+    app_pass(&ctx, screen, click_at(target), &mut console, &mut host);
+    app_pass(&ctx, screen, release_at(target), &mut console, &mut host);
+    assert_eq!(selected_cell(&console.orcvs), (3, 1));
+
+    // A quiet pass first, so the Cursor the click moved is followed before
+    // the Pan is pinned, and does not pull the Pan back to it.
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    pinned_at(&mut console.source_view, Vec2::splat(-1_000_000.0));
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let viewport = console_viewport(&ctx, &console);
+    assert_eq!(
+        screen.max.x - viewport.rect.max.x,
+        SOURCE_MARGIN_CELLS * cell.x,
+        "the far-edge Pan stopped somewhere other than two snapped Cells past the Grid"
+    );
+
+    console.load_function_reference();
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    assert_eq!(
+        console_viewport(&ctx, &console).cell_size,
+        cell,
+        "opening another Source forgot the configured Cell"
     );
 }
 
@@ -2061,7 +2167,7 @@ async fn a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cel
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
         let mut orcvs = running_orcvs(8, 8);
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         let half_cell = viewport.cell_size / 2.0;
@@ -2127,7 +2233,7 @@ async fn the_default_window_presents_the_grid_at_its_own_scale() {
     );
     let screen = Rect::from_min_size(Pos2::ZERO, console);
     let mut orcvs = Orcvs::new().expect("the test runtime");
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
@@ -3066,7 +3172,7 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(16, 16);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // A written Cell, so a Glyph is painted at all.
     orcvs.write("1");
     orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
@@ -4041,7 +4147,7 @@ async fn the_presented_viewport_is_the_one_a_console_pass_presents() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = running_orcvs(8, 8);
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
 
         let (viewport, _) = console_pass_at(
             &ctx,
@@ -4262,7 +4368,7 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
     let mut orcvs = running_orcvs(20, 20);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     let theme = okabe_ito();
 
     let (viewport, shapes) = console_pass_at(
@@ -4706,7 +4812,7 @@ async fn a_middle_drag_that_starts_on_a_cell_still_pans_the_source() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let over_a_cell = viewport.cell_rect(4, 4).center();
@@ -4750,7 +4856,7 @@ async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // egui folds its zoom factor into this same `pixels_per_point`.
     let frame_at = |events: Vec<Event>, orcvs: &mut Orcvs, view: &mut SourceView| {
         console_pass_at(&ctx, screen, events, orcvs, view, 2.0).0
@@ -4794,7 +4900,7 @@ async fn a_primary_drag_without_alt_does_not_pan() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let over_a_cell = viewport.cell_rect(4, 4).center();
@@ -4829,7 +4935,7 @@ async fn a_primary_drag_spans_a_region_that_release_keeps() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let (from, to) = (
@@ -4864,7 +4970,7 @@ async fn a_click_collapses_the_region_and_a_shift_click_extends_it() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     let grid = orcvs.grid();
     orcvs.select(grid.position(1, 1).expect("inside the Grid"));
     orcvs.extend(grid.position(9, 9).expect("inside the Grid"));
@@ -4924,7 +5030,7 @@ async fn a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_gr
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
         let mut orcvs = running_orcvs(32, 32);
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         let from = viewport.cell_rect(20, 5).center();
         console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
@@ -4979,7 +5085,7 @@ async fn an_unequal_cell_is_measured_across_by_its_width_and_down_by_its_height(
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(64, 64);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     view.cell = cell;
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -5034,7 +5140,7 @@ async fn releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(64, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let from = viewport.cell_rect(20, 5).center();
     let far = Pos2::new(screen.max.x + 400.0, from.y);
@@ -5068,7 +5174,7 @@ async fn an_alt_drag_and_a_middle_drag_leave_the_region() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     let grid = orcvs.grid();
     orcvs.select(grid.position(1, 1).expect("inside the Grid"));
     orcvs.extend(grid.position(4, 3).expect("inside the Grid"));
@@ -5152,7 +5258,7 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         Vec2::new(COLUMNS as f32, ROWS as f32) * CELL_SIZE + 2.0 * MARGIN,
     );
     let mut orcvs = running_orcvs(COLUMNS, ROWS);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
@@ -5262,7 +5368,7 @@ async fn a_culled_row_leaves_cursor_effects_out_of_cell_fills() {
     // Narrow enough that every drawn row starts and ends inside the Grid.
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
     let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // Below the window the console shows, keeping the Cursor near the
     // visible range while its area remains separate geometry.
     orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
@@ -5368,7 +5474,7 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
     for pixels_per_point in [1.0, 1.5] {
         let ctx = egui::Context::default();
         let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
-        let mut view = SourceView::default();
+        let mut view = SourceView::new(CELL_SIZE);
 
         let frame = orcvs.render_frame();
         pinned_at(&mut view, translation);
@@ -5501,7 +5607,7 @@ async fn a_resize_keeps_the_cell_size_and_shows_more_or_less_of_the_source() {
     let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
     let tall = Rect::from_min_size(Pos2::ZERO, TALL);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let before = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(before.cell_size, CELL_SIZE);
@@ -5536,7 +5642,7 @@ async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let small = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let large = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     // 32 Cells and a margin of two either side is 36 Cells, so the far edge
     // of a console is 36 Cells less its size in.
@@ -5563,7 +5669,7 @@ async fn pinch_and_command_wheel_do_not_zoom() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let over = viewport.rect.min + viewport.cell_size;
@@ -5593,7 +5699,7 @@ async fn a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // Column 30 at the Source's own Cell size is far outside a 200 point console.
     orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
 
@@ -5616,7 +5722,7 @@ async fn a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
@@ -5644,7 +5750,7 @@ async fn a_cursor_follow_to_an_edge_cell_shows_the_margin_past_it() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
@@ -5684,7 +5790,7 @@ async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
 
     // 32 Cells and a margin of two either side is 36 Cells, so the far edge
@@ -5725,7 +5831,7 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
     // inside a 200 point console and past a 160 point one.
     orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
@@ -5778,7 +5884,7 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
     // inside a 200 point console and past a 160 point one.
     orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
@@ -5826,7 +5932,7 @@ async fn a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_sh
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
 
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
@@ -5863,7 +5969,7 @@ async fn a_resize_that_would_leave_the_cursor_outside_the_view_pans_to_show_it()
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
     // inside a 200 point console and past a 160 point one.
     orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
@@ -5900,7 +6006,7 @@ async fn a_resize_after_a_pan_away_from_the_cursor_keeps_the_pan() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // Column 9 and row 5 start 11 and 7 Cells along, margin counted: 132 and
     // 126 points, inside the 200 point console before the Pan.
     orcvs.select(orcvs.grid().position(9, 5).expect("inside the grid"));
@@ -5935,7 +6041,7 @@ async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor(
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
 
     // First frame: no previous Cursor to compare against, so no follow.
@@ -5978,7 +6084,7 @@ async fn the_follow_pan_is_still_bounded_by_the_grids_edges() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
@@ -6019,7 +6125,7 @@ async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(8, 8);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     pinned_at(&mut view, Vec2::ZERO);
 
     let (viewport, _) = console_pass_at(
@@ -6053,7 +6159,7 @@ async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(64, 64);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     pinned_at(&mut view, Vec2::splat(-1_000_000.0));
 
     let (viewport, _) = console_pass_at(
@@ -6087,7 +6193,7 @@ async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(64, 64);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     pinned_at(&mut view, Vec2::ZERO);
 
     console_pass_at(
@@ -6129,7 +6235,7 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     pinned_at(&mut view, Vec2::new(-24.0, -48.0));
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -6166,7 +6272,7 @@ async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_un
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
     let mut orcvs = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     // egui folds its zoom factor into this same `pixels_per_point`.
     let frame_at = |events: Vec<Event>, orcvs: &mut Orcvs, view: &mut SourceView| {
         console_pass_at(&ctx, screen, events, orcvs, view, 2.0).0
@@ -6231,7 +6337,7 @@ async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
     let over = screen.min + Vec2::splat(16.0);
 
     let mut large = running_orcvs(32, 32);
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     console_frame(&ctx, screen, Vec::new(), &mut large, &mut view);
     wheel_until_settled(
         &ctx,
@@ -6252,7 +6358,7 @@ async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
     );
 
     let mut small = running_orcvs(8, 6);
-    let mut small_view = SourceView::default();
+    let mut small_view = SourceView::new(CELL_SIZE);
     console_frame(&ctx, screen, Vec::new(), &mut small, &mut small_view);
     console_frame(
         &ctx,
@@ -6292,7 +6398,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(256.0));
     let mut orcvs = running_orcvs(8, 8);
     orcvs.write("1");
-    let mut view = SourceView::default();
+    let mut view = SourceView::new(CELL_SIZE);
     let frame = orcvs.render_frame();
     let mut grid_layer = None;
 

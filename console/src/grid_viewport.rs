@@ -458,6 +458,27 @@ mod tests {
         );
     }
 
+    ///
+    /// The smallest Cell a settings file allows, under egui's lowest Zoom of
+    /// 0.2 on a 1× display, snaps to 1 physical pixel a side: 5 points. Its
+    /// Glyph is derived from that, not from the 8 points asked for, so the
+    /// Glyph still fits the Cell the Grid draws.
+    ///
+    #[test]
+    fn the_smallest_cell_at_the_lowest_zoom_lays_its_glyph_out_at_the_snapped_cell() {
+        let pixels_per_point = 0.2;
+        let viewport = presented_grid(
+            Pos2::ZERO,
+            square(),
+            snapped_cell(Vec2::splat(8.0), pixels_per_point),
+            pixels_per_point,
+        );
+
+        assert_eq!(viewport.cell_size, Vec2::splat(5.0));
+        assert_eq!(viewport.cell_size * pixels_per_point, Vec2::splat(1.0));
+        assert_eq!(viewport.glyph_size(), 3.75);
+    }
+
     fn square() -> Grid {
         Grid::with_shape(GRID, GRID)
     }

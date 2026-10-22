@@ -261,7 +261,7 @@ impl Console {
             orcvs,
             midi,
             font_family: egui::FontFamily::Monospace,
-            source_view: SourceView::default(),
+            source_view: SourceView::new(config.cell),
             diagnostics_open: true,
             diagnostics_timing: TimingReadouts::default(),
             #[cfg(test)]
