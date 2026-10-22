@@ -167,7 +167,7 @@ impl<'a> CellColours<'a> {
         portal_roles: PortalRoles,
         placement: CursorPlacement,
     ) -> CellVisuals {
-        let visuals = self.unselected(paint, portal_roles);
+        let visuals = self.fact_visuals(paint, portal_roles);
         let background = match placement {
             CursorPlacement::Plain => visuals.background.or(self.base_fill),
             CursorPlacement::Region => visuals.background.or(self.region_fill),
@@ -181,7 +181,7 @@ impl<'a> CellColours<'a> {
     }
 
     #[inline]
-    fn unselected(&mut self, paint: SourcePaint, portal_roles: PortalRoles) -> CellVisuals {
+    fn fact_visuals(&mut self, paint: SourcePaint, portal_roles: PortalRoles) -> CellVisuals {
         let portal = match painting_portal(portal_roles) {
             None => 0,
             Some(PortalRole::Input) => 1,
@@ -941,7 +941,7 @@ mod tests {
             for fact in SOURCE_PAINT_FACTS {
                 for roles in PORTAL_ROLE_SETS {
                     assert_eq!(
-                        table.unselected(fact, roles),
+                        table.fact_visuals(fact, roles),
                         cell_visuals(fact, roles, &theme),
                         "{fact:?}, {roles:?}"
                     );
@@ -3053,7 +3053,13 @@ mod tests {
                     &theme,
                 )
             } else {
-                cell_visuals(case.fact, output_portal_roles(case.output_portal), &theme)
+                coloured(
+                    case.fact,
+                    output_portal_roles(case.output_portal),
+                    CursorPlacement::Plain,
+                    cursor_colour,
+                    &theme,
+                )
             };
             assert_eq!(
                 visuals.background.map(|c| c.to_array()),

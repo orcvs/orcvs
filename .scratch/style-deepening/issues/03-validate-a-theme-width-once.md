@@ -11,3 +11,7 @@
 - [x] A non-finite, negative or over-range width in a Theme document is still refused by the decoder with the key it read, for a Grid width and a chrome width alike; the existing decoder refusal tests pass unchanged or move with their assertions intact.
 - [x] Every shipped and test Theme document resolves exactly as before.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.
+
+## Comments
+
+- `GridWidth`/`ChromeWidth::from_points` still check their bound, now answering `Option`, because the built-ins construct widths. On the document path the decoder's `f64` check comes first, and `from_points(..).expect(..)` after it cannot fail, since an in-range `f64` narrows to an in-range `f32`.

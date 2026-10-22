@@ -161,9 +161,8 @@ impl ConfusionResult {
 }
 
 ///
-/// [`distinguish`]'s complete answer for one Theme, shaped like
-/// `ContrastReport`: the floor and scope carried in the data, then one
-/// result per `(dichromacy, channel pair)`.
+/// [`distinguish`]'s complete answer for one Theme: the floor and scope
+/// carried in the data, then one result per `(dichromacy, channel pair)`.
 ///
 struct ConfusionReport {
     floor: f32,

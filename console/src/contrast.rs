@@ -21,8 +21,7 @@
 //!
 //! Its chrome states are `text`, `text.muted`, `text.active`, selected
 //! text, `error`, `warning` and `link`, each on the surfaces egui paints it
-//! on (see [`State`]). Five chrome cases are left out, each for a reason
-//! `SCOPE` also carries:
+//! on (see [`State`]). Five chrome cases are left out, each for a reason:
 //!
 //! - A disabled widget: egui fades it to half opacity, and WCAG 2.1 SC 1.4.3
 //!   exempts the text of an inactive user-interface component.

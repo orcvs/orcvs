@@ -689,8 +689,9 @@ the Cell plays: none, Input Portal, Output Portal, or both), the effective foreg
 background, the measured ratio against the 4.5:1 floor, and whether it is an
 accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"), and the returned
-`ContrastReport` carries it too; the scope is stated once, at `contrast::SCOPE`
-and the module's `# Scope` section. `validate` measures text contrast only: never Token-colour
+`ContrastReport` carries it too; the scope is stated in the module's `# Scope`
+section, which a test-only `contrast::SCOPE` restates so a test can check it
+names every exclusion. `validate` measures text contrast only: never Token-colour
 distinguishability or border/focus visibility.
 
 Colour vision is a second, test-only measurement over the built-in Themes,

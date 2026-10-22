@@ -11,3 +11,9 @@
 - [x] `theme.rs` holds the resolved `Theme`, its accessors the console paints from and the built-ins; `theme_document` holds what reads, resolves and refuses a document.
 - [x] `mise run check_wasm` passes, so the web target still compiles with no unexpected dead code and no unfulfilled expectation.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.
+
+## Comments
+
+- The key enums moved too, along with their `name` and the setters, and so did `ThemeIdentity`'s `from_stem`, `is_reserved` and `as_str`. To make that move possible, `ThemeIdentity`'s field is `pub(crate)`. An identity carries no invariant beyond `from_stem`'s non-empty check, and `configured` already skips that check.
+- The width keys' `name` is read only by tests, so it compiles only under `cfg(test)`.
+- The five `theme_registry.rs` expectations and the two in `lib.rs` stay. Each sits on an item the web compiles and never reaches. So the spec's "twenty become one" comes to thirteen fewer, plus `ThemeSelection::new`.

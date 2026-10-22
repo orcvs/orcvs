@@ -13,3 +13,8 @@
 - [x] The hand-written literal-value acceptance tests stay, so a generated reader and writer cannot both agree on a wrong field.
 - [x] A Theme document still decodes, inherits and resolves exactly as before: the decoder, resolve and built-in record tests pass unchanged.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `cargo nextest run --workspace --tests --no-default-features --locked` pass.
+
+## Comments
+
+- The readers are `color`, `grid_width` and `chrome_width`. `color_ref` had one caller, `color`, so the two became one match.
+- `cargo clippy --package console --all-targets --target wasm32-unknown-unknown` was run as well, since this ticket's criteria name only a native run.

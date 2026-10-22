@@ -12,3 +12,7 @@ This reverses theming/08's choice to carry the scope in the report's data (kept 
 - [x] The test still fails if `SCOPE` stops naming text contrast or any excluded chrome case.
 - [x] The module doc's reference to `ContrastReport::scope` points at `SCOPE` instead.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings`, `cargo nextest run --package console --locked` and `mise run check_wasm` pass.
+
+## Comments
+
+- `SCOPE` is `#[cfg(test)]`, because a shipped `SCOPE` with no shipped reader would need the `dead_code` expectation this ticket removes. A caller that later shows the scope makes it shipped again.

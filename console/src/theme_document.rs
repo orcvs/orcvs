@@ -156,12 +156,8 @@ macro_rules! property_keys {
         #[cfg(test)]
         impl Theme {
             fn color(&self, key: ColorKey) -> Color32 {
-                *self.color_ref(key)
-            }
-
-            fn color_ref(&self, key: ColorKey) -> &Color32 {
                 match key {
-                    $(ColorKey::$color => &self.$color_field,)*
+                    $(ColorKey::$color => self.$color_field,)*
                 }
             }
 

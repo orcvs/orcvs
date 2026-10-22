@@ -15,3 +15,10 @@ Paint keeps geometry and edges: re-ranking the Cursor's border to `EdgeRank::Reg
 - [x] The contrast gate's measurements are unchanged for every shipped Theme.
 - [x] The empty and Region-spanning Paint benchmarks still exist and still measure the same walk.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+
+## Comments
+
+- The Region-spanning benchmark did not exist, so `paint_derive/region/32x32` is added: the 32×32 fixture with a Region over its middle 24×24 Cells, walked fitted. No floor guards it yet.
+- `cell_background` is deleted, so its tests could not stay unchanged. They now ask `CellColours::colours` for the same placement, and every expected colour is the same. `cell_visuals_with_cursor_colour` became the private `cell_visuals`, which has no `selected` or Cursor-fill parameter: once the Cursor's fill is decided in `colours`, only tests would have set them.
+- `colours` takes `&mut self` for the cache. `contrast::painted` builds a fresh `CellColours` for each state. `CursorPlacement` moved into `style`, and its `ALL` stays in `contrast`, its only reader, where the module's web expectation covers it.
+- A dump of `validate` for both built-ins is byte-identical before and after the change.
