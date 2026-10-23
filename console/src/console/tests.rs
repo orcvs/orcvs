@@ -6472,17 +6472,21 @@ fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
 }
 
 ///
-/// The Source View as the Overview draws it: each rectangle inside the
-/// Overview's picture stroked in the Theme's outline colour, which no other
-/// mark on the picture is.
+/// The Source View as the Overview draws it in `theme`: each rectangle inside
+/// the Overview's picture stroked in the Theme's outline colour, which no
+/// other mark on the picture is.
 ///
-fn source_view_outlines(shapes: &[Shape], picture: Rect) -> Vec<egui::epaint::RectShape> {
+fn source_view_outlines(
+    shapes: &[Shape],
+    picture: Rect,
+    theme: &Theme,
+) -> Vec<egui::epaint::RectShape> {
     shapes
         .iter()
         .filter_map(|shape| match shape {
             Shape::Rect(rect)
                 if rect.stroke.width > 0.0
-                    && rect.stroke.color == okabe_ito().overview_source_view
+                    && rect.stroke.color == theme.overview_source_view
                     && picture.contains_rect(rect.rect) =>
             {
                 Some(rect.clone())
@@ -6527,9 +6531,10 @@ fn overview_pass(
 ) -> (Option<egui::epaint::RectShape>, Rect, Rect) {
     let (shapes, _) = console_output_at(ctx, screen, events, console, host, 1.0);
     let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
-    let mut outlines = source_view_outlines(&shapes, picture);
+    let theme = okabe_ito();
+    let mut outlines = source_view_outlines(&shapes, picture, &theme);
     assert!(outlines.len() <= 1, "more than one outline: {outlines:?}");
-    (outlines.pop(), picture, source_area(&shapes, &okabe_ito()))
+    (outlines.pop(), picture, source_area(&shapes, &theme))
 }
 
 ///
@@ -6589,9 +6594,9 @@ fn overview_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> R
 
 ///
 /// The Overview marks the Region's Cells and then the Cursor's Cell over its
-/// picture, each in the fill and border the Source draws it with, and the
-/// Source View's outline over both. A Region of one Cell is the Cursor's Cell
-/// and gets no mark of its own.
+/// picture, each in the Theme's fill and border for it, and the Source View's
+/// outline over both. A Region of one Cell is the Cursor's Cell and gets no
+/// mark of its own.
 ///
 #[tokio::test]
 async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_the_outline() {
@@ -6631,7 +6636,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     let (cursor_at, cursor) = mark_at(overview_cells(picture, 12..13, 8..9), "the Cursor mark");
     assert_eq!(
         cursor.fill,
-        theme.cursor_background.unwrap_or(Color32::TRANSPARENT)
+        theme.region_cursor_fill().unwrap_or(Color32::TRANSPARENT)
     );
     assert_eq!(
         cursor.stroke,
@@ -6643,7 +6648,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
         .iter()
         .position(|shape| matches!(shape, Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default()))
         .expect("the Overview drew no image");
-    let outline = source_view_outlines(&shapes, picture)
+    let outline = source_view_outlines(&shapes, picture, &theme)
         .pop()
         .expect("the Overview drew no outline");
     let outline_at = shapes
@@ -6673,6 +6678,76 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     assert!(
         matches!(marks[..], [mark] if near(mark, expected)),
         "a one-Cell Region marked {marks:?}, not the Cursor's Cell alone at {expected:?}"
+    );
+}
+
+///
+/// The Cursor mark fills the Cursor's Cell as the Source does: with the Region
+/// Cursor's fill inside a spanning Region, and the Cursor's own fill once the
+/// Region is one Cell.
+///
+#[tokio::test]
+async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell() {
+    use crate::theme::{Appearance, ThemeIdentity};
+    use crate::theme_registry::tests_support::{id, load};
+
+    const FILLS: &str = "format = \"orcvs-theme\"\nversion = 1\n\
+        name = \"Fills\"\ninherits = \"okabe-ito\"\n[style]\n\
+        \"cursor.background\" = \"#102030\"\n\"region.cursor.background\" = \"#405060\"\n";
+    let mut themes = ThemeRegistry::built_in();
+    load(&mut themes, "fills.toml", FILLS.as_bytes());
+    let theme = themes
+        .select(Appearance::Dark, &id("fills"))
+        .expect("loaded")
+        .clone();
+    let config = crate::config::Config {
+        theme_selection: crate::theme_selection::ThemeSelection::new(
+            id("fills"),
+            ThemeIdentity::default_for(Appearance::Light),
+        ),
+        ..crate::config::Config::default()
+    };
+    let ctx = egui::Context::default();
+    let mut console = start_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        themes,
+        config,
+    );
+    let mut host = eframe::Frame::_new_kittest();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+    let mut cursor_fill = |console: &mut Console| {
+        let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), console, &mut host, 1.0);
+        let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+        let cell = overview_cells(picture, 12..13, 8..9);
+        shapes
+            .iter()
+            .find_map(|shape| match shape {
+                Shape::Rect(mark)
+                    if (mark.rect.min - cell.min).length() < 1e-3
+                        && (mark.rect.max - cell.max).length() < 1e-3 =>
+                {
+                    Some(mark.fill)
+                }
+                _ => None,
+            })
+            .expect("the Overview drew no Cursor mark")
+    };
+    console.orcvs.select(at(9, 7));
+    console.orcvs.extend(at(12, 8));
+    assert_eq!(
+        Some(cursor_fill(&mut console)),
+        theme.region_cursor_fill(),
+        "inside a spanning Region"
+    );
+    console.orcvs.select(at(12, 8));
+    assert_eq!(
+        Some(cursor_fill(&mut console)),
+        theme.cursor_background,
+        "with a one-Cell Region"
     );
 }
 

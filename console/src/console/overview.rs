@@ -253,15 +253,19 @@ impl Console {
 }
 
 ///
-/// Marks `frame`'s Region and then its Cursor's Cell on `picture` in the fill
-/// and border the Source draws each with, so moving either changes no texel.
-/// A Region of one Cell is the Cursor's Cell and gets no mark of its own.
+/// Marks `frame`'s Region and then its Cursor's Cell on `picture` in the
+/// Theme's Region and Cursor fills and borders, so moving either changes no
+/// texel. A Region of one Cell is the Cursor's Cell and gets no mark of its
+/// own. The Cursor keeps its border inside a spanning Region, where the
+/// Source shows only the Region's, so the Overview always shows where the
+/// Cursor is.
 ///
 fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame, theme: &Theme) {
-    let texel = picture.width() / (frame.grid().columns() + 2 * MARGIN) as f32;
+    let texel = picture.size() / padded_source(frame.grid(), Vec2::splat(1.0));
     let cells = |columns: Range<usize>, rows: Range<usize>| {
         let corner = |column: usize, row: usize| {
-            picture.min + Vec2::new((column + MARGIN) as f32, (row + MARGIN) as f32) * texel
+            picture.min
+                + (Vec2::new(column as f32, row as f32) + Vec2::splat(SOURCE_MARGIN_CELLS)) * texel
         };
         Rect::from_min_max(
             corner(columns.start, rows.start),
@@ -269,7 +273,9 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
         )
     };
     let region = frame.region();
-    if !region.is_one_cell() {
+    let cursor_fill = if region.is_one_cell() {
+        theme.cursor_background
+    } else {
         painter.rect(
             cells(region.columns(), region.rows()),
             0.0,
@@ -277,12 +283,13 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
             Stroke::new(theme.region_border_width.points(), theme.region_border),
             StrokeKind::Inside,
         );
-    }
+        theme.region_cursor_fill()
+    };
     let cursor = frame.cursor();
     painter.rect(
         cells(cursor.x()..cursor.x() + 1, cursor.y()..cursor.y() + 1),
         0.0,
-        theme.cursor_background.unwrap_or(Color32::TRANSPARENT),
+        cursor_fill.unwrap_or(Color32::TRANSPARENT),
         Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
         StrokeKind::Inside,
     );
