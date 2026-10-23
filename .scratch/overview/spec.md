@@ -47,7 +47,7 @@ The research behind this spec is `docs/research/egui-minimap.md`.
 31. As a performer, I want the Overview to reflect a Theme change at once, including following the operating system's appearance, so that it always matches the rest of the console.
 32. As a Theme author, I want the Overview's Cell colours to come from the colours I already set for the Source Grid, so that I do not have to style the Grid twice.
 33. As a Theme author, I want one colour and width for the Source View outline on the Overview, so that I can make it read over my Theme's Cell colours.
-34. As a Theme author, I want the new outline key in the Theme schema and both built-in Themes, so that a custom Theme that leaves it out is told so the same way as any other missing key.
+34. As a Theme author, I want the new outline keys, `overview.source_view` and `overview.source_view.width`, in the Theme schema and both built-in Themes, so that a custom Theme that leaves them out takes the built-in values, as it does for every style key, and only a width over 2 is refused.
 35. As a performer using assistive technology, I want the Overview labelled as a Source overview rather than exposing every Cell, so that it does not flood the accessibility tree with 65,536 nodes.
 36. As a performer using assistive technology, I want everything the Overview does to remain possible by keyboard, so that the Overview is a convenience and not the only way to Pan.
 37. As a performer on a slow machine, I want the Overview to cost nothing on Render Frames where the Source and Theme have not changed, so that showing it does not slow the console.
