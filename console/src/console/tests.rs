@@ -26,7 +26,7 @@ use super::source_view::{
     SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, padded_source, show_source_scene,
     source_panel_frame,
 };
-use super::{Console, DEFAULT_VIEW_SIZE};
+use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 
 /// The Source View's margin at a device scale of one.
 const MARGIN: Vec2 = Vec2::new(
@@ -6392,6 +6392,84 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
 }
 
 ///
+/// A window too small for the picture at its usual size gets it at the
+/// largest whole number of physical pixels per texel that fits, in half the
+/// window's width and the height beside the docked panels, and no Overview
+/// at all where one pixel per texel does not fit. The View menu's choice is
+/// kept, so the Overview returns at its usual size once the window holds it.
+///
+#[tokio::test]
+async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
+    let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
+    let short = Vec2::new(DEFAULT_VIEW_SIZE[0], 300.0);
+    let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
+    for (size, pixels_per_point, pixels_per_texel) in [
+        (narrow, 2.0, Some(1.0)),
+        (narrow, 1.5, Some(1.0)),
+        (narrow, 1.0, None),
+        (short, 1.0, None),
+        (smallest, 1.0, None),
+        (smallest, 2.0, None),
+    ] {
+        let (ctx, mut console, mut host) = fresh_console();
+        console.overview_open = true;
+        let screen = Rect::from_min_size(Pos2::ZERO, size);
+        let (shapes, _) = console_output_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut console,
+            &mut host,
+            pixels_per_point,
+        );
+        let image = overview_image(&shapes).map(|(_, image)| image);
+        match pixels_per_texel {
+            Some(pixels_per_texel) => {
+                let image = image.unwrap_or_else(|| {
+                    panic!("{size:?} at {pixels_per_point}×: the Overview is hidden")
+                });
+                let physical = image.size() * pixels_per_point;
+                assert!(
+                    (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
+                    "{size:?} at {pixels_per_point}×: the image is {physical:?} physical pixels"
+                );
+                assert!(
+                    image.left() >= screen.center().x,
+                    "{size:?} at {pixels_per_point}×: the image {image:?} takes more than half \
+                     the width"
+                );
+                assert!(
+                    screen.contains_rect(image),
+                    "{size:?} at {pixels_per_point}×: the image {image:?} leaves the window"
+                );
+            }
+            None => assert_eq!(
+                image, None,
+                "{size:?} at {pixels_per_point}×: the Overview was shown"
+            ),
+        }
+
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let (shapes, _) = console_output_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut console,
+            &mut host,
+            pixels_per_point,
+        );
+        let (_, image) = overview_image(&shapes).unwrap_or_else(|| {
+            panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
+        });
+        let usual = 260.0 * pixels_per_point.floor().max(1.0);
+        assert!(
+            (image.size() * pixels_per_point - Vec2::splat(usual)).length() < 1e-3,
+            "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
+        );
+    }
+}
+
+///
 /// The picture is uploaded when the Overview is first shown and again, as one
 /// whole-image update in place, only when the Source or the appearance
 /// changes; a Render Frame where neither did uploads nothing, even when the
@@ -6782,11 +6860,12 @@ async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_f
 ///
 /// egui's zoom in shrinks the console in points and not the Source, so the
 /// outline shrinks with it, still at the rect the Pan and the console predict.
+/// The window is twice the default, so zoomed in it still holds the picture.
 ///
 #[tokio::test]
 async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
     let (ctx, mut console, mut host) = fresh_console();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let screen = Rect::from_min_size(Pos2::ZERO, 2.0 * Vec2::from(DEFAULT_VIEW_SIZE));
     console.overview_open = true;
     let (before, _, _) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let before = before.expect("the Overview drew no outline");

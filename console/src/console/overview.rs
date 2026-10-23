@@ -197,7 +197,9 @@ impl Console {
     ///
     /// The picture is drawn square, at a whole number of physical pixels per
     /// texel, on whole physical pixels, so every Cell is a crisp block of one
-    /// size. It senses a drag and nothing else: sensing focus would put it in
+    /// size: the largest number up to the whole pixels per point that fits,
+    /// and none at all, answering `None`, where one pixel per texel does not.
+    /// It senses a drag and nothing else: sensing focus would put it in
     /// the Tab order, where a focused widget keeps every key from the Source.
     ///
     pub(super) fn show_overview(
@@ -211,14 +213,27 @@ impl Console {
             return None;
         }
         let ctx = root.ctx().clone();
+        let pixels_per_point = ctx.pixels_per_point();
+        let panel_frame = egui::Frame::side_top_panel(root.style());
+        // The picture takes at most half the width, so the Source keeps the
+        // rest, and the height beside the docked panels. It is not clipped to
+        // fit: a press maps to a Pan only across the whole picture.
+        let room = (root.available_rect_before_wrap().size() * Vec2::new(0.5, 1.0)
+            - panel_frame.total_margin().sum())
+            * pixels_per_point
+            / padded_source(frame.grid(), Vec2::splat(1.0));
+        let pixels_per_texel = pixels_per_point
+            .floor()
+            .max(1.0)
+            .min(room.min_elem().floor());
+        if pixels_per_texel < 1.0 {
+            return None;
+        }
         let theme = self.themes.presented(appearance);
         let texture = self
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
-        let pixels_per_point = ctx.pixels_per_point();
-        let pixels_per_texel = pixels_per_point.floor().max(1.0);
         let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
-        let panel_frame = egui::Frame::side_top_panel(root.style());
         let shown = egui::Panel::right("overview")
             .resizable(false)
             .exact_size(side.x + panel_frame.total_margin().sum().x)
