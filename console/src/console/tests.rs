@@ -6626,21 +6626,27 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
         assert_eq!(found.len(), 1, "{situation}: {found:?} at {rect:?}");
         found[0].clone()
     };
+    // An inside stroke half a texel wide or wider covers a one-texel side
+    // entirely, leaving no fill to show.
+    let texel = overview_cells(picture, 0..1, 0..1).width();
     let (region_at, region) = mark_at(overview_cells(picture, 9..13, 7..9), "the Region mark");
     assert_eq!(region.fill, theme.region_background);
-    assert_eq!(
-        region.stroke,
-        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
+    assert_eq!(region.stroke.color, theme.region_border);
+    assert!(
+        region.stroke.width > 0.0 && region.stroke.width < texel / 2.0,
+        "the Region's border is {} wide on {texel} texels",
+        region.stroke.width
     );
     assert_eq!(region.stroke_kind, egui::StrokeKind::Inside);
     let (cursor_at, cursor) = mark_at(overview_cells(picture, 12..13, 8..9), "the Cursor mark");
-    assert_eq!(
-        cursor.fill,
-        theme.region_cursor_fill().unwrap_or(Color32::TRANSPARENT)
-    );
-    assert_eq!(
-        cursor.stroke,
-        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
+    // The Source fills the Cursor's empty Cell with no Region tint when the
+    // Theme clears the Region Cursor's fill.
+    assert_eq!(cursor.fill, theme.grid_background);
+    assert_eq!(cursor.stroke.color, theme.cursor_border);
+    assert!(
+        cursor.stroke.width > 0.0 && cursor.stroke.width < texel / 2.0,
+        "the Cursor's border is {} wide on {texel} texels",
+        cursor.stroke.width
     );
     assert_eq!(cursor.stroke_kind, egui::StrokeKind::Inside);
 
@@ -6682,24 +6688,20 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
 }
 
 ///
-/// The Cursor mark fills the Cursor's Cell as the Source does: with the Region
-/// Cursor's fill inside a spanning Region, and the Cursor's own fill once the
-/// Region is one Cell.
+/// The Overview's Cursor mark fill on the empty Cell at column 12, row 8, in a
+/// Theme inheriting Okabe-Ito with `style` added: first as the far corner of
+/// a Region from column 9, row 7, then with the Region collapsed to it.
 ///
-#[tokio::test]
-async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell() {
+fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
     use crate::theme::{Appearance, ThemeIdentity};
     use crate::theme_registry::tests_support::{id, load};
 
-    const FILLS: &str = "format = \"orcvs-theme\"\nversion = 1\n\
-        name = \"Fills\"\ninherits = \"okabe-ito\"\n[style]\n\
-        \"cursor.background\" = \"#102030\"\n\"region.cursor.background\" = \"#405060\"\n";
+    let source = format!(
+        "format = \"orcvs-theme\"\nversion = 1\n\
+         name = \"Fills\"\ninherits = \"okabe-ito\"\n[style]\n{style}"
+    );
     let mut themes = ThemeRegistry::built_in();
-    load(&mut themes, "fills.toml", FILLS.as_bytes());
-    let theme = themes
-        .select(Appearance::Dark, &id("fills"))
-        .expect("loaded")
-        .clone();
+    load(&mut themes, "fills.toml", source.as_bytes());
     let config = crate::config::Config {
         theme_selection: crate::theme_selection::ThemeSelection::new(
             id("fills"),
@@ -6738,17 +6740,43 @@ async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell
     };
     console.orcvs.select(at(9, 7));
     console.orcvs.extend(at(12, 8));
+    let in_region = cursor_fill(&mut console);
+    console.orcvs.select(at(12, 8));
+    (in_region, cursor_fill(&mut console))
+}
+
+///
+/// The Cursor mark fills the Cursor's Cell as the Source does: with the Region
+/// Cursor's fill inside a spanning Region, and the Cursor's own fill once the
+/// Region is one Cell.
+///
+#[tokio::test]
+async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell() {
+    let (in_region, alone) = cursor_mark_fills(
+        "\"cursor.background\" = \"#102030\"\n\"region.cursor.background\" = \"#405060\"\n",
+    );
     assert_eq!(
-        Some(cursor_fill(&mut console)),
-        theme.region_cursor_fill(),
+        in_region,
+        Color32::from_rgb(0x40, 0x50, 0x60),
         "inside a spanning Region"
     );
-    console.orcvs.select(at(12, 8));
     assert_eq!(
-        Some(cursor_fill(&mut console)),
-        theme.cursor_background,
+        alone,
+        Color32::from_rgb(0x10, 0x20, 0x30),
         "with a one-Cell Region"
     );
+}
+
+///
+/// With both Cursor fills cleared, the Source fills the Cursor's Cell with the
+/// Cell base, inside a spanning Region or not, so the Cursor mark does too.
+///
+#[tokio::test]
+async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_fills_are_cleared() {
+    let (in_region, alone) = cursor_mark_fills("\"cell.background\" = \"#203040\"\n");
+    let base = Color32::from_rgb(0x20, 0x30, 0x40);
+    assert_eq!(in_region, base, "inside a spanning Region");
+    assert_eq!(alone, base, "with a one-Cell Region");
 }
 
 ///
