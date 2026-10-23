@@ -356,12 +356,12 @@ fn toggle_overview(harness: &mut Harness<'_, Console>) {
 }
 
 ///
-/// View → Overview docks the Overview at the right of the Source View, which
-/// gives it the width rather than being covered, and unticking it gives the
-/// width back. A Cursor in view stays in view across both.
+/// View → Overview pins the Overview to the window's bottom-right corner, over
+/// the Source and the bottom panel, with no margin, and takes no width from
+/// the Source; unticking it hides it again.
 ///
 #[tokio::test]
-async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor_in_view() {
+async fn the_view_menu_pins_the_overview_over_the_bottom_right_corner() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     assert!(
@@ -370,24 +370,21 @@ async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor
     );
     let without = source_rect(&harness);
 
-    // The Cursor near the right edge, where the Overview's width lands.
-    let near_edge = Pos2::new(without.right() - 3.0 * CELL_SIZE.x, without.center().y);
-    click_at(&mut harness, near_edge);
-    harness.run_steps(1);
-    let (column, row) = cursor(harness.state());
-    assert!(column > 0, "the click did not move the Cursor");
-
     toggle_overview(&mut harness);
     let overview = harness.get_by_label("Source overview").rect();
-    let with = source_rect(&harness);
+    let window = Vec2::from(DEFAULT_VIEW_SIZE).to_pos2();
     assert!(
-        with.right() <= overview.left(),
-        "the Overview {overview:?} covers the Source {with:?}"
+        (overview.max - window).length() < 1e-3,
+        "the Overview {overview:?} is not in the window's corner {window:?}"
     );
-    assert!(with.width() < without.width());
     assert!(
-        with.contains_rect(presented_source(&harness).cell_rect(column, row)),
-        "showing the Overview left the Cursor out of view"
+        overview.bottom() > without.bottom(),
+        "the Overview {overview:?} does not reach over the bottom panel below {without:?}"
+    );
+    assert_eq!(
+        source_rect(&harness),
+        without,
+        "showing the Overview resized the Source"
     );
 
     toggle_overview(&mut harness);
@@ -396,10 +393,6 @@ async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor
         "unticking left the Overview showing"
     );
     assert_eq!(source_rect(&harness), without);
-    assert!(
-        without.contains_rect(presented_source(&harness).cell_rect(column, row)),
-        "hiding the Overview left the Cursor out of view"
-    );
 }
 
 ///

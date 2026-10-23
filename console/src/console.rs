@@ -372,8 +372,7 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
-        // Shown before the Source so it takes width, and outlined after it,
-        // from the Pan this Render Frame settled.
+        // Outlined after the Source, from the Pan this Render Frame settled.
         let overview = self.show_overview(root, revision, &frame, appearance);
         let source = self.show_source_panel(root, &frame, appearance);
         if let Some(overview) = overview {

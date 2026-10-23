@@ -191,16 +191,21 @@ fn outline(visible: Rect, grid: Grid, cell: Vec2) -> Rect {
 
 impl Console {
     ///
-    /// Shows the Overview in a panel docked at the right, when it is open,
-    /// and answers where its picture lies. Shown before the Source, so it
-    /// takes width rather than covering Cells.
+    /// Shows the Overview pinned to the window's bottom-right corner, when it
+    /// is open, and answers where its picture lies. It floats over the Source
+    /// and the bottom panel with no frame or margin, so it takes no width
+    /// from the Source.
     ///
     /// The picture is drawn square, at a whole number of physical pixels per
     /// texel, on whole physical pixels, so every Cell is a crisp block of one
-    /// size: the largest number up to the whole pixels per point that fits,
-    /// and none at all, answering `None`, where one pixel per texel does not.
-    /// It senses a drag and nothing else: sensing focus would put it in
-    /// the Tab order, where a focused widget keeps every key from the Source.
+    /// size: the largest number up to the whole pixels per point that fits
+    /// in half the window's width and the height below the menu bar, and
+    /// none at all, answering `None`, where one pixel per texel does not. It
+    /// is not clipped to fit: a press maps to a Pan only across the whole
+    /// picture. Like every egui Area it is drawn from its second pass, the
+    /// first only measuring it, and it does not fade in. It senses a drag and nothing else: sensing focus would put it
+    /// in the Tab order, where a focused widget keeps every key from the
+    /// Source.
     ///
     pub(super) fn show_overview(
         &mut self,
@@ -214,13 +219,12 @@ impl Console {
         }
         let ctx = root.ctx().clone();
         let pixels_per_point = ctx.pixels_per_point();
-        let panel_frame = egui::Frame::side_top_panel(root.style());
-        // The picture takes at most half the width, so the Source keeps the
-        // rest, and the height beside the docked panels. It is not clipped to
-        // fit: a press maps to a Pan only across the whole picture.
-        let room = (root.available_rect_before_wrap().size() * Vec2::new(0.5, 1.0)
-            - panel_frame.total_margin().sum())
-            * pixels_per_point
+        let window = ctx.content_rect();
+        let below_menu = Rect::from_x_y_ranges(
+            window.x_range(),
+            root.available_rect_before_wrap().top()..=window.bottom(),
+        );
+        let room = below_menu.size() * Vec2::new(0.5, 1.0) * pixels_per_point
             / padded_source(frame.grid(), Vec2::splat(1.0));
         let pixels_per_texel = pixels_per_point
             .floor()
@@ -234,16 +238,13 @@ impl Console {
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
         let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
-        let shown = egui::Panel::right("overview")
-            .resizable(false)
-            .exact_size(side.x + panel_frame.total_margin().sum().x)
-            .frame(panel_frame)
-            .show(root, |ui| {
-                let corner = ui
-                    .available_rect_before_wrap()
-                    .min
-                    .round_to_pixels(pixels_per_point);
-                let rect = Rect::from_min_size(corner, side);
+        let rect = Rect::from_min_size((window.max - side).round_to_pixels(pixels_per_point), side);
+        let shown = egui::Area::new(egui::Id::new("overview"))
+            .fixed_pos(rect.min)
+            .movable(false)
+            .fade_in(false)
+            .sense(Sense::hover())
+            .show(&ctx, |ui| {
                 let response = ui.allocate_rect(rect, Sense::DRAG);
                 response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source overview")

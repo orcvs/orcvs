@@ -6363,14 +6363,18 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
         );
 
         console.overview_open = true;
-        let (shapes, _) = console_output_at(
-            &ctx,
-            screen,
-            Vec::new(),
-            &mut console,
-            &mut host,
-            pixels_per_point,
-        );
+        // An egui Area is drawn from its second pass; the first measures it.
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut console,
+                &mut host,
+                pixels_per_point,
+            );
+        }
         let (_, image) = overview_image(&shapes).expect("the Overview drew no image");
         let physical = image.size() * pixels_per_point;
         // Within float error of a point that is a fraction of a pixel.
@@ -6385,8 +6389,8 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
             "{pixels_per_point}×: the image's corner {corner:?} is off the pixel grid"
         );
         assert!(
-            screen.contains_rect(image),
-            "{pixels_per_point}×: the image {image:?} leaves the window"
+            whole(image.max.to_vec2(), screen.max.to_vec2()),
+            "{pixels_per_point}×: the image {image:?} is not in the window's bottom-right corner"
         );
     }
 }
@@ -6394,34 +6398,38 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
 ///
 /// A window too small for the picture at its usual size gets it at the
 /// largest whole number of physical pixels per texel that fits, in half the
-/// window's width and the height beside the docked panels, and no Overview
+/// window's width and the height below the menu bar, and no Overview
 /// at all where one pixel per texel does not fit. The View menu's choice is
 /// kept, so the Overview returns at its usual size once the window holds it.
 ///
 #[tokio::test]
 async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
     let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
-    let short = Vec2::new(DEFAULT_VIEW_SIZE[0], 300.0);
+    let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 259.0);
     let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
     for (size, pixels_per_point, pixels_per_texel) in [
         (narrow, 2.0, Some(1.0)),
         (narrow, 1.5, Some(1.0)),
         (narrow, 1.0, None),
+        (short, 2.0, Some(1.0)),
         (short, 1.0, None),
         (smallest, 1.0, None),
-        (smallest, 2.0, None),
+        (smallest, 2.0, Some(1.0)),
     ] {
         let (ctx, mut console, mut host) = fresh_console();
         console.overview_open = true;
         let screen = Rect::from_min_size(Pos2::ZERO, size);
-        let (shapes, _) = console_output_at(
-            &ctx,
-            screen,
-            Vec::new(),
-            &mut console,
-            &mut host,
-            pixels_per_point,
-        );
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut console,
+                &mut host,
+                pixels_per_point,
+            );
+        }
         let image = overview_image(&shapes).map(|(_, image)| image);
         match pixels_per_texel {
             Some(pixels_per_texel) => {
@@ -6439,8 +6447,9 @@ async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below
                      the width"
                 );
                 assert!(
-                    screen.contains_rect(image),
-                    "{size:?} at {pixels_per_point}×: the image {image:?} leaves the window"
+                    (image.max - screen.max).length() < 1e-3,
+                    "{size:?} at {pixels_per_point}×: the image {image:?} is not in the window's \
+                     bottom-right corner"
                 );
             }
             None => assert_eq!(
@@ -6450,14 +6459,16 @@ async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below
         }
 
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let (shapes, _) = console_output_at(
-            &ctx,
-            screen,
-            Vec::new(),
-            &mut console,
-            &mut host,
-            pixels_per_point,
-        );
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut console,
+                &mut host,
+                pixels_per_point,
+            );
+        }
         let (_, image) = overview_image(&shapes).unwrap_or_else(|| {
             panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
         });
