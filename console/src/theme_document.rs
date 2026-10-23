@@ -914,9 +914,9 @@ mod tests {
     #[test]
     fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
         let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.colors.len(), 47);
+        assert_eq!(document.colors.len(), 48);
         assert_eq!(document.grid_widths.len(), 9);
-        assert_eq!(document.chrome_widths.len(), 5);
+        assert_eq!(document.chrome_widths.len(), 6);
         assert_eq!(document.cursor_background, Some(OptionalFill::None));
         assert_eq!(document.region_cursor_background, Some(OptionalFill::None));
         assert_eq!(document.appearance, Some(Appearance::Dark));
@@ -931,9 +931,9 @@ mod tests {
     }
 
     ///
-    /// Each of the example's 64 property names, alone in a document, sets
-    /// exactly one property, whose key spells that name — and the 64 reach
-    /// 64 different properties, so every catalogue entry is reachable by
+    /// Each of the example's 65 property names, alone in a document, sets
+    /// exactly one property, whose key spells that name — and the 65 reach
+    /// 65 different properties, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
@@ -942,7 +942,7 @@ mod tests {
             .lines()
             .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
             .collect::<Vec<_>>();
-        assert_eq!(entries.len(), 63, "47 colours, 2 optional fills, 14 widths");
+        assert_eq!(entries.len(), 65, "48 colours, 2 optional fills, 15 widths");
         let mut reached = Vec::new();
         for (name, value) in entries {
             let document = decodes(&style(&[(name, value)]));
@@ -1178,6 +1178,7 @@ mod tests {
             ("panel.border.width", "2.0000001", "0 to 2 points"),
             ("input.cursor.width", "7.5", "0 to 2 points"),
             ("panel.border.width", "1e300", "0 to 2 points"),
+            ("overview.source_view.width", "2.5", "0 to 2 points"),
         ];
         for (property, value, range) in cases {
             refuses(
@@ -1678,6 +1679,14 @@ mod tests {
         assert_eq!(resolved.grid_background, built_ins[0].grid_background);
         assert_eq!(resolved.source_function, built_ins[0].source_function);
         assert_eq!(resolved.grid_border_width, built_ins[0].grid_border_width);
+        assert_eq!(
+            resolved.overview_source_view,
+            built_ins[0].overview_source_view
+        );
+        assert_eq!(
+            resolved.overview_source_view_width,
+            built_ins[0].overview_source_view_width
+        );
     }
 
     #[test]
@@ -1997,7 +2006,7 @@ mod tests {
         // wrong field fails even though the macro's reader and writer agree.
         // Keep it in step with the catalogue's `ColorKey` list, whose count
         // the array's length restates.
-        let fields: [(ColorKey, Field<Color32>); 47] = [
+        let fields: [(ColorKey, Field<Color32>); 48] = [
             (ColorKey::WindowBackground, |theme| theme.window_background),
             (ColorKey::PanelBackground, |theme| theme.panel_background),
             (ColorKey::GridBackground, |theme| theme.grid_background),
@@ -2079,6 +2088,9 @@ mod tests {
             (ColorKey::InputCursor, |theme| theme.input_cursor),
             (ColorKey::Error, |theme| theme.error),
             (ColorKey::Warning, |theme| theme.warning),
+            (ColorKey::OverviewSourceView, |theme| {
+                theme.overview_source_view
+            }),
         ];
 
         for &(key, field) in &fields {
@@ -2149,7 +2161,7 @@ mod tests {
                 theme.locked_border_width.points()
             }),
         ];
-        let chrome_fields: [(ChromeWidthKey, Field<f32>); 5] = [
+        let chrome_fields: [(ChromeWidthKey, Field<f32>); 6] = [
             (ChromeWidthKey::PanelBorder, |theme| {
                 theme.panel_border_width.points()
             }),
@@ -2164,6 +2176,9 @@ mod tests {
             }),
             (ChromeWidthKey::InputCursor, |theme| {
                 theme.input_cursor_width.points()
+            }),
+            (ChromeWidthKey::OverviewSourceView, |theme| {
+                theme.overview_source_view_width.points()
             }),
         ];
         let every_field: Vec<Field<f32>> = grid_fields
@@ -2289,8 +2304,9 @@ mod tests {
             (ColorKey::InputCursor, "input.cursor"),
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
+            (ColorKey::OverviewSourceView, "overview.source_view"),
         ];
-        assert_eq!(catalogue.len(), 47);
+        assert_eq!(catalogue.len(), 48);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }
@@ -2330,5 +2346,9 @@ mod tests {
             "widget.inactive.border.width"
         );
         assert_eq!(ChromeWidthKey::InputCursor.name(), "input.cursor.width");
+        assert_eq!(
+            ChromeWidthKey::OverviewSourceView.name(),
+            "overview.source_view.width"
+        );
     }
 }

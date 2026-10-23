@@ -21,7 +21,7 @@ use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
-    SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, show_source_scene,
+    SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, padded_source, show_source_scene,
     source_panel_frame,
 };
 use super::{Console, DEFAULT_VIEW_SIZE};
@@ -6438,4 +6438,200 @@ async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_cha
         Some(texture),
         "the Overview drew from a second texture"
     );
+}
+
+///
+/// The Source panel's area: the largest rectangle filled with the Grid
+/// background, which `source_panel_frame` paints across it.
+///
+fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
+    shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(rect) if rect.fill == theme.grid_background => Some(rect.rect),
+            _ => None,
+        })
+        .max_by(|a, b| a.area().total_cmp(&b.area()))
+        .expect("the Source panel painted no background")
+}
+
+///
+/// The Source View as the Overview draws it: each stroked rectangle inside the
+/// Overview's picture, which nothing else strokes.
+///
+fn source_view_outlines(shapes: &[Shape], picture: Rect) -> Vec<egui::epaint::RectShape> {
+    shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(rect) if rect.stroke.width > 0.0 && picture.contains_rect(rect.rect) => {
+                Some(rect.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+///
+/// Where the Source View falls on the Overview's `picture` for a console of
+/// `console` points at `pan`, on a window that leaves somewhere to Pan on
+/// both axes. The picture is one square texel per Cell of the Grid and its
+/// margin, so the outline starts as many texels in as the Pan has moved Cells
+/// and spans as many texels as the console holds Cells.
+///
+fn unclipped_outline(pan: Vec2, console: Vec2, cell: Vec2, picture: Rect) -> Rect {
+    let texel = picture.width() / (COL_COUNT as f32 + 2.0 * SOURCE_MARGIN_CELLS);
+    Rect::from_min_size(picture.min + -pan / cell * texel, console / cell * texel)
+}
+
+fn assert_near(actual: Rect, expected: Rect, situation: &str) {
+    let off = (actual.min - expected.min)
+        .length()
+        .max((actual.max - expected.max).length());
+    assert!(
+        off < 1e-3,
+        "{situation}: the outline is at {actual:?}, not {expected:?}"
+    );
+}
+
+///
+/// One pass of an open Overview: the outline it stroked, if any, the picture
+/// and the Source panel's area.
+///
+fn overview_pass(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> (Option<egui::epaint::RectShape>, Rect, Rect) {
+    let (shapes, _) = console_output_at(ctx, screen, events, console, host, 1.0);
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let mut outlines = source_view_outlines(&shapes, picture);
+    assert!(outlines.len() <= 1, "more than one outline: {outlines:?}");
+    (outlines.pop(), picture, source_area(&shapes, &okabe_ito()))
+}
+
+///
+/// The Overview outlines the part of the padded Source the Source View shows,
+/// in the Theme's colour and width, and the outline follows a wheel Pan the
+/// Render Frame it happens: it moves against the Pan by the Pan scaled to the
+/// picture.
+///
+#[tokio::test]
+async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let theme = okabe_ito();
+    console.overview_open = true;
+    let cell = snapped_cell(console.source_view.cell, 1.0);
+
+    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let before = outline.expect("the Overview drew no outline");
+    assert_eq!(before.stroke.color, theme.overview_source_view);
+    assert_eq!(
+        before.stroke.width,
+        theme.overview_source_view_width.points()
+    );
+    let expected = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    assert_near(before.rect, expected, "at rest");
+
+    let wheel = wheel_at(area.center(), Vec2::new(-240.0, -180.0));
+    let (outline, picture, area) = overview_pass(&ctx, screen, wheel, &mut console, &mut host);
+    let after = outline.expect("the Overview drew no outline after a Pan");
+    let pan = console.source_view.pan;
+    assert_ne!(pan, Vec2::ZERO, "the wheel did not Pan");
+    let expected = unclipped_outline(pan, area.size(), cell, picture);
+    assert_near(after.rect, expected, "after a Pan");
+    let scale = picture.size() / padded_source(console.orcvs.grid(), cell);
+    assert_near(
+        after.rect,
+        before.rect.translate(-pan * scale),
+        "against the Pan",
+    );
+}
+
+///
+/// egui's zoom in shrinks the console in points and not the Source, so the
+/// outline shrinks with it, still at the rect the Pan and the console predict.
+///
+#[tokio::test]
+async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let (before, _, _) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let before = before.expect("the Overview drew no outline");
+
+    ctx.set_zoom_factor(2.0);
+    let zoomed_in = Rect::from_min_size(Pos2::ZERO, screen.size() / 2.0);
+    let (after, picture, area) =
+        overview_pass(&ctx, zoomed_in, Vec::new(), &mut console, &mut host);
+    let after = after.expect("the Overview drew no outline zoomed in");
+    let cell = snapped_cell(console.source_view.cell, ctx.pixels_per_point());
+    let expected = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    assert_near(after.rect, expected, "zoomed in");
+    assert!(
+        after.rect.width() < before.rect.width() && after.rect.height() < before.rect.height(),
+        "zooming in did not shrink the outline: {:?} then {:?}",
+        before.rect,
+        after.rect
+    );
+}
+
+///
+/// On an axis the console already shows the whole padded Source on, the
+/// outline is clipped to the picture's edges; on the other it is not.
+///
+#[tokio::test]
+async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
+    let (ctx, mut console, mut host) = fresh_console();
+    // Wide enough for the padded Source's 260 Columns beside the Overview,
+    // and the default height, which shows a few Rows.
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, DEFAULT_VIEW_SIZE[1]));
+    console.overview_open = true;
+    let cell = snapped_cell(console.source_view.cell, 1.0);
+    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    let outline = outline.expect("the Overview drew no outline").rect;
+    let padded = padded_source(console.orcvs.grid(), cell);
+    assert!(
+        area.width() >= padded.x && area.height() < padded.y,
+        "the console {area:?} is not wide and short beside the padded Source {padded:?}"
+    );
+    assert!(
+        (outline.left() - picture.left()).abs() < 1e-3
+            && (outline.right() - picture.right()).abs() < 1e-3,
+        "the outline {outline:?} was not clipped to the picture {picture:?} across"
+    );
+    assert!(
+        outline.height() < picture.height(),
+        "the outline spans the picture down: {outline:?}"
+    );
+    let down = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    assert!(
+        (outline.top() - down.top()).abs() < 1e-3
+            && (outline.bottom() - down.bottom()).abs() < 1e-3,
+        "down, the outline {outline:?} is not the console's Rows at {down:?}"
+    );
+}
+
+///
+/// A console that shows the whole padded Source on both axes has nowhere to
+/// Pan, so the Overview draws no outline over its picture.
+///
+#[tokio::test]
+async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, 6000.0));
+    console.overview_open = true;
+    let cell = snapped_cell(console.source_view.cell, 1.0);
+    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    let padded = padded_source(console.orcvs.grid(), cell);
+    assert!(
+        area.width() >= padded.x && area.height() >= padded.y,
+        "the console {area:?} does not hold the padded Source {padded:?}"
+    );
+    assert!(screen.contains_rect(picture));
+    assert_eq!(outline, None, "an outline was drawn with nowhere to Pan");
 }
