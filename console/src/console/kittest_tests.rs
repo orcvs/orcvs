@@ -83,7 +83,7 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::source_view::SOURCE_MARGIN_CELLS;
+use super::source_view::{SOURCE_MARGIN_CELLS, padded_source};
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
@@ -448,6 +448,301 @@ async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
         cursor(harness.state()),
         before,
         "Tab did not reach the Source"
+    );
+}
+
+///
+/// The Overview's picture as the last Render Frame placed it.
+///
+fn overview_picture(harness: &Harness<'_, Console>) -> egui::Rect {
+    harness.get_by_label("Source overview").rect()
+}
+
+///
+/// The Cell the Source is drawn at right now, snapped as the Source scene
+/// snaps it.
+///
+fn drawn_cell(harness: &Harness<'_, Console>) -> Vec2 {
+    snapped_cell(
+        harness.state().source_view.cell,
+        harness.ctx.pixels_per_point(),
+    )
+}
+
+///
+/// The padded Source's size in points at the Cell the Source is drawn at.
+///
+fn padded_size(harness: &Harness<'_, Console>) -> Vec2 {
+    padded_source(
+        harness.state().orcvs.render_frame().grid(),
+        drawn_cell(harness),
+    )
+}
+
+///
+/// The point of the padded Source — its top-left at the margin's outer edge —
+/// that the console presents at `point`.
+///
+fn padded_at(harness: &Harness<'_, Console>, point: Pos2) -> Vec2 {
+    point - harness.state().source_view.origin + SOURCE_MARGIN_CELLS * drawn_cell(harness)
+}
+
+///
+/// The point of the padded Source shown at the centre of the console area.
+///
+fn source_view_centre(harness: &Harness<'_, Console>) -> Vec2 {
+    padded_at(harness, source_rect(harness).center())
+}
+
+///
+/// The point of the padded Source that `point` on the Overview's picture
+/// stands for.
+///
+fn padded_point(harness: &Harness<'_, Console>, point: Pos2) -> Vec2 {
+    let picture = overview_picture(harness);
+    (point - picture.min) / picture.size() * padded_size(harness)
+}
+
+///
+/// The Source View as the Overview outlines it: the console area in padded
+/// Source points, mapped onto the picture.
+///
+fn source_view_on_overview(harness: &Harness<'_, Console>) -> egui::Rect {
+    let picture = overview_picture(harness);
+    let scale = picture.size() / padded_size(harness);
+    let console = source_rect(harness);
+    let corner = padded_at(harness, console.min);
+    egui::Rect::from_min_size(picture.min + corner * scale, console.size() * scale)
+}
+
+///
+/// Asserts `actual` is within one point of `expected` on both axes.
+///
+fn assert_near(actual: Vec2, expected: Vec2, what: &str) {
+    assert!(
+        (actual - expected).abs().max_elem() <= 1.0,
+        "{what}: {actual:?}, expected {expected:?}"
+    );
+}
+
+///
+/// Queues a primary button press or release at `at`.
+///
+fn primary(harness: &mut Harness<'_, Console>, at: Pos2, pressed: bool) {
+    harness.event(Event::PointerButton {
+        pos: at,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    });
+}
+
+///
+/// A console in the default window with the Overview showing and a Region
+/// of three Cells at the top-left, so a gesture that touched the Region or
+/// the Cursor would show.
+///
+fn console_with_overview_and_region() -> Harness<'static, Console> {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    for _ in 0..2 {
+        harness.event(Event::Key {
+            key: Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::SHIFT,
+        });
+    }
+    harness.run_steps(1);
+    assert!(
+        !harness.state().orcvs.region().is_one_cell(),
+        "Shift with the arrows did not extend the Region"
+    );
+    toggle_overview(&mut harness);
+    harness
+}
+
+///
+/// A press outside the Source View's outline centres the Source View on the
+/// pressed point the next Render Frame, with the button still held. The
+/// Cursor and the Region stay where they were, the Overview takes no focus,
+/// and once released the Source View stays where the press put it rather
+/// than Panning back to the Cursor.
+///
+#[tokio::test]
+async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays() {
+    let mut harness = console_with_overview_and_region();
+    let cursor_before = cursor(harness.state());
+    let region_before = harness.state().orcvs.region();
+
+    let picture = overview_picture(&harness);
+    let outline = source_view_on_overview(&harness);
+    let press = picture.center();
+    assert!(
+        !outline.contains(press),
+        "the press {press:?} lands inside the outline {outline:?}"
+    );
+    harness.event(Event::PointerMoved(press));
+    primary(&mut harness, press, true);
+    harness.step();
+    harness.step();
+    assert_near(
+        source_view_centre(&harness),
+        padded_point(&harness, press),
+        "the press did not centre the Source View on the pressed point",
+    );
+    assert!(
+        !harness.get_by_label("Source overview").is_focused(),
+        "the press focused the Overview"
+    );
+
+    // The same press keeps following the drag, centring on the pointer.
+    let dragged_to = press + Vec2::new(20.0, -15.0);
+    harness.event(Event::PointerMoved(dragged_to));
+    harness.step();
+    harness.step();
+    assert_near(
+        source_view_centre(&harness),
+        padded_point(&harness, dragged_to),
+        "the Source View did not follow the drag after the press",
+    );
+
+    primary(&mut harness, dragged_to, false);
+    harness.step();
+    let panned = harness.state().source_view.pan;
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().source_view.pan,
+        panned,
+        "the Source View moved after the press with no Cursor move"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "the press moved the Cursor"
+    );
+    assert_eq!(
+        harness.state().orcvs.region(),
+        region_before,
+        "the press changed the Region"
+    );
+    assert!(
+        !source_rect(&harness)
+            .contains_rect(presented_source(&harness).cell_rect(cursor_before.0, cursor_before.1)),
+        "the Source View Panned back to the Cursor"
+    );
+}
+
+///
+/// A press inside the outline grabs the Source View where it was pressed: it
+/// does not jump, and a drag carries it with the pointer, scaled from the
+/// picture to the padded Source.
+///
+#[tokio::test]
+async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_without_a_jump() {
+    let mut harness = console_with_overview_and_region();
+    let cursor_before = cursor(harness.state());
+    let region_before = harness.state().orcvs.region();
+
+    let outline = source_view_on_overview(&harness);
+    let press = outline.center() + Vec2::new(outline.width() / 4.0, outline.height() / 4.0);
+    let centre_before = source_view_centre(&harness);
+    harness.event(Event::PointerMoved(press));
+    primary(&mut harness, press, true);
+    harness.step();
+    harness.step();
+    assert_near(
+        source_view_centre(&harness),
+        centre_before,
+        "a press inside the outline moved the Source View",
+    );
+
+    let drag = Vec2::new(30.0, 20.0);
+    harness.event(Event::PointerMoved(press + drag));
+    harness.step();
+    harness.step();
+    let scale = padded_size(&harness) / overview_picture(&harness).size();
+    assert_near(
+        source_view_centre(&harness),
+        centre_before + drag * scale,
+        "the drag did not carry the Source View with the pointer",
+    );
+
+    primary(&mut harness, press + drag, false);
+    harness.run_steps(2);
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "the drag moved the Cursor"
+    );
+    assert_eq!(
+        harness.state().orcvs.region(),
+        region_before,
+        "the drag changed the Region"
+    );
+}
+
+///
+/// A drag past the Grid's far corner stops the Source View at the margin
+/// past it, as every Pan does: the console's far corner rests on the padded
+/// Source's.
+///
+#[tokio::test]
+async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
+    let mut harness = console_with_overview_and_region();
+    let picture = overview_picture(&harness);
+    let press = picture.center();
+    harness.event(Event::PointerMoved(press));
+    primary(&mut harness, press, true);
+    harness.step();
+    let beyond = picture.max + picture.size();
+    harness.event(Event::PointerMoved(beyond));
+    harness.step();
+    harness.step();
+
+    let console = source_rect(&harness);
+    assert_near(
+        padded_at(&harness, console.max),
+        padded_size(&harness),
+        "the Source View did not stop at the margin past the Grid's far corner",
+    );
+    primary(&mut harness, beyond, false);
+    harness.step();
+}
+
+///
+/// The Overview shows a grab hand on hover and a grabbing hand while held.
+///
+#[tokio::test]
+async fn the_overview_shows_a_grab_hand_and_a_grabbing_hand_while_held() {
+    let mut harness = console_with_overview_and_region();
+    let cursor_icon = |harness: &Harness<'_, Console>| harness.output().platform_output.cursor_icon;
+    let over = overview_picture(&harness).center();
+
+    harness.event(Event::PointerMoved(over));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Grab,
+        "hovering the Overview did not offer a grab"
+    );
+
+    primary(&mut harness, over, true);
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Grabbing,
+        "holding the Overview did not show a grabbing hand"
+    );
+
+    primary(&mut harness, over, false);
+    harness.event(Event::PointerMoved(source_rect(&harness).center()));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Default,
+        "the grabbing hand outlived the press"
     );
 }
 

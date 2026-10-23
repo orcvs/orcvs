@@ -75,6 +75,11 @@ pub(super) struct SourceView {
     previous_console: Option<(Vec2, Vec2)>,
     /// Where the Source's own top-left was presented on the last frame.
     pub(super) origin: Pos2,
+    /// The point of the padded Source, in Cells from its top-left, that the
+    /// next Render Frame centres the console on, when one has been asked for.
+    /// Counted in Cells so [`show_source_scene`] measures it with the Cell it
+    /// snaps that Render Frame, and bounds it by the same clamp as every Pan.
+    requested_centre: Option<Pos2>,
 }
 
 impl SourceView {
@@ -87,7 +92,18 @@ impl SourceView {
             region_drag: None,
             previous_console: None,
             origin: Pos2::ZERO,
+            requested_centre: None,
         }
+    }
+
+    ///
+    /// Asks the next Render Frame to Pan the console's centre onto `point`, a
+    /// point of the padded Source in Cells from its top-left. A later request
+    /// before that frame replaces this one. It is a Pan alone, so it moves no
+    /// Cursor and is not pulled back to it.
+    ///
+    pub(super) fn centre_on(&mut self, point: Pos2) {
+        self.requested_centre = Some(point);
     }
 }
 
@@ -428,6 +444,12 @@ pub(super) fn show_source_scene(
         if past != Vec2::ZERO {
             ui.ctx().request_repaint();
         }
+    }
+
+    // A requested centre places the padded Source outright, after any follow
+    // of this frame, so the clamp below bounds it as it bounds every Pan.
+    if let Some(centre) = view.requested_centre.take() {
+        view.pan = console.size() / 2.0 - centre.to_vec2() * cell;
     }
 
     let padded_size = padded_source(source_grid, cell);
