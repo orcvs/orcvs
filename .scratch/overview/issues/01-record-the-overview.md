@@ -4,9 +4,18 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The ADR takes the next number in `docs/adr/`, follows the existing ADR shape (decision, rejected alternatives, consequences), and records each of the four decisions above with its reason.
-- [ ] Rejected alternatives cover: per-Cell Shapes or one Mesh (re-sent every Render Frame), a paint callback (backend-specific), a floating overlay (covers Cells), and caching on the Language Map.
-- [ ] `CONTEXT.md` gains **Overview** with _Avoid_: minimap, map, thumbnail, navigator, viewport, scrollbar; no second term is minted for the outline.
-- [ ] `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
+- [x] The ADR takes the next number in `docs/adr/`, follows the existing ADR shape (decision, rejected alternatives, consequences), and records each of the four decisions above with its reason.
+- [x] Rejected alternatives cover: per-Cell Shapes or one Mesh (re-sent every Render Frame), a paint callback (backend-specific), a floating overlay (covers Cells), and caching on the Language Map.
+- [x] `CONTEXT.md` gains **Overview** with _Avoid_: minimap, map, thumbnail, navigator, viewport, scrollbar; no second term is minted for the outline.
+- [x] `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
+
+## Comments
+
+### Shipped, 2026-10-23
+
+ADR 0080, `docs/adr/0080-the-overview-pans-over-a-cached-picture.md`, records the four decisions and
+the four rejected alternatives. ADR 0045 carries a dated amendment adding the Overview to its Pan
+gestures. `CONTEXT.md` gains **Overview**, and **Pan** names it as a way to Pan. The outline's Theme
+key is spelled when ticket 03 adds it to the schema.
