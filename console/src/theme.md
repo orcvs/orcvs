@@ -145,6 +145,7 @@ reproduces the values on this page:
 | `selection.border` | `#65E6BE` | fixed: Selection stroke (selected text, active widget border) |
 | `selection.border.rest` | `#52C3A3` | fixed: Selection stroke at rest (hovered and open widget border) |
 | `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
+| `overview.source_view` | `#FFFFFF` | decided here: the Source View's outline on the Overview, white so it reads over every Cell colour and is not the Cursor's `#EAEBE5` |
 
 `text.muted`, `link`, `code.background` and `input.cursor` are independent
 Theme properties, not egui's own inherited defaults left unread: their
@@ -164,7 +165,8 @@ The border widths are Theme properties too, in display points: `grid.border.widt
 `input_portal.border.width` and `locked.border.width` 0.5,
 `panel.border.width`, `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0 (which is why that border stays absent at
-its default) and `input.cursor.width` 2. `schema.md`
+its default), `input.cursor.width` 2 and `overview.source_view.width` 1, a
+chrome width. `schema.md`
 lists them with the chrome widths. `cell.selection.border.width` is accepted
 and read by nothing: the Cursor's outline is its Cell's edges, at
 `cursor.border.width`.
@@ -260,6 +262,7 @@ or decided here.
 | `code.background` | `#E6E6E6` | egui's own default light code-span background |
 | `input.cursor` | `#00537D` | egui's own default light text cursor and IME underline |
 | `error`, `warning` | `#90426F` | borrowed from Bang, as in Okabe–Ito |
+| `overview.source_view` | `#000000` | black, mirroring Okabe–Ito's white: it reads over every Cell colour and is not the Cursor's ink |
 
 #### What moved, and what held
 
@@ -305,7 +308,8 @@ Every border width is Okabe–Ito's, recorded rather than inherited:
 `output_portal.border.width`, `input_portal.border.width` and
 `locked.border.width` 0.5, `panel.border.width`,
 `selection.border.width` and `widget.border.width` 1,
-`widget.inactive.border.width` 0, `input.cursor.width` 2.
+`widget.inactive.border.width` 0, `input.cursor.width` 2,
+`overview.source_view.width` 1.
 
 Two rules are restated for light rather than inherited, because each is a rule
 about the dark Theme and does not transfer:

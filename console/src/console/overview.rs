@@ -5,12 +5,16 @@ use std::iter::repeat_n;
 use std::sync::Arc;
 
 use egui::emath::GuiRounding as _;
-use egui::{Color32, ColorImage, Rect, Sense, TextureHandle, TextureOptions};
+use egui::{
+    Color32, ColorImage, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextureHandle,
+    TextureOptions, Vec2,
+};
+use orcvs::grid::Grid;
 use orcvs::render_frame::RenderFrame;
 use orcvs::source::RevisionId;
 
 use super::Console;
-use super::source_view::SOURCE_MARGIN_CELLS;
+use super::source_view::{SOURCE_MARGIN_CELLS, padded_source, pannable};
 use crate::style::{CellColours, CursorPlacement};
 use crate::theme::{Appearance, Theme, ThemeIdentity};
 
@@ -73,10 +77,55 @@ impl Overview {
     }
 }
 
+///
+/// The Overview as shown in one Render Frame, for the Source View to be drawn
+/// on once the Source has been presented under that frame's Pan.
+///
+pub(super) struct ShownOverview {
+    painter: Painter,
+    picture: Rect,
+}
+
+impl ShownOverview {
+    ///
+    /// Outlines the Source View on the picture: `visible`, the part of the
+    /// Source the console shows in its own points, offset by the margin and
+    /// scaled from the padded Source drawn at `cell` to the picture.
+    ///
+    /// Clipped to the picture on an axis the console shows all of, and not
+    /// drawn when it shows all of both, where there is nowhere to Pan. The
+    /// stroke lies inside the outline, so a clipped edge stays on the picture.
+    ///
+    pub(super) fn outline_source_view(&self, visible: Rect, grid: Grid, cell: Vec2, theme: &Theme) {
+        let padded = Rect::from_min_size(Pos2::ZERO, padded_source(grid, cell));
+        if !pannable(visible.size(), padded.size()) {
+            return;
+        }
+        let shown = visible
+            .translate(SOURCE_MARGIN_CELLS * cell)
+            .intersect(padded);
+        let scale = self.picture.size() / padded.size();
+        let outline = Rect::from_min_max(
+            self.picture.min + shown.min.to_vec2() * scale,
+            self.picture.min + shown.max.to_vec2() * scale,
+        );
+        self.painter.rect_stroke(
+            outline,
+            0.0,
+            Stroke::new(
+                theme.overview_source_view_width.points(),
+                theme.overview_source_view,
+            ),
+            StrokeKind::Inside,
+        );
+    }
+}
+
 impl Console {
     ///
-    /// Shows the Overview in a panel docked at the right, when it is open.
-    /// Shown before the Source, so it takes width rather than covering Cells.
+    /// Shows the Overview in a panel docked at the right, when it is open,
+    /// and answers where its picture lies. Shown before the Source, so it
+    /// takes width rather than covering Cells.
     ///
     /// The picture is drawn square, at a whole number of physical pixels per
     /// texel, on whole physical pixels, so every Cell is a crisp block of one
@@ -89,9 +138,9 @@ impl Console {
         revision: RevisionId,
         frame: &RenderFrame,
         appearance: Appearance,
-    ) {
+    ) -> Option<ShownOverview> {
         if !self.overview_open {
-            return;
+            return None;
         }
         let ctx = root.ctx().clone();
         let theme = self.themes.presented(appearance);
@@ -102,7 +151,7 @@ impl Console {
         let pixels_per_texel = pixels_per_point.floor().max(1.0);
         let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
         let panel_frame = egui::Frame::side_top_panel(root.style());
-        egui::Panel::right("overview")
+        let shown = egui::Panel::right("overview")
             .resizable(false)
             .exact_size(side.x + panel_frame.total_margin().sum().x)
             .frame(panel_frame)
@@ -122,7 +171,13 @@ impl Console {
                     Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     Color32::WHITE,
                 );
-            });
+                ShownOverview {
+                    painter: ui.painter_at(rect),
+                    picture: rect,
+                }
+            })
+            .inner;
+        Some(shown)
     }
 }
 
