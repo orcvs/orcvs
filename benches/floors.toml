@@ -169,9 +169,8 @@ source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cl
 
 [[floor]]
 name = "paint_overview/picture/256x256"
-max_ns = 1000000
+max_ns = 2200000
 runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # `draw_picture` over a whole 256 by 256 Render Frame into a reused picture: the
 # walk the Overview makes once per Source revision, every Tick during Playback.
-# A starting figure, not a CI-measured floor.
-source = "Local criterion runs (bench task settings) on an Apple Silicon laptop: 408 us, against 647 us for paint_derive/fitted/256x256 in the same run, which CI measured at 667-980 us. About 2.5 times the local figure, not yet CI-measured."
+source = "CI pull-request run on ubuntu-latest: 1.11 ms (actions run 40041333383). About twice that figure."
