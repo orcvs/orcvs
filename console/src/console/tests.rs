@@ -6267,3 +6267,175 @@ async fn the_panel_repaints_once_playback_publishes_an_installed_destination() {
          Panel still shows the status it painted"
     );
 }
+
+///
+/// One pass of the whole running Console at a device scale, answering the
+/// Shapes it painted and each texture upload it asked the renderer for: the
+/// texture, where a partial update lands, and the size of the image.
+///
+fn console_output_at(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+    pixels_per_point: f32,
+) -> (Vec<Shape>, Vec<TextureUpload>) {
+    use eframe::App as _;
+
+    let mut input = egui::RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..Default::default()
+    };
+    input
+        .viewports
+        .get_mut(&egui::ViewportId::ROOT)
+        .expect("the root viewport")
+        .native_pixels_per_point = Some(pixels_per_point);
+    let mut output = ctx.run_ui(input, |root| console.ui(root, host));
+    let mut painted = Vec::new();
+    for clipped in &output.shapes {
+        flatten(clipped.shape.clone(), &mut painted);
+    }
+    let uploads = output
+        .textures_delta
+        .set
+        .iter()
+        .flat_map(|(id, deltas)| {
+            deltas
+                .iter()
+                .map(|delta| (*id, delta.pos, delta.image.size()))
+        })
+        .collect();
+    output.textures_delta.clear();
+    output.drop_without_applying_deltas();
+    (painted, uploads)
+}
+
+type TextureUpload = (egui::TextureId, Option<[usize; 2]>, [usize; 2]);
+
+///
+/// The Overview's picture as painted: the one Mesh drawn from a texture other
+/// than the font atlas, its texture and the rectangle it covers.
+///
+fn overview_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
+    let images: Vec<_> = shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default() => {
+                Some((mesh.texture_id, mesh.calc_bounds()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        images.len() <= 1,
+        "more than one textured image: {images:?}"
+    );
+    images.first().copied()
+}
+
+///
+/// The Overview's 256 by 256 Grid and its two-Cell margin are 260 texels a
+/// side, drawn square at a whole number of physical pixels per texel on whole
+/// physical pixels: one at 1× and 1.5×, two at 2×.
+///
+#[tokio::test]
+async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel() {
+    for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0)] {
+        let (ctx, mut console, mut host) = fresh_console();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let (shapes, _) = console_output_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut console,
+            &mut host,
+            pixels_per_point,
+        );
+        assert_eq!(
+            overview_image(&shapes),
+            None,
+            "the Overview is shown on start"
+        );
+
+        console.overview_open = true;
+        let (shapes, _) = console_output_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut console,
+            &mut host,
+            pixels_per_point,
+        );
+        let (_, image) = overview_image(&shapes).expect("the Overview drew no image");
+        let physical = image.size() * pixels_per_point;
+        // Within float error of a point that is a fraction of a pixel.
+        let whole = |pixels: Vec2, expected: Vec2| (pixels - expected).length() < 1e-3;
+        assert!(
+            whole(physical, Vec2::splat(260.0 * pixels_per_texel)),
+            "{pixels_per_point}×: the image is {physical:?} physical pixels"
+        );
+        let corner = (image.min * pixels_per_point).to_vec2();
+        assert!(
+            whole(corner, corner.round()),
+            "{pixels_per_point}×: the image's corner {corner:?} is off the pixel grid"
+        );
+        assert!(
+            screen.contains_rect(image),
+            "{pixels_per_point}×: the image {image:?} leaves the window"
+        );
+    }
+}
+
+///
+/// The picture is uploaded when the Overview is first shown and again, as one
+/// whole-image update in place, only when the Source or the appearance
+/// changes; a Render Frame where neither did uploads nothing.
+///
+#[tokio::test]
+async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_changes() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let (shapes, textures) =
+        console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let (texture, _) = overview_image(&shapes).expect("the Overview drew no image");
+    let uploads = |textures: &[TextureUpload]| {
+        textures
+            .iter()
+            .filter(|(id, _, _)| *id == texture)
+            .map(|(_, pos, size)| (*pos, *size))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(uploads(&textures), [(None, [260, 260])], "the first upload");
+
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "an unchanged Render Frame uploaded");
+
+    let typed = vec![Event::Text("a".to_owned())];
+    let (_, textures) = console_output_at(&ctx, screen, typed, &mut console, &mut host, 1.0);
+    assert_eq!(
+        uploads(&textures),
+        [(Some([0, 0]), [260, 260])],
+        "an edit did not update the whole picture in place"
+    );
+
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "the frame after an edit uploaded");
+
+    ctx.set_theme(egui::ThemePreference::Light);
+    let (shapes, textures) =
+        console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(
+        uploads(&textures),
+        [(Some([0, 0]), [260, 260])],
+        "an appearance change did not update the whole picture in place"
+    );
+    assert_eq!(
+        overview_image(&shapes).map(|(id, _)| id),
+        Some(texture),
+        "the Overview drew from a second texture"
+    );
+}

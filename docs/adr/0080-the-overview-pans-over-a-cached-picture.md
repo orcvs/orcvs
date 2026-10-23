@@ -16,7 +16,7 @@ The Source View shows a small part of a 256 by 256 Grid. The Overview is a reduc
 
 ## Rejected alternatives
 
-**Per-Cell Shapes or one Mesh.** egui keeps no tessellation across Render Frames, so 65,536 quads are rebuilt and uploaded every Render Frame, about 6.5 MiB, whether or not the Source changed. A texture uploads 256 KiB only when it did.
+**Per-Cell Shapes or one Mesh.** egui keeps no tessellation across Render Frames, so 65,536 quads are rebuilt and uploaded every Render Frame, about 6.5 MiB, whether or not the Source changed. A texture uploads about 264 KiB, the Grid and its margin, only when it did.
 
 **A paint callback.** It is backend-specific: glow and wgpu each need their own implementation, with `unsafe` GL in shipped code, to reinvent a texture upload.
 
@@ -27,5 +27,5 @@ The Source View shows a small part of a 256 by 256 Grid. The Overview is a reduc
 ## Consequences
 
 - `CONTEXT.md` gains Overview, and Pan names it as a way to Pan.
-- During Playback the picture rebuilds once per Tick: one 65,536-Cell pass and a 256 KiB upload. A console benchmark with a floor measures it; no cost is claimed before it lands.
+- During Playback the picture rebuilds once per Tick: one 65,536-Cell pass and a 264 KiB upload of the Grid and its margin. A console benchmark with a floor measures it; no cost is claimed before it lands.
 - The Overview carries no content and holds no Positions, so `orcvs` gains no API.

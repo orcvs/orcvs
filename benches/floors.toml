@@ -166,3 +166,12 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # the edge Mesh for 130 by 82 Cells. A starting figure, not a CI-measured floor;
 # revisit once the series has points on `gh-pages`.
 source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 1.67 ms at 8x8, 395 us at 16x16. About twice the first, not yet CI-measured."
+
+[[floor]]
+name = "paint_overview/picture/256x256"
+max_ns = 1000000
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# `draw_picture` over a whole 256 by 256 Render Frame into a reused picture: the
+# walk the Overview makes once per Source revision, every Tick during Playback.
+# A starting figure, not a CI-measured floor.
+source = "Local criterion runs (bench task settings) on an Apple Silicon laptop: 408 us, against 647 us for paint_derive/fitted/256x256 in the same run, which CI measured at 667-980 us. About 2.5 times the local figure, not yet CI-measured."
