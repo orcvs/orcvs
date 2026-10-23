@@ -546,13 +546,14 @@ Cell carries around the glyph
 |---|---|
 | Output Portal, Input Portal | Input Portal's border |
 
-Grayscale Light gives every glyph role its own colour.
+In Grayscale Light, Output Portal and Input Portal share their glyph, fill and
+border, so nothing tells the two apart.
 
-Neither clears the 4.5:1 floor in every reachable state
-(`contrast::tests::shipped_theme_gate`). Grayscale Dark's Comment `#555555`
-measures 2.82:1 on black and 1.57:1 on the Region fill. Grayscale Light's
-Input Portal glyph `#DDDDDD` measures 4.23:1 on its `#666666` fill, and its
-Comment `#ADADAD` measures 2.24:1 on white and 1.72:1 on the Region fill.
+Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
+(`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1
+on black and 1.57:1 on the Region fill, and Grayscale Light's `#ADADAD`
+measures 2.24:1 on white and 1.72:1 on the Region fill. Both Portal glyphs in
+Grayscale Light are `#E4E4E4`, which measures 4.52:1 on their `#666666` fill.
 
 ### The Grayscale Dark built-in Theme
 
@@ -614,11 +615,11 @@ property out.
 | `source.number` | `#616161` |
 | `source.note`, `locked.border` | `#333333` |
 | `source.bang` | `#D100D1` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border`, `input_portal.foreground` | `#DDDDDD` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
 | `source.function.background`, `source.function.border` | `#BBBBBB` |
 | `source.bang.border` | `#FF00FF` |
 | `diagnostic.foreground`, `diagnostic.border` | `#C70000` |
-| `output_portal.foreground` | `#E4E4E4` |
+| `output_portal.foreground`, `input_portal.foreground` | `#E4E4E4` |
 | `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#666666` |
 | `grid.border` | `#0000001A` |
 | `sector.seam` | `#00000033` |
@@ -770,8 +771,9 @@ display label. When a selection is missing, malformed, conflicted or of the
 wrong appearance, a Theme notice in the top bar names the Theme, the setting
 and the file problem, and the appearance's built-in is shown in its place; the
 settings file is never rewritten, so repairing the Theme file presents it on
-the next launch. The notices also name any loaded Theme with a text state below
-the contrast floor; such a Theme still loads and can be selected.
+the next launch. The notices also name any loaded Theme with a text state that
+fails the contrast floor, which a Comment does not; such a Theme still loads
+and can be selected.
 
 ## Source colours
 
@@ -886,7 +888,8 @@ Each result reports its role, its state (a `CursorPlacement` of `plain`,
 `Cursor`, `Region` or `Region, Cursor's Cell`, crossed with the Portal roles
 the Cell plays: none, Input Portal, Output Portal, or both), the effective foreground and
 background, the measured ratio against the 4.5:1 floor, and whether it is an
-accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
+accepted exception. Every role but Comment is held to the floor: a Comment
+state below it is reported and does not fail (`ContrastResult::fails`). The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"), and the returned
 `ContrastReport` carries it too; the scope is stated once, in the module's
 `# Scope` section. `validate` measures text contrast only: never Token-colour

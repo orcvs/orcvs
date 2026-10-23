@@ -81,6 +81,8 @@ is not an exhaustive claim: newly discovered failures still require review.
 
 ## Amendment, 2026-10-01: no shipped Theme carries a contrast exception
 
+*Narrowed on 2026-10-23 by the amendment below: Comment is not held to the floor.*
+
 The Sequence accepted exception and the "Known dark failures awaiting acceptance"
 table above are superseded. Every shipped Theme clears the 4.5:1 floor in every
 reachable painted text state, and both built-ins' accepted-exception lists are
@@ -212,6 +214,29 @@ Function's spelling. Both built-ins leave `source.bang.background`
 transparent, so a Bang a Producer writes into its Output Portal draws as a Bang
 anywhere else on the Grid does. The contrast and colour-vision gates read the
 same composition, so they measure the Bang there on the plain Cell.
+
+## Amendment, 2026-10-23: Comment is not held to the contrast floor
+
+Every role but Comment is held to the 4.5:1 floor. Comment is still measured in
+every reachable state and reported, but a Comment state below the floor does not
+fail: `contrast::Role::held_to_floor` answers `false` for it, and
+`contrast::ContrastResult::fails` is what both `shipped_theme_gate` and the
+custom-Theme notice read.
+
+- **A faint Comment is the point of the role.** A Theme marks a Comment as
+  text that is never evaluated by drawing it fainter than the code around it.
+  At the floor, a Comment draws as strongly as an operand, and the Theme loses
+  the contrast that sets it apart. The grayscale defaults draw Comment at
+  `#555555` on black and `#ADADAD` on white.
+- **The exemption is by role, not by Theme or colour pair.** Per-Theme accepted
+  exceptions stay retired: the rule holds for every Theme, shipped or loaded,
+  and needs no entry when a Comment colour is retuned.
+- **Not a lower floor.** A 3:1 floor for Comment would not keep the defaults'
+  Comments, which measure 1.57:1 to 2.82:1, and a floor low enough to keep them
+  would guard nothing.
+
+WCAG 2.1 SC 1.4.3 does not exempt de-emphasised text, so Comment text in a
+Theme that uses this latitude does not meet it.
 
 ## Rejected alternatives
 

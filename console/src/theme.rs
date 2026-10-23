@@ -849,7 +849,7 @@ pub fn grayscale_light() -> Theme {
         output_portal_foreground: straight_rgba(0xE4_E4_E4_FF),
         output_portal_background: straight_rgba(0x66_66_66_FF),
         output_portal_border: straight_rgba(0x66_66_66_FF),
-        input_portal_foreground: straight_rgba(0xDD_DD_DD_FF),
+        input_portal_foreground: straight_rgba(0xE4_E4_E4_FF),
         input_portal_background: straight_rgba(0x66_66_66_FF),
         input_portal_border: straight_rgba(0x66_66_66_FF),
         locked_foreground: straight_rgba(0x00_00_00_00),

@@ -226,7 +226,7 @@ mod document {
 
         ///
         /// Adds a loaded Theme, with a notice when the contrast validator finds
-        /// a state below the floor. A contrast failure never refuses the Theme.
+        /// a state that fails the floor. A contrast failure never refuses the Theme.
         ///
         pub(super) fn add(&mut self, theme: Theme) {
             if let Some(message) = contrast_notice(&theme) {
@@ -238,15 +238,15 @@ mod document {
     }
 
     ///
-    /// The contrast report on `theme`, as a notice naming every state below the
-    /// floor, or `None` when every state clears it.
+    /// The contrast report on `theme`, as a notice naming every state that
+    /// fails the floor, or `None` when none does.
     ///
     fn contrast_notice(theme: &Theme) -> Option<String> {
         let report = contrast::validate(theme);
         let failing: Vec<String> = report
             .results
             .iter()
-            .filter(|result| !result.passes() && !result.accepted)
+            .filter(|result| result.fails())
             .map(|result| format!("{} ({}) {:.2}:1", result.role, result.state, result.ratio))
             .collect();
         (!failing.is_empty()).then(|| {
