@@ -11,7 +11,7 @@ use egui::{
     StrokeKind, TextureHandle, TextureOptions, Vec2,
 };
 use orcvs::grid::Grid;
-use orcvs::render_frame::RenderFrame;
+use orcvs::render_frame::{RenderCell, RenderFrame};
 use orcvs::source::RevisionId;
 
 use super::Console;
@@ -267,7 +267,8 @@ impl Console {
 /// texel. A Region of one Cell is the Cursor's Cell and gets no mark of its
 /// own. The Cursor keeps its border inside a spanning Region, where the
 /// Source shows only the Region's, so the Overview always shows where the
-/// Cursor is.
+/// Cursor is. The Cursor's Cell is the texel the picture would draw for it
+/// at the Cursor's placement, so its fill is the one the Source gives it.
 ///
 fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame, theme: &Theme) {
     let texel = picture.size() / padded_source(frame.grid(), Vec2::splat(1.0));
@@ -281,25 +282,34 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
             corner(columns.end, rows.end),
         )
     };
+    // An inside stroke half a texel wide covers a one-texel mark entirely, so
+    // a border keeps to a quarter texel and leaves the middle half to the fill.
+    let border =
+        |width: f32, colour: Color32| Stroke::new(width.min(texel.min_elem() / 4.0), colour);
     let region = frame.region();
-    let cursor_fill = if region.is_one_cell() {
-        theme.cursor_background
+    let placement = if region.is_one_cell() {
+        CursorPlacement::Cursor
     } else {
         painter.rect(
             cells(region.columns(), region.rows()),
             0.0,
             theme.region_background,
-            Stroke::new(theme.region_border_width.points(), theme.region_border),
+            border(theme.region_border_width.points(), theme.region_border),
             StrokeKind::Inside,
         );
-        theme.region_cursor_fill()
+        CursorPlacement::RegionCursor
     };
     let cursor = frame.cursor();
     painter.rect(
         cells(cursor.x()..cursor.x() + 1, cursor.y()..cursor.y() + 1),
         0.0,
-        cursor_fill.unwrap_or(Color32::TRANSPARENT),
-        Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+        cell_texel(
+            &mut CellColours::new(theme),
+            frame.at(cursor),
+            placement,
+            theme.grid_background,
+        ),
+        border(theme.cursor_border_width.points(), theme.cursor_border),
         StrokeKind::Inside,
     );
 }
@@ -331,22 +341,33 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
     pixels.extend(repeat_n(background, MARGIN * width));
     for row in frame.cells().chunks(grid.columns()) {
         pixels.extend(repeat_n(background, MARGIN));
-        pixels.extend(row.iter().map(|cell| {
-            let visuals = colours.colours(
-                cell.source_paint(),
-                cell.portal_roles(),
-                CursorPlacement::Plain,
-            );
-            let colour = if cell.content().is_some() {
-                visuals.foreground
-            } else {
-                visuals.background.unwrap_or(Color32::TRANSPARENT)
-            };
-            background.blend(colour)
-        }));
+        pixels.extend(
+            row.iter()
+                .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain, background)),
+        );
         pixels.extend(repeat_n(background, MARGIN));
     }
     pixels.extend(repeat_n(background, MARGIN * width));
+}
+
+///
+/// The texel for `cell` at `placement`: its colours' foreground where it is
+/// occupied, otherwise its background where it has one, otherwise
+/// `background`, composited over `background` as the Source draws it.
+///
+fn cell_texel(
+    colours: &mut CellColours<'_>,
+    cell: &RenderCell,
+    placement: CursorPlacement,
+    background: Color32,
+) -> Color32 {
+    let visuals = colours.colours(cell.source_paint(), cell.portal_roles(), placement);
+    let colour = if cell.content().is_some() {
+        visuals.foreground
+    } else {
+        visuals.background.unwrap_or(Color32::TRANSPARENT)
+    };
+    background.blend(colour)
 }
 
 #[cfg(test)]
