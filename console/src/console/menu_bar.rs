@@ -205,6 +205,7 @@ impl Console {
                         ui.separator();
                     }
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
+                    ui.checkbox(&mut self.overview_open, "Overview");
                 });
                 ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("Help", |ui| {

@@ -3,7 +3,8 @@
 //! `Console::ui` composes each Render Frame from the modules that own its
 //! parts, in this order: `input` keeps Tab for the Source and routes the
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
-//! native, guards the close; `panel` shows the bottom Panel; `source_view`
+//! native, guards the close; `panel` shows the bottom Panel; `overview`
+//! docks the Overview at the right when it is open; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays out;
 //! `repaint` schedules the next timed Render Frame; `diagnostics_panel` fills
 //! the Panel's Diagnostics readouts; `files` asks its discard question and
@@ -15,6 +16,7 @@ mod files;
 mod glyphs;
 mod input;
 mod menu_bar;
+pub(crate) mod overview;
 mod panel;
 mod repaint;
 pub(crate) mod shapes;
@@ -23,6 +25,7 @@ mod source_view;
 use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
+use self::overview::Overview;
 use self::panel::BOTTOM_PANEL_HEIGHT;
 #[cfg(test)]
 use self::panel::BPM_FIELD_ID;
@@ -77,6 +80,9 @@ pub struct Console {
     source_view: SourceView,
     diagnostics_open: bool,
     diagnostics_timing: TimingReadouts,
+    /// Whether the View menu shows the Overview. Off on start and not saved.
+    overview_open: bool,
+    overview: Overview,
     /// The BPM field's widget id, so a later pass can find the rectangle it
     /// occupied and so focus is the same id the field is shown under.
     #[cfg(test)]
@@ -216,6 +222,8 @@ impl Console {
             source_view: SourceView::new(config.cell),
             diagnostics_open: true,
             diagnostics_timing: TimingReadouts::default(),
+            overview_open: false,
+            overview: Overview::default(),
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
@@ -349,6 +357,9 @@ impl eframe::App for Console {
         }
         #[cfg(not(target_arch = "wasm32"))]
         self.guard_close(&ctx);
+        // Read before the Render Frame, so the Overview's picture can never
+        // be marked with a revision newer than the Cells it was drawn from.
+        let revision = self.orcvs.source().revision();
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
         let sampled_run_clock = observation.run_clock();
@@ -360,6 +371,7 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
+        self.show_overview(root, revision, &frame, appearance);
         let source = self.show_source_panel(root, &frame, appearance);
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));

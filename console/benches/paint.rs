@@ -18,12 +18,18 @@
 //! window shows of the largest Grid, at a Cell size each: the per-Cell cost a
 //! Cell size moves.
 //!
+//! `draw_picture` draws the Overview's picture, one texel per Cell, from a
+//! whole Render Frame: the cost the Overview pays once per Source revision,
+//! which during Playback is every Tick.
+//!
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
 use console::{
     FramePaint, Paint, VisiblePositions,
-    source_shapes::{DEFAULT_SOURCE_AREA, SourceShapes, presented_grid, visible_positions},
+    source_shapes::{
+        DEFAULT_SOURCE_AREA, SourceShapes, draw_picture, presented_grid, visible_positions,
+    },
     theme::{Theme, okabe_ito},
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -455,5 +461,31 @@ fn shapes(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, derive_paint, background_runs, shapes);
+///
+/// Measures `draw_picture` over the largest Grid, into one picture redrawn in
+/// place as the Overview redraws its own, so the number is the per-Cell walk
+/// and not an allocation.
+///
+fn overview_picture(c: &mut Criterion) {
+    let mut group = c.benchmark_group("paint_overview");
+    let theme = bench_theme();
+    let (cols, rows, frame) = frames().last().expect("a benchmark frame");
+    let mut picture = egui::ColorImage::default();
+
+    group.bench_function(size("picture", *cols, *rows), |b| {
+        b.iter(|| {
+            draw_picture(black_box(frame), black_box(&theme), black_box(&mut picture));
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    derive_paint,
+    background_runs,
+    shapes,
+    overview_picture
+);
 criterion_main!(benches);
