@@ -465,10 +465,9 @@ simulated copy of the wide capture per dichromacy.
 
 Input Portal marks a Cell a Function reads. It is a Theme role with the same
 channels as Output Portal (`input_portal.foreground`, `.background`, `.border`
-and `.border.width`) and the same precedence: it paints over every other
-non-Function fact, Diagnostic included; a bound Function keeps all its own
-paint, and so does a Bang; the Cursor
-and Region keep their precedence over it. Where a Cell plays both roles, Output
+and `.border.width`) and the same precedence: it paints over every fact but a
+Function and a Bang, Diagnostic included; a bound Function and a Bang keep all
+their own paint; the Cursor and Region keep their precedence over it. Where a Cell plays both roles, Output
 Portal's channels paint it and Input Portal's do not, so a Cell a Function both
 reads and writes shows the write.
 
