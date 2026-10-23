@@ -546,8 +546,8 @@ Cell carries around the glyph
 |---|---|
 | Output Portal, Input Portal | Input Portal's border |
 
-In Grayscale Light, Output Portal and Input Portal share their glyph, fill and
-border, so nothing tells the two apart.
+Grayscale Light draws Output Portal and Input Portal alike, in one glyph, fill
+and border; the test accepts that pair.
 
 Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
 (`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1

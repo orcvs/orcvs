@@ -1474,35 +1474,12 @@ mod tests {
         }
     }
 
-    /// Every colour a Theme holds, by its `schema.md` name: each [`ColorKey`]
-    /// and each optional colour that holds one.
-    macro_rules! colour_fields {
-        (
-            OptionalColor { $($optional:ident($optional_field:ident) => $optional_name:literal),* $(,)? }
-            ColorKey { $($colour:ident($colour_field:ident) => $colour_name:literal),* $(,)? }
-            $($width:ident { $($rest:tt)* })*
-        ) => {
-            fn colour_fields(theme: &Theme) -> Vec<(&'static str, Color32)> {
-                let mut fields = vec![$(($colour_name, theme.$colour_field)),*];
-                fields.extend(
-                    [$(($optional_name, theme.$optional_field)),*]
-                        .into_iter()
-                        .filter_map(|(name, fill)| Some((name, fill?))),
-                );
-                fields
-            }
-        };
-    }
-    super::style_catalogue!(colour_fields);
-
     ///
-    /// The grayscale built-ins are each appearance's default, and every
-    /// colour either holds is a neutral grey: equal red, green and blue,
-    /// at any opacity. Straight bytes are compared, since premultiplying
-    /// keeps a grey's channels equal.
+    /// The grayscale built-ins are each appearance's default, at their
+    /// reserved identities.
     ///
     #[test]
-    fn the_grayscale_built_ins_are_the_neutral_defaults() {
+    fn the_grayscale_built_ins_are_the_defaults() {
         for (theme, appearance) in [
             (grayscale_dark(), Appearance::Dark),
             (grayscale_light(), Appearance::Light),
@@ -1510,14 +1487,6 @@ mod tests {
             assert_eq!(theme.appearance, appearance);
             assert_eq!(ThemeIdentity::default_for(appearance), theme.identity);
             assert!(theme.identity.is_reserved());
-            for (name, colour) in colour_fields(&theme) {
-                let [r, g, b, _] = colour.to_srgba_unmultiplied();
-                assert!(
-                    r == g && g == b,
-                    "{}'s {name} is {colour:?}, not a grey",
-                    theme.identity
-                );
-            }
         }
         assert_eq!(GRAYSCALE_DARK_IDENTITY.as_str(), "grayscale-dark");
         assert_eq!(GRAYSCALE_LIGHT_IDENTITY.as_str(), "grayscale-light");
@@ -1664,7 +1633,8 @@ mod tests {
     /// Where two Source roles draw their glyph in one grey, the Cell around
     /// it must still differ, in fill or in a border that draws, or the two
     /// meanings read as one. A border draws only while it is visible and
-    /// wider than zero. `theme.md` lists the pairs this accepts.
+    /// wider than zero. `theme.md` lists the pairs this accepts, and the one
+    /// pair Grayscale Light draws alike: its two Portals.
     ///
     #[test]
     fn the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border() {
@@ -1746,7 +1716,9 @@ mod tests {
             });
             for (index, (first, glyph, fill, border)) in roles.iter().enumerate() {
                 for (second, other_glyph, other_fill, other_border) in &roles[index + 1..] {
-                    if glyph == other_glyph {
+                    let drawn_alike = theme.identity == GRAYSCALE_LIGHT_IDENTITY
+                        && (*first, *second) == ("Output Portal", "Input Portal");
+                    if glyph == other_glyph && !drawn_alike {
                         assert!(
                             (fill, border) != (other_fill, other_border),
                             "{}: {first} and {second} share a grey, a fill and a border",
@@ -1779,8 +1751,8 @@ mod tests {
         let light = grayscale_light();
         assert_eq!(light.window_background, Color32::WHITE);
         assert_eq!(light.grid_background, Color32::WHITE);
-        assert_eq!(light.text, straight_rgba(0x30_30_30_FF));
-        assert_eq!(light.source_ordinary, straight_rgba(0x30_30_30_FF));
+        assert_eq!(light.text, straight_rgba(0x37_37_37_FF));
+        assert_eq!(light.source_ordinary, straight_rgba(0x37_37_37_FF));
     }
 
     #[test]

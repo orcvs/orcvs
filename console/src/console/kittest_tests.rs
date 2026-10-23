@@ -3234,10 +3234,26 @@ fn painted_on(
 /// A console whose Source holds `rows` from Grid column 8, row 4, after the
 /// Tick at zero has committed, so its last frame paints that Tick's record.
 ///
+/// It presents Okabe–Ito for dark, whose Portal and Locked fills differ from
+/// each other and from the Grid background, so the fill under a Cell names
+/// the role it paints. A Theme may share those fills.
+///
 fn ticked_console(rows: &[&str]) -> Harness<'static, Console> {
     use orcvs::source::Tick;
 
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    let config = crate::config::Config {
+        theme_selection: crate::theme_selection::ThemeSelection::new(
+            crate::theme::OKABE_ITO_IDENTITY,
+            crate::theme::ThemeIdentity::default_for(Appearance::Light),
+        ),
+        ..crate::config::Config::default()
+    };
+    let mut harness = console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        None,
+        ThemeRegistry::built_in(),
+        config,
+    );
     harness.run_steps(2);
     let source = harness.state().orcvs.source().clone();
     let grid = source.grid();
