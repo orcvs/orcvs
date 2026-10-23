@@ -200,19 +200,20 @@ impl Console {
     ///
     /// Shows the Overview pinned to the window's bottom-right corner, when it
     /// is open, and answers where its picture lies. It floats over the Source
-    /// and the bottom panel with no frame or margin, so it takes no width
-    /// from the Source.
+    /// and the bottom panel, so it takes no width from the Source, with no
+    /// margin: the bottom panel's border along the two edges that face the
+    /// rest of the console, and the picture filling the rest.
     ///
     /// The picture is drawn square, at a whole number of physical pixels per
     /// texel, on whole physical pixels, so every Cell is a crisp block of one
     /// size: the largest number up to the whole pixels per point that fits
-    /// in half the window's width and the height below the menu bar, and
-    /// none at all, answering `None`, where one pixel per texel does not. It
-    /// is not clipped to fit: a press maps to a Pan only across the whole
-    /// picture. Like every egui Area it is drawn from its second pass, the
-    /// first only measuring it, and it does not fade in. It senses a drag and nothing else: sensing focus would put it
-    /// in the Tab order, where a focused widget keeps every key from the
-    /// Source.
+    /// with its border in half the window's width and the height below the
+    /// menu bar, and none at all, answering `None`, where one pixel per texel
+    /// does not. It is not clipped to fit: a press maps to a Pan only across
+    /// the whole picture. Like every egui Area it is drawn from its second
+    /// pass, the first only measuring it, and it does not fade in. It senses
+    /// a drag and nothing else: sensing focus would put it in the Tab order,
+    /// where a focused widget keeps every key from the Source.
     ///
     pub(super) fn show_overview(
         &mut self,
@@ -231,7 +232,10 @@ impl Console {
             window.x_range(),
             root.available_rect_before_wrap().top()..=window.bottom(),
         );
-        let room = below_menu.size() * Vec2::new(0.5, 1.0) * pixels_per_point
+        // The stroke egui's panel separator draws on the bottom panel.
+        let border = root.visuals().widgets.noninteractive.bg_stroke;
+        let room = (below_menu.size() * Vec2::new(0.5, 1.0) - Vec2::splat(border.width))
+            * pixels_per_point
             / padded_source(frame.grid(), Vec2::splat(1.0));
         let pixels_per_texel = pixels_per_point
             .floor()
@@ -246,17 +250,25 @@ impl Console {
             .texture(&ctx, revision, frame, theme, appearance);
         let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
         let rect = Rect::from_min_size((window.max - side).round_to_pixels(pixels_per_point), side);
+        let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
         let shown = egui::Area::new(egui::Id::new("overview"))
-            .fixed_pos(rect.min)
+            .fixed_pos(bordered.min)
             .movable(false)
             .fade_in(false)
-            // Sized as the picture from the first pass and never moved to
-            // fit the window, so the layer is the picture's rect and takes
-            // no pointer from the Source around it.
-            .default_size(side)
+            // Sized as the bordered picture from the first pass and never
+            // moved to fit the window, so the layer is that rect and takes no
+            // pointer from the Source around it.
+            .default_size(bordered.size())
             .constrain(false)
             .sense(Sense::hover())
             .show(&ctx, |ui| {
+                // Each line just outside the picture, as the separator lies
+                // just outside the bottom panel's frame.
+                let inset = border.width / 2.0;
+                ui.painter()
+                    .hline(bordered.x_range(), rect.top() - inset, border);
+                ui.painter()
+                    .vline(rect.left() - inset, bordered.y_range(), border);
                 let response = ui.allocate_rect(rect, Sense::DRAG);
                 response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source overview")

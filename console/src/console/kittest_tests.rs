@@ -370,15 +370,26 @@ async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_me
         (overview.max - window).length() < 1e-3,
         "the Overview {overview:?} is not in the window's corner {window:?}"
     );
-    // The Overview's layer is the picture and no more, so the Source and the
-    // bottom panel beside it still take the pointer.
+    // The Overview's layer is the picture and its border and no more, so the
+    // Source and the bottom panel beside it still take the pointer.
+    let border = harness
+        .ctx
+        .global_style()
+        .visuals
+        .widgets
+        .noninteractive
+        .bg_stroke
+        .width;
     let area = harness
         .ctx
         .memory(|memory| memory.area_rect(egui::Id::new("overview")));
     assert_eq!(
         area,
-        Some(overview),
-        "the Overview's layer is not its picture"
+        Some(egui::Rect::from_min_max(
+            overview.min - Vec2::splat(border),
+            overview.max
+        )),
+        "the Overview's layer is not its bordered picture"
     );
     let with = source_rect(&harness);
     assert!(

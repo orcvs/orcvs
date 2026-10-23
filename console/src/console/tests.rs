@@ -6381,6 +6381,56 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
 }
 
 ///
+/// The Overview is bordered as the bottom panel is: the Theme's panel border,
+/// the stroke egui's panel separator reads, along the two edges that face the
+/// rest of the console, just outside the picture, which stays in the window's
+/// corner.
+///
+#[tokio::test]
+async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    // An egui Area is drawn from its second pass; the first measures it.
+    let mut shapes = Vec::new();
+    for _ in 0..2 {
+        (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    }
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    assert_eq!(
+        picture.max, screen.max,
+        "the picture left the window's corner"
+    );
+
+    let theme = okabe_ito();
+    let width = theme.panel_border_width.points();
+    let stroke = egui::Stroke::new(width, theme.panel_border);
+    assert_eq!(
+        ctx.global_style().visuals.widgets.noninteractive.bg_stroke,
+        stroke,
+        "the panel separator is not the Theme's panel border"
+    );
+    let corner = picture.min - Vec2::splat(width);
+    let top = [
+        Pos2::new(corner.x, picture.top() - width / 2.0),
+        Pos2::new(picture.right(), picture.top() - width / 2.0),
+    ];
+    let left = [
+        Pos2::new(picture.left() - width / 2.0, corner.y),
+        Pos2::new(picture.left() - width / 2.0, picture.bottom()),
+    ];
+    for (edge, points) in [("top", top), ("left", left)] {
+        assert!(
+            shapes.iter().any(|shape| matches!(
+                shape,
+                Shape::LineSegment { points: drawn, stroke: drawn_stroke }
+                    if *drawn == points && *drawn_stroke == stroke
+            )),
+            "no {edge} border {points:?} in {stroke:?}"
+        );
+    }
+}
+
+///
 /// A window too small for the picture at its usual size gets it at the
 /// largest whole number of physical pixels per texel that fits, in half the
 /// window's width and the height below the menu bar, and no Overview
