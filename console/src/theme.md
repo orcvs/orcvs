@@ -465,10 +465,9 @@ simulated copy of the wide capture per dichromacy.
 
 Input Portal marks a Cell a Function reads. It is a Theme role with the same
 channels as Output Portal (`input_portal.foreground`, `.background`, `.border`
-and `.border.width`) and the same precedence: it paints over every other
-non-Function fact, Diagnostic included; a bound Function keeps all its own
-paint; a Bang keeps its glyph and takes the Input Portal background; the Cursor
-and Region keep their precedence over it. Where a Cell plays both roles, Output
+and `.border.width`) and the same precedence: it paints over every fact but a
+Function and a Bang, Diagnostic included; a bound Function and a Bang keep all
+their own paint; the Cursor and Region keep their precedence over it. Where a Cell plays both roles, Output
 Portal's channels paint it and Input Portal's do not, so a Cell a Function both
 reads and writes shows the write.
 
@@ -642,9 +641,9 @@ that written value apart from the Expression that produced it. Such a Cell
 draws in the Output Portal colour on `output_portal.background`
 instead of whatever its Source Paint fact alone would answer; an empty Output
 Portal Cell shows the same background with no glyph. The one named exception is a
-Bang answer: it keeps its own Bang glyph colour, because a Bang is what a
-Producer emits rather than a value it writes, but still takes the Output
-Portal's background in place of Bang's usual transparent one.
+Bang answer: it keeps all its own paint, because a Bang is what a Producer
+emits rather than a value it writes, so under both built-ins it draws as a Bang
+anywhere else does.
 
 **Precedence where an Output Portal covers another Expression's claimed
 Cells** — a consumer's operand, or another root, per `05`'s Overlap rule that
@@ -784,7 +783,6 @@ Portal-over-role figures, read from `contrast::validate`:
 | Any Invalid operand, Cursor or Region's Cursor Cell | `#D55E00` | `#000000` | 5.43:1 |
 | Output Portal over Number, Valid or Invalid | `#E69F00` | `#1F2016` | 7.30:1 |
 | Output Portal over Note, Valid or Invalid | `#E69F00` | `#2D2506` | 6.76:1 |
-| Bang, Output Portal | `#CC79A7` | `#171000` | 6.18:1 |
 | Output Portal, Cursor or Region's Cursor Cell | `#E69F00` | `#000000` | 9.32:1 |
 | Input Portal over Ordinary or Comment | `#AC77FA` | `#120C19` | 6.20:1 |
 | Input Portal over Number, Valid or Invalid | `#AC77FA` | `#1A1C2F` | 5.41:1 |

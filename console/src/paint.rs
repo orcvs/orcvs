@@ -2331,17 +2331,14 @@ mod tests {
         }
 
         ///
-        /// A Bang answer keeps the Bang glyph colour rather than the Output
-        /// Portal colour, but takes the Output Portal tint in place of
-        /// Bang's usual bare `None`: `**` left south of `~*0401` (Delay)
-        /// reads as a genuine bound Bang claim (`RenderFrame`'s own
-        /// `a_standalone_bang_is_one_bound_bang_claim`), and the tint is what
-        /// tells it apart from an ordinary Bang elsewhere on the Grid — the
-        /// second `**`, on the row below, sits outside any Reservation and
-        /// stays untinted.
+        /// A Bang answer keeps all its own paint inside an Output Portal:
+        /// `**` left south of `~*0401` (Delay) reads as a genuine bound Bang
+        /// claim (`RenderFrame`'s own `a_standalone_bang_is_one_bound_bang_claim`)
+        /// and paints as the second `**`, on the row below, which sits
+        /// outside any Reservation.
         ///
         #[tokio::test]
-        async fn a_bang_answer_keeps_its_glyph_colour_but_takes_the_output_portal_tint() {
+        async fn a_bang_answer_keeps_its_own_paint_inside_the_output_portal() {
             let mut orcvs = running_orcvs(6, 3);
             write_row(&mut orcvs, 0, "~*0401");
             write_row(&mut orcvs, 1, "**");
@@ -2351,7 +2348,6 @@ mod tests {
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
             let theme = okabe_ito();
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2365,7 +2361,7 @@ mod tests {
                 );
                 let portal_painted = paint.at(portal_position);
                 assert_eq!(portal_painted.foreground, theme.source_bang, "column {x}");
-                assert_eq!(portal_painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(portal_painted.background, None, "column {x}");
 
                 let ordinary_position = grid.position(x, 2).expect("inside the grid");
                 assert!(
@@ -2377,10 +2373,7 @@ mod tests {
                 );
                 let ordinary_painted = paint.at(ordinary_position);
                 assert_eq!(ordinary_painted.foreground, theme.source_bang, "column {x}");
-                assert_eq!(
-                    ordinary_painted.background, None,
-                    "an ordinary Bang outside a Reservation is untinted, column {x}"
-                );
+                assert_eq!(ordinary_painted.background, None, "column {x}");
             }
         }
 

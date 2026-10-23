@@ -236,7 +236,7 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// `.scratch/theming/schema.md`'s composition step 4, "Border channels use
 /// the same fact priority and compose over the ordinary Grid border": the
 /// painting Portal over Diagnostic over the plain Grid border, with a bound
-/// Function bypassed exactly as it is there.
+/// Function and a Bang bypassed exactly as they are there.
 ///
 /// Colour composites with [`blend_channel`], equivalent to the pinned [`Color32::blend`] operation
 /// every other channel in this module uses, so the transparent Okabe–Ito
@@ -323,21 +323,22 @@ fn painting_portal(portal_roles: PortalRoles) -> Option<PortalRole> {
 /// carrying `paint`, which [`painting_portal`] answered `portal` for.
 ///
 /// A bound Function keeps all its own paint inside a Portal, so a reader
-/// can find the Function standing on a Cell. Locked paints it all the same,
-/// because a lock marks nothing but a Function's own spelling, a Bang
-/// Function's among them.
+/// can find the Function standing on a Cell, and a Bang keeps all of its,
+/// because a Bang is what a Producer emits rather than a value it writes.
+/// Locked paints both all the same, because a lock marks nothing but a
+/// Function's own spelling, a Bang Function's among them.
 ///
 fn fill_overlay(paint: SourcePaint, portal: Option<PortalRole>) -> Option<PortalRole> {
-    portal.filter(|role| *role == PortalRole::Locked || paint != SourcePaint::Function)
+    portal.filter(|role| {
+        *role == PortalRole::Locked || !matches!(paint, SourcePaint::Function | SourcePaint::Bang)
+    })
 }
 
 ///
 /// The role whose foreground shows over the glyph of a Cell carrying `paint`,
 /// which [`painting_portal`] answered `portal` for, or `None` where the
-/// fact's own foreground shows alone: [`fill_overlay`]'s answer, except that
-/// a Bang keeps its glyph colour inside a Portal, because a Bang is what a
-/// Producer emits rather than a value it writes, and except where that
-/// role's foreground is transparent, which composites to the fact's own.
+/// fact's own foreground shows alone: [`fill_overlay`]'s answer, except where
+/// that role's foreground is transparent, which composites to the fact's own.
 ///
 fn glyph_overlay(
     paint: SourcePaint,
@@ -345,7 +346,6 @@ fn glyph_overlay(
     theme: &Theme,
 ) -> Option<PortalRole> {
     fill_overlay(paint, portal)
-        .filter(|role| *role == PortalRole::Locked || paint != SourcePaint::Bang)
         .filter(|role| PortalChannels::of(*role, theme).foreground != Color32::TRANSPARENT)
 }
 
@@ -464,8 +464,8 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 /// | Function | `source.function` | `source.function.background` |
 /// | Operand, Pending/Valid | declared Token colour | declared Token background |
 /// | Operand, Invalid | Token colour ▸ `diagnostic.foreground` | Token background ▸ `diagnostic.background` |
-/// | any non-Function, Portal | above ▸ Portal foreground | above ▸ Portal background |
-/// | Bang, Portal | `source.bang` (no blend) | `source.bang.background` ▸ Portal background |
+/// | any other fact, Portal | above ▸ Portal foreground | above ▸ Portal background |
+/// | Bang, Portal | `source.bang` (bypassed) | `source.bang.background` (bypassed) |
 /// | Function, Portal | `source.function` (bypassed) | `source.function.background` (bypassed) |
 /// | any fact, Locked | above ▸ `locked.foreground` | above ▸ `locked.background` |
 ///
@@ -495,8 +495,9 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 /// the Cells a lock marks are always the two Cells of the Function of the
 /// Expression root it withheld, a Bang Function's among them: a bypass for
 /// either would leave a lock nothing to paint. Where a read or a write also
-/// covers those Cells, the Portal answers instead, and a Function keeps its
-/// own paint inside it, so neither the Portal nor the lock shows there.
+/// covers those Cells, the Portal answers instead, and a Function or a Bang
+/// keeps its own paint inside it, so neither the Portal nor the lock shows
+/// there.
 ///
 /// The Portal is read first, because the Cell it names is a Portal Cell
 /// whatever else claims it — a written answer, an empty Cell still waiting for
@@ -510,12 +511,9 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 /// output) and still lets a reader find the Function that stands on a Cell:
 /// distinguishing a root's own spelling from a nested one would need the
 /// Expression itself, which this decision does not have and does not need.
-/// A Bang is the one further exception among non-Function claims: it
-/// keeps its own Bang glyph colour rather than blending with the
-/// Portal foreground, because a Bang is what a Producer emits rather than a
-/// value it writes, but its background still takes the Portal's own
-/// channel in place of Bang's usual transparent one — so a Bang still
-/// reads as a Portal Cell.
+/// A Bang is the one further exception: it keeps all its own paint inside a
+/// Portal, as a Function does, because a Bang is what a Producer emits
+/// rather than a value it writes.
 ///
 /// # Otherwise, from the Source Paint fact
 ///
@@ -2203,26 +2201,6 @@ mod tests {
     }
 
     ///
-    /// A Bang answer keeps its own Bang glyph colour inside an Output Portal
-    /// but takes the Output Portal's background; `source_paint_visuals`
-    /// states why.
-    ///
-    #[test]
-    fn output_portal_keeps_the_bang_glyph_colour_but_takes_its_own_tint() {
-        let theme = okabe_ito();
-
-        let ordinary_bang = painted(SourcePaint::Bang, false, &theme);
-        let portal_bang = painted(SourcePaint::Bang, true, &theme);
-
-        assert_eq!(
-            ordinary_bang.background, None,
-            "Bang is untinted ordinarily"
-        );
-        assert_eq!(portal_bang.foreground, theme.source_bang);
-        assert_eq!(portal_bang.background, Some(theme.output_portal_background));
-    }
-
-    ///
     /// A Cell that is a bound Function's own two-Cell spelling keeps its
     /// Function paint outright when `output_portal` is also true, root or
     /// nested; `source_paint_visuals` states why.
@@ -2439,7 +2417,7 @@ mod tests {
     // === Input Portal, and Output Portal over it ===
 
     ///
-    /// Input Portal takes precedence over every non-Function, non-Bang fact,
+    /// Input Portal takes precedence over every fact but a Function and a Bang,
     /// Diagnostic included: each draws the Input Portal foreground over its
     /// own, on its own raw role background with the Input Portal background
     /// composited on top — the same rule Output Portal follows
@@ -2490,17 +2468,25 @@ mod tests {
     }
 
     ///
-    /// A Bang keeps its own glyph colour inside an Input Portal and takes the
-    /// Input Portal's background, as it does inside an Output Portal.
+    /// A Bang keeps all its own paint whichever Portal it stands in, borders
+    /// included, as a bound Function does.
     ///
     #[test]
-    fn input_portal_keeps_the_bang_glyph_colour_but_takes_its_own_tint() {
-        let theme = okabe_ito();
+    fn a_bang_keeps_its_own_paint_inside_every_portal_role() {
+        let theme = Theme {
+            output_portal_border: Color32::from_rgb(30, 30, 200),
+            input_portal_border: Color32::from_rgb(200, 30, 200),
+            ..okabe_ito()
+        };
+        let ordinary = painted_in(SourcePaint::Bang, PortalRoles::NONE, &theme);
 
-        let bang = painted_in(SourcePaint::Bang, INPUT, &theme);
-
-        assert_eq!(bang.foreground, theme.source_bang);
-        assert_eq!(bang.background, Some(theme.input_portal_background));
+        for roles in [INPUT, OUTPUT, BOTH] {
+            assert_eq!(
+                painted_in(SourcePaint::Bang, roles, &theme),
+                ordinary,
+                "{roles:?} changed a Bang's own paint"
+            );
+        }
     }
 
     ///
@@ -2886,8 +2872,8 @@ mod tests {
     /// itself.
     ///
     /// Every role, every Operand binding state Diagnostic distinguishes,
-    /// Output Portal over Unclaimed/a Valid operand/Bang (keeps its own
-    /// glyph)/a bound Function (bypassed outright), and the Cursor's own
+    /// Output Portal over Unclaimed/a Valid operand/a Bang and a bound
+    /// Function (both bypassed outright), and the Cursor's own
     /// fill winning over a role's tint, an Invalid operand's Diagnostic
     /// glyph, and the Cursor's Cell keeping its fact's border.
     ///
@@ -2944,7 +2930,7 @@ mod tests {
                 fact: SourcePaint::Bang,
                 output_portal: true,
                 selected: false,
-                background: Some([23, 16, 0, 26]),
+                background: None,
                 border: [8, 16, 14, 72],
                 foreground: [204, 121, 167, 255],
             },
