@@ -6,15 +6,15 @@ use std::sync::Arc;
 
 use egui::emath::GuiRounding as _;
 use egui::{
-    Color32, ColorImage, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextureHandle,
-    TextureOptions, Vec2,
+    Color32, ColorImage, CursorIcon, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
+    StrokeKind, TextureHandle, TextureOptions, Vec2,
 };
 use orcvs::grid::Grid;
 use orcvs::render_frame::RenderFrame;
 use orcvs::source::RevisionId;
 
 use super::Console;
-use super::source_view::{SOURCE_MARGIN_CELLS, padded_source, pannable};
+use super::source_view::{SOURCE_MARGIN_CELLS, SourceView, padded_source, pannable};
 use crate::style::{CellColours, CursorPlacement};
 use crate::theme::{Appearance, Theme, ThemeIdentity};
 
@@ -37,6 +37,11 @@ pub(super) struct Overview {
     texture: Option<TextureHandle>,
     /// The Source revision, Theme and appearance `picture` was drawn from.
     drawn_from: Option<(RevisionId, ThemeIdentity, Appearance)>,
+    /// From the pointer to the point the Source View is centred on, in Cells,
+    /// fixed when the press began: zero for a press outside the outline, so
+    /// the Source View centres on the pointer, and the offset to the outline's
+    /// centre for one inside it, so the Source View does not jump.
+    grab: Vec2,
 }
 
 impl Overview {
@@ -84,6 +89,7 @@ impl Overview {
 pub(super) struct ShownOverview {
     painter: Painter,
     picture: Rect,
+    response: Response,
 }
 
 impl ShownOverview {
@@ -97,14 +103,12 @@ impl ShownOverview {
     /// stroke lies inside the outline, so a clipped edge stays on the picture.
     ///
     pub(super) fn outline_source_view(&self, visible: Rect, grid: Grid, cell: Vec2, theme: &Theme) {
-        let padded = Rect::from_min_size(Pos2::ZERO, padded_source(grid, cell));
-        if !pannable(visible.size(), padded.size()) {
+        let padded = padded_source(grid, cell);
+        if !pannable(visible.size(), padded) {
             return;
         }
-        let shown = visible
-            .translate(SOURCE_MARGIN_CELLS * cell)
-            .intersect(padded);
-        let scale = self.picture.size() / padded.size();
+        let shown = outline(visible, grid, cell);
+        let scale = self.picture.size() / padded;
         let outline = Rect::from_min_max(
             self.picture.min + shown.min.to_vec2() * scale,
             self.picture.min + shown.max.to_vec2() * scale,
@@ -119,6 +123,69 @@ impl ShownOverview {
             StrokeKind::Inside,
         );
     }
+}
+
+impl Overview {
+    ///
+    /// Pans the Source View to follow a press or drag on `shown`: on the press
+    /// frame the grab is fixed from where the press landed against `visible`,
+    /// the part of the Source the console shows in its own points at `cell`,
+    /// and each Render Frame the button is held asks `view` to centre on the
+    /// pointer plus that grab. The Source View applies it on the next Render
+    /// Frame, inside the bounds of every Pan.
+    ///
+    /// Nothing happens where the console shows all of the padded Source, as
+    /// the Source View offers no Pan there either. It never selects, so the
+    /// Cursor and the Region stay where they were.
+    ///
+    pub(super) fn pan_source_view(
+        &mut self,
+        shown: &ShownOverview,
+        visible: Rect,
+        grid: Grid,
+        cell: Vec2,
+        view: &mut SourceView,
+    ) {
+        if !pannable(visible.size(), padded_source(grid, cell)) {
+            return;
+        }
+        let response = &shown.response;
+        if let Some(pointer) = response.interact_pointer_pos()
+            && response.dragged_by(PointerButton::Primary)
+        {
+            let padded = padded_source(grid, Vec2::splat(1.0));
+            let at = (pointer - shown.picture.min) * padded / shown.picture.size();
+            if response.drag_started_by(PointerButton::Primary) {
+                let outlined = outline(visible, grid, cell);
+                let in_cells = Rect::from_min_max(
+                    (outlined.min.to_vec2() / cell).to_pos2(),
+                    (outlined.max.to_vec2() / cell).to_pos2(),
+                );
+                let at = at.to_pos2();
+                self.grab = if in_cells.contains(at) {
+                    in_cells.center() - at
+                } else {
+                    Vec2::ZERO
+                };
+            }
+            view.centre_on((at + self.grab).to_pos2());
+            response.ctx.set_cursor_icon(CursorIcon::Grabbing);
+            response.ctx.request_repaint();
+        } else if response.hovered() {
+            response.ctx.set_cursor_icon(CursorIcon::Grab);
+        }
+    }
+}
+
+///
+/// The Source View as the Overview outlines it, in points of the padded Source
+/// drawn at `cell`: `visible`, the part of the Source the console shows in its
+/// own points, offset by the margin and clipped to the padded Source.
+///
+fn outline(visible: Rect, grid: Grid, cell: Vec2) -> Rect {
+    visible
+        .translate(SOURCE_MARGIN_CELLS * cell)
+        .intersect(Rect::from_min_size(Pos2::ZERO, padded_source(grid, cell)))
 }
 
 impl Console {
@@ -174,6 +241,7 @@ impl Console {
                 ShownOverview {
                     painter: ui.painter_at(rect),
                     picture: rect,
+                    response,
                 }
             })
             .inner;

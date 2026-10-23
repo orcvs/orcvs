@@ -5,8 +5,8 @@
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `overview`
 //! docks the Overview at the right when it is open, and outlines the Source
-//! View on it once `source_view` has presented the Source, which `shapes`
-//! draws in the Glyphs `glyphs` lays out; `repaint` schedules the next timed
+//! View on it and Pans it from a press once `source_view` has presented the
+//! Source, which `shapes` draws in the Glyphs `glyphs` lays out; `repaint` schedules the next timed
 //! Render Frame; `diagnostics_panel` fills the Panel's
 //! Diagnostics readouts; `files` asks its discard question and
 //! titles the window; `input` latches the keyboard owner; and a View menu appearance
@@ -377,11 +377,19 @@ impl eframe::App for Console {
         let overview = self.show_overview(root, revision, &frame, appearance);
         let source = self.show_source_panel(root, &frame, appearance);
         if let Some(overview) = overview {
+            let visible = visible_source_region(source.console, self.source_view.origin);
             overview.outline_source_view(
-                visible_source_region(source.console, self.source_view.origin),
+                visible,
                 frame.grid(),
                 source.cell_size,
                 self.themes.presented(appearance),
+            );
+            self.overview.pan_source_view(
+                &overview,
+                visible,
+                frame.grid(),
+                source.cell_size,
+                &mut self.source_view,
             );
         }
 
