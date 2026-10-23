@@ -34,7 +34,8 @@ use serde::Deserialize;
 
 use crate::theme::{
     Appearance, ChromeWidth, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, GridWidth,
-    OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity, style_catalogue,
+    MY_GRAYSCALE_DARK_IDENTITY, MY_GRAYSCALE_LIGHT_IDENTITY, OKABE_ITO_IDENTITY,
+    ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity, style_catalogue,
 };
 
 /// `schema.md`'s per-document byte limit, checked before any decoding.
@@ -207,6 +208,8 @@ impl ThemeIdentity {
         [
             GRAYSCALE_DARK_IDENTITY,
             GRAYSCALE_LIGHT_IDENTITY,
+            MY_GRAYSCALE_DARK_IDENTITY,
+            MY_GRAYSCALE_LIGHT_IDENTITY,
             OKABE_ITO_IDENTITY,
             ORCVS_LIGHT_IDENTITY,
         ]

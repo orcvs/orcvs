@@ -25,7 +25,8 @@
 use std::collections::BTreeMap;
 
 use crate::theme::{
-    Appearance, Theme, ThemeIdentity, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
+    Appearance, Theme, ThemeIdentity, grayscale_dark, grayscale_light, my_grayscale_dark,
+    my_grayscale_light, okabe_ito, orcvs_light,
 };
 
 ///
@@ -59,7 +60,7 @@ impl std::fmt::Display for Unavailable {
 /// is shown about them.
 ///
 pub(crate) struct ThemeRegistry {
-    built_ins: [Theme; 4],
+    built_ins: [Theme; 6],
     /// Resolved custom Themes by identity (filename stem).
     custom: BTreeMap<ThemeIdentity, Theme>,
     /// Identities a document claimed but that could not be loaded, with the
@@ -80,6 +81,8 @@ impl ThemeRegistry {
             built_ins: [
                 grayscale_dark(),
                 grayscale_light(),
+                my_grayscale_dark(),
+                my_grayscale_light(),
                 okabe_ito(),
                 orcvs_light(),
             ],

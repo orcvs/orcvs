@@ -531,60 +531,187 @@ already at it on their own tints.
 
 ### The grayscale built-in Themes
 
-`grayscale-dark` and `grayscale-light` are the minimal built-ins and each
-appearance's default and fallback. Every colour in both is a neutral grey:
-equal red, green and blue at any opacity
-(`theme::tests::the_grayscale_built_ins_are_the_neutral_defaults`).
-Grayscale Dark sets light grey text and Cells on black, never pure white;
-Grayscale Light sets dark grey text and Cells on white. Widths are Okabe–Ito's.
-`theme::tests::the_grayscale_built_ins_define_every_key_at_this_table` reads
-the table below and fails when it and the code disagree, or when it leaves a
-colour out.
+`grayscale-dark` and `grayscale-light` are each appearance's default and
+fallback. Both tell Source roles apart by grey level and by filled and
+bordered Number, Note, Function and Bang Cells, and keep hue for the two roles
+that must stand out: Grayscale Dark draws Bang in green and the Diagnostic
+glyph in red, and Grayscale Light draws Bang in magenta and frames a
+Diagnostic in red. Both fill the Region with an opaque grey.
 
-| Property | Grayscale Dark | Grayscale Light |
-|---|---|---|
-| `window.background`, `panel.background`, `grid.background`, `input.background` | `#000000` | `#FFFFFF` |
-| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.number.background`, `source.bang.background`, `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border`, `diagnostic.background`, `locked.foreground` | `#00000000` | `#00000000` |
-| `source.ordinary`, `text` | `#C8C8C8` | `#303030` |
-| `source.comment` | `#8A8A8A` | `#616161` |
-| `source.number`, `source.note`, `input_portal.foreground` | `#A8A8A8` | `#505050` |
-| `source.function`, `source.bang`, `diagnostic.foreground`, `output_portal.foreground` | `#E6E6E6` | `#141414` |
-| `source.note.background`, `input_portal.background` | `#FFFFFF14` | `#0000000F` |
-| `source.function.background`, `output_portal.background` | `#FFFFFF1F` | `#0000001A` |
-| `diagnostic.border` | `#C8C8C8` | `#303030` |
-| `output_portal.border`, `input_portal.border` | `#FFFFFF66` | `#00000066` |
-| `locked.background` | `#000000CC` | `#FFFFFFCC` |
-| `locked.border` | `#C8C8C880` | `#30303080` |
-| `grid.border` | `#FFFFFF1A` | `#0000001A` |
-| `sector.seam` | `#FFFFFF33` | `#00000033` |
-| `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` | `#141414` |
-| `region.background` | `#FFFFFF1F` | `#0000001A` |
-| `cursor.background`, `cursor.foreground`, `region.cursor.background`, `region.cursor.foreground` | none | none |
-| `panel.border`, `widget.inactive.border` | `#2A2A2A` | `#D6D6D6` |
-| `code.background` | `#2A2A2A` | `#EBEBEB` |
-| `selection.background` | `#333333` | `#E0E0E0` |
-| `selection.border.rest` | `#A8A8A8` | `#505050` |
-| `text.muted` | `#C8C8C899` | `#303030BF` |
-
-Both clear the 4.5:1 floor in every reachable state with no accepted
-exception (`contrast::tests::shipped_theme_gate`). The lowest is Comment
-under the Region wash: 4.77:1 in Grayscale Dark and 4.92:1 in Grayscale
-Light. They tell Source roles apart by three grey levels, two fill
-strengths and a border rather than by hue, so some glyph channels share a grey
-by design, and the red–green colour-vision gate does not apply to them: a
-dichromacy leaves a neutral grey where it is
-(`contrast::colour_vision::tests::the_grayscale_built_ins_look_alike_to_every_reader`).
-The accepted pairs, each told apart by what the Cell carries around the glyph
+Two glyph roles share a grey in Grayscale Dark, each told apart by what the
+Cell carries around the glyph
 (`theme::tests::the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border`):
 
 | Shared glyph grey | Told apart by |
 |---|---|
-| Number, Note, Input Portal | Note's fill; Input Portal's fill and border |
-| Function, Bang, Diagnostic, Output Portal | Function's fill; Diagnostic's border; Output Portal's fill and border |
+| Output Portal, Input Portal | Input Portal's border |
 
-The weakest is a fill alone: Note's wash (8% dark, 6% light) against
-Number's none, and Function's (12% dark, 10% light) against Bang's none. A reader who needs every role in its own
-colour selects `okabe-ito` or `orcvs-light`.
+Grayscale Light gives every glyph role its own colour.
+
+Neither clears the 4.5:1 floor in every reachable state
+(`contrast::tests::shipped_theme_gate`). Grayscale Dark's Comment `#555555`
+measures 2.82:1 on black and 1.57:1 on the Region fill. Grayscale Light's
+Input Portal glyph `#DDDDDD` measures 4.23:1 on its `#666666` fill, and its
+Comment `#ADADAD` measures 2.24:1 on white and 1.72:1 on the Region fill.
+
+### The Grayscale Dark built-in Theme
+
+`grayscale-dark` sets light grey text and Cells on black, never pure white.
+Both Portals fill their Cells light grey under a dark glyph. The Cursor draws
+every glyph in `#E6E6E6`.
+`theme::tests::grayscale_dark_defines_every_key_at_this_table` reads the
+table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | Grayscale Dark |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `cursor.foreground`, `source.function`, `cursor.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` |
+| `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
+| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background` | `#000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
+| `source.comment` | `#555555` |
+| `source.number` | `#898989` |
+| `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
+| `source.bang`, `source.bang.border` | `#00FF00` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
+| `source.function.background`, `source.function.border` | `#444444` |
+| `source.bang.background` | `#111111` |
+| `diagnostic.foreground` | `#FF3B3B` |
+| `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
+| `grid.border` | `#FFFFFF1A` |
+| `sector.seam` | `#FFFFFF33` |
+| `region.border` | `#DDDDDD` |
+| `region.background` | `#383838` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#2A2A2A` |
+| `selection.border.rest` | `#A8A8A8` |
+| `text.muted` | `#C8C8C899` |
+| `grid.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+
+### The Grayscale Light built-in Theme
+
+`grayscale-light` sets dark grey text and Cells on white. Both Portals draw a
+light glyph on a `#666666` fill, and a Diagnostic draws its red glyph and
+border on a white fill.
+`theme::tests::grayscale_light_defines_every_key_at_this_table` reads the
+table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | Grayscale Light |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `cursor.foreground`, `source.function`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#191919` |
+| `region.cursor.background`, `selection.background` | `#CCCCCC` |
+| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `diagnostic.background`, `locked.background`, `input.background` | `#FFFFFF` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `text` | `#373737` |
+| `source.comment` | `#ADADAD` |
+| `source.number` | `#616161` |
+| `source.note`, `locked.border` | `#333333` |
+| `source.bang` | `#D100D1` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border`, `input_portal.foreground` | `#DDDDDD` |
+| `source.function.background`, `source.function.border` | `#BBBBBB` |
+| `source.bang.border` | `#FF00FF` |
+| `diagnostic.foreground`, `diagnostic.border` | `#C70000` |
+| `output_portal.foreground` | `#E4E4E4` |
+| `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#666666` |
+| `grid.border` | `#0000001A` |
+| `sector.seam` | `#00000033` |
+| `region.background` | `#E1E1E1` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#D5D5D5` |
+| `selection.border.rest` | `#575757` |
+| `text.muted` | `#373737AF` |
+| `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+
+### The My Grayscale Dark built-in Theme
+
+`my-grayscale-dark` is [Grayscale Dark](#the-grayscale-dark-built-in-theme)
+with a lighter Comment, a translucent Region fill, a brighter Region border
+and a thinner Cell selection border. The Cursor draws every glyph in `#E6E6E6`: its Cell drops the Portal's
+light fill, and no grey clears 4.5:1 against both that fill and the black
+beneath it. `theme::tests::my_grayscale_dark_defines_every_key_at_this_table` reads
+the table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | My Grayscale Dark |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
+| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background` | `#000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
+| `source.comment` | `#AFAFAF` |
+| `source.number` | `#898989` |
+| `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
+| `source.function`, `cursor.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` |
+| `source.bang`, `source.bang.border` | `#00FF00` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
+| `source.function.background`, `source.function.border` | `#444444` |
+| `source.bang.background` | `#111111` |
+| `diagnostic.foreground` | `#FF3B3B` |
+| `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
+| `grid.border` | `#FFFFFF1A` |
+| `sector.seam` | `#FFFFFF33` |
+| `region.background` | `#CCCCCC54` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#2A2A2A` |
+| `selection.border.rest` | `#A8A8A8` |
+| `text.muted` | `#C8C8C899` |
+| `grid.border.width`, `cell.selection.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+
+### The My Grayscale Light built-in Theme
+
+`my-grayscale-light` is
+[My Grayscale Dark](#the-my-grayscale-dark-built-in-theme) inverted onto white:
+each grey is mirrored, then darkened only as far as the 4.5:1 floor needs.
+It carries two magentas. Both Portals fill their Cells `#FF00FF` under a
+`#191919` glyph, since white measures 3.1:1 there, and the Bang and both
+Portals draw their borders in it. A Bang's glyph sits on a white fill, where
+`#FF00FF` measures 3.1:1 too, so it draws in `#D100D1`, the brightest magenta
+that clears 4.5:1 against white.
+`theme::tests::my_grayscale_light_defines_every_key_at_this_table` reads the
+table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | My Grayscale Light |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `cursor.foreground`, `source.function`, `output_portal.foreground`, `input_portal.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#191919` |
+| `region.cursor.background`, `selection.background` | `#CCCCCC` |
+| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `locked.background`, `input.background` | `#FFFFFF` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `diagnostic.border`, `text` | `#373737` |
+| `source.comment` | `#4C4C4C` |
+| `source.number` | `#616161` |
+| `source.note`, `locked.border` | `#333333` |
+| `source.bang` | `#D100D1` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
+| `source.function.background`, `source.function.border` | `#BBBBBB` |
+| `source.bang.border`, `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#FF00FF` |
+| `diagnostic.foreground` | `#C70000` |
+| `grid.border` | `#0000001A` |
+| `sector.seam` | `#00000033` |
+| `region.background` | `#E1E1E1` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#D5D5D5` |
+| `selection.border.rest` | `#575757` |
+| `text.muted` | `#373737AF` |
+| `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `diagnostic.border.width`, `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
 
 ### Shipped Themes
 
@@ -592,6 +719,8 @@ colour selects `okabe-ito` or `orcvs-light`.
 |---|---|---|
 | `grayscale-dark` | dark | Built in and the dark default; sets every named property at the values above. |
 | `grayscale-light` | light | Built in and the light default; sets every named property at the values above. |
+| `my-grayscale-dark` | dark | Built in; sets every named property at the values above. |
+| `my-grayscale-light` | light | Built in; sets every named property at the values above. |
 | `okabe-ito` | dark | Built in; sets every named property at the values above. |
 | `orcvs-light` | light | Built in; sets every named property at the values above. |
 

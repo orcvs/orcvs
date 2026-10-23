@@ -692,13 +692,13 @@ pub fn orcvs_light() -> Theme {
 pub(crate) const GRAYSCALE_DARK_IDENTITY: ThemeIdentity = ThemeIdentity::reserved("grayscale-dark");
 
 ///
-/// The Grayscale Dark built-in Theme: a minimal neutral palette on black, at
-/// the reserved identity `GRAYSCALE_DARK_IDENTITY`. Every colour is a grey
-/// (equal red, green and blue), and text and Cells are light greys rather
-/// than white. Source roles are told apart by lightness and by translucent
-/// grey fills alone, so the glyph roles are not all pairwise distinct: the
-/// hue-separated roles are [`okabe_ito`]'s to carry, which stays selectable.
-/// Every field is spelled out explicitly for the reason [`okabe_ito`]'s is.
+/// The Grayscale Dark built-in Theme: light grey text and Cells on black, at
+/// the reserved identity `GRAYSCALE_DARK_IDENTITY`. Source roles are told
+/// apart by grey level and by filled and bordered Number, Note, Function and
+/// Bang Cells; hue marks only a green Bang and a red Diagnostic glyph. Both
+/// Portals fill their Cells light grey under a dark glyph, and the Region
+/// fills opaque. Every field is spelled out explicitly for the reason
+/// [`okabe_ito`]'s is.
 ///
 /// This is the dark Theme selection's default and fallback
 /// (`crate::theme_selection`). `console/src/theme.md` records its values.
@@ -715,42 +715,42 @@ pub fn grayscale_dark() -> Theme {
         cell_background: straight_rgba(0x00_00_00_00),
 
         source_ordinary: straight_rgba(0xC8_C8_C8_FF),
-        source_comment: straight_rgba(0x8A_8A_8A_FF),
-        source_number: straight_rgba(0xA8_A8_A8_FF),
-        source_note: straight_rgba(0xA8_A8_A8_FF),
+        source_comment: straight_rgba(0x55_55_55_FF),
+        source_number: straight_rgba(0x89_89_89_FF),
+        source_note: straight_rgba(0xCC_CC_CC_FF),
         source_function: straight_rgba(0xE6_E6_E6_FF),
-        source_bang: straight_rgba(0xE6_E6_E6_FF),
+        source_bang: straight_rgba(0x00_FF_00_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
-        source_number_background: straight_rgba(0x00_00_00_00),
-        source_note_background: straight_rgba(0xFF_FF_FF_14),
-        source_function_background: straight_rgba(0xFF_FF_FF_1F),
-        source_bang_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0x22_22_22_FF),
+        source_note_background: straight_rgba(0x22_22_22_FF),
+        source_function_background: straight_rgba(0x44_44_44_FF),
+        source_bang_background: straight_rgba(0x11_11_11_FF),
         source_ordinary_border: straight_rgba(0x00_00_00_00),
         source_comment_border: straight_rgba(0x00_00_00_00),
-        source_number_border: straight_rgba(0x00_00_00_00),
-        source_note_border: straight_rgba(0x00_00_00_00),
-        source_function_border: straight_rgba(0x00_00_00_00),
-        source_bang_border: straight_rgba(0x00_00_00_00),
+        source_number_border: straight_rgba(0x22_22_22_FF),
+        source_note_border: straight_rgba(0x22_22_22_FF),
+        source_function_border: straight_rgba(0x44_44_44_FF),
+        source_bang_border: straight_rgba(0x00_FF_00_FF),
 
-        diagnostic_foreground: straight_rgba(0xE6_E6_E6_FF),
+        diagnostic_foreground: straight_rgba(0xFF_3B_3B_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
         diagnostic_border: straight_rgba(0xC8_C8_C8_FF),
-        output_portal_foreground: straight_rgba(0xE6_E6_E6_FF),
-        output_portal_background: straight_rgba(0xFF_FF_FF_1F),
+        output_portal_foreground: straight_rgba(0x33_33_33_FF),
+        output_portal_background: straight_rgba(0xCC_CC_CC_FF),
         output_portal_border: straight_rgba(0xFF_FF_FF_66),
-        input_portal_foreground: straight_rgba(0xA8_A8_A8_FF),
-        input_portal_background: straight_rgba(0xFF_FF_FF_14),
+        input_portal_foreground: straight_rgba(0x33_33_33_FF),
+        input_portal_background: straight_rgba(0xCC_CC_CC_FF),
         input_portal_border: straight_rgba(0xFF_FF_FF_66),
         locked_foreground: straight_rgba(0x00_00_00_00),
-        locked_background: straight_rgba(0x00_00_00_CC),
-        locked_border: straight_rgba(0xC8_C8_C8_80),
+        locked_background: straight_rgba(0x00_00_00_FF),
+        locked_border: straight_rgba(0xCC_CC_CC_FF),
 
         grid_border: straight_rgba(0xFF_FF_FF_1A),
         sector_seam: straight_rgba(0xFF_FF_FF_33),
         cursor_border: straight_rgba(0xE6_E6_E6_FF),
-        region_border: straight_rgba(0xE6_E6_E6_FF),
-        region_background: straight_rgba(0xFF_FF_FF_1F),
+        region_border: straight_rgba(0xDD_DD_DD_FF),
+        region_background: straight_rgba(0x38_38_38_FF),
 
         panel_border: straight_rgba(0x2A_2A_2A_FF),
         selection_background: straight_rgba(0x33_33_33_FF),
@@ -769,24 +769,24 @@ pub fn grayscale_dark() -> Theme {
         warning: straight_rgba(0xE6_E6_E6_FF),
 
         cursor_background: None,
-        cursor_foreground: None,
-        region_cursor_background: None,
+        cursor_foreground: Some(straight_rgba(0xE6_E6_E6_FF)),
+        region_cursor_background: Some(straight_rgba(0x33_33_33_FF)),
         region_cursor_foreground: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
-        cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        cell_selection_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
-        diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_ordinary_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         source_comment_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        source_number_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        source_note_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        source_function_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_number_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_bang_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -803,10 +803,12 @@ pub(crate) const GRAYSCALE_LIGHT_IDENTITY: ThemeIdentity =
     ThemeIdentity::reserved("grayscale-light");
 
 ///
-/// The Grayscale Light built-in Theme: [`grayscale_dark`]'s minimal neutral
-/// palette inverted onto white, at the reserved identity
-/// `GRAYSCALE_LIGHT_IDENTITY`, with dark grey text and Cells. Every field is
-/// spelled out explicitly for the reason [`okabe_ito`]'s is.
+/// The Grayscale Light built-in Theme: dark grey text and Cells on white, at
+/// the reserved identity `GRAYSCALE_LIGHT_IDENTITY`, with [`grayscale_dark`]'s
+/// filled and bordered Source roles. Hue marks only a magenta Bang and a red,
+/// red-framed Diagnostic. Both Portals draw a light glyph on a mid-grey fill,
+/// and the Region fills opaque. Every field is spelled out explicitly for the
+/// reason [`okabe_ito`]'s is.
 ///
 /// This is the light Theme selection's default and fallback
 /// (`crate::theme_selection`). `console/src/theme.md` records its values.
@@ -822,63 +824,63 @@ pub fn grayscale_light() -> Theme {
         grid_background: straight_rgba(0xFF_FF_FF_FF),
         cell_background: straight_rgba(0x00_00_00_00),
 
-        source_ordinary: straight_rgba(0x30_30_30_FF),
-        source_comment: straight_rgba(0x61_61_61_FF),
-        source_number: straight_rgba(0x50_50_50_FF),
-        source_note: straight_rgba(0x50_50_50_FF),
-        source_function: straight_rgba(0x14_14_14_FF),
-        source_bang: straight_rgba(0x14_14_14_FF),
+        source_ordinary: straight_rgba(0x37_37_37_FF),
+        source_comment: straight_rgba(0xAD_AD_AD_FF),
+        source_number: straight_rgba(0x61_61_61_FF),
+        source_note: straight_rgba(0x33_33_33_FF),
+        source_function: straight_rgba(0x19_19_19_FF),
+        source_bang: straight_rgba(0xD1_00_D1_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
-        source_number_background: straight_rgba(0x00_00_00_00),
-        source_note_background: straight_rgba(0x00_00_00_0F),
-        source_function_background: straight_rgba(0x00_00_00_1A),
-        source_bang_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0xDD_DD_DD_FF),
+        source_note_background: straight_rgba(0xDD_DD_DD_FF),
+        source_function_background: straight_rgba(0xBB_BB_BB_FF),
+        source_bang_background: straight_rgba(0xFF_FF_FF_FF),
         source_ordinary_border: straight_rgba(0x00_00_00_00),
         source_comment_border: straight_rgba(0x00_00_00_00),
-        source_number_border: straight_rgba(0x00_00_00_00),
-        source_note_border: straight_rgba(0x00_00_00_00),
-        source_function_border: straight_rgba(0x00_00_00_00),
-        source_bang_border: straight_rgba(0x00_00_00_00),
+        source_number_border: straight_rgba(0xDD_DD_DD_FF),
+        source_note_border: straight_rgba(0xDD_DD_DD_FF),
+        source_function_border: straight_rgba(0xBB_BB_BB_FF),
+        source_bang_border: straight_rgba(0xFF_00_FF_FF),
 
-        diagnostic_foreground: straight_rgba(0x14_14_14_FF),
-        diagnostic_background: straight_rgba(0x00_00_00_00),
-        diagnostic_border: straight_rgba(0x30_30_30_FF),
-        output_portal_foreground: straight_rgba(0x14_14_14_FF),
-        output_portal_background: straight_rgba(0x00_00_00_1A),
-        output_portal_border: straight_rgba(0x00_00_00_66),
-        input_portal_foreground: straight_rgba(0x50_50_50_FF),
-        input_portal_background: straight_rgba(0x00_00_00_0F),
-        input_portal_border: straight_rgba(0x00_00_00_66),
+        diagnostic_foreground: straight_rgba(0xC7_00_00_FF),
+        diagnostic_background: straight_rgba(0xFF_FF_FF_FF),
+        diagnostic_border: straight_rgba(0xC7_00_00_FF),
+        output_portal_foreground: straight_rgba(0xE4_E4_E4_FF),
+        output_portal_background: straight_rgba(0x66_66_66_FF),
+        output_portal_border: straight_rgba(0x66_66_66_FF),
+        input_portal_foreground: straight_rgba(0xDD_DD_DD_FF),
+        input_portal_background: straight_rgba(0x66_66_66_FF),
+        input_portal_border: straight_rgba(0x66_66_66_FF),
         locked_foreground: straight_rgba(0x00_00_00_00),
-        locked_background: straight_rgba(0xFF_FF_FF_CC),
-        locked_border: straight_rgba(0x30_30_30_80),
+        locked_background: straight_rgba(0xFF_FF_FF_FF),
+        locked_border: straight_rgba(0x33_33_33_FF),
 
         grid_border: straight_rgba(0x00_00_00_1A),
         sector_seam: straight_rgba(0x00_00_00_33),
-        cursor_border: straight_rgba(0x14_14_14_FF),
-        region_border: straight_rgba(0x14_14_14_FF),
-        region_background: straight_rgba(0x00_00_00_1A),
+        cursor_border: straight_rgba(0x19_19_19_FF),
+        region_border: straight_rgba(0x19_19_19_FF),
+        region_background: straight_rgba(0xE1_E1_E1_FF),
 
-        panel_border: straight_rgba(0xD6_D6_D6_FF),
-        selection_background: straight_rgba(0xE0_E0_E0_FF),
-        selection_border: straight_rgba(0x14_14_14_FF),
-        selection_border_rest: straight_rgba(0x50_50_50_FF),
-        widget_inactive_border: straight_rgba(0xD6_D6_D6_FF),
+        panel_border: straight_rgba(0xD5_D5_D5_FF),
+        selection_background: straight_rgba(0xCC_CC_CC_FF),
+        selection_border: straight_rgba(0x19_19_19_FF),
+        selection_border_rest: straight_rgba(0x57_57_57_FF),
+        widget_inactive_border: straight_rgba(0xD5_D5_D5_FF),
 
-        text: straight_rgba(0x30_30_30_FF),
-        text_active: straight_rgba(0x14_14_14_FF),
-        text_muted: straight_rgba(0x30_30_30_BF),
+        text: straight_rgba(0x37_37_37_FF),
+        text_active: straight_rgba(0x19_19_19_FF),
+        text_muted: straight_rgba(0x37_37_37_AF),
         input_background: straight_rgba(0xFF_FF_FF_FF),
-        link: straight_rgba(0x14_14_14_FF),
-        code_background: straight_rgba(0xEB_EB_EB_FF),
-        input_cursor: straight_rgba(0x14_14_14_FF),
-        error: straight_rgba(0x14_14_14_FF),
-        warning: straight_rgba(0x14_14_14_FF),
+        link: straight_rgba(0x19_19_19_FF),
+        code_background: straight_rgba(0xD5_D5_D5_FF),
+        input_cursor: straight_rgba(0x19_19_19_FF),
+        error: straight_rgba(0x19_19_19_FF),
+        warning: straight_rgba(0x19_19_19_FF),
 
         cursor_background: None,
-        cursor_foreground: None,
-        region_cursor_background: None,
+        cursor_foreground: Some(straight_rgba(0x19_19_19_FF)),
+        region_cursor_background: Some(straight_rgba(0xCC_CC_CC_FF)),
         region_cursor_foreground: None,
 
         grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
@@ -886,16 +888,226 @@ pub fn grayscale_light() -> Theme {
         cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
-        diagnostic_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        locked_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_ordinary_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         source_comment_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        source_number_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        source_note_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
-        source_function_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_number_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_bang_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+
+        panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
+        input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+    }
+}
+
+/// The reserved identity of the My Grayscale Dark built-in.
+pub(crate) const MY_GRAYSCALE_DARK_IDENTITY: ThemeIdentity =
+    ThemeIdentity::reserved("my-grayscale-dark");
+
+///
+/// The My Grayscale Dark built-in Theme: [`grayscale_dark`] with a lighter
+/// Comment, a translucent Region fill, a brighter Region border and a thinner
+/// Cell selection border, at the reserved identity
+/// `MY_GRAYSCALE_DARK_IDENTITY`. Every field is spelled out explicitly for
+/// the reason [`okabe_ito`]'s is. `console/src/theme.md` records its values.
+///
+pub fn my_grayscale_dark() -> Theme {
+    Theme {
+        identity: MY_GRAYSCALE_DARK_IDENTITY,
+        name: "My Grayscale Dark".to_owned(),
+        appearance: Appearance::Dark,
+
+        window_background: straight_rgba(0x00_00_00_FF),
+        panel_background: straight_rgba(0x00_00_00_FF),
+        grid_background: straight_rgba(0x00_00_00_FF),
+        cell_background: straight_rgba(0x00_00_00_00),
+
+        source_ordinary: straight_rgba(0xC8_C8_C8_FF),
+        source_comment: straight_rgba(0xAF_AF_AF_FF),
+        source_number: straight_rgba(0x89_89_89_FF),
+        source_note: straight_rgba(0xCC_CC_CC_FF),
+        source_function: straight_rgba(0xE6_E6_E6_FF),
+        source_bang: straight_rgba(0x00_FF_00_FF),
+        source_ordinary_background: straight_rgba(0x00_00_00_00),
+        source_comment_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0x22_22_22_FF),
+        source_note_background: straight_rgba(0x22_22_22_FF),
+        source_function_background: straight_rgba(0x44_44_44_FF),
+        source_bang_background: straight_rgba(0x11_11_11_FF),
+        source_ordinary_border: straight_rgba(0x00_00_00_00),
+        source_comment_border: straight_rgba(0x00_00_00_00),
+        source_number_border: straight_rgba(0x22_22_22_FF),
+        source_note_border: straight_rgba(0x22_22_22_FF),
+        source_function_border: straight_rgba(0x44_44_44_FF),
+        source_bang_border: straight_rgba(0x00_FF_00_FF),
+
+        diagnostic_foreground: straight_rgba(0xFF_3B_3B_FF),
+        diagnostic_background: straight_rgba(0x00_00_00_00),
+        diagnostic_border: straight_rgba(0xC8_C8_C8_FF),
+        output_portal_foreground: straight_rgba(0x33_33_33_FF),
+        output_portal_background: straight_rgba(0xCC_CC_CC_FF),
+        output_portal_border: straight_rgba(0xFF_FF_FF_66),
+        input_portal_foreground: straight_rgba(0x33_33_33_FF),
+        input_portal_background: straight_rgba(0xCC_CC_CC_FF),
+        input_portal_border: straight_rgba(0xFF_FF_FF_66),
+        locked_foreground: straight_rgba(0x00_00_00_00),
+        locked_background: straight_rgba(0x00_00_00_FF),
+        locked_border: straight_rgba(0xCC_CC_CC_FF),
+
+        grid_border: straight_rgba(0xFF_FF_FF_1A),
+        sector_seam: straight_rgba(0xFF_FF_FF_33),
+        cursor_border: straight_rgba(0xE6_E6_E6_FF),
+        region_border: straight_rgba(0xE6_E6_E6_FF),
+        region_background: straight_rgba(0xCC_CC_CC_54),
+
+        panel_border: straight_rgba(0x2A_2A_2A_FF),
+        selection_background: straight_rgba(0x33_33_33_FF),
+        selection_border: straight_rgba(0xE6_E6_E6_FF),
+        selection_border_rest: straight_rgba(0xA8_A8_A8_FF),
+        widget_inactive_border: straight_rgba(0x2A_2A_2A_FF),
+
+        text: straight_rgba(0xC8_C8_C8_FF),
+        text_active: straight_rgba(0xE6_E6_E6_FF),
+        text_muted: straight_rgba(0xC8_C8_C8_99),
+        input_background: straight_rgba(0x00_00_00_FF),
+        link: straight_rgba(0xE6_E6_E6_FF),
+        code_background: straight_rgba(0x2A_2A_2A_FF),
+        input_cursor: straight_rgba(0xE6_E6_E6_FF),
+        error: straight_rgba(0xE6_E6_E6_FF),
+        warning: straight_rgba(0xE6_E6_E6_FF),
+
+        cursor_background: None,
+        cursor_foreground: Some(straight_rgba(0xE6_E6_E6_FF)),
+        region_cursor_background: Some(straight_rgba(0x33_33_33_FF)),
+        region_cursor_foreground: None,
+
+        grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
+        cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
+        input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_ordinary_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_comment_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_number_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_bang_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+
+        panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
+        input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+    }
+}
+
+/// The reserved identity of the My Grayscale Light built-in.
+pub(crate) const MY_GRAYSCALE_LIGHT_IDENTITY: ThemeIdentity =
+    ThemeIdentity::reserved("my-grayscale-light");
+
+///
+/// The My Grayscale Light built-in Theme: [`my_grayscale_dark`] inverted onto
+/// white, at the reserved identity `MY_GRAYSCALE_LIGHT_IDENTITY`, with a
+/// magenta Bang and magenta Portals. Every field is spelled out explicitly
+/// for the reason [`okabe_ito`]'s is.
+/// `console/src/theme.md` records its values.
+///
+pub fn my_grayscale_light() -> Theme {
+    Theme {
+        identity: MY_GRAYSCALE_LIGHT_IDENTITY,
+        name: "My Grayscale Light".to_owned(),
+        appearance: Appearance::Light,
+
+        window_background: straight_rgba(0xFF_FF_FF_FF),
+        panel_background: straight_rgba(0xFF_FF_FF_FF),
+        grid_background: straight_rgba(0xFF_FF_FF_FF),
+        cell_background: straight_rgba(0x00_00_00_00),
+
+        source_ordinary: straight_rgba(0x37_37_37_FF),
+        source_comment: straight_rgba(0x4C_4C_4C_FF),
+        source_number: straight_rgba(0x61_61_61_FF),
+        source_note: straight_rgba(0x33_33_33_FF),
+        source_function: straight_rgba(0x19_19_19_FF),
+        source_bang: straight_rgba(0xD1_00_D1_FF),
+        source_ordinary_background: straight_rgba(0x00_00_00_00),
+        source_comment_background: straight_rgba(0x00_00_00_00),
+        source_number_background: straight_rgba(0xDD_DD_DD_FF),
+        source_note_background: straight_rgba(0xDD_DD_DD_FF),
+        source_function_background: straight_rgba(0xBB_BB_BB_FF),
+        source_bang_background: straight_rgba(0xFF_FF_FF_FF),
+        source_ordinary_border: straight_rgba(0x00_00_00_00),
+        source_comment_border: straight_rgba(0x00_00_00_00),
+        source_number_border: straight_rgba(0xDD_DD_DD_FF),
+        source_note_border: straight_rgba(0xDD_DD_DD_FF),
+        source_function_border: straight_rgba(0xBB_BB_BB_FF),
+        source_bang_border: straight_rgba(0xFF_00_FF_FF),
+
+        diagnostic_foreground: straight_rgba(0xC7_00_00_FF),
+        diagnostic_background: straight_rgba(0x00_00_00_00),
+        diagnostic_border: straight_rgba(0x37_37_37_FF),
+        output_portal_foreground: straight_rgba(0x19_19_19_FF),
+        output_portal_background: straight_rgba(0xFF_00_FF_FF),
+        output_portal_border: straight_rgba(0xFF_00_FF_FF),
+        input_portal_foreground: straight_rgba(0x19_19_19_FF),
+        input_portal_background: straight_rgba(0xFF_00_FF_FF),
+        input_portal_border: straight_rgba(0xFF_00_FF_FF),
+        locked_foreground: straight_rgba(0x00_00_00_00),
+        locked_background: straight_rgba(0xFF_FF_FF_FF),
+        locked_border: straight_rgba(0x33_33_33_FF),
+
+        grid_border: straight_rgba(0x00_00_00_1A),
+        sector_seam: straight_rgba(0x00_00_00_33),
+        cursor_border: straight_rgba(0x19_19_19_FF),
+        region_border: straight_rgba(0x19_19_19_FF),
+        region_background: straight_rgba(0xE1_E1_E1_FF),
+
+        panel_border: straight_rgba(0xD5_D5_D5_FF),
+        selection_background: straight_rgba(0xCC_CC_CC_FF),
+        selection_border: straight_rgba(0x19_19_19_FF),
+        selection_border_rest: straight_rgba(0x57_57_57_FF),
+        widget_inactive_border: straight_rgba(0xD5_D5_D5_FF),
+
+        text: straight_rgba(0x37_37_37_FF),
+        text_active: straight_rgba(0x19_19_19_FF),
+        text_muted: straight_rgba(0x37_37_37_AF),
+        input_background: straight_rgba(0xFF_FF_FF_FF),
+        link: straight_rgba(0x19_19_19_FF),
+        code_background: straight_rgba(0xD5_D5_D5_FF),
+        input_cursor: straight_rgba(0x19_19_19_FF),
+        error: straight_rgba(0x19_19_19_FF),
+        warning: straight_rgba(0x19_19_19_FF),
+
+        cursor_background: None,
+        cursor_foreground: Some(straight_rgba(0x19_19_19_FF)),
+        region_cursor_background: Some(straight_rgba(0xCC_CC_CC_FF)),
+        region_cursor_foreground: None,
+
+        grid_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        sector_seam_width: GridWidth::from_points(0.75).expect("0.75 is within 0..=1"),
+        cell_selection_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        diagnostic_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        locked_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_ordinary_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_comment_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        source_number_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_bang_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
@@ -911,8 +1123,9 @@ mod tests {
 
     use super::{
         Appearance, ChromeWidth, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, GridWidth,
-        Theme, ThemeIdentity, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
-        straight_rgba,
+        MY_GRAYSCALE_DARK_IDENTITY, MY_GRAYSCALE_LIGHT_IDENTITY, Theme, ThemeIdentity,
+        grayscale_dark, grayscale_light, my_grayscale_dark, my_grayscale_light, okabe_ito,
+        orcvs_light, straight_rgba,
     };
 
     ///
@@ -1327,169 +1540,124 @@ mod tests {
         Some(straight_rgba(rgba))
     }
 
+    /// A value a `theme.md` record table holds for one property.
+    #[derive(Debug, PartialEq)]
+    enum Recorded {
+        Colour(Option<Color32>),
+        Width(f32),
+    }
+
+    /// Every property a Theme holds, by its `schema.md` name, as a record
+    /// table states it: optional colours included where cleared.
+    macro_rules! recorded_fields {
+        (
+            OptionalColor { $($optional:ident($optional_field:ident) => $optional_name:literal),* $(,)? }
+            ColorKey { $($colour:ident($colour_field:ident) => $colour_name:literal),* $(,)? }
+            GridWidthKey { $($grid:ident($grid_field:ident) => $grid_name:literal),* $(,)? }
+            ChromeWidthKey { $($chrome:ident($chrome_field:ident) => $chrome_name:literal),* $(,)? }
+        ) => {
+            fn recorded_fields(theme: &Theme) -> Vec<(&'static str, Recorded)> {
+                let mut fields =
+                    vec![$(($optional_name, Recorded::Colour(theme.$optional_field))),*];
+                fields.extend([$(($colour_name, Recorded::Colour(Some(theme.$colour_field)))),*]);
+                fields.extend([$(($grid_name, Recorded::Width(theme.$grid_field.points()))),*]);
+                fields.extend([$(($chrome_name, Recorded::Width(theme.$chrome_field.points()))),*]);
+                fields
+            }
+        };
+    }
+    super::style_catalogue!(recorded_fields);
+
     ///
-    /// `console/src/theme.md`'s grayscale table, read from the page itself so
-    /// the record and the code cannot drift: every property it names holds
-    /// the recorded value in both Themes, and it names every colour and
-    /// optional colour exactly once. The widths are Okabe–Ito's, as the page
-    /// says.
+    /// Asserts `console/src/theme.md`'s table for `theme`, under the heading
+    /// "The <name> built-in Theme", read from the page itself so the record
+    /// and the code cannot drift: every property it names holds the recorded
+    /// colour or width, and it names every property exactly once.
     ///
-    #[test]
-    fn the_grayscale_built_ins_define_every_key_at_this_table() {
+    fn assert_matches_its_table(theme: &Theme) {
+        let name = &theme.name;
         let record = include_str!("theme.md");
         let section = record
-            .split("### The grayscale built-in Themes")
+            .split(&format!("### The {name} built-in Theme"))
             .nth(1)
             .and_then(|rest| rest.split("\n### ").next())
-            .expect("theme.md records the grayscale Themes");
+            .unwrap_or_else(|| panic!("theme.md records {name}"));
         let rows = section
             .split("\n\n")
-            .find(|block| block.starts_with("| Property | Grayscale Dark | Grayscale Light |"))
-            .expect("the grayscale property table");
+            .find(|block| block.starts_with(&format!("| Property | {name} |")))
+            .unwrap_or_else(|| panic!("the {name} property table"));
 
-        let (dark, light) = (grayscale_dark(), grayscale_light());
-        let dark_fields = colour_fields(&dark);
-        let light_fields = colour_fields(&light);
-        let optional = [
-            (
-                "cursor.background",
-                dark.cursor_background,
-                light.cursor_background,
-            ),
-            (
-                "cursor.foreground",
-                dark.cursor_foreground,
-                light.cursor_foreground,
-            ),
-            (
-                "region.cursor.background",
-                dark.region_cursor_background,
-                light.region_cursor_background,
-            ),
-            (
-                "region.cursor.foreground",
-                dark.region_cursor_foreground,
-                light.region_cursor_foreground,
-            ),
-        ];
+        let fields = recorded_fields(theme);
         let mut named: Vec<&str> = Vec::new();
         for row in rows.lines().skip(2) {
             let cells: Vec<&str> = row.trim_matches('|').split('|').collect();
-            let [properties, dark_cell, light_cell] = cells[..] else {
-                panic!("{row:?} is not a three-column row");
+            let [properties, cell] = cells[..] else {
+                panic!("{row:?} is not a two-column row");
             };
-            for name in properties.split('`').skip(1).step_by(2) {
-                named.push(name);
-                let (dark_value, light_value) =
-                    match optional.iter().find(|(optional, ..)| *optional == name) {
-                        Some(&(_, dark_value, light_value)) => (dark_value, light_value),
-                        None => {
-                            let value = |fields: &[(&str, Color32)]| {
-                                fields
-                                    .iter()
-                                    .find(|(field, _)| *field == name)
-                                    .map(|&(_, colour)| colour)
-                                    .unwrap_or_else(|| panic!("{name} is not a colour"))
-                            };
-                            (Some(value(&dark_fields)), Some(value(&light_fields)))
-                        }
-                    };
-                assert_eq!(
-                    dark_value,
-                    recorded_colour(dark_cell),
-                    "Grayscale Dark's {name}"
-                );
-                assert_eq!(
-                    light_value,
-                    recorded_colour(light_cell),
-                    "Grayscale Light's {name}"
-                );
+            for property in properties.split('`').skip(1).step_by(2) {
+                named.push(property);
+                let value = fields
+                    .iter()
+                    .find(|(field, _)| *field == property)
+                    .map(|(_, value)| value)
+                    .unwrap_or_else(|| panic!("{property} is not a property"));
+                let recorded = match value {
+                    Recorded::Colour(_) => Recorded::Colour(recorded_colour(cell)),
+                    Recorded::Width(_) => {
+                        Recorded::Width(cell.trim().parse().expect("a recorded width"))
+                    }
+                };
+                assert_eq!(*value, recorded, "{name}'s {property}");
             }
         }
 
-        let mut expected: Vec<&str> = dark_fields.iter().map(|&(name, _)| name).collect();
-        expected.extend(optional.iter().map(|&(name, ..)| name));
+        let mut expected: Vec<&str> = fields.iter().map(|&(property, _)| property).collect();
         expected.sort_unstable();
         named.sort_unstable();
-        assert_eq!(named, expected, "theme.md names every colour exactly once");
+        assert_eq!(
+            named, expected,
+            "theme.md names every property of {name} exactly once"
+        );
+    }
 
-        for theme in [dark, light] {
-            assert_eq!(
-                theme.name,
-                if theme.appearance == Appearance::Dark {
-                    "Grayscale Dark"
-                } else {
-                    "Grayscale Light"
-                }
-            );
-            let base = okabe_ito();
-            for (width, expected) in [
-                (theme.grid_border_width, base.grid_border_width),
-                (theme.sector_seam_width, base.sector_seam_width),
-                (
-                    theme.cell_selection_border_width,
-                    base.cell_selection_border_width,
-                ),
-                (theme.cursor_border_width, base.cursor_border_width),
-                (theme.region_border_width, base.region_border_width),
-                (theme.diagnostic_border_width, base.diagnostic_border_width),
-                (
-                    theme.output_portal_border_width,
-                    base.output_portal_border_width,
-                ),
-                (
-                    theme.input_portal_border_width,
-                    base.input_portal_border_width,
-                ),
-                (theme.locked_border_width, base.locked_border_width),
-                (
-                    theme.source_ordinary_border_width,
-                    base.source_ordinary_border_width,
-                ),
-                (
-                    theme.source_comment_border_width,
-                    base.source_comment_border_width,
-                ),
-                (
-                    theme.source_number_border_width,
-                    base.source_number_border_width,
-                ),
-                (
-                    theme.source_note_border_width,
-                    base.source_note_border_width,
-                ),
-                (
-                    theme.source_function_border_width,
-                    base.source_function_border_width,
-                ),
-                (
-                    theme.source_bang_border_width,
-                    base.source_bang_border_width,
-                ),
-            ] {
-                assert_eq!(
-                    width, expected,
-                    "{}'s Grid widths are Okabe–Ito's",
-                    theme.identity
-                );
-            }
-            for (width, expected) in [
-                (theme.panel_border_width, base.panel_border_width),
-                (theme.selection_border_width, base.selection_border_width),
-                (theme.widget_border_width, base.widget_border_width),
-                (
-                    theme.widget_inactive_border_width,
-                    base.widget_inactive_border_width,
-                ),
-                (theme.input_cursor_width, base.input_cursor_width),
-            ] {
-                assert_eq!(
-                    width, expected,
-                    "{}'s chrome widths are Okabe–Ito's",
-                    theme.identity
-                );
-            }
-        }
+    #[test]
+    fn my_grayscale_dark_defines_every_key_at_this_table() {
+        let theme = my_grayscale_dark();
+        assert_eq!(theme.identity, MY_GRAYSCALE_DARK_IDENTITY);
+        assert_eq!(MY_GRAYSCALE_DARK_IDENTITY.as_str(), "my-grayscale-dark");
+        assert_eq!(theme.name, "My Grayscale Dark");
+        assert_eq!(theme.appearance, Appearance::Dark);
+        assert!(theme.identity.is_reserved());
+        assert_matches_its_table(&theme);
+    }
+
+    #[test]
+    fn grayscale_dark_defines_every_key_at_this_table() {
+        let theme = grayscale_dark();
+        assert_eq!(theme.identity, GRAYSCALE_DARK_IDENTITY);
+        assert_eq!(theme.name, "Grayscale Dark");
+        assert_eq!(theme.appearance, Appearance::Dark);
+        assert_matches_its_table(&theme);
+    }
+
+    #[test]
+    fn grayscale_light_defines_every_key_at_this_table() {
+        let theme = grayscale_light();
+        assert_eq!(theme.identity, GRAYSCALE_LIGHT_IDENTITY);
+        assert_eq!(theme.name, "Grayscale Light");
+        assert_eq!(theme.appearance, Appearance::Light);
+        assert_matches_its_table(&theme);
+    }
+
+    #[test]
+    fn my_grayscale_light_defines_every_key_at_this_table() {
+        let theme = my_grayscale_light();
+        assert_eq!(theme.identity, MY_GRAYSCALE_LIGHT_IDENTITY);
+        assert_eq!(MY_GRAYSCALE_LIGHT_IDENTITY.as_str(), "my-grayscale-light");
+        assert_eq!(theme.name, "My Grayscale Light");
+        assert_eq!(theme.appearance, Appearance::Light);
+        assert!(theme.identity.is_reserved());
+        assert_matches_its_table(&theme);
     }
 
     ///
