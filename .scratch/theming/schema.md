@@ -24,8 +24,9 @@ text = "#E0E0E0"
 Required root fields are `format`, `version`, `name` and `inherits`. `style` is
 optional; omitting it or leaving it empty inherits the complete parent unchanged.
 Optional `appearance` is `dark` or `light` and must match the parent. The filename
-stem is the identity; `name` is a nonempty display label. `okabe-ito` is the reserved
-dark built-in identity, `orcvs-light` the reserved light identity. The latter's
+stem is the identity; `name` is a nonempty display label. `grayscale-dark` and
+`okabe-ito` are the reserved dark built-in identities, `grayscale-light` and
+`orcvs-light` the reserved light ones; the grayscale pair are the defaults. `orcvs-light`'s
 palette must pass the separate review gate before switching is exposed.
 
 This is one versioned Orcvs Theme data model, represented in TOML and nothing
@@ -40,7 +41,9 @@ Every row is a named `style` property. Built-ins define every property explicitl
 custom documents replace only supplied properties. Property names are case-sensitive,
 including dots, which are literal characters rather than nested object access.
 All colour values use straight RGB/RGBA hex. Six digits mean opaque. `none` is a
-string accepted only for the two optional Cursor fills; it is not a null value.
+string accepted only for the optional Cursor colours (`cursor.background`,
+`cursor.foreground`, `region.cursor.background`, `region.cursor.foreground`); it
+is not a null value.
 
 `source.ordinary` supplies Ordinary and Char foregrounds. Char has no
 independent paint fact and uses the ordinary background; no unused Char-only
@@ -64,6 +67,12 @@ property or production test seam is introduced.
 | `source.note.background` | `#F0E4421A` |
 | `source.function.background` | `#009E731A` |
 | `source.bang.background` | `#00000000` |
+| `source.ordinary.border` | `#00000000` |
+| `source.comment.border` | `#00000000` |
+| `source.number.border` | `#00000000` |
+| `source.note.border` | `#00000000` |
+| `source.function.border` | `#00000000` |
+| `source.bang.border` | `#00000000` |
 | `diagnostic.foreground` | `#D55E00` |
 | `diagnostic.background` | `#00000000` |
 | `diagnostic.border` | `#00000000` |
@@ -81,7 +90,9 @@ property or production test seam is introduced.
 | `cursor.border` | `#EAEBE5` |
 | `region.border` | `#EAEBE5` |
 | `cursor.background` | `none` |
+| `cursor.foreground` | `none` |
 | `region.cursor.background` | `none` |
+| `region.cursor.foreground` | `none` |
 | `region.background` | `#FFFFFF2B` |
 | `panel.border` | `#1C3932` |
 | `selection.background` | `#0A2A22` |
@@ -109,6 +120,12 @@ property or production test seam is introduced.
 | `output_portal.border.width` | 0.5 | 0–1 |
 | `input_portal.border.width` | 0.5 | 0–1 |
 | `locked.border.width` | 0.5 | 0–1 |
+| `source.ordinary.border.width` | 0.5 | 0–1 |
+| `source.comment.border.width` | 0.5 | 0–1 |
+| `source.number.border.width` | 0.5 | 0–1 |
+| `source.note.border.width` | 0.5 | 0–1 |
+| `source.function.border.width` | 0.5 | 0–1 |
+| `source.bang.border.width` | 0.5 | 0–1 |
 | `panel.border.width` | 1 | 0–2 |
 | `selection.border.width` | 1 | 0–2 |
 | `widget.border.width` | 1 | 0–2 |
@@ -117,6 +134,10 @@ property or production test seam is introduced.
 
 Zero width suppresses that stroke, not fills or other strokes; a Source Cell border of zero width withdraws from its edges, so the next fact's line shows there. Diagnostic/Portal
 width defaults to 0.5 while its transparent colour preserves the current absence.
+A role border draws only while its colour is visible, so a transparent role border
+leaves the Grid line at `grid.border.width`. A visible role border draws on every
+Cell its role claims; the Ordinary border draws only on an unclaimed Cell holding
+content.
 Inactive widget width zero preserves its current absence. The 2-point text-input
 caret is separate from ordinary 1-point chrome borders. Widths do not scale with
 Grid zoom; physical-pixel snapping follows existing viewport rules.
@@ -190,20 +211,34 @@ added explicitly to this catalogue, never silently left as a second palette.
    marks only the Function spelling of the root it withheld. Border
    channels use the same fact priority and compose over the ordinary Grid border,
    or over nothing where a `grid.border.width` of zero draws no Grid line.
+   Between the two sits the role border: a Cell a role claims draws that role's
+   border over the Grid line, at that role's border width, when the role border is
+   visible, whether the Cell holds content or not, so a Comment's blank Cells and a
+   Pending operand slot are framed with their role. An unclaimed Cell draws as
+   Ordinary, and draws the Ordinary border only while it holds content. An empty
+   unclaimed Cell, or one whose role border is transparent, keeps the Grid line and
+   `grid.border.width`. Every overlay border composes over the role
+   border, and a bound Function's role border is its own inside a Portal.
    Two Cells share the edge between them, which is drawn once: it shows the
    highest-ranked border either Cell carries on that side, ranked Grid line,
-   Diagnostic, Locked, Input Portal, Output Portal, and composited once in the
-   colour that Cell's own composition gives it. Of two borders of one rank, the
-   Cell below or to the right draws. A crossing takes the colour of the
+   role border, Diagnostic, Locked, Input Portal, Output Portal, and composited
+   once in the colour that Cell's own composition gives it. Of two borders of one
+   rank, the Cell below or to the right draws. A crossing takes the colour of the
    highest-ranked line meeting it. A border of width zero withdraws from its
-   edges, and the fact below it shows; a transparent border of nonzero width
-   still holds its edge, so a transparent Portal border shows the colour it
-   composes over.
+   edges, and the fact below it shows; a transparent Diagnostic or Portal border
+   of nonzero width still holds its edge, so a transparent Portal border shows
+   the colour it composes over.
 5. Cursor/Region handling retains existing precedence. A single selected Cell
-   suppresses ordinary role fill in favour of its optional Cursor fill. In a
+   suppresses ordinary role fill in favour of its optional Cursor fill, and draws
+   its glyph in `cursor.foreground` when that holds a colour, whatever the role,
+   Diagnostic or Portal composition answered; cleared, the glyph keeps that
+   answer. The Cursor's fill, frame and every other Cell are unaffected. In a
    multi-Cell Region, the Cursor uses Region Cursor fill, falling back to ordinary
-   Cursor fill when absent. Other Region Cells use Region fill only when no visible
-   effective fact fill exists after role, Diagnostic and Portal composition. A
+   Cursor fill when absent, and draws its glyph in `region.cursor.foreground`,
+   falling back to `cursor.foreground` when that is absent and to the composed
+   role colour when both are; the Region's other Cells keep their glyphs. Other
+   Region Cells use Region fill only when no visible effective fact fill exists
+   after role, Diagnostic and Portal composition. A
    transparent role background alone does not hide a visible fact overlay;
    uniform `cell.background` never prevents this fallback. The selection outline
    is the highest-ranked edge: the single-Cell Cursor's four edges in
@@ -221,9 +256,10 @@ added explicitly to this catalogue, never silently left as a second palette.
    foreground/background pairs, not raw theme hex pairs. Preserve actual overlap
    cases and validate the normal-zoom dark result against current paint output.
 
-Omitted optional-fill properties inherit. String `none` removes that optional fill
+Omitted optional colours inherit. String `none` removes that optional colour
 and enables the fallback above. Transparent supplied colour suppresses fallback;
-it remains distinct from absence. The uniform base layer still shows beneath it.
+it remains distinct from absence, and a transparent `cursor.foreground` hides the
+glyph. The uniform base layer still shows beneath a transparent fill.
 The single-Cursor `none` case does not restore the ordinary role fill it suppresses.
 
 Compute finite fact combinations and colour composites outside the per-Cell loop.
@@ -257,15 +293,15 @@ hand-written:
   fields in declaration order, which TOML can spell, so the decoder checks the
   parsed `style` value is a table before deserializing.
 - Each value deserializes into a newtype that validates it: the format marker,
-  the version, `name` and `inherits` labels, `appearance`, colours, the two optional Cursor
-  fills and the two width bounds. Strings accept only strings, `version` only
+  the version, `name` and `inherits` labels, `appearance`, colours, the optional Cursor
+  colours and the two width bounds. Strings accept only strings, `version` only
   an integer, and widths only numbers; booleans, datetimes, arrays and tables
   are never a valid value.
 
 A refusal carries `toml`'s line and column and the key path it was reading
 (``in `style.grid.border` ``). An unknown property's error names the key and
 starts listing the valid names, colours first; the 1024-byte message cap cuts
-the list, so it may omit the width and optional-fill names. There is no
+the list, so it may omit the width and optional-colour names. There is no
 did-you-mean suggestion for a near miss (ADR 0053).
 
 Version is the integer `1`. Widths must be finite, then receive their inclusive

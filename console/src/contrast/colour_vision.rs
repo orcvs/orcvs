@@ -485,7 +485,9 @@ mod tests {
     };
     use crate::contrast::tests::unaccepted;
     use crate::contrast::{contrast, validate};
-    use crate::theme::{ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
+    use crate::theme::{
+        ORCVS_LIGHT_IDENTITY, Theme, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
+    };
 
     /// The closest reported pair for one dichromacy.
     fn closest(report: &ConfusionReport, vision: ColourVision) -> &ConfusionResult {
@@ -854,6 +856,9 @@ mod tests {
     /// boundary: if a retune makes tritanopia worse, this fails and
     /// `console/src/theme.md`'s colour-vision table has to move with it.
     ///
+    /// The grayscale built-ins are not gated here:
+    /// `the_grayscale_built_ins_look_alike_to_every_reader` says why.
+    ///
     #[test]
     fn shipped_theme_colour_vision_gate() {
         for theme in [okabe_ito(), orcvs_light()] {
@@ -883,6 +888,41 @@ mod tests {
                 tritan.second,
                 tritan.distance
             );
+        }
+    }
+
+    ///
+    /// The grayscale built-ins paint every glyph channel in a neutral grey,
+    /// which no dichromacy moves, so a dichromat sees each pair exactly as
+    /// far apart as anyone else does. They tell roles apart by lightness and
+    /// fill rather than hue, and share a grey between some channels by
+    /// design, so [`CONFUSION_FLOOR`] is not theirs to clear: a reader who
+    /// needs every channel kept apart by colour selects `okabe-ito` or
+    /// `orcvs-light`. This pins the premise that exemption rests on.
+    ///
+    #[test]
+    fn the_grayscale_built_ins_look_alike_to_every_reader() {
+        for theme in [grayscale_dark(), grayscale_light()] {
+            let report = distinguish(&theme);
+            for result in &report.results {
+                for other in report
+                    .results
+                    .iter()
+                    .filter(|other| other.first == result.first && other.second == result.second)
+                {
+                    assert!(
+                        (result.distance - other.distance).abs() < 0.5,
+                        "{}: {} against {} measures {:.2} under {} but {:.2} under {}",
+                        theme.identity,
+                        result.first,
+                        result.second,
+                        result.distance,
+                        result.vision,
+                        other.distance,
+                        other.vision
+                    );
+                }
+            }
         }
     }
 

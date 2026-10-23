@@ -1,7 +1,7 @@
 # 05 — Verify live editing in the console
 
-Status: ready-for-agent
-Blocked by: 04
+Status: resolved
+Blocked by: 04, 14
 
 **What to build:**
 
@@ -10,11 +10,11 @@ Track selects, clear it and restore it while Playback runs.
 
 ## Acceptance criteria
 
-- [ ] Typing or pasting a Note into a pair changes the next eligible Tick; a malformed intermediate edit recovers without spurious notes and with bounded useful diagnostics.
-- [ ] Clearing a pair leaves later pairs in place; copy and paste retain empty pairs.
-- [ ] The pairs east of Track paint as ordinary Source (ADR 0067).
-- [ ] Open, Save, reopen and a new Playback run reproduce the written pattern and reset the Clock according to the Playback contract.
-- [ ] Tests drive real console input and existing file workflows under the egui skill; no dedicated tracker editor or extra adapter is introduced.
+- [x] Typing or pasting a Note into a pair changes the next eligible Tick; a malformed intermediate edit recovers ~~without spurious notes~~ with bounded useful diagnostics, replaying the previous Note for the half-typed Tick as `14` decided.
+- [x] Clearing a pair leaves later pairs in place; copy and paste retain empty pairs.
+- [x] The pairs east of Track paint as ordinary Source (ADR 0067).
+- [x] Open, Save, reopen and a new Playback run reproduce the written pattern and reset the Clock according to the Playback contract.
+- [x] Tests drive real console input and existing file workflows under the egui skill; no dedicated tracker editor or extra adapter is introduced.
 
 ## Comments
 
@@ -32,3 +32,36 @@ so presenting a malformed selected pair's Tick diagnostic is not part of this ti
 ### 2026-10-16
 
 Presenting Source and Tick diagnostics is now owned by `.scratch/source-diagnostics/`, which starts with ADR 0067's open question on standalone Operand Literals. This ticket stays scoped to painting.
+
+### 2026-10-17 — Resolved
+
+`console/src/console/kittest_tests/live_editing.rs` opens a copy of `examples/cell-tracker.orcvs`
+(ticket 06) through `open_picked`, edits it with arrow keys, typed text, Backspace, Shift-arrow
+Region, Copy and Paste events and `File > Save`, and runs each Tick through
+`SourceCommander::execute`, the call Playback makes. Playback stays stopped so the test is the only
+thing that runs a Tick; the kittest module forbids waiting on Playback.
+
+- Criterion 1: a typed Note plays on the next Tick that selects it, and a half-typed pair is
+  diagnosed once (`&t has partial or invalid input`) and plays its Note the Tick after it is
+  finished. That half-typed Tick is not silent: Track is invalid and writes nothing, so the note
+  slot keeps the previous step's Note and the Bang replays it, as ADR 0069 decides for a value
+  Function that is invalid. The test pins that behaviour and `examples/cell-tracker.md` explains it.
+  Whether it should be silent is a language decision, split to `14`.
+- Criterion 4: a saved, edited tracker reopened in a new console plays the edited pattern from
+  Tick 0. That Playback begins each run at Tick 0 is pinned in `orcvs/src/playback.rs`
+  (`beginning_a_run_publishes_tick_zero_playing_and_a_run_origin`,
+  `playback_begins_at_the_first_tick_and_advances_one_per_executed_tick`).
+- A rest is diagnosed once: by the Tick that empties the note slot, then by the Language Map while
+  it stays empty.
+
+### 2026-10-17 — Kept open on `14`
+
+Every criterion but the "without spurious notes" clause of the first is delivered and tested. The
+ticket stays open, blocked by `14`, until that decision either makes the half-typed Tick silent or
+rewords the criterion to the replay ADR 0069 gives today. `06` and `source-read-write/03` rest only
+on the delivered parts: the console tests their own criteria name.
+
+### 2026-10-17 — Resolved after `14`
+
+Toby decided in `14` to keep ADR 0069's replay, so the first criterion is reworded to it and the
+ticket is resolved.

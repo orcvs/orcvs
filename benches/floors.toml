@@ -166,3 +166,28 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # the edge Mesh for 130 by 82 Cells. A starting figure, not a CI-measured floor;
 # revisit once the series has points on `gh-pages`.
 source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 1.67 ms at 8x8, 395 us at 16x16. About twice the first, not yet CI-measured."
+
+# `empty` and `single` price what one Paint pays before its first Cell: the
+# per-Paint setup, chiefly zeroing the `CellColours` table. The console
+# derives a Paint per frame at whatever the viewport culls to, so this cost
+# lands on every frame of a scrolled-away or barely visible Grid. The fitted
+# and culled floors above cannot see it: at 16x16 it is about 1% of the number.
+# A table filled eagerly once took `empty` from 16 to 587 ns (`a611e16d` made it
+# lazy), and doubling the table took it from 20 to 71 ns (fixed in 8145429).
+# Each `max_ns` sits about 45% over the CI figure accepted after that fix,
+# below the 71 and 107 ns the doubled table measured.
+[[floor]]
+name = "paint_derive/empty"
+max_ns = 60
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# Accepted fix 8145429, workflow run 39398336001 (job `pull-request`): 41 ns.
+# The doubled table measured 71 ns in run 39392141627 on both attempts.
+source = "CI-measured 41 ns for 8145429 in workflow run 39398336001; 60 ns chosen with ~45% headroom, below the 71 ns regression it guards against."
+
+[[floor]]
+name = "paint_derive/single"
+max_ns = 115
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# Accepted fix 8145429, workflow run 39398336001 (job `pull-request`): 80 ns.
+# The doubled table measured 107 ns in run 39392141627.
+source = "CI-measured 80 ns for 8145429 in workflow run 39398336001; 115 ns chosen with ~45% headroom over that figure."

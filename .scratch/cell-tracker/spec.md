@@ -193,7 +193,9 @@ Nested Track uses the same receiving-operand interpretation as spatial delivery.
 
 This is active pre-release language design, with no public compatibility
 contract. Sequence retirement, Return and Track are implemented (tickets 01,
-02 and 04); console verification and the shipped example remain. Ticket 03
+02 and 04), console verification is `console::kittest_tests::live_editing`
+(ticket 05), and the example is `examples/cell-tracker.orcvs` (ticket 06); the
+audible smoke test (ticket 13) remains. Ticket 03
 delivered unwritten operands as ADR 0066's pending state, and ADR 0069
 superseded it and the pending clauses of ticket 04.
 `.scratch/pending-presentation/issues/01-treat-an-unwritten-operand-as-invalid-input.md`
