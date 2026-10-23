@@ -16,10 +16,11 @@ The console's own Inside stroke is upstream's choice for tiling: epaint rounds a
 2. The Cursor's own Cell inside a spanning Region.
 3. Output Portal, Input Portal and Locked, ordered among themselves as [ADR 0077](0077-a-committed-tick-records-its-portal-accesses.md) orders them.
 4. Diagnostic.
-5. The role border of a Cell its role claims.
-6. The Grid line.
+5. A Bang's role border.
+6. The role border of a Cell its role claims.
+7. The Grid line.
 
-Equal facts on both sides draw one line. Unequal facts of the same rank draw the one the existing composition already prefers.
+Equal facts on both sides draw one line. Unequal facts of the same rank draw the one the existing composition already prefers. A Bang's border ranks above the other roles' so a Bang is framed on all four sides: at one rank, a Function to its right or below would take that edge.
 
 **A width of zero withdraws a fact from an edge rather than hiding the edge.** A Theme that sets a border's width to zero says that border is not drawn, so the edge goes to the next fact down, ending at the Grid line. Hiding a Cell's own Grid line is no longer expressible, because no Cell owns a Grid line.
 
