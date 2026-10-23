@@ -32,6 +32,9 @@ if ! grep -q '^format = "orcvs-theme"' <<<"$document"; then
   exit 1
 fi
 identity="${identity:-tried-theme}"
+# A file named after a built-in would be refused as a reserved identity, and the console would show
+# that built-in instead of the file, so the document always loads under an identity of its own.
+identity="try-$identity"
 appearance="$(sed -nE 's/^appearance = "(dark|light)"/\1/p' <<<"$document" | head -n 1)"
 appearance="${appearance:-dark}"
 
@@ -43,8 +46,10 @@ if grep -qE '^"window\.background" = "#[0-9A-Fa-f]{6}[0-9A-Fa-f]{2}"' <<<"$docum
 fi
 
 mkdir -p "$home/.orcvs/themes" "$home/Library/Application Support/Orcvs"
+# The throwaway home holds only the Theme this run tries.
+rm -f "$home/.orcvs/themes/"*.toml
 printf '%s\n' "$document" >"$home/.orcvs/themes/$identity.toml"
-printf '[theme]\n%s = "%s"\n\n[cursor_effects]\nglitch_amount = 0\n' "$appearance" "$identity" \
+printf '[theme]\n%s = "%s"\n' "$appearance" "$identity" \
   >"$home/.orcvs/config.toml"
 cp "$here/tracker-app.ron" "$home/Library/Application Support/Orcvs/app.ron"
 
