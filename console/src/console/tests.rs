@@ -6348,21 +6348,6 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
     for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0)] {
         let (ctx, mut console, mut host) = fresh_console();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let (shapes, _) = console_output_at(
-            &ctx,
-            screen,
-            Vec::new(),
-            &mut console,
-            &mut host,
-            pixels_per_point,
-        );
-        assert_eq!(
-            overview_image(&shapes),
-            None,
-            "the Overview is shown on start"
-        );
-
-        console.overview_open = true;
         // An egui Area is drawn from its second pass; the first measures it.
         let mut shapes = Vec::new();
         for _ in 0..2 {

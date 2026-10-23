@@ -69,8 +69,15 @@ impl Overview {
         if !current {
             draw_picture(frame, theme, Arc::make_mut(&mut self.picture));
             self.drawn_from = Some((revision, theme.identity.clone(), appearance));
+            // A partial update must lie inside the texture, so a picture of
+            // another Grid's size replaces the texture's image outright.
             if let Some(texture) = &mut self.texture {
-                texture.set_partial([0, 0], Arc::clone(&self.picture), TextureOptions::NEAREST);
+                let picture = Arc::clone(&self.picture);
+                if texture.size() == picture.size {
+                    texture.set_partial([0, 0], picture, TextureOptions::NEAREST);
+                } else {
+                    texture.set(picture, TextureOptions::NEAREST);
+                }
             }
         }
         self.texture.get_or_insert_with(|| {
@@ -243,6 +250,11 @@ impl Console {
             .fixed_pos(rect.min)
             .movable(false)
             .fade_in(false)
+            // Sized as the picture from the first pass and never moved to
+            // fit the window, so the layer is the picture's rect and takes
+            // no pointer from the Source around it.
+            .default_size(side)
+            .constrain(false)
             .sense(Sense::hover())
             .show(&ctx, |ui| {
                 let response = ui.allocate_rect(rect, Sense::DRAG);

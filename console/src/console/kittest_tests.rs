@@ -356,35 +356,34 @@ fn toggle_overview(harness: &mut Harness<'_, Console>) {
 }
 
 ///
-/// View → Overview pins the Overview to the window's bottom-right corner, over
-/// the Source and the bottom panel, with no margin, and takes no width from
-/// the Source; unticking it hides it again.
+/// A fresh console shows the Overview pinned to the window's bottom-right
+/// corner, over the Source and the bottom panel, with no margin, taking no
+/// width from the Source; View → Overview hides it and shows it again.
 ///
 #[tokio::test]
-async fn the_view_menu_pins_the_overview_over_the_bottom_right_corner() {
+async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_menu_toggles_it() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    assert!(
-        harness.query_by_label("Source overview").is_none(),
-        "a fresh console opened with the Overview showing"
-    );
-    let without = source_rect(&harness);
-
-    toggle_overview(&mut harness);
     let overview = harness.get_by_label("Source overview").rect();
     let window = Vec2::from(DEFAULT_VIEW_SIZE).to_pos2();
     assert!(
         (overview.max - window).length() < 1e-3,
         "the Overview {overview:?} is not in the window's corner {window:?}"
     );
-    assert!(
-        overview.bottom() > without.bottom(),
-        "the Overview {overview:?} does not reach over the bottom panel below {without:?}"
-    );
+    // The Overview's layer is the picture and no more, so the Source and the
+    // bottom panel beside it still take the pointer.
+    let area = harness
+        .ctx
+        .memory(|memory| memory.area_rect(egui::Id::new("overview")));
     assert_eq!(
-        source_rect(&harness),
-        without,
-        "showing the Overview resized the Source"
+        area,
+        Some(overview),
+        "the Overview's layer is not its picture"
+    );
+    let with = source_rect(&harness);
+    assert!(
+        overview.bottom() > with.bottom(),
+        "the Overview {overview:?} does not reach over the bottom panel below {with:?}"
     );
 
     toggle_overview(&mut harness);
@@ -392,7 +391,15 @@ async fn the_view_menu_pins_the_overview_over_the_bottom_right_corner() {
         harness.query_by_label("Source overview").is_none(),
         "unticking left the Overview showing"
     );
-    assert_eq!(source_rect(&harness), without);
+    assert_eq!(
+        source_rect(&harness),
+        with,
+        "hiding the Overview resized the Source"
+    );
+
+    toggle_overview(&mut harness);
+    assert_eq!(harness.get_by_label("Source overview").rect(), overview);
+    assert_eq!(source_rect(&harness), with);
 }
 
 ///
@@ -403,7 +410,6 @@ async fn the_view_menu_pins_the_overview_over_the_bottom_right_corner() {
 async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    toggle_overview(&mut harness);
 
     let overview = harness.get_by_label("Source overview");
     assert_eq!(
@@ -418,7 +424,9 @@ async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
             .widgets
             .layers()
             .flat_map(|(_, widgets)| widgets)
-            .filter(|widget| widget.rect == rect)
+            // The Area holding the picture and its Ui sit at the same rect
+            // and sense hover alone, which neither focuses nor drags.
+            .filter(|widget| widget.rect == rect && widget.sense != egui::Sense::hover())
             .map(|widget| widget.sense)
             .collect()
     });
@@ -552,7 +560,6 @@ fn console_with_overview_and_region() -> Harness<'static, Console> {
         !harness.state().orcvs.region().is_one_cell(),
         "Shift with the arrows did not extend the Region"
     );
-    toggle_overview(&mut harness);
     harness
 }
 
