@@ -1,6 +1,6 @@
 # One Theme styles the whole console
 
-Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker.
+Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker. The 2026-10-22 amendment supersedes the Bang exception in the painting precedence: a Bang keeps all its own paint inside a Portal.
 
 **Every part of the console's presentation is themeable, and one Theme styles all of it.** ADR 0051 scoped theming to the Source Grid and left the page, panels, widgets, selection, Cell grid lines and Sector Seams to egui's dark/light `Visuals`: two fixed palettes, compiled in, with nothing a viewer can choose or load. That was never the requirement. The Source Grid and the console around it are never themed separately, so loading an Orcvs Theme restyles the menus as well as the Grid.
 
@@ -185,6 +185,17 @@ The Consequences' sequencing still holds without pickers: the selection
 restored at startup, operating-system appearance changes, the mode control and
 loaded documents each apply one Theme to the Source Grid and the chrome
 together.
+
+## Amendment, 2026-10-22: a Bang keeps its own paint inside a Portal
+
+"Bang retains its glyph colour while taking the portal tint" in the painting
+precedence above is superseded. A Bang inside an Input or Output Portal keeps
+its own glyph, fill and border, as a bound Function does: `source.bang.*`
+paints it and the Portal's channels do not. A lock still paints a Bang
+Function's spelling. Both built-ins leave `source.bang.background`
+transparent, so a Bang a Producer writes into its Output Portal draws as a Bang
+anywhere else on the Grid does. The contrast and colour-vision gates read the
+same composition, so they measure the Bang there on the plain Cell.
 
 ## Rejected alternatives
 
