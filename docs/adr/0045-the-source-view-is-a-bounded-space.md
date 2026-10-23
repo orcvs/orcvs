@@ -1,6 +1,6 @@
 # The Source View is a bounded space
 
-Status: accepted; its zoom section — the keyboard Zoom of the Source View and whole-UI zoom on command-shift — is superseded by [ADR 0058](0058-zoom-is-eguis-whole-ui-zoom.md), which makes egui's whole-UI zoom the console's only zoom. Supersedes the fit, the pointer Zoom and the letterboxing that [ADR 0038](0038-the-console-owns-the-source-grid-transform.md) presented the Source under. [ADR 0047](0047-the-source-view-has-a-margin.md) amends the default Grid, the default window and how far a Pan reaches below. The rest of ADR 0038 stands: the console owns the transform, applies it when it computes each Cell's rectangle, and lays each Glyph out at the size it is drawn at. It does not reopen [ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md).
+Status: accepted; its zoom section — the keyboard Zoom of the Source View and whole-UI zoom on command-shift — is superseded by [ADR 0058](0058-zoom-is-eguis-whole-ui-zoom.md), which makes egui's whole-UI zoom the console's only zoom. Supersedes the fit, the pointer Zoom and the letterboxing that [ADR 0038](0038-the-console-owns-the-source-grid-transform.md) presented the Source under. [ADR 0047](0047-the-source-view-has-a-margin.md) amends the default Grid, the default window and how far a Pan reaches below. The 2026-10-23 amendment below adds the Overview to the Pan gestures. The rest of ADR 0038 stands: the console owns the transform, applies it when it computes each Cell's rectangle, and lays each Glyph out at the size it is drawn at. It does not reopen [ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md).
 
 The console presents the Source as a space the viewer moves through, not a picture fitted to the window. The Source View opens at Zoom 1.0 — the Source's own Cell, now 16 points with an 11.5 point Glyph — at which the default 64 by 40 Grid fills the default window exactly. A resize changes how much of the Source shows and never the Cell size.
 
@@ -27,3 +27,7 @@ The console presents the Source as a space the viewer moves through, not a pictu
 `Scene::register_pan_and_zoom` is no longer called: with no pointer Zoom, the only thing it still offered was the wheel Pan, which is one addition. The double click on the letterboxing that returned to the fit goes with the fit.
 
 A stored Source keeps the Grid it was stored with. Nothing resizes a Grid, so a Source stored at the previous 40 by 25 default opens at 40 by 25.
+
+## Amendment, 2026-10-23: the Overview Pans
+
+The Pan gestures above are wheel or two-finger scroll, middle-drag, and Alt with a primary drag. A press or drag on the Overview is a fourth, recorded in [ADR 0080](0080-the-overview-pans-over-a-cached-picture.md). It is bounded by the same margin and, like the others, never moves the Cursor.
