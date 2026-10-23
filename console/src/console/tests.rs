@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use egui::{
     Color32, Event, Key, Modifiers, MouseWheelUnit, Pos2, Rect, Shape, TouchPhase, Vec2,
     emath::GuiRounding as _,
@@ -6392,7 +6394,8 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
 ///
 /// The picture is uploaded when the Overview is first shown and again, as one
 /// whole-image update in place, only when the Source or the appearance
-/// changes; a Render Frame where neither did uploads nothing.
+/// changes; a Render Frame where neither did uploads nothing, even when the
+/// Cursor moved or the Region changed.
 ///
 #[tokio::test]
 async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_changes() {
@@ -6425,6 +6428,19 @@ async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_cha
     let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     assert_eq!(uploads(&textures), [], "the frame after an edit uploaded");
 
+    let grid = console.orcvs.grid();
+    console
+        .orcvs
+        .select(grid.position(9, 7).expect("inside the grid"));
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "a Cursor move uploaded");
+
+    console
+        .orcvs
+        .extend(grid.position(12, 8).expect("inside the grid"));
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "a Region change uploaded");
+
     ctx.set_theme(egui::ThemePreference::Light);
     let (shapes, textures) =
         console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
@@ -6456,14 +6472,19 @@ fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
 }
 
 ///
-/// The Source View as the Overview draws it: each stroked rectangle inside the
-/// Overview's picture, which nothing else strokes.
+/// The Source View as the Overview draws it: each rectangle inside the
+/// Overview's picture stroked in the Theme's outline colour, which no other
+/// mark on the picture is.
 ///
 fn source_view_outlines(shapes: &[Shape], picture: Rect) -> Vec<egui::epaint::RectShape> {
     shapes
         .iter()
         .filter_map(|shape| match shape {
-            Shape::Rect(rect) if rect.stroke.width > 0.0 && picture.contains_rect(rect.rect) => {
+            Shape::Rect(rect)
+                if rect.stroke.width > 0.0
+                    && rect.stroke.color == okabe_ito().overview_source_view
+                    && picture.contains_rect(rect.rect) =>
+            {
                 Some(rect.clone())
             }
             _ => None,
@@ -6547,6 +6568,111 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
         after.rect,
         before.rect.translate(-pan * scale),
         "against the Pan",
+    );
+}
+
+///
+/// The Cells of `columns` and `rows` on the Overview's `picture`: one square
+/// texel per Cell, past the margin.
+///
+fn overview_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> Rect {
+    let texel = picture.width() / (COL_COUNT as f32 + 2.0 * SOURCE_MARGIN_CELLS);
+    let corner = |column: usize, row: usize| {
+        picture.min
+            + (Vec2::new(column as f32, row as f32) + Vec2::splat(SOURCE_MARGIN_CELLS)) * texel
+    };
+    Rect::from_min_max(
+        corner(columns.start, rows.start),
+        corner(columns.end, rows.end),
+    )
+}
+
+///
+/// The Overview marks the Region's Cells and then the Cursor's Cell over its
+/// picture, each in the fill and border the Source draws it with, and the
+/// Source View's outline over both. A Region of one Cell is the Cursor's Cell
+/// and gets no mark of its own.
+///
+#[tokio::test]
+async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_the_outline() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let theme = okabe_ito();
+    console.overview_open = true;
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the grid");
+    console.orcvs.select(at(9, 7));
+    console.orcvs.extend(at(12, 8));
+
+    let near =
+        |a: Rect, b: Rect| (a.min - b.min).length() < 1e-3 && (a.max - b.max).length() < 1e-3;
+
+    let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let mark_at = |rect: Rect, situation: &str| {
+        let found: Vec<_> = shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, shape)| match shape {
+                Shape::Rect(mark) if near(mark.rect, rect) => Some((index, mark.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(found.len(), 1, "{situation}: {found:?} at {rect:?}");
+        found[0].clone()
+    };
+    let (region_at, region) = mark_at(overview_cells(picture, 9..13, 7..9), "the Region mark");
+    assert_eq!(region.fill, theme.region_background);
+    assert_eq!(
+        region.stroke,
+        egui::Stroke::new(theme.region_border_width.points(), theme.region_border)
+    );
+    assert_eq!(region.stroke_kind, egui::StrokeKind::Inside);
+    let (cursor_at, cursor) = mark_at(overview_cells(picture, 12..13, 8..9), "the Cursor mark");
+    assert_eq!(
+        cursor.fill,
+        theme.cursor_background.unwrap_or(Color32::TRANSPARENT)
+    );
+    assert_eq!(
+        cursor.stroke,
+        egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border)
+    );
+    assert_eq!(cursor.stroke_kind, egui::StrokeKind::Inside);
+
+    let image_at = shapes
+        .iter()
+        .position(|shape| matches!(shape, Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default()))
+        .expect("the Overview drew no image");
+    let outline = source_view_outlines(&shapes, picture)
+        .pop()
+        .expect("the Overview drew no outline");
+    let outline_at = shapes
+        .iter()
+        .position(|shape| matches!(shape, Shape::Rect(rect) if *rect == outline))
+        .expect("the outline is among the shapes");
+    assert!(
+        image_at < region_at && region_at < cursor_at && cursor_at < outline_at,
+        "drawn out of order: image {image_at}, Region {region_at}, Cursor {cursor_at}, outline {outline_at}"
+    );
+
+    console.orcvs.select(at(30, 20));
+    let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let marks: Vec<_> = shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(mark)
+                if picture.contains_rect(mark.rect)
+                    && mark.stroke.color != theme.overview_source_view =>
+            {
+                Some(mark.rect)
+            }
+            _ => None,
+        })
+        .collect();
+    let expected = overview_cells(picture, 30..31, 20..21);
+    assert!(
+        matches!(marks[..], [mark] if near(mark, expected)),
+        "a one-Cell Region marked {marks:?}, not the Cursor's Cell alone at {expected:?}"
     );
 }
 

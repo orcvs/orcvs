@@ -2,6 +2,7 @@
 //! Theme's colours, docked at the right of the Source View.
 
 use std::iter::repeat_n;
+use std::ops::Range;
 use std::sync::Arc;
 
 use egui::emath::GuiRounding as _;
@@ -238,8 +239,10 @@ impl Console {
                     Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     Color32::WHITE,
                 );
+                let painter = ui.painter_at(rect);
+                mark_region_and_cursor(&painter, rect, frame, theme);
                 ShownOverview {
-                    painter: ui.painter_at(rect),
+                    painter,
                     picture: rect,
                     response,
                 }
@@ -247,6 +250,42 @@ impl Console {
             .inner;
         Some(shown)
     }
+}
+
+///
+/// Marks `frame`'s Region and then its Cursor's Cell on `picture` in the fill
+/// and border the Source draws each with, so moving either changes no texel.
+/// A Region of one Cell is the Cursor's Cell and gets no mark of its own.
+///
+fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame, theme: &Theme) {
+    let texel = picture.width() / (frame.grid().columns() + 2 * MARGIN) as f32;
+    let cells = |columns: Range<usize>, rows: Range<usize>| {
+        let corner = |column: usize, row: usize| {
+            picture.min + Vec2::new((column + MARGIN) as f32, (row + MARGIN) as f32) * texel
+        };
+        Rect::from_min_max(
+            corner(columns.start, rows.start),
+            corner(columns.end, rows.end),
+        )
+    };
+    let region = frame.region();
+    if !region.is_one_cell() {
+        painter.rect(
+            cells(region.columns(), region.rows()),
+            0.0,
+            theme.region_background,
+            Stroke::new(theme.region_border_width.points(), theme.region_border),
+            StrokeKind::Inside,
+        );
+    }
+    let cursor = frame.cursor();
+    painter.rect(
+        cells(cursor.x()..cursor.x() + 1, cursor.y()..cursor.y() + 1),
+        0.0,
+        theme.cursor_background.unwrap_or(Color32::TRANSPARENT),
+        Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+        StrokeKind::Inside,
+    );
 }
 
 ///
