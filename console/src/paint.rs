@@ -107,6 +107,9 @@ pub enum EdgeRank {
     GridLine,
     /// A Source role's own border.
     Role,
+    /// A Bang's own border, which a Bang keeps on all four of its edges
+    /// against any other role's.
+    Bang,
     Diagnostic,
     Locked,
     InputPortal,
@@ -1930,6 +1933,41 @@ mod tests {
     }
 
     ///
+    /// A visible Bang border keeps all four edges of a `**` against a visible
+    /// Function border beside it, though the Function stands right of the
+    /// shared edge and would win it on a tie.
+    ///
+    #[tokio::test]
+    async fn a_bang_border_wins_the_edge_it_shares_with_a_function() {
+        let mut orcvs = running_orcvs(8, 3);
+        write_row(&mut orcvs, 1, "**.+0102");
+        orcvs.select(orcvs.grid().position(7, 2).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let width = GridWidth::from_points(1.0).expect("within 0..=1");
+        let theme = Theme {
+            source_bang_border: Color32::from_rgb(0, 255, 0),
+            source_bang_border_width: width,
+            source_function_border: Color32::from_rgb(68, 68, 68),
+            source_function_border_width: width,
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+        let bang = paint
+            .at(orcvs.grid().position(1, 1).expect("inside the grid"))
+            .border
+            .expect("a visible Bang border");
+        assert_eq!(bang.rank, EdgeRank::Bang);
+
+        let shared = paint
+            .edges()
+            .columns
+            .into_iter()
+            .find(|run| run.line == 2 && run.span.contains(&1))
+            .expect("the edge between the Bang and the Function");
+        assert_eq!(shared.edge, bang);
+    }
+
+    ///
     /// A transparent Function border holds no edge, so the Function's Cells
     /// keep the Grid line at `grid.border.width`, whatever the Function
     /// border's own width. A visible one at width zero withdraws as well.
@@ -3105,6 +3143,8 @@ inherits = "grayscale-dark"
     #[test]
     fn the_higher_ranked_fact_wins_an_edge_from_either_side() {
         let ranks = [
+            EdgeRank::Role,
+            EdgeRank::Bang,
             EdgeRank::Diagnostic,
             EdgeRank::Locked,
             EdgeRank::InputPortal,

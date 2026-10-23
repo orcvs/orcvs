@@ -303,7 +303,8 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// border only while `occupied`: an empty Cell keeps the plain Grid line, so
 /// a visible Ordinary border never frames the whole Grid. A transparent role
 /// border holds no edge, so the Grid line at `grid.border.width` keeps every
-/// edge no role border is drawn on.
+/// edge no role border is drawn on. A Bang's border ranks above every other
+/// role's, so a Bang keeps all four of its edges beside another role.
 ///
 /// `None` for a Cell carrying no fact with a width: its edges show the Grid
 /// line, or a neighbour's fact.
@@ -332,7 +333,11 @@ fn ordinary_border(
     let role = (framed && own.border.a() != 0)
         .then(|| {
             EdgeLine::drawn(
-                EdgeRank::Role,
+                if paint == SourcePaint::Bang {
+                    EdgeRank::Bang
+                } else {
+                    EdgeRank::Role
+                },
                 own.border_width,
                 blend_channel(grid_line, own.border),
             )
