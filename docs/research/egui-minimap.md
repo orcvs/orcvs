@@ -1,7 +1,11 @@
 # An Overview (minimap) of the Source Grid in egui
 
-Research only; nothing here is decided. "Minimap" is the request's word. §6 proposes **Overview** as
-the domain term, because "map" collides with Language Map and the glossary avoids "viewport",
+Status: settled by [ADR 0080](../adr/0080-the-overview-pans-over-a-cached-picture.md) and
+`.scratch/overview/spec.md`, which adopt **Overview** as the domain term; this document is the
+evidence they cite and decides nothing itself.
+
+"Minimap" is the request's word. §6 proposed **Overview** as the domain term, because "map"
+collides with Language Map and the glossary avoids "viewport",
 "scroll" and "drag". Citations are `path:line` in this repository, or in the egui `0.36.2` crates
 (`egui-0.36.2/…`, `epaint-0.36.2/…`, `egui_glow-0.36.2/…`, `egui-wgpu-0.36.2/…` from the cargo
 registry; `egui_demo_lib/…` from `emilk/egui` tag `0.36.2`, commit `49682f8b`). Prior art cites the
