@@ -5,7 +5,7 @@ use std::iter::repeat_n;
 use std::sync::Arc;
 
 use egui::emath::GuiRounding as _;
-use egui::{Color32, ColorImage, Rect, Sense, TextureHandle, TextureOptions};
+use egui::{Color32, ColorImage, Rect, Sense, TextureHandle, TextureOptions, Vec2};
 use orcvs::render_frame::RenderFrame;
 use orcvs::source::RevisionId;
 
@@ -80,7 +80,9 @@ impl Console {
     ///
     /// The picture is drawn square, at a whole number of physical pixels per
     /// texel, on whole physical pixels, so every Cell is a crisp block of one
-    /// size. It senses a drag and nothing else: sensing focus would put it in
+    /// size: the most that keeps it within the height beside the Source and
+    /// half its width. Where not even one pixel per texel fits, it is scaled
+    /// down to fit, so the whole Grid stays on it. It senses a drag and nothing else: sensing focus would put it in
     /// the Tab order, where a focused widget keeps every key from the Source.
     ///
     pub(super) fn show_overview(
@@ -99,9 +101,13 @@ impl Console {
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
         let pixels_per_point = ctx.pixels_per_point();
-        let pixels_per_texel = pixels_per_point.floor().max(1.0);
-        let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
         let panel_frame = egui::Frame::side_top_panel(root.style());
+        let room = root.available_rect_before_wrap().size() * Vec2::new(0.5, 1.0)
+            - panel_frame.total_margin().sum();
+        let fits = (room / texture.size_vec2()).min_elem().max(0.0) * pixels_per_point;
+        let whole = pixels_per_point.floor().max(1.0).min(fits.floor());
+        let pixels_per_texel = if whole >= 1.0 { whole } else { fits };
+        let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
         egui::Panel::right("overview")
             .resizable(false)
             .exact_size(side.x + panel_frame.total_margin().sum().x)

@@ -474,6 +474,35 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
     );
 }
 
+///
+/// The Overview in the smallest window the console allows, beside the
+/// Diagnostics it opens with, keeps to the height beside the Source View and
+/// to half its width, so the Source keeps a row of Cells and the rest.
+///
+#[tokio::test]
+async fn the_smallest_window_fits_the_overview_beside_the_source() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE_MIN));
+    harness.state_mut().overview_open = true;
+    harness.run_steps(2);
+
+    let overview = harness.get_by_label("Source overview").rect();
+    let source = source_rect(&harness);
+    assert!(
+        overview.top() >= source.top() && overview.bottom() <= source.bottom(),
+        "the Overview {overview:?} is taller than the Source {source:?} beside it"
+    );
+    assert!(
+        overview.width() <= source.width(),
+        "the Overview {overview:?} takes more width than the Source {source:?} keeps"
+    );
+    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE;
+    assert!(
+        source.width() >= usable.x && source.height() >= usable.y,
+        "the Overview leaves the Source {source:?}, under the {usable:?} a Cell and its \
+         margins take"
+    );
+}
+
 /// Labels keep their full text at both the default and a narrow window width.
 #[tokio::test]
 async fn docked_diagnostics_labels_are_not_truncated() {
