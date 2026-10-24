@@ -4,10 +4,14 @@
 
 **Blocked by:** cell-geometry/03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `Console::ui` makes one Overview call, after the Source panel; `outline_source_view`, `pan_source_view` and `ShownOverview` are private to `overview` or gone.
-- [ ] `show_overview` does not take or mutate `SourceView`; a test presses the picture and sees `Some` answered with `SourceView`'s Pan unchanged until `centre_on` is applied.
-- [ ] `place_picture` has table tests for whole pixels per texel, shrinking to fit, hiding below one, a fractional scale and the rounded corner; the shrink-and-hide console-pass test is one of them, keeping its name and what it asserts.
-- [ ] `the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_menu_toggles_it`, the Source's middle-drag tests and every other Overview test pass unchanged in what they assert.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+- [x] `Console::ui` makes one Overview call, after the Source panel; `outline_source_view`, `pan_source_view` and `ShownOverview` are private to `overview` or gone.
+- [x] `show_overview` does not take or mutate `SourceView`; a test presses the picture and sees `Some` answered with `SourceView`'s Pan unchanged until `centre_on` is applied.
+- [x] `place_picture` has table tests for whole pixels per texel, shrinking to fit, hiding below one, a fractional scale and the rounded corner; the shrink-and-hide console-pass test is one of them, keeping its name and what it asserts.
+- [x] `the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_menu_toggles_it`, the Source's middle-drag tests and every other Overview test pass unchanged in what they assert.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+
+## Comments
+
+- 2026-10-24: Implemented on Source Cells (#288), whose newtype is still `SourceCellPoint`; `show_overview` answers that type, the spec's `CellPoint`. `check_wasm`'s WASM clippy pass ran clean locally; its two `trunk build` steps need `trunk`, which the cloud container lacks, so the CI `wasm` job is their evidence.
