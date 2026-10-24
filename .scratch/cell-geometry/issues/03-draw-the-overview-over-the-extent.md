@@ -4,10 +4,14 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `overview::outline`, `overview::MARGIN`, the `pannable` guards and every `padded_source` call in `overview.rs` are gone.
-- [ ] The outline, grab and marks test families each keep one test whose expectation is worked by hand from texel counts, not through the map.
-- [ ] Every existing Overview test passes in what it asserts.
-- [ ] `draw_picture` stays public for the benchmark, and `paint_overview` measures the same walk.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+- [x] `overview::outline`, `overview::MARGIN`, the `pannable` guards and every `padded_source` call in `overview.rs` are gone.
+- [x] The outline, grab and marks test families each keep one test whose expectation is worked by hand from texel counts, not through the map.
+- [x] Every existing Overview test passes in what it asserts.
+- [x] `draw_picture` stays public for the benchmark, and `paint_overview` measures the same walk.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+
+## Comments
+
+- 2026-10-24: `check_wasm`'s WASM clippy pass (`cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings`) ran clean locally. Its two `trunk build` steps need `trunk`, which the cloud container lacks, so the CI `wasm` job is their evidence.

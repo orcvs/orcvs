@@ -8,11 +8,15 @@ Overview and Diagnostics callers are moved only as far as compiling needs: 03 an
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `ShownSource`, `SourceView.origin` and `padded_source`'s callers inside `source_view` are gone; `SOURCE_MARGIN_CELLS` is private to `source_view`.
-- [ ] `ShownSourceView` is built from what Paint drew: `screen()` maps Cell `(0, 0)` to `presented_grid(..).rect.min`.
-- [ ] `outline().is_some()` exactly when the clamp has somewhere to Pan, through one predicate, tested at the boundary on each axis.
-- [ ] Every existing Pan, follow, resize-follow, Region-drag and Overview-Pan test passes unchanged in what it asserts.
-- [ ] Pure tests build `ShownSourceView` from a literal `GridViewport`, console rect and Grid.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+- [x] `ShownSource`, `SourceView.origin` and `padded_source`'s callers inside `source_view` are gone; `SOURCE_MARGIN_CELLS` is private to `source_view`.
+- [x] `ShownSourceView` is built from what Paint drew: `screen()` maps Cell `(0, 0)` to `presented_grid(..).rect.min`.
+- [x] `outline().is_some()` exactly when the clamp has somewhere to Pan, through one predicate, tested at the boundary on each axis.
+- [x] Every existing Pan, follow, resize-follow, Region-drag and Overview-Pan test passes unchanged in what it asserts.
+- [x] Pure tests build `ShownSourceView` from a literal `GridViewport`, console rect and Grid.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+
+## Comments
+
+- 2026-10-24: `check_wasm`'s WASM clippy pass (`cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings`) ran clean locally. Its two `trunk build` steps need `trunk`, which the cloud container lacks, so the CI `wasm` job is their evidence.

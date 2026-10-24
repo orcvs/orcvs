@@ -23,7 +23,7 @@ mod repaint;
 pub(crate) mod shapes;
 mod source_view;
 
-use self::diagnostics_panel::{TimingReadouts, show_diagnostics, visible_source_region};
+use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
 use self::overview::Overview;
@@ -374,22 +374,12 @@ impl eframe::App for Console {
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
         // Outlined after the Source, from the Pan this Render Frame settled.
         let overview = self.show_overview(root, revision, &frame, appearance);
-        let source = self.show_source_panel(root, &frame, appearance);
+        self.show_source_panel(root, &frame, appearance);
+        let shown = self.source_view.shown();
         if let Some(overview) = overview {
-            let visible = visible_source_region(source.console, self.source_view.origin);
-            overview.outline_source_view(
-                visible,
-                frame.grid(),
-                source.cell_size,
-                self.themes.presented(appearance),
-            );
-            self.overview.pan_source_view(
-                &overview,
-                visible,
-                frame.grid(),
-                source.cell_size,
-                &mut self.source_view,
-            );
+            overview.outline_source_view(&shown, self.themes.presented(appearance));
+            self.overview
+                .pan_source_view(&overview, &shown, &mut self.source_view);
         }
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
@@ -399,9 +389,7 @@ impl eframe::App for Console {
                 &mut diagnostics,
                 eframe,
                 &mut self.diagnostics_timing,
-                self.source_view.origin,
-                source.console,
-                source.cell_size,
+                &shown,
             );
         }
 

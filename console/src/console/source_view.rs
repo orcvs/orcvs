@@ -11,7 +11,9 @@ use orcvs::{
 
 use super::Console;
 use super::shapes::show_source;
-use crate::grid_viewport::{GridViewport, presented_grid, snapped_cell};
+use crate::grid_viewport::{
+    GridViewport, ScreenMap, SourceCellPoint, SourceCellRect, presented_grid, snapped_cell,
+};
 use crate::theme::{Appearance, Theme};
 
 ///
@@ -27,10 +29,11 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 /// measured in the snapped Cell's width across and its height down, so it is
 /// always a whole number of physical pixels.
 ///
-pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
+const SOURCE_MARGIN_CELLS: f32 = 2.0;
 
 ///
-/// The Source View: a Pan, presented as the origin the Cells are drawn from.
+/// The Source View: a Pan, presented as the [`ShownSourceView`] the Cells are
+/// drawn under.
 ///
 /// The Source is drawn at its `cell` in points. egui's whole-UI zoom
 /// is what enlarges it with the rest of the console, through
@@ -48,8 +51,8 @@ pub(super) const SOURCE_MARGIN_CELLS: f32 = 2.0;
 /// `previous_console` are what tell those changes apart from a frame that
 /// merely redrew the Cursor.
 ///
-/// `origin` is derived each frame from the Pan, the margin and the console's
-/// top-left, so `presented_grid` and the diagnostics read one position.
+/// `shown` is derived each frame from the Pan, the margin and the console's
+/// top-left, so Paint, the Overview and Diagnostics read one presentation.
 ///
 pub(super) struct SourceView {
     pub(super) pan: Vec2,
@@ -73,13 +76,13 @@ pub(super) struct SourceView {
     /// under them can be asked. `None` before the first frame, as
     /// `previous_cursor` is.
     previous_console: Option<(Vec2, Vec2)>,
-    /// Where the Source's own top-left was presented on the last frame.
-    pub(super) origin: Pos2,
-    /// The point of the padded Source, in Cells from its top-left, that the
-    /// next Render Frame centres the console on, when one has been asked for.
-    /// Counted in Cells so [`show_source_scene`] measures it with the Cell it
-    /// snaps that Render Frame, and bounds it by the same clamp as every Pan.
-    requested_centre: Option<Pos2>,
+    /// How the Source View was presented on the last frame.
+    shown: ShownSourceView,
+    /// The place in Source Cells the next Render Frame centres the console
+    /// on, when one has been asked for. Counted in Cells so
+    /// [`show_source_scene`] measures it with the Cell it snaps that Render
+    /// Frame, and bounds it by the same clamp as every Pan.
+    requested_centre: Option<SourceCellPoint>,
 }
 
 impl SourceView {
@@ -91,98 +94,123 @@ impl SourceView {
             previous_cursor: None,
             region_drag: None,
             previous_console: None,
-            origin: Pos2::ZERO,
+            shown: ShownSourceView::none(),
             requested_centre: None,
         }
     }
 
     ///
-    /// Asks the next Render Frame to Pan the console's centre onto `point`, a
-    /// point of the padded Source in Cells from its top-left. A later request
-    /// before that frame replaces this one. It is a Pan alone, so it moves no
-    /// Cursor and is not pulled back to it.
+    /// Asks the next Render Frame to Pan the console's centre onto `point`. A
+    /// later request before that frame replaces this one. It is a Pan alone,
+    /// so it moves no Cursor and is not pulled back to it.
     ///
-    pub(super) fn centre_on(&mut self, point: Pos2) {
+    pub(super) fn centre_on(&mut self, point: SourceCellPoint) {
         self.requested_centre = Some(point);
     }
-}
 
-///
-/// The padded Source's size in points: the Grid at `cell` with a margin of
-/// [`SOURCE_MARGIN_CELLS`] on every side.
-///
-pub(super) fn padded_source(grid: Grid, cell: Vec2) -> Vec2 {
-    (Vec2::new(grid.columns() as f32, grid.rows() as f32) + Vec2::splat(2.0 * SOURCE_MARGIN_CELLS))
-        * cell
-}
-
-///
-/// Whether a console of `console` points has somewhere to Pan over a padded
-/// Source of `padded` points: on either axis the padded Source is larger.
-///
-pub(super) fn pannable(console: Vec2, padded: Vec2) -> bool {
-    padded.x > console.x || padded.y > console.y
-}
-
-///
-/// The Pan that keeps the Source inside the console: top-left when the Source
-/// is smaller on an axis, and between the two edges when it is larger.
-/// [`show_source_scene`] passes the padded Source — the Grid and its margin on
-/// both sides — so the edges here are the margin's, not the Grid's.
-///
-pub(super) fn clamp_pan(pan: Vec2, console: Vec2, source: Vec2) -> Vec2 {
-    Vec2::new(
-        clamp_pan_axis(pan.x, console.x, source.x),
-        clamp_pan_axis(pan.y, console.y, source.y),
-    )
-}
-
-fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
-    let slack = console - source;
-    if !slack.is_finite() || slack >= 0.0 {
-        0.0
-    } else {
-        pan.clamp(slack, 0.0)
+    ///
+    /// How the Source View was presented on the last frame, or before the
+    /// first a presentation with no Cell, which has nowhere to Pan.
+    ///
+    pub(super) fn shown(&self) -> ShownSourceView {
+        self.shown
     }
 }
 
 ///
-/// The rectangle a Cursor follow brings into view, in the unpanned points of
-/// the padded Source — the Grid with a margin of [`SOURCE_MARGIN_CELLS`] on
-/// every side — at the snapped `cell` [`show_source_scene`] also bounds
-/// [`clamp_pan`] by.
+/// The region of Source Cells the Source View can show: `grid` with a margin
+/// of [`SOURCE_MARGIN_CELLS`] past each edge.
 ///
-/// The Cursor's own Cell, reaching across the margin on each side where the
-/// Cursor is on the Grid's first or last Column or Row, so a follow to an edge
-/// shows the Grid's edge as an edge rather than flush against the console's.
-///
-fn followed_cell(cursor: Position, grid: Grid, cell: Vec2) -> Rect {
-    let margin = SOURCE_MARGIN_CELLS * cell;
-    let shown = cursor_cell(cursor, cell);
-    let reach = |at: usize, count: usize, margin: f32| {
-        let near = if at == 0 { margin } else { 0.0 };
-        let far = if at + 1 == count { margin } else { 0.0 };
-        (near, far)
-    };
-    let (left, right) = reach(cursor.x(), grid.columns(), margin.x);
-    let (top, bottom) = reach(cursor.y(), grid.rows(), margin.y);
-    Rect::from_min_max(
-        shown.min - Vec2::new(left, top),
-        shown.max + Vec2::new(right, bottom),
+pub(super) fn extent(grid: Grid) -> SourceCellRect {
+    let margin = SOURCE_MARGIN_CELLS;
+    SourceCellRect::from_min_max(
+        SourceCellPoint::new(-margin, -margin),
+        SourceCellPoint::new(grid.columns() as f32 + margin, grid.rows() as f32 + margin),
     )
 }
 
 ///
-/// The Cursor's own Cell, without the margin [`followed_cell`] reaches
-/// across, in the same unpanned points of the padded Source.
+/// The height in points of one Row of `cell`-high Cells between the margins
+/// the extent of `grid` has above and below it: the least a console shows of
+/// the Source.
+///
+pub(super) fn one_row_between_margins(grid: Grid, cell: f32) -> f32 {
+    (extent(grid).size().y - grid.rows() as f32 + 1.0) * cell
+}
+
+///
+/// The Source View at a Pan of zero, in points from the console's top-left:
+/// the extent's corner on the console's.
+///
+fn at_rest(cell: Vec2) -> ScreenMap {
+    ScreenMap::new(Pos2::ZERO + SOURCE_MARGIN_CELLS * cell, cell)
+}
+
+///
+/// How far a console `console` points long falls short of an extent `extent`
+/// points long, on an axis where it does: the furthest a Pan reaches back
+/// along it. `None` where the console shows the whole extent, so there is
+/// nowhere to Pan.
+///
+/// The clamp and [`ShownSourceView::outline`] both ask this, so the Overview
+/// outlines the Source View exactly where it can Pan.
+///
+fn slack(console: f32, extent: f32) -> Option<f32> {
+    let slack = console - extent;
+    (slack.is_finite() && slack < 0.0).then_some(slack)
+}
+
+///
+/// The Pan that keeps the extent inside the console: top-left when the extent
+/// of `extent` points is smaller on an axis, and between the two edges when it
+/// is larger.
+///
+pub(super) fn clamp_pan(pan: Vec2, console: Vec2, extent: Vec2) -> Vec2 {
+    let axis = |pan: f32, console: f32, extent: f32| {
+        slack(console, extent).map_or(0.0, |slack| pan.clamp(slack, 0.0))
+    };
+    Vec2::new(
+        axis(pan.x, console.x, extent.x),
+        axis(pan.y, console.y, extent.y),
+    )
+}
+
+///
+/// The region a Cursor follow brings into view: the Cursor's own Cell,
+/// reaching to the extent's edge on each side where the Cursor is on the
+/// Grid's first or last Column or Row, so a follow to an edge shows the Grid's
+/// edge as an edge rather than flush against the console's.
+///
+fn followed_cells(cursor: Position, grid: Grid) -> SourceCellRect {
+    let extent = extent(grid);
+    let reach = |at: usize, count: usize, start: f32, end: f32| {
+        let near = if at == 0 { start } else { at as f32 };
+        let far = if at + 1 == count {
+            end
+        } else {
+            at as f32 + 1.0
+        };
+        (near, far)
+    };
+    let (left, right) = reach(
+        cursor.x(),
+        grid.columns(),
+        extent.min().x(),
+        extent.max().x(),
+    );
+    let (top, bottom) = reach(cursor.y(), grid.rows(), extent.min().y(), extent.max().y());
+    SourceCellRect::from_min_max(
+        SourceCellPoint::new(left, top),
+        SourceCellPoint::new(right, bottom),
+    )
+}
+
+///
+/// The Cursor's own Cell at a Pan of zero, at the snapped `cell`
+/// [`show_source_scene`] also bounds [`clamp_pan`] by.
 ///
 fn cursor_cell(cursor: Position, cell: Vec2) -> Rect {
-    Rect::from_min_size(
-        ((Vec2::new(cursor.x() as f32, cursor.y() as f32) + Vec2::splat(SOURCE_MARGIN_CELLS))
-            * cell)
-            .to_pos2(),
-        cell,
-    )
+    at_rest(cell).rect_to_screen(SourceCellRect::cell(cursor))
 }
 
 ///
@@ -292,27 +320,13 @@ impl PointerSelection {
 }
 
 ///
-/// The Source as it was presented for one Render Frame: the geometry it was
-/// drawn under, and the Cell a click asked for.
+/// Shows the Source in the console area at the Source View's Pan, keeps how
+/// it was presented as `view`'s [`SourceView::shown`], and answers the Region
+/// a click or a drag asked for, for the caller that owns the Source to
+/// select.
 ///
-/// "Presented" is already the repository's word for this step —
-/// `grid_viewport::presented_grid` uses it.
-///
-pub(super) struct PresentedSource {
-    /// The viewport the Cells were drawn at.
-    pub(super) viewport: GridViewport,
-    /// The Region the viewer's click or drag asked for, for the caller that
-    /// owns the Source to select.
-    pub(super) selection: Option<PointerSelection>,
-}
-
-///
-/// Shows the Source in the console area at the Source View's Pan, and
-/// answers the geometry it was presented under along with the Region a click
-/// or a drag asked for.
-///
-/// The console owns the origin the Source is presented at — `view.origin` —
-/// and `grid_viewport::presented_grid` is the one place a Cell's rectangle is
+/// The console owns the origin the Source is presented at, and
+/// `grid_viewport::presented_grid` is the one place a Cell's rectangle is
 /// derived from it. Every Cell, and so every click that lands on one, goes
 /// through that one arithmetic. Nothing here sets a layer transform.
 /// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
@@ -350,7 +364,7 @@ pub(super) fn show_source_scene(
     font_family: &egui::FontFamily,
     view: &mut SourceView,
     theme: &Theme,
-) -> PresentedSource {
+) -> Option<PointerSelection> {
     let source_grid = frame.grid();
     // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
     // which adds `FOCUSABLE` and would let
@@ -419,11 +433,10 @@ pub(super) fn show_source_scene(
         .is_some_and(|previous| previous != cursor);
     view.previous_cursor = Some(cursor);
 
-    // `view.pan` places the padded Source — the Grid with a margin on every
-    // side — so a Pan of zero rests the Grid one margin in from the console's
+    // `view.pan` places the extent — the Grid with a margin on every side —
+    // so a Pan of zero rests the Grid one margin in from the console's
     // top-left, and the clamp lets a Pan reach one margin past each far edge.
-    let margin = SOURCE_MARGIN_CELLS * cell;
-    let cursor_at = followed_cell(cursor, source_grid, cell);
+    let cursor_at = at_rest(cell).rect_to_screen(followed_cells(cursor, source_grid));
 
     // A Region drag follows the Cursor at the pointer's pace rather than in
     // one jump, so the Source View scrolls after a pointer held past the edge
@@ -446,35 +459,39 @@ pub(super) fn show_source_scene(
         }
     }
 
-    // A requested centre places the padded Source outright, after any follow
-    // of this frame, so the clamp below bounds it as it bounds every Pan.
+    // A requested centre places the extent outright, after any follow of
+    // this frame, so the clamp below bounds it as it bounds every Pan.
     if let Some(centre) = view.requested_centre.take() {
-        view.pan = console.size() / 2.0 - centre.to_vec2() * cell;
+        view.pan = console.size() / 2.0 - at_rest(cell).to_screen(centre).to_vec2();
     }
 
-    let padded_size = padded_source(source_grid, cell);
-    view.pan = clamp_pan(view.pan, console.size(), padded_size);
+    view.pan = clamp_pan(view.pan, console.size(), extent(source_grid).size() * cell);
+
+    let origin = console.min
+        + view.pan
+        + at_rest(cell)
+            .to_screen(SourceCellPoint::new(0.0, 0.0))
+            .to_vec2();
+    let origin = if is_presentable(origin) {
+        origin
+    } else {
+        Pos2::ZERO
+    };
+    let grid = presented_grid(origin, source_grid, cell, ui.ctx().pixels_per_point());
+    view.shown = ShownSourceView::new(grid, console, source_grid);
 
     // The pointer offers a Pan only where there is one: not on a Grid that
     // with its margins fits the console on both axes, and not for Alt
     // pressed partway through a Region drag, which stays one. Alt is the one
     // Pan gesture the pointer can announce before it starts: a middle-drag
     // has no hover state to show, and a wheel Pan is not a grab.
-    let can_pan = pannable(console.size(), padded_size);
+    let can_pan = view.shown.outline().is_some();
     if can_pan && drag_panning {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
     } else if can_pan && alt && view.region_drag.is_none() && pan.contains_pointer() {
         ui.ctx().set_cursor_icon(CursorIcon::Grab);
     }
 
-    let origin = console.min + view.pan + margin;
-    view.origin = if is_presentable(origin) {
-        origin
-    } else {
-        Pos2::ZERO
-    };
-
-    let grid = presented_grid(view.origin, source_grid, cell, ui.ctx().pixels_per_point());
     let clicked = show_source(ui, frame, font_family, grid, console, theme);
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -510,10 +527,7 @@ pub(super) fn show_source_scene(
         view.region_drag = None;
     }
 
-    PresentedSource {
-        viewport: grid,
-        selection: spanned.or(clicked),
-    }
+    spanned.or(clicked)
 }
 
 ///
@@ -539,21 +553,90 @@ pub(super) fn source_panel_frame(background: Color32) -> egui::Frame {
 }
 
 ///
-/// What the Source panel presented in one Render Frame, for the Diagnostics
-/// readouts.
+/// The Source View as one Render Frame presented it, for the Overview and the
+/// Diagnostics to read: the map Paint drew the Source under, the console area
+/// it was drawn in and the extent it Pans over.
 ///
-pub(super) struct ShownSource {
-    /// The console area the Source was presented in.
-    pub(super) console: Rect,
-    /// The Cell the Source was drawn at, width by height.
-    pub(super) cell_size: Vec2,
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ShownSourceView {
+    viewport: GridViewport,
+    console: Rect,
+    extent: SourceCellRect,
+}
+
+impl ShownSourceView {
+    ///
+    /// The Source View presented as `viewport` in `console`, over the extent
+    /// of `grid`.
+    ///
+    pub(super) fn new(viewport: GridViewport, console: Rect, grid: Grid) -> Self {
+        Self {
+            viewport,
+            console,
+            extent: extent(grid),
+        }
+    }
+
+    ///
+    /// The presentation before the first frame: no Cell, no console and no
+    /// extent, so nothing to outline.
+    ///
+    fn none() -> Self {
+        let nowhere = SourceCellPoint::new(0.0, 0.0);
+        Self {
+            viewport: GridViewport {
+                cell_size: Vec2::ZERO,
+                rect: Rect::ZERO,
+            },
+            console: Rect::ZERO,
+            extent: SourceCellRect::from_min_max(nowhere, nowhere),
+        }
+    }
+
+    /// The map from Source Cells to the screen points Paint drew them at.
+    pub(super) fn screen(&self) -> ScreenMap {
+        self.viewport.screen()
+    }
+
+    /// The region of Source Cells the console shows, unclipped.
+    pub(super) fn shown(&self) -> SourceCellRect {
+        self.screen().rect_to_cells(self.console())
+    }
+
+    ///
+    /// The region the console shows clipped to the extent, or `None` where
+    /// the console shows the whole extent and so has nowhere to Pan.
+    ///
+    pub(super) fn outline(&self) -> Option<SourceCellRect> {
+        let console = self.console().size();
+        let extent = self.extent.size() * self.screen().cell();
+        let pannable = slack(console.x, extent.x).is_some() || slack(console.y, extent.y).is_some();
+        pannable.then(|| self.shown().intersect(self.extent))
+    }
+
+    /// The Grid as Paint drew it, for tests to read.
+    #[cfg(test)]
+    pub(super) fn viewport(&self) -> GridViewport {
+        self.viewport
+    }
+
+    /// The console area the Source was drawn in.
+    pub(super) fn console(&self) -> Rect {
+        self.console
+    }
+
+    /// The region of Source Cells the Source View can show.
+    pub(super) fn extent(&self) -> SourceCellRect {
+        self.extent
+    }
 }
 
 impl Console {
     ///
     /// Shows `frame` in the central panel at the Source View's Pan,
     /// in the Theme `appearance` presents, and selects the Region the pointer
-    /// asked for.
+    /// asked for. How it was presented is the Source View's
+    /// [`SourceView::shown`].
     ///
     /// The Theme is borrowed from the selection for the panel; the panel reads
     /// the font, the Source View and the running Orcvs as fields beside it.
@@ -563,26 +646,19 @@ impl Console {
         root: &mut egui::Ui,
         frame: &RenderFrame,
         appearance: Appearance,
-    ) -> ShownSource {
+    ) {
         let theme = self.themes.presented(appearance);
         egui::CentralPanel::default()
             .frame(source_panel_frame(theme.grid_background))
             .show(root, |ui| {
-                let console = ui.available_rect_before_wrap();
-                let presented =
+                let selection =
                     show_source_scene(ui, frame, &self.font_family, &mut self.source_view, theme);
                 // The Source Grid answers which Cells the pointer asked for;
                 // moving the Cursor and the anchor there is the Source's own
                 // business, and this is where the running Orcvs is owned.
-                if let Some(selection) = presented.selection {
+                if let Some(selection) = selection {
                     selection.apply(&mut self.orcvs);
                 }
-
-                ShownSource {
-                    console,
-                    cell_size: presented.viewport.cell_size,
-                }
-            })
-            .inner
+            });
     }
 }
