@@ -350,6 +350,8 @@ impl eframe::App for Console {
         self.keep_tab_for_source(&ctx);
         self.observe_playback_diagnostics();
         let menu = self.show_menu_bar(root);
+        // The Overview fits below this. Nothing shown before the Overview
+        // may take room from the top, or it would overlap what does.
         let below_menu = root.available_rect_before_wrap().top();
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.

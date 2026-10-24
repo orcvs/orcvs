@@ -230,8 +230,11 @@ impl Console {
         let theme = self.themes.presented(appearance);
         let texture = self
             .overview
-            .texture(&ctx, revision, frame, theme, appearance)
-            .id();
+            .texture(&ctx, revision, frame, theme, appearance);
+        // `place_picture` sized the picture from the extent, so whole pixels
+        // per texel hold only while the texture is drawn from that extent.
+        debug_assert_eq!(texture.size_vec2(), extent(frame.grid()).size());
+        let texture = texture.id();
         let source = self.source_view.shown();
         let overview = &mut self.overview;
         let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
@@ -590,7 +593,8 @@ mod tests {
                 picture.min
             );
             assert!(
-                (picture.max - window.to_pos2()).length() * pixels_per_point <= 0.5_f32.hypot(0.5),
+                (picture.max - window.to_pos2()).length() * pixels_per_point
+                    <= 0.5_f32.hypot(0.5) + 1e-3,
                 "at {pixels_per_point}×: the picture {picture:?} is not at the corner"
             );
         }

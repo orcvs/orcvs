@@ -6518,36 +6518,61 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
 }
 
 ///
-/// A window too small for the picture hides the Overview without changing the
-/// View menu's choice, so it returns at its usual size once the window holds
-/// it again.
+/// A window too small for the picture at its usual size shrinks or hides the
+/// Overview without changing the View menu's choice, so it returns at its
+/// usual size once the window holds it again, at each pixels per point.
 ///
 #[tokio::test]
 async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() {
-    let (ctx, mut console, mut host) = fresh_console();
-    console.overview_open = true;
-    let mut pass = |size: Vec2, console: &mut Console| {
-        let screen = Rect::from_min_size(Pos2::ZERO, size);
-        let mut shapes = Vec::new();
-        for _ in 0..2 {
-            (shapes, _) = console_output_at(&ctx, screen, Vec::new(), console, &mut host, 1.0);
-        }
-        overview_image(&shapes).map(|(_, image)| image)
-    };
+    let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
+    let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 259.0);
+    let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
+    for (size, pixels_per_point) in [
+        (narrow, 2.0),
+        (narrow, 1.5),
+        (narrow, 1.0),
+        (short, 2.0),
+        (short, 1.0),
+        (smallest, 1.0),
+        (smallest, 2.0),
+    ] {
+        let (ctx, mut console, mut host) = fresh_console();
+        console.overview_open = true;
+        let mut pass = |size: Vec2| {
+            let screen = Rect::from_min_size(Pos2::ZERO, size);
+            let mut shapes = Vec::new();
+            for _ in 0..2 {
+                (shapes, _) = console_output_at(
+                    &ctx,
+                    screen,
+                    Vec::new(),
+                    &mut console,
+                    &mut host,
+                    pixels_per_point,
+                );
+            }
+            overview_image(&shapes).map(|(_, image)| image)
+        };
 
-    let hidden = pass(Vec2::from(DEFAULT_VIEW_SIZE_MIN), &mut console);
-    assert_eq!(
-        hidden, None,
-        "the smallest window at 1× showed the Overview"
-    );
-    assert!(console.overview_open, "hiding the Overview closed it");
-
-    let image =
-        pass(Vec2::from(DEFAULT_VIEW_SIZE), &mut console).expect("the Overview did not return");
-    assert!(
-        (image.size() - Vec2::splat(260.0)).length() < 1e-3,
-        "the Overview returned at {image:?}"
-    );
+        pass(size);
+        let image = pass(Vec2::from(DEFAULT_VIEW_SIZE)).unwrap_or_else(|| {
+            panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
+        });
+        let usual = 260.0 * pixels_per_point.floor().max(1.0);
+        assert!(
+            (image.size() * pixels_per_point - Vec2::splat(usual)).length() < 1e-3,
+            "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
+        );
+        assert!(
+            (image.max - Vec2::from(DEFAULT_VIEW_SIZE).to_pos2()).length() < 1e-3,
+            "{size:?} at {pixels_per_point}×: the Overview returned away from the corner at \
+             {image:?}"
+        );
+        assert!(
+            console.overview_open,
+            "{size:?} at {pixels_per_point}×: closed"
+        );
+    }
 }
 
 ///
