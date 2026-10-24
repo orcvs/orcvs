@@ -745,7 +745,7 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
     );
 
     let source = source_rect(&harness);
-    let usable = one_row_between_margins(CELL_SIZE.y);
+    let usable = one_row_between_margins(harness.state().orcvs.grid(), CELL_SIZE.y);
     assert!(
         source.height() >= usable,
         "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
@@ -797,7 +797,7 @@ async fn docked_diagnostics_labels_are_not_truncated() {
                 "the label column is not about one sixth of the window width"
             );
             let region = harness.state().source_view.shown().shown();
-            let value = format!("{region:.1?}");
+            let value = format!("{region:.1?} cells");
             let text = harness
                 .output()
                 .shapes
@@ -821,7 +821,9 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     let assert_region = |harness: &Harness<'_, Console>| {
         let region = harness.state().source_view.shown().shown();
         assert!(
-            harness.query_by_label(&format!("{region:.1?}")).is_some(),
+            harness
+                .query_by_label(&format!("{region:.1?} cells"))
+                .is_some(),
             "Diagnostics do not show this frame's Source region: {region:?}"
         );
     };

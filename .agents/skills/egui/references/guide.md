@@ -284,7 +284,7 @@ So the Source view is reached four ways, and each answers a different question:
 | Question | Tool |
 | --- | --- |
 | Is this control there, and does it say what it should? | Semantic query — `get_by_label`, `query_tree` with a role or text predicate. Chrome only. |
-| Does a click at this Cell select this Cell? | Coordinate input, with the coordinate **derived from the live origin**: `presented_grid(view.origin, grid, ppp).cell_rect(col, row).center()`. Never a written-down screen position. |
+| Does a click at this Cell select this Cell? | Coordinate input, with the coordinate **derived from the live origin**: `source_view.shown().viewport().cell_rect(col, row).center()` in a test, or a Source Cell through `ShownSourceView::screen()`. Never a written-down screen position. |
 | Is the geometry right — square Cells, the whole-pixel snap, the Pan translation, the visible range? | Assert on `GridViewport` directly. `console/src/grid_viewport.rs` is full of these and they need no window. |
 | Did it paint the right thing? | Assert on the `Shape`s, as `console::tests` does. |
 | Does it *look* right? | A human, or a screenshot in an inspection session. Not an automated gate — see below. |

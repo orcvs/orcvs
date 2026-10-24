@@ -138,7 +138,7 @@ fn summary(
             ui.end_row();
 
             ui.add(egui::Label::new("Visible Source region").extend());
-            ui.monospace(format!("{:.1?}", source.shown()));
+            ui.monospace(format!("{:.1?} cells", source.shown()));
             ui.end_row();
         });
 }

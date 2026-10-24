@@ -131,10 +131,11 @@ pub(super) fn extent(grid: Grid) -> SourceCellRect {
 
 ///
 /// The height in points of one Row of `cell`-high Cells between the margins
-/// above and below it: the least a console shows of the Source.
+/// the extent of `grid` has above and below it: the least a console shows of
+/// the Source.
 ///
-pub(super) fn one_row_between_margins(cell: f32) -> f32 {
-    (2.0 * SOURCE_MARGIN_CELLS + 1.0) * cell
+pub(super) fn one_row_between_margins(grid: Grid, cell: f32) -> f32 {
+    (extent(grid).size().y - grid.rows() as f32 + 1.0) * cell
 }
 
 ///
@@ -466,7 +467,11 @@ pub(super) fn show_source_scene(
 
     view.pan = clamp_pan(view.pan, console.size(), extent(source_grid).size() * cell);
 
-    let origin = console.min + view.pan + SOURCE_MARGIN_CELLS * cell;
+    let origin = console.min
+        + view.pan
+        + at_rest(cell)
+            .to_screen(SourceCellPoint::new(0.0, 0.0))
+            .to_vec2();
     let origin = if is_presentable(origin) {
         origin
     } else {
