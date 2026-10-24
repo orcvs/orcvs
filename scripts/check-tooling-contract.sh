@@ -725,7 +725,7 @@ assert_not_contains "$root_dir/.github/workflows/test.yml" 'taiki-e/install-acti
 # turn each of its own bump pull requests red on all three jobs. The major is
 # what deserves a human: it is where an action's inputs and node runtime move.
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]99[.]1$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 
@@ -741,7 +741,7 @@ assert_contains "$root_dir/.github/workflows/advisories.yml" '^      - run: mise
 # The pinning rules are asserted per file, so the newest workflow needs them
 # stated against it rather than inherited from the two written before it.
 assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
-assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]99[.]1$'
 assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/advisories.yml" 'taiki-e/install-action'
 assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
@@ -749,7 +749,7 @@ assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest
 # `mise-action` pins sat a major behind the other two workflows, and the split
 # mise-action major stored every mise cache under two key shapes at once.
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
-assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]99[.]1$'
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/bench.yml" 'taiki-e/install-action'
@@ -880,7 +880,7 @@ assert_not_contains "$root_dir/mise.toml" 'mise (run|r) capture_native([^[:alnum
 assert_contains "$root_dir/console/Cargo.toml" '^release-capture = \["persistence", "egui_kittest/snapshot", "egui_kittest/wgpu"\]$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" '^          mise run capture_native$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
-assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]99[.]1$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/release-captures.yml" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
